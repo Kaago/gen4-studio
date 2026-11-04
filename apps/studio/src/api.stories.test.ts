@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
 
-import { listThreads, storyCreate, storyGet, storyList, storyUpdate, threadGraph } from "./api";
+import { listThreads, storyCreate, storyDelete, storyGet, storyList, storyUpdate, threadGraph } from "./api";
 
 describe("story commands", () => {
   beforeEach(() => {
@@ -27,5 +27,7 @@ describe("story commands", () => {
     expect(invoke).toHaveBeenLastCalledWith("story_create", { req: { name: "Rivalin", progress: { var: "VAR_RIVALIN" }, notes: "Am See." } });
     await storyUpdate("STORY_RIVALIN", { notes: "Am See, dann im Labor.", layout: { nodes: { s1: { x: 4, y: 8 } } } });
     expect(invoke).toHaveBeenLastCalledWith("story_update", { id: "STORY_RIVALIN", patch: { notes: "Am See, dann im Labor.", layout: { nodes: { s1: { x: 4, y: 8 } } } } });
+    await storyDelete("STORY_RIVALIN");
+    expect(invoke).toHaveBeenLastCalledWith("story_delete", { id: "STORY_RIVALIN" });
   });
 });

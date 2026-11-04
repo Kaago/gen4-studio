@@ -1861,3 +1861,128 @@ fn deleted_in_reads_the_envelopes_with_the_own_flags_over_them() {
     let st = Store::new(Arc::new(dspre.project()));
     assert!(st.deleted_in(Art::Trainers).is_empty());
 }
+
+// --- stories as weak references (3d.6 task 10) ---
+
+use g4_kernel::stories::{
+    DANGLING_REF_CODE, Progress, Step, StepKind, StoryRequest, StoryUse, Use, create_story_files,
+};
+
+/// Story „Testfaden“ (number 0) whose step `s1` battles trainer 1 (`TRAINER_YOUNGSTER_KAI`).
+fn story_naming_trainer_1(fx: &TextFixture) {
+    let req = StoryRequest {
+        name: "Testfaden".to_owned(),
+        progress: Progress::Var("VAR_UNUSED_0x406C".to_owned()),
+        notes: String::new(),
+        steps: vec![Step {
+            key: "s1".to_owned(),
+            value: 1,
+            kind: StepKind::Battle,
+            name: "Kampf gegen Kai".to_owned(),
+            notes: String::new(),
+            made: None,
+            uses: vec![Use::Trainer("TRAINER_YOUNGSTER_KAI".to_owned())],
+        }],
+        flags: Vec::new(),
+    };
+    create_story_files(&fx.project(), &req).unwrap();
+}
+
+fn testfaden_s1() -> StoryUse {
+    StoryUse {
+        story_id: "STORY_TESTFADEN".to_owned(),
+        story_name: "Testfaden".to_owned(),
+        number: 0,
+        step_key: Some("s1".to_owned()),
+        step_name: Some("Kampf gegen Kai".to_owned()),
+        file: PathBuf::from("data/stories/0000.json"),
+    }
+}
+
+#[test]
+fn deleting_a_trainer_a_story_mentions_warns_and_does_not_lock() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    story_naming_trainer_1(&fx);
+    let target = DeleteTarget::Trainer { index: 1 };
+
+    // The plan allows it and lists the story beside the (empty) references.
+    let p = plan(&mut st, &base, target);
+    assert_eq!(p.refusal, None);
+    assert!(p.references.is_empty() && p.warnings.is_empty(), "{p:?}");
+    assert_eq!(p.mentions, [testfaden_s1()]);
+    let json = serde_json::to_value(&p).unwrap();
+    assert_eq!(json["mentions"][0]["story_id"], "STORY_TESTFADEN");
+    assert_eq!(json["mentions"][0]["step_key"], "s1");
+    assert_eq!(json["mentions"][0]["file"], "data/stories/0000.json");
+    // Without a story naming it, the plan's list is empty (and still there).
+    let other = plan(&mut st, &base, DeleteTarget::Trainer { index: 2 });
+    assert!(other.mentions.is_empty());
+    assert_eq!(
+        serde_json::to_value(&other).unwrap()["mentions"],
+        serde_json::json!([])
+    );
+
+    // The delete sets the tombstone as one step and answers the same list.
+    let depth = st.undo_depth();
+    let result = delete(&mut st, &mut RefIndex::new(), &base, target).unwrap();
+    assert!(st.is_deleted(target));
+    assert_eq!(st.undo_depth(), depth + 1);
+    assert_eq!(result.mentions, [testfaden_s1()]);
+    let json = serde_json::to_value(&result).unwrap();
+    assert_eq!(json["mentions"][0]["step_name"], "Kampf gegen Kai");
+
+    // Saved, the check reports the story's use as open.
+    st.save().unwrap();
+    let report = check(&fx.project()).unwrap();
+    let open: Vec<&str> = report
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with(DANGLING_REF_CODE))
+        .map(|p| p.message.as_str())
+        .collect();
+    assert_eq!(
+        open,
+        ["story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 ist gelöscht."]
+    );
+
+    // ⌘Z takes the tombstone back; restoring answers no mentions.
+    st.undo().unwrap();
+    assert!(!st.is_deleted(target));
+    let json = serde_json::to_value(delete(&mut st, &mut RefIndex::new(), &base, target).unwrap())
+        .unwrap();
+    assert!(json.get("mentions").is_some());
+    let restored = restore(&mut st, target).unwrap();
+    assert!(restored.mentions.is_empty());
+    assert!(
+        serde_json::to_value(&restored)
+            .unwrap()
+            .get("mentions")
+            .is_none()
+    );
+}
+
+#[test]
+fn a_hard_reference_still_locks_with_the_story_beside_it() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    story_naming_trainer_1(&fx);
+    place_trainer(&mut st, 1);
+    let target = DeleteTarget::Trainer { index: 1 };
+
+    let p = plan(&mut st, &base, target);
+    assert_eq!(p.references.len(), 1, "{:?}", p.references);
+    assert_eq!(p.mentions, [testfaden_s1()]);
+
+    // The figure locks it; the story changes nothing about that.
+    let depth = st.undo_depth();
+    match delete(&mut st, &mut RefIndex::new(), &base, target) {
+        Err(KernelError::Referenced { label, references }) => {
+            assert_eq!(label, "Trainer 0001");
+            assert_eq!(references.len(), 1, "{references:?}");
+        }
+        other => panic!("expected Referenced, got {other:?}"),
+    }
+    assert_eq!(st.undo_depth(), depth);
+    assert!(!st.is_deleted(target));
+}

@@ -48,6 +48,7 @@ describe("useStories", () => {
     await show(null, 0);
     expect(storyList).not.toHaveBeenCalled();
     expect(seen?.list).toBeNull();
+    expect(seen?.revision).toBeNull();
     const p = project();
     await show(p, 0);
     await flush();
@@ -60,9 +61,12 @@ describe("useStories", () => {
     vi.mocked(storyList).mockImplementationOnce(() => next.promise);
     await show(p, 1);
     expect(seen?.list?.stories).toHaveLength(2);
+    // The older list says the revision it was read at, so a reader of a story it names waits for the new one (gate 3d.6, U2).
+    expect(seen?.revision).toBe(0);
     next.resolve(storiesOf([storyRow(0)]));
     await flush();
     expect(seen?.list?.stories).toHaveLength(1);
+    expect(seen?.revision).toBe(1);
     // `reload` reads again without a new revision.
     await act(async () => seen!.reload());
     await flush();

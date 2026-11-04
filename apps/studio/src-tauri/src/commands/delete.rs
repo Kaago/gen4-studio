@@ -5,7 +5,8 @@
 //! call like „Auf Original zurücksetzen“ (`original.rs`): without a found base ROM they answer
 //! `base_missing` with the reason, but for an own flag or variable name, which is never
 //! original. A delete the references lock answers `referenced` with
-//! them as the app shows them (label, source, where a click leads). Restoring needs no base.
+//! them as the app shows them (label, source, where a click leads). Stories that mention the
+//! entity never lock: the plan and the delete list them as `mentions`. Restoring needs no base.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -14,6 +15,7 @@ use g4_kernel::delete::{self, DeletePlan, DeleteResult, DeleteTarget, FreeInfo};
 use g4_kernel::error::KernelError;
 use g4_kernel::original::{MissingBase, Original};
 use g4_kernel::project::Project;
+use g4_kernel::stories::StoryUse;
 use serde::Serialize;
 use tauri::Manager;
 
@@ -35,6 +37,9 @@ pub struct DeletePlanDto {
     pub references: Vec<RefDto>,
     /// The references that only warn (soft sources; none in 3d.4).
     pub warnings: Vec<RefDto>,
+    /// The stories (and steps) that mention the entity: weak, they never lock; the delete
+    /// answers the same list (`mentions` of [`DeleteResult`]).
+    pub mentions: Vec<StoryUse>,
     /// An entity of the base ROM: deleting it warns (the entry stays in the ROM).
     pub original: bool,
     /// The entity is a tombstone now.
@@ -141,6 +146,7 @@ fn plan_dto(session: &mut Session, plan: DeletePlan) -> DeletePlanDto {
         refusal: plan.refusal,
         references: ref_dtos(session, &plan.references),
         warnings: ref_dtos(session, &plan.warnings),
+        mentions: plan.mentions,
         original: plan.original,
         deleted: plan.deleted,
         can_free: plan.can_free,
@@ -418,6 +424,59 @@ mod tests {
         // An own flag name is never original: its plan needs no base ROM.
         let plan = plan_delete_impl(&dspre, DeleteTarget::Flag { number: 148 }).unwrap();
         assert_eq!(plan.refusal.as_deref(), Some(NOT_A_TEXT_PROJECT));
+    }
+
+    #[test]
+    fn a_story_mentioning_the_trainer_is_listed_over_the_command_path() {
+        use g4_kernel::stories::{Progress, Step, StepKind, StoryRequest, Use};
+        let (fx, state) = text_project();
+        let base = Base::of(fx.root(), None);
+        let req = StoryRequest {
+            name: "Testfaden".to_owned(),
+            progress: Progress::Var("VAR_UNUSED_0x406C".to_owned()),
+            notes: String::new(),
+            steps: vec![Step {
+                key: "s1".to_owned(),
+                value: 1,
+                kind: StepKind::Battle,
+                name: "Kampf gegen Kai".to_owned(),
+                notes: String::new(),
+                made: None,
+                uses: vec![Use::Trainer("TRAINER_YOUNGSTER_KAI".to_owned())],
+            }],
+            flags: Vec::new(),
+        };
+        crate::commands::story_create_impl(&state, req).unwrap();
+
+        // The plan allows it and names the story; nothing locks.
+        let plan = plan_with_original(&state, &base, TRAINER_1).unwrap();
+        assert_eq!(plan.refusal, None);
+        assert!(plan.references.is_empty(), "{:?}", plan.references);
+        let json = serde_json::to_value(&plan).unwrap();
+        assert_eq!(
+            json["mentions"],
+            serde_json::json!([{
+                "story_id": "STORY_TESTFADEN",
+                "story_name": "Testfaden",
+                "number": 0,
+                "step_key": "s1",
+                "step_name": "Kampf gegen Kai",
+                "file": "data/stories/0000.json",
+            }])
+        );
+
+        // The delete goes as one step and answers the same list.
+        let depth = history_impl(&state).unwrap().undo.len();
+        let result = delete_with_original(&state, &base, TRAINER_1, false).unwrap();
+        assert_eq!(history_impl(&state).unwrap().undo.len(), depth + 1);
+        assert!(trainer_deleted(&state, 1));
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(
+            json["mentions"],
+            serde_json::to_value(&plan.mentions).unwrap()
+        );
+        undo_impl(&state).unwrap();
+        assert!(!trainer_deleted(&state, 1));
     }
 
     #[test]

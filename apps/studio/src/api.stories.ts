@@ -3,9 +3,9 @@ import { invoke } from "./platform/transport";
 
 /**
  * Stories and threads (3d.6), mirroring `apps/studio/src-tauri/src/commands/stories.rs` and `g4_kernel::stories`. `api.ts` re-exports
- * everything. Field names are the Rust ones (snake_case, `levelScript` as the story file has it). `storyGet` and `storyUpdate` refuse an id
- * the register does not have (`unknown_id`), `storyCreate` and `storyUpdate` outside a text project (`not_text_project`); every refusal
- * carries the kernel's German sentence.
+ * everything. Field names are the Rust ones (snake_case, `levelScript` as the story file has it). `storyGet`, `storyUpdate` and
+ * `storyDelete` refuse an id the register does not have (`unknown_id`), `storyCreate`, `storyUpdate` and `storyDelete` outside a text
+ * project (`not_text_project`); every refusal carries the kernel's German sentence.
  */
 
 /** What a step of a story is: the seven kinds (`appearance` is appearing or disappearing; the step's name says which). */
@@ -146,7 +146,7 @@ export interface StoryDto {
   ms: number;
 }
 
-/** What `story_create` and `story_update` did: id, number, files of the step, the change, and what failed after writing. */
+/** What `story_create`, `story_update` and `story_delete` did: id, number, files of the step, the change, and what failed after writing. */
 export interface StoryReport {
   id: string;
   number: number;
@@ -169,3 +169,5 @@ export const storyCreate = (req: { name: string; progress: Progress; notes?: str
 /** Changes the fields given (and with `layout` the side file) as one undo step; the id changes only with `rename_id`. */
 export const storyUpdate = (id: string, patch: Partial<Pick<Story, "name" | "notes" | "progress" | "steps" | "flags">> & { layout?: Layout }) =>
   invoke<StoryReport>("story_update", { id, patch });
+/** Deletes story `id` (its file, side file and register entry) as one undo step; ⌘Z brings all three back. */
+export const storyDelete = (id: string) => invoke<StoryReport>("story_delete", { id });

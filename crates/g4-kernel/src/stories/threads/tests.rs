@@ -279,6 +279,45 @@ fn a_broken_unrelated_register_claims_no_thread() {
     assert_eq!(thread.values, [1, 2, 3]);
 }
 
+/// The stories' register or a story file that does not read: no story claims a thread, the
+/// threads are still listed (stories are documentation).
+#[test]
+fn unreadable_stories_claim_no_thread() {
+    let (fx, mut st) = fixture();
+    create_story_files(
+        &fx.project(),
+        &StoryRequest {
+            name: "Starter".to_owned(),
+            progress: Progress::Var("VAR_PLAYER_STARTER".to_owned()),
+            notes: String::new(),
+            steps: Vec::new(),
+            flags: Vec::new(),
+        },
+    )
+    .unwrap();
+    let claimed = |st: &mut Store| {
+        let list = threads(st, &mut RefIndex::new()).unwrap();
+        let thread = thread(&list, 0x4030).unwrap();
+        assert_eq!(thread.values, [1, 2, 3]);
+        thread.story.clone()
+    };
+    assert!(claimed(&mut st).is_some());
+
+    // A register that does not read.
+    let register = fx.read("data/ids/stories.json");
+    fx.write("data/ids/stories.json", b"{ kaputt");
+    assert!(list_stories(&fx.project()).is_err());
+    assert_eq!(claimed(&mut st), None);
+
+    // A story file that cannot be read (a folder in its place).
+    fx.write("data/ids/stories.json", &register);
+    let file = fx.root().join("data/stories/0000.json");
+    std::fs::remove_file(&file).unwrap();
+    std::fs::create_dir(&file).unwrap();
+    assert!(list_stories(&fx.project()).is_err());
+    assert_eq!(claimed(&mut st), None);
+}
+
 #[test]
 fn the_graph_has_one_node_per_value_and_edges_set_to_checked() {
     let (_fx, mut st) = fixture();

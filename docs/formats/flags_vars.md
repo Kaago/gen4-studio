@@ -135,7 +135,8 @@ umbenennen“ (`rename_id`) umbenannt; das zieht Register, die `id` der Entität
 und die ID-Datei nach. Ein pret-Name lässt sich nicht umbenennen (`Unbekannte ID: …`), und kein
 Umbenennen darf auf den pret-Namen einer anderen Nummer führen. Eine Nummer ohne eigenen Namen
 bekommt über „Als eigenes Flag benennen…“ einen; „Umbenennen…“ legt keinen an. Einen eigenen Namen
-zu entfernen (Datei und Registereintrag) kommt mit 3d.4.
+entfernt seit 3d.4 `delete_entity` mit `flag` bzw. `var` (Datei und Registereintrag als ein
+Undo-Schritt, `delete/files.rs`).
 
 **Check.** Der Check des Textprojekts prüft die Dateien (`kinds::check_files`): eine Datei, die
 nicht `{id, description?}` ist, ein Dateiname ohne Nummer und eine Nummer außerhalb des Spielstands

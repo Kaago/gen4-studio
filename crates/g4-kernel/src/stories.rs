@@ -5,10 +5,13 @@
 //! ([`DATA_KINDS`](crate::textproject::kinds::DATA_KINDS)): export, import and the build leave
 //! it alone, the check judges its files ([`schema::check_file`]).
 //!
-//! A story is no store asset: making and changing one are each one file step on the undo
-//! stack ([`entities::create_story`], [`entities::update_story`]), written at once like naming a
-//! flag. Its references (`progress`, `uses`, `flags`) are weak: an id the project does not know
-//! is a warning (`story.dangling-ref`), never a refusal. The format is documented in
+//! A story is no store asset: making, changing and deleting one are each one file step on the
+//! undo stack ([`entities::create_story`], [`entities::update_story`],
+//! [`entities::delete_story`]), written at once like naming a flag. Its references
+//! (`progress`, `uses`, `flags`) are weak: an id the project does not know, a use of what the
+//! project on disk does not have or of an entity with a tombstone is a warning
+//! (`story.dangling-ref`), never a refusal; deleting what a story names is never locked by it,
+//! the delete plan lists the stories ([`uses::mentions_of`]). The format is documented in
 //! `docs/formats/stories.md`.
 //!
 //! The threads ([`threads::threads`]) are the variables the game already tells a story with
@@ -18,11 +21,12 @@
 pub mod entities;
 pub mod schema;
 pub mod threads;
+pub mod uses;
 
 pub use entities::{
     NOTHING_TO_CHANGE, StoryEntry, StoryPatch, StoryReport, StoryRequest, create_story,
-    create_story_files, duplicate_key_text, list_stories, name_empty_text, update_story,
-    update_story_files,
+    create_story_files, delete_story, delete_story_files, duplicate_key_text, list_stories,
+    name_empty_text, update_story, update_story_files,
 };
 pub use schema::{
     DANGLING_REF_CODE, Layout, Made, Position, Progress, STORIES_DIR, Step, StepKind, Story, Use,
@@ -32,3 +36,4 @@ pub use threads::{
     GraphEdge, GraphNode, Place, Thread, ThreadGraph, is_story_var, place_label, thread_graph,
     threads,
 };
+pub use uses::{StoryUse, UseTarget, mentions_of, uses_of};

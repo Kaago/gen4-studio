@@ -216,6 +216,7 @@ pub fn free_number(
         freed: Some(info),
         ms: ms_since(started),
         notes,
+        mentions: plan.mentions,
     })
 }
 
@@ -268,6 +269,7 @@ mod tests {
             freed: None,
             ms: 0,
             notes,
+            mentions: Vec::new(),
         };
         let json = serde_json::to_value(result(Vec::new())).unwrap();
         assert!(json.get("notes").is_none(), "{json}");

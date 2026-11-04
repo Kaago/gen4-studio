@@ -40,6 +40,22 @@ export interface FreeInfo {
   files: string[];
 }
 
+/**
+ * A story that mentions the entity (the kernel's `stories::StoryUse`): the story and the step whose `uses` name it; no step when the
+ * story's progress or flags name it. Weak: a mention never locks a delete; once the delete is saved, the text project
+ * check (`text_check`) reports each use that names nothing any more as open (`story.dangling-ref`).
+ */
+export interface StoryMention {
+  story_id: string;
+  story_name: string;
+  /** The story's number (`data/stories/NNNN.json`). */
+  number: number;
+  step_key: string | null;
+  step_name: string | null;
+  /** The story file, relative to the project root. */
+  file: string;
+}
+
 /** What deleting `target` would do. */
 export interface DeletePlan {
   target: DeleteTarget;
@@ -50,6 +66,8 @@ export interface DeletePlan {
   references: RefDto[];
   /** The references that only warn (soft sources; none in 3d.4). */
   warnings: RefDto[];
+  /** The stories that mention the entity; they never lock. */
+  mentions: StoryMention[];
   /** An entity of the base ROM: deleting it warns (the entry stays in the ROM). */
   original: boolean;
   /** The entity is a tombstone now. */
@@ -68,6 +86,8 @@ export interface DeleteResult {
   ms: number;
   /** What went wrong on the side without undoing the step (German sentences); absent when nothing did. */
   notes?: string[];
+  /** The stories that mention the deleted entity (the plan's list); absent when none does. */
+  mentions?: StoryMention[];
 }
 
 /** What deleting `target` would do; changes nothing. */

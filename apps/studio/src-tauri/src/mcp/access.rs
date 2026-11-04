@@ -252,6 +252,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("delete_entity", Kind::Depends),
     // One undo step, like any edit.
     ("restore_entity", Kind::Write),
+    // One undo step (a file step: register, story, side file), like story_create.
+    ("story_delete", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -1273,7 +1275,7 @@ mod tests {
             assert_eq!(kind(name), Kind::Read, "{name}");
         }
         // One undo step each.
-        for name in ["story_create", "story_update"] {
+        for name in ["story_create", "story_update", "story_delete"] {
             assert_eq!(kind(name), Kind::Write, "{name}");
         }
     }

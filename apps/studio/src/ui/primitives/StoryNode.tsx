@@ -43,7 +43,10 @@ export function storyKindWord(kind: StoryNodeKind): string {
   return words[kind].word;
 }
 
-/** A node of a story's or a thread's graph: the kind as symbol and word, the title, a second line, and its states as plaketten. */
+/**
+ * A node of a story's or a thread's graph: the kind as symbol and word (the head, beside a selected place's control), the title, and a
+ * last line with the second line and the states as plaketten (there, never beside the word: „Erscheinen/Verschwinden“ fills the head).
+ */
 export function StoryNode({ kind, title, subtitle, selected, notedOnly, loose, onOpen, action, dataAttrs }: StoryNodeProps) {
   const { word, icon } = words[kind];
   const className = [styles.node, kind === "place" ? styles.place : styles.value, selected ? styles.selected : "", notedOnly ? styles.notedOnly : "", loose ? styles.loose : ""]
@@ -76,14 +79,18 @@ export function StoryNode({ kind, title, subtitle, selected, notedOnly, loose, o
       <span className={styles.head}>
         <span className={styles.kind}>
           <Icon name={icon} />
-          {word}
+          <span className={styles.word}>{word}</span>
         </span>
-        {notedOnly && <Badge kind="neutral">nur notiert</Badge>}
-        {loose && <Badge kind="neutral">ohne Wert</Badge>}
         {!onOpen && action !== undefined && <span className={styles.action}>{action}</span>}
       </span>
       <span className={styles.title}>{title}</span>
-      {subtitle !== undefined && <span className={styles.subtitle}>{subtitle}</span>}
+      {(subtitle !== undefined || notedOnly || loose) && (
+        <span className={styles.foot}>
+          {subtitle !== undefined && <span className={styles.subtitle}>{subtitle}</span>}
+          {notedOnly && <Badge kind="neutral">nur notiert</Badge>}
+          {loose && <Badge kind="neutral">ohne Wert</Badge>}
+        </span>
+      )}
     </div>
   );
 }

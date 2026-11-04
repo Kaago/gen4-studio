@@ -1230,7 +1230,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.unsynced` | Fehler | Build ohne Eintrag (erster Build, „ohne Cache“, neues Salz): ein Member weicht von seiner JSON und von der Basisschicht ab; nichts geschrieben |
 | `textproject.egg-moves-unexported` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber `g4-project.json` hat die Marke `eggMoves` nicht (vor dem Feld exportiert); nichts wird geschrieben, bis ein Export oder das Speichern der Ei-Attacken im Studio sie setzt |
 | `textproject.egg-moves-locked` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber die Ei-Attacken-Tabelle hat keinen Ort (Platin mit ungeprüfter Fassung oder fehlender Signatur); der Grund steht im Satz, nichts wird geschrieben |
-| `story.dangling-ref` | Warnung | Check: eine ID in `progress`, `uses` oder `flags` einer Geschichte nennt im Projekt nichts; gemeldet mit Datei und Zeile des Eintrags, hält nichts auf ([stories.md](stories.md) „Prüfung“) |
+| `story.dangling-ref` | Warnung | Check: eine ID in `progress`, `uses` oder `flags` einer Geschichte nennt im Projekt nichts, oder ein Eintrag in `uses` nennt, was es auf der Platte nicht mehr gibt (eine Nummer über der höchsten Scriptdatei, dem höchsten Textarchiv oder der höchsten Eventdatei, eine Trainer- oder Header-Datei, die „Nummer freigeben“ entfernte: „… gibt es nicht.“) oder eine gelöschte Entität (Grabstein: „… ist gelöscht.“); gemeldet mit Datei und Zeile des Eintrags, hält nichts auf ([stories.md](stories.md) „Verweise“, „Prüfung“) |
 
 ## Quellenliste
 

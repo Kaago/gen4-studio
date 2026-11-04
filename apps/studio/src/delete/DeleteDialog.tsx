@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { deleteEntity, deleteTargetLabel, isCmdError, resetErrorText } from "../api";
-import type { DeleteResult, DeleteTarget, RefDto } from "../api";
-import { Badge, Checkbox, Dialog, ListRow, Notice, useRovingList } from "../ui/primitives";
+import type { DeleteResult, DeleteTarget, RefDto, StoryMention } from "../api";
+import { Badge, Checkbox, Dialog, ListRow, Notice, Reference, useRovingList } from "../ui/primitives";
 import type { DialogAction } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import { useDeletePlan } from "./useDeletePlan";
@@ -27,6 +27,12 @@ export const NOT_A_TEXT_PROJECT = "Echtes Löschen gibt es im Textprojekt (Techn
 /** What the dialog says beside it: emptying stays an ordinary edit. */
 export const CLEAR_HINT = "Leeren geht als gewöhnliche Bearbeitung: Eventdatei leeren im Inspector, Begegnungen auf 0.";
 
+/**
+ * What the dialog says under the stories that mention the entity: they are documentation and never lock; once the
+ * delete is saved, the text project check reports each use that names nothing any more (`story.dangling-ref`).
+ */
+export const MENTIONS_HINT = "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.";
+
 /** „{n} Verweise: zuerst umhängen.“ (one: „Verweis“). */
 export function referencesText(n: number): string {
   return `${n} ${n === 1 ? "Verweis" : "Verweise"}: zuerst umhängen.`;
@@ -42,7 +48,8 @@ function removesText(files: readonly string[]): string {
  * a number to free) or a failed one shows only the reason; references lock „Löschen“ and list where they come from (a click leads there);
  * an original warns that the entry stays in the ROM. Where the plan allows it, „Nummer freigeben (nicht rückgängig)“ frees the number
  * for good, else the plan's reason why not is said quietly. A failed delete keeps the dialog open with the reason (references it names
- * lock it as above). In the DSPRE layout the refusal comes with the way to empty an entity instead ({@link CLEAR_HINT}).
+ * lock it as above). In the DSPRE layout the refusal comes with the way to empty an entity instead ({@link CLEAR_HINT}). The stories
+ * that mention the entity stand under „Erwähnt in Geschichten“ as chips (a click opens the story), locked or not: they never lock.
  */
 export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogProps) {
   const { plan, error: planError } = useDeletePlan(target);
@@ -125,11 +132,13 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
           <>
             <Notice kind="error">{referencesText(references.length)}</Notice>
             <RefList refs={references} soft={false} onFollow={goTo === undefined ? undefined : follow} />
+            {plan.mentions.length > 0 && <Mentions mentions={plan.mentions} onFollow={goTo === undefined ? undefined : follow} />}
           </>
         ) : (
           <>
             {plan.original && <Notice kind="warning">{ORIGINAL_WARNING}</Notice>}
             {plan.warnings.length > 0 && <RefList refs={plan.warnings} soft onFollow={goTo === undefined ? undefined : follow} />}
+            {plan.mentions.length > 0 && <Mentions mentions={plan.mentions} onFollow={goTo === undefined ? undefined : follow} />}
             {plan.refusal !== null && <Notice kind="warning">{plan.refusal}</Notice>}
             {plan.refusal === NOT_A_TEXT_PROJECT && <Notice kind="info">{CLEAR_HINT}</Notice>}
             {plan.refusal === null && plan.deleted && <Notice kind="info">{`${label} ist schon gelöscht.`}</Notice>}
@@ -181,5 +190,35 @@ function RefList({ refs, soft, onFollow }: { refs: readonly RefDto[]; soft: bool
         />
       ))}
     </div>
+  );
+}
+
+/** „Story › Step“, or the story alone when its progress or flags name the entity. */
+function mentionLabel(m: StoryMention): string {
+  return m.step_name === null ? m.story_name : `${m.story_name} › ${m.step_name}`;
+}
+
+/** „Erwähnt in Geschichten“: one chip per story (and step), a click opens the story (`onFollow`, else inert), and that they never lock. */
+function Mentions({ mentions, onFollow }: { mentions: readonly StoryMention[]; onFollow?: (nav: NavTarget) => void }) {
+  const titleId = useId();
+  return (
+    <section className={styles.mentions} aria-labelledby={titleId} data-delete-mentions="">
+      <h3 id={titleId} className={styles.mentionsTitle}>
+        Erwähnt in Geschichten
+      </h3>
+      <div className={styles.chips}>
+        {mentions.map((m, i) => (
+          <Reference
+            key={i}
+            area="geschichten"
+            label={mentionLabel(m)}
+            onOpen={() => onFollow?.({ kind: "story", number: m.number })}
+            disabled={onFollow === undefined}
+            dataAttrs={{ "data-delete-mention": m.story_id }}
+          />
+        ))}
+      </div>
+      <p className={styles.quiet}>{MENTIONS_HINT}</p>
+    </section>
   );
 }

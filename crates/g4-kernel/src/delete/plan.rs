@@ -1,8 +1,9 @@
 //! What deleting an entity would do ([`plan_delete`]): its rule, why a tombstone is refused,
 //! the references that lock it (the reference index, [`RefIndex::refs_where`] on
 //! [`DeleteTarget::refers`], without sources that are tombstones themselves), whether it is an
-//! original of the base ROM, and whether its number can be freed („Nummer freigeben“). And the
-//! guard that keeps an edit from pointing at a tombstone ([`guard_reference`]).
+//! original of the base ROM, whether its number can be freed („Nummer freigeben“), and the
+//! stories that mention it (weak: they never lock, [`mentions_of`]). And the guard that keeps an
+//! edit from pointing at a tombstone ([`guard_reference`]).
 
 use std::path::{Path, PathBuf};
 
@@ -22,6 +23,7 @@ use crate::places::{location_bank, location_names};
 use crate::project::{AssetKind, Project, SourceMode};
 use crate::scripts::{self, SourceKind};
 use crate::store::{MapHeader, PLACEHOLDER_REASON, Store};
+use crate::stories::uses::{StoryUse, mentions_of};
 use crate::text::TextArchiveDoc;
 use crate::textproject::rename::sources_naming;
 
@@ -82,6 +84,10 @@ pub struct DeletePlan {
     pub references: Vec<Ref>,
     /// The references that only warn (soft sources, [`crate::data::refs::SOFT_SOURCES`]).
     pub warnings: Vec<Ref>,
+    /// The stories (and steps) that mention the entity ([`mentions_of`]): weak, they never lock
+    /// or refuse; once the delete is saved, the text project check reports each use that names
+    /// nothing any more as open (`story.dangling-ref`).
+    pub mentions: Vec<StoryUse>,
     /// The entity is one of the base ROM (index below the base's count); never a place, flag
     /// or variable. Deleting an original of a [`Rule::Tombstone`] kind warns.
     pub original: bool,
@@ -164,6 +170,8 @@ pub fn plan_delete(
         (_, Some((_, current))) => freeing(store, target, current)?,
     };
 
+    let mentions = mentions_of(store.project(), target);
+
     Ok(DeletePlan {
         target,
         label,
@@ -171,6 +179,7 @@ pub fn plan_delete(
         refusal,
         references,
         warnings,
+        mentions,
         original: original_entry,
         deleted: store.is_deleted(target),
         can_free,

@@ -77,9 +77,15 @@ describe("ThreadsSurface", () => {
     // The own name first; the story as a chip of the area Geschichten that opens it.
     expect(row(0x4040).querySelector("[data-thread-name]")?.textContent).toBe("VAR_RIVALIN");
     const chip = row(0x4040).querySelector<HTMLButtonElement>("[data-thread-story]")!;
-    expect(chip.textContent).toContain("Rivalin");
+    // The name alone in the narrow column (gate 3d.6, U4: „He…“ beside a whole STORY_HEIMKEHR); from Bauen the id is the chip's title.
+    expect(chip.textContent).toBe("Rivalin");
+    expect(chip.title).toBe("STORY_RIVALIN");
     await act(async () => chip.click());
     expect(goTo).toHaveBeenCalledWith({ kind: "story", number: 0 });
+    await show({ stories: [storyRow(0, { id: "STORY_RIVALIN", name: "Rivalin" })], depth: "erzaehlen" });
+    expect(row(0x4040).querySelector<HTMLButtonElement>("[data-thread-story]")!.textContent).toBe("Rivalin");
+    expect(row(0x4040).querySelector<HTMLButtonElement>("[data-thread-story]")!.hasAttribute("title")).toBe(false);
+    await show({ stories: [storyRow(0, { id: "STORY_RIVALIN", name: "Rivalin" })] });
     // The count below the table.
     expect(container.textContent).toContain("3 Fäden");
   });

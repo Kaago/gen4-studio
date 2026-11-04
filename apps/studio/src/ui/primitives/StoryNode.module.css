@@ -62,6 +62,8 @@
   gap: var(--g4-raum-4);
 }
 
+/* The head holds the kind alone (and a selected place's control): the plaketten sit in the last line, so the longest word
+   („Erscheinen/Verschwinden“) keeps the node's width. */
 .kind {
   display: inline-flex;
   min-width: 0;
@@ -70,6 +72,12 @@
   overflow: hidden;
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);
+}
+
+/* Its own box, so a word that still does not fit ends in „…“ (the node's title names it whole). */
+.word {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -97,7 +105,21 @@
   white-space: nowrap;
 }
 
+/* The second line and the plaketten („nur notiert“, „ohne Wert“) after it. */
+.foot {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g4-raum-4);
+}
+
+.foot > :not(.subtitle) {
+  flex: none;
+}
+
 .subtitle {
+  min-width: 0;
   overflow: hidden;
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);

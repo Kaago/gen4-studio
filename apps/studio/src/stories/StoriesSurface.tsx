@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { JSX, ReactNode } from "react";
 import { storyUpdate } from "../api";
 import type { FlagKind, ProjectInfo, StoryListDto, StoryReport, StoryRowDto } from "../api";
@@ -35,13 +35,21 @@ export type StoriesSurfaceProps = {
   depth: Depth;
   goTo: (t: NavTarget) => void;
   project: ProjectInfo | null;
-  /** Moves whenever the project may differ: the chosen story and its graph are read again. */
+  /** Moves whenever the project may differ: the chosen story and its graph are read again (once the list of that revision is there). */
   revision: number;
+  /**
+   * The revision `stories` was read at (`useStories`). Just after a move (an undo that took the chosen story) the list is the older one
+   * and may still name a story that is gone: the chosen story and its graph are read at the list's revision, never ahead of it, and a
+   * choice the current list does not have goes. Without it the list counts as current.
+   */
+  listRevision?: number;
   /** A story was created (one undo step; by the recipe „Neue Geschichte“ for a variable): the report and its name, for the app's toast
    * and history. */
   onCreated: (r: StoryReport, name: string) => void;
   /** A story's name or notes were written (one undo step). */
   onUpdated?: (r: StoryReport) => void;
+  /** A story was deleted (one undo step, ⌘Z brings it back): the report and its name, for the app's toast and history. */
+  onDeleted?: (r: StoryReport, name: string) => void;
   /** What failed after a write went in (the report's warnings). */
   onError: (t: string) => void;
   /** „Projekt öffnen“ of the empty state without a project; without it the empty state offers nothing. */
@@ -62,7 +70,7 @@ const COLUMNS: readonly TableColumn[] = [
  * (locked in the DSPRE layout, with „Als Textprojekt einrichten…“ below), and the detail of the chosen story under the table.
  */
 export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
-  const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, onCreated, onUpdated, onError, onOpenProject, onRecipe } = props;
+  const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, listRevision, onCreated, onUpdated, onDeleted, onError, onOpenProject, onRecipe } = props;
   const titleId = useId();
   const tech = depthAtLeast(depth, "bauen");
   const [creating, setCreating] = useState(false);
@@ -72,7 +80,14 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
   const flags = useFlagList("flag", { project: named("flag") ? project : null, revision, source: FLAGS_SOURCE }).list;
   const vars = useFlagList("var", { project: named("var") ? project : null, revision, source: FLAGS_SOURCE }).list;
   const chosen = rowsOf.find((s) => s.number === selected && s.problem === null) ?? null;
-  const { story, error: storyError } = useStory(chosen?.id ?? null, { project, revision });
+  // The chosen story is read at the revision of the list that names it (no read of a story an undo just took).
+  const read = listRevision ?? revision;
+  const { story, error: storyError } = useStory(chosen?.id ?? null, { project, revision: read });
+  // The list of the current revision no longer has the chosen story (an undo took it): nothing is chosen.
+  const gone = stories !== null && read === revision && selected !== null && !stories.stories.some((s) => s.number === selected);
+  useEffect(() => {
+    if (gone) onSelect(null);
+  }, [gone, onSelect]);
 
   const create = async (request: NewStoryRequest) => {
     const { report, name } = await createStory(request);
@@ -83,6 +98,12 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
   const update = async (id: string, patch: StoryPatch) => {
     const report = await storyUpdate(id, patch);
     onUpdated?.(report);
+    for (const warning of report.warnings) onError(warning);
+  };
+  // The deleted story's detail goes: nothing is chosen, the list is read again (the app's revision moves).
+  const deleted = (report: StoryReport, name: string) => {
+    onSelect(null);
+    onDeleted?.(report, name);
     for (const warning of report.warnings) onError(warning);
   };
 
@@ -176,8 +197,9 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
               depth={depth}
               goTo={goTo}
               onUpdate={(patch) => update(chosen.id, patch)}
+              onDeleted={deleted}
               project={project}
-              revision={revision}
+              revision={read}
               onRecipe={onRecipe}
               textProject={textProject}
             />

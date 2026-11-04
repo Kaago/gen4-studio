@@ -2462,6 +2462,25 @@ fn story_create_and_list_on_a_text_fixture() {
         .filter(|n| n["kind"] == "value")
         .count();
     assert_eq!(values, 3);
+
+    // Deleting takes register entry, story and side file; an unknown id writes nothing.
+    story(&["delete", "STORY_NOPE"])
+        .assert()
+        .code(1)
+        .stderr(contains("Unbekannte ID: STORY_NOPE."));
+    assert!(root.join("data/stories/0000.json").is_file());
+    let out = stdout_of(&story(&["delete", "STORY_TEST"]).assert().success());
+    assert!(
+        out.starts_with(
+            "deleted STORY_TEST number=0 files=data/ids/stories.json,data/stories/0000.json,\
+             data/stories/0000.layout.json ms="
+        ),
+        "{out}"
+    );
+    assert!(!root.join("data/stories/0000.json").exists());
+    assert!(!root.join("data/stories/0000.layout.json").exists());
+    let out = stdout_of(&story(&["list"]).assert().success());
+    assert!(out.is_empty(), "{out}");
 }
 
 #[test]

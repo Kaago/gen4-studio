@@ -133,7 +133,10 @@ export function ThreadsSurface({ threads, error, depth, selected, onSelect, goTo
   );
 }
 
-/** The story kept in a thread: its name as a chip of the area Geschichten (from Bauen with its id) that opens it, else „–“. */
+/**
+ * The story kept in a thread: its name as a chip of the area Geschichten that opens it (the id when the stories are not known), else „–“.
+ * The column is narrow: the name has it alone, from Bauen the id is the chip's tooltip.
+ */
 function StoryChip({ thread, stories, tech, goTo }: { thread: ThreadDto; stories: readonly StoryRowDto[] | null; tech: boolean; goTo: (t: NavTarget) => void }) {
   if (thread.story === null) return <span className={styles.none}>–</span>;
   const story = stories?.find((s) => s.id === thread.story) ?? null;
@@ -141,7 +144,7 @@ function StoryChip({ thread, stories, tech, goTo }: { thread: ThreadDto; stories
     <Reference
       area="geschichten"
       label={story?.name || thread.story}
-      tech={tech && story !== null ? thread.story : undefined}
+      title={tech && story !== null ? thread.story : undefined}
       onOpen={() => story !== null && goTo({ kind: "story", number: story.number })}
       disabled={story === null}
       dataAttrs={{ "data-thread-story": thread.story }}

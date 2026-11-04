@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ThreadGraph from "./ThreadGraph";
+import ThreadGraph, { FIT_MIN_ZOOM } from "./ThreadGraph";
 import { sampleThreadGraph } from "./sampleGraph";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -121,18 +121,30 @@ describe("ThreadGraph", () => {
     }
   });
 
-  /** React Flow measured in jsdom: nodes 192 × 64, an unscaled viewport, sizes reported once; `run` sees the measured graph. */
-  async function measured(run: () => Promise<void>) {
+  /**
+   * React Flow measured in jsdom: nodes 192 × 64, an unscaled viewport, sizes reported once; `run` sees the measured graph. The box of
+   * the graph (`.react-flow`) is `pane` when given, else as small as a node.
+   */
+  async function measured(run: () => Promise<void>, pane?: { width: number; height: number }) {
     const sizes = (["offsetWidth", "offsetHeight"] as const).map((key) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)] as const);
-    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 192 });
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 64 });
+    const isPane = (el: HTMLElement) => pane !== undefined && el.classList.contains("react-flow__renderer");
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get(this: HTMLElement) { return isPane(this) ? pane!.width : 192; } });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) { return isPane(this) ? pane!.height : 64; } });
     const observed = new WeakSet<Element>();
+    // What one observer is given in one task it reports together, as a browser does (React Flow fits once its nodes are measured).
     class OnceObserver {
+      private pending: Element[] = [];
       constructor(private readonly callback: ResizeObserverCallback) {}
       observe(target: Element): void {
         if (observed.has(target)) return;
         observed.add(target);
-        queueMicrotask(() => act(() => this.callback([{ target } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver)));
+        this.pending.push(target);
+        if (this.pending.length > 1) return;
+        queueMicrotask(() => {
+          const entries = this.pending.map((t) => ({ target: t }) as unknown as ResizeObserverEntry);
+          this.pending = [];
+          act(() => this.callback(entries, this as unknown as ResizeObserver));
+        });
       }
       unobserve(): void {}
       disconnect(): void {}
@@ -158,6 +170,30 @@ describe("ThreadGraph", () => {
     act(async () => {
       for (let i = 0; i < 5; i++) await Promise.resolve();
     });
+  const scale = () => Number(/scale\(([\d.]+)\)/.exec(container.querySelector<HTMLElement>(".react-flow__viewport")!.style.transform)![1]);
+
+  it("a_graph_larger_than_its_box_is_fitted_no_smaller_than_readable", async () => {
+    // HeartGold's VAR_UNOWN_REPORT_LEVEL (21 nodes) was fitted to nodes 50 px wide (gate 3d.6, U3): fitting stops at FIT_MIN_ZOOM, where
+    // the node's text stays readable, and the rest is panned to. Here the box is as small as one node.
+    await measured(async () => {
+      show(null);
+      await settle();
+      expect(scale()).toBe(FIT_MIN_ZOOM);
+    });
+  });
+
+  it("a_small_graph_in_a_large_box_is_fitted_as_before", async () => {
+    await measured(
+      async () => {
+        show(null);
+        await settle();
+        // Never larger than 1:1, as before.
+        expect(scale()).toBe(1);
+      },
+      { width: 2400, height: 1200 },
+    );
+  });
+
   const placed = { ...sampleThreadGraph, layout: { nodes: { s1: { x: 10, y: 20 }, gone: { x: 1, y: 2 } } } };
 
   it("with_onLayout_a_drag_end_hands_over_the_layout", async () => {

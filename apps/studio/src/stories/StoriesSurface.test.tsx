@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { entityIds, freeFlag, listFlags, recipeApply, storyCreate, storyGet, storyUpdate, threadGraph } from "../api";
+import { entityIds, freeFlag, listFlags, recipeApply, storyCreate, storyDelete, storyGet, storyUpdate, threadGraph } from "../api";
 import type { FlagListDto, ProjectInfo } from "../api";
 import { FLAGS, flagEntry, flagList } from "../flags/flagTesting";
 import { invalidateFlagLists } from "../flags/useFlagList";
@@ -17,6 +17,7 @@ vi.mock("../api", async (importOriginal) => ({
   storyGet: vi.fn(),
   storyCreate: vi.fn(),
   storyUpdate: vi.fn(),
+  storyDelete: vi.fn(),
   threadGraph: vi.fn(),
   listFlags: vi.fn(),
   freeFlag: vi.fn(),
@@ -44,6 +45,7 @@ describe("StoriesSurface", () => {
   const onOpenTextProject = vi.fn();
   const onCreated = vi.fn();
   const onUpdated = vi.fn();
+  const onDeleted = vi.fn();
   const onError = vi.fn();
   beforeAll(async () => {
     await import("./graph/ThreadGraph");
@@ -56,6 +58,7 @@ describe("StoriesSurface", () => {
     vi.mocked(storyGet).mockReset().mockImplementation(async (id) => storyDto(Number(id.slice(-4)), {}, { id }));
     vi.mocked(storyCreate).mockReset().mockResolvedValue(storyReport(2));
     vi.mocked(storyUpdate).mockReset().mockResolvedValue(storyReport(0, { files: ["data/stories/0000.json"] }));
+    vi.mocked(storyDelete).mockReset().mockResolvedValue(storyReport(0));
     vi.mocked(threadGraph).mockReset().mockImplementation(async (variable) => graphOf(variable));
     vi.mocked(listFlags).mockReset().mockImplementation(async (kind) => (kind === "flag" ? FLAGS : VARS));
     vi.mocked(freeFlag).mockReset().mockResolvedValue({ kind: "var", number: 0x406c, name: "VAR_UNUSED_0x406C", pool_free: 1, scripts_indexed: true });
@@ -69,7 +72,7 @@ describe("StoriesSurface", () => {
         changed: [],
         next: [],
       });
-    for (const fn of [onSelect, goTo, onOpenTextProject, onCreated, onUpdated, onError]) fn.mockReset();
+    for (const fn of [onSelect, goTo, onOpenTextProject, onCreated, onUpdated, onDeleted, onError]) fn.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -92,6 +95,7 @@ describe("StoriesSurface", () => {
           revision={0}
           onCreated={onCreated}
           onUpdated={onUpdated}
+          onDeleted={onDeleted}
           onError={onError}
           {...over}
         />,
@@ -182,6 +186,68 @@ describe("StoriesSurface", () => {
     expect(storyCreate).toHaveBeenCalledWith({ name: "Zweite", progress: { flag: "FLAG_0371" } });
     expect(onCreated).toHaveBeenLastCalledWith(storyReport(3, { warnings: ["Der Verlauf ist nicht lesbar."] }), "Zweite");
     expect(onError).toHaveBeenCalledWith("Der Verlauf ist nicht lesbar.");
+  });
+
+  it("an_undo_that_takes_the_chosen_story_reads_nothing_of_it", async () => {
+    // Gate 3d.6, U2: ⌘Z took the story just created while its detail was open; the detail read it again before the list did (story_get
+    // and thread_graph answered 400). Now the detail reads at the revision of the list, and a choice the current list lacks goes.
+    const RIVALIN = storiesOf([storyRow(0, { name: "Rivalin", progress: { var: "VAR_RIVALIN" } })]);
+    await show({ stories: RIVALIN, selected: 0, revision: 1, listRevision: 1 });
+    expect(surface().querySelector("[data-story-detail]")?.getAttribute("data-story-detail")).toBe("STORY_0000");
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    const graphs = vi.mocked(threadGraph).mock.calls.length;
+    expect(graphs).toBeGreaterThan(0);
+    // ⌘Z: the revision moves while the list read before it still names the story; nothing is read for it.
+    await show({ stories: RIVALIN, selected: 0, revision: 2, listRevision: 1 });
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    expect(threadGraph).toHaveBeenCalledTimes(graphs);
+    expect(onSelect).not.toHaveBeenCalled();
+    // The list of revision 2 no longer has it: the choice goes, still nothing read, no error shown.
+    await show({ stories: storiesOf([]), selected: 0, revision: 2, listRevision: 2 });
+    expect(onSelect).toHaveBeenCalledWith(null);
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    expect(threadGraph).toHaveBeenCalledTimes(graphs);
+    expect(surface().querySelector("[role=alert]")).toBeNull();
+    expect(surface().textContent).toContain("Noch keine Geschichten.");
+  });
+
+  it("a_story_that_stays_is_read_again_with_its_list", async () => {
+    await show({ selected: 0, revision: 1, listRevision: 1 });
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    // A write moves the revision: the detail keeps what it shows until the list of the new revision is there, then reads again.
+    await show({ selected: 0, revision: 2, listRevision: 1 });
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    expect(surface().querySelector("[data-story-detail]")?.getAttribute("data-story-detail")).toBe("STORY_0000");
+    await show({ selected: 0, revision: 2, listRevision: 2 });
+    expect(storyGet).toHaveBeenCalledTimes(2);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("deleting_the_chosen_story_clears_the_choice_and_reports", async () => {
+    await show({ selected: 0 });
+    const detail = () => surface().querySelector<HTMLElement>("[data-story-detail]");
+    expect(detail()?.getAttribute("data-story-detail")).toBe("STORY_0000");
+    const trigger = detail()!.querySelector<HTMLElement>("button[aria-label='Aktionen']")!;
+    act(() => {
+      trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+      trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+      trigger.click();
+    });
+    await click([...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((i) => i.textContent === "Geschichte löschen…"));
+    await flush();
+    const remove = [...document.querySelectorAll<HTMLButtonElement>("[data-story-delete-dialog] button")].find((b) => b.textContent === "Löschen");
+    vi.mocked(storyDelete).mockResolvedValueOnce(storyReport(0, { warnings: ["Der Abgleich ist nicht neu aufgezeichnet."] }));
+    await click(remove);
+    await flush();
+    expect(storyDelete).toHaveBeenCalledExactlyOnceWith("STORY_0000");
+    // Nothing is chosen any more (the app's revision reads the list again); the app hears the report with the name, warnings as errors.
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(null);
+    expect(onDeleted).toHaveBeenCalledExactlyOnceWith(storyReport(0, { warnings: ["Der Abgleich ist nicht neu aufgezeichnet."] }), "Rivalin");
+    expect(onError).toHaveBeenCalledWith("Der Abgleich ist nicht neu aufgezeichnet.");
+    // The list without the story shows no detail.
+    await show({ selected: null, stories: storiesOf([storyRow(1, { name: "Medaille", progress: { flag: "FLAG_HAT_MEDAILLE" }, steps: 0 })]) });
+    expect(detail()).toBeNull();
+    expect(row("STORY_0000")).toBeNull();
   });
 
   it("the_dspre_layout_locks_creating_with_the_way_out", async () => {

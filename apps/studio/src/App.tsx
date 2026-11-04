@@ -411,6 +411,11 @@ function AppBody() {
     // The recipe „Neue Geschichte“ names its variable (`name_flag`): the ids and the flag lists read again, as after any naming.
     bumpIds();
   });
+  // A story deleted (one undo step, ⌘Z brings it back): said in a toast like a creation; the surface has cleared the choice.
+  const onStoryDeleted = useStableCallback((report: StoryReport, name: string) => {
+    toast.info(`Geschichte „${name}“ gelöscht`);
+    onStoryWritten(report);
+  });
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
   // Technik › Veröffentlichen, above the areas: the base ROM and the releases stay when Technik is left. A release („Veröffentlichen“)
   // builds on the session's build path (`session.publish`) in the wizard.
@@ -1541,6 +1546,7 @@ function AppBody() {
         onStoryCreated={onStoryCreated}
         onStoryUpdated={onStoryWritten}
         onStoryRecipe={storyRecipe.open}
+        onStoryDeleted={onStoryDeleted}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea

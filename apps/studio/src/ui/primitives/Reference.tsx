@@ -24,6 +24,8 @@ export type ReferenceProps = {
   label: string;
   /** Technical name or number, in mono after the label. */
   tech?: string;
+  /** The chip's tooltip (`title`): what a narrow place leaves out of the chip, such as the id beside a name. */
+  title?: string;
   /** Opens the target, or its picker where the target is a choice (a wizard's chosen header). */
   onOpen: () => void;
   /** Where else the target is used; a right click lists them. An empty list says "Nirgends verwendet". */
@@ -35,9 +37,9 @@ export type ReferenceProps = {
 };
 
 /** A chip in the color of the target's area that opens the target or its picker. */
-export function Reference({ area, label, tech, onOpen, usedIn, disabled, dataAttrs }: ReferenceProps) {
+export function Reference({ area, label, tech, title, onOpen, usedIn, disabled, dataAttrs }: ReferenceProps) {
   const chip = (
-    <button {...dataAttrs} type="button" className={`${styles.chip} ${styles[area]}`} onClick={onOpen} disabled={disabled}>
+    <button {...dataAttrs} type="button" className={`${styles.chip} ${styles[area]}`} onClick={onOpen} disabled={disabled} title={title}>
       <Icon name={areaIcon[area]} />
       <span className={styles.label}>{label}</span>
       {tech && <span className={styles.tech}>{tech}</span>}

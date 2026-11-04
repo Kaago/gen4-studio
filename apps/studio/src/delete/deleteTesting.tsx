@@ -17,6 +17,7 @@ export const deletePlan = (over: Partial<DeletePlan> = {}): DeletePlan => ({
   refusal: null,
   references: [],
   warnings: [],
+  mentions: [],
   original: false,
   deleted: false,
   can_free: null,

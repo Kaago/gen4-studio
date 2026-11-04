@@ -1803,8 +1803,10 @@ static TOOLS: &[ToolDef] = &[
         description: concat!(
             "Shows what delete_entity would do and changes nothing: refusal (why the entity gets \
              no tombstone), references that lock it (label, source and nav each; the delete \
-             answers referenced while there are any), warnings, original (an entry of the base \
-             ROM, which stays in the ROM), deleted, can_free (what free_number would remove: \
+             answers referenced while there are any), warnings, mentions (the stories and steps \
+             that name the entity: weak, they never lock; once the delete is saved, text_check \
+             reports each use that names nothing any more as story.dangling-ref), original (an \
+             entry of the base ROM, which stays in the ROM), deleted, can_free (what free_number would remove: \
              count, files) or cannot_free; no base ROM answers base_missing. ",
             data_note!(),
             " ",
@@ -1825,7 +1827,8 @@ static TOOLS: &[ToolDef] = &[
              free_number a new entity at the end and the tombstones of new entities behind it \
              leave the project for good so the number can be used again: undo stops there, \
              headless it needs --allow-irreversible (else needs_confirmation) and it is not \
-             allowed in g4_batch. ",
+             allowed in g4_batch; the answer carries the plan's mentions (stories that name \
+             the entity; once saved, text_check reports those uses as story.dangling-ref). ",
             ids_note!()
         ),
         input_schema: || {
@@ -1857,6 +1860,20 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("restore_entity"),
     },
+    // Deleting a story (3d.6 part B): no tombstone, no DeleteTarget.
+    ToolDef {
+        name: "story_delete",
+        title: "Delete a story",
+        description: "Removes data/stories/NNNN.json, its .layout.json and the register entry \
+                      of story id (STORY_…) as one undo step that undo brings back; a story has \
+                      no tombstone and nothing points at it, so its number is free again at \
+                      once (delete_entity takes no stories). Answers id, number, files, change, \
+                      ms and warnings. Refused before anything is written: not_text_project in \
+                      the DSPRE layout, unknown_id for an id the project does not have.",
+        input_schema: || object(json!({ "id": story_id() }), &["id"]),
+        output_schema: answers_object,
+        route: command("story_delete"),
+    },
 ];
 
 /// [`object`] with a description (a nested argument).
@@ -1866,7 +1883,7 @@ fn object_described(properties: Value, required: &[&str], description: &str) -> 
     schema
 }
 
-/// The `id` of `story_get` and `story_update`.
+/// The `id` of `story_get`, `story_update` and `story_delete`.
 fn story_id() -> Value {
     text("the story's id STORY_…, as story_list returns it")
 }
@@ -2232,10 +2249,10 @@ mod tests {
         // into) and to 80 with the six story tools of 3d.6; 77 with both, 79 with 3d.9's
         // live_status and live_set, 80 with 3d.8's dialogs_of_header. 3d.4 added plan_delete,
         // delete_entity and restore_entity: deleting is an activity of its own with a plan and
-        // a confirmation, and no tool there takes it over. 83 with 3d.4's delete tools; the
-        // curation of the catalog (merging read tools, moving rarely used ones behind
-        // `tool_help`) is scheduled for the phase gate 3d, until then the bound only guards
-        // against runaway growth.
+        // a confirmation, and no tool there takes it over. 83 with 3d.4's delete tools, 84 with
+        // 3d.6's story_delete (a story is no DeleteTarget); the curation of the catalog
+        // (merging read tools, moving rarely used ones behind `tool_help`) is scheduled for the
+        // phase gate 3d, until then the bound only guards against runaway growth.
         assert!((30..=90).contains(&catalog().len()), "{}", catalog().len());
     }
 
@@ -2356,6 +2373,7 @@ mod tests {
             "live_set",
             "delete_entity",
             "restore_entity",
+            "story_delete",
         ]
         .into_iter()
         .collect();
@@ -2377,6 +2395,7 @@ mod tests {
         assert_eq!(kind_of("name_flag"), Kind::Write);
         assert_eq!(kind_of("story_create"), Kind::Write);
         assert_eq!(kind_of("story_update"), Kind::Write);
+        assert_eq!(kind_of("story_delete"), Kind::Write);
         assert_eq!(kind_of("live_status"), Kind::Read);
         assert_eq!(kind_of("live_set"), Kind::Write);
         // Irreversible only with free_number.
@@ -2883,6 +2902,7 @@ mod tests {
                 "restore_entity",
                 json!({ "target": { "kind": "header", "id": 0 } }),
             ),
+            ("story_delete", json!({ "id": "STORY_TEST" })),
         ]
     }
 

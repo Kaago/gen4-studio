@@ -58,6 +58,8 @@ export interface GeschichtenAreaProps {
   onStoryUpdated?: (r: StoryReport) => void;
   /** „Schritt anlegen“ in a story's detail: the app opens the step recipe's dialog. */
   onStoryRecipe?: (request: StoryRecipeRequest) => void;
+  /** A story was deleted (one undo step): the report and its name (the app's toast; the history and the lists read again). */
+  onStoryDeleted?: (r: StoryReport, name: string) => void;
 }
 
 const ENTRIES: readonly { id: GeschichtenEntry; label: string; icon: IconName }[] = [
@@ -126,8 +128,10 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           goTo={goTo}
           project={info}
           revision={revision}
+          listRevision={stories.revision ?? undefined}
           onCreated={props.onStoryCreated ?? noSelect}
           onUpdated={props.onStoryUpdated}
+          onDeleted={props.onStoryDeleted}
           onError={props.onError}
           onOpenProject={props.onOpenProject}
           onRecipe={props.onStoryRecipe}
