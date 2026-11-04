@@ -1,0 +1,79 @@
+# Platin DE, phase gate 3d: the stage for the story the gate makes in the browser (depth Erzählen),
+# headless over MCP (`studio mcp`, one session), no build and no play. It is the place of
+# pt-geschichte.yaml without A, B, the room and the story: a text project (`assign_base`,
+# `adopt_text_project`), a NEW header on copies of the Route 201 maps 5 and 6 (template 342) with a
+# new event file, a new script file (script 1 empty, the gift script 2) and a new text archive, the
+# gift (S_GIFT at level 100 on (45, 20): the save has no Pokémon, the trainer battle needs one) and
+# the bedroom stairs (header 415, warp 0) connected to a new door (44, 21) and back. Everything the
+# story needs (figure A, trainer B, the story and its steps, an own flag, the draft trainer) is made
+# afterwards in the browser; pt-geschichte-gate.yaml then builds the copy and plays it.
+#
+# After this scenario the copy is committed as the starting point (outside: `git add -A && git
+# commit`), so `git status` afterwards shows only the work in the browser. Tiles and the reasons:
+# pt-geschichte.yaml (A on (48, 19), B on (54, 17) looking south with sight 3).
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   BASIS         the .nds beside the copy, relative to the project folder (../<copy>.nds)
+#   NEUER_HEADER  id the new header gets = the header count before (593 on an unmodified Platin DE)
+#   S_GIFT        the gift, level 100 (445 Knakrack)
+# Example (from scripts/g4emu; docs/agent-gate.md, "Phasen-Gate 3d"):
+#   uv run g4emu scenario ../agent/scenarios/pt-geschichte-gate-buehne.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/3d-gate-web_DSPRE_contents --set BASIS=../3d-gate-web.nds \
+#     --out ../../target/agent/gate-$(date +%F)/3d-gate/buehne --set NEUER_HEADER=593 --set S_GIFT=445
+game: CPUD
+# --expert: new_script_file and create_text_archive are no curated tools (g4_call)
+mcp: [--allow-irreversible, --expert]
+edits:
+  - [assign_base, {nds: "${BASIS}"}]
+  - [apply_header_patch, {}]
+  - [adopt_text_project, {}]
+  - - create_area
+    - spec:
+        name: Geschichte
+        width: 2
+        height: 1
+        cells:                       # Route 201 (header 342): matrix 0 cells (3, 26) = map 5 and (4, 26) = map 6
+          - {x: 0, y: 0, source_map: 5, clear_buildings: false}
+          - {x: 1, y: 0, source_map: 6, clear_buildings: false}
+        with_headers: true
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: New
+          new_header: {template: 342, internal_name: T_GESCHICHTE}
+    - area
+  - [get_header, {id: "${area.header}"}, hdr]
+  - [g4_call, {command: new_script_file, args: {kind: script}}, datei]
+  - [g4_call, {command: create_text_archive}, archiv]
+  - - set_header
+    - id: "${area.header}"
+      header: {Pt: {$base: "${hdr.Pt}", script_file_id: "${datei}", text_archive_id: "${archiv}"}}
+  - [save, {}]
+  - - save_script
+    - file: "${datei}"
+      text: |
+        script Main #1:
+            End
+
+        script Geber #2:
+            LockAll
+            FacePlayer
+            Message "Hier, nimm das."
+            WaitButton
+            CloseMessage
+            GivePokemon ${S_GIFT}, 100, 0, VAR_RESULT
+            ReleaseAll
+            End
+  - - add_event
+    - event_file: "${area.event_file}"
+      kind: object
+      x: 45
+      z: 20
+      patch: {graphics_id: 6, movement_type: 15, dir: 1, script: 2, trainer_type: 0, sight: 0}
+  - - recipe_apply
+    - recipe: connect_doors
+      input: {a: {header: 415, warp: 0}, b: {header: "${area.header}", tile: {x: 44, z: 21}}, back: true, door_tiles: true}
+  - - get_events
+    - {event_file: "${area.event_file}"}
+    - expect:
+        - {path: objects.length, equals: 1}

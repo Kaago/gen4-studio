@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -262,6 +262,8 @@ uv run g4emu scenario ../agent/scenarios/hg-erzaehlen.yaml --project $R/_testkop
 ```
 
 `pt-geschichte.yaml` und `hg-geschichte.yaml` (Gate 3d.7, `mcp: [--allow-irreversible, --expert]`): Textprojekt, neues Gebiet wie bei `*-erzaehlen` mit Geschenk, Tür, Figur A, Trainer B und einem Raum (`create_room`), dann die fünf Rezepte der Geschichten; spielen bis zur Belohnung. Befehle, Platzhalter und Kacheln unter „Phase 3d.7“.
+
+`pt-geschichte-gate-buehne.yaml` und `pt-geschichte-gate.yaml` (Phasen-Gate 3d): die Bühne der Geschichte ohne Figuren und Geschichte (Textprojekt, Ort, Geschenk, Tür; ohne Build) und das Spielen einer im Browser erzählten Geschichte ohne Änderungen (`mcp: []`, `edits: []`, nur `save`, `build_rom`, `check`, `play`; die Nummern der Geschichte als `--set`). Befehle unter „Phasen-Gate 3d“.
 
 ### MCP über die Brücke (`/mcp`, seit 3h.3)
 
@@ -1846,3 +1848,78 @@ target/release/studio mcp --project $P --base-rom $N
 ```
 
 `story_create`, `story_update` und `story_delete` sind schreibend, aber umkehrbar: kein `--allow-irreversible` nötig. Im DSPRE-Ordner antworten sie `not_text_project`; `list_threads` und `thread_graph` lesen auch dort (ohne übernommene Scripts ist die Liste leer, `scripts_adopted` false).
+
+## Phasen-Gate 3d ([phase-3d-gate.md](phase-3d-gate.md))
+
+Das Phasen-Gate prüft die ganze Phase 3d an einer kleinen Geschichte: (A) die Szenarien `pt-geschichte` und `hg-geschichte` kopflos über MCP (wie 3d.7), (B) dieselbe Art Geschichte komplett in der Tiefe Erzählen über die Test-Umgebung, gebaut, geprüft und mit `pt-geschichte-gate.yaml` gespielt; `scripts/gate.sh` läuft danach allein auf main (Koordinator). Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner mit Zusatz `_DSPRE_contents` direkt neben der `.nds` (ohne den Zusatz lehnt `studio mcp` `assign_base` mit „Pfad liegt außerhalb der erlaubten Ordner“ ab, Befund B3): `3d-gate-szen-pt`, `3d-gate-szen-hg` für (A), `3d-gate-web` (Platin DE) für (B), optional `3d-gate-webhg` (HeartGold DE). Alle `3d-gate-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
+
+**Ports:** `G4_VITE_PORT=1800 G4_BRIDGE_PORT=1801`; andere Ports nie anfassen. Chrome headless 1440 × 900 mit eigenem Profil unter `target/agent/` (`--remote-debugging-pipe`, `--use-angle=swiftshader`), nur über seine PID beenden; Hell und Dunkel über `Emulation.setEmulatedMedia`.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (A) Szenarien | Agent + Blick | unten; Rückgabe 0, Schlusszeile mit `"ok": true`, je 22 Zeilen „Erwartung erfüllt“ auf stderr, `check.log`, `play.jsonl`, `results.json`, Bilder |
+| (B) Bühne | Agent | `pt-geschichte-gate-buehne.yaml` kopflos, dann `g4k git init` („Ausgangsstand“) |
+| (B) 1 bis 6 Browser | Agent + Blick | Test-Umgebung auf 1800/1801, Ablauf unten; `call.sh` nur zum Nachprüfen |
+| (B) 7 gespielt | Agent + Blick | `pt-geschichte-gate.yaml` mit den Zahlen aus dem Browser |
+| `scripts/gate.sh` | Koordinator | allein auf main nach dem Gate des Agenten |
+| Hand, Blick, `.fig` | Hand, Blick | Gate-Datei, „Beim Nutzer“ |
+
+**Vorbereitung**, aus der Wurzel des Checkouts:
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+cargo build --release -p g4-kernel --bin g4k && cargo build --release -p studio --bin studio
+R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
+PT="$R/Pokemon - Platin-Edition (Germany)"; HG="$R/Pokemon - Goldene Edition HeartGold (Germany)"
+cp -cR "${PT}_DSPRE_contents" $K/3d-gate-szen-pt_DSPRE_contents && cp -c "${PT}.nds" $K/3d-gate-szen-pt.nds
+cp -cR "${HG}_DSPRE_contents" $K/3d-gate-szen-hg_DSPRE_contents && cp -c "${HG}.nds" $K/3d-gate-szen-hg.nds
+cp -cR "${PT}_DSPRE_contents" $K/3d-gate-web_DSPRE_contents && cp -c "${PT}.nds" $K/3d-gate-web.nds
+```
+
+**(A) Szenarien**, aus `scripts/g4emu`, beide parallel im Hintergrund (unter Last je gut 3 Minuten):
+
+```sh
+O=$PWD/../../target/agent/gate-$(date +%F)/3d-gate
+export G4_ROMS_DIR=$R G4_STUDIO_BIN=$PWD/../../target/release/studio G4K_BIN=$PWD/../../target/release/g4k
+uv run g4emu scenario ../agent/scenarios/pt-geschichte.yaml --project $K/3d-gate-szen-pt_DSPRE_contents \
+  --set BASIS=../3d-gate-szen-pt.nds --out $O/pt-geschichte \
+  --set NEUER_HEADER=593 --set RAUM_HEADER=594 --set X_A=48 --set Z_A=19 --set X_B=54 --set Z_B=17 \
+  --set TUER_X=50 --set TUER_Z=22 --set S_GIFT=445 --set S_T=25 --set L_T=12
+uv run g4emu scenario ../agent/scenarios/hg-geschichte.yaml --project $K/3d-gate-szen-hg_DSPRE_contents \
+  --set BASIS=../3d-gate-szen-hg.nds --out $O/hg-geschichte \
+  --set NEUER_HEADER=540 --set RAUM_HEADER=541 --set X_A=19 --set Z_A=15 --set X_B=15 --set Z_B=13 \
+  --set TUER_X=22 --set TUER_Z=19 --set S_GIFT=445 --set S_T=25 --set L_T=12
+```
+
+Erwartet wie unter „Phase 3d.7“: Header-Folge 415, 593, 594, 593 bzw. 64, 540, 541, 540; Pool Platin Variablen 20 → 19, Flags 101 → 99, HeartGold 81 → 80, 154 → 152; `run_checks` 0 Fehler.
+
+**(B) Bühne**, aus `scripts/g4emu` (die Geschichte selbst kommt danach aus dem Browser; die Bühne braucht ein `GivePokemon`-Script, das kein Erzählen-Werkzeug schreibt):
+
+```sh
+uv run g4emu scenario ../agent/scenarios/pt-geschichte-gate-buehne.yaml --project $K/3d-gate-web_DSPRE_contents \
+  --set BASIS=../3d-gate-web.nds --out $O/buehne --set NEUER_HEADER=593 --set S_GIFT=445
+../../target/release/g4k git init $K/3d-gate-web_DSPRE_contents     # „Ausgangsstand“, git status leer
+```
+
+Ergebnis: Header 593 (Route-201-Karten 5 und 6), Eventdatei 534 mit dem Geschenk (Objekt 0 auf (45, 20)) und Warp 0 (44, 21) ↔ 415 Warp 0, Scriptdatei 1124, Textarchiv 724.
+
+**(B) Browser**, Test-Umgebung `G4_ROMS_DIR=$R G4_BASE_ROM_DIR=$K G4_VITE_PORT=1800 G4_BRIDGE_PORT=1801 bash scripts/agent/studio-web.sh`, Seite `http://127.0.0.1:1800/?project=$K/3d-gate-web_DSPRE_contents`, Segment „Tiefe“ › Erzählen. Ablauf (Zahlen auf Platin DE):
+
+1. Welt › Orte „Route 201“ (Weitere Gebiete, `data-header-id=593`) › Rezeptleiste „Neue Figur“: Kachel x 48, z 19, „Was sie sagt“ „Hallo, Reisender!“ → Figur A (Objekt 1). Pokémon › Trainer (⌘2) › „Neuer Trainer…“ `[data-new-trainer-recipe]`: Klasse „Wanderer“ (Base-UI-Auswahl: Klick auf das Feld, dann die Option anklicken), Name „Jens“, „Art wählen…“ PIKACHU (Treffer anklicken), Level 12, Text vor dem Kampf mit ▼ am Ende (Umschalt+Enter), Kachel x 54, z 17, Blick Unten, Sichtweite 3, „Aufstellen“; im Schritt „Team“ die Vorschau `[data-trainer-preview]` mit „Erstes Pokémon“ aufnehmen.
+2. Geschichten › Flags und Variablen › „nur frei“ › erste Zeile › „Als eigenes Flag benennen…“ (`[data-name-flag-dialog]`, „Eigener Name“ vorbelegt `FLAG_`) → `FLAG_BRIEF_GELESEN`; danach `call.sh free_flag '{"kind":"flag"}'` (das benannte Flag ist nicht mehr frei).
+3. Geschichten › Geschichten › „Neue Geschichte…“ (`[data-pool-free]`) „Der Brief“; im Detail „Schritt anlegen“: `[data-story-recipe=talk_advances]` (Ort über „Ort wählen…“ „0593“, Figur 1, ab Schritt 0, Text), `[data-story-recipe=figure_appears]` (Figur 2, Schritt 1, erscheint, Flag aus dem Pool; Warnung „Level-Script-Datei 1125 wird angelegt und bleibt“), `[data-story-recipe=reward_once]` (Figur 1, ab Schritt 1, Trank über den Picker, Text als Vorschlag). Je Dialog `[data-story-recipe-notes]` gegen `call.sh recipe_plan '{"recipe":"<id>","input":{…}}'`; danach ⌘S (Fokus aus dem Feld), `call.sh story_get '{"id":"STORY_DER_BRIEF"}'` (`progress_number`, Schritte, `flags`) und `story_list`.
+4. Entwurf: Welt › Rezeptleiste „Neuer Trainer hier“, Name „Entwurf“, irgendeine Art, Kachel (38, 22) → Trainer 0930 (Platin legt den Platzhalter 0929 des Sicht-Slots davor). Pokémon › Trainer › Suche „Entwurf“ › Aktionen (`button[aria-label=Aktionen]`) › „Löschen…“: `[data-delete-dialog]` mit `[data-reference]`, „Löschen“ gesperrt; `call.sh plan_delete '{"target":{"kind":"trainer","index":930}}'` gleich. Klick auf den Verweis → Objekt 3 in der Welt › „…“ › „Löschen“ › Ja; dann „Löschen…“ → Plakette `[data-entity-state=deleted]`; noch einmal „Löschen…“ → Kästchen „Nummer freigeben (nicht rückgängig)“ → „Löschen und Nummer freigeben“; ⌘S.
+5. `git -C $K/3d-gate-web_DSPRE_contents status --porcelain --untracked-files=all` und `git diff --stat`: nur Eventdatei 534, Header 593, Register `flags`, `stories`, `trainers`, `vars`, Trainertabellen, Scriptdateien 1114 und 1124, Textarchive 617, 618, 724, neu `data/flags/`, `data/stories/`, `data/trainers/0928.json`, `0929.json`, `data/vars/`, `expanded/scripts/1125.json`; `data/trainers/0930.json` fehlt.
+6. `call.sh run_checks '{"scope":"all"}'` (0 Fehler), `g4k build $K/3d-gate-web_DSPRE_contents --out <Kopie>/build/g4k.nds --timings`, `g4k check <Kopie>`, `g4k text check <Kopie>`.
+
+**(B) 7 gespielt**, aus `scripts/g4emu`, mit den Zahlen aus 3 (`VAR` = `progress_number`, `FLAG_B` das Flag des Erscheinens, `FLAG_R` das der Belohnung):
+
+```sh
+uv run g4emu scenario ../agent/scenarios/pt-geschichte-gate.yaml --project $K/3d-gate-web_DSPRE_contents --out $O/gespielt \
+  --set HEADER=593 --set VAR=16433 --set FLAG_B=67 --set FLAG_R=68 \
+  --set X_A=48 --set Z_A=19 --set X_B=54 --set Z_B=17 --set S_T=25 --set L_T=12
+```
+
+Das Szenario hat keine Änderungen (`mcp: []`, `edits: []`): `studio mcp` speichert und baut `build/out.nds`, `check` prüft, `play` ist der Spielteil von `pt-geschichte` ohne Raum (für das Wiedererscheinen durch die Ankunftstür ins Zimmer 415 und zurück). Erwartet: Rückgabe 0, Header-Folge 415, 593, 415, 593, `expect-var VAR` 0 → 1, `expect-flag FLAG_B` 1 → 0, `expect-battle 25 12`, `expect-flag FLAG_R 1` zweimal; Bilder `gespraech`, `kampf`, `belohnung`, `belohnung-2` („Hallo, Reisender!“). Danach Chrome, Brücke und Vite über ihre PIDs beenden (`kill -INT` auf `studio-web.sh`), `lsof -iTCP:1800 -iTCP:1801 -sTCP:LISTEN` leer, die Kopien löschen.

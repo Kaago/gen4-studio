@@ -1,0 +1,100 @@
+# Platin DE, phase gate 3d: play the story the gate made in the browser (depth Erzählen) on the
+# stage of pt-geschichte-gate-buehne.yaml. No edits: `studio mcp` (one session) only saves and builds
+# the copy, `check` runs `g4k text check` and `g4k check`, then the play part of pt-geschichte.yaml
+# without the room: the story "Der Brief" has the steps 0 (start), 1 (A's talk switches 0 -> 1),
+# B appears from 1 (its visibility flag, cleared in the place's transition script) and A's reward
+# from 1 once (a pool flag). The numbers the browser work chose come as placeholders.
+#
+# Play: arrive from the bedroom, take the gift, variable 0 and B's flag set: the walk up column X_B
+# reaches B's tile. A: the talk text, variable 1. Back into the bedroom through the arrival door
+# and out again (the transition script runs: B's flag clear), B sees the player on the way up
+# column X_B, the battle (S_T at L_T) is won. A: the reward once, its flag 1; A again: A's own
+# text (new_figure), no second reward, the flag still 1.
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   HEADER        the place (593)
+#   VAR           the story's variable (story_get progress_number)
+#   FLAG_B        B's visibility flag (the appearance step's flag)
+#   FLAG_R        the reward's flag (the reward step's flag)
+#   X_A Z_A       figure A (48, 19)            X_B Z_B  trainer B (54, 17), looking south, sight 3
+#   S_T L_T       B's Pokémon (25 Pikachu, 12)
+# Example (from scripts/g4emu; docs/agent-gate.md, "Phasen-Gate 3d"):
+#   uv run g4emu scenario ../agent/scenarios/pt-geschichte-gate.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/3d-gate-web_DSPRE_contents --out ../../target/agent/gate-$(date +%F)/3d-gate/gespielt \
+#     --set HEADER=593 --set VAR=16433 --set FLAG_B=66 --set FLAG_R=67 \
+#     --set X_A=48 --set Z_A=19 --set X_B=54 --set Z_B=17 --set S_T=25 --set L_T=12
+game: CPUD
+mcp: []
+edits: []
+build: build/out.nds
+check:
+  - [g4k, text, check, .]
+  # event.script-missing 1: vanilla Platin, sign 1 of event file 0044 calls #45 of script file 0050
+  - [g4k, check, ., --expect, warp.dest-warp=0, --expect, event.script-missing=1,
+     --expect, event.trainer-missing=0]
+play:
+  - continue
+  - expect-map 415
+  - walk-to 8 4
+  - walk right 1
+  - expect-map ${HEADER}
+  - wait 150
+  - where
+  # the gift: face north, talk, through the text
+  - press up:8
+  - press a
+  - mash b 300
+  - shot geschenk
+  # step 0: B is hidden (the transition block set its flag), the way up column X_B goes onto its tile
+  - expect-var ${VAR} 0
+  - expect-flag ${FLAG_B} 1
+  - walk-to ${X_B} 21
+  - walk-until-blocked up 6
+  - expect-at ${X_B} ${Z_B}
+  # A at step 0: the talk text, then step 1
+  - walk-to ${X_B} 21
+  - walk-to ${X_A} ${Z_A+1}
+  - press up:8
+  - press a
+  - wait 90
+  - shot gespraech
+  - mash b 120
+  - expect-var ${VAR} 1
+  # into the bedroom through the arrival door (44, 21) and out again: the transition script clears B's flag
+  - walk-to 45 21
+  - press left:30
+  - expect-map 415
+  - wait 150
+  - walk-to 8 4
+  - walk right 1
+  - expect-map ${HEADER}
+  - wait 150
+  - where
+  - expect-flag ${FLAG_B} 0
+  # B is there now: it sees the player on the way up column X_B and battles
+  - walk-to ${X_B} 21
+  - walk-until-blocked up 6
+  - expect-at ${X_B} ${Z_B+3}
+  - mash a 240
+  - expect-battle ${S_T} ${L_T} 900
+  - wait 300
+  - shot kampf
+  - win-battle
+  - wait 120
+  - press b
+  - expect-map ${HEADER}
+  # A at step 1 after the battle: the reward once
+  - walk-to ${X_A} ${Z_A+1}
+  - press up:8
+  - press a
+  - wait 90
+  - shot belohnung
+  - mash b 300
+  - expect-flag ${FLAG_R} 1
+  - expect-var ${VAR} 1
+  # A again: no second reward, A says its own text (new_figure)
+  - press a
+  - wait 90
+  - shot belohnung-2
+  - mash b 120
+  - expect-flag ${FLAG_R} 1

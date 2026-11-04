@@ -1860,6 +1860,33 @@ def test_erzaehlen_scenarios_load(name):
     # the door both ways: there, back to the room, there again
     assert sum(step == "expect-map" for step in sc.play) == 4
 
+
+def test_phase_gate_3d_scenarios_load():
+    folder = Path(__file__).resolve().parents[2] / "agent" / "scenarios"
+    # the stage: a text project, the place, the gift and the door; no story, no build, no play
+    stage = load_scenario(folder / "pt-geschichte-gate-buehne.yaml",
+                          {"BASIS": "../x.nds", "NEUER_HEADER": "593", "S_GIFT": "445"})
+    assert stage.mcp == ["--allow-irreversible", "--expert"]
+    assert stage.build is None and stage.play == [] and stage.check == []
+    assert [e[0] for e in stage.edits][:3] == ["assign_base", "apply_header_patch", "adopt_text_project"]
+    assert [e[1]["recipe"] for e in stage.edits if e[0] == "recipe_apply"] == ["connect_doors"]
+    # playing the story made in the browser: no edits, `studio mcp` only saves and builds
+    env = {"HEADER": "593", "VAR": "16433", "FLAG_B": "67", "FLAG_R": "68", "X_A": "48", "Z_A": "19",
+           "X_B": "54", "Z_B": "17", "S_T": "25", "L_T": "12"}
+    play = load_scenario(folder / "pt-geschichte-gate.yaml", env)
+    assert play.mcp == [] and play.edits == [] and play.build == "build/out.nds"
+    assert play.check[0] == ["g4k", "text", "check", "."]
+    steps = " ".join(play.play)
+    assert "expect-var 16433 0" in steps and "expect-var 16433 1" in steps
+    assert "expect-flag 67 1" in steps and "expect-flag 67 0" in steps
+    assert steps.count("expect-flag 68 1") == 2 and "expect-battle 25 12" in steps
+    assert "expect-at 54 20" in steps
+    # there, back into the bedroom and out again (B appears on entering)
+    assert sum(step == "expect-map" for step in play.play) == 5
+    shots = {play.play[i + 1] for i, step in enumerate(play.play) if step == "shot"}
+    assert {"gespraech", "kampf", "belohnung", "belohnung-2"} <= shots
+
+
 def test_scenario_save_none_runs_without_save(tmp_path, roms, monkeypatch):
     path = write_yaml(tmp_path, SCENARIO_YAML + "save: none\n")
     sc = load_scenario(path, ENV)
