@@ -89,7 +89,7 @@ import { saveBeforeStoryStep } from "./app/storyStepSave";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
-import { writesFiles } from "./reload";
+import { historyWritesFiles, writesFiles } from "./reload";
 import { AgentQuestion } from "./app/AgentQuestion";
 import { TextConflictDialog } from "./app/TextConflictDialog";
 import type { TextConflictChoice } from "./app/TextConflictDialog";
@@ -182,8 +182,14 @@ const AGENT_SAVES: ReadonlySet<string> = new Set([
   "name_flag",
 ]);
 
-/** The agents' commands that write the saved project only through a file step (a script, texture or model, see `writesFiles`). */
+/**
+ * The agents' commands that write the saved project only through a file step: a reset (a script, texture or model, see `writesFiles`), an
+ * undo or redo (also a story, a flag's name, a delete with its files, an id rename, see `historyWritesFiles`).
+ */
 const AGENT_FILE_STEPS: ReadonlySet<string> = new Set(["reset_to_original", "undo", "redo"]);
+
+/** Whether an agent's file step command (`AGENT_FILE_STEPS`) that changed `assets` wrote the saved project. */
+const fileStepWrote = (tool: string, assets: readonly AssetId[]) => (tool === "reset_to_original" ? writesFiles(assets) : historyWritesFiles(assets));
 
 /** A script opens in a group at least this high. */
 const SCRIPT_HEIGHT = 400;
@@ -614,7 +620,7 @@ function AppBody() {
       rereadTextStatus();
     }
     // What the saved project holds may differ now: Technik › Änderungen compares again.
-    if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
+    if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && fileStepWrote(event.tool, event.assets))) bumpChanged();
     // An agent renamed an id, named a flag or variable, or undid or redid a step (a rename's among them): the heads read the ids again.
     if (event.tool === "rename_id" || event.tool === "name_flag" || event.tool === "undo" || event.tool === "redo") bumpIds();
     // An agent chose a side of a conflict: after its assets were read again, the sync lists what is still open (as after the user's choice).

@@ -8,6 +8,22 @@ export function writesFiles(assets: readonly AssetId[]): boolean {
   return assets.some((a) => FILE_KINDS.has(a.kind));
 }
 
+/**
+ * Store kinds a file step of the history reports too: the header table (a story made, changed or deleted, a flag or variable named, an
+ * entity deleted with its files, an id renamed) and a trainer (its id renamed). The steps that write the files of the other file steps report
+ * a file kind (`FILE_KINDS`; a recipe always a script).
+ */
+const FILE_STEP_STORE_KINDS: ReadonlySet<AssetId["kind"]> = new Set<AssetId["kind"]>(["HeaderTable", "Trainer"]);
+
+/**
+ * Whether undo or redo of a step that restored `assets` may have written the saved project: a file kind, or a store kind a file step
+ * reports (`FILE_STEP_STORE_KINDS`). The assets do not tell a file step of the header table or a trainer from a store step of them, so
+ * those count as written (a needless compare at worst); a store step of any other kind wrote nothing.
+ */
+export function historyWritesFiles(assets: readonly AssetId[]): boolean {
+  return writesFiles(assets) || assets.some((a) => FILE_STEP_STORE_KINDS.has(a.kind));
+}
+
 /** What the shown scene is built from; `reloadPlan` decides against it what a restored asset touches. */
 export interface SceneState {
   /** Index of the matrix the scene shows (null: none). */

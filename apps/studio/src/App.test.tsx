@@ -3525,6 +3525,20 @@ describe("App wiring", () => {
       expect(tauriEvents.has("agent-event")).toBe(true);
     }
 
+    it("an_agents_undo_of_a_file_step_on_the_header_table_reads_git_again", async () => {
+      const gitItem = () => container.querySelector<HTMLButtonElement>("[data-git-status]");
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 5 }));
+      await inTheApp();
+      await flush();
+      expect(gitItem()?.textContent).toBe("main · 5 Änderungen");
+      // The agent took back a story it made (its file step reports the header table): the status line counts again.
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf());
+      await emit({ kind: "changed", seq: 1, client: "Claude Code", tool: "undo", label: null, assets: [{ kind: "HeaderTable", index: 0 }] });
+      await flush();
+      await flush();
+      expect(gitItem()?.textContent).toBe("main · keine Änderung");
+    });
+
     it("own_flag_names_outside_technik_follow_undo_and_an_agents_naming", async () => {
       // A chip of the inspector or a level script: the flag list of the events (or scripts), whose revision no naming moves.
       function Chip() {
@@ -3745,9 +3759,10 @@ describe("App wiring", () => {
         await flush();
         expect(changedFromOriginal, tool).toHaveBeenCalledTimes(++calls);
       }
-      // An agent's reset, undo or redo only when it wrote a file (a script, texture or model).
+      // An agent's reset, undo or redo only when it wrote a file (a script, texture or model; an undo or redo also a file step of the
+      // header table or a trainer, see the git tests).
       for (const [i, tool] of ["reset_to_original", "undo", "redo"].entries()) {
-        await emit({ kind: "changed", seq: 30 + 2 * i, client: "Claude Code", tool, label: null, assets: [{ kind: "Trainer", index: 1 }] });
+        await emit({ kind: "changed", seq: 30 + 2 * i, client: "Claude Code", tool, label: null, assets: [{ kind: "Map", index: 3 }] });
         await flush();
         expect(changedFromOriginal, tool).toHaveBeenCalledTimes(calls);
         await emit({ kind: "changed", seq: 31 + 2 * i, client: "Claude Code", tool, label: null, assets: [{ kind: "Script", index: 0 }] });
@@ -3998,6 +4013,40 @@ describe("App wiring", () => {
       await act(async () => gitItem()!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("aenderungen");
+    });
+
+    it("an_undo_or_redo_of_a_file_step_on_the_header_table_or_a_trainer_reads_git_again", async () => {
+      // A story just made (its file step reports the header table, as naming a flag, deleting with its files and renaming an id do).
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 5 }));
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      expect(gitItem()?.textContent).toBe("main · 5 Änderungen");
+      const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      // ⌘Z takes the story back: its files are gone, the status line counts again.
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf());
+      vi.mocked(undo).mockResolvedValueOnce([{ kind: "HeaderTable", index: 0 }]);
+      await pressUndo();
+      await settle();
+      expect(gitItem()?.textContent).toBe("main · keine Änderung");
+      // ⌘⇧Z writes them again.
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 5 }));
+      vi.mocked(redo).mockResolvedValueOnce([{ kind: "HeaderTable", index: 0 }]);
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, shiftKey: true, bubbles: true })));
+      await settle();
+      expect(gitItem()?.textContent).toBe("main · 5 Änderungen");
+      // A trainer's id renamed (its file step reports the trainer), taken back.
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 2 }));
+      vi.mocked(undo).mockResolvedValueOnce([{ kind: "Trainer", index: 1 }]);
+      await pressUndo();
+      await settle();
+      expect(gitItem()?.textContent).toBe("main · 2 Änderungen");
+      // A store step of a map writes no file: not read again.
+      vi.mocked(gitStatus).mockClear().mockResolvedValue(gitStatusOf({ changes: 9 }));
+      vi.mocked(undo).mockResolvedValueOnce([{ kind: "Map", index: 3 }]);
+      await pressUndo();
+      await settle();
+      expect(gitStatus).not.toHaveBeenCalled();
+      expect(gitItem()?.textContent).toBe("main · 2 Änderungen");
     });
 
     const againstShown = () => container.querySelector("[data-technik=aenderungen] [data-against]")?.getAttribute("data-against");
