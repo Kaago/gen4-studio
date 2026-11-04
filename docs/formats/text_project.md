@@ -168,7 +168,12 @@ Variable mit dem **eigenen** Namen aus dem Register (`data/ids/flags.json`, `var
 Zahl; 0 bleibt 0, pret-Namen schreibt der Export nie (ein Projekt ohne eigene Namen behält seine
 Zahlen). Der Import nimmt den eigenen Namen, den pret-Namen der Familie (`FLAG_UNUSED_0x0094`) und
 die Zahl bis `0xFFFF`. `coord_events[].value` ist immer eine Zahl, ebenso die Werte der Level-Scripts.
-`warp_events[].dest_header_id` nennt den Header (`MAP_*`).
+`warp_events[].dest_header_id` nennt den Header (`MAP_*`). Nimmt ⌘Z oder ⌘⇧Z dem Register einen
+eigenen Namen (eine Benennung, eine Umbenennung oder ein Löschen zurück- oder wiederholt), nennen
+die Ereignisdateien, die ihn seither schreiben, wieder die Nummer, wie beim Löschen eines eigenen
+Namens: die Nummer meint dasselbe Flag, die Members und der Stand des Stores bleiben gleich, und
+keine Datei behält einen Namen, den der Import nicht kennt
+(`textproject::rename::unnamed_events`, mit den Dateien des Schritts geschrieben).
 
 `encounters` (`data/encounters/0000.json`, Platin):
 

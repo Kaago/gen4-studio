@@ -365,3 +365,98 @@ fn name_flag_over_the_store_is_one_undo_step() {
         ]
     );
 }
+
+const EVENT_JSON_0: &str = "data/events/0000.json";
+
+/// Event file 0 gets a figure hidden by flag 148, as one undo step.
+fn hide_figure_by_148(store: &mut Store) {
+    store
+        .edit_event(0, "Figur", |e| {
+            e.object_events.push(crate::store::ObjectEvent {
+                local_id: 0,
+                graphics_id: 0,
+                movement_type: 0,
+                trainer_type: 0,
+                hidden_flag: 148,
+                script: 0,
+                dir: 0,
+                data: [0; 3],
+                movement_range_x: 0,
+                movement_range_z: 0,
+                x: 0,
+                z: 0,
+                y: 0,
+            });
+            Ok(())
+        })
+        .unwrap();
+}
+
+/// No error in the import of the whole text project.
+fn imports_cleanly(fx: &TextFixture) {
+    let report = crate::textproject::check(&fx.project()).unwrap();
+    assert!(
+        report
+            .problems
+            .iter()
+            .all(|p| p.severity != crate::text::Severity::Error),
+        "{:?}",
+        report.problems
+    );
+}
+
+#[test]
+fn undoing_a_name_the_saved_event_json_uses_names_the_number_again() {
+    // A recipe's chain in one store (`studio mcp`, the kernel tests): name the flag, hide a
+    // figure by it, save (the event JSON names it), undo both, save.
+    let fx = TextFixture::exported();
+    let event_before = fx.read(EVENT_JSON_0);
+    let mut store = Store::new(Arc::new(fx.project()));
+    name_flag(&mut store, &req(FlagKind::Flag, 148, Some(MEDAILLE), None)).unwrap();
+    hide_figure_by_148(&mut store);
+    store.save().unwrap();
+    let event_named = fx.read(EVENT_JSON_0);
+    assert!(fx.text(EVENT_JSON_0).contains("\"hidden_flag\": \"FLAG_HAT_MEDAILLE\""));
+
+    store.undo().unwrap();
+    store.undo().unwrap();
+    assert_eq!(fx.text(FLAG_REGISTER), "{}\n");
+    // The event file the store saved names the number again: the register no longer knows
+    // the name, and the number means the same flag.
+    let text = fx.text(EVENT_JSON_0);
+    assert!(!text.contains(MEDAILLE), "{text}");
+    assert!(text.contains("\"hidden_flag\": 148"), "{text}");
+    imports_cleanly(&fx);
+    // The store's own event is no stale file: the save writes it back as it was.
+    store.save().unwrap();
+    assert_eq!(fx.read(EVENT_JSON_0), event_before);
+
+    // Redo brings name and figure back; the save names the flag again.
+    store.redo().unwrap();
+    store.redo().unwrap();
+    store.save().unwrap();
+    assert_eq!(fx.read(EVENT_JSON_0), event_named);
+    imports_cleanly(&fx);
+}
+
+#[test]
+fn undoing_a_rename_the_saved_event_json_uses_names_the_number_again() {
+    // The same with a rename: the event JSON saved after it names the new id, which the undo
+    // of the rename drops from the register.
+    let fx = TextFixture::exported();
+    let mut store = Store::new(Arc::new(fx.project()));
+    name_flag(&mut store, &req(FlagKind::Flag, 148, Some(MEDAILLE), None)).unwrap();
+    crate::textproject::rename::rename_id(&mut store, MEDAILLE, "FLAG_HAT_ORDEN").unwrap();
+    hide_figure_by_148(&mut store);
+    store.save().unwrap();
+    assert!(fx.text(EVENT_JSON_0).contains("\"hidden_flag\": \"FLAG_HAT_ORDEN\""));
+
+    store.undo().unwrap();
+    store.undo().unwrap();
+    assert_eq!(fx.text(FLAG_REGISTER), "{\n  \"FLAG_HAT_MEDAILLE\": 148\n}\n");
+    let text = fx.text(EVENT_JSON_0);
+    assert!(!text.contains("FLAG_HAT_ORDEN"), "{text}");
+    imports_cleanly(&fx);
+    store.save().unwrap();
+    imports_cleanly(&fx);
+}

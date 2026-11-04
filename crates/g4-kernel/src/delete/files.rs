@@ -5,20 +5,16 @@
 //! ([`apply_file_step`]: the sync's record, the id files for rotom anew), so ⌘Z brings them
 //! back.
 
-use std::path::{Path, PathBuf};
-
-use serde_json::Value;
+use std::path::Path;
 
 use crate::error::{KernelError, io_at};
 use crate::flags::{FlagKind, entity_rel};
 use crate::places::{location_bank, location_names};
 use crate::project::{AssetId, AssetKind, Project};
-use crate::scripts::numbered_files;
 use crate::store::{ChangeId, FileChange, FileStep, FileStepKind, HEADER_TABLE, Store};
-use crate::textproject::Art;
 use crate::textproject::canon::to_canonical;
 use crate::textproject::registry::{IDS_DIR, Registry, registry_file};
-use crate::textproject::rename::apply_file_step;
+use crate::textproject::rename::{apply_file_step, events_naming};
 use crate::textproject::symbols::SymbolKind;
 
 use super::plan::PLACE_ONLY_LAST;
@@ -83,7 +79,7 @@ pub(super) fn remove_own_name(
             after: None,
         });
     }
-    files.extend(events_naming(&project, kind, &id, number)?);
+    files.extend(events_naming(&project, &[(kind, id.clone(), number)], &[])?);
     let step = FileStep {
         asset: HEADER_TABLE,
         files,
@@ -95,51 +91,6 @@ pub(super) fn remove_own_name(
     apply_file_step(&project, &step)?;
     let change = store.record_file_step(&format!("Gelöscht: {label}"), step);
     Ok((change, HEADER_TABLE))
-}
-
-/// The event files that name flag (variable) `id` by its own name, with `number` in its place:
-/// `object_events[].hidden_flag` (`coord_events[].var`). A file that is no JSON is left to the
-/// import's report.
-fn events_naming(
-    project: &Project,
-    kind: FlagKind,
-    id: &str,
-    number: u16,
-) -> Result<Vec<FileChange>, KernelError> {
-    let (list, key) = match kind {
-        FlagKind::Flag => ("object_events", "hidden_flag"),
-        FlagKind::Var => ("coord_events", "var"),
-    };
-    let dir: PathBuf = Art::Events.dir();
-    let mut out = Vec::new();
-    for n in numbered_files(&project.root.join(&dir), Some("json"))? {
-        let rel = dir.join(format!("{n:04}.json"));
-        let Some(bytes) = read_optional(&project.root, &rel)? else {
-            continue;
-        };
-        let Ok(mut value) = serde_json::from_slice::<Value>(&bytes) else {
-            continue;
-        };
-        let mut named = false;
-        if let Some(items) = value.get_mut(list).and_then(Value::as_array_mut) {
-            for item in items {
-                if let Some(field) = item.get_mut(key)
-                    && field.as_str() == Some(id)
-                {
-                    *field = Value::from(number);
-                    named = true;
-                }
-            }
-        }
-        if named {
-            out.push(FileChange {
-                path: rel,
-                before: Some(bytes),
-                after: Some(to_canonical(&value)),
-            });
-        }
-    }
-    Ok(out)
 }
 
 /// Removes the last own place `index`: one step „Ort entfernt: {name}“ that takes the last

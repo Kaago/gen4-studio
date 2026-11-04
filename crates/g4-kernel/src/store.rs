@@ -571,6 +571,9 @@ pub enum FileStepKind {
     Reset,
     /// „ID umbenennen“ (`textproject::rename`): undo and redo move its files under the sync's
     /// lock, record those the sync had in step again and write the id files for rotom anew.
+    /// An own flag or variable name the move drops from the register is replaced by its number
+    /// in the event files that name it (`textproject::rename::unnamed_events`), with the
+    /// step's files.
     IdRename,
     /// A recipe's files (scripts, their members, text archives the compile wrote): undo and
     /// redo reload the step's asset when it is loaded.
@@ -3941,6 +3944,19 @@ fn move_files(
             return Err(StepError::Drop(KernelError::Refused(why)));
         }
     }
+    // An own flag or variable name the move drops from the register leaves the event files
+    // that name it (saved since): they name the number again, written with the step's files.
+    let unnamed = if renamed {
+        unnamed_events(project, files, side).map_err(StepError::Keep)?
+    } else {
+        Vec::new()
+    };
+    let all: std::borrow::Cow<'_, [(AssetId, FileChange)]> = if unnamed.is_empty() {
+        std::borrow::Cow::Borrowed(files)
+    } else {
+        std::borrow::Cow::Owned(files.iter().cloned().chain(unnamed).collect())
+    };
+    let files = all.as_ref();
     let paths: Vec<&Path> = files.iter().map(|(_, f)| f.path.as_path()).collect();
     let in_step = if renamed {
         crate::textproject::rename::before_move(project, &paths)
@@ -3957,6 +3973,44 @@ fn move_files(
         let _ = crate::textproject::rename::after_move(project, &in_step, &journal);
     }
     Ok(())
+}
+
+/// The event files a move of an id rename's `files` to `side` rewrites besides them
+/// ([`crate::textproject::rename::unnamed_events`]), as changes whose `side` is the rewrite.
+fn unnamed_events(
+    project: &Project,
+    files: &[(AssetId, FileChange)],
+    side: Side,
+) -> Result<Vec<(AssetId, FileChange)>, KernelError> {
+    let root = &project.root;
+    let moved: Vec<crate::textproject::rename::MovedFile<'_>> = files
+        .iter()
+        .map(|(_, f)| {
+            let (now, then) = side.file(f);
+            let rel = f.path.strip_prefix(root).unwrap_or(&f.path).to_path_buf();
+            (rel, now, then)
+        })
+        .collect();
+    let unnamed = crate::textproject::rename::unnamed_events(project, &moved)?;
+    Ok(unnamed
+        .into_iter()
+        .map(|change| {
+            let (now, then) = (change.before, change.after);
+            let (before, after) = match side {
+                Side::Before => (then, now),
+                Side::After => (now, then),
+            };
+            let path = root.join(&change.path);
+            (
+                HEADER_TABLE,
+                FileChange {
+                    path,
+                    before,
+                    after,
+                },
+            )
+        })
+        .collect())
 }
 
 /// Why undo, redo or rollback of a changeset failed, and what becomes of the changeset.
