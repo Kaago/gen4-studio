@@ -1,6 +1,6 @@
 # Phasen-Gate 3d: Erzählen
 
-Stand: 2026-11-04. Main `fbbf9d9f` (3d.1 bis 3d.9, 4.5 und der Fix U5 gemergt), Gate-Lauf des Agenten auf main ohne Codeänderung; dazu die Szenarien `pt-geschichte-gate-buehne.yaml` und `pt-geschichte-gate.yaml` und diese Dokumentation. **Vom Agenten bestanden (2026-11-04): (A) die Szenarien `pt-geschichte` und `hg-geschichte` kopflos, (B) die kleine Geschichte komplett in der Tiefe Erzählen über die Test-Umgebung auf Platin DE, gebaut, geprüft und in `g4emu` gespielt.** Offen sind `scripts/gate.sh` auf main (läuft nach diesem Gate allein, der Koordinator trägt die Tabelle ein) sowie Hand, Blick und die `.fig`-Frames beim Nutzer.
+Stand: 2026-11-04. Gate-Lauf des Agenten auf main `fbbf9d9f` (3d.1 bis 3d.9, 4.5 und der Fix U5 gemergt) ohne Codeänderung; dazu die Szenarien `pt-geschichte-gate-buehne.yaml` und `pt-geschichte-gate.yaml` und diese Dokumentation. Danach `scripts/gate.sh` auf main durch den Koordinator (vier Läufe, zwei Fixes: die Story-Kette nach Undo eines eigenen Flag-Namens, Merge `68c98254`, und der Archivtest auf Vanilla Platin, `fcdb8eae`); Endstand main `fcdb8eae`. **Vom Agenten bestanden (2026-11-04): (A) die Szenarien `pt-geschichte` und `hg-geschichte` kopflos, (B) die kleine Geschichte komplett in der Tiefe Erzählen über die Test-Umgebung auf Platin DE, gebaut, geprüft und in `g4emu` gespielt.** **`scripts/gate.sh` auf main: grün auf `fcdb8eae` (Lauf 4 mit Wiederholung des Platin-Schritts und dem Rest, Abschnitt unten).** Offen sind Hand, Blick und die `.fig`-Frames beim Nutzer.
 
 Phase 3d bringt das Erzählen: Flags und Variablen mit Namen und Nutzungsindex (3d.1), die Tiefe Erzählen mit Rezept-Rahmen und Entwurf-Schicht (3d.2), Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken (3d.3), Löschen mit Referenzsperre, Grabstein und „Nummer freigeben“ (3d.4), Figur, Dialog und Tür (3d.5), Geschichten lesen (3d.6) und erzählen (3d.7), die Erzählen-Layouts mit dem Assistenten „Neuer Trainer“ (3d.8) und den Spielmodus live (3d.9); dazu die Zwischenphase 4.5 Veröffentlichen, die nicht zum Gate gehört. Die Teilphasen haben je ein eigenes Gate (Links unten); dieses Gate prüft, dass sie zusammen eine Geschichte tragen.
 
@@ -80,14 +80,40 @@ Bilder unter `target/agent/gate-2026-11-04/3d-gate/browser/`: die Schritte `s00`
 | (B) 6 `g4k build`, `g4k check`, `vanilla_checks` | Agent | bestanden: 0 Fehler (111 Befunde wie Vanilla), `differs=0` | 2026-11-04 |
 | (B) 7 in `g4emu` gespielt | Agent + Blick | bestanden: `expect-var` 0 → 1, B erscheint, Kampf gewonnen, `expect-flag` Belohnung einmal, zweiter Besuch „Hallo, Reisender!“ | 2026-11-04 |
 | `g4emu` Unit mit den neuen Szenarien | Agent | bestanden: `uv run pytest -m "not integration"` 394 passed, darunter `test_phase_gate_3d_scenarios_load` (Bühne und Spielen laden, Platzhalter, Erwartungen) | 2026-11-04 |
-| `scripts/gate.sh` auf main | Koordinator | folgt nach dem Gate-Lauf des Agenten (Koordinator) | – |
+| `scripts/gate.sh` auf main | Koordinator | bestanden auf `fcdb8eae`: Lauf 4 bis Platin DE grün (gated HeartGold DE 5 875 s, HeartGold US 5 900 s), Platin DE rot an einem Last-Flake (`git::cli::tests::the_templates_are_refreshed_before_the_commit`, allein 5 von 5 grün), Wiederholung des Schritts und Rest (Timings, Projektstart) grün (4 994 s; Timings 119 / 73 / 50 s, Projektstart 85 / 76 / 70 s); davor Lauf 2 fand die Regression der Story-Kette (Fix `68c98254`), Lauf 3 den Archivtest auf Vanilla Platin (Fix `fcdb8eae`) | 2026-11-04 |
 | Hand, Blick, `.fig` | Hand, Blick | offen | – |
 
 ### `scripts/gate.sh` auf main (Koordinator)
 
-<!-- Platz für die Tabelle des Gate-Laufs auf main: Schritt | Ergebnis | Zeit, mit Commit, Datum und `uptime` vor und nach dem Lauf. -->
+Vier Läufe am 2026-11-04, jeder allein auf main mit `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms bash scripts/gate.sh`; Logs unter `target/agent/gate-2026-11-04/3d-gate/gate-sh-lauf<N>-<Commit>.log` (nicht im Repo). Das Skript stoppt beim ersten roten Schritt; die gated Projekte laufen alphabetisch (HeartGold DE, HeartGold US, Platin DE). Die Last kam den ganzen Tag vor allem von Microsoft Defender (`wdavdaemon`, Load 7 bis 61); die Automatik-Schritte waren in jedem Lauf grün.
 
-*Folgt nach dem Gate-Lauf des Agenten: der Koordinator führt `scripts/gate.sh` allein auf main aus und trägt hier die Tabelle ein.* Ein erster Lauf auf `762d7036` war in jedem Schritt grün bis auf einen gated Test auf HeartGold DE (`dynamic_headers::store_applies_the_patch_creates_a_header_and_builds`, NotFound einer frisch kopierten `unpacked/OWSprites/0310` unter Last; allein 3 von 3 grün), danach stoppte das Skript vor Platin und HeartGold US.
+| Lauf | Commit | Ergebnis | Dauer | Roter Schritt | Einordnung |
+|---|---|---|---|---|---|
+| 1 | `762d7036` (3d.7 und 3d.6 Teil B gemergt) | rot | 5 730 s | gated HeartGold DE: `dynamic_headers::store_applies_the_patch_creates_a_header_and_builds`, NotFound einer frisch kopierten `unpacked/OWSprites/0310` | Last (Load bis 61); allein 3 von 3 grün in 49 s; kein Fix |
+| 2 | `fd305d1a` (Gate-Doku des Agenten) | rot | 5 730 s | gated HeartGold DE: `recipes_story::vanilla_story_chain_is_five_undo_steps_and_git_status_is_empty_after_undo`, `Stale(Event 57)` beim `save()` nach dem Undo | Regression 3d.4 × 3d.7 (Befund B4); allein reproduzierbar; Fix `373d7c7e`, Merge `68c98254` |
+| 3 | `68c98254` (Fix der Story-Kette) | rot | 16 711 s | gated Platin DE: `project::vanilla_every_archive_path_exists`, `files/zcustom/egg_moves.narc` fehlt | latent seit 3d.3 Teil B (Befund B5); Test-Fix `fcdb8eae`; davor gated HeartGold DE 6 440 s und HeartGold US 5 424 s grün |
+| 4 | `fcdb8eae` (Test-Fix) | rot, in der Wiederholung grün | 15 395 s + 5 467 s | gated Platin DE: `git::cli::tests::the_templates_are_refreshed_before_the_commit`, `gix` „Could not create index from tree“ bei Load 18 bis 27 | Last-Flake (Befund B6): im selben Lauf dreimal grün, allein 5 von 5; Wiederholung des Schritts und Rest grün |
+
+Lauf 4 (12:29 bis 16:45, `gate-sh-lauf4-fcdb8eae.log`):
+
+| Schritt | Projekt | Ergebnis | Sekunden |
+|---|---|---|---|
+| `cargo fmt --check`, `cargo clippy (-D warnings)`, `cargo deny`, npm licenses | – | ok | 1, 6, 3, 0 |
+| `cargo test` ohne ROM, mcp, `pnpm test` | – | ok | 2 133, 27, 143 |
+| tokens, styles, depth, `pnpm build`, dist ohne Brücke | – | ok | 0, 4, 1, 25, 0 |
+| g4emu unit, integration | – | ok | 16, 10 |
+| gated `cargo test` | HeartGold DE, HeartGold US | ok | 5 875, 5 900 |
+| gated `cargo test` | Platin DE | **rot** (B6) | 1 251 |
+
+Wiederholung und Rest (16:48 bis 18:19, `gate-rest-fcdb8eae.log`, Skript `gate-rest.sh` daneben: dieselben Befehle wie in `scripts/gate.sh`, Zeilen 182 bis 184, 202 bis 206 und 232 bis 235):
+
+| Schritt | Projekt | Ergebnis | Sekunden |
+|---|---|---|---|
+| gated `cargo test` (Wiederholung) | Platin DE | ok | 4 994 |
+| build graph (timings), erster Versuch | HeartGold DE, HeartGold US, Platin DE | ok | 119, 73, 50 |
+| gated Projektstart | HeartGold DE, HeartGold US, Platin DE | ok | 85, 76, 70 |
+
+Build-Graph-Zeiten (Release, ein Thread, Grenzen Karte, Text, Script je ≤ 500 ms, ohne Änderung ≤ 200 ms): HeartGold DE Karte 268, Text 282, Script 335, ohne Änderung 95 ms; HeartGold US 244, 255, 322, 103 ms; Platin DE 239, 260, 307, 105 ms. Referenzindex warm 181, 166, 201 ms (Grenze 1 000 ms, Ziel 300 ms). Damit ist `scripts/gate.sh` auf main `fcdb8eae` in jedem Schritt grün, der Platin-Schritt in der Wiederholung.
 
 ## Befunde
 
@@ -97,7 +123,11 @@ Bilder unter `target/agent/gate-2026-11-04/3d-gate/browser/`: die Schritte `s00`
 | B2 | Klein (Beobachtung) | (B) | Beim allerersten Öffnen der Kopie meldete die Konsole zwei `400` von `__bridge/invoke/get_area_data` (vor jeder Bedienung, mit `favicon.ico` 404). Nicht wiederholbar: Neuladen, auch mit geleertem `localStorage` und einer Fetch-Hülle für die Anfrage, ohne Fehler; die Brücke schreibt die Ursache nicht ins Log. Sonst nur WebGL-Hinweise „GPU stall due to ReadPixels“. | offen, nicht reproduziert |
 | B3 | Doku | Vorbereitung | Das Bühnen-Szenario scheiterte zuerst an `assign_base` („Pfad liegt außerhalb der erlaubten Ordner: ../3d-gate-web.nds“): `studio mcp` erlaubt die `.nds` nur neben einem `*_DSPRE_contents`-Ordner (oder mit `--allow-dir`); die Szenario-Kopien des Browsers brauchen den Zusatz. | Doku: [agent-gate.md](agent-gate.md), „Phasen-Gate 3d“; Kopie umbenannt |
 
-Kein Befund verlangte einen Fix auf main; es gibt keinen Fix-Commit in diesem Gate. Neu im Repo sind nur die beiden Szenarien, ihr Ladetest in `scripts/g4emu/tests/test_scenario.py` und die Dokumentation.
+| B4 | Mittel | `scripts/gate.sh` Lauf 2 | `recipes_story::vanilla_story_chain_is_five_undo_steps_and_git_status_is_empty_after_undo` (HeartGold DE): nach dem Undo der Kette bis zur Marke scheitert `save()` mit `Stale(Event 57)`. Ursache: seit Schema 2 (3d.4) steht der eigene Flag-Name im Event-JSON (`hidden_flag`); das Undo von `name_flag` (3d.7, Dateischritt `IdRename`) nimmt den Namen aus dem Register, die Eventdatei nennt ihn weiter, kompiliert nicht mehr (`textproject.unknown-id`) und der Store hält seine eigene Datei für fremd geändert. Dasselbe nach dem Undo von `rename_id`. In der App verdeckt das Neuladen nach Dateischritten den Fehler nicht ganz: das Projekt auf der Platte importiert nicht, bis das Event neu gespeichert ist. | behoben: Undo und Redo eines `IdRename`-Schritts schreiben Eventdateien mit einem entfernten Namen auf die Nummer zurück (`textproject::rename::unnamed_events`, aus `move_files` unter der Sperre des Schritts, Regel von 3d.4 `remove_own_name`); zwei Tests in `flags/entities/tests.rs`; `373d7c7e`, Merge `68c98254`; gated `recipes_story` auf allen drei Spielen grün |
+| B5 | Klein | `scripts/gate.sh` Lauf 3 | `project::vanilla_every_archive_path_exists` (Platin DE): seit 3d.3 Teil B nennt `archives.yaml` für Platin den Ei-Attacken-Patch-NARC `files/zcustom/egg_moves.narc`, den Vanilla Platin nicht hat (Tabelle in Overlay 5); der Test verlangte die Datei. Latent seit `ed4ab430` (2026-11-01), nie gated auf Platin gelaufen, weil die Gate-Läufe vorher auf HeartGold DE abbrachen. | behoben im Test: auf Platin prüft er den dokumentierten Vanilla-Zustand (weder NARC noch Ordner `eggMoves`); `fcdb8eae` |
+| B6 | Beobachtung | `scripts/gate.sh` Lauf 4 | `git::cli::tests::the_templates_are_refreshed_before_the_commit` (4.4-Test, synthetisches Repo) fiel im gated Schritt Platin DE bei Last 18 bis 27 mit `gix`: „Could not create index from tree“ direkt nach einem Commit über die Git-CLI; grün im selben Lauf ohne ROM, auf HeartGold DE und HeartGold US, in Lauf 3 viermal, allein 5 von 5. | Last-Flake, kein Fix; Wiederholung des Schritts grün |
+
+Die Fixes B4 und B5 sind auf main (`68c98254`, `fcdb8eae`); sie kamen aus `scripts/gate.sh`, nicht aus dem Gate-Lauf des Agenten. Neu im Repo sind sonst nur die beiden Szenarien, ihr Ladetest in `scripts/g4emu/tests/test_scenario.py` und die Dokumentation.
 
 ## Beim Nutzer
 
@@ -126,7 +156,7 @@ Agent + Blick: der Agent hat die Bilder gelesen und beschrieben; der Nutzer best
 
 ## Offen
 
-- `scripts/gate.sh` auf main (Koordinator, Tabelle oben).
+- `scripts/gate.sh` auf main: grün (Tabelle oben); die Flakes unter Last (Lauf 1 `dynamic_headers`, Lauf 4 `git::cli`) bleiben Beobachtungen.
 - Hand, Blick und `.fig` (oben).
 - B1 (Kampf-Slot des freigegebenen Trainers), B2 (nicht reproduziert).
 - HeartGold US als Szenario und HeartGold DE im Browser (optional, nicht gelaufen).

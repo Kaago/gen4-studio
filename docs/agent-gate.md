@@ -1863,7 +1863,7 @@ Das Phasen-Gate prüft die ganze Phase 3d an einer kleinen Geschichte: (A) die S
 | (B) Bühne | Agent | `pt-geschichte-gate-buehne.yaml` kopflos, dann `g4k git init` („Ausgangsstand“) |
 | (B) 1 bis 6 Browser | Agent + Blick | Test-Umgebung auf 1800/1801, Ablauf unten; `call.sh` nur zum Nachprüfen |
 | (B) 7 gespielt | Agent + Blick | `pt-geschichte-gate.yaml` mit den Zahlen aus dem Browser |
-| `scripts/gate.sh` | Koordinator | allein auf main nach dem Gate des Agenten |
+| `scripts/gate.sh` | Koordinator | allein auf main nach dem Gate des Agenten; grün auf `fcdb8eae` nach vier Läufen und zwei Fixes, Tabelle in [phase-3d-gate.md](phase-3d-gate.md) |
 | Hand, Blick, `.fig` | Hand, Blick | Gate-Datei, „Beim Nutzer“ |
 
 **Vorbereitung**, aus der Wurzel des Checkouts:
