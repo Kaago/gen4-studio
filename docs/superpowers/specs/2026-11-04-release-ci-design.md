@@ -55,7 +55,7 @@ Sieben Teile:
   - pnpm in der lokalen Version (12.16.1) und Node 26, `uv` und `cargo-deny@0.20.2` als vorgebautes Binary.
   - Caches mit `actions/cache`: `~/.cargo/registry`, `~/.cargo/git` und `target/`. Der Schlüssel besteht aus Betriebssystem, Rust-Version und dem Hash von `Cargo.lock`, mit Restore-Präfix. Dazu der pnpm-Store (Schlüssel `pnpm-lock.yaml`) und der uv-Cache (Schlüssel `scripts/g4emu/uv.lock`).
   - Danach `pnpm install --frozen-lockfile` in `apps/studio` und `G4_GATE_HERMETIC=1 bash scripts/gate.sh`.
-- **Job `gate-windows`** (`windows-latest`, `timeout-minutes: 90`), nur bei `push` auf `main` und `workflow_dispatch`, nicht bei Pull Requests (Kontingent):
+- **Job `gate-windows`** (`windows-latest`, `timeout-minutes: 90`), nur bei `push` auf `main`, bei `workflow_dispatch` und bei einem Pull Request mit dem Label `windows`. Ohne Label läuft er bei Pull Requests nicht (Kontingent). `workflow_dispatch` geht erst, wenn der Workflow auf `main` liegt; bis dahin laufen Probeläufe vom Branch über einen Draft-PR mit Label.
   - Toolchain und MinGW wie in §6.1 ermittelt.
   - `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
   - `cargo test --workspace --all-features`, ohne `G4_*`.
@@ -77,7 +77,7 @@ Sieben Teile:
 
 ## 5. R3: Release-Workflow `.github/workflows/release.yml`
 
-- **Auslöser:** `push` von Tags `v*`. Dazu `workflow_dispatch` mit dem Eingang `dry_run` (Standard `true`): Er baut und prüft alles, legt aber keinen Release an.
+- **Auslöser:** `push` von Tags `v*`. Dazu `workflow_dispatch` mit dem Eingang `dry_run` (Standard `true`): Er baut und prüft alles, legt aber keinen Release an. Außerdem `pull_request` mit den Typen `labeled` und `synchronize`. Dieser Lauf startet nur, wenn der PR das Label `release-dry-run` trägt, und gilt dann als `dry_run`. So lässt sich der Release-Workflow vom Branch aus prüfen, bevor er auf `main` liegt.
 - **Job `version`:** führt `bash scripts/version.sh check "$GITHUB_REF_NAME"` aus. Bei `dry_run` entfällt die Prüfung des Tags.
 - **Job `bundle-macos`** (`macos-14`):
   - Werkzeuge bauen und cachen. Der Cache-Schlüssel nennt Betriebssystem, Zielarchitektur und Fassung.
@@ -242,9 +242,10 @@ Ein frisches Benutzerkonto legt der Agent nicht an. Das ist eine Änderung der S
 Ablauf in `docs/release-ci-gate.md`, nach dem Muster der Phasen-Gates:
 
 - **(G1)** Ein Push auf `main` ergibt einen grünen `ci.yml`-Lauf mit `gate-macos` und `gate-windows`. `gate-macos` fährt dieselbe Liste wie `G4_GATE_HERMETIC=1 bash scripts/gate.sh` lokal, und die Tabelle beider Läufe ist gleich.
-- **(G2)** Auf dem Testbranch `ci-rot` gibt es zwei Commits. Einer verletzt `cargo fmt`, der andere ist ein absichtlich roter `pnpm test`. Beide ergeben einen roten Lauf, jeweils am erwarteten Schritt. Danach wird der Branch gelöscht.
+- **(G2)** Auf dem Testbranch `ci-rot` (als Draft-PR auf `main`) gibt es zwei Commits. Einer verletzt `cargo fmt`, der andere ist ein absichtlich roter `pnpm test`. Beide ergeben einen roten Lauf, jeweils am erwarteten Schritt. Danach wird der Branch gelöscht.
 - **(G3)** Der Tag `v0.1.0-rc.1` erzeugt einen Pre-Release-Entwurf mit DMG, `x64-setup.exe` und `SHA256SUMS.txt`. `check-bundle.sh`, `check-bundle-windows.sh`, `check-no-rom-data.sh` und der Rauchtest sind in beiden Bundle-Jobs grün. Die Prüfsummen passen zu den Dateien.
-- **(G4)** `workflow_dispatch` mit `dry_run` baut und prüft alles ohne Release.
+- **(G4)** Der Probelauf (Label `release-dry-run` auf dem Draft-PR, nach dem Merge `workflow_dispatch` mit `dry_run`) baut und prüft alles ohne Release.
+- **Kontingent:** macOS-Minuten zählen zehnfach. Entwickelt und geprüft wird zuerst lokal auf dem Mac. Pushes auf den PR werden gebündelt, und ein Lauf auf dem Runner prüft nur, was lokal nicht geht: Windows, den Runner selbst und das DMG mit `CI=true`.
 - **(G5)** Die Abnahme aus §8.2 ist mit dem heruntergeladenen DMG auf dem Mac bestanden.
 - **(G6)** Der Windows-Installer installiert auf dem Runner still. `studio doctor` und der Rauchtest sind grün, und `find_apicula` und `find_rotom_lsp` finden die `.exe`.
 - **(G7)** Kein Artefakt, kein Cache und kein Log enthält ROM-Daten. `check-no-rom-data.sh` ist grün über `--history origin/main..main` vor dem ersten Push, über die heruntergeladenen Artefakte und über einen heruntergeladenen Cache. Die Suche in den Logs aus §7.3 findet nichts.
