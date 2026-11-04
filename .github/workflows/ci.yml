@@ -1,5 +1,5 @@
 # CI of Gen4 Studio (spec release-ci 3.2). It runs only the hermetic part of scripts/gate.sh
-# (G4_GATE_HERMETIC=1): no ROM, no save game, no G4_* variable, no secret.
+# (G4_GATE_HERMETIC=1, the only G4_* variable): no ROM, no save game, no secret.
 #
 # PR labels (they only steer this workflow; adding one never starts the macOS job):
 #   windows         run gate-windows on this PR (without the label it only runs on main and by hand)
@@ -72,7 +72,10 @@ jobs:
           rustup component add rustfmt clippy
           echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restore here, save at the end of the job (`if: always()`): a cold run that fails late
+      # (a new clippy lint, a timeout) still keeps the compiled dependencies for the next run.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
@@ -110,6 +113,16 @@ jobs:
       - name: Gate (hermetic)
         run: bash scripts/gate.sh
 
+      # Only a cache that was not an exact hit; the key is the one of the restore step.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+
   # Feasibility probe and Windows gate. Opt-in on pull requests (label `windows`), because the
   # minutes cost; always on main and by hand. Both Rust targets run in one go for now.
   gate-windows:
@@ -145,13 +158,24 @@ jobs:
           update: false
           install: mingw-w64-x86_64-gcc make
 
-      # mingw64 first (gcc), then usr (make and the tools its Makefile calls).
+      # The runner puts the lines of GITHUB_PATH in front of PATH in reverse, so the last line
+      # written ends up first. Written in this order the PATH reads: Git bin (Git Bash stays the
+      # shell of `shell: bash`, not MSYS2's bash), mingw64 (gcc), MSYS2 usr (make and the tools
+      # its Makefile calls), the original PATH.
       - name: MSYS2 on PATH
         env:
           MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          echo "$MSYS2_LOCATION\\mingw64\\bin" >> "$GITHUB_PATH"
           echo "$MSYS2_LOCATION\\usr\\bin" >> "$GITHUB_PATH"
+          echo "$MSYS2_LOCATION\\mingw64\\bin" >> "$GITHUB_PATH"
+          echo 'C:\Program Files\Git\bin' >> "$GITHUB_PATH"
+
+      # Documents the probe: which bash, gcc and make the later steps get.
+      - name: Tool check
+        run: |
+          command -v bash gcc make
+          bash --version | head -1
+          gcc --version | head -1
 
       - name: Rust toolchain
         id: rust
@@ -162,7 +186,9 @@ jobs:
           rustup component add clippy
           echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restore here, save at the end of the job (see gate-macos).
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
@@ -182,3 +208,12 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace --all-features
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
