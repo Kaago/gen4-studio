@@ -1,6 +1,6 @@
 import { getMatrix, undo } from "../api";
 import type { AssetId } from "../api";
-import { historyPlan, writesFiles } from "../reload";
+import { historyPlan, historyWritesFiles } from "../reload";
 import type { ReloadAction } from "../reload";
 import { thumbnails } from "../world/thumbnailStore";
 import { pinAfterHistory } from "../workbench/pin";
@@ -16,8 +16,9 @@ interface HistoryReloadParams {
   scene: SceneSync;
   pins: InspectorState;
   /**
-   * An undo or redo restored files (a file step of a reset to original: a script, texture or model, see `writesFiles`): the app reads an
-   * open script document again and compares Technik › Änderungen again. Runs also when a reload of the world failed.
+   * An undo or redo may have restored files (a file step: a reset to original, a story, a flag's name, a delete with its files, an id
+   * rename, see `historyWritesFiles`): the app reads an open script document again, compares Technik › Änderungen again and reads the Git
+   * state again. Runs also when a reload of the world failed.
    */
   onFilesRestored?: (assets: AssetId[]) => Promise<void>;
 }
@@ -161,7 +162,7 @@ export function useHistoryReload({
         try {
           await reloadAfterHistory(assets);
         } finally {
-          if (writesFiles(assets)) await onFilesRestored?.(assets);
+          if (historyWritesFiles(assets)) await onFilesRestored?.(assets);
         }
       }
     } catch (e) {
