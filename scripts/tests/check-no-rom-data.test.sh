@@ -107,4 +107,75 @@ test_history_range() {
   assert_status 0 bash "$SCRIPT" --history HEAD~2
 }
 
+# Temp repo with helper `git` function (identity and signing set per call, real config untouched).
+history_repo() {
+  local d
+  d="$(tmpdir)"
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+  cd "$d"
+  command git init -q .
+  git() { command git -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+}
+
+test_history_duplicate_content_nds() {
+  # rev-list --objects names the blob once, under one arbitrary path; every path must count.
+  history_repo
+  echo same >sub.txt
+  git add sub.txt
+  git commit -q -m base
+  mkdir sub
+  echo same >sub/a.txt
+  echo same >z.nds
+  git add sub z.nds
+  git commit -q -m "copy"
+  assert_status 1 bash "$SCRIPT" --history HEAD~1..HEAD
+  assert_contains "z.nds" bash "$SCRIPT" --history HEAD~1..HEAD
+  assert_contains "extension .nds" bash "$SCRIPT" --history HEAD~1..HEAD
+}
+
+test_history_copied_dspre_folder() {
+  history_repo
+  mkdir proj
+  echo data >proj/x.txt
+  git add proj
+  git commit -q -m base
+  mkdir X_DSPRE_contents
+  echo data >X_DSPRE_contents/x.txt
+  git add X_DSPRE_contents
+  git commit -q -m "copy subtree"
+  assert_status 1 bash "$SCRIPT" --history HEAD~1..HEAD
+  assert_contains "X_DSPRE_contents/x.txt" bash "$SCRIPT" --history HEAD~1..HEAD
+  assert_contains "folder _DSPRE_contents" bash "$SCRIPT" --history HEAD~1..HEAD
+}
+
+test_history_renamed_rom_header() {
+  history_repo
+  echo base >base.txt
+  git add base.txt
+  git commit -q -m base
+  head -c 512 /dev/zero >foo.bin
+  printf '\x56\xcf' | dd of=foo.bin bs=1 seek=$((0x15C)) conv=notrunc 2>/dev/null
+  git add foo.bin
+  git commit -q -m "rom as foo.bin"
+  assert_status 1 bash "$SCRIPT" --history HEAD~1..HEAD
+  assert_contains "foo.bin" bash "$SCRIPT" --history HEAD~1..HEAD
+  assert_contains "nds header" bash "$SCRIPT" --history HEAD~1..HEAD
+}
+
+test_history_root_commit_in_range() {
+  history_repo
+  echo rom >r.nds
+  git add r.nds
+  git commit -q -m root
+  assert_status 1 bash "$SCRIPT" --history HEAD
+}
+
+test_history_bad_range_exit_2() {
+  history_repo
+  echo x >x.txt
+  git add x.txt
+  git commit -q -m base
+  assert_status 2 bash "$SCRIPT" --history nonexistent..HEAD
+}
+
 run_tests

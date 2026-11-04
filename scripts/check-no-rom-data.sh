@@ -66,11 +66,11 @@ class Report:
         self.hits += 1
         print("ROM? %s: %s" % (label, reason))
 
-    def check(self, label, reasons, head=None, size=0):
-        """Records one file: reasons from the path plus the header check of `head`."""
+    def check(self, label, reasons, nds_header=False):
+        """Records one file: reasons from the path plus the result of the header check."""
         self.checked += 1
         reasons = list(reasons)
-        if head is not None and header_matches(head, size):
+        if nds_header:
             reasons.append("nds header")
         for reason in reasons:
             self.hit(label, reason)
@@ -104,7 +104,7 @@ def scan_files(report, items):
         if res is None:
             report.hit(label, "unreadable")
             continue
-        report.check(label, path_reasons(rel), res[0], res[1])
+        report.check(label, path_reasons(rel), header_matches(res[0], res[1]))
 
 
 def walk(base_label, base):
@@ -179,70 +179,101 @@ def scan_repo_files(report):
     scan_files(report, items)
 
 
-def scan_history(report, rev_range):
-    try:
-        listing = git_lines(["rev-list", "--objects", rev_range])
-    except (subprocess.CalledProcessError, OSError):
-        print("check-no-rom-data: git rev-list failed for %r" % rev_range, file=sys.stderr)
-        sys.exit(2)
-    objects = []  # (sha, path); commits and the root tree have no path
-    for line in listing.decode("utf-8", "surrogateescape").splitlines():
-        sha, _, path = line.partition(" ")
-        if path:
-            objects.append((sha, path))
+def history_changes(rev_range):
+    """Unique (sha, path) of every added or changed file in the commits of a range.
 
-    # One process for type and size of everything, one for the contents of the blobs that can
-    # carry a header. Trees show up here too (with their folder name) and are skipped.
+    `git rev-list --objects` names each object once under one arbitrary path, so a .nds that has
+    the same content as another file would be missed; the raw diffs of the commits list every
+    path. --root covers a range that starts at a root commit, -m the merge commits, --no-renames
+    keeps one path per record."""
+    try:
+        out = git_lines(["log", "--format=", "--raw", "-z", "--no-abbrev", "--no-renames",
+                         "--root", "-m", rev_range])
+    except (subprocess.CalledProcessError, OSError):
+        print("check-no-rom-data: git log failed for %r" % rev_range, file=sys.stderr)
+        sys.exit(2)
+    tokens = out.split(b"\0")
+    seen = set()
+    changes = []
+    i = 0
+    while i + 1 < len(tokens):
+        meta = tokens[i].lstrip(b"\n")
+        if not meta.startswith(b":"):
+            i += 1
+            continue
+        # :<old mode> <new mode> <old sha> <new sha> <status> NUL <path> NUL
+        fields = meta[1:].split()
+        path = tokens[i + 1]
+        i += 2
+        if len(fields) < 5:
+            continue
+        mode, sha = fields[1].decode(), fields[3].decode()
+        if mode == "160000" or set(sha) == {"0"}:  # submodule or deletion
+            continue
+        key = (sha, path)
+        if key not in seen:
+            seen.add(key)
+            changes.append((sha, os.fsdecode(path)))
+    return changes
+
+
+def scan_history(report, rev_range):
+    changes = history_changes(rev_range)
+    shas = sorted(set(sha for sha, _ in changes))
+
+    # One process for type and size of all objects, one for the contents of the blobs that can
+    # carry a header (each unique blob once, however many paths it has).
     proc = subprocess.run(
         ["git", "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
-        input="".join(sha + "\n" for sha, _ in objects).encode(),
+        input="".join(sha + "\n" for sha in shas).encode(),
         check=True, stdout=subprocess.PIPE,
     )
     info = {}
     for line in proc.stdout.decode().splitlines():
-        sha, kind, size = line.split()
-        info[sha] = (kind, int(size))
-
-    to_read = []
-    for sha, path in objects:
-        kind, size = info.get(sha, ("", 0))
-        if kind != "blob":
-            continue
-        reasons = path_reasons(path)
-        if size < HEADER_MIN_SIZE:
-            report.check("%s (%s)" % (path, sha[:7]), reasons)
-        else:
-            to_read.append((sha, path, reasons, size))
-
-    if not to_read:
-        return
-    cat = subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
-                           stdout=subprocess.PIPE)
-
-    def feed():
-        for sha, _, _, _ in to_read:
-            cat.stdin.write((sha + "\n").encode())
-        cat.stdin.close()
-
-    writer = threading.Thread(target=feed)
-    writer.start()
-    for sha, path, reasons, size in to_read:
-        header = cat.stdout.readline().split()
-        if len(header) != 3 or header[0].decode() != sha:
-            print("check-no-rom-data: unexpected git cat-file output for %s" % sha, file=sys.stderr)
+        fields = line.split()
+        if len(fields) != 3:
+            print("check-no-rom-data: object not found in the repository: %s" % line,
+                  file=sys.stderr)
             sys.exit(2)
-        remaining = int(header[2])
-        head = cat.stdout.read(min(remaining, HEADER_END))
-        remaining -= len(head)
-        while remaining > 0:  # drain the rest of the blob without keeping it
-            chunk = cat.stdout.read(min(remaining, 1 << 20))
-            if not chunk:
-                break
-            remaining -= len(chunk)
-        cat.stdout.read(1)  # the newline after each object
-        report.check("%s (%s)" % (path, sha[:7]), reasons, head, size)
-    writer.join()
-    cat.wait()
+        info[fields[0]] = (fields[1], int(fields[2]))
+
+    to_read = [sha for sha in shas if info[sha][0] == "blob" and info[sha][1] >= HEADER_MIN_SIZE]
+    has_header = set()
+    if to_read:
+        cat = subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE)
+
+        def feed():
+            for sha in to_read:
+                cat.stdin.write((sha + "\n").encode())
+            cat.stdin.close()
+
+        writer = threading.Thread(target=feed)
+        writer.start()
+        for sha in to_read:
+            header = cat.stdout.readline().split()
+            if len(header) != 3 or header[0].decode() != sha:
+                print("check-no-rom-data: unexpected git cat-file output for %s: %r"
+                      % (sha, b" ".join(header)), file=sys.stderr)
+                sys.exit(2)
+            remaining = int(header[2])
+            head = cat.stdout.read(min(remaining, HEADER_END))
+            remaining -= len(head)
+            while remaining > 0:  # drain the rest of the blob without keeping it
+                chunk = cat.stdout.read(min(remaining, 1 << 20))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+            cat.stdout.read(1)  # the newline after each object
+            if header_matches(head, info[sha][1]):
+                has_header.add(sha)
+        writer.join()
+        cat.wait()
+
+    for sha, path in changes:
+        if info[sha][0] != "blob":
+            continue
+        report.check("%s (%s)" % (path, sha[:7]), path_reasons(path), sha in has_header)
 
 
 def main(argv):
