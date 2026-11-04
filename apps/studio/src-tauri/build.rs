@@ -20,7 +20,7 @@ fn main() {
 }
 
 /// `bundle.externalBin` and `bundle.macOS.frameworks` make tauri-build require
-/// `binaries/apicula-<target triple>`, `binaries/rotom-lsp-<target triple>` and
+/// `binaries/apicula-<target triple>`, `binaries/rotom-lsp-<target triple>` (both with `.exe` on Windows) and
 /// `frameworks/libnitroarc_ffi.dylib` for every build, also `cargo test`/`clippy`. The files are
 /// only real after `scripts/prepare-bundle.sh`; until then empty placeholders keep normal builds
 /// working. `find_apicula` and `find_rotom_lsp` ignore an empty file and
@@ -29,9 +29,15 @@ fn ensure_bundle_placeholders() {
     let Ok(triple) = std::env::var("TARGET") else {
         return;
     };
+    // tauri-build looks for the sidecars with `.exe` on Windows targets.
+    let exe = if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        ".exe"
+    } else {
+        ""
+    };
     for path in [
-        format!("binaries/apicula-{triple}"),
-        format!("binaries/rotom-lsp-{triple}"),
+        format!("binaries/apicula-{triple}{exe}"),
+        format!("binaries/rotom-lsp-{triple}{exe}"),
         "frameworks/libnitroarc_ffi.dylib".to_string(),
     ] {
         let path = Path::new(&path);
