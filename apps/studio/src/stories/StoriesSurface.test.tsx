@@ -188,6 +188,41 @@ describe("StoriesSurface", () => {
     expect(onError).toHaveBeenCalledWith("Der Verlauf ist nicht lesbar.");
   });
 
+  it("an_undo_that_takes_the_chosen_story_reads_nothing_of_it", async () => {
+    // Gate 3d.6, U2: ⌘Z took the story just created while its detail was open; the detail read it again before the list did (story_get
+    // and thread_graph answered 400). Now the detail reads at the revision of the list, and a choice the current list lacks goes.
+    const RIVALIN = storiesOf([storyRow(0, { name: "Rivalin", progress: { var: "VAR_RIVALIN" } })]);
+    await show({ stories: RIVALIN, selected: 0, revision: 1, listRevision: 1 });
+    expect(surface().querySelector("[data-story-detail]")?.getAttribute("data-story-detail")).toBe("STORY_0000");
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    const graphs = vi.mocked(threadGraph).mock.calls.length;
+    expect(graphs).toBeGreaterThan(0);
+    // ⌘Z: the revision moves while the list read before it still names the story; nothing is read for it.
+    await show({ stories: RIVALIN, selected: 0, revision: 2, listRevision: 1 });
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    expect(threadGraph).toHaveBeenCalledTimes(graphs);
+    expect(onSelect).not.toHaveBeenCalled();
+    // The list of revision 2 no longer has it: the choice goes, still nothing read, no error shown.
+    await show({ stories: storiesOf([]), selected: 0, revision: 2, listRevision: 2 });
+    expect(onSelect).toHaveBeenCalledWith(null);
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    expect(threadGraph).toHaveBeenCalledTimes(graphs);
+    expect(surface().querySelector("[role=alert]")).toBeNull();
+    expect(surface().textContent).toContain("Noch keine Geschichten.");
+  });
+
+  it("a_story_that_stays_is_read_again_with_its_list", async () => {
+    await show({ selected: 0, revision: 1, listRevision: 1 });
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    // A write moves the revision: the detail keeps what it shows until the list of the new revision is there, then reads again.
+    await show({ selected: 0, revision: 2, listRevision: 1 });
+    expect(storyGet).toHaveBeenCalledTimes(1);
+    expect(surface().querySelector("[data-story-detail]")?.getAttribute("data-story-detail")).toBe("STORY_0000");
+    await show({ selected: 0, revision: 2, listRevision: 2 });
+    expect(storyGet).toHaveBeenCalledTimes(2);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it("deleting_the_chosen_story_clears_the_choice_and_reports", async () => {
     await show({ selected: 0 });
     const detail = () => surface().querySelector<HTMLElement>("[data-story-detail]");

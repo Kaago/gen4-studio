@@ -191,7 +191,7 @@ function StoryNodesExample() {
       </div>
       <h3 className={styles.storyHead}>Nur notiert, Wert, Ort, Ort ohne Wert, Ort als Taste</h3>
       <div className={styles.storyNodes}>
-        <StoryNode kind="reward" title="Pokédex bekommen" subtitle="Wert 7" notedOnly />
+        <StoryNode kind="appearance" title="Besuch erscheint" subtitle="Wert 7" notedOnly />
         <StoryNode kind="value" title="4" />
         <StoryNode kind="place" title="Route 201" subtitle="Eventdatei 0394" />
         <StoryNode kind="place" title="Scriptdatei 0200" loose />

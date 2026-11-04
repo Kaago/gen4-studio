@@ -68,6 +68,20 @@ describe("StoryNode", () => {
     expect(node().textContent).toContain("ohne Wert");
   });
 
+  it("the_kind_word_keeps_its_line_and_the_plakette_goes_to_the_value", () => {
+    // The longest word beside „nur notiert“ was cut to „Erscheinen/“ in a node of 192 px (gate 3d.6, U1): the word has the head to
+    // itself, the plakette sits in the line of the value.
+    const lineOf = (text: string) => [...node().querySelectorAll<HTMLElement>("span")].find((el) => el.textContent === text)!.closest<HTMLElement>("[data-story-node] > *")!;
+    show({ kind: "appearance", title: "Besuch erscheint", subtitle: "Wert 5", notedOnly: true });
+    expect(lineOf("Erscheinen/Verschwinden").textContent).toBe("Erscheinen/Verschwinden");
+    expect(lineOf("nur notiert").textContent).toBe("Wert 5nur notiert");
+    // A place without a second line still says „ohne Wert“, under its title.
+    show({ kind: "place", title: "Scriptdatei 0200", loose: true });
+    expect(lineOf("Ort").textContent).toBe("Ort");
+    expect(lineOf("ohne Wert").textContent).toBe("ohne Wert");
+    expect(node().lastElementChild?.textContent).toBe("ohne Wert");
+  });
+
   it("a_node_with_onOpen_is_a_button", () => {
     show({ kind: "place", title: "Scriptdatei 0101" });
     expect(node().getAttribute("role")).toBeNull();

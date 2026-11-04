@@ -1000,6 +1000,49 @@ mod tests {
         );
     }
 
+    /// A text project without the sources and members of an art (no `unpacked/`, no script
+    /// sources, no text archives, no event files) does not know how many there are: its uses
+    /// of scripts, messages and objects are no problem, never „… gibt es nicht.“ for each.
+    #[test]
+    fn an_art_without_sources_or_members_counts_nothing() {
+        use crate::project::AssetKind;
+        let fx = TextFixture::exported();
+        fx.write("data/ids/stories.json", b"{\n  \"STORY_A\": 0\n}\n");
+        let p = fx.project();
+        for dir in [
+            p.expanded_dir(AssetKind::Script),
+            p.unpacked_dir(AssetKind::Script),
+            p.expanded_dir(AssetKind::TextArchive),
+            p.unpacked_dir(AssetKind::TextArchive),
+            fx.root().join(crate::textproject::Art::Events.dir()),
+        ] {
+            if dir.exists() {
+                std::fs::remove_dir_all(&dir).unwrap();
+            }
+        }
+        let registry = Registry::load(fx.root(), SymbolKind::Story).unwrap();
+        let resolver = Resolver::for_project(&p).unwrap();
+        let text = r#"{
+  "id": "STORY_A",
+  "name": "A",
+  "progress": { "flag": "FLAG_0001" },
+  "steps": [
+    {
+      "key": "s0", "value": 0, "kind": "battle", "name": "Kampf",
+      "uses": [
+        { "script": { "file": 1, "slot": 0 } },
+        { "levelScript": { "file": 2, "condition": 0 } },
+        { "message": { "archive": 697, "index": 0 } },
+        { "object": { "file": 1, "local_id": 0 } }
+      ]
+    }
+  ]
+}
+"#;
+        let problems = check_file(&p, &registry, &resolver, 0, text.as_bytes());
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
     #[test]
     fn kinds_have_seven_words() {
         assert_eq!(StepKind::all().len(), 7);

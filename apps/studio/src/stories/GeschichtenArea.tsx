@@ -128,6 +128,7 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           goTo={goTo}
           project={info}
           revision={revision}
+          listRevision={stories.revision ?? undefined}
           onCreated={props.onStoryCreated ?? noSelect}
           onUpdated={props.onStoryUpdated}
           onDeleted={props.onStoryDeleted}

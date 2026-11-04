@@ -41,6 +41,14 @@ describe("Reference", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
+  it("a_title_is_the_chips_tooltip", () => {
+    act(() => root.render(<Reference area="geschichten" label="Heimkehr" onOpen={() => {}} />));
+    expect(chip().hasAttribute("title")).toBe(false);
+    act(() => root.render(<Reference area="geschichten" label="Heimkehr" title="STORY_HEIMKEHR" onOpen={() => {}} />));
+    expect(chip().title).toBe("STORY_HEIMKEHR");
+    expect(chip().textContent).toBe("Heimkehr");
+  });
+
   it("a_disabled_reference_stays_visible_and_does_not_open", () => {
     const onOpen = vi.fn();
     act(() => root.render(<Reference area="welt" label="Scriptdatei 0040" onOpen={onOpen} disabled />));

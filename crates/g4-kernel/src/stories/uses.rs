@@ -95,8 +95,9 @@ impl<'a> OnDisk<'a> {
     }
 
     /// Why `target` names nothing now, or `None`: „<Label> gibt es nicht.“ for a script file,
-    /// text archive or event file at or past the count of its art, or a trainer or header whose
-    /// file is gone („Nummer freigeben“); „<Label> ist gelöscht.“ for an entity whose JSON
+    /// text archive or event file at or past the count of its art (never while the project has
+    /// none of the art, so the count is unknown), or a trainer or header whose file is gone
+    /// („Nummer freigeben“); „<Label> ist gelöscht.“ for an entity whose JSON
     /// carries a tombstone. Flags and variables always exist.
     pub(crate) fn open(&self, target: &UseTarget) -> Option<String> {
         let entity = target.entity();
@@ -134,7 +135,7 @@ impl<'a> OnDisk<'a> {
     /// One past the highest event file (`data/events/NNNN.json`).
     fn count_events(&self) -> Option<u32> {
         let dir = self.project.root.join(Art::Events.dir());
-        Some(one_past(numbered_files(&dir, Some("json")).ok()?))
+        one_past(numbered_files(&dir, Some("json")).ok()?)
     }
 
     /// One past the highest script file: a source (`.rotom` or level script, as the reference
@@ -143,7 +144,7 @@ impl<'a> OnDisk<'a> {
         let p = self.project;
         let sources = script_sources(p, &p.expanded_dir(AssetKind::Script)).ok()?;
         let members = numbered_files(&p.unpacked_dir(AssetKind::Script), None).ok()?;
-        Some(one_past(sources.into_keys().chain(members)))
+        one_past(sources.into_keys().chain(members))
     }
 
     /// One past the highest text archive (`NNNN.json` or member).
@@ -151,7 +152,7 @@ impl<'a> OnDisk<'a> {
         let p = self.project;
         let json = numbered_files(&p.expanded_dir(AssetKind::TextArchive), Some("json")).ok()?;
         let members = numbered_files(&p.unpacked_dir(AssetKind::TextArchive), None).ok()?;
-        Some(one_past(json.into_iter().chain(members)))
+        one_past(json.into_iter().chain(members))
     }
 }
 
@@ -162,9 +163,11 @@ fn past(cell: &OnceCell<Option<u32>>, n: u16, count: impl FnOnce() -> Option<u32
         .is_some_and(|count| u32::from(n) >= count)
 }
 
-/// One past the highest of `numbers`, 0 for none.
-fn one_past(numbers: impl IntoIterator<Item = u16>) -> u32 {
-    numbers.into_iter().max().map_or(0, |n| u32::from(n) + 1)
+/// One past the highest of `numbers`; unknown without any: an art with neither sources nor
+/// members (a text project without `unpacked/` and without the sources of the art) says
+/// nothing about its count, so nothing of it counts as gone.
+fn one_past(numbers: impl IntoIterator<Item = u16>) -> Option<u32> {
+    numbers.into_iter().max().map(|n| u32::from(n) + 1)
 }
 
 /// A story that mentions something: the story (id, name, number, file relative to the root)

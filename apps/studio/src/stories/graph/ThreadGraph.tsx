@@ -25,6 +25,14 @@ export type ThreadGraphProps = {
 
 type StoryFlowNode = Node<StoryNodeData>;
 
+/**
+ * The smallest zoom the graph is fitted at: the node's text (12 and 13 px) still reads at 7 to 8 px (twice that on a Retina screen), and a
+ * story's graph of six ranks (gate 3d.6, „Heimkehr“, fitted at 0.6) still fits the detail whole. A larger graph (HeartGold's
+ * `VAR_UNOWN_REPORT_LEVEL`, 21 nodes, was fitted at about 0.26) shows its middle at this zoom; the rest is panned to (drag) or zoomed out
+ * to (pinch, down to 0.2).
+ */
+export const FIT_MIN_ZOOM = 0.6;
+
 /** React Flow's own words for screen readers, in German; nothing removes a node, only a story's graph moves them (drag or arrow keys). */
 const ariaLabels: Partial<AriaLabelConfig> = {
   "node.a11yDescription.default": "Enter oder Leertaste wählt einen Knoten.",
@@ -88,7 +96,7 @@ const nodeTypes = { [STORY_NODE_TYPE]: StoryFlowNodeView };
  * The graph of a thread or a story (3d.6): the places that set a value left of it, the places that check it right (dagre, or the story's
  * side file), one `StoryNode` per node, the edges labelled where the reference is. A click selects a node; a selected place opens with
  * „Öffnen“. With `onLayout` (a story, 3d.7) the nodes are dragged or moved with the arrow keys and each drag's end and each key's move hands the
- * side file over; without it nothing moves. Fits itself into view; no minimap; React Flow's attribution stays (bottom right). The default export is for `React.lazy`: React
+ * side file over; without it nothing moves. Fits itself into view, never below `FIT_MIN_ZOOM` (a larger graph is panned); no minimap; React Flow's attribution stays (bottom right). The default export is for `React.lazy`: React
  * Flow and dagre stay in this chunk.
  */
 export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, onLayout }: ThreadGraphProps) {
@@ -180,7 +188,7 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, on
           minZoom={0.2}
           maxZoom={2}
           fitView
-          fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
+          fitViewOptions={{ padding: 0.12, minZoom: FIT_MIN_ZOOM, maxZoom: 1 }}
           ariaLabelConfig={onLayout ? movableLabels : ariaLabels}
         />
       </OpenPlace.Provider>
