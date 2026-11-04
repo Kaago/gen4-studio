@@ -697,6 +697,21 @@ fn vanilla_every_archive_path_exists() {
     let p = Project::open(&root).unwrap();
     for kind in p.archives.kinds() {
         let packed = root.join(p.archives.packed(kind).unwrap());
+        // Platinum lists the egg moves for DSPRE's patch NARC, which vanilla has not: the
+        // table lies in overlay 5 until the patch is applied (`archives.yaml`), and the
+        // Studio creates neither the NARC nor the folder on its own.
+        if kind == AssetKind::EggMoves && p.family == Family::Pt {
+            assert!(
+                !packed.exists(),
+                "vanilla Platinum has no egg move patch: {}",
+                packed.display()
+            );
+            assert!(
+                !p.unpacked_dir(kind).is_dir(),
+                "vanilla Platinum has no eggMoves folder"
+            );
+            continue;
+        }
         assert!(packed.exists(), "{kind:?}: {}", packed.display());
         assert!(
             p.unpacked_dir(kind).is_dir(),
