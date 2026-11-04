@@ -1837,6 +1837,7 @@ target/release/studio mcp --project $P --base-rom $N
 #   rename_id {"id":"<TRAINER_…>","new_id":"<TRAINER_…>_GATE"} → data/stories/0000.json trägt den neuen Namen
 #   diff_entity {"kind":"story","index":0,"against":"head"}      → Fields mit JSON-Pfaden (steps[0].uses[0].trainer)
 #   plan_delete {"target":{"kind":"trainer","index":<n>}}        → mentions mit Geschichte und Schritt, keine Sperre
+#     (<n> ohne harte Verweise, references leer: Platin DE 5, HeartGold DE 11; HeartGold DE 5 hat 2 und wird abgelehnt)
 #   delete_entity {"target":{"kind":"trainer","index":<n>}}      → ein Undo-Schritt, mentions und ms in der Antwort (nicht warnings, PB1)
 #   plan_delete (erneut)                                           → deleted: true (der Grabstein); Zeit von plan_delete und ms von delete_entity in die Zahlentabelle
 #   save; text_check                                               → Warnung "story.dangling-ref: steps[0].uses[0].trainer: Trainer 0NNN ist gelöscht." an data/stories/0000.json
