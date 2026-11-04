@@ -1,6 +1,6 @@
 [package]
 name = "studio"
-version = "0.1.0"
+version.workspace = true
 description = "Gen4 Studio: Pokemon Gen 4 world editor"
 authors = ["Philipp Polte"]
 edition.workspace = true

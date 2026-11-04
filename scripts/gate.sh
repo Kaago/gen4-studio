@@ -2,8 +2,8 @@
 # Local gate (there is no CI): formatting, lints, licenses and advisories of the
 # dependency tree (cargo deny with deny.toml; needs cargo-deny 0.20.2), the licenses of the
 # npm packages (scripts/check-licenses-npm.sh), the shell script tests (scripts/tests/run.sh),
-# the ROM data guard (scripts/check-no-rom-data.sh), the full test
-# suite, the studio frontend, then the gated tests against every test project under
+# the ROM data guard (scripts/check-no-rom-data.sh), the version check (scripts/version.sh check),
+# the full test suite, the studio frontend, then the gated tests against every test project under
 # $G4_ROMS_DIR.
 #
 # Variables (all optional):
@@ -111,6 +111,8 @@ run_step "npm licenses" "" bash scripts/check-licenses-npm.sh
 run_step "script tests" "" bash scripts/tests/run.sh
 # No ROM, save game or derivative in the tracked files (spec release-ci 7.1).
 run_step "no rom data" "" bash scripts/check-no-rom-data.sh
+# One version for Cargo, npm and Tauri, CHANGELOG section present (spec release-ci 4).
+run_step "version" "" bash scripts/version.sh check
 # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
 run_step "cargo test (no ROM data)" "" \
   env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
