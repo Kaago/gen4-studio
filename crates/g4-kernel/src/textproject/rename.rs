@@ -266,6 +266,114 @@ pub(crate) fn after_move(
     warnings
 }
 
+/// A file of a move: its path relative to the root, its bytes now and after the move (`None`:
+/// no file).
+pub(crate) type MovedFile<'a> = (PathBuf, Option<&'a [u8]>, Option<&'a [u8]>);
+
+/// The event files a move of register files (undo or redo of an id rename, of naming a flag,
+/// of deleting an own name) would leave naming an own flag or variable name that the register
+/// no longer has, with the number in its place: the rule of deleting an own name (3d.4). The
+/// export writes own names into `object_events[].hidden_flag` and `coord_events[].var`, so an
+/// event file saved after a name was given names it; an undo of the name must not leave a name
+/// the import does not know (the store would find its own event file changed, `Stale`, and the
+/// build would refuse it). The number means the same flag, so the members and the store's view
+/// of the file stay as they are.
+///
+/// `moved` holds each file of the move: its path relative to the root, its bytes now and after
+/// the move. A register that does not read drops nothing (the import reports it); the files of
+/// the move are not rewritten (the move writes them).
+pub(crate) fn unnamed_events(
+    project: &Project,
+    moved: &[MovedFile<'_>],
+) -> Result<Vec<FileChange>, KernelError> {
+    let ids = |bytes: Option<&[u8]>| -> Option<std::collections::BTreeMap<String, u32>> {
+        match bytes {
+            Some(bytes) => serde_json::from_slice(bytes).ok(),
+            None => Some(std::collections::BTreeMap::new()),
+        }
+    };
+    let mut dropped: Vec<(FlagKind, String, u16)> = Vec::new();
+    for kind in [FlagKind::Flag, FlagKind::Var] {
+        let rel = Path::new(IDS_DIR).join(registry_file(kind.symbol()).unwrap_or_default());
+        let Some((_, now, then)) = moved.iter().find(|(path, _, _)| *path == rel) else {
+            continue;
+        };
+        let (Some(now), Some(then)) = (ids(*now), ids(*then)) else {
+            continue;
+        };
+        for (id, n) in now {
+            if !then.contains_key(&id)
+                && let Ok(n) = u16::try_from(n)
+            {
+                dropped.push((kind, id, n));
+            }
+        }
+    }
+    if dropped.is_empty() {
+        return Ok(Vec::new());
+    }
+    let skip: Vec<&Path> = moved.iter().map(|(path, _, _)| path.as_path()).collect();
+    events_naming(project, &dropped, &skip)
+}
+
+/// The event files (`data/events/NNNN.json`, except those of `skip`) that name one of `names`
+/// (kind, own name, number) by its own name, with the number in its place:
+/// `object_events[].hidden_flag` for a flag, `coord_events[].var` for a variable. Relative to
+/// the root, `before` what the file holds now. A file that is no JSON is left to the import's
+/// report.
+pub(crate) fn events_naming(
+    project: &Project,
+    names: &[(FlagKind, String, u16)],
+    skip: &[&Path],
+) -> Result<Vec<FileChange>, KernelError> {
+    let dir: PathBuf = super::Art::Events.dir();
+    let mut out = Vec::new();
+    for n in scripts::numbered_files(&project.root.join(&dir), Some("json"))? {
+        let rel = dir.join(format!("{n:04}.json"));
+        if skip.contains(&rel.as_path()) {
+            continue;
+        }
+        let path = project.root.join(&rel);
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(io_at(&path)(e)),
+        };
+        let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        let mut named = false;
+        for (kind, id, number) in names {
+            let (list, key) = match kind {
+                FlagKind::Flag => ("object_events", "hidden_flag"),
+                FlagKind::Var => ("coord_events", "var"),
+            };
+            let Some(items) = value
+                .get_mut(list)
+                .and_then(serde_json::Value::as_array_mut)
+            else {
+                continue;
+            };
+            for item in items {
+                if let Some(field) = item.get_mut(key)
+                    && field.as_str() == Some(id.as_str())
+                {
+                    *field = serde_json::Value::from(*number);
+                    named = true;
+                }
+            }
+        }
+        if named {
+            out.push(FileChange {
+                path: rel,
+                before: Some(bytes),
+                after: Some(to_canonical(&value)),
+            });
+        }
+    }
+    Ok(out)
+}
+
 /// The script sources (file numbers, ascending) that write `id`, the own name of `number`, as
 /// an identifier, with how often: the sources a rename of `id` rewrites (rotom's lexer, so
 /// comments and strings do not count). None without adopted scripts, and none when rotom's own
