@@ -16,6 +16,8 @@
 #   G4_VERSION_SKIP_LOCK  1: `set` leaves Cargo.lock alone (tests)
 #
 # Runs on bash 3.2 (macOS) and Git Bash; no bash 4 features, no sed -i (BSD and GNU differ).
+# Files with CRLF line endings work too (Git for Windows may check out that way); `set` keeps
+# the line endings of the file.
 set -euo pipefail
 
 ROOT="${G4_VERSION_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -37,6 +39,7 @@ is_semver() { # is_semver <text>
 cargo_version() {
   [ -f "$CARGO_TOML" ] || return 0
   awk '
+    { sub(/\r$/, "") }
     /^\[/ { in_section = ($0 ~ /^\[workspace\.package\][ \t]*$/) }
     in_section && /^version[ \t]*=/ { print; exit }
   ' "$CARGO_TOML" | sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p'
@@ -53,8 +56,17 @@ package_version() {
 rewrite_cargo() { # rewrite_cargo <version>
   local tmp="$CARGO_TOML.tmp.$$"
   awk -v v="$1" '
-    /^\[/ { in_section = ($0 ~ /^\[workspace\.package\][ \t]*$/) }
-    in_section && !done && /^version[ \t]*=/ { print "version = \"" v "\""; done = 1; next }
+    {
+      cr = ($0 ~ /\r$/) ? "\r" : ""
+      line = $0
+      sub(/\r$/, "", line)
+    }
+    line ~ /^\[/ { in_section = (line ~ /^\[workspace\.package\][ \t]*$/) }
+    in_section && !done && line ~ /^version[ \t]*=/ {
+      print "version = \"" v "\"" cr
+      done = 1
+      next
+    }
     { print }
   ' "$CARGO_TOML" >"$tmp"
   mv "$tmp" "$CARGO_TOML"
@@ -123,6 +135,10 @@ cmd_set() {
     if [ -d "$toolchain_bin" ]; then
       export PATH="$toolchain_bin:$PATH"
     fi
+    # Appended, like gate.sh: shadows nothing of the toolchain.
+    if [ -d "$HOME/.cargo/bin" ]; then
+      export PATH="$PATH:$HOME/.cargo/bin"
+    fi
     (cd "$ROOT" && cargo update -w --offline)
   fi
 
@@ -149,11 +165,11 @@ cmd_check() {
     echo "version: apps/studio/package.json: kein Feld \"version\"" >&2
     errors=1
   elif ! is_semver "$pv"; then
-    echo "version: package.json: $pv (kein gültiges SemVer)" >&2
+    echo "version: apps/studio/package.json: $pv (kein gültiges SemVer)" >&2
     errors=1
   fi
   if [ -n "$cv" ] && [ -n "$pv" ] && [ "$cv" != "$pv" ]; then
-    echo "version: package.json: $pv (Cargo.toml: $cv)" >&2
+    echo "version: apps/studio/package.json: $pv (Cargo.toml: $cv)" >&2
     errors=1
   fi
 

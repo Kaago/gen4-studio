@@ -43,7 +43,7 @@ test_mismatch_fails() {
   sed 's/"version": "0.1.0"/"version": "0.2.0"/' "$d/apps/studio/package.json" >"$d/p.json"
   mv "$d/p.json" "$d/apps/studio/package.json"
   assert_status 1 run "$d" check
-  assert_contains "version: package.json:" run "$d" check
+  assert_contains "package.json:" run "$d" check
 }
 
 test_rc_tag_uses_base_section() {
@@ -104,6 +104,45 @@ test_set_requires_argument() {
   local d
   d="$(setup)"
   assert_status 1 run "$d" set
+}
+
+# Rewrites a file with CRLF line endings.
+to_crlf() { # to_crlf <file>
+  sed 's/$/\r/' "$1" >"$1.crlf"
+  mv "$1.crlf" "$1"
+}
+
+test_crlf_files() {
+  local d
+  d="$(setup)"
+  to_crlf "$d/Cargo.toml"
+  to_crlf "$d/apps/studio/package.json"
+  to_crlf "$d/CHANGELOG.md"
+  [ "$(run "$d")" = "0.1.0" ] || fail "version not read from CRLF Cargo.toml"
+  assert_status 0 run "$d" check v0.1.0
+  run "$d" set 0.1.0-rc.2
+  [ "$(run "$d")" = "0.1.0-rc.2" ] || fail "set did not write the CRLF Cargo.toml"
+  assert_status 0 run "$d" check v0.1.0-rc.2
+  # The line endings stay: every line of both files still ends in CR.
+  [ "$(grep -c -v "$(printf '\r')\$" "$d/Cargo.toml")" -eq 0 ] || fail "Cargo.toml lost its CRLF"
+  [ "$(grep -c -v "$(printf '\r')\$" "$d/apps/studio/package.json")" -eq 0 ] ||
+    fail "package.json lost its CRLF"
+}
+
+test_set_leaves_other_version_lines_alone() {
+  local d
+  d="$(setup)"
+  {
+    echo
+    echo '[profile.x]'
+    echo 'version = "9.9.9"'
+    echo '[dependencies.foo]'
+    echo 'version = "8.8.8"'
+  } >>"$d/Cargo.toml"
+  run "$d" set 0.4.0
+  grep -q '^version = "9.9.9"$' "$d/Cargo.toml" || fail "[profile.x] version changed"
+  grep -q '^version = "8.8.8"$' "$d/Cargo.toml" || fail "dependency version changed"
+  [ "$(run "$d")" = "0.4.0" ] || fail "workspace version not set"
 }
 
 run_tests
