@@ -14,6 +14,7 @@
 #      set_permission), a check that get_map shows it, and save. No build_rom: the synthetic
 #      project is not buildable (its ds-rom config is too small, see
 #      apps/studio/src-tauri/tests/mcp_stdio.rs), so a build would only prove an error.
+# The smoke also requires "nitroarc": true in `studio doctor --json`.
 # --doctor-only stops after step 1 (for scripts/tests/smoke-packaged.test.sh, which has no real
 # studio). Ends with `smoke ok` and status 0. Works with bash 3.2 (macOS) and Git Bash on Windows.
 set -euo pipefail
@@ -22,6 +23,29 @@ die() {
   echo "smoke: $*" >&2
   exit 1
 }
+
+# resolve_python: prints the absolute path of a working python (python3, python, "py -3"), or
+# nothing. `sys.executable` resolves the Windows launcher `py` and rejects the Store stub. A
+# native Windows python prints CRLF, so the \r goes before the path is used.
+resolve_python() {
+  local candidate found
+  for candidate in "python3" "python" "py -3"; do
+    # shellcheck disable=SC2086 # "py -3" is a command with an argument
+    if found="$($candidate -I -c 'import sys; print(sys.executable)' 2>/dev/null)"; then
+      found="${found%$'\r'}"
+      if [ -n "$found" ]; then
+        printf '%s\n' "$found"
+        return 0
+      fi
+    fi
+  done
+  return 0
+}
+
+# Sourced (by the script tests): only the functions are wanted.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
 
 # The packaged tools run from this script's environment, not from the caller's: the outer part
 # prepares paths and re-runs the script as `--inner` under `env -i`.
@@ -47,16 +71,10 @@ if [ "$inner" -eq 0 ]; then
   PROJECT="$(cd "$PROJECT" && pwd)"
 
   # python3 is looked up here, before the minimal PATH takes over, and handed on as an absolute
-  # path. `sys.executable` also resolves the Windows launcher `py` and rejects the Store stub.
+  # path.
   PYTHON=""
   if [ "$doctor_only" -eq 0 ]; then
-    for candidate in "python3" "python" "py -3"; do
-      # shellcheck disable=SC2086 # "py -3" is a command with an argument
-      if found="$($candidate -I -c 'import sys; print(sys.executable)' 2>/dev/null)" && [ -n "$found" ]; then
-        PYTHON="$found"
-        break
-      fi
-    done
+    PYTHON="$(resolve_python)"
     [ -n "$PYTHON" ] || die "python3 fehlt"
   fi
 
@@ -97,6 +115,9 @@ WORK="$(pwd)"
 echo "== doctor"
 "$STUDIO" doctor
 echo "smoke: doctor ok"
+# doctor's exit status does not depend on nitroarc (spec); the smoke test does.
+"$STUDIO" doctor --json | grep -q '"nitroarc": true' || die "doctor: nitroarc geladen? nein"
+echo "smoke: nitroarc ok"
 if [ "$doctor_only" -eq 1 ]; then
   echo "smoke: doctor only"
   exit 0
@@ -107,7 +128,9 @@ cp -R "$PROJECT" "$WORK/project"
 
 echo "== mcp"
 "$PYTHON" -I - "$STUDIO" "$WORK/project" <<'PY'
+import hashlib
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -115,6 +138,18 @@ import threading
 
 studio, project = sys.argv[1], sys.argv[2]
 LIMIT = 120  # seconds to wait for one answer
+
+
+def snapshot():
+    """Path -> SHA-256 of every file of the project, except the .g4 bookkeeping folder."""
+    files = {}
+    for folder, dirs, names in os.walk(project):
+        dirs[:] = [d for d in dirs if d != ".g4"]
+        for name in names:
+            path = os.path.join(folder, name)
+            with open(path, "rb") as f:
+                files[os.path.relpath(path, project)] = hashlib.sha256(f.read()).hexdigest()
+    return files
 
 
 def fail(message):
@@ -126,8 +161,6 @@ server = subprocess.Popen(
     [studio, "mcp", "--project", project, "--expert"],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
-    text=True,
-    encoding="utf-8",
 )
 lines = queue.Queue()
 
@@ -143,7 +176,8 @@ next_id = [0]
 
 
 def send(message):
-    server.stdin.write(json.dumps(message) + "\n")
+    # Binary pipes: Windows must not turn the line feed into CRLF.
+    server.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
     server.stdin.flush()
 
 
@@ -159,7 +193,7 @@ def request(method, params):
             fail(method + ": no answer in %d s" % LIMIT)
         if line is None:
             fail(method + ": the server ended without an answer")
-        answer = json.loads(line)
+        answer = json.loads(line.decode("utf-8"))
         if answer.get("id") == wanted:
             if "error" in answer:
                 fail(method + ": " + json.dumps(answer["error"]))
@@ -198,6 +232,7 @@ def structured(result):
     return result["structuredContent"]["result"]
 
 
+before = snapshot()
 call("g4_call", {"command": "set_permission", "args": {"index": 0, "x": 0, "y": 0, "kind": 0, "collision": 64}})
 print("smoke: collision edit ok")
 cell = structured(call("g4_call", {"command": "get_map", "args": {"index": 0}}))["permissions"][0]
@@ -206,7 +241,10 @@ if cell != [0, 64]:
 saved = structured(call("save", {}))
 if {"kind": "Map", "index": 0} not in saved["written"] or saved["problems"]:
     fail("save did not write the map: " + json.dumps(saved))
-print("smoke: save ok")
+changed = sorted(p for p, h in snapshot().items() if before.get(p) != h)
+if not changed:
+    fail("save left every file of the project as it was")
+print("smoke: save ok (on disk: %s)" % ", ".join(changed))
 
 server.stdin.close()
 try:

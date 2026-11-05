@@ -9,10 +9,12 @@ set -euo pipefail
 
 SCRIPT="$REPO_ROOT/scripts/smoke-packaged.sh"
 
-# fake_studio <dir> <doctor-body>: <dir>/studio whose `doctor` runs the body
+# fake_studio <dir> <doctor-body> [nitroarc]: <dir>/studio whose `doctor` runs the body and
+# whose `doctor --json` says "nitroarc": <true|false> (default true)
 fake_studio() {
+  local json="'{\"nitroarc\": ${3:-true}}'"
   mkdir -p "$1"
-  printf '#!/bin/sh\nif [ "$1" = doctor ]; then\n%s\nfi\n' "$2" >"$1/studio"
+  printf '#!/bin/sh\nif [ "$1" = doctor ] && [ "${2:-}" = --json ]; then\n  echo %s\nelif [ "$1" = doctor ]; then\n%s\nfi\n' "$json" "$2" >"$1/studio"
   chmod +x "$1/studio"
 }
 
@@ -36,7 +38,8 @@ test_runs_outside_the_repo_in_a_fresh_folder() {
   d="$(tmpdir)"
   fake_studio "$d/bin" 'pwd'
   mkdir "$d/project"
-  cwd="$(cd "$REPO_ROOT" && bash "$SCRIPT" --doctor-only "$d/bin/studio" "$d/project" 2>&1 | grep -m1 '/g4-smoke\.')"
+  out="$(cd "$REPO_ROOT" && bash "$SCRIPT" --doctor-only "$d/bin/studio" "$d/project" 2>&1)"
+  cwd="$(printf '%s\n' "$out" | grep -m1 '/g4-smoke\.')"
   case "$cwd" in
     "$REPO_ROOT"*) fail "ran inside the repo: $cwd" ;;
   esac
@@ -60,6 +63,24 @@ test_failing_doctor_fails_the_smoke() {
   fake_studio "$d/bin" 'echo "doctor: Sidecar fehlt oder startet nicht"; exit 1'
   mkdir "$d/project"
   assert_status 1 bash "$SCRIPT" --doctor-only "$d/bin/studio" "$d/project"
+}
+
+test_nitroarc_false_fails_the_smoke() {
+  local d
+  d="$(tmpdir)"
+  fake_studio "$d/bin" 'echo "doctor: ok"' false
+  mkdir "$d/project"
+  assert_status 1 bash "$SCRIPT" --doctor-only "$d/bin/studio" "$d/project"
+}
+
+test_python_path_loses_its_carriage_return() {
+  local d out
+  d="$(tmpdir)"
+  # A native Windows python prints CRLF.
+  printf '#!/bin/sh\nprintf "C:\\\\Python\\\\python.exe\\r\\n"\n' >"$d/python3"
+  chmod +x "$d/python3"
+  out="$(PATH="$d:$PATH"; . "$SCRIPT"; resolve_python)"
+  [ "$out" = 'C:\Python\python.exe' ] || fail "unexpected python path: $(printf '%s' "$out" | od -c | head -3)"
 }
 
 test_missing_arguments_and_files() {
