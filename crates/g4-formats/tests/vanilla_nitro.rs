@@ -225,10 +225,19 @@ fn vanilla_texture_packs_round_trip_byte_identical() {
     let start = Instant::now();
     let mut counts = [0usize; 2];
     let (mut equal, mut pack_dicts) = (0, 0);
+    // Palettes not marked 4-colour (`extra != 1`) off a 16-byte boundary.
+    let mut odd16 = 0;
     let mut problems = Vec::new();
     for (k, dir) in ["mapTextures", "buildingTextures"].into_iter().enumerate() {
         for (name, bytes) in packs(&root, dir) {
             counts[k] += 1;
+            if let Ok(p) = Btx0::read(&bytes) {
+                odd16 += p
+                    .palettes
+                    .iter()
+                    .filter(|e| e.extra != 1 && e.offset8 % 2 != 0)
+                    .count();
+            }
             match Btx0::read(&bytes).and_then(|p| nsbtx::write(&p)) {
                 Ok(w) if w == bytes => equal += 1,
                 Ok(w) => problems.push(format!(
@@ -257,7 +266,7 @@ fn vanilla_texture_packs_round_trip_byte_identical() {
     let dicts_total = model_dicts(&root, family) + pack_dicts;
     eprintln!("nitro-packs {code} ms={}", start.elapsed().as_millis());
     println!(
-        "nitro-packs {code} map={} building={} equal={equal} dicts_total={dicts_total}",
+        "nitro-packs {code} map={} building={} equal={equal} dicts_total={dicts_total} odd16={odd16}",
         counts[0], counts[1]
     );
     for p in problems.iter().take(20) {
@@ -268,6 +277,7 @@ fn vanilla_texture_packs_round_trip_byte_identical() {
     assert_eq!(equal, want_map + want_building);
     assert_eq!(pack_dicts, 2 * (want_map + want_building));
     assert_eq!(dicts_total, want_dicts);
+    assert_eq!(odd16, 0, "16-colour palettes off a 16-byte boundary");
 }
 
 /// An 8 x 8 synthetic texture: format 3 with indices `i % 16` or format 2 with `i % 4`.
@@ -333,13 +343,14 @@ fn vanilla_append_keeps_every_old_entry() {
                     .iter()
                     .position(|p| p.name == first.name)
                     .unwrap_or(0);
-                let same = match (before.decode(0, pal), decoded.decode(0, pal)) {
-                    (Ok(a), Ok(b)) => a == b,
-                    (Err(_), Err(_)) => true,
-                    _ => false,
-                };
-                if !same {
-                    bad.push(format!("texture 0 with palette {pal} decodes differently"));
+                match (before.decode(0, pal), decoded.decode(0, pal)) {
+                    (Ok(a), Ok(b)) if a == b => {}
+                    (Ok(_), Ok(_)) => {
+                        bad.push(format!("texture 0 with palette {pal} decodes differently"))
+                    }
+                    (Err(e), _) | (_, Err(e)) => {
+                        bad.push(format!("texture 0 with palette {pal}: {}", kind(&e)))
+                    }
                 }
             }
             for k in 0..new.len() {

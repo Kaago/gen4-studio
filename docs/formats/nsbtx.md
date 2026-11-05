@@ -171,7 +171,7 @@ VRAM-Schlüssel 0, 0x1E = 0x3C, 0x10 und 0x20 = 0).
 | Texel | hinter dem alten Texelblock, auf 8 Byte ausgerichtet |
 | `params` | `off8 \| log2(B/8) << 20 \| log2(H/8) << 23 \| format << 26 \| color0 << 29` (Wiederholen und texgen 0, sie stehen im Material) |
 | `extra` der Textur | `B \| H << 11 \| 1 << 31` (alle Vanilla-Texturen) |
-| Palette | hinter dem alten Palettenblock, auf 8 Byte ausgerichtet, 1 bis 4 bzw. 1 bis 16 Farben BGR555 |
+| Palette | hinter dem alten Palettenblock, genau 4 bzw. 16 Farben BGR555; eine 16-Farben-Palette beginnt auf einer 16-Byte-Grenze (`offset8` gerade), eine 4-Farben-Palette auf einer 8-Byte-Grenze; die Lücke ist 0 |
 | `extra` der Palette | 1 genau für die Palette einer 4-Farben-Textur, sonst 0 (Vanilla: Platin 598, HeartGold 871 solche Paletten) |
 | Palettenflag | alter Wert ODER `0x8000` bei einer 4-Farben-Textur |
 
@@ -182,13 +182,19 @@ VRAM-Schlüssel 0, 0x1E = 0x3C, 0x10 und 0x20 = 0).
 | Seite keine Zweierpotenz 8 bis 1024 | `OutOfRange { what: "texture side" }` |
 | Format außer 2 und 3 | `Unsupported { what: "new texture format other than 2 and 3" }` |
 | Texelzahl ≠ `B·H/4` (Format 2) bzw. `B·H/2` (Format 3) | `BadSize` |
-| Farbzahl 0 oder über 4 bzw. 16 | `OutOfRange { what: "palette colours" }` |
-| ein Texel zeigt hinter die letzte Farbe | `OutOfRange { what: "texel colour index" }` |
+| Farbzahl ≠ 4 (Format 2) bzw. ≠ 16 (Format 3) | `BadSize { expected: 4 \| 16 }` |
 | Name leer, über 16 Byte, Zeichen außerhalb `0x21..=0x7E` | `OutOfRange { what: "Nitro name" }` (`nitro_dict::name`) |
 | Texturname schon im Paket | `Unsupported { what: "texture name already in the pack" }` |
 | Palettenname schon im Paket | `Unsupported { what: "palette name already in the pack" }` |
 | 256. Eintrag | `OutOfRange { what: "Nitro dictionary entries" }` |
 | Texel- oder Palettenblock danach über `0xFFFF · 8` Byte | `OutOfRange { what: "texel offset" }` bzw. `"palette offset"` |
+
+Warum 16 Byte: die Palettenbasis des Polygons (`PLTT_BASE`, GBATEK „DS 3D Texture
+Attributes“) zählt in 16-Byte-Schritten, nur für 4-Farben-Texturen in 8-Byte-Schritten. Eine
+16-Farben-Palette auf einer ungeraden 8-Byte-Adresse wäre von der Hardware nicht erreichbar.
+In Vanilla liegt keine Palette ohne 4-Farben-Markierung auf einer ungeraden `offset8`
+(gated gezählt, `odd16` unten). Der Leser (`Nsbtx`) bemisst eine Palette bis zur nächsten:
+die Lücke hinter einer 4-Farben-Palette liest er als Farben 0 mit.
 
 ### Anhängen
 
@@ -196,7 +202,8 @@ Die alten Einträge und Blöcke bleiben byte-gleich: die neuen Einträge kommen 
 Wörterbücher, ihre Texel und Paletten hinter die alten Blöcke, die alten `offset8` ändern
 sich nicht. Nur die Wörterbücher (Baum, Größe) und die Offsets des TEX0-Kopfs werden neu
 berechnet. Die letzte alte Palette reichte bis zum Blockende und reicht danach bis zur
-ersten neuen; ihre Farben bleiben dieselben.
+ersten neuen; ihre Farben bleiben dieselben (dahinter höchstens die Ausrichtungslücke aus
+Nullen).
 
 ### Palettenname
 
@@ -236,15 +243,18 @@ Paletten werden schon in `read` bereichsgeprüft und kopiert.
   32 × 32 Format 3 mit `color0`): ein gebautes Paket liest der Leser mit Namen, Größen,
   Formaten und Pixeln zurück; die festen Felder sind die aus der Tabelle; `write` von
   `read` ist byte-gleich; Anhängen lässt alte Einträge und Blöcke byte-gleich; jede Ablehnung
-  von `push` mit ihrer Fehlervariante und unverändertem Paket; jede andere Lage mit ihrer
-  Variante; jede Kürzung ist ein Fehler, Bytefehler (proptest) ohne Panic.
+  von `push` mit ihrer Fehlervariante und unverändertem Paket; 16-Farben-Paletten auf
+  gerader `offset8`, auch beim Anhängen hinter einen Block mit Länge 8 mod 16; jede andere
+  Lage mit ihrer Variante; jede Kürzung ist ein Fehler, Bytefehler (proptest) ohne Panic.
 - Gated (`tests/vanilla_nitro.rs`): `vanilla_texture_packs_round_trip_byte_identical` schreibt
   jedes Member von `unpacked/mapTextures` und `unpacked/buildingTextures`, das mit `BTX0`
   beginnt, byte-gleich zurück und beide Wörterbücher aus `dict_spans` byte-gleich neu:
   Platin 74 + 71 Pakete, HeartGold DE und US je 106 + 94 (die 10 übrigen HeartGold-Gebäude-
   Member sind keine BTX0); mit den Wörterbüchern der Kartenmodelle (`nsbmd.md`) zusammen
-  Platin 4 286, HeartGold DE und US je 4 456 Wörterbücher (13 198 von 13 198).
+  Platin 4 286, HeartGold DE und US je 4 456 Wörterbücher (13 198 von 13 198). Paletten
+  ohne 4-Farben-Markierung auf ungerader `offset8` (`odd16`): 0 in allen drei Spielen.
   `vanilla_append_keeps_every_old_entry` hängt an jedes Kartenpaket zwei synthetische
   Texturen an (`g4_t_a` 8 × 8 Format 3, `g4_t_b` 8 × 8 Format 2): alte Einträge, Texel- und
-  Palettenblöcke byte-gleich, die erste alte Textur dekodiert vorher wie nachher, die neuen
+  Palettenblöcke byte-gleich, die erste alte Textur dekodiert vorher wie nachher (ein Fehler
+  beim Dekodieren zählt als Abweichung), die neuen
   wie gebaut (Platin 74 von 74, HeartGold DE und US je 106 von 106).

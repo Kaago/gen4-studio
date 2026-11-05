@@ -361,14 +361,16 @@ impl Btx0 {
             + self.palette_data.len()
     }
 
-    /// Appends one texture and its palette (aligned to 8); refuses a side that is no power of two
-    /// 8..=1024, another format, wrong texel or colour count, a taken name, entry 256, an offset past 0xFFFF·8.
+    /// Appends one texture and its palette (texels aligned to 8, a 16-colour palette to 16, a
+    /// 4-colour one to 8); refuses a side that is no power of two 8..=1024, another format, wrong
+    /// texel or colour count, a taken name, entry 256, an offset past 0xFFFF·8.
     pub fn push(&mut self, t: &NewTexture) -> Result<(), FormatError> {
         check_side(t.width)?;
         check_side(t.height)?;
-        let (bits, max_colors) = match t.format {
-            2 => (2, 4),
-            3 => (4, 16),
+        // PLTT_BASE counts 16 bytes, for 4-colour textures 8 (GBATEK "DS 3D Texture Attributes").
+        let (colors, palette_align) = match t.format {
+            2 => (4, 8),
+            3 => (16, 16),
             _ => return Err(unsupported("new texture format other than 2 and 3")),
         };
         let texel_len = texel_bytes(t.format, t.width, t.height).unwrap_or(0);
@@ -378,25 +380,11 @@ impl Btx0 {
                 found: t.texels.len(),
             });
         }
-        if !(1..=max_colors).contains(&t.colors.len()) {
-            return Err(FormatError::OutOfRange {
-                what: "palette colours",
-                value: t.colors.len(),
-                max: max_colors,
-            });
-        }
-        let mask = (1u8 << bits) - 1;
-        let top = t
-            .texels
-            .iter()
-            .flat_map(|&b| (0..8 / bits).map(move |i| (b >> (bits * i)) & mask))
-            .max()
-            .unwrap_or(0) as usize;
-        if top >= t.colors.len() {
-            return Err(FormatError::OutOfRange {
-                what: "texel colour index",
-                value: top,
-                max: t.colors.len() - 1,
+        // With exactly 4 or 16 colours every 2- or 4-bit index has its colour.
+        if t.colors.len() != colors {
+            return Err(FormatError::BadSize {
+                expected: colors,
+                found: t.colors.len(),
             });
         }
         let name = nitro_dict::name(&t.name)?;
@@ -416,7 +404,7 @@ impl Btx0 {
             });
         }
         let texel_at = round8(self.texels.len());
-        let palette_at = round8(self.palette_data.len());
+        let palette_at = self.palette_data.len().div_ceil(palette_align) * palette_align;
         let texel8 = appended_units8(texel_at, texel_len, "texel offset")?;
         let palette8 = appended_units8(palette_at, 2 * t.colors.len(), "palette offset")?;
 
@@ -687,7 +675,11 @@ mod tests {
             assert_eq!(info.format, t.format);
             assert_eq!(info.color0_transparent, t.color0);
             assert_eq!(reader.palettes[i].name, t.palette);
-            assert_eq!(reader.palettes[i].colors, t.colors);
+            // The reader sizes a palette up to the next one: the alignment gap behind a
+            // 4-colour palette reads as zero colours.
+            let (own, gap) = reader.palettes[i].colors.split_at(t.colors.len());
+            assert_eq!(own, t.colors);
+            assert!(gap.iter().all(|&c| c == 0), "palette {i}");
             let img = reader.decode(i, i).unwrap();
             assert_eq!(img.pixels, expected_pixels(t), "texture {i}");
         }
@@ -700,7 +692,7 @@ mod tests {
         let ts = samples();
         let bytes = build(&ts).unwrap();
         let pack = Btx0::read(&bytes).unwrap();
-        let (mut texel_at, mut palette_at) = (0, 0);
+        let (mut texel_at, mut palette_at) = (0usize, 0usize);
         for (i, t) in ts.iter().enumerate() {
             let e = &pack.textures[i];
             assert_eq!(e.extra, t.width | t.height << 11 | 1 << 31);
@@ -710,8 +702,18 @@ mod tests {
             texel_at += t.texels.len().div_ceil(8) * 8;
             let p = &pack.palettes[i];
             assert_eq!(p.extra, (t.format == 2) as u16);
+            // PLTT_BASE counts 16 bytes except for 4-colour textures.
+            let align = if t.format == 2 { 8 } else { 16 };
+            palette_at = palette_at.div_ceil(align) * align;
             assert_eq!(p.offset8 as usize * 8, palette_at);
-            palette_at += (2 * t.colors.len()).div_ceil(8) * 8;
+            if t.format == 3 {
+                assert_eq!(
+                    p.offset8 % 2,
+                    0,
+                    "16-colour palette {i} on a 16-byte boundary"
+                );
+            }
+            palette_at += 2 * t.colors.len();
         }
         assert_eq!(pack.texels.len(), texel_at);
         assert_eq!(pack.palette_data.len(), palette_at);
@@ -781,7 +783,18 @@ mod tests {
             (new.textures[2].params & 0xFFFF) as usize,
             old.texels.len() / 8
         );
-        assert_eq!(new.palettes[2].offset8 as usize, old.palette_data.len() / 8);
+        // The old block ends 8 bytes past a 16-byte boundary; the 16-colour palette skips them.
+        assert_eq!(old.palette_data.len() % 16, 8);
+        assert_eq!(
+            new.palettes[2].offset8 as usize,
+            old.palette_data.len() / 8 + 1
+        );
+        assert_eq!(new.palettes[2].offset8 % 2, 0);
+        assert!(
+            new.palette_data[old.palette_data.len()..][..8]
+                .iter()
+                .all(|&b| b == 0)
+        );
         assert_eq!(new.palette_flag, old.palette_flag | 0x8000);
         assert_eq!(new.palette_flag, 0x8000);
 
@@ -908,38 +921,29 @@ mod tests {
                 ..
             }
         ));
-        let mut many = ok();
-        many.colors.push(0);
-        assert!(matches!(
-            refused(&pack, &many),
-            FormatError::OutOfRange {
-                what: "palette colours",
-                value: 17,
-                max: 16
-            }
-        ));
-        let none = NewTexture {
-            colors: Vec::new(),
-            ..ok()
-        };
-        assert!(matches!(
-            refused(&pack, &none),
-            FormatError::OutOfRange {
-                what: "palette colours",
-                value: 0,
-                ..
-            }
-        ));
-        let mut few = ok();
-        few.colors.truncate(2); // the texels use index 15
-        assert!(matches!(
-            refused(&pack, &few),
-            FormatError::OutOfRange {
-                what: "texel colour index",
-                value: 15,
-                max: 1
-            }
-        ));
+        // Exactly 16 colours for format 3 and 4 for format 2.
+        for count in [0, 2, 15, 17] {
+            let mut wrong = ok();
+            wrong.colors.resize(count, 0);
+            assert!(
+                matches!(
+                    refused(&pack, &wrong),
+                    FormatError::BadSize { expected: 16, found } if found == count
+                ),
+                "{count} colours"
+            );
+        }
+        for count in [3, 5, 16] {
+            let mut wrong = tiny(1);
+            wrong.colors.resize(count, 0);
+            assert!(
+                matches!(
+                    refused(&pack, &wrong),
+                    FormatError::BadSize { expected: 4, found } if found == count
+                ),
+                "{count} colours"
+            );
+        }
 
         // Entry 256.
         let mut full = pack.clone();
