@@ -49,6 +49,7 @@ export const PART_TEXTS: Readonly<Record<string, string>> = {
   "whole.blank-bgs": "Ein leerer Hintergrundklang-Block wird angelegt.",
   "whole.buildings-tail": "{0:num} Byte nach den Gebäuden bleiben erhalten.",
   "part.duplicate": "Für diesen Teil sind mehrere Dateien gewählt. Wähle je Teil nur eine Datei.",
+  "bdhc.structure": "Das Terrain ist beschädigt ({0}). Wähle eine unbeschädigte .bdhc-Datei.",
 };
 
 const FAMILY_WORDS: Readonly<Record<string, string>> = { Pt: "Platin", Hgss: "HeartGold/SoulSilver", Dp: "Diamant/Perl" };

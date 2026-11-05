@@ -271,6 +271,7 @@ fn fix_dto(id: FixId) -> FixDto {
         FixId::CreateScript => ("Script anlegen", true),
         // Moves the file to `.g4/backup/` past the store; undo cannot take it back.
         FixId::RemoveHidden => ("Entfernen", true),
+        FixId::BlockUpper => ("Obere Zelle blockieren", false),
     };
     FixDto {
         id,
@@ -1068,6 +1069,7 @@ mod tests {
             (FixId::Wrap, "wrap", "Umbrechen"),
             (FixId::AppendMessage, "append_message", "Nachricht anlegen"),
             (FixId::SwapMinMax, "swap_min_max", "Tauschen"),
+            (FixId::BlockUpper, "block_upper", "Obere Zelle blockieren"),
         ] {
             let row = json_of(&finding_dto(
                 &finding.clone().with_fixes([fix]),
@@ -1086,6 +1088,30 @@ mod tests {
             row["fixes"],
             json!([{ "id": "remove_hidden", "label": "Entfernen", "irreversible": true }])
         );
+    }
+
+    /// The MCP tools `plan_fix` and `apply_fix` offer every fix the kernel has.
+    #[test]
+    fn the_mcp_fix_tools_name_every_fix() {
+        let ids: Vec<Value> = [
+            FixId::Wrap,
+            FixId::AppendMessage,
+            FixId::SwapMinMax,
+            FixId::CreateScript,
+            FixId::RemoveHidden,
+            FixId::BlockUpper,
+        ]
+        .into_iter()
+        .map(|fix| serde_json::to_value(fix).unwrap())
+        .collect();
+        for name in ["plan_fix", "apply_fix"] {
+            let tool = crate::mcp::catalog::catalog()
+                .iter()
+                .find(|t| t.name == name)
+                .unwrap();
+            let schema = (tool.input_schema)();
+            assert_eq!(schema["properties"]["fix"]["enum"], json!(ids), "{name}");
+        }
     }
 
     #[test]

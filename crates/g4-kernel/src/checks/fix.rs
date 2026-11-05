@@ -10,6 +10,7 @@
 //! | `script.message-missing` | `append_message` | empty messages appended up to the missing one, in every readable text archive of the script's headers that lacks it |
 //! | `encounter.min-max` | `swap_min_max` | min and max level of the water slot swapped |
 //! | `event.script-missing` | `create_script` | the empty script `#n` appended to the script file of the event file's first header |
+//! | `map.step-unblocked` | `block_upper` | the upper cell of the free step blocked (`collision | 0x80`, its pattern and HeartGold's sound bits kept) |
 //! | `build.hidden-file` | `remove_hidden` | the hidden entry moved to `.g4/backup/hidden-<YYYYMMDD-HHMMSS>/<path>` (UTC, the time of the move; `-2`, `-3` … when that folder exists); the plan shows `hidden-<time>` |
 //!
 //! Both first check the finding again on the current state: its check runs on the finding's
@@ -27,7 +28,7 @@ use g4_formats::area_data::AreaData;
 use g4_formats::data::encounter::{Encounters, HgssEncounters, Method, PtEncounters, WaterSlot};
 use g4_formats::data::trainer_doc::TrainerDoc;
 use g4_formats::game::Family;
-use g4_formats::map::MapFile;
+use g4_formats::map::{Cell, MapFile};
 use g4_formats::matrix::Matrix;
 use serde::{Deserialize, Serialize};
 use uxie::event_file::EventFile;
@@ -36,6 +37,7 @@ use uxie::map_header::MapHeader;
 use super::build::{BuildHiddenFile, planned_hidden_backup, remove_hidden};
 use super::data::EncounterMinMax;
 use super::scripts::{EventScriptMissing, ScriptFacts, ScriptMessageMissing};
+use super::terrain::MapStepUnblocked;
 use super::text::{End, TextTooWide, lines};
 use super::{
     Finding, FixId, IgnoreKey, Limits, Skipped, Snapshot, SnapshotCache, Source, SourceCheck,
@@ -184,6 +186,13 @@ enum Edit {
     Script { file: u16, script: u16 },
     /// The hidden entry `path` below `files/` (project-relative) moved to the backup.
     Hidden { path: String },
+    /// Cell `(x, y)` of map `map` blocked (`collision | 0x80`); `before` is the cell as it is.
+    Block {
+        map: u16,
+        x: u8,
+        y: u8,
+        before: Cell,
+    },
 }
 
 /// The changes of `fix` for `finding` on `src`, once the finding is current and offers `fix`.
@@ -218,6 +227,7 @@ fn edits(src: &dyn Source, finding: &IgnoreKey, fix: FixId) -> Result<Vec<Edit>,
         }]),
         // The key is the path the check found below `files/`, not what the caller sent.
         FixId::RemoveHidden => Ok(vec![Edit::Hidden { path: current.key }]),
+        FixId::BlockUpper => block(src, &current),
     }
 }
 
@@ -226,7 +236,7 @@ type CheckFn = fn(&dyn Source, &Limits, &mut Vec<Finding>) -> Result<(), Skipped
 
 /// The fix `code` offers and its check; `None` for a code without a fix.
 fn fixable(code: &str) -> Option<(FixId, CheckFn)> {
-    let fixable: [(&str, FixId, CheckFn); 5] = [
+    let fixable: [(&str, FixId, CheckFn); 6] = [
         (TextTooWide::CODE, FixId::Wrap, |s, l, o| {
             TextTooWide.check(s, l, o)
         }),
@@ -243,6 +253,9 @@ fn fixable(code: &str) -> Option<(FixId, CheckFn)> {
         }),
         (BuildHiddenFile::CODE, FixId::RemoveHidden, |s, l, o| {
             BuildHiddenFile.check(s, l, o)
+        }),
+        (MapStepUnblocked::CODE, FixId::BlockUpper, |s, l, o| {
+            MapStepUnblocked.check(s, l, o)
         }),
     ];
     fixable
@@ -337,6 +350,19 @@ fn append(src: &dyn Source, finding: &Finding) -> Result<Vec<Edit>, KernelError>
             })
         })
         .collect())
+}
+
+/// `map.step-unblocked` (args `[map, ox, oy, ux, uy, step]`): the upper cell `(ox, oy)`.
+fn block(src: &dyn Source, finding: &Finding) -> Result<Vec<Edit>, KernelError> {
+    let Subject::Map(map) = finding.subject else {
+        return Err(malformed(finding));
+    };
+    let (x, y): (u8, u8) = (arg(finding, 1)?, arg(finding, 2)?);
+    let before = src
+        .map(map)
+        .and_then(|m| m.cell(usize::from(x), usize::from(y)).ok())
+        .ok_or(KernelError::FindingStale)?;
+    Ok(vec![Edit::Block { map, x, y, before }])
 }
 
 /// Every encounter method, to read a method key back.
@@ -467,9 +493,31 @@ impl Edit {
                 before: String::new(),
                 after: scripts::script_stub(*script).trim_end().to_owned(),
             },
+            Edit::Block { map, x, y, before } => FixChange {
+                asset: AssetId {
+                    kind: AssetKind::Map,
+                    index: *map,
+                },
+                label: format!("map {map:04}, cell ({x}, {y})"),
+                before: cell_text(*before),
+                after: cell_text(blocked(*before)),
+            },
             // A moved file is no asset: the plan lists it in `files`.
             Edit::Hidden { .. } => return None,
         })
+    }
+}
+
+/// A permission cell as the plan shows it: "kind 0x00, collision 0x80".
+fn cell_text(cell: Cell) -> String {
+    format!("kind {:#04x}, collision {:#04x}", cell.kind, cell.collision)
+}
+
+/// `cell` with the collision bit set.
+fn blocked(cell: Cell) -> Cell {
+    Cell {
+        collision: cell.collision | 0x80,
+        ..cell
     }
 }
 
@@ -495,6 +543,12 @@ fn in_one_step(store: &mut Store, code: &str, edits: &[Edit]) -> Result<Vec<Asse
                 .get(*message)
                 .map(|m| &m.text)
                 != Some(before)
+        {
+            return Err(KernelError::FindingStale);
+        }
+        // Likewise a cell that reads otherwise here.
+        if let Edit::Block { map, x, y, before } = edit
+            && store.map(*map)?.cell(usize::from(*x), usize::from(*y))? != *before
         {
             return Err(KernelError::FindingStale);
         }
@@ -529,6 +583,9 @@ fn in_one_step(store: &mut Store, code: &str, edits: &[Edit]) -> Result<Vec<Asse
                     slot,
                     ..
                 } => tx.edit_encounter(*encounter, |e| swap_levels(e, *method, *slot))?,
+                Edit::Block { map, x, y, before } => tx.edit_map(*map, |m| {
+                    m.set_cell(usize::from(*x), usize::from(*y), blocked(*before))
+                })?,
                 Edit::Script { .. } | Edit::Hidden { .. } => {
                     return Err(KernelError::InvalidProject(
                         "a created script or a moved file is no step of the history".into(),
@@ -585,6 +642,7 @@ fn name(fix: FixId) -> &'static str {
         FixId::SwapMinMax => "swap_min_max",
         FixId::CreateScript => "create_script",
         FixId::RemoveHidden => "remove_hidden",
+        FixId::BlockUpper => "block_upper",
     }
 }
 
@@ -963,6 +1021,82 @@ mod tests {
             FixId::SwapMinMax,
             &[id(AssetKind::Encounter, 0)],
         );
+    }
+
+    /// Map 0 holds a plateau of height 2 (16 units) at x 16–22, y 25–27 with derived
+    /// permissions, cell (18, 25) freed by hand: `map.step-unblocked` at `step:18,25:18,24`.
+    fn step_unblocked() -> (Synthetic, Arc<Project>, Store) {
+        use g4_formats::bdhc::{HeightGrid, from_grid};
+        use g4_formats::game::Family;
+
+        use crate::terrain::{CellOverride, TerrainKind, apply_overrides, derive_permissions};
+        let (s, project, mut store) = open();
+        let mut grid = HeightGrid::flat(0);
+        for y in 25..=27 {
+            for x in 16..=22 {
+                grid.height[y * 32 + x] = 2;
+            }
+        }
+        let mut permissions = derive_permissions(&grid, &[TerrainKind::Ground; 1024], Family::Pt);
+        let free = CellOverride {
+            x: 18,
+            y: 25,
+            kind: 0,
+            collision: 0,
+        };
+        apply_overrides(&mut permissions, &[free]).unwrap();
+        store
+            .edit_map(0, "terrain", |m| {
+                m.permissions = permissions;
+                m.bdhc = from_grid(&grid).write();
+                Ok(())
+            })
+            .unwrap();
+        (s, project, store)
+    }
+
+    #[test]
+    fn block_upper_blocks_the_upper_cell_in_one_step() {
+        let (s, project, mut store) = step_unblocked();
+        let finding = one(&project, &store, "map.step-unblocked");
+        assert_eq!(finding.key, "step:18,25:18,24");
+        assert_eq!(finding.fixes, [FixId::BlockUpper]);
+        let key = IgnoreKey::of(&finding);
+        let plan = plan_fix(&snapshot(&project, &store), &key, FixId::BlockUpper).unwrap();
+        assert_eq!(
+            plan,
+            FixPlan {
+                changes: vec![FixChange {
+                    asset: id(AssetKind::Map, 0),
+                    label: "map 0000, cell (18, 25)".into(),
+                    before: "kind 0x00, collision 0x00".into(),
+                    after: "kind 0x00, collision 0x80".into(),
+                }],
+                files: Vec::new(),
+                irreversible: false,
+            }
+        );
+        let result = apply_fix(&mut store, &project, &key, FixId::BlockUpper).unwrap();
+        assert_eq!(
+            result,
+            FixResult {
+                changed: vec![id(AssetKind::Map, 0)],
+                remaining: false
+            }
+        );
+        let cell = store.map(0).unwrap().cell(18, 25).unwrap();
+        assert_eq!((cell.kind, cell.collision), (0x00, 0x80));
+        assert_eq!(
+            store.history().0.last().unwrap(),
+            "Behoben: map.step-unblocked"
+        );
+        disappears_and_comes_back(
+            step_unblocked(),
+            "map.step-unblocked",
+            FixId::BlockUpper,
+            &[id(AssetKind::Map, 0)],
+        );
+        drop(s);
     }
 
     #[test]

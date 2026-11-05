@@ -146,11 +146,13 @@ pub enum PartCode {
     WholeBuildingsTail,
     /// Error: more than one file for the same part.
     PartDuplicate,
+    /// Error, args: the first structure error of the terrain (`BdhcProblem::message`).
+    BdhcStructure,
 }
 
 impl PartCode {
     /// Every code, in the order above.
-    pub const ALL: [PartCode; 29] = [
+    pub const ALL: [PartCode; 30] = [
         PartCode::ModelInvalid,
         PartCode::ModelBlocks,
         PartCode::ModelCount,
@@ -180,6 +182,7 @@ impl PartCode {
         PartCode::WholeBlankBgs,
         PartCode::WholeBuildingsTail,
         PartCode::PartDuplicate,
+        PartCode::BdhcStructure,
     ];
 
     /// The code as the UI gets it (`model.too-big`).
@@ -214,6 +217,7 @@ impl PartCode {
             PartCode::WholeBlankBgs => "whole.blank-bgs",
             PartCode::WholeBuildingsTail => "whole.buildings-tail",
             PartCode::PartDuplicate => "part.duplicate",
+            PartCode::BdhcStructure => "bdhc.structure",
         }
     }
 }
@@ -723,7 +727,10 @@ pub(crate) fn check_model_bytes(model: &[u8]) -> Result<(), PartMessage> {
 }
 
 /// Terrain checks: magic, counters match the length, payload (counted after the 16-byte
-/// header) within the game's buffer. Shared with the check `map.bdhc-size`.
+/// header) within the game's buffer, then the structure (the first error of
+/// `Bdhc::validate`: every index inside its table, strips inside the access list and in
+/// order; a vertical plate is only a warning there and passes). Shared with the check
+/// `map.bdhc-size`.
 pub(crate) fn check_bdhc(bytes: &[u8]) -> Result<(), PartMessage> {
     if bytes.get(0..4) != Some(b"BDHC".as_slice()) {
         return Err(PartMessage::new(
@@ -763,6 +770,25 @@ pub(crate) fn check_bdhc(bytes: &[u8]) -> Result<(), PartMessage> {
                 "terrain is {} bytes but its counters describe {described}",
                 bytes.len()
             ),
+        ));
+    }
+    // Cannot fail after the checks above; the reader's reason if it ever does.
+    let bdhc = g4_formats::bdhc::Bdhc::read(bytes).map_err(|e| {
+        PartMessage::new(
+            PartCode::BdhcCounters,
+            &[&bytes.len(), &(BDHC_HEADER_LEN + payload)],
+            format!("terrain cannot be read: {e}"),
+        )
+    })?;
+    if let Some(p) = bdhc
+        .validate()
+        .into_iter()
+        .find(g4_formats::bdhc::BdhcProblem::is_error)
+    {
+        return Err(PartMessage::new(
+            PartCode::BdhcStructure,
+            &[&p.message()],
+            format!("terrain structure is invalid: {}", p.message()),
         ));
     }
     Ok(())
@@ -1200,6 +1226,37 @@ mod tests {
     }
 
     #[test]
+    fn inspect_checks_the_bdhc_structure() {
+        use g4_formats::bdhc::{HeightGrid, from_grid};
+        let mut f = fixture();
+        let mut broken = from_grid(&HeightGrid::flat(0));
+        broken.access[0] = 7;
+        let path = f.file("broken.bdhc", &broken.write());
+        let source = Source::Files(vec![path]);
+        let before = f.store.map(0).unwrap().clone();
+        let r = inspect(&mut f.store, 0, &source).unwrap();
+        let PartState::Error(e) = state_of(&r, Part::Bdhc) else {
+            panic!("{r:?}");
+        };
+        assert_eq!(e.code, PartCode::BdhcStructure);
+        assert_eq!(e.code.as_str(), "bdhc.structure");
+        assert_eq!(e.args, ["access entry 0 names plate 7, past the 1 plates"]);
+        assert_eq!(
+            e.message,
+            "terrain structure is invalid: access entry 0 names plate 7, past the 1 plates"
+        );
+        let err = import(&mut f.store, 0, &source, &[Part::Bdhc], false).unwrap_err();
+        assert!(err.to_string().contains("structure"), "{err}");
+        assert_eq!(f.store.map(0).unwrap(), &before);
+        assert!(f.store.dirty().is_empty());
+        assert!(f.store.history().0.is_empty());
+        // A generated BDHC imports.
+        let sound = f.file("sound.bdhc", &from_grid(&HeightGrid::flat(1)).write());
+        let r = inspect(&mut f.store, 0, &Source::Files(vec![sound])).unwrap();
+        assert_eq!(state_of(&r, Part::Bdhc), &PartState::Ok);
+    }
+
+    #[test]
     fn import_refuses_on_error_and_changes_nothing() {
         let mut f = fixture();
         let per = f.file("a.per", &[0x80u8; 2048]);
@@ -1318,6 +1375,9 @@ mod tests {
         huge.resize(16 + 0x1201 * 8, 0);
         let mut lying = bdhc(3);
         lying.push(0);
+        let mut plate = g4_formats::bdhc::Bdhc::flat(0);
+        plate.plates[0].normal = 4;
+        let bad_index = plate.write();
         let mut two_models = MapFile::read(&pt_map(&[]), Family::Pt).unwrap();
         two_models.model = model(&["a", "b"]);
         let mut bad_terrain = MapFile::read(&pt_map(&[]), Family::Pt).unwrap();
@@ -1339,6 +1399,7 @@ mod tests {
             (Part::Bdhc, b"BDHC".to_vec(), pt, BdhcShort),
             (Part::Bdhc, huge, pt, BdhcTooBig),
             (Part::Bdhc, lying, pt, BdhcCounters),
+            (Part::Bdhc, bad_index, pt, BdhcStructure),
             (Part::Bgs, BLANK_BGS.to_vec(), pt, BgsFamily),
             (Part::Bgs, vec![0x34, 0x12], hgss, BgsShort),
             (Part::Bgs, vec![0, 0, 0, 0], hgss, BgsSignature),

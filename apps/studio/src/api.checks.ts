@@ -40,7 +40,7 @@ export interface SubjectDto {
   index: number;
 }
 
-export type FixId = "wrap" | "append_message" | "swap_min_max" | "create_script" | "remove_hidden";
+export type FixId = "wrap" | "append_message" | "swap_min_max" | "create_script" | "remove_hidden" | "block_upper";
 
 /** A fix of a finding: the German `label` of its button; `irreversible` ones (`create_script`, `remove_hidden`) cannot be undone. */
 export interface FixDto {
@@ -130,7 +130,8 @@ export interface FixChangeDto {
   label: string;
   /**
    * `wrap`: the message as pages, the lines of a page joined by "\n", pages by an empty line; `append_message`: the last message and
-   * the new empty ones, "2: Sandgem Town" / "3:"; `swap_min_max`: "min 30\nmax 20"; `create_script`: "" and the rotom source added.
+   * the new empty ones, "2: Sandgem Town" / "3:"; `swap_min_max`: "min 30\nmax 20"; `create_script`: "" and the rotom source added;
+   * `block_upper`: the upper cell, "kind 0x00, collision 0x00" / "kind 0x00, collision 0x80".
    */
   before: string;
   after: string;

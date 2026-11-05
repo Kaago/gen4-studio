@@ -141,6 +141,25 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     title: "Gebäude ohne Modell",
     text: "Ein Gebäude von Karte {0:id} nutzt Modell {2}, aber es gibt nur {3}. Wähle ein vorhandenes Modell oder lösche das Gebäude.",
   },
+  "map.altitude-walkable": {
+    group: "cheap",
+    severity: "error",
+    title: "Höhe an begehbarer Zelle",
+    text: "Zelle {1}, {2} von Weltkarte {0:id} liegt auf Höhe {3} und trägt Header {4:id}; das Spiel zeichnet das Modell höher als den Boden, die Figur läuft darunter. Setze die Höhe der Zelle auf 0.",
+    building: { text: "Zelle {1}, {2} von Weltkarte {0:id} liegt auf Höhe {3} und trägt Ort {4:id}; das Spiel zeichnet das Modell höher als den Boden, die Figur läuft darunter. Setze die Höhe der Zelle auf 0." },
+  },
+  "map.step-unblocked": {
+    group: "cheap",
+    severity: "info",
+    title: "Stufe ohne Sperre",
+    text: "Zwischen Kachel {1}, {2} und {3}, {4} von Karte {0:id} liegt eine Stufe von {5} Einheiten, die das Spiel betreten lässt. Blockiere die obere Zelle oder setze eine Treppe.",
+  },
+  "map.buildings-over-limit": {
+    group: "cheap",
+    severity: "warning",
+    title: "Zu viele Gebäude",
+    text: "Karte {0:id} hat {1} Gebäude; das Spiel lädt höchstens {2}, die übrigen fehlen im Spiel. Lösche Gebäude oder verteile sie auf Nachbarkarten.",
+  },
   "area.tileset-range": {
     group: "cheap",
     severity: "error",
