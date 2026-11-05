@@ -1,10 +1,17 @@
-//! NSBTX / BTX0 texture archive reader and texture decoder.
+//! NSBTX / BTX0 texture archive: reader, texture decoder and writer.
 //!
-//! A BTX0 holds a `TEX0` section with textures and palettes. This module lists
-//! both and decodes one texture with one palette to RGBA8. See
+//! A BTX0 holds a `TEX0` section with textures and palettes. `Nsbtx` lists both and
+//! decodes one texture with one palette to RGBA8; `Btx0` (submodule `write`) holds the
+//! whole pack, writes it in the vanilla layout and appends 4- and 16-colour textures. See
 //! `docs/formats/nsbtx.md`.
 
 use crate::error::FormatError;
+
+mod write;
+pub use write::{
+    Btx0, NewTexture, PALETTE_BANK, PaletteEntry, TEXEL_BANK, TextureEntry, append, build,
+    dict_spans, write,
+};
 
 /// One texture of the archive (metadata only; pixels come from `decode`).
 #[derive(Debug, Clone, PartialEq, Eq)]
