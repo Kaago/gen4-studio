@@ -1,0 +1,15 @@
+# Gutachten A (Phase 6): Prototyp PNG -> NSBTX mit Rückleser g4-formats. Eigener Workspace,
+# eigenes Target: CARGO_TARGET_DIR=<scratchpad> cargo run --release -- <befehl>
+[package]
+name = "gutachten-a-proto"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+g4-formats = { path = "../../../../crates/g4-formats" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+color_quant = "1.1"
