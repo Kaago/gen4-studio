@@ -38,6 +38,9 @@
     "externalBin": [
       "binaries/apicula",
       "binaries/rotom-lsp"
-    ]
+    ],
+    "resources": {
+      "licenses/": "licenses/"
+    }
   }
 }

@@ -7,6 +7,7 @@ tools/
 apps/studio/src-tauri/binaries/
 apps/studio/src-tauri/frameworks/
 apps/studio/src-tauri/windows/
+apps/studio/src-tauri/licenses/THIRD-PARTY-NOTICES.txt
 .superpowers/
 scripts/g4emu/.venv/
 __pycache__/

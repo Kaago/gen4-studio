@@ -1,0 +1,35 @@
+Gen4 Studio: Lizenzhinweise Dritter
+===================================
+
+Gen4 Studio steht unter der MIT-Lizenz. Diese Datei nennt die Lizenzen der Bibliotheken und Werkzeuge,
+die im Programm enthalten sind: zuerst die besonderen Fälle, dann die Rust-Bibliotheken, danach die
+npm-Pakete der Oberfläche.
+
+Besondere Fälle (Lizenztexte im Ordner licenses/)
+-------------------------------------------------
+- nitroarc (LGPL-3.0): Bibliothek für Nitro-Archive, als eigene Datei im Paket (libnitroarc_ffi.dylib
+  unter macOS, nitroarc_ffi.dll unter Windows) und dynamisch geladen. Sie lässt sich austauschen:
+  nitroarc-AUSTAUSCH.txt beschreibt, wie. Texte: nitroarc-LGPL-3.0.txt, nitroarc-GPL-3.0.txt.
+- apicula (0BSD): Programm für die Umwandlung von NSBMD in GLB. Text: apicula-LICENSE.txt.
+- rotom und rotom-lsp (MIT): Scriptcompiler und Sprachserver. Text: rotom-LICENSE.txt.
+
+Rust-Bibliotheken
+-----------------
+
+Zusammenfassung:
+{{#each overview}}
+- {{{name}}}: {{count}} Pakete
+{{/each}}
+{{#each licenses}}
+
+--------------------------------------------------------------------------------
+{{{name}}}
+--------------------------------------------------------------------------------
+
+Verwendet von:
+{{#each used_by}}
+  - {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}} ({{{crate.repository}}}){{/if}}
+{{/each}}
+
+{{{text}}}
+{{/each}}

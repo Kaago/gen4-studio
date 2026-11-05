@@ -7,11 +7,13 @@ Die Matrix-Ansicht zeigt die Map-Modelle und die Gebäudemodelle (NSBMD) mit ihr
 
 ```sh
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
-cargo install --git https://github.com/scurest/apicula --locked --root tools/apicula
+source scripts/tool-versions.env
+cargo install --git https://github.com/scurest/apicula --rev "$APICULA_REV" --locked --root tools/apicula
 ```
 
 Das Ergebnis liegt in `tools/apicula/bin/apicula` (`tools/` ist per `.gitignore` ausgeschlossen).
-Gebaut und getestet mit Commit `3d4e91e14045392a49c89e86dab8cb936225588c` (`apicula 0.1.1-dev`).
+Die Fassung steht in `scripts/tool-versions.env` (`APICULA_REV`, Commit `3d4e91e14045392a49c89e86dab8cb936225588c`, `apicula 0.1.1-dev`);
+`pnpm bundle` baut apicula mit derselben Fassung, wenn `tools/apicula/bin/apicula` fehlt.
 
 ### Wo die App apicula sucht
 
