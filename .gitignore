@@ -18,3 +18,6 @@ design-system/*.vor-textfix
 # Generated screens of the OpenPencil templates (build-screen.sh): render them, do not check them in.
 design-system/openpencil/beispiele/*.jsx
 design-system/openpencil/beispiele/*.png
+
+# Output of scripts/release-local.sh (DMG, SHA256SUMS.txt, notes).
+dist-release/

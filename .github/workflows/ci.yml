@@ -2,37 +2,25 @@
 # scripts/gate.sh (G4_GATE_HERMETIC=1, the only G4_* variable), gate-windows runs clippy and the
 # Rust tests: no ROM, no save game, no secret.
 #
-# PR labels (they only steer this workflow; adding one never starts the macOS job):
-#   windows         run gate-windows on this PR (without the label it only runs on main and by hand)
-#   ci-skip-macos   skip gate-macos on this PR, for iterations that only concern Windows
-#                   (macOS minutes count ten times); remove the label before merging
+# Manual only (workflow_dispatch), no run on push or pull request: hosted minutes cost money
+# (a push to main ran about $1.80, macOS minutes count ten times), and the check that counts is
+# the full scripts/gate.sh on the maintainer's Mac before every merge (docs/dev-setup.md). Start
+# it by hand when a change needs the runner, e.g. Windows:
+#   gh workflow run ci.yml                  gate-macos only
+#   gh workflow run ci.yml -f windows=true  gate-macos and gate-windows
 name: ci
 
 on:
-  push:
-    branches: [main]
-    # GitHub: a later pattern re-includes what an earlier `!` pattern excluded, so CHANGELOG.md
-    # (read by `version check`) triggers a run while all other docs and *.md files do not.
-    paths:
-      - '**'
-      - '!docs/**'
-      - '!**/*.md'
-      - 'CHANGELOG.md'
-  pull_request:
-    branches: [main]
-    # The default types plus `labeled`: adding the `windows` label starts gate-windows.
-    types: [opened, synchronize, reopened, labeled]
-    paths:
-      - '**'
-      - '!docs/**'
-      - '!**/*.md'
-      - 'CHANGELOG.md'
   workflow_dispatch:
+    inputs:
+      windows:
+        description: 'Auch gate-windows fahren (clippy und cargo test unter Windows)'
+        type: boolean
+        default: false
 
-# A new push to the same ref cancels the run before it. A `labeled` event gets a group of its
-# own (per label), so adding a label never cancels the run of the last push (macOS minutes).
+# A second manual start on the same ref replaces the run before it.
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event.action == 'labeled' && github.event.label.name || 'code' }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -45,11 +33,6 @@ env:
 jobs:
   gate-macos:
     name: gate-macos
-    # Not for pull request runs started by a label, not with the label ci-skip-macos.
-    if: >-
-      github.event_name != 'pull_request' ||
-      (github.event.action != 'labeled' &&
-      !contains(github.event.pull_request.labels.*.name, 'ci-skip-macos'))
     runs-on: macos-14
     timeout-minutes: 60
     env:
@@ -141,15 +124,12 @@ jobs:
           key: cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}-partial-${{ github.run_id }}
 
   # Windows gate. Target x86_64-pc-windows-msvc, the host default of windows-latest (the feasibility
-  # probe: msvc builds studio, x86_64-pc-windows-gnu fails to link it). Opt-in on pull requests
-  # (label `windows`), because the minutes cost; always on main and by hand. It runs clippy and
-  # the tests, not scripts/gate.sh.
+  # probe: msvc builds studio, x86_64-pc-windows-gnu fails to link it). Only with the input
+  # `windows` (default false), because the minutes cost. It runs clippy and the tests, not
+  # scripts/gate.sh.
   gate-windows:
     name: gate-windows
-    if: >-
-      github.event_name != 'pull_request' ||
-      (contains(github.event.pull_request.labels.*.name, 'windows') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'windows'))
+    if: inputs.windows
     runs-on: windows-latest
     # The kernel lib tests alone took 47 minutes on the runner disk (file I/O and process starts:
     # text project and git tests), against 5 on macOS; target and TEMP now live on a Dev Drive.

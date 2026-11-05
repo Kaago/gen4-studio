@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/release/changelog-section.sh (the release notes of the publish job).
+# Tests for scripts/release/changelog-section.sh (the release notes of scripts/release-local.sh).
 set -euo pipefail
 
 . "$(dirname "$0")/lib.sh"
