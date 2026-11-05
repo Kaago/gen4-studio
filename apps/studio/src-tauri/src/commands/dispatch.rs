@@ -3223,6 +3223,7 @@ mod tests {
     }
 
     #[cfg(feature = "dev-bridge")]
+    #[cfg(unix)] // symlinks
     #[test]
     fn preview_get_path_without_g4_is_empty() {
         let (fixture, state) = open_synthetic_with_town();

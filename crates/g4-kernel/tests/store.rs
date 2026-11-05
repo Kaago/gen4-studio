@@ -1329,6 +1329,7 @@ fn patched_project_reads_and_saves_headers_from_files() {
     assert_eq!(reread.header_count().unwrap(), 2);
 }
 
+#[cfg(unix)] // compares inode numbers
 #[test]
 fn patched_header_save_writes_only_the_changed_files() {
     use g4_kernel::store::MapHeader;

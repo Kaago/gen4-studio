@@ -28,7 +28,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,12 +38,6 @@
     "externalBin": [
       "binaries/apicula",
       "binaries/rotom-lsp"
-    ],
-    "macOS": {
-      "frameworks": [
-        "frameworks/libnitroarc_ffi.dylib"
-      ],
-      "minimumSystemVersion": "13.0"
-    }
+    ]
   }
 }

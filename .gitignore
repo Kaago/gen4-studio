@@ -6,6 +6,7 @@ tools/
 .DS_Store
 apps/studio/src-tauri/binaries/
 apps/studio/src-tauri/frameworks/
+apps/studio/src-tauri/windows/
 .superpowers/
 scripts/g4emu/.venv/
 __pycache__/

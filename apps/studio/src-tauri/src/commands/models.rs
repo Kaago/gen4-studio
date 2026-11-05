@@ -18,28 +18,12 @@ use crate::errors::CmdError;
 use crate::state::AppState;
 
 /// Finds the apicula executable: `G4_APICULA`, then `apicula` next to the running binary, then
-/// (debug builds only) the repository's `tools/apicula/bin/apicula`. A set `G4_APICULA` always
-/// wins, even when it points nowhere, so a typo is reported instead of silently ignored.
+/// (debug builds only) the repository's `tools/apicula/bin/apicula`; `.exe` is added on Windows.
+/// A set `G4_APICULA` always wins, even when it points nowhere, so a typo is reported instead of
+/// silently ignored. An empty file is the build-time placeholder for the bundled sidecar (see
+/// build.rs), not apicula.
 pub(super) fn find_apicula() -> Option<PathBuf> {
-    if let Some(env) = std::env::var_os("G4_APICULA").filter(|v| !v.is_empty()) {
-        return Some(PathBuf::from(env));
-    }
-    let beside_exe = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("apicula")));
-    let mut candidates = vec![beside_exe];
-    if cfg!(debug_assertions) {
-        candidates.push(Some(PathBuf::from(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../tools/apicula/bin/apicula"
-        ))));
-    }
-    // An empty file is the build-time placeholder for the bundled sidecar (see build.rs), not apicula.
-    candidates.into_iter().flatten().find(|p| {
-        p.metadata()
-            .map(|m| m.is_file() && m.len() > 0)
-            .unwrap_or(false)
-    })
+    crate::sidecar::find_sidecar("G4_APICULA", "apicula", "tools/apicula/bin/apicula")
 }
 
 /// Why a map's model has no textures although it should have: the area data or tileset it

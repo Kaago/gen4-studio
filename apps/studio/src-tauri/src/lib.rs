@@ -12,6 +12,7 @@ mod lsp;
 /// The command layer for coding agents (Model Context Protocol): tool catalog and access.
 pub mod mcp;
 mod menu;
+mod sidecar;
 mod state;
 /// The state behind the commands (for the dev bridge and the tests of the MCP server).
 pub use state::AppState;
