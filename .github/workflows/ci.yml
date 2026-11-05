@@ -158,9 +158,10 @@ jobs:
       run:
         shell: bash
     env:
-      # Line tables only: smaller target/ and PDBs, shorter links; panics still name lines.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
-      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      # No debug info: smaller target/, shorter links, no PDB. With `line-tables-only` the
+      # g4-kernel test binary hit LNK1140 (PDB limit exceeded); panics still name file and line.
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
