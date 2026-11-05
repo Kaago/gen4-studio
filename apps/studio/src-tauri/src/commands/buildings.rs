@@ -240,7 +240,9 @@ mod tests {
     use super::super::open_synthetic;
     use super::*;
     use crate::commands::*;
-    use g4_kernel::export::{glb_cache_key, glb_fail_get, remember_tool, tool_fingerprint};
+    use g4_kernel::export::{glb_cache_key, remember_tool};
+    #[cfg(unix)]
+    use g4_kernel::export::{glb_fail_get, tool_fingerprint};
 
     const BMD: &[u8] = b"BMD0\0\0\0\0";
     const BTX: &[u8] = b"BTX0\0\0\0\0";

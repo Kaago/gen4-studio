@@ -590,7 +590,7 @@ impl LiveHub {
     }
 
     /// What runs right after a stop killed our melonDS.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos"))]
     pub(crate) fn set_after_kill(&self, f: Box<dyn Fn() + Send + Sync>) {
         *lock(&self.after_kill) = Some(f);
     }

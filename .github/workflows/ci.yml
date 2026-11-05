@@ -123,25 +123,20 @@ jobs:
             target
           key: cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
 
-  # Feasibility probe and Windows gate. Opt-in on pull requests (label `windows`), because the
-  # minutes cost; always on main and by hand. Both Rust targets run in one go for now.
+  # Windows gate. Target x86_64-pc-windows-msvc, the host default of windows-latest (the feasibility
+  # probe: msvc builds studio, x86_64-pc-windows-gnu fails to link it). Opt-in on pull requests
+  # (label `windows`), because the minutes cost; always on main and by hand.
   gate-windows:
-    name: gate-windows (${{ matrix.target }})
+    name: gate-windows
     if: >-
       github.event_name != 'pull_request' ||
       (contains(github.event.pull_request.labels.*.name, 'windows') &&
       (github.event.action != 'labeled' || github.event.label.name == 'windows'))
     runs-on: windows-latest
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [x86_64-pc-windows-msvc, x86_64-pc-windows-gnu]
     defaults:
       run:
         shell: bash
-    env:
-      CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -182,7 +177,6 @@ jobs:
         run: |
           rustup toolchain install
           rustup show
-          rustup target add ${{ matrix.target }}
           rustup component add clippy
           echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
@@ -194,15 +188,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+          key: cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            cargo-${{ runner.os }}-${{ matrix.target }}-${{ steps.rust.outputs.version }}-
+            cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-
 
-      # One step per command, so the log shows which one fails. The build comes first: it answers
-      # whether the target builds at all.
-      - name: cargo build -p studio
-        run: cargo build -p studio
-
+      # One step per command, so the log shows which one fails.
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -216,4 +206,4 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+          key: cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}

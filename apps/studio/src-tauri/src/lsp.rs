@@ -281,12 +281,12 @@ impl LspProcess {
     }
 
     /// Number of automatic restarts since `start`.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn restarts(&self) -> u8 {
         self.restarts
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn set_restart_after(&mut self, interval: Duration) {
         self.restart_after = interval;
     }

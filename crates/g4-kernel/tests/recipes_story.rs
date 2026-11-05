@@ -852,6 +852,7 @@ fn two_stories_advance_through_the_same_figure() {
 }
 
 /// Sets the story folder and its files read-only (`readonly`) or writable again.
+#[cfg(unix)]
 fn story_files_readonly(store: &Store, readonly: bool) {
     let dir = store.project().root.join("data/stories");
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -866,6 +867,7 @@ fn story_files_readonly(store: &Store, readonly: bool) {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failure_after_the_compile_takes_everything_back() {
     let (_fx, mut store) = talk_fixture();
@@ -1293,6 +1295,7 @@ fn a_saved_reward_is_undone_byte_equal() {
     assert_eq!(store.event(0).unwrap().object_events[0].script, 3);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_reward_takes_the_flag_name_back() {
     let (fx, mut store) = talk_fixture();
@@ -2219,6 +2222,7 @@ fn a_header_without_a_level_script_gets_a_new_one() {
     assert_eq!(level_json(&store, n), entries(serde_json::json!([])));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_visibility_takes_back_the_block_and_the_level_script() {
     let (_fx, mut store) = appear_fixture();
@@ -2244,6 +2248,7 @@ fn a_failed_visibility_takes_back_the_block_and_the_level_script() {
 /// The error of a recipe that failed after it created a level script file: a
 /// [`KernelError::Partial`] that names the file, which stays (empty, the header points back at
 /// its old level script).
+#[cfg(unix)]
 fn assert_kept_level_script<T: std::fmt::Debug>(
     store: &mut Store,
     result: Result<T, KernelError>,
@@ -2262,6 +2267,7 @@ fn assert_kept_level_script<T: std::fmt::Debug>(
     assert_eq!(level_json(store, n), entries(serde_json::json!([])));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_visibility_names_the_level_script_file_it_created() {
     let (_fx, mut store) = appear_fixture();
@@ -2283,6 +2289,7 @@ fn a_failed_visibility_names_the_level_script_file_it_created() {
     assert_eq!(store.event(0).unwrap().object_events[5].hidden_flag, 0);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_scene_names_the_level_script_file_it_created() {
     let (_fx, mut store) = talk_fixture();
@@ -2801,6 +2808,7 @@ fn undo_of_a_scene_restores_level_script_source_and_story() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_scene_takes_back_the_script_and_the_level_script() {
     let (_fx, mut store) = talk_fixture();
