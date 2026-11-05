@@ -11,7 +11,7 @@ SCRIPT="$REPO_ROOT/apps/studio/scripts/check-bundle-windows.sh"
 # fake_setup <dir>: prints the path of a fake installer. Its behavior comes from the environment
 # of the check script: FAKE_OMIT (space-separated files left out), FAKE_NOTICES (text of the
 # notices file), FAKE_LSP_STATUS (exit status of rotom-lsp.exe), FAKE_APICULA_STATUS,
-# FAKE_SETUP_STATUS, FAKE_EXTRA (an additional file, e.g. studio-bridge.exe).
+# FAKE_DOCTOR_STATUS (exit status of `studio.exe doctor`), FAKE_SETUP_STATUS, FAKE_EXTRA (an additional file, e.g. studio-bridge.exe).
 fake_setup() {
   local setup="$1/fake-setup.exe"
   cat >"$setup" <<'FAKE'
@@ -25,7 +25,10 @@ put() { # put <relative path> <content>
   case " ${FAKE_OMIT:-} " in *" $1 "*) return 0 ;; esac
   printf '%s\n' "$2" >"$dir/$1"
 }
-put studio.exe "studio"
+put studio.exe "#!/bin/sh
+[ \"\$1\" = doctor ] || exit 9
+echo doctor-output-here cwd=\$(basename \"\$PWD\")
+exit ${FAKE_DOCTOR_STATUS:-0}"
 put apicula.exe "#!/bin/sh
 exit ${FAKE_APICULA_STATUS:-0}"
 put rotom-lsp.exe "#!/bin/sh
@@ -65,9 +68,25 @@ test_rotom_lsp_status_0_and_1_both_pass() {
   assert_status 0 check FAKE_LSP_STATUS=1
 }
 
-test_rotom_lsp_that_cannot_start_fails() {
-  assert_status 1 check FAKE_LSP_STATUS=127
-  assert_contains "rotom-lsp.exe does not start" check FAKE_LSP_STATUS=127
+test_rotom_lsp_with_any_other_status_fails() {
+  # 127: cannot start; 53 is 0xC0000135 cut to 8 bits; 139 is a crash.
+  local status
+  for status in 127 53 139 2; do
+    assert_status 1 check FAKE_LSP_STATUS=$status
+  done
+  assert_contains "rotom-lsp.exe endet mit Status 53" check FAKE_LSP_STATUS=53
+}
+
+test_doctor_must_exit_0_and_its_output_is_shown() {
+  assert_contains "doctor-output-here" check
+  assert_status 1 check FAKE_DOCTOR_STATUS=1
+  assert_contains "studio.exe doctor endet mit Status 1" check FAKE_DOCTOR_STATUS=1
+  assert_contains "doctor-output-here" check FAKE_DOCTOR_STATUS=1
+}
+
+test_doctor_runs_in_the_install_folder() {
+  # The fake studio.exe prints the name of its working directory: <RUNNER_TEMP or mktemp>/g4s.
+  assert_contains "cwd=g4s" check
 }
 
 test_a_missing_dll_fails() {
@@ -111,6 +130,25 @@ test_installs_into_runner_temp_g4s() {
   mkdir "$d/runner"
   RUNNER_TEMP="$d/runner" bash "$SCRIPT" "$setup" >/dev/null
   test -s "$d/runner/g4s/studio.exe" || fail "not installed into \$RUNNER_TEMP/g4s"
+}
+
+test_a_space_in_the_install_dir_falls_back_to_a_space_free_dir() {
+  local d setup out
+  d="$(tmpdir)"
+  setup="$(fake_setup "$d")"
+  mkdir -p "$d/run ner" "$d/free"
+  out="$(RUNNER_TEMP="$d/run ner" G4_SPACEFREE_BASE="$d/free" bash "$SCRIPT" "$setup" 2>&1)"
+  case "$out" in
+    *"enthaelt ein Leerzeichen"*"$d/free/g4s-"*) ;;
+    *) fail "no fallback note: $out" ;;
+  esac
+  case "$out" in
+    *"bundle ok (windows)") ;;
+    *) fail "not ok after the fallback: $out" ;;
+  esac
+  test ! -e "$d/run ner/g4s" || fail "installed into the dir with a space"
+  # the fallback folder is removed again
+  [ -z "$(ls "$d/free")" ] || fail "fallback folder not cleaned up"
 }
 
 test_usage_and_missing_installer() {

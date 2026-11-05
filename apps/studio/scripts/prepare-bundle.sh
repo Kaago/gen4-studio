@@ -71,8 +71,10 @@ if [ -n "$EXE" ]; then
   install -m 755 "$ROTOM_LSP_SRC" "$TAURI/binaries/rotom-lsp-$TRIPLE.exe"
   # Die DLL kommt ueber bundle.resources (src-tauri/tauri.bundle.windows.conf.json) neben studio.exe.
   cp "$DLL_SRC" "$TAURI/windows/nitroarc_ffi.dll"
+  chmod u+w "$TAURI/windows/nitroarc_ffi.dll"
   # Entwicklungskopie (G4_ROTOM_LSP, Debug-Suche): Windows sucht die DLL im Ordner der EXE.
   cp "$DLL_SRC" "$ROOT/tools/rotom/bin/nitroarc_ffi.dll"
+  chmod u+w "$ROOT/tools/rotom/bin/nitroarc_ffi.dll"
   # Kein rpath, kein install_name_tool, kein codesign unter Windows.
   bash "$ROOT/apps/studio/scripts/third-party-notices.sh" "$TAURI/licenses/THIRD-PARTY-NOTICES.txt"
   echo "prepared: binaries/apicula-$TRIPLE.exe, binaries/rotom-lsp-$TRIPLE.exe, windows/nitroarc_ffi.dll"

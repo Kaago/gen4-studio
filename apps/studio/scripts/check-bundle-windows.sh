@@ -11,15 +11,19 @@
 #      (mit `nitroarc` oder `LGPL`) und die uebrigen Lizenztexte existieren und sind nicht leer;
 #      studio-bridge.exe (nur Entwicklung) darf nicht dabei sein;
 #   3. `apicula.exe --help` endet mit Status 0;
-#   4. `rotom-lsp.exe` mit geschlossenem stdin endet ohne Ladefehler. Fehlt nitroarc_ffi.dll, bricht
-#      Windows den Start mit STATUS_DLL_NOT_FOUND (0xC0000135 = 3221225781, als vorzeichenbehaftete
-#      Zahl -1073741515) ab. Git Bash gibt den Status je nach MSYS2-Laufzeit als diese Zahl, als
-#      127 (Programm nicht startbar) oder als `$? & 0xFF` weiter; deshalb zaehlt jeder Status ab
-#      0xC0000000 (alle NTSTATUS-Fehler) und 127 als Fehlschlag. Sonst ist der Status egal: ohne
-#      Eingabe endet rotom-lsp mit 0 oder 1.
+#   4. `rotom-lsp.exe` mit geschlossenem stdin endet mit 0 oder 1 (mehr gibt es dort nicht: ohne
+#      Eingabe beendet es sich sofort). Ein Ladefehler (fehlt nitroarc_ffi.dll, meldet Windows
+#      STATUS_DLL_NOT_FOUND 0xC0000135) kommt in Git Bash nicht verlaesslich als diese Zahl an:
+#      `$?` kennt nur 0..255, die MSYS2-Laufzeit schneidet ab (53) oder meldet 127. Darum zaehlt jeder
+#      andere Status als 0 und 1 als Fehlschlag, auch 127;
+#   5. der eigentliche Beweis: `studio.exe doctor`, aus dem Installationsordner gestartet, muss mit
+#      0 enden (Ausgabe wird gezeigt). doctor startet apicula und fuehrt mit rotom-lsp den
+#      LSP-Handshake aus; das geht nur, wenn nitroarc_ffi.dll laedt (studio.exe linkt sie selbst).
 # Endet mit `bundle ok (windows)` und Status 0. Auf anderen Systemen laeuft es mit einem
 # Installer-Ersatz (scripts/tests/check-bundle-windows.test.sh); die Pfadumwandlung (cygpath)
-# entfaellt dann.
+# entfaellt dann. NSIS ignoriert ein `/D=` mit Anfuehrungszeichen und kennt keine Leerzeichen im
+# Pfad: enthaelt der Windows-Pfad des Zielordners welche, wird stattdessen in ein Verzeichnis ohne
+# Leerzeichen unter dem Systemlaufwerk installiert (G4_SPACEFREE_BASE ersetzt es in den Tests).
 set -euo pipefail
 
 die() {
@@ -41,6 +45,7 @@ windows_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; el
 
 # $RUNNER_TEMP/g4s as the spec names it; a fresh mktemp folder when RUNNER_TEMP is unset.
 OWN_TMP=""
+OWN_FALLBACK=""
 if [ -n "${RUNNER_TEMP:-}" ]; then
   BASE="$(posix_path "$RUNNER_TEMP")"
 else
@@ -51,18 +56,38 @@ cleanup() {
   if [ -n "$OWN_TMP" ]; then
     rm -rf "$OWN_TMP" 2>/dev/null || true
   fi
+  if [ -n "$OWN_FALLBACK" ]; then
+    rm -rf "$OWN_FALLBACK" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 DIR="$BASE/g4s"
+WIN_DIR="$(windows_path "$DIR")"
+case "$WIN_DIR" in
+  *[[:space:]]*)
+    # NSIS takes everything after /D= raw and the last argument unquoted, so a quoted path or one
+    # with a space fails; fall back to a folder without a space on the system drive.
+    FALLBACK="${G4_SPACEFREE_BASE:-$(posix_path "${SYSTEMDRIVE:-C:}")}/g4s-$$"
+    echo "Der Installationsordner '$WIN_DIR' enthaelt ein Leerzeichen, NSIS (/D=) kann das nicht;" \
+      "installiere stattdessen nach $FALLBACK" >&2
+    OWN_FALLBACK="$FALLBACK"
+    DIR="$FALLBACK"
+    WIN_DIR="$(windows_path "$DIR")"
+    case "$WIN_DIR" in
+      *[[:space:]]*) die "auch der Ausweichordner enthaelt ein Leerzeichen: $WIN_DIR" ;;
+    esac
+    ;;
+esac
 rm -rf "$DIR"
 
-# NSIS: /S is silent; /D=<dir> sets the install folder, must be the last argument and is taken
-# raw (no quotes, spaces allowed), so it goes in as ONE argument with a Windows path. Git Bash
-# would rewrite arguments that look like POSIX paths (/S, /D=...): switch that off.
-echo "installing $(basename "$SETUP") to $DIR" >&2
+# NSIS: /S is silent; /D=<dir> sets the install folder and must be the last argument, as ONE argv
+# element with a Windows path and without a space (Windows would quote an element with a space,
+# and NSIS ignores a quoted /D=; see the fallback above). Git Bash would rewrite arguments that
+# look like POSIX paths (/S, /D=...): switch that off.
+echo "installing $(basename "$SETUP") to $WIN_DIR" >&2
 status=0
 # No `timeout`: on a Windows PATH it can be the DOS timeout.exe; the job timeout is the backstop.
-MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$SETUP" /S "/D=$(windows_path "$DIR")" || status=$?
+MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$SETUP" /S "/D=$WIN_DIR" || status=$?
 [ "$status" -eq 0 ] || die "installer ended with status $status"
 
 # The installer returns when it is done; the loop only covers a stub that hands over to a child.
@@ -85,13 +110,24 @@ status=0
 "$DIR/apicula.exe" --help >/dev/null 2>&1 || status=$?
 [ "$status" -eq 0 ] || die "apicula.exe --help ended with status $status"
 
-# rotom-lsp.exe loads nitroarc_ffi.dll from its own folder (the DLL sits next to studio.exe).
+# rotom-lsp.exe loads nitroarc_ffi.dll from its own folder (the DLL sits next to studio.exe). With
+# closed stdin it ends at once with 0 or 1; a load error shows up as something else (127, a
+# truncated 0xC0000135, a crash status). The header comment says why this alone is not proof.
 status=0
 LSP_OUT="$("$DIR/rotom-lsp.exe" </dev/null 2>&1)" || status=$?
-unsigned=$((status & 0xFFFFFFFF))
-if [ "$status" -eq 127 ] || [ "$unsigned" -ge 3221225472 ]; then
-  printf '%s\n' "$LSP_OUT" >&2
-  die "rotom-lsp.exe does not start (status $status; 3221225781 = 0xC0000135 is the missing DLL)"
-fi
+case "$status" in
+  0 | 1) ;;
+  *)
+    printf '%s\n' "$LSP_OUT" >&2
+    die "rotom-lsp.exe endet mit Status $status (erwartet 0 oder 1; 127, 53 oder 139 heissen: startet nicht, vermutlich fehlt nitroarc_ffi.dll)"
+    ;;
+esac
+
+# The positive proof: doctor starts apicula and speaks LSP with rotom-lsp, from the install folder
+# (the way the app finds its tools), and studio.exe itself links nitroarc_ffi.dll.
+status=0
+DOCTOR_OUT="$(cd "$DIR" && ./studio.exe doctor 2>&1)" || status=$?
+printf '%s\n' "$DOCTOR_OUT"
+[ "$status" -eq 0 ] || die "studio.exe doctor endet mit Status $status"
 
 echo "bundle ok (windows)"

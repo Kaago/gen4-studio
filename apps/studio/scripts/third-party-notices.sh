@@ -14,7 +14,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 
-# The strings of a TOML array `<key> = [ ... ]`, one per line, sorted.
+# The strings of a TOML array `<key> = [ ... ]`, one per line, sorted. The array must stay
+# multi-line (`<key> = [` on its own first line, the closing `]` on the last line) in deny.toml and
+# about.toml: the sed range ends at the first line that contains a `]`.
 toml_list() { # toml_list <file> <key>
   sed -n "/^$2 *= *\[/,/\]/p" "$1" | grep -o '"[^"]*"' | sort
 }
@@ -44,12 +46,23 @@ fi
 OUT="$1"
 
 check_lists
-for tool in cargo-about pnpm node; do
+WANT_ABOUT="$(. "$ROOT/scripts/tool-versions.env" && printf '%s' "$CARGO_ABOUT_VERSION")"
+if ! command -v cargo-about >/dev/null 2>&1; then
+  echo "cargo-about fehlt: cargo install --locked --features cli cargo-about@$WANT_ABOUT" >&2
+  exit 1
+fi
+for tool in pnpm node; do
   if ! command -v "$tool" >/dev/null 2>&1; then
-    echo "$tool not found (cargo-about: cargo install --locked --features cli cargo-about)" >&2
+    echo "$tool fehlt (pnpm install in apps/studio, Node aus scripts/tool-versions.env)" >&2
     exit 1
   fi
 done
+# `cargo-about 0.9.3`: the last word is the version. A different one still runs, but the
+# notices may differ from what CI makes with CARGO_ABOUT_VERSION.
+HAVE_ABOUT="$(cargo-about --version | awk '{print $NF}' | tr -d '\r')"
+if [ "$HAVE_ABOUT" != "$WANT_ABOUT" ]; then
+  echo "Warnung: cargo-about $HAVE_ABOUT, scripts/tool-versions.env nennt CARGO_ABOUT_VERSION=$WANT_ABOUT" >&2
+fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
