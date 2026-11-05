@@ -81,4 +81,18 @@ for f in nitroarc-LGPL-3.0.txt nitroarc-GPL-3.0.txt nitroarc-AUSTAUSCH.txt apicu
   fi
 done
 
+# Signature: the whole bundle is ad-hoc signed (bundle.macOS.signingIdentity "-"), with Info.plist bound
+# and the resources sealed. With only the linker signature of the binaries, a downloaded (quarantined)
+# app is reported as damaged instead of offering "Open" (gate G5, finding B1).
+if ! codesign --verify --deep --strict "$APP" 2>&1; then
+  echo "bundle signature does not verify (codesign --verify --deep --strict): $APP" >&2
+  exit 1
+fi
+# Read into a variable first: under pipefail, grep -q closing the pipe early would fail codesign.
+SIGNATURE="$(codesign -dv "$APP" 2>&1)"
+if ! grep -q '^Signature=adhoc' <<<"$SIGNATURE"; then
+  echo "bundle is not ad-hoc signed: $APP" >&2
+  exit 1
+fi
+
 echo "bundle ok: $APP"
