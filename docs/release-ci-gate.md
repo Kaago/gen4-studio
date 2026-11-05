@@ -39,17 +39,20 @@ Gemessen:
 | `gate-windows` (Probe), GNU | Runner, kalt | 22 min 39 s | Link von `studio` scheitert (`ld returned 8`); Ziel verworfen, siehe [release.md](release.md) |
 | `gate-windows` MSVC, Lauf 41942261090 | Runner, ohne Dev Drive | 90 min (Abbruch nach dem ersten roten Test-Binary) | `cargo clippy` 451 s grün; `cargo test` 4 312 s, Kernel-Unit-Tests 2 849 s, 14 Fehler |
 | `gate-windows` MSVC, Lauf 41965391702 | Runner, Dev Drive, ohne Debug-Info | 66 min | `cargo clippy` 489 s; `cargo test --no-fail-fast` 3 101 s, 13 Fehler in 8 Binaries (danach behoben) |
-| `gate-windows` MSVC, grün | Runner | offen | – |
+| `gate-windows` MSVC, Lauf 41977356870 | Runner, Dev Drive, warm | 57 min, grün | `cargo clippy` 107 s; `cargo test --no-fail-fast` 2 749 s (64 Test-Binaries); Cache laden 135 s, speichern 293 s |
 | `bundle-macos`, Probelauf 41960501794 | Runner `macos-14`, kalt | 10 min | `Bundle (app, dmg)` 480 s inklusive apicula und rotom-lsp; Rauchtest grün |
 | `bundle-windows`, Probelauf 41960501794 | Runner `windows-latest`, kalt | 64 min | `Bundle (nsis)` 2 984 s, synthetisches Projekt 453 s; `check-bundle-windows`, `no rom data` und Rauchtest grün |
 
-Verbrauchte Minuten (Stand der Probeläufe; macOS zählt zehnfach, Windows doppelt):
+Verbrauchte Minuten bis Lauf 41977356870 (Job-Dauer aufgerundet; macOS zählt zehnfach, Windows doppelt, Linux einfach):
 
 | System | Minuten | Faktor | abgerechnet |
 |---|---|---|---|
-| macOS | 19 | 10 | 190 |
-| Windows | 17 + 23 | 2 | 80 |
-| Summe | | | 270 |
+| macOS | 19 + 10 | 10 | 290 |
+| Windows | 23 + 17 + 90 + 22 + 64 + 12 + 65 + 57 | 2 | 700 |
+| Linux | 1 | 1 | 1 |
+| Summe | | | 991 |
+
+Der Schlusslauf (ci ohne `ci-skip-macos` und `release-dry-run`) kommt dazu; Zahlen im Bericht des Agenten.
 
 Am Ende der Phase: Gesamtverbrauch und Rest des Monatskontingents: offen.
 
