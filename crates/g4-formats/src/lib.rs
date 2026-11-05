@@ -14,3 +14,4 @@ pub mod test_support;
 
 pub mod nitro_dict;
 pub mod nsbmd;
+pub mod texconv;
