@@ -6,7 +6,9 @@
       "frameworks": [
         "frameworks/libnitroarc_ffi.dylib"
       ],
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": false
     }
   }
 }

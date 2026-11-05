@@ -54,7 +54,13 @@ geliefert, baut das Skript es aus dem fertigen `.app` mit `hdiutil create -volna
 und schreibt `dmg: tauri` oder `dmg: hdiutil fallback` in die Zusammenfassung des Laufs. Ohne `.app` scheitert es.
 Der Name der Datei ist `Gen4-Studio_<Fassung>_aarch64.dmg`.
 
-**Signatur:** Das Bundle ist ad-hoc signiert (`codesign --sign -`), nicht mit einer Developer ID und nicht notarisiert.
+**Signatur:** Das Bundle ist als Ganzes ad-hoc signiert (`bundle.macOS.signingIdentity: "-"` in `tauri.macos.conf.json`:
+Tauri signiert Sidecars, Framework und App mit gebundener `Info.plist` und versiegelten Ressourcen), nicht mit einer Developer ID
+und nicht notarisiert. `check-bundle.sh` prüft das mit `codesign --verify --deep --strict`. Dazu ist `hardenedRuntime: false`
+gesetzt: Mit Hardened Runtime lehnt die Library Validation die ad-hoc signierte `libnitroarc_ffi.dylib` ab („different Team
+IDs“), und `rotom-lsp` startet nicht. Für eine spätere Notarisierung (Developer ID) braucht es Hardened Runtime wieder, dann mit
+der Entitlement `com.apple.security.cs.disable-library-validation` oder einer mit derselben ID signierten dylib. Bis `0.1.0-rc.1` trug nur das
+Binary die Linker-Signatur; ein heruntergeladenes DMG galt dann als „beschädigt“ statt „nicht verifiziert“ (Gate G5, Befund B1).
 Beim ersten Start verlangt Gatekeeper deshalb eine Freigabe:
 
 - Rechtsklick auf die App, dann Öffnen (und im Dialog noch einmal Öffnen); oder Systemeinstellungen, Datenschutz & Sicherheit,
