@@ -101,7 +101,9 @@ Die Spezifikation (§6.4) fragt, ob NSIS eine Fassung wie `0.1.0-rc.1` annimmt; 
 für `bundle.windows.nsis` die Dateiversion `0.1.0.1`, während der Name des Artefakts bei SemVer bleibt. Der Probelauf
 des Release-Workflows baut die Windows-Seite auf Pull-Request-Läufen dazu mit `0.1.0-rc.1` (nie eingecheckt); scheitert dort das Bundle, ist das die Antwort.
 
-Befund: steht aus (erster Probelauf)
+Befund (Probelauf 41960501794, 2026-11-05): NSIS nimmt `0.1.0-rc.1` an. Das Bundle heißt `Gen4 Studio_0.1.0-rc.1_x64-setup.exe`,
+installiert still, und `studio doctor` meldet `studio 0.1.0-rc.1`. Eine numerische Ersatzfassung (`0.1.0.1`) braucht es nicht;
+der Workflow setzt keine.
 
 ## Workflows, Tags und Versionen
 
