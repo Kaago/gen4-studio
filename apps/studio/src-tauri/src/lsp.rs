@@ -475,6 +475,26 @@ mod tests {
         buf.extend(frame("{}"));
         assert_eq!(parse_frames(&mut buf), ["{}"]);
     }
+
+    #[test]
+    fn absurd_content_length_is_dropped_and_reading_goes_on() {
+        // usize::MAX would overflow `body_start + len`; one byte over the cap is refused too;
+        // a number that does not even fit a usize has no length at all.
+        for len in [
+            usize::MAX.to_string(),
+            (MAX_BODY + 1).to_string(),
+            "99999999999999999999999999".to_owned(),
+        ] {
+            let mut buf = format!("Content-Length: {len}\r\n\r\n").into_bytes();
+            buf.extend(frame("{\"ok\":true}"));
+            assert_eq!(parse_frames(&mut buf), ["{\"ok\":true}"], "length {len}");
+            assert!(buf.is_empty());
+        }
+        // A length at the cap is legal and just waits for its body.
+        let mut buf = format!("Content-Length: {MAX_BODY}\r\n\r\nabc").into_bytes();
+        assert!(parse_frames(&mut buf).is_empty());
+        assert!(!buf.is_empty());
+    }
 }
 
 /// The tests that run a fake server as a shell script or signal processes: Unix only.
@@ -763,26 +783,6 @@ while :; do sleep 1; done
         assert!(pid_alive(pid));
         open_project_impl(&state, project).unwrap();
         assert!(!pid_alive(pid), "open_project left the old server running");
-    }
-
-    #[test]
-    fn absurd_content_length_is_dropped_and_reading_goes_on() {
-        // usize::MAX would overflow `body_start + len`; one byte over the cap is refused too;
-        // a number that does not even fit a usize has no length at all.
-        for len in [
-            usize::MAX.to_string(),
-            (MAX_BODY + 1).to_string(),
-            "99999999999999999999999999".to_owned(),
-        ] {
-            let mut buf = format!("Content-Length: {len}\r\n\r\n").into_bytes();
-            buf.extend(frame("{\"ok\":true}"));
-            assert_eq!(parse_frames(&mut buf), ["{\"ok\":true}"], "length {len}");
-            assert!(buf.is_empty());
-        }
-        // A length at the cap is legal and just waits for its body.
-        let mut buf = format!("Content-Length: {MAX_BODY}\r\n\r\nabc").into_bytes();
-        assert!(parse_frames(&mut buf).is_empty());
-        assert!(!buf.is_empty());
     }
 
     /// Never reads its stdin.

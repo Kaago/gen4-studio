@@ -19,14 +19,18 @@ fn main() {
     tauri_build::build()
 }
 
-/// `bundle.externalBin` and the platform's native library resource make tauri-build require
+/// `bundle.externalBin` and, on macOS targets, `bundle.macOS.frameworks` make tauri-build require
 /// `binaries/apicula-<target triple>` and `binaries/rotom-lsp-<target triple>` (both with `.exe`
-/// on Windows) plus `frameworks/libnitroarc_ffi.dylib` (`bundle.macOS.frameworks`, macOS targets)
-/// or `windows/nitroarc_ffi.dll` (`bundle.resources`, Windows targets) for every build, also
+/// on Windows) plus `frameworks/libnitroarc_ffi.dylib` (macOS targets only) for every build, also
 /// `cargo test`/`clippy`. The files are only real after `scripts/prepare-bundle.sh`; until then
 /// empty placeholders keep normal builds working. `find_apicula` and `find_rotom_lsp` ignore an
 /// empty file and `scripts/check-bundle.sh` fails on empty files, so a placeholder can never pass
 /// as the real thing.
+///
+/// There is deliberately no placeholder for `windows/nitroarc_ffi.dll`: that resource is only
+/// declared in `tauri.bundle.windows.conf.json` (used by `scripts/bundle.sh`), because tauri-build
+/// copies every `bundle.resources` entry next to the binary on each build and an empty file would
+/// overwrite the real DLL that uxie's build script stages there.
 fn ensure_bundle_placeholders() {
     let Ok(triple) = std::env::var("TARGET") else {
         return;
@@ -38,11 +42,9 @@ fn ensure_bundle_placeholders() {
         format!("binaries/apicula-{triple}{exe}"),
         format!("binaries/rotom-lsp-{triple}{exe}"),
     ];
-    // nitroarc stays a separate file: a framework on macOS, a resource next to the exe on Windows.
-    match target_os.as_str() {
-        "macos" => paths.push("frameworks/libnitroarc_ffi.dylib".to_string()),
-        "windows" => paths.push("windows/nitroarc_ffi.dll".to_string()),
-        _ => {}
+    // nitroarc stays a separate file: a framework on macOS (see the note above for Windows).
+    if target_os == "macos" {
+        paths.push("frameworks/libnitroarc_ffi.dylib".to_string());
     }
     for path in paths {
         let path = Path::new(&path);
