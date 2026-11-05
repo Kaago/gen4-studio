@@ -308,6 +308,87 @@ Alles andere wird dekodiert und neu kodiert. Keine Leser-Regel musste für Vanil
 Rohfeld werden: alle Wörterbücher haben das strenge Layout und Datengröße 4, alle Materialien
 44, 48 oder 52 Byte, alle SBC- und GPU-Befehle stehen in den Tabellen.
 
+## Teilmenge des Bäckers
+
+Der Bäcker (`crates/g4-kernel/src/bake/{mod,strips,encode,test_surface}.rs`, `bake::bake`)
+baut aus einer neutralen Flächenliste (`bake::Face`: vier Ecken in Welteinheiten, 16 je
+Kachel, y nach oben, von oben gegen den Uhrzeigersinn; UV in Texeln, weltgebunden; Name der
+Textur im Kartentextur-Paket; Ebene) ein Modell mit diesem Codec. Er ist rein: Flächen,
+Pakettexturen (`PackTexture`: Name, Palette, Breite, Höhe) und Stil des Gebiets gehen hinein,
+die NSBMD-Bytes und ein Bericht mit Prüfcodes kommen heraus. Er schreibt nur diese Teilmenge
+(Gutachten A §2.5, §4; Prototyp `gutachten-a-minimal.py` `STYLE`/`build_nsbmd`):
+
+- **Container und Modell:** Version 2, ein Modell `g4_bake`; Kopf `num_objects` 1,
+  `num_materials` = `num_shapes` = Zahl der Texturen, `first_unused_mtx` 1, sonst 0;
+  `up_scale` 262 144 (`posScale` 64), `down_scale` 64. Ein Knochen `g4_root` mit Flagwort
+  `0xF807` (Identität), `rest` = `00 00`. SBC
+  `26 00 00 00 00 02 00 01 0B (04 ii 05 ii)* 2B 01`. EVP leer.
+- **Koordinaten:** eine Ecke von `w` Welteinheiten ist `fx = 64 · w` in 1/4096
+  Modelleinheiten. `VTX_10`, wenn alle drei `fx % 64 == 0` und `fx / 64` in −512..=511
+  liegen (bei ganzzahligen Ecken immer), sonst `VTX_16`. Eine Ecke außerhalb −512..=511
+  Welteinheiten ist `bake.face-out-of-range`.
+- **Materialien und Shapes:** je Textur ein Material und ein Shape, in Reihenfolge des
+  ersten Vorkommens. Material: Name = Texturname, `tag` 0, Größe 44, `spe_emi` 0,
+  `poly_attr_mask` `0x3F1FF8FF`, `teximage` `0x00030000` (Wiederholen S und T),
+  `teximage_mask` `0xFFFFFFFF`, `pltt_base` 0, `flag` `0x1FCE`, `mag` (4096, 4096), Breite
+  und Höhe der Textur. Textur-Paarung je Material (`bound` 0), Paletten-Paarung je
+  Palettenname mit allen Materialien dieser Palette. Shape `polygon<i>`, `tag` 0, `size` 16.
+- **Stil je Gebiet** (`AreaStyle::of`): Platin und DP Lichttyp 0 oder 3, HGSS Lichttyp 1 →
+  außen, sonst innen.
+
+  | Stil | `dif_amb` | `poly_attr` | Shape-Flag | Display List |
+  |------|-----------|-------------|------------|--------------|
+  | außen | `0x7FFFE739` | `0x001F8081` (Licht 0, Vorderseite, Nebel, Alpha 31) | `0x5` | `NORMAL` vor dem ersten Eck eines Strips oder Einzel-Quads, wenn sie sich ändert |
+  | innen | `0x7FFF8000` | `0x001F0080` (kein Licht, Vorderseite, Alpha 31) | `0x6` | `COLOR 0x7FFF` als erster Befehl des Shapes, kein `NORMAL` |
+
+  Normale: `(c1 − c0) × (c2 − c0)`, bei Länge 0 `(c2 − c0) × (c3 − c0)`, sonst `(0, 1, 0)`;
+  normiert, je Achse `round(v · 511)` auf −512..=511 (1.0.9).
+- **Strips:** Läufe gleicher Textur, Ebene und Normale. Eine Fläche `g` setzt `f` fort, wenn
+  `g.c0 == f.c3` und `g.c1 == f.c2` (Position und UV). Eine Kette beginnt bei der ersten
+  unbenutzten Fläche in Eingabereihenfolge ohne unbenutzten Vorgänger (sonst bei der ersten
+  unbenutzten) und geht mit der ersten unbenutzten passenden Fläche weiter. Ketten ab zwei
+  Flächen werden Quad-Strips (`BEGIN_VTXS 3`, Ecken `f0.c0, f0.c1, f0.c3, f0.c2, f1.c3,
+  f1.c2, …`, `END_VTXS`), alle übrigen Flächen eines Shapes Quads in einer Gruppe am Ende
+  (`BEGIN_VTXS 1`, Ecken `c0..c3`, `END_VTXS`). Die Vorderseite ist `(c1 − c0) × (c2 − c0)`
+  wie bei allen waagerechten Vanilla-Quads (A §2.7).
+- **`TEXCOORD`:** nur, wenn (s, t) sich gegenüber dem zuletzt in diesem Shape gesendeten
+  ändert; Wert `(uv − Verschiebung) · 16` (1.11.4). Die Verschiebung gilt je Strip und je
+  Einzel-Quad und je Achse: 0, solange die erste Fläche in −2 048..=2 047 Texel passt, sonst
+  das größte Vielfache der Texturbreite bzw. -höhe bis zum kleinsten UV der Fläche (passt sie
+  damit nicht, eine Texturseite mehr; so passt jede Fläche mit einer Spanne bis 2 047
+  Texel). Mit Wiederholen S/T ändert das Bild sich nicht. Ein Strip wird vor der Fläche
+  geteilt, deren neue Ecken (`c3`, `c2`) unter seiner Verschiebung nicht mehr passen; das
+  Teilstück bleibt ein Strip (auch mit einer Fläche) und zählt im Bericht als eigener Strip.
+  Eine Fläche mit einer Spanne über 2 047 Texel ist `bake.face-uv-range`.
+- **Zähler und Rahmen:** Zähler aus der Display List (`Model::geometry`). Rahmen über alle
+  `fx`: `ext` = größter Betrag von Minimum, Maximum und Ausdehnung über alle Achsen;
+  `box_scale` = kleinste Zweierpotenz ≥ 1 mit `ext / box_scale < 7,99 · 4096`;
+  `box_pos = round(min / box_scale)`, `box_size = round((max − min) / box_scale)`, Felder
+  `box_scale · 4096` und `4096 / box_scale`.
+
+**Prüfcodes** (`BakeMessage { code, level, args, message }`, Code als Text):
+
+| Code | Stufe | Wann | `args` |
+|------|-------|------|--------|
+| `bake.empty` | Fehler | keine Fläche | – |
+| `bake.model-too-big` | Fehler | Datei über `model.max_bytes` (0xF000, `check_limits.yaml`); auch über 255 Texturen oder ein Fehler des Writers | Größe, Grenze (Texturen: Zahl, 255; Writer: Grund) |
+| `bake.texture-missing` | Fehler | Texturname nicht im Paket oder ohne Palette (einmal je Name) | Name |
+| `bake.face-out-of-range` | Fehler | erste Fläche mit einer Ecke außerhalb −512..=511 | Index, x, y, z |
+| `bake.face-uv-range` | Fehler | eine Fläche spannt über 2 047 Texel | Index, Achse, Spanne |
+| `bake.vram-high` | Warnung | VRAM des Gebiets über dem Vanilla-Maximum (110 640 Byte Platin/DP, 87 424 HGSS) | VRAM, Maximum |
+| `texture.side`, `texture.name`, `texture.taken`, `texture.pack-full` | Fehler | Anhängen an das Paket (Task 7); `texture.name` auch im Bäcker, wenn ein Textur- oder Palettenname kein Nitro-Name ist | – |
+
+Ein Fehler vor dem Kodieren (leer, Ecke, Textur, UV-Spanne) lässt `nsbmd` leer; über 0xF000
+ist das Modell gebaut (Größe im Bericht), aber abgelehnt (`BakeReport::refusal`).
+
+**Größen.** Gutachten A §2.5 hat ein flaches 32 × 32-Feld mit `posScale` 64 gemessen: Quads
+mit `VTX_16` 57 776 B (eine Textur) bzw. 58 296 B (vier Texturen, 2 × 2-Schachbrett), Quads
+mit `VTX_10` 41 392 / 41 912 B, Quad-Strips je Lauf mit `VTX_10` 21 740 / 34 728 B. Die
+Testfläche des Bäckers (`bake::test_surface`: 32 × 32 Boden aus vier Texturen im
+2 × 2-Schachbrett, weltgebundenes UV, dazu ein Block 2 × 2 × 1 mit eigener Textur; 3 100
+Ecken, 1 032 Quads, 514 Strips, 4 Einzel-Quads, 5 Materialien) misst **35 208 B außen**
+(57,3 % von 0xF000) und **35 188 B innen** (57,3 %); der Test verlangt höchstens 40 000 B.
+
 ## Verifikation
 
 - `crates/g4-formats/src/nsbmd/model.rs`, Tests: synthetisches Modell (zwei Knochen
@@ -316,6 +397,13 @@ Rohfeld werden: alle Wörterbücher haben das strenge Layout und Datengröße 4,
   Round-Trip; Layout in Vanilla-Reihenfolge; `nsbmd_header` liest dessen Namen; Zähler;
   Materialgröße 56 und `TEX0` abgelehnt; jede Kürzung ist ein Fehler, zufällig veränderte
   Bytes führen nie zu einer Panik (proptest); `dict_spans` liefert sechs Wörterbücher.
+- `crates/g4-kernel/src/bake/mod.rs`, Tests: die Testfläche in beiden Stilen unter 40 000 B,
+  vom eigenen Leser gelesen und byte-gleich zurückgeschrieben (Zähler, Kopf, Knochen, SBC,
+  Materialien, Paarungen, Rahmen); die aus den Display Lists zurückgelesenen Ecken und UV
+  gleich der Eingabe; Strips nach Textur, Ebene, UV und Normale; `VTX_10`/`VTX_16` an den
+  Rändern; `TEXCOORD` nur bei Wechsel; lange Strips vor dem `TEXCOORD`-Bereich geteilt, weit
+  verschobene UV um ganze Texturen verschoben, zu breite Flächen abgelehnt; Stilwerte; eine
+  geteilte Palette; die Lichtregel; jeder Prüfcode.
 - Gated `crates/g4-formats/tests/vanilla_nitro.rs` (`G4_TEST_PROJECT`, nur lesend): jedes
   Kartenmodell aus `unpacked/maps/NNNN` byte-gleich neu geschrieben, jedes Wörterbuch aus
   `dict_spans` einzeln byte-gleich, veraltete Zähler gezählt. Ergebnis (Release-Profil):

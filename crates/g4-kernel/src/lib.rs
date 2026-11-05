@@ -44,3 +44,5 @@ pub mod dialog;
 pub mod live;
 
 pub mod delete;
+
+pub mod bake;
