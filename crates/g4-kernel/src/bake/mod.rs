@@ -9,8 +9,13 @@
 mod encode;
 mod strips;
 mod test_surface;
+mod textures;
 
 pub use test_surface::test_surface;
+pub use textures::{
+    AppendReport, BakeContext, append_label, append_textures, area_vram, areas_of_pack,
+    bake_context, bake_for_map, pack_textures, pack_vram,
+};
 
 use std::collections::HashSet;
 
