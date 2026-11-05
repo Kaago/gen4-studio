@@ -1005,7 +1005,7 @@ pub(crate) fn check_raw_path(rel: &Path) -> Result<(), String> {
     if !plain || rel.as_os_str().is_empty() || outside_range(rel, false) {
         return Err(format!(
             "`{}` liegt nicht im Bereich der Blobs (data/raw).",
-            rel.display()
+            crate::build::step::key(rel)
         ));
     }
     Ok(())
@@ -1030,13 +1030,16 @@ pub(crate) fn check_raw_blob(
     if (owned.contains(rel) && !older_egg_blob(project, rel)) || entity_narc {
         return Err(format!(
             "`{}` gehört einer Entität; ihre JSON unter data/ gilt, nicht ein Blob.",
-            rel.display()
+            crate::build::step::key(rel)
         ));
     }
     if unpacked_folder_of(project, rel).is_some()
         && let Err(e) = Narc::read(bytes)
     {
-        return Err(format!("`{}` ist kein lesbares NARC ({e}).", rel.display()));
+        return Err(format!(
+            "`{}` ist kein lesbares NARC ({e}).",
+            crate::build::step::key(rel)
+        ));
     }
     Ok(())
 }
@@ -1576,10 +1579,22 @@ mod tests {
         std::fs::create_dir_all(stale.join("files")).unwrap();
         std::fs::create_dir_all(running.join("files")).unwrap();
         let old = std::time::SystemTime::now() - STALE_TMP - std::time::Duration::from_secs(60);
-        std::fs::File::open(&stale)
-            .unwrap()
-            .set_modified(old)
-            .unwrap();
+        // A folder's handle: Windows opens one only with FILE_FLAG_BACKUP_SEMANTICS and sets
+        // its times only with FILE_WRITE_ATTRIBUTES (any handle will do on Unix).
+        #[cfg(windows)]
+        let folder = {
+            use std::os::windows::fs::OpenOptionsExt;
+            use windows_sys::Win32::Storage::FileSystem::{
+                FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES,
+            };
+            std::fs::OpenOptions::new()
+                .access_mode(FILE_WRITE_ATTRIBUTES)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(&stale)
+        };
+        #[cfg(not(windows))]
+        let folder = std::fs::File::open(&stale);
+        folder.unwrap().set_modified(old).unwrap();
 
         // ds-rom cannot extract the header-only ROM.
         assert!(BaseLayer::ensure(dir.path(), &base).is_err());

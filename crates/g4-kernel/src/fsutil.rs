@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::build::fingerprint::{self, Fp};
 use crate::error::{KernelError, io_at};
 
 /// Writes via a temp file under `<project root>/.g4/tmp/` (same filesystem, so the rename is
@@ -16,18 +17,19 @@ pub(crate) fn write_atomic(
     path: &Path,
     bytes: &[u8],
 ) -> Result<(), KernelError> {
-    write_atomic_meta(project_root, path, bytes).map(|_| ())
+    write_atomic_stat(project_root, path, bytes).map(|_| ())
 }
 
-/// [`write_atomic`], returning the metadata of the file written, taken after the rename
-/// through the handle it was written with (on Unix): it describes that file even when the
-/// path was replaced again right after. The bytes are in place once this returns `Ok`; a
-/// failure to read the metadata afterwards is no failure of the write and gives `None`.
-pub(crate) fn write_atomic_meta(
+/// [`write_atomic`], returning the `stat` of the file written (no hash), taken after the
+/// rename through the handle it was written with (on Unix): it describes that file even when
+/// the path was replaced again right after. Windows reads the path again (an open file is not
+/// renamed there). The bytes are in place once this returns `Ok`; a failure to read the
+/// `stat` afterwards is no failure of the write and gives `None`.
+pub(crate) fn write_atomic_stat(
     project_root: &Path,
     path: &Path,
     bytes: &[u8],
-) -> Result<Option<std::fs::Metadata>, KernelError> {
+) -> Result<Option<Fp>, KernelError> {
     use std::io::Write;
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -62,10 +64,13 @@ pub(crate) fn write_atomic_meta(
     }
     note_written(&project_root.join(path), bytes);
     #[cfg(unix)]
-    let meta = file.metadata();
+    let stat = file
+        .metadata()
+        .ok()
+        .map(|meta| fingerprint::of_metadata(&meta));
     #[cfg(not(unix))]
-    let meta = std::fs::metadata(path);
-    Ok(meta.ok())
+    let stat = fingerprint::stat(path).ok().flatten();
+    Ok(stat)
 }
 
 /// What a [`Journal`] noted of one file: the xxh3 of the bytes read or written last, or that

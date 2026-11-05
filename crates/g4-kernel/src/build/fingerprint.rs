@@ -11,8 +11,11 @@
 //! is equal. Two seconds also cover FAT and exFAT timestamps.
 //!
 //! `ctime` catches a rewrite in place with the old mtime restored (same size): nothing but
-//! the kernel can set `ctime`. Unix reads `ctime` and the inode via `MetadataExt`; elsewhere
-//! both are 0 and the racy rule and the hash carry alone.
+//! the kernel can set `ctime`. Unix reads `ctime` and the inode via `MetadataExt`. Windows
+//! reads the NTFS/ReFS change time (`FILE_BASIC_INFO::ChangeTime`, which a write and setting
+//! the mtime both move, like `ctime`) and the file index through a handle; std has neither on
+//! stable. Where the file system has no change time (FAT, exFAT) it is 0 and the racy rule
+//! and the hash carry alone, as on any other platform.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -85,7 +88,7 @@ pub(crate) fn now_ns() -> i128 {
 /// Whether `fp`, recorded by a scan at `scanned_at_ns`, is racy: the later of its mtime and
 /// its ctime is not at least `RACY_NS` (2 s) before the scan. The ctime counts too, so a file
 /// written just now with an older mtime set back (`text::keep_not_newer`) is racy as well;
-/// under Windows the ctime is 0 and the mtime alone decides.
+/// without a change time (0) the mtime alone decides.
 pub fn is_racy(fp: &Fp, scanned_at_ns: i128) -> bool {
     fp.mtime_ns.max(fp.ctime_ns) + RACY_NS > scanned_at_ns
 }
@@ -101,14 +104,25 @@ fn ns(time: std::io::Result<SystemTime>) -> i128 {
 
 /// The `stat` part of a fingerprint (no hash); `None` when the file does not exist.
 pub(crate) fn stat(path: &Path) -> Result<Option<Fp>, KernelError> {
-    match std::fs::metadata(path) {
-        Ok(meta) => Ok(Some(of_metadata(&meta))),
+    match stat_io(path) {
+        Ok(fp) => Ok(Some(fp)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io_at(path)(e)),
     }
 }
 
-/// The `stat` part of a fingerprint from metadata already taken (no hash).
+/// [`stat`] as an `io::Result` (a missing file: `NotFound`).
+#[cfg(not(windows))]
+fn stat_io(path: &Path) -> std::io::Result<Fp> {
+    std::fs::metadata(path).map(|meta| of_metadata(&meta))
+}
+
+#[cfg(windows)]
+use windows::stat as stat_io;
+
+/// The `stat` part of a fingerprint from metadata already taken (no hash). Not on Windows:
+/// its change time and file index need a handle ([`stat`]).
+#[cfg(not(windows))]
 pub(crate) fn of_metadata(meta: &std::fs::Metadata) -> Fp {
     #[cfg(unix)]
     let (ctime_ns, ino) = {
@@ -126,6 +140,74 @@ pub(crate) fn of_metadata(meta: &std::fs::Metadata) -> Fp {
         ctime_ns,
         ino,
         xxh3: None,
+    }
+}
+
+/// The change time and file index of Windows, read through a handle (see the module
+/// documentation).
+#[cfg(windows)]
+mod windows {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use std::path::Path;
+
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_READ_ATTRIBUTES, FileBasicInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx,
+    };
+
+    use super::{Fp, ns};
+
+    /// The `stat` of `path`: size and mtime as std reads them, the change time and the file
+    /// index from the same handle. The handle asks only for the attributes (no sharing
+    /// conflict with a writer) and may be a folder's (`FILE_FLAG_BACKUP_SEMANTICS`).
+    pub(super) fn stat(path: &Path) -> std::io::Result<Fp> {
+        let file = std::fs::OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)?;
+        let meta = file.metadata()?;
+        let handle = file.as_raw_handle();
+        let mut basic = FILE_BASIC_INFO::default();
+        // SAFETY: `handle` is open for the lifetime of `file`; the buffer is a
+        // `FILE_BASIC_INFO` of the size passed, as `FileBasicInfo` requires.
+        let ok = unsafe {
+            GetFileInformationByHandleEx(
+                handle,
+                FileBasicInfo,
+                (&raw mut basic).cast(),
+                size_of::<FILE_BASIC_INFO>() as u32,
+            )
+        };
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: as above, with a `BY_HANDLE_FILE_INFORMATION` to fill.
+        if unsafe { GetFileInformationByHandle(handle, &raw mut info) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Fp {
+            size: meta.len(),
+            mtime_ns: ns(meta.modified()),
+            ctime_ns: filetime_ns(basic.ChangeTime),
+            ino: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+            xxh3: None,
+        })
+    }
+
+    /// 100 ns ticks from 1601-01-01 to the Unix epoch.
+    const EPOCH_TICKS: i128 = 116_444_736_000_000_000;
+
+    /// A `FILETIME` value (100 ns ticks since 1601) in nanoseconds since the Unix epoch; 0
+    /// (no change time on this file system) stays 0.
+    pub(super) fn filetime_ns(ticks: i64) -> i128 {
+        if ticks == 0 {
+            0
+        } else {
+            (i128::from(ticks) - EPOCH_TICKS) * 100
+        }
     }
 }
 
@@ -172,7 +254,7 @@ const REMEMBERED_MAX: usize = 16_384;
 /// `stat` or the read (a missing file: `NotFound`) comes back as it is.
 pub(crate) fn hash_remembered(path: &Path) -> std::io::Result<u64> {
     let at = now_ns();
-    let before = of_metadata(&std::fs::metadata(path)?);
+    let before = stat_io(path)?;
     {
         let remembered = REMEMBERED.lock().unwrap_or_else(|e| e.into_inner());
         let hit = remembered
@@ -185,7 +267,7 @@ pub(crate) fn hash_remembered(path: &Path) -> std::io::Result<u64> {
     }
     let hash = xxh3_64(&std::fs::read(path)?);
     // Kept only when nothing changed the file while it was read.
-    let after = std::fs::metadata(path).map(|meta| of_metadata(&meta));
+    let after = stat_io(path);
     if after.is_ok_and(|after| same_stat(&after, &before)) {
         let mut remembered = REMEMBERED.lock().unwrap_or_else(|e| e.into_inner());
         let map = remembered.get_or_insert_with(HashMap::new);
@@ -305,6 +387,15 @@ mod tests {
             .unwrap();
     }
 
+    /// Lets the file system's clock move past the last change. The tests below fake a scan
+    /// long after a change, but the change and the rewrite they compare happen within
+    /// milliseconds: where file times come from a coarse clock (Windows, about 16 ms), both
+    /// could get the same change time, which a real scan, within the racy window of it,
+    /// would hash.
+    fn next_tick() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
     /// A file with an mtime an hour ago, captured long after its last change (the ctime,
     /// which setting the mtime does not move back, is now): not racy, no hash.
     fn settled(dir: &Path, bytes: &[u8]) -> (std::path::PathBuf, Fp, i128) {
@@ -340,6 +431,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (path, fp, scan) = settled(dir.path(), b"abc");
         let old_mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        next_tick();
         // Same size, same inode, the old mtime restored: only ctime tells.
         std::fs::write(&path, b"xyz").unwrap();
         set_mtime(&path, old_mtime);
@@ -471,6 +563,7 @@ mod tests {
         settle(&path, None);
 
         // Rewritten in place, same size, the old mtime restored: the ctime tells.
+        next_tick();
         std::fs::write(&path, b"xyz").unwrap();
         set_mtime(&path, old);
         assert_eq!(hash_remembered(&path).unwrap(), xxh3_64(b"xyz"));
@@ -494,6 +587,16 @@ mod tests {
             hash_remembered(&missing).unwrap_err().kind(),
             std::io::ErrorKind::NotFound
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_filetime_is_nanoseconds_since_the_unix_epoch() {
+        assert_eq!(windows::filetime_ns(116_444_736_000_000_000), 0);
+        assert_eq!(windows::filetime_ns(116_444_736_000_000_010), 1_000);
+        assert_eq!(windows::filetime_ns(0), 0, "no change time stays 0");
+        let fp = stat(&std::env::current_exe().unwrap()).unwrap().unwrap();
+        assert!(fp.ctime_ns > 0 && fp.ino != 0, "{fp:?}");
     }
 
     #[test]

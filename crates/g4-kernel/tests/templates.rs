@@ -1292,11 +1292,12 @@ fn vanilla_empty_region_undo_restores_the_world() {
     if committed {
         let status = git_status();
         eprintln!("{}: git status after undo {status:?}", project.game_code);
+        // Git names paths with `/` on every platform.
         let border = border
             .strip_prefix(&root)
             .unwrap()
             .to_string_lossy()
-            .into_owned();
+            .replace('\\', "/");
         assert_eq!(status, [format!("?? {border}")]);
     } else {
         eprintln!("git status not checked: Git is not installed");
@@ -1363,7 +1364,7 @@ fn vanilla_empty_region_builds() {
             .strip_prefix(&root)
             .unwrap()
             .to_string_lossy()
-            .into_owned();
+            .replace('\\', "/");
         assert_eq!(status, [format!("?? {border}")]);
     } else {
         eprintln!("git status not checked: Git is not installed");

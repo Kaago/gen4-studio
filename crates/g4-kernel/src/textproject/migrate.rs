@@ -289,7 +289,7 @@ fn v0_to_v1(tree: &mut Tree) -> Result<(), String> {
         if rel.parent() != Some(registers.as_path()) {
             continue;
         }
-        let file = rel.display();
+        let file = crate::build::step::key(rel);
         let Some(ids) = value.as_object().and_then(|o| o.get("ids")) else {
             continue;
         };
@@ -336,14 +336,20 @@ fn v1_to_v2(tree: &mut Tree) -> Result<(), String> {
         let Some(value) = tree.files.get(&rel) else {
             return Ok(BTreeMap::new());
         };
-        let object = value
-            .as_object()
-            .ok_or_else(|| format!("{}: kein Objekt aus ID und Nummer.", rel.display()))?;
+        let object = value.as_object().ok_or_else(|| {
+            format!(
+                "{}: kein Objekt aus ID und Nummer.",
+                crate::build::step::key(&rel)
+            )
+        })?;
         let mut names = BTreeMap::new();
         for (id, n) in object {
-            let n = n
-                .as_u64()
-                .ok_or_else(|| format!("{}: `{id}` nennt keine Nummer.", rel.display()))?;
+            let n = n.as_u64().ok_or_else(|| {
+                format!(
+                    "{}: `{id}` nennt keine Nummer.",
+                    crate::build::step::key(&rel)
+                )
+            })?;
             // The register is sorted by id; no number has two ids (the first one wins).
             names.entry(n).or_insert_with(|| id.clone());
         }

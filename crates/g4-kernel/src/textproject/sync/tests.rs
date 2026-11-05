@@ -247,7 +247,7 @@ fn a_change_in_an_unmodelled_folder_becomes_a_blob() {
     let mut files = Vec::new();
     walk(fx.root(), Path::new("files/debug"), &mut files, &|_| false).unwrap();
     let file = files[0].clone();
-    let shown = file.to_string_lossy().into_owned();
+    let shown = crate::build::step::key(&file);
     let mut bytes = fx.read(&shown);
     bytes.push(0x42);
     fx.write(&shown, &bytes);

@@ -298,7 +298,7 @@ fn missing_item_members(project: &Project) -> Result<Option<String>, KernelError
     let missing: Vec<usize> = named.iter().copied().filter(absent).collect();
     let gap: Vec<usize> = (0..members.len()).filter(absent).collect();
     let dir = project.unpacked_dir(AssetKind::Item);
-    let dir = dir.strip_prefix(&project.root).unwrap_or(&dir).display();
+    let dir = crate::build::step::key(dir.strip_prefix(&project.root).unwrap_or(&dir));
     Ok(Some(if !missing.is_empty() {
         format!(
             "In {dir} fehlen {} Item-Member, die die Item-Tabelle nennt ({}): erst `g4k text \

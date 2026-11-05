@@ -825,7 +825,7 @@ mod tests {
         };
         let report = publish(&fx, &elsewhere).0.unwrap();
         assert!(
-            report.release.file.starts_with('/'),
+            Path::new(&report.release.file).is_absolute(),
             "{}",
             report.release.file
         );

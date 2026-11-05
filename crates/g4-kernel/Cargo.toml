@@ -40,6 +40,11 @@ gix = { version = "0.90", default-features = false, features = ["sha1", "status"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# The change time and file index of a file for the build fingerprints (`build::fingerprint`);
+# std has them on nightly only. The version gix and tokio already pull in.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 tempfile = "3"
 assert_cmd = "2"

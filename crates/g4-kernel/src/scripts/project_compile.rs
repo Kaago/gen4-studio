@@ -590,7 +590,7 @@ pub(super) fn compile_project(
     }
     state.retain_only(current);
     state.mark_metadata(db_hash, COMPILER_VERSION);
-    state.save(&status_path).map_err(io_at(&status_path))?;
+    super::save_state(&mut state, &status_path).map_err(io_at(&status_path))?;
     Ok(result)
 }
 

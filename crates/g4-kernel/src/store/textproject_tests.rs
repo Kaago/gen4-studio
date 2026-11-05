@@ -427,11 +427,11 @@ fn raise_attack(st: &mut Store) {
 /// The personal member of species 1, relative to the root.
 fn personal_1_member(fx: &TextFixture) -> String {
     let p = fx.project();
-    p.member_path(AssetKind::Personal, 1)
-        .strip_prefix(&p.root)
-        .unwrap()
-        .to_string_lossy()
-        .into_owned()
+    crate::build::step::key(
+        p.member_path(AssetKind::Personal, 1)
+            .strip_prefix(&p.root)
+            .unwrap(),
+    )
 }
 
 fn seed_sync(fx: &TextFixture) {
@@ -613,11 +613,7 @@ fn an_appended_member_is_recorded_with_the_bytes_written() {
     let index = st.create_matrix("NEU").unwrap();
     let p = fx.project();
     let member = p.member_path(AssetKind::Matrix, index);
-    let rel = member
-        .strip_prefix(fx.root())
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
+    let rel = crate::build::step::key(member.strip_prefix(fx.root()).unwrap());
     let sync = BuildState::load(fx.root()).sync.unwrap();
     assert_eq!(
         sync.files.get(&rel).and_then(|fp| fp.xxh3),

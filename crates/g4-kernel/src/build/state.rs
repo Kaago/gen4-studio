@@ -9,12 +9,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::xxh3_64;
 
 use super::BUILD_DIR;
 use super::fingerprint::{self, Fp};
 use super::salt::STATE_VERSION;
 use crate::error::{KernelError, io_at};
-use crate::fsutil::write_atomic_meta;
+use crate::fsutil::write_atomic_stat;
 
 /// The build state of one project, see the module documentation.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -105,8 +106,17 @@ mod archive_keys {
 /// times), so an equal `stat` means the file holds what is cached and nothing is parsed
 /// again; another `stat` (another process wrote, the file was deleted or edited) reads it
 /// anew. Parsing the file (up to 1.5 MB) took about 10 ms per load, several loads per build.
+/// By the racy rule ([`fingerprint::is_racy`]) an equal `stat` vouches only when it was taken
+/// at least the racy window after the file's last change: a write in the same timestamp tick
+/// keeps size and times (Windows takes file times from a clock of about 16 ms, and the file
+/// index stays on a rewrite in place). A racy hit reads the file and compares its hash,
+/// which costs a read but no parse.
 struct Cached {
     stamp: Fp,
+    /// When `stamp` was taken (before the `stat`), for the racy rule.
+    taken_ns: i128,
+    /// The xxh3 of the bytes the state was parsed from or written as.
+    hash: u64,
     state: Arc<BuildState>,
 }
 
@@ -135,12 +145,12 @@ fn forget(cache: &mut Cache, root: &Path) {
     cache.retain(|(cached_root, _)| cached_root != root);
 }
 
-fn remember(cache: &mut Cache, root: &Path, stamp: Fp, state: Arc<BuildState>) {
+fn remember(cache: &mut Cache, root: &Path, entry: Cached) {
     forget(cache, root);
     if cache.len() >= CACHED_ROOTS {
         cache.remove(0);
     }
-    cache.push((root.to_path_buf(), Cached { stamp, state }));
+    cache.push((root.to_path_buf(), entry));
 }
 
 impl BuildState {
@@ -158,22 +168,46 @@ impl BuildState {
             .unwrap_or_else(BuildState::empty)
     }
 
-    /// The state from the cache when `state.json` still has the cached `stat`, else read.
+    /// The state from the cache when `state.json` still has the cached `stat` (and that
+    /// `stat` is not racy, or the bytes still hash the same), else read.
     fn read(cache: &mut Cache, root: &Path) -> Arc<BuildState> {
         let path = state_path(root);
+        let at = fingerprint::now_ns();
         let Some(stamp) = fingerprint::stat(&path).ok().flatten() else {
             forget(cache, root);
             return Arc::new(BuildState::empty());
         };
-        if let Some(hit) = cached(cache, root).filter(|c| c.stamp == stamp) {
+        let hit = cached(cache, root).filter(|c| c.stamp == stamp);
+        if let Some(hit) = &hit
+            && !fingerprint::is_racy(&hit.stamp, hit.taken_ns)
+        {
             return Arc::clone(&hit.state);
         }
         // Read after the `stat`: a write in between leaves a stamp older than the file,
         // which the next read finds different and reads again.
-        let state = Arc::new(
-            std::fs::read(&path).map_or_else(|_| BuildState::empty(), |b| BuildState::parse(&b)),
+        let Ok(bytes) = std::fs::read(&path) else {
+            forget(cache, root);
+            return Arc::new(BuildState::empty());
+        };
+        let hash = xxh3_64(&bytes);
+        if let Some(hit) = hit
+            && hit.hash == hash
+        {
+            // The same bytes: what is cached, now vouched for by a `stat` taken at `at`.
+            hit.taken_ns = at;
+            return Arc::clone(&hit.state);
+        }
+        let state = Arc::new(BuildState::parse(&bytes));
+        remember(
+            cache,
+            root,
+            Cached {
+                stamp,
+                taken_ns: at,
+                hash,
+                state: Arc::clone(&state),
+            },
         );
-        remember(cache, root, stamp, Arc::clone(&state));
         state
     }
 
@@ -207,13 +241,18 @@ impl BuildState {
         std::fs::create_dir_all(&dir).map_err(io_at(&dir))?;
         let bytes = serde_json::to_vec(&state)
             .map_err(|e| KernelError::Build(format!("{}: {e}", path.display())))?;
-        // Without the written file's metadata nothing is cached: the next load reads it.
-        if let Some(meta) = write_atomic_meta(root, &path, &bytes)? {
+        // Without the written file's `stat` nothing is cached: the next load reads it.
+        let at = fingerprint::now_ns();
+        if let Some(stamp) = write_atomic_stat(root, &path, &bytes)? {
             remember(
                 cache,
                 root,
-                fingerprint::of_metadata(&meta),
-                Arc::new(state),
+                Cached {
+                    stamp,
+                    taken_ns: at,
+                    hash: xxh3_64(&bytes),
+                    state: Arc::new(state),
+                },
             );
         }
         Ok(())

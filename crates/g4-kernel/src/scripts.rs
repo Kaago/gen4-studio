@@ -275,6 +275,33 @@ fn relative(root: &Path, path: &Path) -> PathBuf {
         .unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Saves rotom's compile state with portable keys ([`portable_keys`]).
+pub(crate) fn save_state(state: &mut rotom::CompileState, path: &Path) -> std::io::Result<()> {
+    portable_keys(state);
+    // rotom v0.7.0: src/compile_state.rs CompileState::save
+    state.save(path)
+}
+
+/// Writes the keys of `state` (the sources and their dependencies, relative to the project
+/// root) with `/` ([`crate::build::step::key`]): rotom keys them by `PathBuf`, which Windows
+/// writes with `\`, a part of the file name on macOS and Linux, and
+/// `.rotom/status/compile-state.json` is versioned in a DSPRE project; quirks keyed with `\`
+/// would be lost there. Windows compares and hashes paths by their components, so the
+/// `/`-keys are still found by the `\`-paths of a lookup.
+fn portable_keys(state: &mut rotom::CompileState) {
+    let slashed = |path: PathBuf| PathBuf::from(crate::build::step::key(&path));
+    state.entries = std::mem::take(&mut state.entries)
+        .into_iter()
+        .map(|(file, mut entry)| {
+            entry.dependency_hashes = std::mem::take(&mut entry.dependency_hashes)
+                .into_iter()
+                .map(|(dependency, hash)| (slashed(dependency), hash))
+                .collect();
+            (slashed(file), entry)
+        })
+        .collect();
+}
+
 /// `NNNN` of a path `.../NNNN[.ext]`.
 fn file_number(path: &Path) -> Option<u16> {
     path.file_stem()?.to_str()?.parse().ok()
@@ -430,6 +457,14 @@ pub(crate) fn adopt_as(
         rotom::project::compile::decompile_project(root, &config)
     })?
     .map_err(|e| rotom_error("decompile", e))?;
+    // rotom wrote the compile state with the platform's separator.
+    let state_path = config.status_dir(root).join("compile-state.json");
+    if cfg!(windows) && state_path.is_file() {
+        // rotom v0.7.0: src/compile_state.rs CompileState::load
+        let mut state =
+            rotom::CompileState::load(&state_path).map_err(|e| rotom_error("compile state", e))?;
+        save_state(&mut state, &state_path).map_err(io_at(&state_path))?;
+    }
     progress(AdoptProgress { done: total, total });
 
     // Last, so a failure before this point leaves no rotom.toml. Sources rotom already wrote stay,
@@ -528,8 +563,7 @@ fn restore_quirks(
         }
     }
     if changed {
-        // rotom v0.7.0: src/compile_state.rs CompileState::save
-        state.save(state_path).map_err(io_at(state_path))?;
+        save_state(&mut state, state_path).map_err(io_at(state_path))?;
     }
     Ok(())
 }
@@ -718,8 +752,7 @@ fn mark_stale_kinds(
         }
     }
     if changed {
-        // rotom v0.7.0: src/compile_state.rs CompileState::save
-        state.save(&state_path).map_err(io_at(&state_path))?;
+        save_state(&mut state, &state_path).map_err(io_at(&state_path))?;
     }
     Ok(())
 }
@@ -1573,7 +1606,7 @@ pub(crate) fn set_state_entry(
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(io_at(dir))?;
     }
-    state.save(&path).map_err(io_at(&path))
+    save_state(&mut state, &path).map_err(io_at(&path))
 }
 
 /// The bytes of the file at `path`; `None` when it does not exist.
