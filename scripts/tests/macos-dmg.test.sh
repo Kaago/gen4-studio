@@ -85,6 +85,44 @@ test_no_app_fails() {
   assert_contains "kein .app" run "$d" 0.1.0 BUNDLE_STATUS=1
 }
 
+test_hdiutil_create_is_retried_once() {
+  local d
+  d="$(setup no)"
+  # The fake fails on its first call only ("Resource busy").
+  cat >"$d/hdiutil" <<'SH'
+#!/usr/bin/env bash
+log="$(dirname "$0")/hdiutil.log"
+echo "$@" >>"$log"
+if [ "$(wc -l <"$log")" -le 1 ]; then
+  echo "hdiutil: create failed - Resource busy" >&2
+  exit 16
+fi
+for last; do :; done
+echo fake-hdiutil-dmg >"$last"
+SH
+  chmod +x "$d/hdiutil"
+  assert_contains "dmg: hdiutil fallback" run "$d" 0.1.0 G4_DMG_RETRY_SLEEP=0
+  [ "$(wc -l <"$d/hdiutil.log" | tr -d ' ')" = "2" ] || fail "calls: $(cat "$d/hdiutil.log")"
+  [ -s "$d/out/Gen4-Studio_0.1.0_aarch64.dmg" ] || fail "no dmg"
+}
+
+test_hdiutil_create_failing_twice_fails() {
+  local d
+  d="$(setup no)"
+  printf '#!/usr/bin/env bash\necho "$@" >>"$(dirname "$0")/hdiutil.log"\nexit 16\n' >"$d/hdiutil"
+  chmod +x "$d/hdiutil"
+  assert_status 16 run "$d" 0.1.0 G4_DMG_RETRY_SLEEP=0
+  [ "$(wc -l <"$d/hdiutil.log" | tr -d ' ')" = "2" ] || fail "calls: $(cat "$d/hdiutil.log")"
+}
+
+test_failed_bundle_with_app_is_in_the_summary() {
+  local d
+  d="$(setup yes)"
+  run "$d" 0.1.0 BUNDLE_STATUS=3 GITHUB_STEP_SUMMARY="$d/summary" >/dev/null 2>&1
+  grep -q 'status 3' "$d/summary" || fail "summary: $(cat "$d/summary")"
+  grep -q '^dmg: hdiutil fallback$' "$d/summary" || fail "summary: $(cat "$d/summary")"
+}
+
 test_outputs_and_summary() {
   local d
   d="$(setup no)"

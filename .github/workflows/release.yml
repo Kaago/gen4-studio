@@ -46,8 +46,8 @@ env:
   # Smaller caches and no incremental state in target/.
   CARGO_INCREMENTAL: '0'
   # The string 'true' or 'false' (a boolean expression result is written as such): a pull request
-  # and a dispatch with dry_run are dry runs. `publish` only runs for tag pushes and does not read
-  # it; the bundle steps use it for the version check of the `version` job.
+  # and a dispatch with dry_run are dry runs. Only the `version` job reads it (tag check or not);
+  # `publish` only runs for tag pushes and the bundle jobs do not care.
   DRY_RUN: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
 
 jobs:
@@ -187,25 +187,22 @@ jobs:
 
       # Signing and notarization are prepared, not enabled (spec 5): the release is unsigned for
       # now (users open it by Control-click or `xattr -dr com.apple.quarantine`, see docs/release.md).
-      # To enable it: turn `if: false` into `true`, add the six secrets below to the repository and
-      # move the six `env:` lines to the step "Bundle (app, dmg)" (before the DMG step), because
-      # tauri-bundler itself imports the certificate into a temporary keychain, signs the .app
-      # and runs notarytool when they are set. This step only stands for that and for stapling.
+      # To enable it: turn `if: false` into `true`, add the six repository secrets below and put them
+      # into the `env:` of the step "Bundle (app, dmg)" (before the DMG step) as
+      # `NAME: ` followed by the secrets expression of the same name. They belong there because
+      # tauri-bundler itself imports the certificate into a temporary keychain, signs the .app and
+      # runs notarytool when they are set. This step only stands for that and for stapling the DMG.
+      # The secrets are named in comments only, so no `secrets` reference stands in this file yet.
       #   APPLE_CERTIFICATE            base64 of the Developer ID Application certificate (.p12)
       #   APPLE_CERTIFICATE_PASSWORD   password of the .p12
       #   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Name (TEAMID)"
       #   APPLE_ID                     Apple ID that notarizes
       #   APPLE_PASSWORD               app-specific password of that Apple ID (not the login one)
       #   APPLE_TEAM_ID                the 10-character team id
+      # For the notarytool and stapler lines below this step needs APPLE_ID, APPLE_PASSWORD and
+      # APPLE_TEAM_ID in its own `env:` and DMG set to the dmg output of the DMG step.
       - name: sign-notarize
         if: false
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           echo "Signing is not enabled: see the comment above this step."
           # xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
