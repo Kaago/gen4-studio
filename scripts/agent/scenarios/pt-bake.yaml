@@ -1,0 +1,47 @@
+# Platin DE, gate 6.1 point 5: the test surface of Gutachten A §2.7 baked into the player's room
+# and played in the game. Headless over MCP (`studio mcp`, one session); `bake_test` is no curated
+# tool, so it goes through g4_call (--expert).
+#
+# The room is map 187 (header 415); the room downstairs is map 186 (header 414). Both use the same
+# area data and so the same map texture pack 20. `bake_test` appends g4_bake_a (16 x 16, 16 colours,
+# orange-blue checker) and g4_bake_b (16 x 16, 4 colours, green stripes) to pack 20 and replaces the
+# model of map 187 by the test surface: a floor of four tiles [g4_bake_a, V0, g4_bake_b, V1] (V0, V1
+# the first two vanilla textures of the pack) and a block of g4_bake_a. The block stands at the
+# centre of the old model's frame, here (5, 7) (no `block` argument; it is in view on zimmer.png).
+# The player walks through the block (collision and BDHC are unchanged): that is intended.
+# outDir build/bake receives bake-0187.nsbmd and maptex-0020.nsbtx; `check:` compares them with the
+# model of map 187 and member 20 of the map texture archive in out.nds (`${sha1-of:…}`).
+#
+# Play: continue in the room (415), shot zimmer (own textures and the block); down the stairs to 414,
+# shot unten (the vanilla textures of the same pack, unchanged). Colours are not compared: g4emu
+# swaps red and blue until the fix of 6.2. The images stay under --out, never in the repo.
+#
+# Names an edit binds (third element) come from the tool's answer (structuredContent.result):
+# bake (bake_test: pack, appended, report, model_file, pack_file, block, …).
+# Example from a worktree (from scripts/g4emu; a fresh copy with its .nds beside it, see
+# docs/agent-gate.md, "Szenarien über MCP"; after a run that failed after build_rom use a new copy):
+#   W=<worktree>; export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+#   export G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k
+#   uv run g4emu scenario ../agent/scenarios/pt-bake.yaml \
+#     --project "$G4_ROMS_DIR/_testkopien/6-1-szen-pt_DSPRE_contents" \
+#     --out "$W/target/agent/gate-$(date +%F)/6-1/pt-bake"
+game: CPUD
+mcp: [--allow-irreversible, --expert]
+edits:
+  - [g4_call, {command: bake_test, args: {map: 187, outDir: build/bake}}, bake]
+  - [save, {}]
+build: build/out.nds
+check:
+  - [g4k, check-data, build/out.nds,
+     --expect, "map:187:model_sha1=${sha1-of:${bake.model_file}}",
+     --expect, "map_texture:${bake.pack}:sha1=${sha1-of:${bake.pack_file}}"]
+play:
+  - continue
+  - expect-map 415
+  - wait 60
+  - shot zimmer
+  - walk-to 8 4
+  - walk right 1
+  - expect-map 414
+  - wait 150
+  - shot unten
