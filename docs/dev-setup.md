@@ -302,9 +302,6 @@ der Ausgabe (mit dem geschrumpften Fall).
   Patch-NARC von DSPRE; die Tabelle in Overlay 5 liest es nicht, dann „CPUD has no egg_moves archive“); MEMBER ist hier
   die Artnummer, die Felder sind `count` (Zahl der Ei-Attacken, 0 ohne Eintrag) und `move0` bis `move15`:
   `--expect egg_moves:1:count=14 --expect egg_moves:1:move0=113` (Bisasam in HeartGold DE).
-- KIND `map_texture` (seit 6.1) liest das Kartentextur-Archiv; MEMBER ist die Paketnummer, das eine Feld `sha1` der SHA-1
-  des ganzen Members (40 Hex-Ziffern). So prüft das Szenario des Gates 6.1, dass das Paket mit den angehängten Texturen im
-  ROM ankam: `--expect map_texture:20:sha1=${sha1-of:build/bake/maptex-0020.nsbtx}`.
 - MEMBER ist der Member im Archiv, bei `item` also der Datenmember, nicht die Item-ID (in Platin ist Trank beides 17).
 - Exit 0, wenn alles stimmt (stdout „species 397 attack: 85“ je Erwartung und „N expectation(s) met“); Exit 1 bei einer
   Abweichung oder einem unlesbaren Member (stderr „species 397 attack: expected 75, found 85“); Exit 2 bei einem falsch
