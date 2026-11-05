@@ -197,15 +197,16 @@ jobs:
           bash --version | head -1
           gcc --version | head -1
 
-      # A Dev Drive (ReFS, fixed size) for target/ and TEMP: the tests write and delete many small
-      # files and start many processes. `trusted-dev-drive` turns on Microsoft's performance
-      # mode for the drive; no Defender setting is changed otherwise. 12 GB hold target/ with
-      # line tables (the cache of the full debug info was 4.4 GB compressed) and the temp files.
+      # A Dev Drive (ReFS) for target/ and TEMP: the tests write and delete many small files and
+      # start many processes. `trusted-dev-drive` turns on Microsoft's performance mode for the
+      # drive; no Defender setting is changed otherwise. The VHDX lives on C: (D: has about 14 GB),
+      # grows as needed up to 25 GB: a restored target/ plus a fresh build filled 12 GB once.
       - uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
         with:
-          drive-size: 12GB
+          drive-path: C:/g4_dev_drive.vhdx
+          drive-size: 25GB
           drive-format: ReFS
-          drive-type: Fixed
+          drive-type: Dynamic
           trusted-dev-drive: true
           env-mapping: |
             CARGO_TARGET_DIR,{{ DEV_DRIVE }}/target
@@ -236,9 +237,9 @@ jobs:
             ~/.cargo/git
             ${{ env.CARGO_TARGET_DIR }}/*
             !${{ env.CARGO_TARGET_DIR }}/tmp
-          key: cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+          key: cargo-${{ runner.os }}-msvc-nodebug-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-
+            cargo-${{ runner.os }}-msvc-nodebug-${{ steps.rust.outputs.version }}-
 
       # One step per command, so the log shows which one fails.
       - name: cargo clippy
@@ -256,7 +257,7 @@ jobs:
             ~/.cargo/git
             ${{ env.CARGO_TARGET_DIR }}/*
             !${{ env.CARGO_TARGET_DIR }}/tmp
-          key: cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+          key: cargo-${{ runner.os }}-msvc-nodebug-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: failure() && steps.cargo-cache.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
@@ -266,4 +267,4 @@ jobs:
             ~/.cargo/git
             ${{ env.CARGO_TARGET_DIR }}/*
             !${{ env.CARGO_TARGET_DIR }}/tmp
-          key: cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}-partial-${{ github.run_id }}
+          key: cargo-${{ runner.os }}-msvc-nodebug-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}-partial-${{ github.run_id }}
