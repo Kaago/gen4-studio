@@ -206,6 +206,15 @@ pub fn append_textures(
     Ok(report)
 }
 
+/// The pack `before` with `textures` appended, as [`append_textures`] would write it, or its
+/// refusal; nothing is written (for callers that judge the result before appending).
+pub(crate) fn appended_pack(
+    before: &[u8],
+    textures: &[NewTexture],
+) -> Result<Vec<u8>, KernelError> {
+    Ok(nsbtx::write(&appended(Btx0::read(before)?, textures)?)?)
+}
+
 /// Member `pack` of the map texture archive as it is now: its file, or the member of the
 /// packed archive while the folder is not unpacked yet (nothing is written before the
 /// checks). `None`: no such member.
