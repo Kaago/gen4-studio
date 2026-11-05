@@ -227,6 +227,7 @@ pub const COMMANDS: &[&str] = &[
     "delete_entity",
     "restore_entity",
     "story_delete",
+    "bake_test",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1199,6 +1200,14 @@ pub fn dispatch(
         "story_delete" => run!(json, "story_delete", args, { id: String }, |a| {
             story_delete_impl(state, a.id)
         }),
+        "bake_test" => run!(
+            json, "bake_test", args,
+            { map: u16, block: Option<[u8; 2]>, out_dir: Option<String> },
+            |a| {
+                let out_dir = a.out_dir.map(|dir| policy.write_path(&dir)).transpose()?;
+                bake_test_impl(state, a.map, a.block, out_dir)
+            }
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1658,6 +1667,8 @@ mod tests {
                 json!({ "target": { "kind": "header", "id": 0 } }),
             ),
             ("story_delete", json!({"id": "STORY_TEST"})),
+            // Pack 0 of the synthetic project is no NSBTX: refused before anything is written.
+            ("bake_test", json!({ "map": 0 })),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -3294,5 +3305,53 @@ mod tests {
         let link = fixture.dir.path().join("anderes/zurück");
         std::os::unix::fs::symlink(fixture.dir.path(), &link).unwrap();
         assert_eq!(get(&link), own);
+    }
+
+    #[test]
+    fn bake_test_out_dir_outside_the_roots_is_refused() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let away = elsewhere.path().join("bake");
+        for out_dir in [away.to_str().unwrap(), "bake", "../bake"] {
+            match dispatch(
+                &state,
+                &policy,
+                "bake_test",
+                json!({ "map": 0, "block": [3, 4], "outDir": out_dir }),
+            ) {
+                Err(DispatchError::Cmd(e)) => assert!(
+                    e.message.starts_with("Pfad liegt außerhalb"),
+                    "{out_dir}: {}",
+                    e.message
+                ),
+                other => panic!("{out_dir}: {other:?}"),
+            }
+        }
+        assert!(!away.exists());
+        assert!(!fixture.dir.path().join("bake").exists());
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+
+        // `build/bake` as the g4emu scenarios pass it: relative to the project, `build/` made.
+        crate::commands::bake::tests::prepare(fixture.dir.path());
+        assert!(!fixture.dir.path().join("build").exists());
+        let reply = json_of(call(
+            &state,
+            &policy,
+            "bake_test",
+            json!({ "map": 0, "outDir": "build/bake" }),
+        ));
+        let build = fixture
+            .dir
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("build/bake");
+        let model_file = build.join("bake-0000.nsbmd");
+        assert_eq!(reply["model_file"], json!(model_file.to_str().unwrap()));
+        assert_eq!(reply["pack"], json!(0));
+        assert_eq!(reply["appended"], json!(["g4_bake_a", "g4_bake_b"]));
+        assert!(model_file.is_file());
+        assert!(build.join("maptex-0000.nsbtx").is_file());
     }
 }

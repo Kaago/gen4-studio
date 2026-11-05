@@ -2,6 +2,7 @@
 
 mod agents;
 mod area;
+mod bake;
 mod base;
 mod buildings;
 mod checks;
@@ -42,6 +43,7 @@ mod world_meta;
 
 pub use agents::*;
 pub use area::*;
+pub use bake::*;
 pub use base::*;
 pub use buildings::*;
 pub use checks::*;

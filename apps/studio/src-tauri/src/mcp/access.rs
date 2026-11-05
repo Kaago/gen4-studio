@@ -254,6 +254,9 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("restore_entity", Kind::Write),
     // One undo step (a file step: register, story, side file), like story_create.
     ("story_delete", Kind::Write),
+    // One undo step (appending to the map texture pack and the model import, squashed); the
+    // files under `outDir` are build output, confined to `build/`. Only through `g4_call`.
+    ("bake_test", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -1300,5 +1303,12 @@ mod tests {
         ] {
             assert_eq!(kind(name), APP_ONLY, "{name}");
         }
+    }
+
+    #[test]
+    fn bake_test_is_a_write() {
+        // One undo step (appending to the pack and the model import, squashed); the files
+        // under `outDir` are build output under `build/`.
+        assert_eq!(kind_of("bake_test"), Some(Kind::Write));
     }
 }
