@@ -6,7 +6,14 @@ set -euo pipefail
 
 SCRIPT="$REPO_ROOT/scripts/version.sh"
 
-# Prints a fresh copy of the version files (same layout as the repo) and exports the variables.
+run() { # run <root> <args...>
+  local root="$1"
+  shift
+  G4_VERSION_ROOT="$root" G4_VERSION_SKIP_LOCK=1 bash "$SCRIPT" "$@"
+}
+
+# Prints a fresh copy of the version files (same layout as the repo), set to 0.1.0 whatever
+# version the repo carries (a release candidate on main must not turn these tests red).
 setup() {
   local d
   d="$(tmpdir)"
@@ -14,13 +21,8 @@ setup() {
   cp "$REPO_ROOT/Cargo.toml" "$d/Cargo.toml"
   cp "$REPO_ROOT/apps/studio/package.json" "$d/apps/studio/package.json"
   cp "$REPO_ROOT/CHANGELOG.md" "$d/CHANGELOG.md"
+  run "$d" set 0.1.0 >/dev/null
   printf '%s' "$d"
-}
-
-run() { # run <root> <args...>
-  local root="$1"
-  shift
-  G4_VERSION_ROOT="$root" G4_VERSION_SKIP_LOCK=1 bash "$SCRIPT" "$@"
 }
 
 test_prints_version() {
