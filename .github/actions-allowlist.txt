@@ -1,0 +1,19 @@
+# GitHub Actions the workflows may use (checked by scripts/check-actions.sh, spec release-ci 7.2).
+#
+# Format: one action per line, `owner/repo <SPDX license expression>`. `uses: owner/repo/path@sha`
+# maps to `owner/repo`. `A OR B` is allowed when one operand is, `A AND B` when every operand is.
+# Only licenses from the `allow` list of deny.toml count, so no Swatinem/rust-cache (LGPL-3.0).
+# `#` starts a comment; blank lines are ignored.
+#
+# A new action needs its license checked here first; every `uses:` line is then pinned to a
+# 40-character commit SHA with a `# vX.Y.Z` comment.
+actions/checkout MIT
+actions/cache MIT
+actions/setup-node MIT
+actions/upload-artifact MIT
+actions/download-artifact MIT
+pnpm/action-setup MIT
+astral-sh/setup-uv MIT OR Apache-2.0
+taiki-e/install-action Apache-2.0 OR MIT
+msys2/setup-msys2 MIT
+samypr100/setup-dev-drive MIT

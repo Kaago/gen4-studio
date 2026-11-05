@@ -397,7 +397,8 @@ Stand nach 3b.3a: Plan-Task 0 hat die Paletten-Tabelle bestätigt, die Pokémon-
 
 ## Querschnitt (laufend ab Phase 1)
 
-- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, die Token-Prüfung (`scripts/check-tokens.sh`), die Stilprüfung (`scripts/check-styles.sh`: keine Hex-Farben, keine Primitive, keine Inline-Styles), `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt kein Remote und noch keine CI; Builds für macOS (arm64) und Windows (x64), Linux als Best-Effort, folgen mit einem Remote.
-- Releases: Tauri-Bundles, signiert, mit Auto-Update ab Phase 3b.
+- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, die Token-Prüfung (`scripts/check-tokens.sh`), die Stilprüfung (`scripts/check-styles.sh`: keine Hex-Farben, keine Primitive, keine Inline-Styles), `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt ein privates Remote auf GitHub; die CI (`.github/workflows/ci.yml`) fährt nur die hermetischen Schritte (`G4_GATE_HERMETIC=1`), vor einem Merge läuft `scripts/gate.sh` voll lokal. Builds für macOS (arm64) und Windows (x64) baut `release.yml` (siehe `docs/release.md`), Linux ist Best-Effort und nicht Teil davon.
+- Releases: Tauri-Bundles (DMG, NSIS-Installer), ad-hoc signiert; Developer ID und Auto-Update später.
+- Release und CI: **Stand:** in Arbeit (Branch `release-ci`, PR #1); Gate [docs/release-ci-gate.md](release-ci-gate.md).
 - Dokumentation: `docs/formats/` für jedes Format mit Byte-Layout und Quelle der Information.
 - Lizenz-Audit bei jeder neuen Abhängigkeit (`cargo deny`).

@@ -172,7 +172,11 @@ mod tests {
     #[test]
     fn the_default_parent_is_gen4_studio_in_documents_with_the_suffix() {
         let got = default_project_parent_impl(Some(PathBuf::from("/home/u/Documents")));
-        assert_eq!(got.parent, "/home/u/Documents/Gen4 Studio");
+        // Compared as paths: the separator before `Gen4 Studio` is the platform's.
+        assert_eq!(
+            Path::new(&got.parent),
+            Path::new("/home/u/Documents").join("Gen4 Studio")
+        );
         assert!(got.dspre_suffix);
     }
 

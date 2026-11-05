@@ -13,6 +13,24 @@ for dir in "/opt/homebrew/opt/rustup/bin" "$HOME/.cargo/bin"; do
     esac
   fi
 done
+# Windows (Git Bash): uxie builds nitroarc with MinGW gcc and make from MSYS2. On the runner
+# msys2/setup-msys2 already puts them on PATH; locally this finds a default MSYS2 install. Appended,
+# so Git's own bash and tools stay first (MSYS2's bash must not take over). MSYS2_LOCATION may
+# name another install (Windows or POSIX path, as setup-msys2 prints it).
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    msys="${MSYS2_LOCATION:-C:\\msys64}"
+    msys="$(cygpath -u "$msys" 2>/dev/null || printf '%s' "$msys")"
+    for dir in "$msys/mingw64/bin" "$msys/usr/bin"; do
+      if [ -d "$dir" ]; then
+        case ":$PATH:" in
+          *":$dir:"*) ;;
+          *) PATH="$PATH:$dir" ;;
+        esac
+      fi
+    done
+    ;;
+esac
 export PATH
 if ! command -v cargo >/dev/null 2>&1; then
   echo "cargo nicht gefunden: rustup installieren (brew install rustup) oder ~/.cargo/bin anlegen" >&2

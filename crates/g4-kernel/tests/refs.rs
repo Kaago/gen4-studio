@@ -869,6 +869,8 @@ const SCRIPT_0: AssetId = AssetId {
     index: 0,
 };
 const SOURCE_0: &str = "expanded/scripts/0000.rotom";
+/// More than one file timestamp tick (Windows updates mtime in steps of about 16 ms).
+const MTIME_TICK: Duration = Duration::from_millis(50);
 
 /// The synthetic text project (scripts adopted) with `source` as script file 0, and its store.
 fn script_store(source: &str) -> (TextFixture, Store) {
@@ -1065,6 +1067,9 @@ fn a_saved_source_shows_after_the_gate() {
     let (fx, st) = script_store("script Main #1:\n    SetFlag 0x173\n    End\n");
     let mut index = RefIndex::new();
     assert_eq!(index.count(&st, Target::Flag(0x173)).unwrap(), 1);
+    // The index sees a change by (size, mtime); a same-size rewrite within one timestamp tick
+    // (about 16 ms on Windows) would look unchanged, so each rewrite waits for the next tick.
+    std::thread::sleep(MTIME_TICK);
     fx.write(SOURCE_0, b"script Main #1:\n    SetFlag 0x174\n    End\n");
     // Saved right after the build: `refresh_scripts_now` reads it whatever the time gate says.
     assert_eq!(index.refresh_scripts_now(&st).unwrap(), [SCRIPT_0]);
@@ -1081,8 +1086,8 @@ fn a_saved_source_shows_after_the_gate() {
         }]
     );
     // Once the gate has passed, a plain refresh sees the next save too.
-    fx.write(SOURCE_0, b"script Main #1:\n    SetFlag 0x175\n    End\n");
     std::thread::sleep(REFRESH_SCRIPTS_EVERY + Duration::from_millis(20));
+    fx.write(SOURCE_0, b"script Main #1:\n    SetFlag 0x175\n    End\n");
     assert_eq!(index.refresh(&st).unwrap(), [SCRIPT_0]);
     assert_eq!(index.count(&st, Target::Flag(0x175)).unwrap(), 1);
 }

@@ -1,6 +1,6 @@
 [package]
 name = "g4-xdelta"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 # Our shim and Rust API are MIT; the vendored xdelta3 3.0.12 is Apache-2.0 (see NOTICE).
 license = "MIT AND Apache-2.0"
@@ -8,3 +8,6 @@ publish = false
 
 [build-dependencies]
 cc = "1"
+
+[dev-dependencies]
+tempfile = "3"

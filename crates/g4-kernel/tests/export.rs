@@ -1,11 +1,10 @@
 use std::path::Path;
 
 use g4_kernel::error::KernelError;
-use std::time::{Duration, Instant};
 
 use g4_kernel::export::{
     embed_images, glb_cache_key, glb_cached, glb_fail_get, glb_fail_record, last_tool,
-    nsbmd_to_glb, nsbmd_to_glb_with_timeout, remember_tool, tool_fingerprint,
+    nsbmd_to_glb, remember_tool, tool_fingerprint,
 };
 
 /// A stand-in tool hash for tests that do not run a real apicula.
@@ -386,6 +385,9 @@ fn fail_marker_round_trips_per_model_and_tileset_and_leaves_no_temp_file() {
 #[cfg(unix)]
 mod fake_tool {
     use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+
+    use g4_kernel::export::nsbmd_to_glb_with_timeout;
 
     use super::*;
 

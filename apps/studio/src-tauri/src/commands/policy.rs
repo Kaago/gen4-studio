@@ -378,6 +378,7 @@ pub(crate) fn is_original(dir: &Path, roms: &Path) -> bool {
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     /// A folder with a `header.yaml`, the minimum `UserPolicy::new` takes for a project.
@@ -507,6 +508,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn user_policy_refuses_escapes() {
         let dir = project();
@@ -569,6 +571,7 @@ mod tests {
         assert!(p.check_project(allowed.path().to_str().unwrap()).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn is_in_build_tells_build_from_allowed() {
         let dir = project();
@@ -622,6 +625,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn build_dir_symlinked_out_is_refused() {
         let dir = project();
@@ -637,6 +641,7 @@ mod tests {
         assert!(!other.path().join("x.nds").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn dangling_target_is_refused() {
         let dir = project();

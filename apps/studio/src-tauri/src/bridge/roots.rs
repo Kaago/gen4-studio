@@ -281,6 +281,7 @@ fn canonicalize(path: &Path, shown: &str) -> Result<PathBuf, CmdError> {
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     fn roots_in(dir: &tempfile::TempDir) -> Roots {
@@ -385,6 +386,7 @@ mod tests {
         assert!(Roots::new(&[project]).is_ok());
     }
 
+    #[cfg(unix)]
     #[test]
     fn original_next_to_testkopien_stays_locked() {
         let tmp = tempfile::tempdir().unwrap();
@@ -469,6 +471,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn symlink_out_of_the_root_is_refused() {
         let root = tempfile::tempdir().unwrap();
@@ -541,6 +544,7 @@ mod tests {
         assert!(!project.join("gone").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn build_folder_is_not_made_where_the_target_is_refused() {
         let root = tempfile::tempdir().unwrap();
@@ -643,6 +647,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn read_path_accepts_files_under_the_root_only() {
         let root = tempfile::tempdir().unwrap();
@@ -690,6 +695,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn output_file_that_is_a_symlink_out_of_the_root_is_refused() {
         let root = tempfile::tempdir().unwrap();
@@ -745,6 +751,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn new_project_outside_or_in_saves_is_refused() {
         let root = tempfile::tempdir().unwrap();

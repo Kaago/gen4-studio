@@ -36,32 +36,13 @@ const WRITE_QUEUE: usize = 256;
 pub(crate) const MISSING: &str = "rotom-lsp fehlt — Completion und Diagnosen aus";
 
 /// Finds the rotom-lsp executable: `G4_ROTOM_LSP`, then `rotom-lsp` next to the running binary,
-/// then (debug builds only) the repository's `tools/rotom/bin/rotom-lsp`. A set `G4_ROTOM_LSP`
-/// always wins, even when it points nowhere, so a typo is reported instead of silently ignored.
-/// `libnitroarc_ffi.dylib` must sit next to the binary or in `../Frameworks` (see
-/// `docs/dev-setup.md`).
+/// then (debug builds only) the repository's `tools/rotom/bin/rotom-lsp`; `.exe` is added on
+/// Windows. A set `G4_ROTOM_LSP` always wins, even when it points nowhere, so a typo is reported
+/// instead of silently ignored. An empty file is the build-time placeholder for the bundled
+/// sidecar (see build.rs). `libnitroarc_ffi.dylib` (`nitroarc_ffi.dll` on Windows) must sit next
+/// to the binary or, on macOS, in `../Frameworks` (see `docs/dev-setup.md`).
 pub fn find_rotom_lsp() -> Option<PathBuf> {
-    if let Some(env) = std::env::var_os("G4_ROTOM_LSP").filter(|v| !v.is_empty()) {
-        return Some(PathBuf::from(env));
-    }
-    let beside_exe = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("rotom-lsp")));
-    let mut candidates = vec![beside_exe];
-    if cfg!(debug_assertions) {
-        candidates.push(Some(PathBuf::from(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../tools/rotom/bin/rotom-lsp"
-        ))));
-    }
-    // An empty file is the build-time placeholder for the bundled sidecar (see build.rs).
-    candidates.into_iter().flatten().find(|p| is_real_file(p))
-}
-
-fn is_real_file(path: &Path) -> bool {
-    path.metadata()
-        .map(|m| m.is_file() && m.len() > 0)
-        .unwrap_or(false)
+    crate::sidecar::find_sidecar("G4_ROTOM_LSP", "rotom-lsp", "tools/rotom/bin/rotom-lsp")
 }
 
 /// `body` as one LSP message: `Content-Length` counts bytes, not characters.
@@ -176,6 +157,7 @@ fn spawn(binary: &Path, root: &Path, sink: Channel<String>) -> Result<Spawned, K
         // Own process group, so `kill_tree` ends the server and anything it started.
         command.process_group(0);
     }
+    g4_kernel::process::without_console(&mut command);
     let missing = |reason: String| KernelError::ToolMissing {
         name: "rotom-lsp",
         reason,
@@ -300,12 +282,12 @@ impl LspProcess {
     }
 
     /// Number of automatic restarts since `start`.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn restarts(&self) -> u8 {
         self.restarts
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn set_restart_after(&mut self, interval: Duration) {
         self.restart_after = interval;
     }
@@ -355,13 +337,15 @@ pub fn lsp_start_impl(
     binary: Option<PathBuf>,
     sink: Channel<String>,
 ) -> Result<(), CmdError> {
-    let binary = binary.filter(|p| is_real_file(p)).ok_or_else(|| CmdError {
-        code: "tool_missing",
-        message: MISSING.to_owned(),
-        asset: None,
-        problems: Vec::new(),
-        references: Vec::new(),
-    })?;
+    let binary = binary
+        .filter(|p| crate::sidecar::is_real_file(p))
+        .ok_or_else(|| CmdError {
+            code: "tool_missing",
+            message: MISSING.to_owned(),
+            asset: None,
+            problems: Vec::new(),
+            references: Vec::new(),
+        })?;
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     if let Some(mut old) = session.lsp.take() {
@@ -426,8 +410,6 @@ pub fn stop_on_exit(app: &AppHandle) {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
-    use tauri::ipc::InvokeResponseBody;
 
     #[test]
     fn frames_round_trip() {
@@ -494,6 +476,35 @@ mod tests {
         buf.extend(frame("{}"));
         assert_eq!(parse_frames(&mut buf), ["{}"]);
     }
+
+    #[test]
+    fn absurd_content_length_is_dropped_and_reading_goes_on() {
+        // usize::MAX would overflow `body_start + len`; one byte over the cap is refused too;
+        // a number that does not even fit a usize has no length at all.
+        for len in [
+            usize::MAX.to_string(),
+            (MAX_BODY + 1).to_string(),
+            "99999999999999999999999999".to_owned(),
+        ] {
+            let mut buf = format!("Content-Length: {len}\r\n\r\n").into_bytes();
+            buf.extend(frame("{\"ok\":true}"));
+            assert_eq!(parse_frames(&mut buf), ["{\"ok\":true}"], "length {len}");
+            assert!(buf.is_empty());
+        }
+        // A length at the cap is legal and just waits for its body.
+        let mut buf = format!("Content-Length: {MAX_BODY}\r\n\r\nabc").into_bytes();
+        assert!(parse_frames(&mut buf).is_empty());
+        assert!(!buf.is_empty());
+    }
+}
+
+/// The tests that run a fake server as a shell script or signal processes: Unix only.
+#[cfg(all(test, unix))]
+#[allow(clippy::unwrap_used)]
+mod process_tests {
+    use super::*;
+    use std::sync::mpsc;
+    use tauri::ipc::InvokeResponseBody;
 
     /// A unique scratch directory that is removed again.
     struct Scratch(PathBuf);
@@ -773,26 +784,6 @@ while :; do sleep 1; done
         assert!(pid_alive(pid));
         open_project_impl(&state, project).unwrap();
         assert!(!pid_alive(pid), "open_project left the old server running");
-    }
-
-    #[test]
-    fn absurd_content_length_is_dropped_and_reading_goes_on() {
-        // usize::MAX would overflow `body_start + len`; one byte over the cap is refused too;
-        // a number that does not even fit a usize has no length at all.
-        for len in [
-            usize::MAX.to_string(),
-            (MAX_BODY + 1).to_string(),
-            "99999999999999999999999999".to_owned(),
-        ] {
-            let mut buf = format!("Content-Length: {len}\r\n\r\n").into_bytes();
-            buf.extend(frame("{\"ok\":true}"));
-            assert_eq!(parse_frames(&mut buf), ["{\"ok\":true}"], "length {len}");
-            assert!(buf.is_empty());
-        }
-        // A length at the cap is legal and just waits for its body.
-        let mut buf = format!("Content-Length: {MAX_BODY}\r\n\r\nabc").into_bytes();
-        assert!(parse_frames(&mut buf).is_empty());
-        assert!(!buf.is_empty());
     }
 
     /// Never reads its stdin.

@@ -60,7 +60,9 @@ JSON, kompakt, UTF-8.
 
 Ein **Fingerabdruck** ist ein Array `[size, mtime_ns, ctime_ns, ino, "xxh3hex" | null]`: Größe,
 Änderungszeit und Statusänderungszeit in Nanosekunden, Inode und der xxh3-64 des Inhalts als
-16 Hex-Ziffern, wenn er berechnet wurde. Unter Windows sind `ctime_ns` und `ino` 0.
+16 Hex-Ziffern, wenn er berechnet wurde. Unter Windows stehen dort die Änderungszeit von NTFS/ReFS
+(`ChangeTime`, die ein Schreiben und das Setzen der mtime bewegen wie die ctime) und der Dateiindex;
+auf einem Dateisystem ohne Änderungszeit (FAT, exFAT) ist `ctime_ns` 0.
 
 Geschrieben wird nur über `BuildState::update` (laden, ändern, atomar über `.g4/tmp/` schreiben,
 unter einer prozessweiten Sperre). Zwei Prozesse auf demselben Projekt können sich Einträge
@@ -69,7 +71,10 @@ unter einer prozessweiten Sperre). Zwei Prozesse auf demselben Projekt können s
 Der Prozess hält den zuletzt gelesenen oder geschriebenen Zustand je Projekt im Speicher, mit dem
 `stat` der Datei (Größe, mtime, ctime, Inode; nach dem Schreiben über das Handle der geschriebenen
 Datei genommen). Solange die Datei diesen `stat` hat, wird sie nicht neu gelesen; jeder andere
-`stat` (ein anderer Prozess, eine gelöschte oder von Hand geänderte Datei) liest sie neu. Jeder
+`stat` (ein anderer Prozess, eine gelöschte oder von Hand geänderte Datei) liest sie neu. Ein gleicher
+`stat`, der weniger als 2 s nach der letzten Änderung der Datei genommen wurde (racy, siehe unten), reicht
+nicht: dann liest der Kernel die Datei und vergleicht ihren xxh3 mit dem gemerkten (ein zweiter Schreiber im
+selben Zeit-Tick, etwa unter Windows mit seiner groben Uhr, behält Größe und Zeiten). Jeder
 Schreiber ersetzt die Datei, also ändert jedes Schreiben den `stat`; darauf baut auch der Store,
 der seine Textstände neu lädt, sobald sich der `stat` ändert. Ein Build schreibt die Datei je
 Hälfte einmal: `prepare_for_build` am Ende (dazu die Textstände, die `rotom` und `chatot` aufnehmen),
@@ -128,7 +133,7 @@ Ein Ordner unter den Eingaben steht für seine Dateien (eine Ebene, versteckte a
 
 **racy-Regel** (wie Git): Liegt die spätere von mtime und ctime nicht mindestens 2 s vor
 `scanned_at_ns`, gilt der Eintrag als racy (die ctime fängt eine gerade geschriebene Datei mit
-zurückgesetzter mtime, etwa einen kodierten Member; unter Windows ist sie 0). Er wird schon beim Aufzeichnen mit Hash gespeichert und beim Vergleich über den
+zurückgesetzter mtime, etwa einen kodierten Member; ohne Änderungszeit ist sie 0). Er wird schon beim Aufzeichnen mit Hash gespeichert und beim Vergleich über den
 Inhalt geprüft, auch wenn der `stat` gleich ist. Die 2 s decken auch FAT und exFAT ab. Ein
 übersprungener Schritt mit racy oder neu gehashten Einträgen bekommt einen erneuerten Eintrag.
 

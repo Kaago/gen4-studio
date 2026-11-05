@@ -1,0 +1,27 @@
+nitroarc austauschen (LGPL-3.0)
+===============================
+
+Gen4 Studio nutzt die Bibliothek nitroarc (Nitro-Archive der Nintendo DS) unter der GNU Lesser
+General Public License 3.0 (Text: nitroarc-LGPL-3.0.txt, dazu nitroarc-GPL-3.0.txt). Die Bibliothek
+ist nicht in das Programm einkompiliert, sondern liegt als eigene Datei im Paket und wird beim Start
+dynamisch geladen. Sie lässt sich deshalb durch eine eigene, geänderte Fassung ersetzen.
+
+Welche Datei ersetzt wird:
+
+  macOS    Gen4 Studio.app/Contents/Frameworks/libnitroarc_ffi.dylib
+  Windows  nitroarc_ffi.dll, im Installationsordner neben studio.exe
+
+Die Datei muss dieselbe Schnittstelle (die ffi-Funktionen von nitroarc) bieten und denselben Namen
+tragen.
+
+Unter macOS danach neu signieren, weil das Paket nur ad-hoc signiert ist und macOS eine geänderte
+Datei sonst nicht lädt:
+
+  codesign --force --sign - "Gen4 Studio.app/Contents/Frameworks/libnitroarc_ffi.dylib"
+  codesign --force --sign - "Gen4 Studio.app"
+
+Unter Windows genügt es, die DLL zu überschreiben (Programm vorher beenden).
+
+Quelltext: nitroarc liegt im Rust-Paket uxie 0.9.7 (https://crates.io/crates/uxie/0.9.7, Ordner
+nitroarc/); der ursprüngliche Quelltext steht unter https://codeberg.org/lhearachel/nitroarc.
+Gen4 Studio baut die Bibliothek aus dem unveränderten Quelltext von uxie mit `make ffi`.

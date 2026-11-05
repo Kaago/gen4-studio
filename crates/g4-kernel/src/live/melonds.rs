@@ -220,7 +220,7 @@ pub fn enable_stub(path: &Path) -> Result<StubConfig, LiveError> {
 
 /// Whether a process named `melonDS` runs (`pgrep -x melonDS`; read-only).
 pub fn is_running() -> bool {
-    Command::new("pgrep")
+    crate::process::without_console(&mut Command::new("pgrep"))
         .args(["-x", "melonDS"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())

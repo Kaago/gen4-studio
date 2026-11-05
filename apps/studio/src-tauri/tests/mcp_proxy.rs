@@ -18,7 +18,9 @@ use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
 use serde_json::{Value, json};
 use studio_lib::AppState;
 use studio_lib::dispatch::{Reply, dispatch};
-use studio_lib::mcp::discovery::{self, APP_DATA_ENV, Discovery};
+#[cfg(unix)]
+use studio_lib::mcp::discovery::Discovery;
+use studio_lib::mcp::discovery::{self, APP_DATA_ENV};
 use studio_lib::mcp::host::StateSource;
 use studio_lib::mcp::http::HttpServer;
 use studio_lib::mcp::settings::{GrantLevel, ProjectKey};

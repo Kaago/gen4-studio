@@ -5,6 +5,8 @@ pub mod bridge;
 mod commands;
 /// The command table and the path policies behind it, for callers other than the webview.
 pub use commands::{dispatch, policy};
+/// `studio doctor`: checks the packaged app (sidecars, nitroarc) without a project.
+pub mod doctor;
 mod errors;
 /// Play mode live (3d.9): the connection to the running game, shared by app, bridge and MCP.
 pub mod live_hub;
@@ -12,6 +14,7 @@ mod lsp;
 /// The command layer for coding agents (Model Context Protocol): tool catalog and access.
 pub mod mcp;
 mod menu;
+mod sidecar;
 mod state;
 /// The state behind the commands (for the dev bridge and the tests of the MCP server).
 pub use state::AppState;

@@ -851,11 +851,16 @@ mod tests {
 
     #[test]
     fn project_stem_is_the_folder_without_suffix_and_game_code() {
-        let (_tmp, project) = minimal_project("Hack:Neu_DSPRE_contents");
-        // The stem is cleaned like the patch name.
-        let (_tmp2, plain) = minimal_project("Mein Hack_DSPRE_contents");
+        let (_tmp, plain) = minimal_project("Mein Hack_DSPRE_contents");
         assert_eq!(project_stem(&plain), "Mein Hack");
-        assert_eq!(project_stem(&project), "Hack_Neu");
+        // The stem is cleaned like the patch name (a folder with `:` exists only outside
+        // Windows, so the folder name is given directly).
+        assert_eq!(stem_of("Hack:Neu_DSPRE_contents"), "Hack_Neu");
+        #[cfg(unix)]
+        {
+            let (_tmp2, project) = minimal_project("Hack:Neu_DSPRE_contents");
+            assert_eq!(project_stem(&project), "Hack_Neu");
+        }
         assert_eq!(patch_name(&plain), format!("{}-CPUE", project_stem(&plain)));
         assert_eq!(stem_of("..."), "Projekt");
     }

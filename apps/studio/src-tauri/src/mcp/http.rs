@@ -245,14 +245,24 @@ fn new_token() -> Result<String, String> {
 }
 
 /// Accepts connections on `listener` until the service is cancelled; each connection is
-/// served by hyper (HTTP/1.1) in a task of its own.
-async fn accept(listener: std::net::TcpListener, service: McpService, port: u16, token: Arc<str>) {
+/// served by hyper (HTTP/1.1) in a task of its own. `closed` goes when the listener is
+/// closed (it is dropped before the parameters), which [`HttpServer::stop`] waits for.
+async fn accept(
+    listener: std::net::TcpListener,
+    service: McpService,
+    port: u16,
+    token: Arc<str>,
+    closed: std::sync::mpsc::Sender<()>,
+) {
+    let _closed = closed;
     let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
         return;
     };
     let stopped = service.inner.config.cancellation_token.clone();
     loop {
         let stream = tokio::select! {
+            // A stop wins over a connection that waits at the same time.
+            biased;
             () = stopped.cancelled() => return,
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => stream,
@@ -272,12 +282,16 @@ async fn accept(listener: std::net::TcpListener, service: McpService, port: u16,
             let connection = hyper::server::conn::http1::Builder::new()
                 .serve_connection(TokioIo::new(stream), answer);
             tokio::select! {
-                _ = connection => {}
+                biased;
                 () = stopped.cancelled() => {}
+                _ = connection => {}
             }
         });
     }
 }
+
+/// How long [`HttpServer::stop`] waits for the listener to close.
+const STOP_WAIT: Duration = Duration::from_secs(2);
 
 /// The app's MCP server on `127.0.0.1`, with its discovery file.
 pub struct HttpServer {
@@ -286,6 +300,8 @@ pub struct HttpServer {
     dir: PathBuf,
     service: McpService,
     rt: tokio::runtime::Handle,
+    /// Disconnects when the accept loop has closed the listener.
+    closed: std::sync::mpsc::Receiver<()>,
 }
 
 impl HttpServer {
@@ -310,11 +326,13 @@ impl HttpServer {
             .state()
             .agents
             .set_session_closer(service.session_closer(rt.clone()));
+        let (closing, closed) = std::sync::mpsc::channel();
         rt.spawn(accept(
             listener,
             service.clone(),
             port,
             Arc::from(token.as_str()),
+            closing,
         ));
         Ok(HttpServer {
             port,
@@ -322,11 +340,14 @@ impl HttpServer {
             dir: data_dir.to_path_buf(),
             service,
             rt: rt.clone(),
+            closed,
         })
     }
 
     /// Stops serving, closes every session (in the background on the runtime) and removes
-    /// `mcp.json` (unless a later server wrote its own).
+    /// `mcp.json` (unless a later server wrote its own). Returns once the listener is closed
+    /// (at most [`STOP_WAIT`]), so nothing answers on the port afterwards; without the wait a
+    /// connection right after the stop could still be accepted (seen on Windows).
     pub fn stop(self) {
         if discovery::read(&self.dir).is_ok_and(|found| found.token == self.token) {
             discovery::remove(&self.dir);
@@ -334,6 +355,9 @@ impl HttpServer {
         self.service.cancel();
         let service = self.service;
         self.rt.spawn(async move { service.close_all().await });
+        // Disconnected (Err) once the accept loop has returned; a timeout leaves it to finish
+        // in the background (a stop called on a runtime thread that the loop would need).
+        let _ = self.closed.recv_timeout(STOP_WAIT);
     }
 }
 

@@ -361,7 +361,7 @@ fn write_problems(out: &mut impl std::io::Write, problems: &[Problem]) {
             out,
             "{:?}: {}:{}:{}: {}",
             problem.severity,
-            problem.file.display(),
+            g4_kernel::relpath::shown(&problem.file),
             problem.line,
             problem.col,
             problem.message
@@ -550,7 +550,11 @@ fn publish(
             PublishedKind::Notes => "notes",
             PublishedKind::Readme => "readme",
         };
-        println!("file {kind} {} {}", file.path.display(), file.size);
+        println!(
+            "file {kind} {} {}",
+            g4_kernel::relpath::shown(&file.path),
+            file.size
+        );
     }
     println!("releases={}", report.releases.releases.len());
     Ok(())
@@ -1584,7 +1588,7 @@ fn text(command: TextCommand) -> Result<(), Failure> {
         TextCommand::Check { project, json } => text_check(&project, json),
         TextCommand::Sources { project } => {
             for path in g4_kernel::textproject::sources(&Project::open(project)?)? {
-                println!("{}", path.display());
+                println!("{}", g4_kernel::relpath::shown(&path));
             }
             Ok(())
         }
@@ -1751,7 +1755,7 @@ fn text_check(root: &Path, json: bool) -> Result<(), Failure> {
         write_problems(&mut std::io::stdout().lock(), &report.problems);
         println!("differs={}", report.differs.len());
         for path in report.differs.iter().take(CHECK_PATHS) {
-            println!("  {}", path.display());
+            println!("  {}", g4_kernel::relpath::shown(path));
         }
         if report.differs.len() > CHECK_PATHS {
             println!("  ... {} more", report.differs.len() - CHECK_PATHS);
@@ -1933,7 +1937,7 @@ fn text_rename_id(root: &Path, old: &str, new: &str, json: bool) -> Result<(), F
         return Ok(());
     }
     for file in &plan.files {
-        println!("{} {}", file.path.display(), file.count);
+        println!("{} {}", g4_kernel::relpath::shown(&file.path), file.count);
     }
     let kind = plan
         .kind
@@ -2664,7 +2668,7 @@ fn story(command: StoryCommand) -> Result<(), Failure> {
                     Err(problem) => println!(
                         "{n:04} {} problem={}:{}:{}: {}",
                         ids.get(&u32::from(n)).map_or("-", String::as_str),
-                        problem.file.display(),
+                        g4_kernel::relpath::shown(&problem.file),
                         problem.line,
                         problem.col,
                         problem.message

@@ -62,4 +62,23 @@ if [ "$WANT" = "$OLD_DEFAULT_ICNS" ]; then
   exit 1
 fi
 
+# License notices: bundle.resources puts apps/studio/src-tauri/licenses/ into Contents/Resources/licenses/.
+# THIRD-PARTY-NOTICES.txt is generated (an empty placeholder from build.rs must not pass) and names
+# nitroarc or the LGPL; the checked-in license texts of nitroarc, apicula and rotom ship as they are.
+LICENSES="$APP/Contents/Resources/licenses"
+if [ ! -s "$LICENSES/THIRD-PARTY-NOTICES.txt" ]; then
+  echo "THIRD-PARTY-NOTICES.txt missing or empty: $LICENSES" >&2
+  exit 1
+fi
+if ! grep -q -e nitroarc -e LGPL "$LICENSES/THIRD-PARTY-NOTICES.txt"; then
+  echo "THIRD-PARTY-NOTICES.txt names neither nitroarc nor the LGPL" >&2
+  exit 1
+fi
+for f in nitroarc-LGPL-3.0.txt nitroarc-GPL-3.0.txt nitroarc-AUSTAUSCH.txt apicula-LICENSE.txt rotom-LICENSE.txt; do
+  if [ ! -s "$LICENSES/$f" ]; then
+    echo "license file missing or empty: $LICENSES/$f" >&2
+    exit 1
+  fi
+done
+
 echo "bundle ok: $APP"

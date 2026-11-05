@@ -78,6 +78,7 @@ pub struct StoryPatch {
 pub struct StoryReport {
     pub id: String,
     pub number: u16,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub files: Vec<PathBuf>,
     pub change: Option<ChangeId>,
     pub ms: u64,

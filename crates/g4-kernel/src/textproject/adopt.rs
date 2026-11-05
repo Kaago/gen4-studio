@@ -77,6 +77,7 @@ pub struct AdoptReport {
 #[derive(Debug, Clone, Serialize)]
 pub struct RevertReport {
     pub backup: PathBuf,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub rewritten: Vec<PathBuf>,
     /// The Git templates written anew for the DSPRE folder (see [`rewrite_git_templates`]).
     pub templates: Option<TemplateReport>,

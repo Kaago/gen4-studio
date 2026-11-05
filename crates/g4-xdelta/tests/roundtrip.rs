@@ -1,6 +1,5 @@
 //! Round trips through the vendored xdelta3, with inputs from a small LCG (no files in the repo).
 use g4_xdelta::{XdeltaError, app_header, decode, encode, has_secondary_compression};
-use std::path::PathBuf;
 use std::process::Command;
 
 const MIB: usize = 1 << 20;
@@ -111,9 +110,9 @@ fn xdelta3_cli_applies_our_patch() {
     let (source, target) = source_and_changed_target();
     let patch = encode(&source, &target, APP_HEADER).unwrap();
 
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("g4-xdelta-cli");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    // A temp folder outside target/: no `.nds` or `.xdelta` may land in the cargo cache of CI.
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
     let (src, pat, out) = (
         dir.join("alt.nds"),
         dir.join("neu.xdelta"),
@@ -133,5 +132,4 @@ fn xdelta3_cli_applies_our_patch() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(std::fs::read(&out).unwrap() == target, "CLI output differs");
-    std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -179,6 +179,7 @@ pub struct StoryUse {
     pub number: u16,
     pub step_key: Option<String>,
     pub step_name: Option<String>,
+    #[serde(serialize_with = "crate::relpath::ser")]
     pub file: PathBuf,
 }
 

@@ -7,11 +7,13 @@ Die Matrix-Ansicht zeigt die Map-Modelle und die Gebäudemodelle (NSBMD) mit ihr
 
 ```sh
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
-cargo install --git https://github.com/scurest/apicula --locked --root tools/apicula
+source scripts/tool-versions.env
+cargo install --git https://github.com/scurest/apicula --rev "$APICULA_REV" --locked --root tools/apicula
 ```
 
 Das Ergebnis liegt in `tools/apicula/bin/apicula` (`tools/` ist per `.gitignore` ausgeschlossen).
-Gebaut und getestet mit Commit `3d4e91e14045392a49c89e86dab8cb936225588c` (`apicula 0.1.1-dev`).
+Die Fassung steht in `scripts/tool-versions.env` (`APICULA_REV`, Commit `3d4e91e14045392a49c89e86dab8cb936225588c`, `apicula 0.1.1-dev`);
+`pnpm bundle` baut apicula mit derselben Fassung, wenn `tools/apicula/bin/apicula` fehlt.
 
 ### Wo die App apicula sucht
 
@@ -715,7 +717,7 @@ Die Galerie zeigt die Bausteine aus `apps/studio/src/ui/primitives/` mit ihren Z
 
 ## Gate-Skript
 
-Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt sie und ist der Lauf vor einem Merge. Voraussetzung neben Rust und pnpm ist `uv` (der Schritt `g4emu unit` startet `uv run`; der erste Lauf lädt die Python-Pakete von PyPI). Es fährt der Reihe nach:
+Es gibt ein privates Remote auf GitHub mit CI (`.github/workflows/ci.yml`), die nur die hermetischen Schritte fährt (ohne ROM, Spielstand und Werkzeuge, `G4_GATE_HERMETIC=1`, siehe unten). Vor einem Merge läuft weiterhin das volle `scripts/gate.sh` (Repo-Wurzel, bash) lokal; es ist die Abnahme. Voraussetzung neben Rust und pnpm ist `uv` (der Schritt `g4emu unit` startet `uv run`; der erste Lauf lädt die Python-Pakete von PyPI). Es fährt der Reihe nach:
 
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
@@ -733,6 +735,8 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 14. `build graph (timings)`: je Testprojekt `cargo test --release -p g4-kernel --all-features --test build_graph -- build_graph_timings --nocapture --test-threads 1` mit `G4_TEST_PROJECT` und `G4_TIMING_STRICT=1` (Zeitgrenzen von „Hier spielen“, siehe „Build-Graph (4.2)“), danach ebenso `--test refs -- vanilla_index_builds_under_a_second` (warmer Aufbau des Referenzindex ≤ 1 000 ms; im parallelen Lauf von Schritt 13 misst er nur, weil die anderen Tests dort dieselben Dateien lesen); scheitert der Lauf, wiederholt das Skript ihn einmal (Zeile „ok (2nd run)“), sonst bricht es ab
 15. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
 
+Seit „Release und CI“ stehen zwischen Schritt 3 und 4 vier weitere hermetische Schritte (ohne Nummer, damit die Verweise auf die Schritte 13 bis 15 stimmen): `script tests` (`scripts/tests/run.sh`, die Tests der Shell-Skripte), `actions` (`scripts/check-actions.sh`: jede `uses:`-Zeile auf einen SHA festgelegt und in `.github/actions-allowlist.txt`, Lizenz aus der Liste von `deny.toml`), `no rom data` (`scripts/check-no-rom-data.sh`: keine ROM-, Spielstand- oder Patch-Daten unter `git ls-files`) und `version` (`scripts/version.sh check`). Die Fassungen der Werkzeuge (apicula, rotom, cargo-deny, pnpm, Node, cargo-about) stehen in `scripts/tool-versions.env`; CI, Release-Workflow und Skripte lesen sie dort. Mit `G4_GATE_HERMETIC=1` endet das Gate nach Schritt 11 (`g4emu unit`): das ist genau, was `gate-macos` in `ci.yml` fährt. `gate-windows` fährt nicht das Gate, sondern nur `cargo clippy --workspace --all-targets --all-features -- -D warnings` und `cargo test --workspace --all-features --no-fail-fast`.
+
 ```sh
 scripts/gate.sh
 ```
@@ -741,6 +745,7 @@ Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch6
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
+| `G4_GATE_HERMETIC` | nicht gesetzt | `1`: das Gate endet nach dem Schritt `g4emu unit` und die Tabelle schließt mit „Gate (hermetisch): ok“; das fährt die CI (kein `G4_*` sonst nötig). Nicht gesetzt: das volle lokale Gate |
 | `G4_ROMS_DIR` | `../Roms` (neben dem Repository) | Ordner mit den `*_DSPRE_contents`-Projekten; aus einem Git-Worktree absolut setzen, der Standard trifft dort nichts |
 | `G4_APICULA` | `tools/apicula/bin/apicula` | apicula-Binärdatei für die Modell-Tests |
 | `G4_DSROM_CLI` | `$G4_ROMS_DIR/_tools/dsrom` | ds-rom-Referenz-CLI für den Rebuild-Vergleich |

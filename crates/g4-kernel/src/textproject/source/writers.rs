@@ -227,8 +227,9 @@ impl EntitySource {
         };
         let mut files = entity_files(art, u32::from(index), &parts, &mut ctx, deleted)?;
         if let (Some(field), Some((_, json))) = (keep_eggs, files.first_mut()) {
-            let mut entity: SpeciesEntity = serde_json::from_slice(json)
-                .map_err(|e| KernelError::InvalidProject(format!("{}: {e}", rel.display())))?;
+            let mut entity: SpeciesEntity = serde_json::from_slice(json).map_err(|e| {
+                KernelError::InvalidProject(format!("{}: {e}", crate::build::step::key(&rel)))
+            })?;
             entity.egg_moves = field;
             *json = to_canonical(&entity);
         }

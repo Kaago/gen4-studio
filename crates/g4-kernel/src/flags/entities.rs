@@ -121,6 +121,7 @@ pub struct NameReport {
     pub number: u16,
     pub id: String,
     pub created: bool,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub files: Vec<PathBuf>,
     pub change: Option<ChangeId>,
     pub ms: u64,

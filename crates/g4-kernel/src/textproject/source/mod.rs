@@ -98,7 +98,9 @@ pub(crate) type Sides = (Option<Vec<u8>>, Option<Vec<u8>>);
 /// named after the plan's include file; see [`include`](super::include)).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct SourceWrite {
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub sources: Vec<PathBuf>,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub registers: Vec<PathBuf>,
     pub include: bool,
 }

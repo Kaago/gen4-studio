@@ -117,14 +117,9 @@ pub enum StepStatus {
     Full,
 }
 
-/// The state key of a path: `/`-separated.
+/// The state key of a path: `/`-separated ([`crate::relpath::slash`]).
 pub(crate) fn key(path: &Path) -> String {
-    let text = path.to_string_lossy();
-    if cfg!(windows) {
-        text.replace('\\', "/")
-    } else {
-        text.into_owned()
-    }
+    crate::relpath::slash(path)
 }
 
 /// The files `paths` stand for: a folder's files (one level, hidden ones left out), any

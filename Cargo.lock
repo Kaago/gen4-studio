@@ -1558,7 +1558,7 @@ dependencies = [
 
 [[package]]
 name = "g4-formats"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "proptest",
  "thiserror 2.0.21",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "g4-kernel"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "assert_cmd",
  "chatot",
@@ -1591,14 +1591,16 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.8.2",
  "uxie",
+ "windows-sys 0.61.2",
  "xxhash-rust",
 ]
 
 [[package]]
 name = "g4-xdelta"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "cc",
+ "tempfile",
 ]
 
 [[package]]
@@ -5190,7 +5192,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "studio"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -5211,6 +5213,8 @@ dependencies = [
  "tempfile",
  "tiny_http",
  "tokio",
+ "uxie",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

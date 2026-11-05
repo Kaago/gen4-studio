@@ -110,12 +110,12 @@ pub(crate) fn session_ids(
 
 /// printf argument of a minimal valid GLB (JSON chunk only, no images) for fake apicula scripts:
 /// the real conversion step parses what the tool wrote, so a fake must write a real GLB.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 const FAKE_GLB_PRINTF: &str =
     r#"glTF\002\000\000\000\060\000\000\000\034\000\000\000JSON{"asset":{"version":"2.0"}} "#;
 
 /// The bytes [`FAKE_GLB_PRINTF`] prints.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn fake_glb() -> Vec<u8> {
     let json = br#"{"asset":{"version":"2.0"}} "#;
     let mut glb = b"glTF".to_vec();

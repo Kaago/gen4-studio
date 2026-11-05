@@ -1329,6 +1329,7 @@ fn patched_project_reads_and_saves_headers_from_files() {
     assert_eq!(reread.header_count().unwrap(), 2);
 }
 
+#[cfg(unix)] // compares inode numbers
 #[test]
 fn patched_header_save_writes_only_the_changed_files() {
     use g4_kernel::store::MapHeader;
@@ -2525,9 +2526,11 @@ fn trainer_count_is_the_smaller_of_both_archives() {
         st.member_count(AssetKind::Trainer).unwrap(),
         common::PT_TRAINER_MEMBERS
     );
-    // A properties member without its party is missing, named by its party file.
+    // A properties member without its party is missing, named by its party file (an
+    // absolute path, with the platform's separator).
     let err = st.trainer(3).unwrap_err().to_string();
-    assert!(err.contains("trainerParty/0003"), "{err}");
+    let party = std::path::Path::new("trainerParty").join("0003");
+    assert!(err.contains(&party.display().to_string()), "{err}");
 }
 
 #[test]

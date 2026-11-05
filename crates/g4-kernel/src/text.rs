@@ -55,6 +55,7 @@ pub enum Severity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Problem {
     pub severity: Severity,
+    #[serde(serialize_with = "crate::relpath::ser")]
     pub file: PathBuf,
     pub line: u32,
     pub col: u32,

@@ -1,0 +1,2 @@
+# LF everywhere: the shell scripts run under Git Bash on the Windows runner and break on CRLF.
+* text=auto eol=lf

@@ -95,7 +95,9 @@ pub struct SyncUnit {
     pub label: String,
     pub side: UnitSide,
     pub assets: Vec<AssetId>,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub sources: Vec<PathBuf>,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub members: Vec<PathBuf>,
     pub problems: Vec<Problem>,
 }
@@ -134,6 +136,7 @@ pub struct SyncProgress {
 pub struct ApplyReport {
     pub dspre: Vec<SyncUnit>,
     pub files: Vec<SyncUnit>,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub written: Vec<PathBuf>,
     pub ms: u64,
 }

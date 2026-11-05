@@ -1,0 +1,538 @@
+# Release of Gen4 Studio (spec release-ci 5): builds the macOS DMG and the Windows installer from
+# the hermetic sources (no ROM, no save game, no secret) and, for a tag, opens a DRAFT release.
+#
+# Ways to start it:
+#   push of a tag v*      the real release: version check against the tag, both bundles, then
+#                         `publish` creates the draft (the maintainer reviews and publishes it)
+#   workflow_dispatch     the dry run (input dry_run, default true): all checks and both bundles,
+#                         no release. A dispatch with dry_run=false fails in the `version` job:
+#                         a release always starts from a tag push (the tag names the version), so
+#                         there is no second way to make one. Run the dry run on main from time to
+#                         time: caches are only shared with a run from the same ref or the default
+#                         branch, so a tag run reads what main saved.
+#   pull_request label    `release-dry-run` on a PR runs the same dry run on the PR branch, before
+#                         the workflow exists on main. Adding any other label starts nothing (the
+#                         jobs are skipped, and the run has a concurrency group of its own, so it
+#                         never cancels a running dry run: macOS minutes count ten times).
+#                         On such a run the Windows job builds with the version 0.1.0-rc.1 (never
+#                         committed): it answers whether NSIS accepts a pre-release version
+#                         (spec 6.4). A failing Windows bundle on that run IS the answer.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Probelauf: alles bauen und pruefen, aber keinen Release anlegen (nur true ist erlaubt)'
+        type: boolean
+        default: true
+  pull_request:
+    branches: [main]
+    types: [labeled, synchronize]
+
+# A new push to a PR cancels the dry run before it; a tag run is never cancelled. A `labeled` event
+# gets a group of its own (per label), so adding an unrelated label never cancels the dry run that
+# the last push started.
+concurrency:
+  group: release-${{ github.ref }}-${{ github.event.action == 'labeled' && github.event.label.name || 'code' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Smaller caches and no incremental state in target/.
+  CARGO_INCREMENTAL: '0'
+  # The string 'true' or 'false' (a boolean expression result is written as such): a pull request
+  # and a dispatch with dry_run are dry runs. Only the `version` job reads it (tag check or not);
+  # `publish` only runs for tag pushes and the bundle jobs do not care.
+  DRY_RUN: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+
+jobs:
+  version:
+    name: version
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'release-dry-run') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'release-dry-run'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        id: v
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$DRY_RUN" != true ]; then
+            echo "Ein Release entsteht nur durch das Pushen eines Tags v<Fassung>; workflow_dispatch ist der Probelauf (dry_run=true)." >&2
+            exit 1
+          fi
+          if [ "$DRY_RUN" = true ]; then
+            # No tag: the dry run checks the versions and the CHANGELOG section only.
+            bash scripts/version.sh check
+          else
+            bash scripts/version.sh check "$GITHUB_REF_NAME"
+          fi
+          version="$(bash scripts/version.sh)"
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+  bundle-macos:
+    name: bundle-macos
+    needs: version
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'release-dry-run') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'release-dry-run'))
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # PNPM_VERSION, NODE_VERSION, CARGO_ABOUT_VERSION, ... for the steps below.
+      - name: Tool versions
+        run: grep -E '^[A-Z0-9_]+=' scripts/tool-versions.env >> "$GITHUB_ENV"
+
+      # The toolchain of rust-toolchain.toml (rustup does not install it by itself, see ci.yml).
+      # The hash of Cargo.lock is taken here, once: the cache is saved under the key it was
+      # restored with, whatever the build does to the file.
+      - name: Rust toolchain
+        id: rust
+        run: |
+          rustup toolchain install
+          rustup show
+          echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+          echo "lockhash=${{ hashFiles('Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+
+      # Restore here, save at the end of the job: under the exact key only after a green run,
+      # after a failure under `<key>-partial-<run id>`, which the restore key still finds (see
+      # ci.yml). The bundle folder (DMGs, no use) and target/tmp stay out; actions/cache
+      # archives a matched folder whole, so the exclusions work only below the wildcards.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
+            !target/release/bundle
+          key: release-cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}
+          restore-keys: |
+            release-cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-
+
+      # apicula and rotom-lsp, built by prepare-bundle.sh into tools/ when they are missing there.
+      # Both versions are in scripts/tool-versions.env, so the key hashes that file.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: tools-cache
+        with:
+          path: tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/tool-versions.env') }}
+
+      # cargo-about for THIRD-PARTY-NOTICES.txt (prepare-bundle.sh looks in ~/.cargo/bin).
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-about@${{ env.CARGO_ABOUT_VERSION }}
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: apps/studio/pnpm-lock.yaml
+
+      - name: pnpm install
+        working-directory: apps/studio
+        run: pnpm install --frozen-lockfile
+
+      # CI=true: Tauri's DMG script skips the Finder styling by AppleScript, which fails without a
+      # desktop session. A failure of the bundle is not fatal HERE: the next step either finds the
+      # DMG or builds it from the finished .app (and fails when there is no .app).
+      - name: Bundle (app, dmg)
+        id: bundle
+        working-directory: apps/studio
+        env:
+          CI: 'true'
+        run: |
+          status=0
+          pnpm bundle -- --bundles app,dmg || status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      # Tauri's DMG, or `hdiutil create` from the .app when Tauri made none (the choice goes to
+      # the step summary); the DMG is named Gen4-Studio_<version>_aarch64.dmg in dist-release/.
+      - name: DMG
+        id: dmg
+        env:
+          BUNDLE_STATUS: ${{ steps.bundle.outputs.status }}
+        run: bash scripts/release/macos-dmg.sh "$VERSION" dist-release
+
+      # Signing and notarization are prepared, not enabled (spec 5): the release is unsigned for
+      # now (users open it by Control-click or `xattr -dr com.apple.quarantine`, see docs/release.md).
+      # To enable it: turn `if: false` into `true`, add the six repository secrets below and put them
+      # into the `env:` of the step "Bundle (app, dmg)" (before the DMG step) as
+      # `NAME: ` followed by the secrets expression of the same name. They belong there because
+      # tauri-bundler itself imports the certificate into a temporary keychain, signs the .app and
+      # runs notarytool when they are set. This step only stands for that and for stapling the DMG.
+      # The secrets are named in comments only, so no `secrets` reference stands in this file yet.
+      #   APPLE_CERTIFICATE            base64 of the Developer ID Application certificate (.p12)
+      #   APPLE_CERTIFICATE_PASSWORD   password of the .p12
+      #   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Name (TEAMID)"
+      #   APPLE_ID                     Apple ID that notarizes
+      #   APPLE_PASSWORD               app-specific password of that Apple ID (not the login one)
+      #   APPLE_TEAM_ID                the 10-character team id
+      # For the notarytool and stapler lines below this step needs APPLE_ID, APPLE_PASSWORD and
+      # APPLE_TEAM_ID in its own `env:` and DMG set to the dmg output of the DMG step.
+      - name: sign-notarize
+        if: false
+        run: |
+          echo "Signing is not enabled: see the comment above this step."
+          # xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+          #   --team-id "$APPLE_TEAM_ID" --wait
+          # xcrun stapler staple "$DMG"
+
+      - name: check-bundle
+        run: bash apps/studio/scripts/check-bundle.sh
+
+      - name: no rom data
+        env:
+          APP: ${{ steps.dmg.outputs.app }}
+          DMG: ${{ steps.dmg.outputs.dmg }}
+        run: bash scripts/check-no-rom-data.sh "$APP" "$DMG"
+
+      # The synthetic project is built from code (test_support::synthetic_project): no ROM byte.
+      - name: Synthetic project
+        run: >-
+          cargo run -p g4-kernel --example make_synthetic --features test-support --
+          "$RUNNER_TEMP/syn"
+
+      - name: smoke
+        env:
+          APP: ${{ steps.dmg.outputs.app }}
+        run: bash scripts/smoke-packaged.sh "$APP/Contents/MacOS/studio" "$RUNNER_TEMP/syn"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-dmg
+          path: dist-release/Gen4-Studio_${{ env.VERSION }}_aarch64.dmg
+          retention-days: 7
+          if-no-files-found: error
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: success() && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
+            !target/release/bundle
+          key: release-cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: failure() && steps.cargo-cache.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
+            !target/release/bundle
+          key: release-cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}-partial-${{ github.run_id }}
+
+      # Only when the tools had to be built and the bundle got that far, not after a cancel
+      # (a binary of a cancelled build would stay under the exact key; there is no restore key).
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ !cancelled() && steps.tools-cache.outputs.cache-hit != 'true' && hashFiles('tools/apicula/bin/apicula') != '' && hashFiles('tools/rotom/bin/rotom-lsp') != '' }}
+        with:
+          path: tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/tool-versions.env') }}
+
+  bundle-windows:
+    name: bundle-windows
+    needs: version
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'release-dry-run') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'release-dry-run'))
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Only on a pull request run: the pre-release version for the NSIS probe (spec 6.4).
+      G4_PROBE_VERSION: ${{ github.event_name == 'pull_request' && '0.1.0-rc.1' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tool versions
+        run: grep -E '^[A-Z0-9_]+=' scripts/tool-versions.env >> "$GITHUB_ENV"
+
+      # uxie builds nitroarc with `make ffi` and MinGW gcc (CC=gcc) into nitroarc_ffi.dll.
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        id: msys2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc make
+
+      # Same PATH order as ci.yml (the runner puts the last GITHUB_PATH line first): Git bin,
+      # mingw64, MSYS2 usr, the original PATH.
+      - name: MSYS2 on PATH
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          echo "$MSYS2_LOCATION\\usr\\bin" >> "$GITHUB_PATH"
+          echo "$MSYS2_LOCATION\\mingw64\\bin" >> "$GITHUB_PATH"
+          echo 'C:\Program Files\Git\bin' >> "$GITHUB_PATH"
+
+      # check-no-rom-data.sh calls `python3`. If the runner has none that works (no python3.exe,
+      # or the Microsoft Store stub), a small `python3` wrapper around `python` goes first in PATH.
+      - name: python3
+        run: |
+          if python3 -I -c 'import sys' 2>/dev/null; then
+            echo "python3: $(command -v python3)"
+            exit 0
+          fi
+          python -I -c 'import sys' || { echo "Kein funktionierendes Python auf dem Runner" >&2; exit 1; }
+          shim="$(cygpath -u "$RUNNER_TEMP")/pyshim"
+          mkdir -p "$shim"
+          printf '#!/bin/sh\nexec python "$@"\n' > "$shim/python3"
+          chmod +x "$shim/python3"
+          cygpath -w "$shim" >> "$GITHUB_PATH"
+          echo "python3: wrapper in $shim"
+
+      - name: Rust toolchain
+        id: rust
+        run: |
+          rustup toolchain install
+          rustup show
+          echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+          echo "lockhash=${{ hashFiles('Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+
+      # See bundle-macos. The key names the msvc target like ci.yml; the hash of Cargo.lock was taken
+      # before the probe version below can change the file.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
+            !target/release/bundle
+          key: release-cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}
+          restore-keys: |
+            release-cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: tools-cache
+        with:
+          path: tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/tool-versions.env') }}
+
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-about@${{ env.CARGO_ABOUT_VERSION }}
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: apps/studio/pnpm-lock.yaml
+
+      - name: pnpm install
+        working-directory: apps/studio
+        run: pnpm install --frozen-lockfile
+
+      # Spec 6.4: does NSIS take a pre-release version? Only on pull request runs, only in this
+      # checkout (never committed; Cargo.lock is left to cargo). If the bundle below fails with it,
+      # that is the finding: this run stays red on purpose and nothing falls back silently.
+      - name: Probe version
+        if: env.G4_PROBE_VERSION != ''
+        run: G4_VERSION_SKIP_LOCK=1 bash scripts/version.sh set "$G4_PROBE_VERSION"
+
+      # The version of this build (the probe's one on a pull request run) names the artifact.
+      - name: Effective version
+        id: ver
+        run: echo "version=$(bash scripts/version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Bundle (nsis)
+        working-directory: apps/studio
+        run: pnpm bundle -- --bundles nsis
+
+      - name: Installer
+        id: setup
+        run: |
+          setup=""
+          for f in target/release/bundle/nsis/*-setup.exe; do
+            [ -s "$f" ] && setup="$f"
+          done
+          [ -n "$setup" ] || { echo "Kein *-setup.exe in target/release/bundle/nsis" >&2; exit 1; }
+          echo "path=$setup" >> "$GITHUB_OUTPUT"
+          echo "installer: $setup"
+
+      # Installs silently to $RUNNER_TEMP/g4s, checks the files and runs `studio.exe doctor`.
+      - name: check-bundle-windows
+        env:
+          SETUP: ${{ steps.setup.outputs.path }}
+        run: bash apps/studio/scripts/check-bundle-windows.sh "$SETUP"
+
+      # The folder check-bundle-windows.sh installed to (it only uses another one when
+      # $RUNNER_TEMP has a space, which never fails to show here).
+      - name: Install folder
+        id: install
+        run: |
+          dir="$(cygpath -u "$RUNNER_TEMP")/g4s"
+          [ -s "$dir/studio.exe" ] || { echo "studio.exe fehlt in $dir (check-bundle-windows.sh hat woanders installiert?)" >&2; exit 1; }
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+      - name: no rom data
+        env:
+          INSTALL_DIR: ${{ steps.install.outputs.dir }}
+          SETUP: ${{ steps.setup.outputs.path }}
+        run: bash scripts/check-no-rom-data.sh "$INSTALL_DIR" "$SETUP"
+
+      - name: Synthetic project
+        run: >-
+          cargo run -p g4-kernel --example make_synthetic --features test-support --
+          "$(cygpath -m "$RUNNER_TEMP")/syn"
+
+      - name: smoke
+        env:
+          INSTALL_DIR: ${{ steps.install.outputs.dir }}
+        run: bash scripts/smoke-packaged.sh "$INSTALL_DIR/studio.exe" "$(cygpath -m "$RUNNER_TEMP")/syn"
+
+      - name: Name the installer
+        env:
+          SETUP: ${{ steps.setup.outputs.path }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p dist-release
+          cp "$SETUP" "dist-release/Gen4-Studio_${VERSION}_x64-setup.exe"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-nsis
+          path: dist-release/Gen4-Studio_${{ steps.ver.outputs.version }}_x64-setup.exe
+          retention-days: 7
+          if-no-files-found: error
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: success() && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
+            !target/release/bundle
+          key: release-cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: failure() && steps.cargo-cache.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
+            !target/release/bundle
+          key: release-cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}-partial-${{ github.run_id }}
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ !cancelled() && steps.tools-cache.outputs.cache-hit != 'true' && hashFiles('tools/apicula/bin/apicula.exe') != '' && hashFiles('tools/rotom/bin/rotom-lsp.exe') != '' }}
+        with:
+          path: tools
+          key: tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/tool-versions.env') }}
+
+  # Only for a tag push: the draft release. Dry runs (dispatch, pull request) end after the bundles.
+  publish:
+    name: publish
+    needs: [version, bundle-macos, bundle-windows]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-dmg
+          path: release
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-nsis
+          path: release
+
+      - name: Checksums and notes
+        working-directory: release
+        run: |
+          for f in "Gen4-Studio_${VERSION}_aarch64.dmg" "Gen4-Studio_${VERSION}_x64-setup.exe"; do
+            [ -s "$f" ] || { echo "Datei fehlt: $f" >&2; ls -l >&2; exit 1; }
+          done
+          sha256sum Gen4-Studio_* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          bash ../scripts/release/changelog-section.sh "$VERSION" ../CHANGELOG.md > ../notes.md
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(--draft --verify-tag --title "Gen4 Studio $VERSION" --notes-file notes.md)
+          if [ "$PRERELEASE" = true ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$TAG" "${args[@]}" \
+            "release/Gen4-Studio_${VERSION}_aarch64.dmg" \
+            "release/Gen4-Studio_${VERSION}_x64-setup.exe" \
+            release/SHA256SUMS.txt

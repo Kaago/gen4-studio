@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Local gate (there is no CI): formatting, lints, licenses and advisories of the
+# Local gate, and the hermetic part of CI: formatting, lints, licenses and advisories of the
 # dependency tree (cargo deny with deny.toml; needs cargo-deny 0.20.2), the licenses of the
-# npm packages (scripts/check-licenses-npm.sh), the full test
-# suite, the studio frontend, then the gated tests against every test project under
-# $G4_ROMS_DIR.
+# npm packages (scripts/check-licenses-npm.sh), the shell script tests (scripts/tests/run.sh),
+# the GitHub Actions audit (scripts/check-actions.sh), the ROM data guard
+# (scripts/check-no-rom-data.sh), the version check (scripts/version.sh check), the full test
+# suite, the studio frontend, then the gated tests against every test project under $G4_ROMS_DIR.
+#
+# CI (.github/workflows/ci.yml) runs only the hermetic part: with G4_GATE_HERMETIC=1 the gate
+# ends after the step "g4emu unit" and the table closes with "Gate (hermetisch): ok". It needs
+# no ROM, tool or save game and no G4_* variable.
 #
 # Variables (all optional):
+#   G4_GATE_HERMETIC  1: stop after "g4emu unit" (what CI runs); unset: the full local gate
 #   G4_ROMS_DIR    folder with the *_DSPRE_contents test projects (default: ../Roms)
 #   G4_APICULA     apicula binary (default: tools/apicula/bin/apicula)
 #   G4_DSROM_CLI   ds-rom reference CLI (default: $G4_ROMS_DIR/_tools/dsrom)
@@ -49,6 +55,11 @@ G4_ROTOM_LSP="$(abs "${G4_ROTOM_LSP:-$ROOT/tools/rotom/bin/rotom-lsp}")"
 ROWS=()
 FAILED=0
 STARTED=$SECONDS
+# "Gate (hermetisch)" instead of "Gate" when the run stops after the hermetic steps.
+GATE_LABEL="Gate"
+if [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
+  GATE_LABEL="Gate (hermetisch)"
+fi
 
 record() { # record <step> <project> <result> <seconds>
   ROWS+=("$1|$2|$3|$4")
@@ -65,9 +76,9 @@ print_table() {
   done
   echo
   if [ "$FAILED" -eq 0 ] && [ "${#ROWS[@]}" -gt 0 ]; then
-    echo "Gate: ok ($((SECONDS - STARTED)) s)"
+    echo "$GATE_LABEL: ok ($((SECONDS - STARTED)) s)"
   else
-    echo "Gate: FAILED ($((SECONDS - STARTED)) s)"
+    echo "$GATE_LABEL: FAILED ($((SECONDS - STARTED)) s)"
   fi
 }
 
@@ -106,6 +117,14 @@ fi
 run_step "cargo deny (licenses, advisories)" "" cargo deny --locked check licenses advisories
 # The production npm packages of apps/studio against the allow list (MIT, Apache-2.0, ISC, BSD, ...).
 run_step "npm licenses" "" bash scripts/check-licenses-npm.sh
+# Shell tests of the scripts in scripts/ (scripts/tests/*.test.sh).
+run_step "script tests" "" bash scripts/tests/run.sh
+# Every `uses:` in the workflows is pinned to a sha and listed with an allowed license (spec release-ci 7.2).
+run_step "actions" "" bash scripts/check-actions.sh
+# No ROM, save game or derivative in the tracked files (spec release-ci 7.1).
+run_step "no rom data" "" bash scripts/check-no-rom-data.sh
+# One version for Cargo, npm and Tauri, CHANGELOG section present (spec release-ci 4).
+run_step "version" "" bash scripts/version.sh check
 # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
 run_step "cargo test (no ROM data)" "" \
   env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
@@ -125,6 +144,11 @@ run_step "dist has no bridge" "" bash -c 'test -d apps/studio/dist && ! grep -rq
 
 # g4emu (scripts/g4emu): unit tests always, the emulator tests only when core and save game exist.
 run_step "g4emu unit" "" bash -c 'cd scripts/g4emu && uv run pytest -m "not integration" -q'
+
+# CI stops here: everything below needs ROMs, test projects or the tools under tools/.
+if [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
+  exit 0
+fi
 G4EMU_CORE_FILE="$(abs "${G4EMU_CORE:-$ROOT/tools/g4emu/core/melondsds_libretro.dylib}")"
 G4EMU_SAVE_FILE="$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav"
 G4EMU_ROM_FILE="$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds"

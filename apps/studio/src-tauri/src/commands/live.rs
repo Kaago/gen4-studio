@@ -59,7 +59,7 @@ pub fn live_play_impl(
 
 /// [`live_play_impl`] with the fallback launcher given (tests record the call instead of
 /// running `open -a`).
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) fn live_play_with(
     state: &AppState,
     emulator: &str,
@@ -261,8 +261,10 @@ mod tests {
     };
     use crate::live_hub::{LiveState, Timings};
     use g4_kernel::live::fake_stub::{FakeStub, Quirks};
+    #[cfg(target_os = "macos")]
     use std::path::PathBuf;
     use std::sync::Arc;
+    #[cfg(target_os = "macos")]
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
@@ -359,6 +361,7 @@ mod tests {
     }
 
     /// A file that runs: `#!/bin/sh` and `body`.
+    #[cfg(target_os = "macos")]
     fn script(path: &std::path::Path, body: &str) {
         use std::os::unix::fs::PermissionsExt;
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -367,6 +370,7 @@ mod tests {
     }
 
     /// `melonDS.app` in `dir` with `Contents/MacOS/melonDS` running `body` and the version.
+    #[cfg(target_os = "macos")]
     fn bundle(dir: &std::path::Path, version: &str, body: &str) -> PathBuf {
         let app = dir.join("melonDS.app");
         script(&app.join("Contents/MacOS/melonDS"), body);
@@ -383,9 +387,11 @@ mod tests {
     }
 
     /// The calls a [`recording`] launcher saw: (emulator, ROM).
+    #[cfg(target_os = "macos")]
     type Calls = Arc<Mutex<Vec<(PathBuf, PathBuf)>>>;
 
     /// A launcher that records its calls and answers PID 4242.
+    #[cfg(target_os = "macos")]
     fn recording() -> (
         Calls,
         impl Fn(&std::path::Path, &std::path::Path) -> Result<u32, CmdError>,
