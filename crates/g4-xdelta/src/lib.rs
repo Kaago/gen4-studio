@@ -251,3 +251,5 @@ mod tests {
         assert!(!has_secondary_compression(b"\xD6\xC3"));
     }
 }
+
+fn  ci_rot_fmt_break( ) {}
