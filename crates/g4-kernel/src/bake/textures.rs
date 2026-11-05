@@ -53,14 +53,19 @@ pub fn pack_textures(pack: &[u8]) -> Result<Vec<PackTexture>, FormatError> {
         .collect())
 }
 
+/// Magic of a texture pack; a building member without it is a dummy (see [`area_vram`]).
+const BTX0_MAGIC: &[u8] = b"BTX0";
+
 /// Bytes `pack` takes in VRAM: texels, 4x4 texels, 4x4 index and palettes.
 pub fn pack_vram(pack: &[u8]) -> Result<usize, FormatError> {
     Ok(Btx0::read(pack)?.vram_bytes())
 }
 
 /// VRAM of area `area`: its map pack (`map_pack` when given, else the member on disk) plus
-/// its building pack; a pack outside its archive counts 0. The area data as the store holds
-/// it; an area outside the archive is refused.
+/// its building pack; a pack outside its archive counts 0, and so does a building member that
+/// is no BTX0 (HeartGold/SoulSilver keep 4-byte dummies there, the game loads no textures
+/// from them). A map pack must read. The area data as the store holds it; an area outside
+/// the archive is refused.
 pub fn area_vram(
     store: &mut Store,
     area: u8,
@@ -76,8 +81,8 @@ pub fn area_vram(
         },
     };
     let buildings = match project.building_tileset_member(data.buildings_tileset())? {
-        Some(bytes) => pack_vram(&bytes)?,
-        None => 0,
+        Some(bytes) if bytes.starts_with(BTX0_MAGIC) => pack_vram(&bytes)?,
+        _ => 0,
     };
     Ok(map + buildings)
 }
@@ -103,8 +108,11 @@ fn area_data(store: &mut Store, area: u8) -> Result<g4_formats::area_data::AreaD
 }
 
 /// What [`append_textures`] did: the pack, the names appended (in order), the member's size
-/// before and after, the pack's VRAM after appending and the warnings (`bake.vram-high`, args:
-/// the area, its VRAM, the vanilla maximum, once per area of the pack above it).
+/// before and after, `vram_bytes` = [`pack_vram`] of the pack after appending (the pack
+/// alone: it is shared by several areas, unlike [`BakeReport::vram_bytes`], which is one
+/// area's map pack plus buildings pack), and the warnings: `bake.vram-high` once per area of
+/// the pack whose [`area_vram`] with the new pack is above the vanilla maximum, args `[area,
+/// area VRAM, maximum]` (`bake`'s own `bake.vram-high` has no area: `[area VRAM, maximum]`).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AppendReport {
     pub pack: u16,
@@ -540,7 +548,52 @@ mod tests {
         let err = append_textures(&mut f.store, 0, &[tex("neu", 8, 2)], "x").unwrap_err();
         assert_eq!(code_of(err), "texture.pack-full");
         assert_eq!(f.pack(), bank);
+
+        // Palettes over the 64 KiB bank: a palette block of 65 536 bytes takes the whole bank.
+        let mut btx = nsbtx::Btx0::read(&map_pack()).unwrap();
+        btx.palette_data.resize(nsbtx::PALETTE_BANK, 0);
+        let palettes = nsbtx::write(&btx).unwrap();
+        f.write_member(AssetKind::MapTexture, 0, &palettes);
+        let err = append_textures(&mut f.store, 0, &[tex("neu", 8, 2)], "x").unwrap_err();
+        assert_eq!(code_of(err), "texture.pack-full");
+        assert_eq!(f.pack(), palettes);
         assert!(f.store.history().0.is_empty());
+    }
+
+    /// HeartGold/SoulSilver keep 4-byte dummies among the building texture members: they
+    /// count 0 VRAM, so appending and baking work in their areas; a map pack must still read.
+    #[test]
+    fn dummy_building_packs_count_as_zero_vram() {
+        let mut f = fixture();
+        f.write_member(AssetKind::BuildingTexture, 0, &[0; 4]);
+        let map = pack_vram(&map_pack()).unwrap();
+        assert_eq!(area_vram(&mut f.store, 0, None).unwrap(), map);
+
+        let new = [tex("neu", 16, 3)];
+        let report = append_textures(&mut f.store, 0, &new, &append_label(0, 1)).unwrap();
+        assert_eq!(report.appended, ["neu"]);
+        assert!(report.messages.is_empty(), "{:?}", report.messages);
+        let pack = f.pack();
+        assert_eq!(
+            bake_context(&mut f.store, 0).unwrap().vram_bytes,
+            pack_vram(&pack).unwrap()
+        );
+        let face = Face {
+            corners: [[0, 0, 0], [0, 0, 16], [16, 0, 16], [16, 0, 0]],
+            uv: [[0, 0], [0, 16], [16, 16], [16, 0]],
+            texture: "neu".into(),
+            layer: 0,
+        };
+        let report = bake_for_map(&mut f.store, 0, &[face]).unwrap();
+        assert!(report.refusal().is_none(), "{:?}", report.messages);
+        assert_eq!(report.vram_bytes, pack_vram(&pack).unwrap());
+
+        // A map pack that is no BTX0 is refused, nothing written.
+        f.write_member(AssetKind::MapTexture, 0, &[0; 4]);
+        let err = append_textures(&mut f.store, 0, &new, "x").unwrap_err();
+        assert!(matches!(err, KernelError::Format(_)), "{err:?}");
+        assert_eq!(f.pack(), [0; 4]);
+        assert_eq!(f.store.history().0.len(), 1);
     }
 
     #[test]

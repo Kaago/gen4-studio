@@ -113,7 +113,9 @@ pub enum BakeCode {
     FaceOutOfRange,
     /// Error, args: the face index, the axis (`s`, `t`), the span in texels.
     FaceUvRange,
-    /// Warning, args: the VRAM bytes of the area, the vanilla maximum.
+    /// Warning. From `bake`, args: the VRAM bytes of the area (map pack + buildings pack), the
+    /// vanilla maximum. From `append_textures`, args: the area, its VRAM bytes, the vanilla
+    /// maximum (one warning per area of the shared pack).
     VramHigh,
     /// Error (append): a side not a power of two 8..=1024.
     TextureSide,
@@ -217,6 +219,7 @@ pub struct BakeReport {
     pub share_of_limit: f32,
     /// The textures of the faces, in order of first occurrence (one material each).
     pub textures: Vec<String>,
+    /// VRAM of the area (map pack + buildings pack), as `BakeInput::vram_bytes`.
     pub vram_bytes: usize,
     pub verts: u32,
     pub polys: u32,
