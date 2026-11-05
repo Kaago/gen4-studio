@@ -1,5 +1,6 @@
-# CI of Gen4 Studio (spec release-ci 3.2). It runs only the hermetic part of scripts/gate.sh
-# (G4_GATE_HERMETIC=1, the only G4_* variable): no ROM, no save game, no secret.
+# CI of Gen4 Studio (spec release-ci 3.2). gate-macos runs only the hermetic part of
+# scripts/gate.sh (G4_GATE_HERMETIC=1, the only G4_* variable), gate-windows runs clippy and the
+# Rust tests: no ROM, no save game, no secret.
 #
 # PR labels (they only steer this workflow; adding one never starts the macOS job):
 #   windows         run gate-windows on this PR (without the label it only runs on main and by hand)
@@ -72,15 +73,20 @@ jobs:
           rustup component add rustfmt clippy
           echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
-      # Restore here, save at the end of the job (`if: always()`): a cold run that fails late
-      # (a new clippy lint, a timeout) still keeps the compiled dependencies for the next run.
+      # Restore here, save at the end of the job: under the exact key only after a green run,
+      # after a failure (once the restore ran) under `<key>-partial-<run id>`, which the restore
+      # key still finds, so a cold run that fails late (a new clippy lint, a red test) keeps the
+      # compiled dependencies without blocking the exact key. `target/*` without `target/tmp`: actions/cache archives
+      # a matched folder whole, so an exclusion works only below a wildcard; `target/tmp`
+      # (CARGO_TARGET_TMPDIR) holds the synthetic test projects, which do not go into a cache.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            target/*
+            !target/tmp
           key: cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-
@@ -115,17 +121,29 @@ jobs:
 
       # Only a cache that was not an exact hit; the key is the one of the restore step.
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: success() && steps.cargo-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            target/*
+            !target/tmp
           key: cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: failure() && steps.cargo-cache.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+          key: cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}-partial-${{ github.run_id }}
 
   # Windows gate. Target x86_64-pc-windows-msvc, the host default of windows-latest (the feasibility
   # probe: msvc builds studio, x86_64-pc-windows-gnu fails to link it). Opt-in on pull requests
-  # (label `windows`), because the minutes cost; always on main and by hand.
+  # (label `windows`), because the minutes cost; always on main and by hand. It runs clippy and
+  # the tests, not scripts/gate.sh.
   gate-windows:
     name: gate-windows
     if: >-
@@ -133,10 +151,16 @@ jobs:
       (contains(github.event.pull_request.labels.*.name, 'windows') &&
       (github.event.action != 'labeled' || github.event.label.name == 'windows'))
     runs-on: windows-latest
-    timeout-minutes: 90
+    # The kernel lib tests alone took 47 minutes on the runner disk (file I/O and process starts:
+    # text project and git tests), against 5 on macOS; target and TEMP now live on a Dev Drive.
+    timeout-minutes: 150
     defaults:
       run:
         shell: bash
+    env:
+      # Line tables only: smaller target/ and PDBs, shorter links; panics still name lines.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -172,6 +196,26 @@ jobs:
           bash --version | head -1
           gcc --version | head -1
 
+      # A Dev Drive (ReFS, fixed size) for target/ and TEMP: the tests write and delete many small
+      # files and start many processes. `trusted-dev-drive` turns on Microsoft's performance
+      # mode for the drive; no Defender setting is changed otherwise. 12 GB hold target/ with
+      # line tables (the cache of the full debug info was 4.4 GB compressed) and the temp files.
+      - uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
+        with:
+          drive-size: 12GB
+          drive-format: ReFS
+          drive-type: Fixed
+          trusted-dev-drive: true
+          env-mapping: |
+            CARGO_TARGET_DIR,{{ DEV_DRIVE }}/target
+            TEMP,{{ DEV_DRIVE }}/tmp
+            TMP,{{ DEV_DRIVE }}/tmp
+
+      - name: Dev Drive folders
+        run: |
+          mkdir -p "$CARGO_TARGET_DIR" "$TEMP"
+          echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR TEMP=$TEMP"
+
       - name: Rust toolchain
         id: rust
         run: |
@@ -180,14 +224,17 @@ jobs:
           rustup component add clippy
           echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
-      # Restore here, save at the end of the job (see gate-macos).
+      # Restore here, save at the end of the job (see gate-macos). target/ is the absolute path
+      # on the Dev Drive; its drive letter is part of the cache version, so another letter only
+      # misses the cache.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            ${{ env.CARGO_TARGET_DIR }}/*
+            !${{ env.CARGO_TARGET_DIR }}/tmp
           key: cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-
@@ -196,14 +243,26 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      # --no-fail-fast: every test binary runs, so one run shows every failure.
       - name: cargo test
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features --no-fail-fast
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: success() && steps.cargo-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            ${{ env.CARGO_TARGET_DIR }}/*
+            !${{ env.CARGO_TARGET_DIR }}/tmp
           key: cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: failure() && steps.cargo-cache.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.CARGO_TARGET_DIR }}/*
+            !${{ env.CARGO_TARGET_DIR }}/tmp
+          key: cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}-partial-${{ github.run_id }}

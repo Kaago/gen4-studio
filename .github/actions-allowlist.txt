@@ -16,3 +16,4 @@ pnpm/action-setup MIT
 astral-sh/setup-uv MIT OR Apache-2.0
 taiki-e/install-action Apache-2.0 OR MIT
 msys2/setup-msys2 MIT
+samypr100/setup-dev-drive MIT
