@@ -1,0 +1,62 @@
+# Collision rules of the terrain patterns, per family: the permission cell (`kind`, `collision`)
+# a painted tile gets before the height edges and the hand values (crates/g4-kernel/src/terrain,
+# docs/formats/terrain.md).
+#
+# Sources: Gutachten B §2.4 and §2.7 (docs/research/2026-11-05-phase-6/gutachten-b-bdhc-engine.md,
+# measured on Platinum DE, HeartGold DE and US); behaviour values from pret/pokeplatinum
+# include/constants/field/map_tile_behaviors.h (Diamond / Pearl / Platinum) and
+# pret/pokeheartgold include/constants/metatile_behavior.h (HeartGold / SoulSilver).
+#
+# A stair has no `kind`: it is the slope of the BDHC (a ramp of the height grid) on ground
+# behaviour (vanilla slopes mostly carry 0x00); WARP_STAIRS_* are the stairs that change the map.
+#
+# collision = sound | (blocked ? 0x80 : 0). `sound` is the footstep sound of HeartGold /
+# SoulSilver: bits 0-6 of the second permission byte, an index into the game's step sound table
+# (default 0, the value of 81 % of the free vanilla ground). Platinum knows only 0x00 and 0x80
+# there, so its `sound` stays 0. `name` is the behaviour name of tile_behaviors.yaml /
+# tile_behaviors_hgss.yaml (NONE for 0x00, which the HeartGold table does not list).
+#
+# `edge` in units (E; one tile is 16 E, one height step 8 E):
+#   free_below    a height edge of at least this many units blocks the cell with the higher edge
+#                 (16 E, two steps: the engine would let the player up, vanilla blocks 97 % / 95 %)
+#   engine_limit  from this difference between two tile centres the game refuses the step itself
+#   prefilter     free_steps looks at neighbour pairs whose centres differ by at least this much
+#   tolerance     slack of the comparisons (fx32 rounding of the planes)
+#   block         which cell of an edge is blocked: `upper` (decision "obere Zelle")
+
+source: >-
+  Gutachten B §2.4, §2.7; pret/pokeplatinum map_tile_behaviors.h;
+  pret/pokeheartgold metatile_behavior.h
+
+pt:
+  blocked: { kind: 0x00, name: NONE, blocked: true, sound: 0 }
+  ground: { kind: 0x00, name: NONE, blocked: false, sound: 0 }
+  tall_grass: { kind: 0x02, name: TALL_GRASS, blocked: false, sound: 0 }
+  very_tall_grass: { kind: 0x03, name: VERY_TALL_GRASS, blocked: false, sound: 0 }
+  sea: { kind: 0x15, name: WATER_SEA, blocked: false, sound: 0 }
+  river: { kind: 0x10, name: WATER_RIVER, blocked: false, sound: 0 }
+  ice: { kind: 0x20, name: ICE, blocked: false, sound: 0 }
+  ledge_north: { kind: 0x3A, name: JUMP_NORTH, blocked: true, sound: 0 }
+  ledge_east: { kind: 0x38, name: JUMP_EAST, blocked: true, sound: 0 }
+  ledge_south: { kind: 0x3B, name: JUMP_SOUTH, blocked: true, sound: 0 }
+  ledge_west: { kind: 0x39, name: JUMP_WEST, blocked: true, sound: 0 }
+  door: { kind: 0x69, name: DOOR, blocked: true, sound: 0 }
+
+hgss:
+  blocked: { kind: 0x00, name: NONE, blocked: true, sound: 0 }
+  ground: { kind: 0x00, name: NONE, blocked: false, sound: 0 }
+  tall_grass: { kind: 0x02, name: TALL_GRASS, blocked: false, sound: 0 }
+  very_tall_grass: { kind: 0x03, name: VERY_TALL_GRASS, blocked: false, sound: 0 }
+  sea: { kind: 0x15, name: WATER_SEA, blocked: false, sound: 0 }
+  river: { kind: 0x10, name: WATER_RIVER, blocked: false, sound: 0 }
+  ice: { kind: 0x20, name: ICE, blocked: false, sound: 0 }
+  ledge_north: { kind: 0x3A, name: JUMP_NORTH, blocked: true, sound: 0 }
+  ledge_east: { kind: 0x38, name: JUMP_EAST, blocked: true, sound: 0 }
+  ledge_south: { kind: 0x3B, name: JUMP_SOUTH, blocked: true, sound: 0 }
+  ledge_west: { kind: 0x39, name: JUMP_WEST, blocked: true, sound: 0 }
+  door: { kind: 0x69, name: DOOR, blocked: true, sound: 0 }
+
+# Diamond / Pearl share the Platinum behaviours (tile_behaviors.yaml).
+dp: { like: pt }
+
+edge: { free_below: 16, engine_limit: 20, prefilter: 8, tolerance: 0.1, block: upper }
