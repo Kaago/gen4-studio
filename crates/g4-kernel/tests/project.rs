@@ -181,9 +181,20 @@ fn concurrent_ensure_unpacked_yields_a_complete_folder_and_no_temp_leftovers() {
 fn ensure_unpacked_removes_its_temp_folder_on_failure() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();
-    // A file where the unpacked folder must go makes the final rename fail.
+    // A file where the unpacked folder must go makes the final rename fail. Windows renames a
+    // folder over a file (it replaces it), unless the file is open without sharing.
     std::fs::create_dir_all(s.dir.path().join("unpacked")).unwrap();
-    std::fs::write(s.dir.path().join("unpacked/maps"), b"in the way").unwrap();
+    let in_the_way = s.dir.path().join("unpacked/maps");
+    std::fs::write(&in_the_way, b"in the way").unwrap();
+    #[cfg(windows)]
+    let _held = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&in_the_way)
+            .unwrap()
+    };
     assert!(p.ensure_unpacked(AssetKind::Map).is_err());
     let leftovers: Vec<_> = std::fs::read_dir(s.dir.path().join("unpacked"))
         .unwrap()

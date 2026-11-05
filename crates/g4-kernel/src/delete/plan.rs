@@ -66,6 +66,7 @@ pub fn later_entries_live(n: u16, m: usize) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FreeInfo {
     pub count: usize,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub files: Vec<PathBuf>,
 }
 

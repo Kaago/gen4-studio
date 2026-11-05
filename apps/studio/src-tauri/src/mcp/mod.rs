@@ -218,7 +218,59 @@ mod stdout {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+mod stdout {
+    use std::io::Write;
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+
+    use windows_sys::Win32::Foundation::{
+        DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    /// As on Unix: a private copy of the stdout handle for the protocol (not inheritable,
+    /// so child processes do not get it), and the process's stdout pointed at stderr. Rust
+    /// code (`println!`, chatot's "Encoding text" lines) asks `GetStdHandle` on every write;
+    /// C code writes to the C runtime's fd 1, which `_dup2` points at fd 2 (that also closes
+    /// the inherited original handle, so no child holds the client's pipe open).
+    pub fn protect() -> std::io::Result<tokio::fs::File> {
+        std::io::stdout().flush()?;
+        // SAFETY: handle calls on this process's own standard handles; `copy` is a fresh
+        // handle that only the returned file owns.
+        unsafe {
+            let out = GetStdHandle(STD_OUTPUT_HANDLE);
+            if out.is_null() || out == INVALID_HANDLE_VALUE {
+                return Err(std::io::Error::other("kein stdout"));
+            }
+            let process = GetCurrentProcess();
+            let mut copy: HANDLE = std::ptr::null_mut();
+            if DuplicateHandle(
+                process,
+                out,
+                process,
+                &raw mut copy,
+                0,
+                0,
+                DUPLICATE_SAME_ACCESS,
+            ) == 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            let copy = OwnedHandle::from_raw_handle(copy);
+            if SetStdHandle(STD_OUTPUT_HANDLE, GetStdHandle(STD_ERROR_HANDLE)) == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // Best effort: without a C runtime fd 1 there is nothing to point elsewhere.
+            libc::dup2(2, 1);
+            Ok(tokio::fs::File::from_std(std::fs::File::from(copy)))
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 mod stdout {
     /// Elsewhere the protocol writes to stdout as it is.
     pub fn protect() -> std::io::Result<tokio::io::Stdout> {

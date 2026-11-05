@@ -32,6 +32,7 @@ use super::{DATA_DIR, MANIFEST_FILE};
 pub struct CheckReport {
     pub schema: SchemaState,
     pub problems: Vec<Problem>,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub differs: Vec<PathBuf>,
 }
 

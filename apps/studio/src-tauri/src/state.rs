@@ -253,10 +253,17 @@ fn watched_files_changed(root: &Path, changes: &[(PathBuf, u8)]) -> String {
 }
 
 /// `path` as a `file://` URL, percent-encoded like the script editor's `projectFileUri` (the
-/// WHATWG path set, with `%`, `#` and `?`).
+/// WHATWG path set, with `%`, `#` and `?`). On Windows the path is written as WHATWG reads
+/// a Windows path in a file URL ([`windows_uri_path`]), the form the script editor hands
+/// rotom-lsp as `rootUri`: `file:///C:/Users/…`.
 fn file_uri(path: &Path) -> String {
-    let mut uri = String::from("file://");
-    for byte in path.to_string_lossy().bytes() {
+    let text = path.to_string_lossy();
+    let (mut uri, text) = if cfg!(windows) {
+        windows_uri_path(&text)
+    } else {
+        (String::from("file://"), text.into_owned())
+    };
+    for byte in text.bytes() {
         let keep = byte.is_ascii_alphanumeric()
             || matches!(
                 byte,
@@ -285,6 +292,27 @@ fn file_uri(path: &Path) -> String {
         }
     }
     uri
+}
+
+/// A Windows path for a file URL: the scheme part and the path with `/`, the verbatim prefix
+/// (`\\?\`) gone, a drive path after a third slash (`file:///C:/…`), a share as the URL's
+/// host (`file://server/share/…`).
+fn windows_uri_path(text: &str) -> (String, String) {
+    let slashed = text.replace('\\', "/");
+    let plain = if let Some(share) = slashed.strip_prefix("//?/UNC/") {
+        format!("//{share}")
+    } else if let Some(rest) = slashed.strip_prefix("//?/") {
+        rest.to_owned()
+    } else {
+        slashed
+    };
+    if plain.starts_with("//") {
+        (String::from("file:"), plain)
+    } else if plain.starts_with('/') {
+        (String::from("file://"), plain)
+    } else {
+        (String::from("file:///"), plain)
+    }
 }
 
 /// Progress of a running check pass: a short label (`cheap`, `scripts`, `texts`, `load`) the
@@ -998,6 +1026,26 @@ mod tests {
         assert_eq!(on.findings.iter().filter(|f| f.code == code).count(), 2);
         let kept = current().unwrap();
         assert_eq!((kept.findings, kept.skipped), (on.findings, on.skipped));
+    }
+
+    /// The Windows form runs on every platform, as a string.
+    #[test]
+    fn a_windows_path_becomes_a_file_url_path_with_slashes() {
+        let uri = |text: &str| {
+            let (scheme, path) = windows_uri_path(text);
+            format!("{scheme}{path}")
+        };
+        assert_eq!(
+            uri(r"C:\Users\me\Mein Hack\.rotom\x.json"),
+            "file:///C:/Users/me/Mein Hack/.rotom/x.json"
+        );
+        assert_eq!(uri(r"\\?\C:\p\x"), "file:///C:/p/x");
+        assert_eq!(uri(r"\\server\share\p"), "file://server/share/p");
+        assert_eq!(uri(r"\\?\UNC\server\share\p"), "file://server/share/p");
+        assert_eq!(
+            uri("/Projekte/Mein Hack#1/.rotom"),
+            "file:///Projekte/Mein Hack#1/.rotom"
+        );
     }
 
     #[test]

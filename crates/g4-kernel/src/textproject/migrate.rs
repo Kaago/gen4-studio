@@ -45,6 +45,7 @@ pub const MIGRATIONS: &[Migration] = &[
 pub struct MigrateReport {
     pub from: u32,
     pub to: u32,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub changed: Vec<PathBuf>,
     pub snapshot: Option<PathBuf>,
 }

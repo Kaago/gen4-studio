@@ -40,6 +40,7 @@ pub struct NewStoryReport {
     pub number: u16,
     pub var: u16,
     pub var_id: String,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub files: Vec<PathBuf>,
 }
 

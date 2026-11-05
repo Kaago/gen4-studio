@@ -17,6 +17,7 @@ pub mod preview;
 pub mod process;
 pub mod project;
 pub mod recipes;
+pub mod relpath;
 pub mod run;
 pub mod scripts;
 pub mod sprites;

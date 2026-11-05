@@ -117,14 +117,9 @@ pub enum StepStatus {
     Full,
 }
 
-/// The state key of a path: `/`-separated.
+/// The state key of a path: `/`-separated ([`crate::relpath::slash`]).
 pub(crate) fn key(path: &Path) -> String {
-    let text = path.to_string_lossy();
-    if cfg!(windows) {
-        text.replace('\\', "/")
-    } else {
-        text.into_owned()
-    }
+    crate::relpath::slash(path)
 }
 
 /// The files `paths` stand for: a folder's files (one level, hidden ones left out), any
@@ -723,24 +718,6 @@ mod tests {
 
     use super::*;
     use crate::test_support::synthetic_project;
-
-    /// Windows separates with `\` and `/`, and the key has `/` only; elsewhere `\` is part of
-    /// a file name and stays.
-    #[test]
-    fn a_key_is_slash_separated_where_the_backslash_separates() {
-        assert_eq!(
-            key(Path::new("unpacked/itemData/0001")),
-            "unpacked/itemData/0001"
-        );
-        let mixed = key(Path::new("data/raw/files/debug\\cb_edit\\d_test.narc"));
-        if cfg!(windows) {
-            assert_eq!(mixed, "data/raw/files/debug/cb_edit/d_test.narc");
-        } else {
-            assert_eq!(mixed, "data/raw/files/debug\\cb_edit\\d_test.narc");
-        }
-        let joined = key(&Path::new("unpacked").join("personalPokeData").join("0001"));
-        assert_eq!(joined, "unpacked/personalPokeData/0001");
-    }
 
     /// Copies `in/` file `a` to `out/a`, counting its runs. With `external`, someone else
     /// rewrites `in/a` while it runs; with `own`, it writes its input `in/own` itself.

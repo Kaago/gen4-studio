@@ -80,6 +80,7 @@ const KINDS: [SymbolKind; 12] = [
 /// One file a rename writes, relative to the root, and how many references it changes there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RenameFile {
+    #[serde(serialize_with = "crate::relpath::ser")]
     pub path: PathBuf,
     pub count: u32,
 }

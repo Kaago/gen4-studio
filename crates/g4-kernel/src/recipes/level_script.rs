@@ -146,7 +146,15 @@ pub(crate) fn kept_level_script(e: KernelError, file: Option<u16>) -> KernelErro
         KernelError::Compile(problems) => {
             let list = problems
                 .iter()
-                .map(|p| format!("{}:{}:{}: {}", p.file.display(), p.line, p.col, p.message))
+                .map(|p| {
+                    format!(
+                        "{}:{}:{}: {}",
+                        crate::relpath::shown(&p.file),
+                        p.line,
+                        p.col,
+                        p.message
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("; ");
             format!("{e}: {list}")

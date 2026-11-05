@@ -271,6 +271,7 @@ pub enum PartState {
 pub struct PartReport {
     pub part: Part,
     /// The file it came from, `None` for a map of the project.
+    #[serde(serialize_with = "crate::relpath::ser_opt")]
     pub file: Option<PathBuf>,
     pub size: usize,
     pub state: PartState,

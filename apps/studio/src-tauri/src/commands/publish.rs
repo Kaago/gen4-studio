@@ -800,8 +800,10 @@ mod tests {
         reveal_path_impl(&d.state, d.root.join("build").to_str().unwrap()).unwrap();
         reveal_path_impl(&d.state, outside.to_str().unwrap()).unwrap();
         reveal_path_impl(&d.state, elsewhere.path().to_str().unwrap()).unwrap();
-        // Anything else is refused: another file in the folder, the project, a missing path.
-        for path in ["build/anderes.txt", ".", "/etc/hosts"] {
+        // Anything else is refused: another file in the folder, the project, an existing file
+        // outside (absolute; this test binary exists on every platform).
+        let stranger = std::env::current_exe().unwrap();
+        for path in ["build/anderes.txt", ".", stranger.to_str().unwrap()] {
             let err = reveal_path_impl(&d.state, path).unwrap_err();
             assert_eq!(err.message, NOT_A_RELEASE_FILE, "{path}");
         }
