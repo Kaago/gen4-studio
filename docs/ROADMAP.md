@@ -78,7 +78,7 @@ Offene Reste von Phase 2, erledigt in Phase 3b.1 (siehe dort):
 - Neue Header per Patch (erledigt: DSPRE-kompatibel über „Dynamic Headers“, angeboten im Assistenten).
 - Kachelverhalten-Namen je Spielfamilie (erledigt: HGSS-Satz aus pokeheartgold).
 - apicula mit Timeout aufrufen und von `spawn_blocking` ausführen (erledigt).
-- Gated Vanilla-Tests statt CI (erledigt: `scripts/gate.sh`; es gibt kein Remote und keine CI).
+- Gated Vanilla-Tests statt CI (erledigt: `scripts/gate.sh`; das private Remote auf GitHub hat keine automatische CI, siehe Querschnitt).
 - Modell-Cache-Schlüssel um die apicula-Version erweitern, damit auch `.fail`-Marker bei einem apicula-Update ungültig werden (erledigt).
 
 ## Phase 3a: Welt-Explorer, Assistenten, Weltkarte
@@ -399,6 +399,6 @@ Stand nach 3b.3a: Plan-Task 0 hat die Paletten-Tabelle bestätigt, die Pokémon-
 
 - Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, die Token-Prüfung (`scripts/check-tokens.sh`), die Stilprüfung (`scripts/check-styles.sh`: keine Hex-Farben, keine Primitive, keine Inline-Styles), `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt ein privates Remote auf GitHub, aber keine automatische CI mehr (Grund: Kosten der gehosteten Minuten): vor einem Merge läuft `scripts/gate.sh` voll lokal, das ist die Prüfung; `.github/workflows/ci.yml` fährt die hermetischen Schritte (`G4_GATE_HERMETIC=1`) nur, wenn man es von Hand startet. Linux ist Best-Effort und nicht Teil der Builds.
 - Releases: Tauri-Bundles (DMG, NSIS-Installer), ad-hoc signiert; Developer ID und Auto-Update später. Ohne automatische CI (Kosten): das DMG, den Tag und den Release-Entwurf macht `scripts/release-local.sh` auf dem Mac, den Windows-Installer `release.yml` von Hand (`gh workflow run release.yml -f tag=… -f dry_run=false`, siehe `docs/release.md`).
-- Release und CI: **Stand:** in Arbeit (Branch `release-ci`, PR #1); Gate [docs/release-ci-gate.md](release-ci-gate.md).
+- Release und CI: **Stand 2026-11-05:** Gate vom Agenten bestanden, auf main gemergt (`ebf44628`, `933cf092`, `09cb649a`, `1a7c112c` ohne automatische CI); Entwurf `v0.1.0-rc.2` mit DMG und Installer; Hand beim Nutzer offen (frisches macOS-Konto, Windows-PC, Entwürfe `rc.1` und `rc.2`), [docs/release-ci-gate.md](release-ci-gate.md).
 - Dokumentation: `docs/formats/` für jedes Format mit Byte-Layout und Quelle der Information.
 - Lizenz-Audit bei jeder neuen Abhängigkeit (`cargo deny`).

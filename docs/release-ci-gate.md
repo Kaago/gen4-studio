@@ -1,79 +1,132 @@
-# Release und CI: Gate prüfen
+# Release und CI: Gate
 
-Stand: 2026-11-05. Branch `release-ci` (Worktree `.claude/worktrees/release-ci`), PR #1, nicht nach `main` gemergt. **Gate offen.** Dieses Dokument ist das Gerüst: bekannte Messwerte stehen schon da, alles andere ist `offen` und wird beim Lauf eingetragen.
+Stand: 2026-11-05. Auf `main` gemergt: `ebf44628` (Phase, PR [#1](https://github.com/Kaago/gen4-studio/pull/1)), `933cf092` (Versionstests), `09cb649a` (vollständige ad-hoc-Signatur, Befund B1), `1a7c112c` (ohne automatische CI, Release lokal). Release-Entwürfe `v0.1.0-rc.1` (Befund B1, überholt) und `v0.1.0-rc.2` (Stand des Gates).
 
-Die Phase bringt ein privates GitHub-Remote mit CI, die nur die hermetischen Schritte fährt (`ci.yml`, `G4_GATE_HERMETIC=1`), den Release-Workflow (`release.yml`: DMG für macOS arm64, NSIS-Installer für Windows x64, Entwurf mit Prüfsummen), Versionierung (`scripts/version.sh`, `CHANGELOG.md`), Lizenzhinweise im Paket, das Windows-Bundle und die Prüfung des gepackten Programms ohne ROM (`studio doctor`, `scripts/smoke-packaged.sh`). Grenze der Phase: keine ROMs, Spielstände oder Ableitungen nach GitHub, weder als Datei, Cache, Artefakt, Log noch Geheimnis. Spezifikation: [2026-11-04-release-ci-design.md](superpowers/specs/2026-11-04-release-ci-design.md), §10 (Gate) und §8 (Prüfung des Pakets); Plan: [2026-11-04-release-ci.md](superpowers/plans/2026-11-04-release-ci.md); Beschreibung der Pakete: [release.md](release.md).
+Die Phase bringt:
 
-Wer was prüft: **Agent** (Läufe auf dem Runner und lokal auf dem Mac), **Hand** (nur der Nutzer, Abschnitt „Hand“). Kontingent: macOS-Minuten zählen zehnfach. Entwickelt und geprüft wird zuerst lokal auf dem Mac; ein Lauf auf dem Runner prüft nur, was lokal nicht geht (Windows, den Runner selbst, das DMG mit `CI=true`).
+- ein privates GitHub-Remote mit CI (`ci.yml`), die nur die hermetischen Schritte fährt (`G4_GATE_HERMETIC=1`), seit der Umstellung nur noch von Hand (siehe Abschnitt Umstellung);
+- den Release-Weg: DMG für macOS arm64 und Entwurf mit Prüfsummen lokal (`scripts/release-local.sh`), NSIS-Installer für Windows x64 von Hand mit `release.yml`;
+- Versionierung mit `scripts/version.sh` und `CHANGELOG.md`;
+- Lizenzhinweise im Paket;
+- das Windows-Bundle mit dem Ziel MSVC;
+- die Prüfung des gepackten Programms ohne ROM (`studio doctor`, `scripts/smoke-packaged.sh`).
 
-## Vorbereitung
+Grenze der Phase: keine ROMs, Spielstände oder Ableitungen nach GitHub.
 
-1. Privates Remote auf GitHub, Branch `main`, PR #1 für `release-ci`.
-2. Vor dem ersten Push: `bash scripts/check-no-rom-data.sh --history origin/main..main` und `--history origin/main..release-ci` (Ergebnis unten, G7).
-3. Fassungen der Werkzeuge aus `scripts/tool-versions.env`; Actions nur aus `.github/actions-allowlist.txt`.
-4. Labels auf dem PR: `windows` (startet `gate-windows`), `ci-skip-macos` (überspringt `gate-macos`, vor dem Merge entfernen), `release-dry-run` (Probelauf von `release.yml`).
+- Spezifikation: [2026-11-04-release-ci-design.md](superpowers/specs/2026-11-04-release-ci-design.md)
+- Plan: [2026-11-04-release-ci.md](superpowers/plans/2026-11-04-release-ci.md)
+- Pakete: [release.md](release.md)
 
 ## Punkte
 
-| Punkt | Inhalt (Spezifikation §10) | Wer | Ergebnis | Datum |
-|---|---|---|---|---|
-| G1 | Ein Push auf `main` ergibt einen grünen `ci.yml`-Lauf mit `gate-macos` und `gate-windows`. `gate-macos` fährt dieselbe Liste wie `G4_GATE_HERMETIC=1 bash scripts/gate.sh` lokal, und die Tabelle beider Läufe ist gleich. | Agent | offen. Vorab: `gate-macos` auf dem PR grün, Lauf 41936883009 (kalt 18 min 21 s, Gate 1 020 s, davon `cargo test` 726 s); lokale Tabelle: siehe „Zeiten und Minuten“. Tabellenvergleich und `gate-windows` auf `main`: offen | – |
-| G2 | Testbranch `ci-rot` (Draft-PR auf `main`) mit zwei Commits: einer verletzt `cargo fmt`, einer ist ein absichtlich roter `pnpm test`. Beide ergeben einen roten Lauf am erwarteten Schritt; danach wird der Branch gelöscht. | Agent | offen | – |
-| G3 | Der Tag `v0.1.0-rc.1` erzeugt einen Pre-Release-Entwurf mit `Gen4-Studio_0.1.0-rc.1_aarch64.dmg`, `…_x64-setup.exe` und `SHA256SUMS.txt`. `check-bundle.sh`, `check-bundle-windows.sh`, `check-no-rom-data.sh` und der Rauchtest sind in beiden Bundle-Jobs grün; die Prüfsummen passen zu den Dateien. | Agent | offen | – |
-| G4 | Der Probelauf (Label `release-dry-run` auf dem PR, nach dem Merge `workflow_dispatch` mit `dry_run`) baut und prüft alles ohne Release. | Agent | Auf dem PR grün: Probelauf 41960501794 (Label `release-dry-run`), beide Bundle-Jobs mit `check-bundle*`, `no rom data` und Rauchtest; Artefakte heruntergeladen, `check-no-rom-data.sh` darüber: 14 Dateien ok. Nach dem Merge `workflow_dispatch`: offen | – |
-| G5 | Die Abnahme aus Spezifikation §8.2 (ROM, lokal auf dem Mac) ist mit dem heruntergeladenen DMG bestanden. | Agent | offen | – |
-| G6 | Der Windows-Installer installiert auf dem Runner still. `studio doctor` und der Rauchtest sind grün; `find_apicula` und `find_rotom_lsp` finden die `.exe`. | Agent | Probelauf 41960501794: der Installer installiert still nach `RUNNER_TEMP\g4s`, `studio doctor` (apicula und rotom-lsp gefunden und gestartet, nitroarc geladen) und der Rauchtest sind grün. `find_apicula`/`find_rotom_lsp` nutzen dieselbe Suche (`sidecar::find_in`) wie `doctor`; ein eigener Aufruf über MCP fehlt | – |
-| G7 | Kein Artefakt, kein Cache, kein Log enthält ROM-Daten: `check-no-rom-data.sh` grün über `--history origin/main..main` vor dem ersten Push, über die heruntergeladenen Artefakte und über einen heruntergeladenen Cache; die Suche in den Logs (§7.3) findet nichts. | Agent | Teil „vor dem ersten Push“ erfüllt: `origin/main..main` und `origin/main..release-ci` ohne Treffer (2 521 und 2 549 Dateien, `target/agent/release-ci/history-check-prepush.txt`). Artefakte, Cache, Logs: offen | – |
-| G8 | `scripts/gate.sh` ist lokal voll grün auf dem Merge-Stand; `cargo deny` und `scripts/check-licenses-npm.sh` grün mit allen neuen Abhängigkeiten; `scripts/check-actions.sh` grün. | Agent | offen. Vorab: hermetischer Lauf lokal grün (siehe „Zeiten und Minuten“); voller Lauf auf dem Merge-Stand: offen | – |
+| Punkt | Inhalt (Spezifikation §10) | Ergebnis |
+|---|---|---|
+| G1 | Ein Push auf `main` ergibt grüne `gate-macos` und `gate-windows`; dieselbe Liste wie `G4_GATE_HERMETIC=1 bash scripts/gate.sh` lokal | **bestanden.** Lauf 41998736234 auf `933cf092`: macOS 17 min, Windows 56 min. Lauf 42010447761 auf `09cb649a`: macOS 19 min, Windows 62 min. Die Schrittliste von `gate-macos` ist gleich der lokalen hermetischen Tabelle (fmt, clippy, deny, npm licenses, script tests, actions, no rom data, version, cargo test, mcp, pnpm test, tokens, styles, depth, pnpm build, dist has no bridge, g4emu unit). |
+| G2 | Testbranch `ci-rot` rot am erwarteten Schritt, danach gelöscht | **bestanden mit Abweichung.** Lauf 41998492509 (PR [#2](https://github.com/Kaago/gen4-studio/pull/2)) rot an `cargo fmt --check` nach 45 s; PR geschlossen, Branch gelöscht. **Abweichung:** Den zweiten roten Commit (`pnpm test`) gab es nicht. Er hätte rund 16 macOS-Minuten (160 abgerechnet) gekostet, weil `pnpm test` hinter `cargo test` liegt. Dass `gate.sh` an einem roten Schritt abbricht und die Tabelle `FAILED` zeigt, belegt derselbe Mechanismus in G2 und der lokale rote Lauf von G8 (Lauf 2). |
+| G3 | Tag `v0.1.0-rc.N` erzeugt einen Pre-Release-Entwurf mit DMG, Installer und `SHA256SUMS.txt`; alle Prüfungen in beiden Bundle-Jobs grün | **bestanden** mit `v0.1.0-rc.2`, Lauf 42010450603. Die Jobs: `version`, `bundle-macos` 11 min, `bundle-windows` 67 min (kalt: Caches aus PR-Läufen sind für Tags nicht sichtbar), `publish`. Im Log stehen `bundle ok`, `bundle ok (windows)`, `no rom data: 12 files ok` (macOS) und `27 files ok` (Windows) sowie `smoke ok` auf beiden Plattformen. Die heruntergeladenen Dateien: `shasum -a 256 -c SHA256SUMS.txt` OK. `rc.1` (Lauf 41998479850) war ebenfalls grün, trägt aber B1. |
+| G4 | Probelauf ohne Release | **bestanden.** Auf dem PR (Label `release-dry-run`): Lauf 41960501794 und Schlusslauf 41983722455 auf `83558b64` grün, beide ohne `publish`. Nach der Umstellung der neue Weg: `release-local.sh v0.1.0-rc.2 --dry-run` lokal grün (DMG 21 362 214 B, SHA-256 `bd51ce61…fef54`, `bundle ok`, `no rom data`, `smoke ok`). Der Windows-Teil per `workflow_dispatch` mit `dry_run=true`: Lauf 42027703959 auf `ci-local` grün, `bundle-windows` 68 min (kalt), `no rom data: 12 files ok`, `smoke ok`, `publish-windows` übersprungen. |
+| G5 | Abnahme §8.2 mit dem heruntergeladenen DMG auf dem Mac | **bestanden** mit `rc.1`, DMG SHA-256 `0e8e6451…9879`, byte-gleich mit der Release-Datei. Siehe Abschnitt G5. Auf `rc.2` wiederholt: Signatur gültig, `doctor: ok`, Start und Ende über LaunchServices, Rauchtest im Release-Lauf. |
+| G6 | Windows-Installer still installiert; `studio doctor` und Rauchtest grün; die Sidecars werden als `.exe` gefunden | **bestanden** in den Läufen 42010450603 (`rc.2`) und 41998479850 (`rc.1`). Still installiert nach `RUNNER_TEMP\g4s`, `check-bundle-windows.sh` meldet `bundle ok (windows)`. `doctor` findet `apicula.exe` und `rotom-lsp.exe` mit `sidecar::find_in`, derselben Suche wie `find_apicula` und `find_rotom_lsp`, und startet beide. Der Rauchtest ist grün. |
+| G7 | Kein Artefakt, Cache oder Log mit ROM-Daten | **bestanden mit Abweichung.** Siehe Abschnitt G7. |
+| G8 | `scripts/gate.sh` voll grün auf dem Merge-Stand | **bestanden** auf `09cb649a` (Lauf 3 und Wiederholung der Schritte nach dem Download-Timeout). Siehe Abschnitt G8. |
+
+## G5: Abnahme des gepackten Programms (Mac, mit ROM)
+
+Ein Agent prüfte das DMG aus dem Lauf des Tags `v0.1.0-rc.1`. Belege liegen unter `target/agent/release-ci-gate/g5/`. Mitschnitte mit ROM-Daten gibt es nur im Scratchpad.
+
+Installation und Start:
+
+- App nach `~/Applications` kopiert und eine Quarantäne wie nach einem Download gesetzt. Den dokumentierten Weg `xattr -dr` gegangen.
+- Gestartet mit `env -i /usr/bin/open`. Die App hat dann nur die Umgebung von launchd: kein Shell-`PATH`, kein `G4_*`, kein `tools/`.
+- Das Fenster zeigt Start („Willkommen zurück“), das Symbol des Bundles ist die Marke (`icon.icns` mit dem SHA-256 aus dem Repo).
+
+`studio doctor` aus dem Bundle:
+
+- apicula und rotom-lsp liegen in `Contents/MacOS` und starten.
+- git `/usr/bin/git`, melonDS `/Applications/melonDS.app`.
+- nitroarc ist geladen, laut `DYLD_PRINT_LIBRARIES` aus `Contents/Frameworks`.
+
+Kopflos mit `studio mcp` aus dem Bundle, auf einer frischen Kopie von Platin DE:
+
+- **Kollision:** Zweiblattdorf (Karte 0) Zelle (16,16) von `[0,0]` auf `[0,128]` geändert. Gespeichert wurde genau 1 Byte.
+- **ROM-Build:** `build_rom` in 43,2 s, SHA-1 `589f5d5b4d67f769c0e0a0491cfd945c4d767b8e`.
+- **melonDS:** `run_rom` startet melonDS 1.1 mit der gebauten ROM bis zum Copyright-Bildschirm.
+- **Sprachdienste:** `lsp_start` und `lsp_send` gibt es nur in der App. Ersatzbeleg ist ein LSP-Client gegen das gebündelte rotom-lsp: ohne Fehler 0 Diagnosen, `Unknown command 'G5GibtEsNicht'` bei einem falschen Befehl, 1 964 Einträge in der Completion.
+- **Modelle:** `get_map_model_glb` für T01 liefert 19 Materialien, alle mit Textur. `last-tool` ist der xxh3-64-Hash des gebündelten apicula. Die Treffer im Cache kommen in einem neuen Prozess in 0,02 s.
+
+## G7: ROM-Schutz
+
+- **Historie vor jedem Push:** `check-no-rom-data.sh --history origin/main..main` ohne Treffer.
+  - vor dem ersten Push: 2 521 Dateien, dazu `origin/main..release-ci` mit 2 549;
+  - vor `ebf44628`: 2 701 Dateien;
+  - vor `09cb649a`: 6 Dateien.
+- **Release-Dateien:** `rc.1` und `rc.2` heruntergeladen, `check-no-rom-data.sh` meldet jeweils 3 Dateien ok, DMG eingehängt. Die Prüfsummen stimmen. Dazu die Artefakte des Probelaufs: 14 Dateien ok.
+- **Logs:** Die Logs von fünf Läufen (CI auf `main`, Release `rc.1`, Schlussläufe des PR, `ci-rot`) wurden durchsucht. Es gibt 0 Treffer für `_DSPRE_contents`, `/Roms/`, `/_saves/`, `.sav`, `.nds` und `Pokemon - `. Zu `_testkopien` gibt es 16 Treffer, alle Namen synthetischer Tests (`bridge::roots::tests::…_testkopien…`, `test_testkopien_folder`).
+- **Caches:** `gh cache list` zeigt nur `cargo-*`, `release-cargo-*`, `node-cache-*`, `setup-uv-*`, `msys2-pkgs-*` und `tools-*` (apicula und rotom-lsp).
+- **Abweichung:** `gh` kann Actions-Caches nicht herunterladen, deshalb wurde kein Cache ausgepackt. Begründung: Auf den Runnern liegt nie eine ROM, das Repo enthält nachweislich keine, und CI fährt nur hermetische Schritte. Ein Cache kann also nichts aus einer ROM enthalten.
+
+## G8: volles `scripts/gate.sh` auf dem Merge-Stand
+
+| Lauf | Stand | Ergebnis |
+|---|---|---|
+| 1 | `ebf44628` | rot an `script tests` (53 s). Die Versionstests kopierten die echten Versionsdateien und erwarteten `0.1.0`; mit `0.1.0-rc.1` auf `main` wurden sie rot. Behoben in `933cf092`: Die Tests setzen ihre Kopie selbst auf `0.1.0`. |
+| 2 | `933cf092` | rot an `cargo test (no ROM data)` nach 2 648 s, 790 von 791 Tests grün. `commands::models::tests::a_hanging_tileset_falls_back_to_untextured_without_marker_and_is_not_retried` („apicula did not finish within 1 s“) lief unter Last: Gleichzeitig liefen ein `pnpm bundle` und die Abnahme G5. Allein 5-mal grün, also ein Flake unter Last. |
+| 3 | `09cb649a` | rot an `build graph (timings)` HeartGold DE nach 17 832 s. Alle Schritte davor grün, auch `gated tests (cargo test)` für HeartGold DE (5 361 s), HeartGold US (4 992 s) und Platin DE (4 547 s). Kein Testfehler: Das Build-Skript von `rotom` lädt im Release-Build eine Datei, beide Versuche liefen in einen Timeout („download failed: the timeout of the request was reached“). |
+| 3, Rest | `09cb649a` | **ok** in 533 s, „rot im Gate-Lauf, ok in der Wiederholung“: die Schritte ab dem roten mit den Befehlen von `gate.sh` (`target/agent/gate-2026-11-05/gate-rest.sh`). `build graph (timings)` für HeartGold DE, HeartGold US und Platin DE ok, `gated tests (project start)` auf allen drei ROMs ok (je 7 Tests `project_start_`). Logs: `gate-full-3.log`, `gate-rest.log`. |
+
+`ci-local` (`1a7c112c`) ändert an `gate.sh` nur den Kopfkommentar. Nach dem Merge grün: `script tests` (12), `actions` (28 uses), `check-no-rom-data.sh --history origin/main..main`.
 
 ## Zeiten und Minuten
 
-Gemessen:
+- **gate-macos:** warm 17 bis 19 min, Gate rund 1 020 s, davon `cargo test` 726 s. Das Ziel der Spezifikation waren unter 15 min; es wird nicht erreicht.
+- **gate-windows:** warm 56 bis 62 min. Ohne Dev Drive dauerten die Kernel-Unit-Tests allein 47 min.
+- **bundle-macos:** 7 bis 11 min. **bundle-windows:** 25 min warm, 66 bis 67 min kalt. Ein Tag sieht die Caches aus PR-Läufen nicht.
+- **Lokal:** hermetisch 2 530 bis 2 636 s unter Last.
 
-| Lauf | Wo | Dauer | Bemerkung |
-|---|---|---|---|
-| `G4_GATE_HERMETIC=1 bash scripts/gate.sh` | lokal, Mac | 2 530 s | unter Last (rund 20); `cargo test` 2 287 s, `mcp` 27 s, `pnpm test` 147 s, `g4emu unit` 20 s, jeder andere Schritt unter 25 s |
-| `gate-macos`, Lauf 41936883009 | Runner `macos-14`, kalt | 18 min 21 s (Job); Gate 1 020 s | `cargo test` 726 s |
-| `gate-macos` warm | Runner | offen | – |
-| `gate-windows` (Probe, Lauf 41936497980), MSVC | Runner `windows-latest`, kalt | 16 min 7 s | `cargo build -p studio` 657 s; `cargo clippy` scheiterte an ungenutzten Imports unter Windows (danach behoben) |
-| `gate-windows` (Probe), GNU | Runner, kalt | 22 min 39 s | Link von `studio` scheitert (`ld returned 8`); Ziel verworfen, siehe [release.md](release.md) |
-| `gate-windows` MSVC, Lauf 41942261090 | Runner, ohne Dev Drive | 90 min (Abbruch nach dem ersten roten Test-Binary) | `cargo clippy` 451 s grün; `cargo test` 4 312 s, Kernel-Unit-Tests 2 849 s, 14 Fehler |
-| `gate-windows` MSVC, Lauf 41965391702 | Runner, Dev Drive, ohne Debug-Info | 66 min | `cargo clippy` 489 s; `cargo test --no-fail-fast` 3 101 s, 13 Fehler in 8 Binaries (danach behoben) |
-| `gate-windows` MSVC, Lauf 41977356870 | Runner, Dev Drive, warm | 57 min, grün | `cargo clippy` 107 s; `cargo test --no-fail-fast` 2 749 s (64 Test-Binaries); Cache laden 135 s, speichern 293 s |
-| `bundle-macos`, Probelauf 41960501794 | Runner `macos-14`, kalt | 10 min | `Bundle (app, dmg)` 480 s inklusive apicula und rotom-lsp; Rauchtest grün |
-| `bundle-windows`, Probelauf 41960501794 | Runner `windows-latest`, kalt | 64 min | `Bundle (nsis)` 2 984 s, synthetisches Projekt 453 s; `check-bundle-windows`, `no rom data` und Rauchtest grün |
+Abgerechnete Minuten (macOS mal 10, Windows mal 2), aus den Job-Zeiten der API, aufgerundet:
 
-Verbrauchte Minuten bis Lauf 41977356870 (Job-Dauer aufgerundet; macOS zählt zehnfach, Windows doppelt, Linux einfach):
+| Abschnitt | abgerechnet |
+|---|---|
+| Umsetzung (PR #1, alle Läufe bis `83558b64`) | rund 1 524 |
+| Orchestrator (`ci-rot`, abgebrochener Lauf, `rc.1`, `main` zweimal, `rc.2`) | 1 132 |
+| Windows-Probelauf nach der Umstellung (Lauf 42027703959, 68 min) | rund 140 |
+| **Summe** | **rund 2 800** |
 
-| System | Minuten | Faktor | abgerechnet |
-|---|---|---|---|
-| macOS | 19 + 10 | 10 | 290 |
-| Windows | 23 + 17 + 90 + 22 + 64 + 12 + 65 + 57 | 2 | 700 |
-| Linux | 1 | 1 | 1 |
-| Summe | | | 991 |
+Das ist mehr als die 2 000 Minuten des Free-Plans. Ein Billing-Fehler trat nicht auf; das Kontingent des Kontos ist nicht abfragbar (`gh` ohne Scope `user`). Ein Lauf auf `main` kostet rund 310 abgerechnete Minuten (macOS 190, Windows 120), ein Release rund 270.
 
-Der Schlusslauf (ci ohne `ci-skip-macos` und `release-dry-run`) kommt dazu; Zahlen im Bericht des Agenten.
+Laut Abrechnung des Kontos (GitHub Pro, $18 Actions-Guthaben im Monat) waren nach den Läufen bis `rc.2` $15,25 verbraucht. Der Windows-Probelauf kam mit rund $1,10 dazu; geschätzt waren $0,70, aber er fand keinen Rust-Cache: Caches eines Branches sieht nur dieser Branch, und `ci-local` hatte keinen. Läufe ohne `--ref` laufen auf `main`; deren Cache sehen alle Refs, also auch spätere Läufe.
 
-Am Ende der Phase: Gesamtverbrauch und Rest des Monatskontingents: offen.
+## Umstellung: ohne automatische CI
 
-## Hand
+Ein Lauf auf `main` kostet rund $1,80, ein Release rund $1,50. Das trägt bei $18 im Monat nicht. Der Nutzer entschied am 2026-11-05: ganz lokal, keine automatische CI, kein eigener Runner. Umgesetzt auf dem Branch `ci-local`, gemergt in `1a7c112c`:
 
-Nur der Nutzer (Spezifikation §8.3). Ein frisches Benutzerkonto legt der Agent nicht an; das ist eine Änderung der Systemeinstellungen.
+- `891f1b87`: `ci.yml` nur noch mit `workflow_dispatch` (Eingabe `windows`, Standard aus); kein Push, kein Pull Request, kein Label startet einen Lauf.
+- `22354fc0`: `scripts/release-local.sh <tag> [--dry-run]` baut auf dem Mac DMG, `SHA256SUMS.txt` und die Notizen, prüft wie `bundle-macos` (Version, sauberer Baum auf `main` gleich `origin/main`, `check-bundle.sh`, keine ROM-Daten, `doctor`, Rauchtest) und legt danach Tag und Entwurf mit `gh` an. Mit Shell-Tests.
+- `eb9e0d39`: `release.yml` nur noch mit `workflow_dispatch` (`tag`, `dry_run` Standard an). Es baut den Windows-Installer aus dem Tag und hängt ihn mit seiner Zeile in `SHA256SUMS.txt` an den vorhandenen Entwurf.
+- `762fe877`: `release.md`, `dev-setup.md`, Roadmap-Querschnitt und Kopfkommentar von `gate.sh`.
 
-| Punkt | Ergebnis | Datum |
-|---|---|---|
-| macOS: das DMG auf einem frischen Benutzerkonto ohne Entwicklungswerkzeuge: Projekt öffnen, Kollision ändern, ROM bauen, in melonDS spielen, Script mit Sprachdiensten, texturierte Modelle; dazu der Gatekeeper-Weg (Rechtsklick, Öffnen) | offen | – |
-| Windows: der Installer auf einem Windows-PC mit denselben Schritten (ohne den Spielmodus live, der ist macOS-only); dazu die Warnung von SmartScreen („Weitere Informationen“, „Trotzdem ausführen“) | offen | – |
-| Entwurf auf GitHub ansehen und veröffentlichen (erst nach dem Gate, nie automatisch) | offen | – |
+Die Prüfung vor einem Merge bleibt das volle `scripts/gate.sh` lokal (G8).
 
 ## Befunde
 
-| Nr. | Schwere | Punkt | Befund | Fix |
-|---|---|---|---|---|
-| 1 | – | NSIS und Vorabversion (Spezifikation §6.4) | NSIS nimmt `0.1.0-rc.1` an (Probelauf 41960501794); keine Ersatzfassung nötig, siehe [release.md](release.md) | – |
-| 2 | – | DMG auf dem Runner | Tauris DMG mit `CI=true` gelingt auf `macos-14` (Zeile `dmg: tauri`); der Rückfall `hdiutil` wurde nicht gebraucht | – |
-| 3 | mittel | Windows-Tests | Ziel MSVC (GNU linkt nicht). Der erste volle Lauf fand 14 Fehler nur unter Windows (Pfadtrenner in Schlüsseln und Meldungen, Änderungserkennung ohne ctime, Testannahmen); behoben. Die Tests brauchten auf der Runner-Platte 47 min für die Kernel-Unit-Tests allein; mit Dev Drive (ReFS) 265 s | – |
+| Nr. | Schwere | Befund | Stand |
+|---|---|---|---|
+| B1 | mittel | Das macOS-Bundle war nicht vollständig ad-hoc signiert: Nur die Binaries trugen die Linker-Signatur, ohne gebundene `Info.plist` und versiegelte Ressourcen. `codesign --verify --deep --strict` scheiterte, und eine heruntergeladene App bekommt dann „beschädigt“ statt „Trotzdem öffnen“. | behoben in `09cb649a`: `signingIdentity: "-"`, `hardenedRuntime: false`, weil die Library Validation die ad-hoc signierte dylib in rotom-lsp ablehnte. `check-bundle.sh` prüft die Signatur. Auf `rc.2` mit Quarantäne: `codesign` gültig, `spctl` „rejected“ (nicht notarisiert, also „Trotzdem öffnen“); auf `rc.1`: „code has no resources but signature indicates they must be present“. |
+| B2 | gering | Versionstests hingen an der Version des Repos (G8, Lauf 1) | behoben in `933cf092` |
+| B3 | gering | Flake unter Windows: `refs.rs` `a_saved_source_shows_after_the_gate` (gleich große Neuschrift innerhalb eines Zeitstempel-Takts) | Test wartet einen Takt, in `ebf44628`. Produktgrenze offen: Der Ref-Index erkennt Änderungen nur über (Größe, mtime); eine Racy-Regel wie bei den Fingerprints fehlt. |
+| B4 | gering | Flake unter Last: `a_hanging_tileset_…` mit einer Zeitgrenze von 1 s (G8, Lauf 2) | offen, nur unter Last |
+| B5 | Hinweis | Die Runner nutzen verschiedene Rust-Fassungen (macOS 1.98.0, Windows 1.99.1), weil `rust-toolchain.toml` nur `stable` nennt | offen |
+| B6 | Hinweis | Die Caches belegen rund 10,5 GB, mehr als das Limit von 10 GB je Repo; GitHub verdrängt alte Einträge. Teilcaches `-partial-<run>` sammeln sich an. | offen |
+| B7 | Hinweis | `open` aus einer Shell gibt der App die ganze Shell-Umgebung mit; für einen echten LaunchServices-Start braucht es `env -i /usr/bin/open` | dokumentiert |
+| B9 | Hinweis | Im Release-Build bricht `rust-objcopy` mit SIGABRT ab (findet `libLLVM.dylib` nicht); Cargo entfernt dann keine Debug-Infos aus Build-Skripten und meldet nur eine Warnung (G8, Lauf 3) | offen, kosmetisch |
+| B10 | Hinweis | `publish-windows` (Entwurf suchen, Prüfsumme ergänzen, Upload mit `--clobber`) ist nach der Umstellung nicht auf dem Runner gefahren; der Probelauf überspringt ihn. Die Zeile in `SHA256SUMS.txt` macht `scripts/release/add-checksum.sh`, das Shell-Tests hat. | offen, beim nächsten Release prüfen |
+| B8 | Hinweis | Kleinpunkte aus dem Review der Umsetzung (nicht blockierend):<br>• Das Ergebnis von `_dup2` wird unter Windows nicht geprüft.<br>• `HttpServer::stop` blockiert bis zu 2 s.<br>• `fingerprint::stat` hat unter Windows keinen Rückfall.<br>• Die npm-Hinweise sind nur eine Liste.<br>• `AttachConsole` von doctor unter cmd ist nicht bestätigt.<br>• rotom-lsp endet nach `exit` nicht, solange stdin offen bleibt. | offen |
 
-## Ergebnis
+## Hand (nur der Nutzer)
 
-Gate offen. Der Orchestrator trägt die Ergebnisse der Punkte G1 bis G8, die Zeiten und die Hand ein.
+| Punkt | Ergebnis |
+|---|---|
+| macOS: das DMG `v0.1.0-rc.2` auf einem frischen Benutzerkonto ohne Entwicklungswerkzeuge: Projekt öffnen, Kollision ändern, ROM bauen, in melonDS spielen, Script mit Sprachdiensten, texturierte Modelle; dazu der Gatekeeper-Weg (Systemeinstellungen › Datenschutz & Sicherheit › „Trotzdem öffnen“). Die rc.2-App liegt schon in `~/Applications/Gen4 Studio.app`. | offen |
+| Windows: der Installer `v0.1.0-rc.2` auf einem Windows-PC mit denselben Schritten (ohne Spielmodus live), dazu die Warnung von SmartScreen | offen |
+| Entwürfe auf GitHub: `rc.2` ansehen; `rc.1` (Befund B1) löschen oder liegen lassen. Veröffentlicht wird nichts automatisch. | offen |
+| Nächstes Release: Tag und Entwurf `v0.1.0-rc.2` stammen aus dem alten Workflow, `release-local.sh` bricht an einem vorhandenen Release ab. Also `scripts/version.sh set 0.1.0-rc.3` (oder `0.1.0`) mit Eintrag in `CHANGELOG.md`, dann `release-local.sh` und `release.yml -f dry_run=false`; oder `rc.2` samt Tag löschen. | offen |
