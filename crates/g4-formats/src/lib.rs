@@ -11,3 +11,5 @@ pub mod nsbmd_header;
 pub mod nsbtx;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+pub mod nitro_dict;
