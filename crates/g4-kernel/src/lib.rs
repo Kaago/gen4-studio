@@ -14,6 +14,7 @@ pub mod original;
 pub mod patch;
 pub mod places;
 pub mod preview;
+pub mod process;
 pub mod project;
 pub mod recipes;
 pub mod run;

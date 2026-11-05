@@ -78,7 +78,9 @@ auch unter MSVC-Rust; beide kommen aus MSYS2 (`msys2/setup-msys2`, Paket `mingw-
 **Bundle:** NSIS (`pnpm bundle -- --bundles nsis`, unter Git Bash). Die Einstellungen stehen in
 `apps/studio/src-tauri/tauri.windows.conf.json`:
 
-- `installMode: currentUser`: der Installer braucht keine Administratorrechte; Standardordner ist `%LOCALAPPDATA%\Programs\Gen4 Studio`.
+- `installMode: currentUser`: der Installer braucht keine Administratorrechte; Standardordner ist `%LOCALAPPDATA%\Gen4 Studio`
+  (Tauris NSIS-Vorlage, `@tauri-apps/cli` 2.12.3: `StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"`; eine frühere Installation
+  behält ihren Ordner).
 - WebView2 kommt über den Download-Bootstrapper (`downloadBootstrapper`), der Installer ist also klein und braucht beim
   ersten Installieren Netz, falls WebView2 fehlt.
 - `nitroarc_ffi.dll` liegt neben `studio.exe`. Sie steht als Ressource nur in `apps/studio/src-tauri/tauri.bundle.windows.conf.json`,
@@ -104,7 +106,9 @@ Befund: steht aus (erster Probelauf)
 ## Workflows, Tags und Versionen
 
 **`ci.yml`** läuft bei jedem Pull Request und jedem Push auf `main`. `docs/**` und `*.md` (außer `CHANGELOG.md`) starten
-keinen Lauf. Die Jobs fahren nur die hermetischen Schritte (`G4_GATE_HERMETIC=1 bash scripts/gate.sh`, siehe `docs/dev-setup.md`):
+keinen Lauf. Beide Jobs fahren nur hermetische Schritte: `gate-macos` das hermetische Gate (`G4_GATE_HERMETIC=1 bash scripts/gate.sh`,
+siehe `docs/dev-setup.md`), `gate-windows` nur `cargo clippy` und `cargo test --workspace --all-features --no-fail-fast`
+(`target/` und `TEMP` auf einem Dev Drive):
 
 - `gate-macos`: bei jedem Pull Request und Push auf `main`. Das Label `ci-skip-macos` überspringt ihn für Iterationen, die nur
   Windows betreffen (macOS-Minuten zählen zehnfach); das Label muss vor dem Merge wieder weg.
@@ -169,7 +173,10 @@ Die eigene Bibliothek muss unter demselben Namen liegen und dieselbe Schnittstel
 ## Prüfung des gepackten Programms
 
 - `studio doctor [--json]` meldet, ob die Sidecars gefunden werden und nitroarc lädt; mit `--json` für Skripte
-  (`"nitroarc": true`).
+  (`"nitroarc": true`). Unter Windows ist `studio.exe` ein GUI-Programm: aus `cmd` oder PowerShell gestartet hängt
+  `doctor` sich an deren Konsole und schreibt dorthin, die Shell wartet aber nicht darauf (die Ausgabe kommt nach der
+  Eingabeaufforderung, `%ERRORLEVEL%` bleibt alt). Mit Warten und Exit-Code: `studio.exe doctor | more` (cmd) oder
+  `studio.exe doctor | Out-Host` (PowerShell); `check-bundle-windows.sh` liest die Ausgabe über eine Pipe.
 - `scripts/smoke-packaged.sh <studio-Binary> <Projekt>` ruft in einer leeren Umgebung (`env -i`, kein `G4_*`) `studio doctor` und
   danach `studio mcp` über stdio auf einem synthetischen Projekt (Kollision ändern, lesen, speichern). Das Projekt kommt aus
   Code, ohne ROM: `cargo run -p g4-kernel --example make_synthetic --features test-support -- <Ordner>`.

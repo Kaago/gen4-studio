@@ -550,12 +550,7 @@ fn output(command: &mut Command, timeout: Duration) -> Result<Ran, RunError> {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: no console flashes up from the app.
-        command.creation_flags(0x0800_0000);
-    }
+    crate::process::without_console(command);
     let mut child = command.spawn().map_err(RunError::Spawn)?;
     let stdout = child.stdout.take().map(drain);
     let stderr = child.stderr.take().map(drain);

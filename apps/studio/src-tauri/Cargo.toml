@@ -49,6 +49,11 @@ getrandom = "0.3"
 # The project preview travels as base64 in JSON (`commands::preview`).
 base64 = "0.22"
 
+# `studio doctor` attaches to the console of the shell that started it (`doctor.rs`); the
+# version gix and tokio already pull in.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
+
 [dev-dependencies]
 tempfile = "3"
 g4-kernel = { path = "../../../crates/g4-kernel", features = ["test-support"] }

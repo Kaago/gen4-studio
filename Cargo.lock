@@ -1600,6 +1600,7 @@ name = "g4-xdelta"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "tempfile",
 ]
 
 [[package]]
@@ -5213,6 +5214,7 @@ dependencies = [
  "tiny_http",
  "tokio",
  "uxie",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

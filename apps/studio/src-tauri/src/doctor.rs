@@ -115,6 +115,8 @@ impl DoctorReport {
 
 /// `studio doctor [--json]` with the process arguments `args` (`studio`, `doctor`, …).
 pub fn main(args: Vec<OsString>) -> ExitCode {
+    #[cfg(windows)]
+    attach_parent_console();
     let mut json = false;
     for arg in args.iter().skip(2) {
         match arg.to_str() {
@@ -212,13 +214,27 @@ fn spawn(command: &mut Command, stdin: Stdio, stdout: Stdio) -> std::io::Result<
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: no console flashes up.
-        command.creation_flags(0x0800_0000);
-    }
+    g4_kernel::process::without_console(command);
     command.spawn()
+}
+
+/// The installed `studio.exe` is a GUI program (`windows_subsystem = "windows"`): started from
+/// cmd or PowerShell it has no standard output, and `doctor` would print nothing. Without a
+/// handle of its own (no pipe, no redirection) it attaches to the console of the shell that
+/// started it. The shell does not wait for a GUI program; `studio.exe doctor | more` does
+/// (docs/release.md). Not for `studio mcp`, whose stdio is always a pipe.
+#[cfg(windows)]
+fn attach_parent_console() {
+    use windows_sys::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE,
+    };
+    // SAFETY: plain calls without pointers; a failed attach (no parent console) leaves
+    // the output as it was.
+    unsafe {
+        if GetStdHandle(STD_OUTPUT_HANDLE).is_null() {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
 }
 
 /// `apicula --help` must end with status 0 within `limit`.

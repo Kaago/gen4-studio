@@ -157,6 +157,7 @@ fn spawn(binary: &Path, root: &Path, sink: Channel<String>) -> Result<Spawned, K
         // Own process group, so `kill_tree` ends the server and anything it started.
         command.process_group(0);
     }
+    g4_kernel::process::without_console(&mut command);
     let missing = |reason: String| KernelError::ToolMissing {
         name: "rotom-lsp",
         reason,

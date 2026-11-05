@@ -123,15 +123,20 @@ jobs:
           echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
           echo "lockhash=${{ hashFiles('Cargo.lock') }}" >> "$GITHUB_OUTPUT"
 
-      # Restore here, save at the end of the job (`if: always()`): a cold run that fails late
-      # still keeps the compiled dependencies. The bundle folder stays out (DMGs, no use).
+      # Restore here, save at the end of the job: under the exact key only after a green run,
+      # after a failure under `<key>-partial-<run id>`, which the restore key still finds (see
+      # ci.yml). The bundle folder (DMGs, no use) and target/tmp stay out; actions/cache
+      # archives a matched folder whole, so the exclusions work only below the wildcards.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
             !target/release/bundle
           key: release-cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}
           restore-keys: |
@@ -237,18 +242,35 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: success() && steps.cargo-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
             !target/release/bundle
           key: release-cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}
 
-      # Only when the tools had to be built and the bundle got that far.
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: always() && steps.tools-cache.outputs.cache-hit != 'true' && hashFiles('tools/apicula/bin/apicula') != '' && hashFiles('tools/rotom/bin/rotom-lsp') != ''
+        if: failure() && steps.cargo-cache.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
+            !target/release/bundle
+          key: release-cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}-partial-${{ github.run_id }}
+
+      # Only when the tools had to be built and the bundle got that far, not after a cancel
+      # (a binary of a cancelled build would stay under the exact key; there is no restore key).
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ !cancelled() && steps.tools-cache.outputs.cache-hit != 'true' && hashFiles('tools/apicula/bin/apicula') != '' && hashFiles('tools/rotom/bin/rotom-lsp') != '' }}
         with:
           path: tools
           key: tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/tool-versions.env') }}
@@ -326,7 +348,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
             !target/release/bundle
           key: release-cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}
           restore-keys: |
@@ -430,17 +455,33 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: success() && steps.cargo-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
             !target/release/bundle
           key: release-cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: always() && steps.tools-cache.outputs.cache-hit != 'true' && hashFiles('tools/apicula/bin/apicula.exe') != '' && hashFiles('tools/rotom/bin/rotom-lsp.exe') != ''
+        if: failure() && steps.cargo-cache.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/*
+            !target/tmp
+            !target/release
+            target/release/*
+            !target/release/bundle
+          key: release-cargo-${{ runner.os }}-msvc-${{ steps.rust.outputs.version }}-${{ steps.rust.outputs.lockhash }}-partial-${{ github.run_id }}
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ !cancelled() && steps.tools-cache.outputs.cache-hit != 'true' && hashFiles('tools/apicula/bin/apicula.exe') != '' && hashFiles('tools/rotom/bin/rotom-lsp.exe') != '' }}
         with:
           path: tools
           key: tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/tool-versions.env') }}

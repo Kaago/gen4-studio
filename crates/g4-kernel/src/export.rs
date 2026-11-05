@@ -170,6 +170,7 @@ fn run_with_timeout(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    crate::process::without_console(command);
     let mut child = command
         .spawn()
         .map_err(|e| tool_error(format!("cannot run {}: {e}", apicula.display())))?;
