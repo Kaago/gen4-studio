@@ -1,8 +1,10 @@
 # Release: macOS-DMG und Windows-Installer
 
-Gen4 Studio erscheint als DMG für macOS (arm64) und als NSIS-Installer für Windows (x64). Beide Pakete baut der Workflow
-`release.yml` auf gehosteten Runnern aus den hermetischen Quellen: keine ROM, kein Spielstand, kein Geheimnis. Dieses Dokument
-beschreibt beide Bundles, den Weg vom Tag zum Release, die Lizenzhinweise und den vorbereiteten Schritt zum Signieren.
+Gen4 Studio erscheint als DMG für macOS (arm64) und als NSIS-Installer für Windows (x64). Beide Pakete entstehen aus den
+hermetischen Quellen: keine ROM, kein Spielstand, kein Geheimnis. Das DMG baut `scripts/release-local.sh` auf dem Mac des
+Maintainers, der auch Tag und Release-Entwurf anlegt; nur den Installer baut der Workflow `release.yml` auf einem gehosteten
+Windows-Runner, von Hand gestartet. Eine automatische CI gibt es nicht mehr (Abschnitt „Workflows, Tags und Versionen“). Dieses
+Dokument beschreibt beide Bundles, den Weg vom Tag zum Release, die Lizenzhinweise und den vorbereiteten Schritt zum Signieren.
 Die Abnahme mit einer ROM und mit dem fertigen Paket steht in `docs/release-ci-gate.md`.
 
 Das Bundle enthält Fremdkomponenten, damit die App ohne den Entwicklungsbaum läuft:
@@ -29,7 +31,7 @@ Der Spielmodus live (melonDS-Kern im Fenster) bleibt macOS-only; unter Windows m
 
 ## macOS: das DMG
 
-Lokal baut `pnpm bundle` nur das `.app`; im Release-Workflow entsteht zusätzlich das DMG.
+`pnpm bundle` baut nur das `.app`; das DMG entsteht in `scripts/release-local.sh` (Abschnitt „Workflows, Tags und Versionen“).
 
 ```sh
 cd apps/studio
@@ -47,12 +49,12 @@ bash scripts/check-bundle.sh     # Prüfung des Bundles, Ausgabe: bundle ok
 2. `tauri build` legt `externalBin` nach `Contents/MacOS/`, `macOS.frameworks` nach `Contents/Frameworks/` und die
    Lizenzhinweise nach `Contents/Resources/licenses/`. Das Ergebnis liegt in `target/release/bundle/macos/Gen4 Studio.app`.
 
-Das DMG entsteht auf dem Runner mit `pnpm bundle -- --bundles app,dmg` und `CI=true`: Tauris DMG-Skript lässt dann die
-Gestaltung des Finder-Fensters per AppleScript aus, die ohne Desktop-Sitzung scheitert. Das ist die Entscheidung der
-Spezifikation (Tauri statt eigenem Skript). Als Rückfall gilt `scripts/release/macos-dmg.sh`: Hat Tauri kein DMG
-geliefert, baut das Skript es aus dem fertigen `.app` mit `hdiutil create -volname "Gen4 Studio" -srcfolder … -format UDZO`
-und schreibt `dmg: tauri` oder `dmg: hdiutil fallback` in die Zusammenfassung des Laufs. Ohne `.app` scheitert es.
-Der Name der Datei ist `Gen4-Studio_<Fassung>_aarch64.dmg`.
+Das DMG entsteht in `scripts/release-local.sh` mit `pnpm bundle -- --bundles app,dmg` und `CI=true`: Tauris DMG-Skript lässt
+dann die Gestaltung des Finder-Fensters per AppleScript aus (auf dem Runner, für den der Schritt gebaut wurde, scheiterte sie
+ohne Desktop-Sitzung; lokal bleibt das Ergebnis so dasselbe). Das ist die Entscheidung der Spezifikation (Tauri statt eigenem
+Skript). Als Rückfall gilt `scripts/release/macos-dmg.sh`: Hat Tauri kein DMG geliefert, baut das Skript es aus dem fertigen
+`.app` mit `hdiutil create -volname "Gen4 Studio" -srcfolder … -format UDZO` und meldet `dmg: tauri` oder `dmg: hdiutil fallback`.
+Ohne `.app` scheitert es. Der Name der Datei ist `Gen4-Studio_<Fassung>_aarch64.dmg`.
 
 **Signatur:** Das Bundle ist als Ganzes ad-hoc signiert (`bundle.macOS.signingIdentity: "-"` in `tauri.macos.conf.json`:
 Tauri signiert Sidecars, Framework und App mit gebundener `Info.plist` und versiegelten Ressourcen), nicht mit einer Developer ID
@@ -105,7 +107,7 @@ prüft die Dateien (`studio.exe`, `apicula.exe`, `rotom-lsp.exe`, die DLL, `lice
 
 Die Spezifikation (§6.4) fragt, ob NSIS eine Fassung wie `0.1.0-rc.1` annimmt; sonst bekäme der Windows-Build
 für `bundle.windows.nsis` die Dateiversion `0.1.0.1`, während der Name des Artefakts bei SemVer bleibt. Der Probelauf
-des Release-Workflows baut die Windows-Seite auf Pull-Request-Läufen dazu mit `0.1.0-rc.1` (nie eingecheckt); scheitert dort das Bundle, ist das die Antwort.
+des Release-Workflows baute die Windows-Seite auf Pull-Request-Läufen dazu mit `0.1.0-rc.1` (nie eingecheckt); ein scheiterndes Bundle wäre die Antwort gewesen.
 
 Befund (Probelauf 41960501794, 2026-11-05): NSIS nimmt `0.1.0-rc.1` an. Das Bundle heißt `Gen4 Studio_0.1.0-rc.1_x64-setup.exe`,
 installiert still, und `studio doctor` meldet `studio 0.1.0-rc.1`. Eine numerische Ersatzfassung (`0.1.0.1`) braucht es nicht;
@@ -113,35 +115,66 @@ der Workflow setzt keine.
 
 ## Workflows, Tags und Versionen
 
-**`ci.yml`** läuft bei jedem Pull Request und jedem Push auf `main`. `docs/**` und `*.md` (außer `CHANGELOG.md`) starten
-keinen Lauf. Beide Jobs fahren nur hermetische Schritte: `gate-macos` das hermetische Gate (`G4_GATE_HERMETIC=1 bash scripts/gate.sh`,
-siehe `docs/dev-setup.md`), `gate-windows` nur `cargo clippy` und `cargo test --workspace --all-features --no-fail-fast`
-(`target/` und `TEMP` auf einem Dev Drive):
+**Keine automatische CI.** Seit dem 5. November 2026 startet kein Push, kein Pull Request und kein Tag mehr einen Workflow:
+gehostete Minuten kosten Geld (ein Push auf `main` lief rund 1,80 $, macOS-Minuten zählen zehnfach), und die Prüfung, die zählt,
+ist ohnehin das volle `scripts/gate.sh` auf dem Mac vor jedem Merge (`docs/dev-setup.md`). Beide Workflows laufen nur von Hand
+(`workflow_dispatch`).
 
-- `gate-macos`: bei jedem Pull Request und Push auf `main`. Das Label `ci-skip-macos` überspringt ihn für Iterationen, die nur
-  Windows betreffen (macOS-Minuten zählen zehnfach); das Label muss vor dem Merge wieder weg.
-- `gate-windows`: auf `main`, von Hand (`workflow_dispatch`) und auf Pull Requests mit dem Label `windows`.
+**`ci.yml`** fährt nur hermetische Schritte: `gate-macos` das hermetische Gate (`G4_GATE_HERMETIC=1 bash scripts/gate.sh`),
+`gate-windows` nur `cargo clippy` und `cargo test --workspace --all-features --no-fail-fast` (`target/` und `TEMP` auf einem
+Dev Drive). `gate-macos` läuft bei jedem Start, `gate-windows` nur mit dem Eingang `windows`:
 
-**`release.yml`** baut beide Bundles und prüft sie (`check-bundle.sh`, `check-bundle-windows.sh`, `check-no-rom-data.sh`,
-Rauchtest). Er startet auf drei Wegen:
+```sh
+gh workflow run ci.yml                    # nur gate-macos
+gh workflow run ci.yml -f windows=true    # dazu gate-windows (etwa nach einer Änderung, die Windows betrifft)
+gh workflow run ci.yml --ref <Branch>     # ein Branch statt main (er muss gepusht sein)
+```
 
-- Tag `v*`: das echte Release. Der Job `version` prüft die Fassung gegen den Tag, danach bauen beide Bundles, und `publish`
-  legt einen **Entwurf** an mit `Gen4-Studio_<Fassung>_aarch64.dmg`, `Gen4-Studio_<Fassung>_x64-setup.exe` und
-  `SHA256SUMS.txt`; als Text dient der Abschnitt der Fassung aus `CHANGELOG.md`. Einen Tag mit `-rc` legt er als Pre-Release an. Der Nutzer prüft den Entwurf
-  und veröffentlicht ihn von Hand.
-- `workflow_dispatch` mit `dry_run` (Standard `true`, erst nach dem Merge auf `main`): der Probelauf, alles ohne Release. Ein
-  Aufruf mit `dry_run=false` scheitert im Job `version`: ein Release entsteht nur durch das Pushen eines Tags.
-- Das Label `release-dry-run` auf einem Pull Request: derselbe Probelauf vor dem Merge. Jedes andere Label startet nichts.
+**Release, Schritt 1: `scripts/release-local.sh <Tag> [--dry-run]`** auf dem Mac (macOS arm64), aus der Repo-Wurzel:
 
-`publish` läuft nur bei einem Tag-Push. Den Probelauf von Zeit zu Zeit auf `main` laufen lassen: Caches gelten nur für
-denselben Ref oder den Standard-Branch, ein Tag-Lauf liest also, was `main` gespeichert hat.
+1. Prüfungen vor dem Bau: `version.sh check <Tag>`, sauberer Arbeitsbaum, HEAD gleich `main` gleich `origin/main` (nach
+   `git fetch origin main`), `check-no-rom-data.sh` über das Repository, die Release-Notizen (Abschnitt der Fassung ohne
+   Suffix aus `CHANGELOG.md`, `scripts/release/changelog-section.sh`). Ohne `--dry-run` zusätzlich: `gh` ist angemeldet,
+   zum Tag gibt es noch keinen Release (auch keinen Entwurf), ein schon vorhandener Tag (lokal oder auf `origin`) zeigt auf HEAD.
+2. Bau wie früher der Job `bundle-macos`: `pnpm install --frozen-lockfile`, dann `CI=true pnpm bundle -- --bundles app,dmg`
+   (apicula und rotom-lsp baut `prepare-bundle.sh` nach `scripts/tool-versions.env`, wenn sie in `tools/` fehlen; `cargo-about`
+   in der Fassung `CARGO_ABOUT_VERSION` muss installiert sein), danach `scripts/release/macos-dmg.sh` mit dem hdiutil-Rückfall.
+3. Prüfung: `check-bundle.sh`, `check-no-rom-data.sh <app> <dmg>` und der Rauchtest (`smoke-packaged.sh`, leere Umgebung) auf
+   einem synthetischen Projekt aus `make_synthetic`.
+4. `dist-release/` (gitignoriert) mit `Gen4-Studio_<Fassung>_aarch64.dmg`, `SHA256SUMS.txt` (`shasum -a 256`) und `notes.md`.
+5. Ohne `--dry-run`: `git tag -a <Tag>` (falls er fehlt), `git push origin <Tag>` und
+   `gh release create <Tag> --draft [--prerelease] --title "Gen4 Studio <Fassung>" --notes-file dist-release/notes.md` mit DMG
+   und `SHA256SUMS.txt`. Einen Tag mit `-rc` legt das Skript als Pre-Release an.
+
+Mit `--dry-run` läuft alles bis auf Tag, Push und Release; die letzte Zeile ist `release-local: Probelauf ok (<Dateien>)`.
+`G4_RELEASE_ALLOW_BRANCH=1` lässt einen Probelauf außerhalb von `main` zu (etwa in einem Worktree), nur mit `--dry-run`;
+`G4_RELEASE_SKIP_BUILD=1` ist nur für `scripts/tests/release-local.test.sh`. Der Probelauf vom 5. November 2026 (`v0.1.0-rc.2`)
+dauerte rund 5 Minuten nach einem Release-Build von gut 3 Minuten, kalt also etwa 10 Minuten.
+
+**Release, Schritt 2: `release.yml`** (Windows) baut den Installer auf `windows-latest` aus dem Tag und prüft ihn
+(`check-bundle-windows.sh`, `check-no-rom-data.sh`, Rauchtest):
+
+```sh
+gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false   # Installer an den Entwurf hängen
+gh workflow run release.yml -f tag=vX.Y.Z                    # Probelauf (dry_run=true): bauen und prüfen, nichts hochladen
+```
+
+Der Job `version` prüft die Fassung des Tags gegen den Tag, `bundle-windows` baut und prüft, und `publish-windows` (nur ohne
+`dry_run`) lädt `Gen4-Studio_<Fassung>_x64-setup.exe` an den **vorhandenen** Entwurf, ergänzt dessen `SHA256SUMS.txt` um die
+Zeile des Installers (`scripts/release/add-checksum.sh`, eine Zeile gleichen Namens wird ersetzt) und lädt sie mit `--clobber`
+neu hoch. Gibt es zum Tag keinen Release oder ist er kein Entwurf mehr, bricht der Job mit einer Meldung ab. Ein Lauf kostet kalt
+rund 0,70 $ (Windows-Minuten zählen doppelt); Caches gehören zum Ref, von dem der Workflow startet (Standard `main`), ein
+späterer Lauf liest also, was der vorige gespeichert hat.
+
+Danach prüft der Maintainer den Entwurf (DMG, Installer, `SHA256SUMS.txt` mit beiden Zeilen, Text) und veröffentlicht ihn von Hand.
 
 **Versionen:** Die Fassung steht an einer Stelle, `version` in `[workspace.package]` der `Cargo.toml`; `apps/studio/package.json`
 trägt dieselbe Zahl (Tauri liest sie von dort). `scripts/version.sh` druckt sie (`version.sh`), setzt sie (`version.sh set <Fassung>`,
 schreibt auch `Cargo.lock`) und prüft sie (`version.sh check [<Tag>]`: beide Stellen gleich, gültiges SemVer, ein Abschnitt
 in `CHANGELOG.md`, der Tag ist `v<Fassung>`). Tags heißen `vX.Y.Z` und `vX.Y.Z-rc.N`; für `-rc` gilt der Abschnitt der Fassung ohne Suffix.
-Ablauf: `version.sh set`, Abschnitt in `CHANGELOG.md` ergänzen, mergen, `git tag vX.Y.Z`, Tag pushen, Entwurf prüfen und
-veröffentlichen.
+Ablauf: `version.sh set`, Abschnitt in `CHANGELOG.md` ergänzen, `scripts/gate.sh`, mergen und `main` pushen, dann
+`bash scripts/release-local.sh vX.Y.Z` (Tag, Push, Entwurf mit dem DMG), `gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false`
+(Installer dazu), Entwurf prüfen und veröffentlichen.
 
 ## Lizenzhinweise
 
@@ -236,17 +269,21 @@ wie bisher. Unter `tauri dev` zeigt das Dock `icons/icon.png`, im Bundle kommt `
 
 ## Signieren und Notarisieren (vorbereitet, aus)
 
-`release.yml` enthält den Schritt `sign-notarize` mit `if: false`. Mit einer Developer ID würde er so aktiviert:
+`scripts/release-local.sh` enthält die Funktion `sign_notarize`, die nur meldet, dass Signieren nicht aktiviert ist; der Kopf des
+Skripts beschreibt die Schritte (früher der Schritt `sign-notarize` mit `if: false` in `release.yml`). Mit einer Developer ID
+würde es so aktiviert:
 
-1. Apple Developer Program (kostenpflichtig) beitreten und ein Zertifikat „Developer ID Application“ erzeugen.
-2. Das Zertifikat als `.p12` exportieren und als Base64 in das Geheimnis `APPLE_CERTIFICATE` legen, dazu sein Passwort
-   (`APPLE_CERTIFICATE_PASSWORD`) und den Namen der Identität (`APPLE_SIGNING_IDENTITY`, etwa „Developer ID Application: Name (TEAMID)“).
-3. Notarisierung: Apple-ID (`APPLE_ID`), ein App-spezifisches Passwort (`APPLE_PASSWORD`, nicht das Anmeldepasswort; alternativ ein
-   API-Schlüssel) und die Team-ID (`APPLE_TEAM_ID`).
-4. In `release.yml` `if: false` auf `true` setzen und die sechs `env:`-Zeilen in den Schritt „Bundle (app, dmg)“ legen: Der Tauri-Bundler
-   importiert das Zertifikat selbst in einen temporären Schlüsselbund, signiert das `.app` und ruft `notarytool` auf, sobald die
-   Variablen gesetzt sind. Der Schritt `sign-notarize` steht für das Notarisieren des DMG (`xcrun notarytool submit … --wait`) und das
-   Anheften des Tickets (`xcrun stapler staple`).
+1. Apple Developer Program (kostenpflichtig) beitreten und ein Zertifikat „Developer ID Application“ erzeugen; es liegt dann im
+   Anmelde-Schlüsselbund des Macs (ein Base64-`.p12` in `APPLE_CERTIFICATE` mit `APPLE_CERTIFICATE_PASSWORD` braucht es nur, wo
+   das Zertifikat in keinem Schlüsselbund liegt).
+2. `signingIdentity` in `apps/studio/src-tauri/tauri.macos.conf.json` auf den Namen der Identität setzen (etwa „Developer ID
+   Application: Name (TEAMID)“, alternativ `APPLE_SIGNING_IDENTITY` vor dem Bundle-Schritt exportieren) und Hardened Runtime
+   wieder einschalten (Abschnitt „Signatur“ oben).
+3. Notarisierung: Apple-ID (`APPLE_ID`), ein App-spezifisches Passwort (`APPLE_PASSWORD`, nicht das Anmeldepasswort; alternativ
+   ein API-Schlüssel) und die Team-ID (`APPLE_TEAM_ID`) in der Umgebung des Bundle-Schritts: Der Tauri-Bundler signiert das `.app`
+   und ruft `notarytool` auf, sobald die Variablen gesetzt sind.
+4. In `sign_notarize` die Zeilen aus dem Kopf des Skripts einsetzen: das DMG notarisieren (`xcrun notarytool submit … --wait`) und
+   das Ticket anheften (`xcrun stapler staple`).
 
 Unter Windows bräuchte es ein Code-Signing-Zertifikat; ohne eines bleibt die Warnung von SmartScreen. Auto-Update gibt es noch nicht.
 

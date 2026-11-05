@@ -6,7 +6,7 @@
 # (scripts/check-no-rom-data.sh), the version check (scripts/version.sh check), the full test
 # suite, the studio frontend, then the gated tests against every test project under $G4_ROMS_DIR.
 #
-# CI (.github/workflows/ci.yml) runs only the hermetic part: with G4_GATE_HERMETIC=1 the gate
+# CI (.github/workflows/ci.yml, started by hand only) runs the hermetic part: with G4_GATE_HERMETIC=1 the gate
 # ends after the step "g4emu unit" and the table closes with "Gate (hermetisch): ok". It needs
 # no ROM, tool or save game and no G4_* variable.
 #
