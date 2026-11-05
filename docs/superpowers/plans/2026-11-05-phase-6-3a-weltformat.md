@@ -223,9 +223,9 @@ pub fn tileset_problems(tileset: &Tileset, stem: u16, family: Family) -> Vec<Str
 pub fn tile_outside(path: &str, tile: u16, package: u16, tiles: usize) -> String;
 ```
 
-- [ ] **Step 1: Scheiternde Tests:** `synthetic_tileset_has_six_roles` (Namen, Größen, Rollen, `wall: Some(3)` an Kachel 0, `footprint [2, 2]` an 5), `tileset_json_round_trips_and_refuses_unknown_keys`, `tileset_problems_name_each_rule` (je Regel ein Fall, Text wörtlich), `tileset_rel_is_four_digits`.
-- [ ] **Step 2: Lauf** `cargo test -p g4-kernel --all-features world::tileset` → FAIL; **Step 3: Umsetzen**; **Step 4: Lauf** → PASS.
-- [ ] **Step 5: Commit** `feat(world): the tileset format and the synthetic test tileset` (mit Trailer).
+- [x] **Step 1: Scheiternde Tests:** `synthetic_tileset_has_six_roles` (Namen, Größen, Rollen, `wall: Some(3)` an Kachel 0, `footprint [2, 2]` an 5), `tileset_json_round_trips_and_refuses_unknown_keys`, `tileset_problems_name_each_rule` (je Regel ein Fall, Text wörtlich), `tileset_rel_is_four_digits`.
+- [x] **Step 2: Lauf** `cargo test -p g4-kernel --all-features world::tileset` → FAIL; **Step 3: Umsetzen**; **Step 4: Lauf** → PASS.
+- [x] **Step 5: Commit** `feat(world): the tileset format and the synthetic test tileset` (mit Trailer).
 
 ### Task 3: Vernetzer und Budget-Schätzung
 

@@ -152,7 +152,7 @@ pub mod fixtures {
     use super::{LayerJson, LayerRole, WorldJson, rows_of};
 
     /// The package of the synthetic tileset.
-    const PACKAGE: u16 = 0;
+    const PACKAGE: u16 = crate::world::tileset::SYNTHETIC_PACKAGE;
 
     fn tile(tile: u16) -> String {
         tile_token(Some(TileRef {
