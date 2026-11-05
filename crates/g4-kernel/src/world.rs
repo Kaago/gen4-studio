@@ -7,10 +7,13 @@
 //! `doc.rs` holds the document as it is on disk (serde, canonical key order, unknown keys
 //! refused) and the synthetic fixtures; `grid.rs` the token grammar of its rows and the schema
 //! check that reads it into cells ([`WorldGrid::parse`]); `tileset.rs` the tileset file
-//! `data/tilesets/NNNN.json` of a map texture package and the synthetic test tileset.
+//! `data/tilesets/NNNN.json` of a map texture package and the synthetic test tileset;
+//! `mesh.rs` the mesher from layers, heights, ramps and footprints to a face list and the
+//! budget estimate.
 
 pub mod doc;
 pub mod grid;
+pub mod mesh;
 pub mod tileset;
 
 pub use doc::{
