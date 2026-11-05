@@ -7,8 +7,12 @@
 //! [`TILE_UNITS`] units), `y` is the height. [`Bdhc::read`] does not check
 //! indices so that every vanilla file reads and writes back byte for byte;
 //! [`Bdhc::validate`] reports what the game itself does not check.
+//! [`from_grid`] builds a BDHC from a [`HeightGrid`].
 
 use crate::error::FormatError;
+
+mod grid;
+pub use grid::*;
 
 /// Size of the header: `"BDHC"` and six `u16` counters.
 pub const BDHC_HEADER_LEN: usize = 16;

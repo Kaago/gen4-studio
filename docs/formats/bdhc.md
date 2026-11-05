@@ -120,3 +120,114 @@ HeartGold je 1, größte Nutzlast Platin 21 452 B (Karte 188), HeartGold 10 778 
 Die kleinste BDHC ist eine Platte über die ganze Karte (Nutzlast 50 B, `Bdhc::flat(h)` mit der
 Höhe `h` in fx32); 173 Karten in Platin und 214 in HeartGold haben genau sie. Sie ist die
 Vorgabe für eine leere gemalte Karte.
+
+## Erzeugen aus dem Höhenraster
+
+Implementierung: `crates/g4-formats/src/bdhc/grid.rs` (`HeightGrid`, `from_grid`,
+`from_planes`), Algorithmus und Größen aus dem eigenen Prototyp `gutachten-b-bdhc-bau.py`
+(`rectangles`, `plane_fx`, `build`, B §2.6). `from_planes` schreibt dieselben Bytes wie
+`build`: gegen den Prototyp verglichen für die Probe, die Beispielraster und 1 004
+Zufalls- und Extremraster, alle byte-gleich.
+
+### Raster
+
+`HeightGrid { height: [i8; 1024], ramp: [Ramp; 1024] }`, Index `y * 32 + x` wie die
+Permissions (Zeile `y` wächst nach Süden, also nach +z). Höhen in **Stufen** zu `STEP_UNITS` =
+8 E (eine Stufe ist eine halbe Kachel). Eine Zelle ist flach (`Ramp::None`) oder eine Rampe
+`North(s)`, `East(s)`, `South(s)`, `West(s)`: sie steigt in diese Himmelsrichtung um `s` Stufen
+über die Kachel. `height` einer Rampe ist die Höhe ihrer **unteren** Kante (gegenüber der
+Richtung). Kantenhöhen (`edge_units`, Mitte der Kante) und Mitte (`center_units`) in E:
+
+```
+             Nord: 8h + 4s
+           +---------------+
+           |               |
+ West: 8h  |  East(s) ->   |  Ost: 8h + 8s       Mitte: 8h + 4s
+           |               |
+           +---------------+
+             Süd: 8h + 4s
+```
+
+Eine flache Zelle hat überall `8h`. Eine Treppe 0 → 16 E über zwei Zellen ist `East(1)` mit den
+Höhen 0 und 1, ein Plateau danach Höhe 2; beide Rampenzellen haben dieselbe Ebene und werden ein
+Rechteck.
+
+`HeightGrid::check` nennt die erste falsche Zelle in Indexreihenfolge (`GridProblem`), je Zelle
+in dieser Reihenfolge: `height` außerhalb `MIN_STEP..=MAX_STEP` = −16..=62
+(`HeightOutOfRange`), Rampenstufen nicht 1 oder 2 (`RampSteps`, drei Stufen wären 24 E je
+Kachel, das Spiel verweigert ab 20 E), Oberkante `height + s` über 62 (`RampTop`).
+`from_grid` bleibt total und rechnet auch ein falsches Raster; der Kernel lehnt vorher ab.
+
+### Ebene je Zelle
+
+`HeightGrid::plane(i)` gibt den ganzzahligen Schlüssel `CellPlane { c, kx, kz }` mit
+`2 · y = c + kx · x + kz · z` (E ab der Kartenmitte, `CellPlane::units_at`). Mit den Kanten der
+Zelle `x_w = 16 x − 256`, `x_e = x_w + 16`, `z_n = 16 y − 256`, `z_s = z_n + 16`:
+
+| Zelle | `(c, kx, kz)` |
+|---|---|
+| flach | `(16h, 0, 0)` |
+| `East(s)` | `(16h − s · x_w, s, 0)` |
+| `West(s)` | `(16h + s · x_e, −s, 0)` |
+| `South(s)` | `(16h − s · z_n, 0, s)` |
+| `North(s)` | `(16h + s · z_s, 0, −s)` |
+
+### Algorithmus (B §2.6)
+
+1. **Rechtecke** je gleicher Ebene (`CellPlane`-Gleichheit): zeilenweise die erste freie Zelle
+   nehmen, nach rechts wachsen, solange die Ebene gleich ist, dann nach unten, solange die ganze
+   Breite gleich ist. Greedy, nicht minimal, aber stabil: gleiches Raster, gleiche Bytes.
+2. **Ebene → fx32**: mit `L = √(1 + (kx/2)² + (kz/2)²)` ist
+   `n = round((−kx/2, 1, −kz/2) / L · 4096)` und `d = round(−c/2 / L · 4096)` (`f64::round`).
+3. **Tabellen**: je Rechteck eine Platte aus der nordwestlichen und der südöstlichen Ecke;
+   Punkte, Normalen und Konstanten werden in Plattenreihenfolge entdoppelt.
+4. **Streifen** über die sortierten z-Kanten aller Rechtecke: das Band zwischen zwei
+   benachbarten Kanten wird ein Streifen mit `scanline` = obere (südliche, größere) Kante. Seine
+   Zugriffsliste enthält nur die Rechtecke, die das Band **echt überlappen**
+   (`z1 < oben && z2 > unten`). Das reicht, weil ein Punkt genau auf einer Kante dem Streifen
+   darunter zufällt (erster mit `scanline > z`), und dort liegt das Rechteck, das an dieser
+   Kante beginnt.
+
+### Schranke
+
+Alle Ecken liegen auf Kachelgrenzen, also höchstens 33 × 33 = 1 089 Punkte; höchstens 1 024
+Platten (eine je Zelle), so viele Konstanten und Normalen (N ≤ 1 024); höchstens 33 z-Kanten, also
+32 Streifen. Wegen der halboffenen Bänder steht ein Rechteck in höchstens so vielen Streifen,
+wie es Zeilen hat, und das ist nicht mehr, als es Zellen hat: zusammen höchstens 1 024 Zugriffe.
+
+```
+Nutzlast ≤ 8 712 + 12 N + 4 096 + 8 192 + 256 + 2 048 = 23 304 + 12 N ≤ 35 592 < 36 864 (0x9000)
+```
+
+`MAX_PAYLOAD_FROM_GRID` = 35 592. Eine so erzeugte BDHC kann den Puffer des Spiels nicht
+überlaufen, für jedes Raster und jedes Ebenenfeld von `from_planes`; das Budget „BDHC“ ist für
+gemalte Karten nur Anzeige. Mit geschlossenen Bändern (ein Rechteck auch in den Streifen, die
+nur seine Kante berühren, wie in Vanilla oft) wären es bis zu 3 072 Zugriffe und mit vielen
+Neigungen knapp über 0x9000. Der Eigenschaftstest `generated_bdhc_never_exceeds_the_bound`
+rechnet 1 004 Raster; die größte Nutzlast ist 19 744 B.
+
+### Größen (B §2.6, Nutzlast ohne Kopf)
+
+| Raster | Platten | Streifen | Zugriffe | Nutzlast | Anteil an 0x9000 |
+|---|---|---|---|---|---|
+| flach (`Bdhc::flat(0)`) | 1 | 1 | 1 | 50 B | 0,1 % |
+| Route: 3 Ebenen, 4 Treppen | 13 | 5 | 13 | 422 B | 1,1 % |
+| Stadt: 6 Dächer, Teich | 20 | 7 | 43 | 646 B | 1,8 % |
+| Probe (Emulator) | 9 | 5 | 12 | 324 B | 0,9 % |
+| Flecken: 4 Stufen, zufällig, geglättet | 412 | 32 | 958 | 11 232 B | 30,5 % |
+| Schachbrett 0/16 | 1 024 | 32 | 1 024 | 19 212 B | 52,1 % |
+| jede Kachel eigene Höhe (`from_planes`) | 1 024 | 32 | 1 024 | 23 300 B | 63,2 % |
+| jede Kachel Rampe, 8 Neigungen (`from_planes`, bis 32 E je Kachel) | 1 024 | 32 | 1 024 | 21 956 B | 59,6 % |
+
+Flach, Route, Probe, Schachbrett und „jede Kachel eigene Höhe“ prüfen die Tests von `grid.rs`
+mit genau diesen Zahlen.
+
+### Rundung
+
+Die Höhensuche des Spiels trifft auf den erzeugten Platten an jeder Kachelmitte und an vier
+Punkten 4 E daneben die Sollhöhe bis auf die Rundung von `n` und `d` auf 1/4096. In den
+Beispielrastern des Gutachtens sind das höchstens **0,06 E** (die Rampenmitte der Probe:
+3,989 E statt 4). Der Fehler wächst mit der Höhe, weil `n_y` gerundet ist: an einer
+Zwei-Stufen-Rampe auf 488 E sind es 0,079 E, das Höchste der 1 004 Testraster
+(`generated_heights_hit_five_points_per_cell`, Grenze 0,1 E). Flache Platten haben keinen
+Fehler.
