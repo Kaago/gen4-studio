@@ -16,8 +16,8 @@ pub(crate) fn is_real_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// First real file called `name` in one of `dirs`.
-fn find_in(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
+/// First real file called `name` in one of `dirs` (also `studio doctor`, which looks beside the binary only).
+pub(crate) fn find_in(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
     dirs.iter()
         .map(|dir| dir.join(name))
         .find(|p| is_real_file(p))

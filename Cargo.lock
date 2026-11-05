@@ -5211,6 +5211,7 @@ dependencies = [
  "tempfile",
  "tiny_http",
  "tokio",
+ "uxie",
 ]
 
 [[package]]

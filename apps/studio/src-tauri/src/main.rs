@@ -10,6 +10,10 @@ fn main() -> ExitCode {
     if std::env::args_os().nth(1).as_deref() == Some(OsStr::new("mcp")) {
         return studio_lib::mcp::main(std::env::args_os().collect());
     }
+    // `studio doctor` checks the package (sidecars, nitroarc) and exits; nothing of Tauri starts.
+    if std::env::args_os().nth(1).as_deref() == Some(OsStr::new("doctor")) {
+        return studio_lib::doctor::main(std::env::args_os().collect());
+    }
     studio_lib::run();
     ExitCode::SUCCESS
 }

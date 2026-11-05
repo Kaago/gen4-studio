@@ -8,6 +8,11 @@ license.workspace = true
 # Fixtures (synthetic project, vanilla helpers) for this crate's and downstream tests.
 test-support = ["dep:tempfile", "g4-formats/test-support"]
 
+[[example]]
+# The synthetic project for the packaged smoke test (scripts/smoke-packaged.sh).
+name = "make_synthetic"
+required-features = ["test-support"]
+
 [dependencies]
 g4-formats = { path = "../g4-formats" }
 g4-xdelta = { path = "../g4-xdelta" }
