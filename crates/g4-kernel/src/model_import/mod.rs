@@ -2,6 +2,7 @@
 //! [`mesh::to_faces`] turns it into the faces of the baker (`bake::Face`).
 
 pub mod mesh;
+pub mod samples;
 
 use std::path::Path;
 

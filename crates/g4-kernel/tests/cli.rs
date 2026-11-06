@@ -2643,3 +2643,26 @@ fn cli_delete_plan_apply_restore() {
         .code(1)
         .stderr(contains("Trainer 0001 ist nicht gelöscht."));
 }
+
+#[test]
+fn import_samples_writes_the_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("samples");
+    let out = g4k()
+        .args(["import-samples"])
+        .arg(&target)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(lines.len(), 14, "{text}");
+    for line in &lines {
+        let path = std::path::Path::new(line);
+        assert!(path.is_file(), "{line}");
+        assert_eq!(path.parent().unwrap(), target);
+    }
+    assert!(target.join("g4_imp_plane.glb").is_file());
+}
