@@ -7,7 +7,7 @@ use g4_formats::nsbmd::gpu::{GpuCmd, Prim};
 use g4_formats::nsbmd::model::{Bone, Material, Model, ModelHead, Pairing, Shape};
 use g4_formats::nsbmd::sbc::SbcOp;
 
-use super::strips;
+use super::strips::{self, RunKind};
 use super::{
     AreaStyle, BakeCode, BakeInput, BakeMessage, Face, POS_SCALE, pack_texture, texture_order,
 };
@@ -73,12 +73,13 @@ pub(crate) fn vertex(fx: [i32; 3]) -> GpuCmd {
     }
 }
 
-/// The model of `faces`, the quad strips sent and the faces sent as single quads. The faces
-/// are checked (`bake`): corners in range, every texture in the pack.
+/// The model of `faces`, the quad strips sent, the faces sent as single quads and the faces
+/// sent as triangles. The faces are checked (`bake`): corners in range, every texture in the
+/// pack.
 pub(crate) fn model(
     faces: &[Face],
     input: &BakeInput,
-) -> Result<(Model, usize, usize), BakeMessage> {
+) -> Result<(Model, usize, usize, usize), BakeMessage> {
     let names = texture_order(faces);
     if names.len() > MAX_TEXTURES {
         return Err(BakeMessage::error(
@@ -103,16 +104,16 @@ pub(crate) fn model(
     let mut textures = Vec::new();
     let mut palettes: Vec<Pairing> = Vec::new();
     let mut shapes = Vec::new();
-    let (mut strips, mut singles) = (0, 0);
+    let (mut strips, mut singles, mut triangles) = (0, 0, 0);
     for (m, name) in names.iter().enumerate() {
         let t = pack_texture(name, input.textures)?;
         let mi = m as u8; // m < 256: checked above
         let mut list = List::new(faces, input.style, [t.width, t.height]);
         for run in strips::runs(faces, &of_texture[m]) {
-            if run.strip {
-                strips += list.strip(&run.faces)?;
-            } else {
-                singles += list.quads(&run.faces)?;
+            match run.kind {
+                RunKind::Strip => strips += list.strip(&run.faces)?,
+                RunKind::Quads => singles += list.quads(&run.faces)?,
+                RunKind::Triangles => triangles += list.triangles(&run.faces)?,
             }
         }
         let tex_name = dict_name(&t.name)?;
@@ -222,7 +223,7 @@ pub(crate) fn model(
     h.box_size = size;
     h.box_scale = scale * FX;
     h.box_scale_inv = FX / scale;
-    Ok((model, strips, singles))
+    Ok((model, strips, singles, triangles))
 }
 
 /// A head counter; past `u16` (a model far over the size limit) it stays at the maximum.
@@ -281,7 +282,7 @@ fn bounding_box(faces: &[Face]) -> ([i16; 3], [i16; 3], i32) {
 
 /// The display list of one shape while it is built: `TEXCOORD` only when (s, t) changes
 /// against the last one sent in this shape, outdoor a `NORMAL` before the first corner of a
-/// strip or single quad when it changes, indoor `COLOR` white once at the start.
+/// strip, single quad or triangle when it changes, indoor `COLOR` white once at the start.
 struct List<'a> {
     faces: &'a [Face],
     outdoor: bool,
@@ -353,6 +354,21 @@ impl<'a> List<'a> {
         Ok(run.len())
     }
 
+    /// One `BEGIN_VTXS` triangles group with every face of `run`, corners c0, c1, c2.
+    fn triangles(&mut self, run: &[usize]) -> Result<usize, BakeMessage> {
+        self.cmds.push(GpuCmd::begin(Prim::Triangles));
+        for &f in run {
+            // uv[3] == uv[2]: the shift over the four corners is the one over the three.
+            let shift = self.shift(f)?;
+            self.normal(f);
+            for k in 0..3 {
+                self.corner(f, k, shift);
+            }
+        }
+        self.cmds.push(GpuCmd::end());
+        Ok(run.len())
+    }
+
     fn normal(&mut self, f: usize) {
         if !self.outdoor {
             return;
@@ -376,10 +392,10 @@ impl<'a> List<'a> {
             .push(vertex(face.corners[k].map(|w| w.saturating_mul(POS_SCALE))));
     }
 
-    /// The uv shift of a strip or single quad starting with face `f`, per axis: 0 while the
-    /// face fits, else the largest multiple of the texture side at or below its least uv (one
-    /// side more when the face still does not fit, so every face with a span ≤ 2047 texels
-    /// fits); a face that fits under none of the three is `bake.face-uv-range`. With
+    /// The uv shift of a strip, single quad or triangle starting with face `f`, per axis: 0
+    /// while the face fits, else the largest multiple of the texture side at or below its least
+    /// uv (one side more when the face still does not fit, so every face with a span ≤ 2047
+    /// texels fits); a face that fits under none of the three is `bake.face-uv-range`. With
     /// `r = min mod side` a shifted face fits exactly when `span ≤ 2047 + side − r`, so a span
     /// over 2047 + side is always refused (unless the uv fit unshifted), and one over 4095
     /// always.

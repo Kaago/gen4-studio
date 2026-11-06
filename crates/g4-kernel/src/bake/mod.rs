@@ -3,7 +3,7 @@
 //! `bake` is pure: faces, the textures of the map texture pack and the area style go in, the
 //! NSBMD bytes and a report with check codes come out. The subset it writes (one bone, one
 //! material and one shape per texture, quad strips over runs of texture, layer and normal,
-//! `VTX_10` on the 1/64 raster, `TEXCOORD` only on change, a style per area) is described in
+//! triangles in a group of their own, `VTX_10` on the 1/64 raster, `TEXCOORD` only on change, a style per area) is described in
 //! `docs/formats/nsbmd.md`, section „Teilmenge des Bäckers“.
 
 mod encode;
@@ -29,17 +29,25 @@ use g4_formats::nsbmd::Nsbmd;
 
 use crate::checks::Limits;
 
-/// One quad of the map: the baker's neutral input.
+/// One quad or triangle of the map: the baker's neutral input.
 ///
 /// `corners` in world units (16 per tile, y up), counter-clockwise seen from above; `uv` in
 /// texels, world-bound; `texture`: name in the map texture pack (≤ 16 bytes); `layer`: the
-/// layer.
+/// layer. A face whose corner 3 repeats corner 2 in position and uv is a triangle
+/// (`is_triangle`); every other face is a quad.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Face {
     pub corners: [[i32; 3]; 4],
     pub uv: [[i32; 2]; 4],
     pub texture: String,
     pub layer: u8,
+}
+
+impl Face {
+    /// A triangle: corner 3 repeats corner 2 (position and uv); sent as BEGIN_VTXS Triangles.
+    pub fn is_triangle(&self) -> bool {
+        self.corners[3] == self.corners[2] && self.uv[3] == self.uv[2]
+    }
 }
 
 /// How an area is lit: outdoor areas take light 0 with normals (time of day), indoor areas
@@ -231,6 +239,8 @@ pub struct BakeReport {
     /// Faces sent as single quads.
     pub single_quads: usize,
     pub messages: Vec<BakeMessage>,
+    /// Faces sent as triangles.
+    pub triangles: usize,
 }
 
 impl BakeReport {
@@ -262,16 +272,18 @@ pub fn bake(faces: &[Face], input: &BakeInput) -> BakeReport {
         strips: 0,
         single_quads: 0,
         messages: check(faces, input),
+        triangles: 0,
     };
     if report.messages.is_empty() {
         match encode::model(faces, input) {
             Err(m) => report.messages.push(m),
-            Ok((model, strips, singles)) => {
+            Ok((model, strips, singles, triangles)) => {
                 let g = model.geometry();
                 report.verts = g.verts;
                 report.polys = g.polys;
                 report.strips = strips;
                 report.single_quads = singles;
+                report.triangles = triangles;
                 let file = Nsbmd {
                     version: 2,
                     models: vec![(encode::MODEL_NAME, model)],
@@ -743,6 +755,132 @@ mod tests {
         assert_ne!(strips::normal(&wall), strips::normal(&floor));
         let r = bake_in(&[floor, wall]);
         assert_eq!((r.strips, r.single_quads), (0, 2));
+    }
+
+    /// A floor triangle (x, z) → (x, z + 16) → (x + 16, z + 16), corner 3 repeating corner 2,
+    /// uv world-bound `(x + 256, z + 256)`.
+    fn triangle(x: i32, z: i32, texture: &str) -> Face {
+        let corners = [
+            [x, 0, z],
+            [x, 0, z + 16],
+            [x + 16, 0, z + 16],
+            [x + 16, 0, z + 16],
+        ];
+        Face {
+            corners,
+            uv: corners.map(|[x, _, z]| [x + 256, z + 256]),
+            texture: texture.to_string(),
+            layer: 0,
+        }
+    }
+
+    #[test]
+    fn a_triangle_face_is_sent_as_a_triangle() {
+        let pack = pack();
+        let face = triangle(0, 0, "a");
+        assert!(face.is_triangle());
+        assert_eq!(face.uv[3], face.uv[2]);
+        let r = bake(
+            std::slice::from_ref(&face),
+            &input(AreaStyle::Outdoor, &pack),
+        );
+        assert_eq!(r.refusal(), None);
+        let m = model_of(&r);
+        assert!(m.counters_match());
+        let h = &m.head;
+        assert_eq!((h.num_tris, h.num_quads, h.num_verts), (1, 0, 3));
+        assert_eq!((r.triangles, r.single_quads, r.strips), (1, 0, 0));
+        let g = groups(&m.shapes[0]);
+        assert_eq!(g.len(), 1);
+        assert_eq!(g[0].prim, 0);
+        assert_eq!(
+            corners_of(&g[0].cmds),
+            (0..3)
+                .map(|k| (face.corners[k], face.uv[k]))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn triangles_never_join_a_strip() {
+        let pack = pack();
+        // A row of three tiles and two triangles whose first edge (c0, c1) is the row's last
+        // edge (c3, c2), position and uv: as quads both would continue the strip.
+        let row: Vec<Face> = (0..3).map(|tx| tile(tx, 0, 0, "a", 0)).collect();
+        let last = &row[2];
+        let [x, _, z] = last.corners[3];
+        let t0 = triangle(x, z, "a");
+        let mut t1 = triangle(x, z, "a");
+        t1.corners[2] = [x + 16, 0, z];
+        t1.corners[3] = t1.corners[2];
+        t1.uv[2] = [x + 16 + 256, z + 256];
+        t1.uv[3] = t1.uv[2];
+        for t in [&t0, &t1] {
+            assert!(t.is_triangle());
+            assert_eq!((t.corners[0], t.uv[0]), (last.corners[3], last.uv[3]));
+            assert_eq!((t.corners[1], t.uv[1]), (last.corners[2], last.uv[2]));
+            assert_eq!(strips::normal(t), strips::normal(last));
+        }
+        // Triangles first in the input: still after the strip.
+        let faces = [
+            t0.clone(),
+            row[0].clone(),
+            row[1].clone(),
+            row[2].clone(),
+            t1,
+        ];
+        let r = bake(&faces, &input(AreaStyle::Outdoor, &pack));
+        assert_eq!(r.refusal(), None);
+        assert_eq!((r.strips, r.single_quads, r.triangles), (1, 0, 2));
+        let m = model_of(&r);
+        assert!(m.counters_match());
+        assert_eq!((m.head.num_quads, m.head.num_tris), (3, 2));
+        let g = groups(&m.shapes[0]);
+        assert_eq!(
+            g.iter()
+                .map(|g| (g.prim, count(&g.cmds, op::VTX_10)))
+                .collect::<Vec<_>>(),
+            [(3, 8), (0, 6)]
+        );
+        // The strip holds the row's corners only, the triangles in input order.
+        let strip: BTreeSet<_> = corners_of(&g[0].cmds).into_iter().collect();
+        assert_eq!(strip, input_corners(&row));
+        let tris = corners_of(&g[1].cmds);
+        assert_eq!(
+            tris[0..3],
+            (0..3)
+                .map(|k| (t0.corners[k], t0.uv[k]))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_quad_with_equal_corner_positions_but_other_uv_stays_a_quad() {
+        let pack = pack();
+        let mut face = triangle(0, 0, "a");
+        face.uv[3] = [face.uv[2][0], face.uv[2][1] - 16];
+        assert_eq!(face.corners[3], face.corners[2]);
+        assert!(!face.is_triangle());
+        let r = bake(&[face], &input(AreaStyle::Outdoor, &pack));
+        assert_eq!(r.refusal(), None);
+        let m = model_of(&r);
+        assert!(m.counters_match());
+        assert_eq!((m.head.num_quads, m.head.num_tris), (1, 0));
+        assert_eq!((r.single_quads, r.triangles), (1, 0));
+    }
+
+    #[test]
+    fn triangle_normal_points_out() {
+        let pack = pack();
+        let r = bake(&[triangle(0, 0, "a")], &input(AreaStyle::Outdoor, &pack));
+        let shape = &model_of(&r).shapes[0];
+        let normals: Vec<[i32; 3]> = shape
+            .commands
+            .iter()
+            .filter(|c| c.op == op::NORMAL)
+            .map(|c| fields_10(c.params[0]))
+            .collect();
+        assert_eq!(normals, [[0, 511, 0]]);
     }
 
     #[test]
