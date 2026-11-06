@@ -30,6 +30,7 @@ const KIND_LABELS: Record<AssetKind, string> = {
   OtherPokemonBattleSprites: "Formen-Kampfbild",
   TrainerGraphics: "Trainerbild",
   EggMoves: "Ei-Attacken",
+  WorldMap: "Welt",
 };
 
 /** German display name of an asset kind. */

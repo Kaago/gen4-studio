@@ -1,17 +1,18 @@
 import { useEffect } from "react";
-import { errorText, getMap, getMapModelGlb, mapModelTextureStatus } from "../../api";
+import { errorText, getMap, mapModelTextureStatus } from "../../api";
 import type { MatrixDto, TextureIssue, TileBehavior } from "../../api";
 import type { Message } from "../../app/message";
 import type { CellRect } from "../../workbench/sceneScope";
 import { fetchCurrent } from "../../reload";
 import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "../load";
-import { disposeTree, parseGlb } from "../sceneUtil";
+import { disposeTree } from "../sceneUtil";
 import { reportBuildings } from "./buildingReport";
 import { buildingModelJob } from "./buildingModels";
 import { showCellFrame } from "./cellFrame";
 import { frameCells } from "./camera";
 import { createGround } from "../ground";
 import { addModel, buildContent, removeMapModel, removeModels, setMarkers } from "./content";
+import { mapModel } from "./worldMesh";
 import { fetchEvents } from "./eventFetch";
 import { setHeightsShown } from "./heightLayer";
 import type { SceneHost } from "./SceneHost";
@@ -116,7 +117,7 @@ export async function loadModels(h: SceneHost, matrix: MatrixDto, area: number, 
   const mapTasks = modelIds.map((id) => async () => {
     if (stale()) return;
     const gen = h.mapModelGen.get(id) ?? 0;
-    const model = await getMapModelGlb(id, area).then(parseGlb);
+    const model = await mapModel(h, id, area);
     // The backend falls back to an untextured model when the tileset is unusable; ask why.
     // A failing status call only costs the note.
     await mapModelTextureStatus(id, area)

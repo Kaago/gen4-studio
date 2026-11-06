@@ -52,11 +52,14 @@ function fakeScene() {
   const h = {
     matrix,
     loaded: new Map([
-      [5, {}],
-      [2, {}],
+      [5, { map: { world: false } }],
+      [2, { map: { world: false } }],
     ]),
     content: new THREE.Group(),
     models: [],
+    // Binary maps: `mapModel` takes their GLB and notes that they show no world mesh.
+    worldMeshes: new Map(),
+    noteWorldMesh: vi.fn(),
     queueRender: vi.fn(),
     disposed: false,
     mapModelGen: new Map(),
