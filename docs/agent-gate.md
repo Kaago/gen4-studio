@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) [phase-6-1-gate.md](phase-6-1-gate.md) (Writer: Modelle und Texturen) und [phase-6-2-gate.md](phase-6-2-gate.md) (BDHC und Gelände) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) [phase-6-1-gate.md](phase-6-1-gate.md) (Writer: Modelle und Texturen), [phase-6-2-gate.md](phase-6-2-gate.md) (BDHC und Gelände) und [phase-6-3a-gate.md](phase-6-3a-gate.md) (Weltformat und Vorschau) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -2061,3 +2061,50 @@ scripts/agent/mcp.sh call get_map_budget '{"index":188}'       # bdhc {used 2145
 ```
 
 **Blick-Bilder** mit Chrome headless über CDP (1440 × 900, Hell und Dunkel über `g4.theme`, Kompakt über `g4.density`, je Neuladen): Karte 100 mit „Gelände“, mit „Höhen“, mit gewählter Figur und mit Budget, Karte 188 und Karte 242 mit Budget, je Hell, Dunkel, Kompakt (18 Bilder `blick-karte<Karte>-<Zustand>-<Thema>.png`). Danach die Test-Umgebung über ihre PID beenden, `lsof -iTCP:1440 -iTCP:1441 -sTCP:LISTEN` leer.
+
+## Phase 6.3a ([phase-6-3a-gate.md](phase-6-3a-gate.md))
+
+6.3a bringt das Weltformat und seine Vorschau: Karten des Textprojekts mit `source: "world"` und dem Objekt `world` ([world_map.md](formats/world_map.md)), Tilesets `data/tilesets/NNNN.json` aus dem Kartentextur-Paket ([tileset.md](formats/tileset.md)), die Store-Art `WorldMap` (Anlegen und Ändern je ein Undo-Schritt), den Vernetzer und das Netz in der Szene, Schema 3 des Textprojekts mit der Migration `maps.world`. Keine kuratierten MCP-Werkzeuge: die sieben Befehle gehen über `g4_call` mit `--expert`.
+
+**Kopien** (unter `$G4_ROMS_DIR/_testkopien`, `cp -cR` für den Ordner, `cp -c` für die `.nds`): `6-3a-task0-pt`, `6-3a-task0-hgde`, `6-3a-task0-hgus` (ohne `.nds`, nur gelesen) für Task 0 und die gated Tests von `tests/world.rs`; `6-3a-t8-pt_DSPRE_contents`, `6-3a-t8-hgde_DSPRE_contents`, `6-3a-t8-hgus_DSPRE_contents` je mit `6-3a-t8-<spiel>.nds` daneben für Round-Trip, Export und Migration (geschrieben wird nur auf `vanilla_copy()`); `6-3a-web_DSPRE_contents` (Platin DE) mit `6-3a-web.nds` für den Browser, eingerichtet mit `call.sh open_project`, `assign_base '{"nds":"../6-3a-web.nds"}'`, `adopt_text_project`.
+
+**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools/apicula` als Symlink auf den Haupt-Checkout (nie einchecken), Test-Umgebung auf `G4_VITE_PORT=1460 G4_BRIDGE_PORT=1461`. Lange Läufe im Hintergrund mit Log unter `target/agent/6-3a-<zweck>.log`, `uptime` davor und danach; ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+
+**Wo was ist:** Die Leinwand der Szene trägt bei einer Welt-Karte `canvas[data-world-mesh="<Karte>"]` und `[data-world-mesh-faces="<Flächen>"]` (Karten ohne Welt: GLB, keines der Attribute). Verlauf „Welt angelegt: Karte NNNN“, „Welt geändert: Karte NNNN (N Zellen)“, Zähler „Verlauf, N Schritte“ am Knopf. Befehle über `scripts/agent/mcp.sh call g4_call '{"command":"<name>","args":{…}}'` (vorher `call.sh agent_set_enabled '{"on":true}'`, `agent_set_grant` mit Schreiben, `agent_set_expert '{"on":true}'`): Lesen `world_get {map}`, `tileset_get {package}`, `get_world_mesh {map}`, `get_tileset_texture`; Schreiben `world_create {req: {map, tileset?, fill?, height?}}`, `world_edit {req: {map, changes}}`, `tileset_save`. Ein Schreiben über `call.sh` erreicht die offene Seite nicht; Agenten-Schritte daher über `mcp.sh`.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent | im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; neu sind die Schritte `world mesh (timing)` und `world mesh bridge (timing)` am Ende; die gated Tests von `tests/world.rs` laufen im Schritt je Projekt mit |
+| (1) gated Tests einzeln | Agent | je Kopie im Release-Profil, nacheinander, Befehle unten; die Zeilen `tilesets …`, `vote-shares …`, `world on map …`, `textproject-stats …` und `textproject-migrate-v2 …` in die Zahlentabelle |
+| (1) Zeittests, `cargo deny` | Agent | Befehle unten; `world-mesh … median_us=…` und `world-mesh-bridge median_ms=…` |
+| (2) Messung | Agent | Task 0, `python3 -I docs/research/2026-11-05-phase-6/task0-6-3a-vorgaben.py <Kopie> --json` |
+| (3) Browser | Agent | Test-Umgebung auf 1460/1461, Ablauf unten |
+| (4) Blick, älteres Studio | Agent + Blick, Hand | Gate-Datei, „(4) Hand und Blick“ |
+
+**Automatik (1)**, aus der Wurzel des Worktrees (`<k>` = `pt`, `hgde`, `hgus`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
+G4_ROMS_DIR=$R G4_TEST_PROJECT="$K/6-3a-task0-<k>" \
+  cargo test --release -p g4-kernel --all-features --test world -- vanilla_ --nocapture --test-threads 1
+#   tilesets <Spielcode> packages=74 tiles=3130 … (Platin DE) bzw. packages=106 tiles=3659 … (HeartGold DE und US)
+G4_ROMS_DIR=$R G4_TEST_PROJECT="$K/6-3a-t8-<k>_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features --test textproject --test textproject_migrate -- \
+  with_world vanilla_migration --nocapture --test-threads 1
+#   textproject_round_trip_with_world, textproject_export_idempotent_with_world, vanilla_migration_v2_to_v3_changes_only_the_manifest
+#   (je Spiel etwa 25 min unter Last)
+G4_TIMING_STRICT=1 cargo test --release -p g4-kernel --all-features --test world -- mesh_of_a_full_map_is_fast --nocapture --test-threads 1
+G4_TIMING_STRICT=1 cargo test -p studio world_mesh_over_the_command_path_is_fast -- --nocapture --test-threads 1
+cargo deny check
+```
+
+Erwartet: Platin DE 74 Pakete, 3 130 Kacheln (1 765 vanilla, 1 365 unklar), HeartGold DE und US 106 / 3 659 (2 612 / 1 047); Welt auf Karte 0000 mit Paket 0006 (Platin) bzw. 0002 (HeartGold); Netz ≤ 20 ms (Release, gemessen 0,08 bis 0,11 ms), Brücke ≤ 50 ms (Debug, gemessen 6,7 bis 9,6 ms); `cargo deny` ohne Fehler.
+
+**Browser (3)**, Test-Umgebung `G4_ROMS_DIR=$R G4_VITE_PORT=1460 G4_BRIDGE_PORT=1461 bash scripts/agent/studio-web.sh > target/agent/6-3a-web.log 2>&1 &`, Seite `http://127.0.0.1:1460/?project=$K/6-3a-web_DSPRE_contents`:
+
+1. Ort Zweiblattdorf (Platin DE: Header 411, Matrix 0, Zelle 3, 27 = Karte 0000): kein `data-world-mesh`.
+2. `mcp.sh call g4_call '{"command":"world_create","args":{"req":{"map":0}}}'` → `document.querySelector('canvas[data-world-mesh]').dataset` zeigt `worldMesh` 0, `worldMeshFaces` 1; Verlauf „Welt angelegt: Karte 0000“.
+3. `mcp.sh call g4_call '{"command":"world_edit","args":{"req":{"map":0,"changes":[{"cells":[[4,4],[5,4],[4,5],[5,5]],"height":2},{"cells":[[0,0],[1,0],[2,0]],"tile":"0001"}]}}}'` → Flächen > 1 (11), „Welt geändert: Karte 0000 (7 Zellen)“.
+4. ⌘Z in der App (echte Taste) → Flächen 1, `call.sh world_get '{"map":0}'` byte-gleich mit dem Stand nach 2.; ⇧⌘Z → wieder 11. ⌘Z zweimal → beide Attribute weg, GLB.
+5. Hell und Dunkel; Bilder über das Browser-Werkzeug beschreiben (Ort, Zahlen), Notiz nach `target/agent/gate-<datum>/6-3a/browser.md`. Danach die Test-Umgebung über ihre PID beenden, `lsof -iTCP:1460 -iTCP:1461 -sTCP:LISTEN` leer.
