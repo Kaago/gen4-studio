@@ -72,8 +72,9 @@ Die Kollision ist in beiden Familien nur Bit 7. Ein Test hält jeden `name` gege
    Zelle mit der **höheren** Kante `| 0x80` (Schrittgeräusch-Bits bleiben). Eine Stufe (8 E)
    bleibt frei (Bordstein, Schwelle; Vanilla zu 42 % / 61 % frei). Zwei Stufen ließe die Engine
    zu, Vanilla blockiert sie zu 97 % / 95 %, öfter oben als unten (Entscheidung „obere Zelle“).
-   Ab 24 E blockiert die Engine ohnehin; die Ableitung setzt trotzdem 0x80 (klar im Overlay,
-   sicher für Figuren).
+   Liegen die Zellmitten 20 E oder mehr auseinander, blockiert die Engine den Schritt ohnehin
+   (eine Kante von drei Stufen, 24 E, etwa); die Ableitung setzt trotzdem 0x80 (klar im
+   Overlay, sicher für Figuren).
 3. **Kartenränder** zählen nicht: die Nachbarkarte kennt die Ableitung nicht. Eine Zelle in
    Spalte 31 auf Höhe 5 neben Spalte 30 auf Höhe 0 wird über die Kante zur 30 blockiert, nicht
    über den Rand.
@@ -190,7 +191,7 @@ Hochladen ab (A §2.4); die Schätzung ist eine Warnung, keine Prüfung.
 **Abweichung auf Vanilla** (gated Test `terrain_over_the_command_path_on_the_vanilla_copy`, über
 alle Gebiete): Platin Median 38 272 statt 37 744 B, Maximum 115 648 statt 110 640 B; HeartGold
 Median 31 136 statt 27 144 B, Maximum 89 296 statt 87 424 B (gemessen: A §2.4). Die Schätzung
-liegt also 2 bis 15 % zu hoch. Folge: das größte Gebiet jeder Familie (Gebiet 6, etwa die
+liegt also 1 bis 15 % zu hoch. Folge: das größte Gebiet jeder Familie (Gebiet 6, etwa die
 Platin-Karten 0 und 3) zeigt auf unverändertem Vanilla „Knapp“, bis `vram_bytes` geteilte Texel
 nur einmal zählt (sobald `Nsbtx` aus 6.1 die Texel-Offsets nennt).
 

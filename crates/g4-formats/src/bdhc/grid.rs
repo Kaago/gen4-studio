@@ -89,6 +89,7 @@ impl Ramp {
 }
 
 impl Direction {
+    /// The direction pointing the other way (North and South, East and West swap).
     pub fn opposite(self) -> Direction {
         match self {
             Direction::North => Direction::South,

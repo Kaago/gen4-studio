@@ -227,7 +227,11 @@ mit genau diesen Zahlen.
 Die Höhensuche des Spiels trifft auf den erzeugten Platten an jeder Kachelmitte und an vier
 Punkten 4 E daneben die Sollhöhe bis auf die Rundung von `n` und `d` auf 1/4096. In den
 Beispielrastern des Gutachtens sind das höchstens **0,06 E** (die Rampenmitte der Probe:
-3,989 E statt 4). Der Fehler wächst mit der Höhe, weil `n_y` gerundet ist: an einer
-Zwei-Stufen-Rampe auf 488 E sind es 0,079 E, das Höchste der 1 004 Testraster
+3,989 E statt 4). Der Fehler wächst nicht mit der Höhe der Kachel, sondern mit `|c|/2`, der
+Höhe der bis zur Kartenmitte verlängerten Ebene, weil `n_y` gerundet ist und `d` diesen Wert
+trägt. Für jedes Raster, das `check()` besteht, gilt `|c/2| ≤ 736` E (Zwei-Stufen-Rampe mit
+Unterkante 60 Stufen am Kartenrand), und das `n_y` einer Zwei-Stufen-Rampe, 2 896,31, wird
+2 896; der Fehler bleibt damit unter **0,08 E** (736 · 0,31 / 2 896). Gemessen höchstens
+0,0786 E an einer Zwei-Stufen-Rampe auf 488 E, das Höchste der 1 004 Testraster
 (`generated_heights_hit_five_points_per_cell`, Grenze 0,1 E). Flache Platten haben keinen
 Fehler.

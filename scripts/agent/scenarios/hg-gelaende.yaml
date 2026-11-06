@@ -52,6 +52,9 @@
 # this order it fails, as the gate wants, with "Höhe 0 statt 16" at the step after `expect-at 18 21`.
 # Every assertion of the plan is kept. The way itself is the plan's: the arrival steps off the door
 # as expected (Platin east to (13, 21), HeartGold west to (11, 21)), nothing blocked on the way.
+# The payload check is `{path: payload, equals: 318}`: scenario expectations only test equality,
+# and 318 is stricter than the plan's "≤ 36 864". The gift figure uses `graphics_id: 317`, the
+# HeartGold value as in hg-trainer-begegnung.yaml; the plan's 6 is Platinum's.
 # Measured 06.11.2026 (6-2-szen-hg, BDHC=grid, exit 0): expect-height 0 (6 hits) at (14, 21), 16
 # (6) at (18, 21), 12 (4) at (17, 21); walk-until-blocked stops at (22, 21), (18, 24) and
 # (24, 26); a wild Mewtu Lv 5 after 3 grass steps from (16, 11). BDHC=flat (6-2-flach-hg): exit 2,

@@ -61,13 +61,15 @@ export function createHover(h: SceneHost, picker: Picker, refs: SceneRefs, busy:
       return;
     }
     const cell = picked.data.map.permissions[picked.y * MAP_SIZE + picked.x] ?? [0, 0];
-    // The collision byte is part of the key so a painted tile refreshes while the pointer rests on it.
-    const key = `${picked.mapId}:${picked.col}:${picked.row}:${picked.x}:${picked.y}:${cell[0]}:${cell[1]}`;
-    if (key === shown) return;
-    shown = key;
     const absX = picked.col * MAP_SIZE + picked.x;
     const absZ = picked.row * MAP_SIZE + picked.y;
-    refs.callbacks.current.onInspect({ kind: "tile", map: picked.mapId, x: picked.x, y: picked.y, absX, absZ, info: describeTile(cell, h.names), units: h.ground.units(absX, absZ) });
+    const units = h.ground.units(absX, absZ);
+    // The collision byte and the height are part of the key so a painted tile, or one an undo or
+    // set_map_terrain gave another height, refreshes while the pointer rests on it.
+    const key = `${picked.mapId}:${picked.col}:${picked.row}:${picked.x}:${picked.y}:${cell[0]}:${cell[1]}:${units}`;
+    if (key === shown) return;
+    shown = key;
+    refs.callbacks.current.onInspect({ kind: "tile", map: picked.mapId, x: picked.x, y: picked.y, absX, absZ, info: describeTile(cell, h.names), units });
   };
   const scheduleHover = () => {
     if (frame === 0) frame = requestAnimationFrame(showHover);

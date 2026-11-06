@@ -91,7 +91,7 @@ fn bits_per_texel(format: u8) -> u64 {
 
 /// The VRAM a texture pack takes, estimated from its lists: texels `w · h · bpp / 8` per
 /// texture, two bytes per palette colour. Texels shared by two textures count twice: on vanilla
-/// the estimate is 2–15 % above the measurement of Gutachten A §2.4 (Platinum median 38 272 vs
+/// the estimate is 1–15 % above the measurement of Gutachten A §2.4 (Platinum median 38 272 vs
 /// 37 744 B, maximum 115 648 vs 110 640 B; HGSS 31 136 vs 27 144 B, 89 296 vs 87 424 B), so
 /// area 6 of each family shows Tight until shared texels are counted once (when 6.1's `Nsbtx`
 /// exposes the texel offsets).
