@@ -23,7 +23,7 @@ describe("SceneBar", () => {
   });
 
   const show = (props: Partial<SceneBarProps> = {}) =>
-    act(() => root.render(<SceneBar showPermissions showEvents={false} topDown={false} onShowPermissions={() => {}} onShowEvents={() => {}} onTopDown={() => {}} {...props} />));
+    act(() => root.render(<SceneBar showPermissions showHeights={false} showEvents={false} topDown={false} onShowPermissions={() => {}} onShowHeights={() => {}} onShowEvents={() => {}} onTopDown={() => {}} {...props} />));
   const toggle = (name: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!;
 
   it("is_a_toolbar_with_one_toggle_per_layer_that_reports_its_state", () => {
@@ -50,6 +50,24 @@ describe("SceneBar", () => {
   it("says_no_raster_matrix_or_header_in_building", () => {
     show();
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("the_heights_button_follows_its_switch", () => {
+    const onShowHeights = vi.fn();
+    show({ onShowHeights });
+    // After „Gelände“, in the same group.
+    const layers = [...toggle("Gelände").parentElement!.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"));
+    expect(layers).toEqual(["Gelände", "Höhen", "Ereignisse"]);
+    expect(toggle("Höhen").getAttribute("aria-pressed")).toBe("false");
+    // Its glyph is its own, not the one of „Draufsicht“ beside it (both unpressed here).
+    expect(toggle("Höhen").querySelector("svg")?.innerHTML).not.toBe(toggle("Draufsicht").querySelector("svg")?.innerHTML);
+    act(() => toggle("Höhen").click());
+    expect(onShowHeights).toHaveBeenCalledWith(true);
+    show({ showPermissions: false, showHeights: true, onShowHeights });
+    expect(toggle("Höhen").getAttribute("aria-pressed")).toBe("true");
+    expect(toggle("Gelände").getAttribute("aria-pressed")).toBe("false");
+    act(() => toggle("Höhen").click());
+    expect(onShowHeights).toHaveBeenLastCalledWith(false);
   });
 
   it("asks_for_the_opposite_state_when_a_toggle_is_pressed", () => {

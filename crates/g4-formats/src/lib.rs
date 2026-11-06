@@ -1,4 +1,5 @@
 pub mod area_data;
+pub mod bdhc;
 pub mod data;
 pub mod error;
 pub mod game;

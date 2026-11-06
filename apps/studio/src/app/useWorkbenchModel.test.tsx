@@ -101,9 +101,9 @@ const checks = fakeChecks();
 checks.feed.update({ reported: true });
 const dataStore = new DataStore();
 const sceneHistory = { back: noop, forward: noop, canBack: false, canForward: true };
-const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, depth: "bauen" as const, tool: "select" as const, onTool: noop, onTileClick: noop };
+const view = { showPermissions: true, setShowPermissions: noop, showHeights: false, setShowHeights: noop, showEvents: true, setShowEvents: noop, depth: "bauen" as const, tool: "select" as const, onTool: noop, onTileClick: noop };
 
-const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
+const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null }, units: null });
 
 interface Volatile {
   /** What is pinned in the inspector (default: header 1). */

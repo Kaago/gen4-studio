@@ -5,7 +5,10 @@ import { szene } from "../../ui/tokens/tokens";
 import type { EventsDto, MatrixDto, SpriteDto, TileBehavior } from "../../api";
 import { MAP_SIZE, MODEL_SCALE } from "../layout";
 import { resetSprites } from "../sprites";
-import { OVERLAY_Y, addModel, buildContent, recolourMap, removeMapModel, removeModels, setMarkers } from "./content";
+import { createGround, flatGround } from "../ground";
+import { MARKER_Y, selectMarker } from "../markers";
+import { OVERLAY_Y, addModel, buildContent, moveMapGround, recolourMap, removeMapModel, removeModels, reportSelectedMarker, setMarkers } from "./content";
+import { HEIGHT_LAYER_Y, showHeightLayer } from "./heightLayer";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
@@ -13,7 +16,7 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 const matrix: MatrixDto = { index: 0, name: "m", width: 2, height: 1, maps: [1, 1], headers: null, altitudes: null };
 
-const loadedMap = (index: number): Loaded => ({ map: { index, permissions: Array.from({ length: MAP_SIZE * MAP_SIZE }, () => [0, 0] as [number, number]), buildings: [] } });
+const loadedMap = (index: number): Loaded => ({ map: { index, permissions: Array.from({ length: MAP_SIZE * MAP_SIZE }, () => [0, 0] as [number, number]), buildings: [], heights: [] } });
 
 /** The parts of a scene handle the content functions touch. */
 function handle(partial: Partial<SceneHost> = {}): SceneHost {
@@ -30,6 +33,8 @@ function handle(partial: Partial<SceneHost> = {}): SceneHost {
     events: null,
     selectedEvent: null,
     faulty: [],
+    ground: flatGround(matrix),
+    canvas: document.createElement("canvas"),
     queueRender: vi.fn(),
     ...partial,
   } as unknown as SceneHost;
@@ -136,6 +141,22 @@ describe("buildContent / recolourMap", () => {
     };
     expect(y(0)).toBeCloseTo(OVERLAY_Y, 5);
     expect(y(MAP_SIZE * MAP_SIZE)).toBeCloseTo(OVERLAY_Y + 1, 5);
+    built.buildings.dispose();
+  });
+
+  it("overlay_tiles_lie_on_the_ground", () => {
+    // Tile (3, 4) of map 1 lies 32 E (two tiles) up; the map shows in both cells.
+    const raisedTile = (index: number): Loaded => ({ map: { ...loadedMap(index).map, heights: Array.from({ length: MAP_SIZE * MAP_SIZE }, (_, i) => (i === 4 * MAP_SIZE + 3 ? 32 : 0)) } });
+    const loaded = new Map([[1, raisedTile(1)]]);
+    const built = buildContent(matrix, loaded, names, createGround(matrix, loaded));
+    const y = (i: number) => {
+      const m = new THREE.Matrix4();
+      built.tiles.getMatrixAt(i, m);
+      return new THREE.Vector3().setFromMatrixPosition(m).y;
+    };
+    expect(y(4 * MAP_SIZE + 3)).toBeCloseTo(OVERLAY_Y + 2, 5);
+    expect(y(4 * MAP_SIZE + 4)).toBeCloseTo(OVERLAY_Y, 5);
+    expect(y(MAP_SIZE * MAP_SIZE + 4 * MAP_SIZE + 3)).toBeCloseTo(OVERLAY_Y + 2, 5);
     built.buildings.dispose();
   });
 
@@ -297,5 +318,109 @@ describe("setMarkers sprites", () => {
     await settle();
     expect(sprites(h)[0].material.map).toBe(h.markers?.placeholder);
     expect(h.queueRender).not.toHaveBeenCalled();
+  });
+});
+
+describe("moveMapGround", () => {
+  /** Map 1 in cell 0, map 2 in cell 1; a figure on (5, 5) of map 1, a door on (40, 5) of map 2. */
+  const two: MatrixDto = { ...matrix, maps: [1, 2] };
+  const events: EventsDto = {
+    event_file_id: 1,
+    locked: null,
+    bg: [],
+    objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x: 5, z: 5, y: 0 }],
+    warps: [{ index: 0, x: 40, z: 5, dest_header_id: 1, dest_warp_id: 0, height: 0 }],
+    coords: [],
+  };
+  const withHeight = (index: number, units: number): Loaded => ({ map: { ...loadedMap(index).map, heights: Array.from({ length: MAP_SIZE * MAP_SIZE }, () => units) } });
+  const tileY = (h: SceneHost, i: number) => {
+    const m = new THREE.Matrix4();
+    h.tiles?.getMatrixAt(i, m);
+    return new THREE.Vector3().setFromMatrixPosition(m).y;
+  };
+  const markerY = (h: SceneHost, kind: string) => {
+    const [mesh] = [...h.markers!.entries].find(([, e]) => e.kind === kind)!;
+    if (!(mesh instanceof THREE.InstancedMesh)) return mesh.position.y;
+    const m = new THREE.Matrix4();
+    mesh.getMatrixAt(0, m);
+    return new THREE.Vector3().setFromMatrixPosition(m).y;
+  };
+
+  it("a_map_refresh_with_new_heights_moves_the_ground", () => {
+    vi.mocked(getObjectSprite).mockReset().mockResolvedValue(null);
+    const loaded = new Map([
+      [1, withHeight(1, 0)],
+      [2, withHeight(2, 0)],
+    ]);
+    const ground = createGround(two, loaded);
+    const built = buildContent(two, loaded, new Map(), ground);
+    const h = handle({ matrix: two, loaded, ground, tiles: built.tiles, bases: built.bases, selectedEvent: { file: 1, kind: "object", index: 0 } });
+    setMarkers(h, events, true);
+    expect(h.canvas.dataset.selectedMarkerY).toBe(MARKER_Y.toFixed(3));
+    // Both maps get new heights (an undo of `set_map_terrain`, say), but only map 1 is refreshed.
+    loaded.set(1, withHeight(1, 32));
+    loaded.set(2, withHeight(2, 16));
+    h.ground = createGround(two, loaded);
+    moveMapGround(h, 1);
+    expect(tileY(h, 5 * MAP_SIZE + 5)).toBeCloseTo(OVERLAY_Y + 2, 5);
+    expect(markerY(h, "object")).toBeCloseTo(2, 5);
+    expect(h.canvas.dataset.selectedMarkerY).toBe((MARKER_Y + 2).toFixed(3));
+    // Map 2 stays as it was until it is refreshed itself.
+    expect(tileY(h, MAP_SIZE * MAP_SIZE + 5 * MAP_SIZE + 8)).toBeCloseTo(OVERLAY_Y, 5);
+    expect(markerY(h, "warp")).toBeCloseTo(MARKER_Y, 5);
+    moveMapGround(h, 2);
+    expect(tileY(h, MAP_SIZE * MAP_SIZE + 5 * MAP_SIZE + 8)).toBeCloseTo(OVERLAY_Y + 1, 5);
+    expect(markerY(h, "warp")).toBeCloseTo(MARKER_Y + 1, 5);
+    built.buildings.dispose();
+  });
+
+  it("a_map_refresh_with_new_heights_rebuilds_the_heights_layer", () => {
+    const loaded = new Map([
+      [1, withHeight(1, 0)],
+      [2, withHeight(2, 0)],
+    ]);
+    const h = handle({ matrix: two, loaded, ground: createGround(two, loaded) });
+    showHeightLayer(h, true);
+    const before = h.heights!;
+    expect(h.content.children).toContain(before);
+    expect(h.canvas.dataset.heightsShown).toBe("true");
+    const plateY = (i: number) => {
+      const m = new THREE.Matrix4();
+      (h.heights!.getObjectByName("tiles") as THREE.InstancedMesh).getMatrixAt(i, m);
+      return new THREE.Vector3().setFromMatrixPosition(m).y;
+    };
+    const lines = () => (h.heights!.getObjectByName("isolines") as THREE.LineSegments).geometry.getAttribute("position").count / 2;
+    expect(plateY(5 * MAP_SIZE + 5)).toBeCloseTo(HEIGHT_LAYER_Y, 5);
+    expect(lines()).toBe(0);
+    // Map 1 rises by two steps: its plates move, the border to map 2 gets its line; the layer stays shown.
+    loaded.set(1, withHeight(1, 16));
+    h.ground = createGround(two, loaded);
+    moveMapGround(h, 1);
+    expect(h.heights).not.toBe(before);
+    expect(h.content.children).not.toContain(before);
+    expect(h.content.children).toContain(h.heights);
+    expect(plateY(5 * MAP_SIZE + 5)).toBeCloseTo(HEIGHT_LAYER_Y + 1, 5);
+    expect(lines()).toBe(MAP_SIZE);
+    expect(h.heights!.visible).toBe(true);
+    // A hidden layer stays hidden.
+    h.heights!.visible = false;
+    moveMapGround(h, 1);
+    expect(h.heights!.visible).toBe(false);
+    expect(h.canvas.dataset.heightsShown).toBeUndefined();
+  });
+
+  it("reports no marker height without a selection", () => {
+    const h = handle();
+    h.canvas.dataset.selectedMarkerY = "1.000";
+    setMarkers(h, events, true);
+    expect(h.canvas.dataset.selectedMarkerY).toBeUndefined();
+    // The selection effect outlines the selected event, then says its height.
+    h.selectedEvent = { file: 1, kind: "warp", index: 0 };
+    selectMarker(h.markers!, h.selectedEvent);
+    reportSelectedMarker(h);
+    expect(h.canvas.dataset.selectedMarkerY).toBe(MARKER_Y.toFixed(3));
+    selectMarker(h.markers!, null);
+    reportSelectedMarker(h);
+    expect(h.canvas.dataset.selectedMarkerY).toBeUndefined();
   });
 });

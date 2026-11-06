@@ -14,6 +14,7 @@ pub static FORMATS: &[(&str, &str)] = &[
         "area_data",
         include_str!("../../../../../docs/formats/area_data.md"),
     ),
+    ("bdhc", include_str!("../../../../../docs/formats/bdhc.md")),
     (
         "build_state",
         include_str!("../../../../../docs/formats/build_state.md"),
@@ -105,6 +106,10 @@ pub static FORMATS: &[(&str, &str)] = &[
     (
         "templates",
         include_str!("../../../../../docs/formats/templates.md"),
+    ),
+    (
+        "terrain",
+        include_str!("../../../../../docs/formats/terrain.md"),
     ),
     (
         "text_archive",

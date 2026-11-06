@@ -67,7 +67,7 @@ describe("MatrixScene", () => {
   });
 
   const bus = createEditBus();
-  const show = (d: DraftDto | null) =>
+  const show = (d: DraftDto | null, layers: { showPermissions?: boolean; showHeights?: boolean } = {}) =>
     act(() =>
       root.render(
         <MatrixScene
@@ -76,7 +76,8 @@ describe("MatrixScene", () => {
           topDown={false}
           areaDataId={0}
           bus={bus}
-          showPermissions={false}
+          showPermissions={layers.showPermissions ?? false}
+          showHeights={layers.showHeights ?? false}
           eventFileId={null}
           showEvents
           destName={() => undefined}
@@ -129,5 +130,19 @@ describe("MatrixScene", () => {
     expect(host()?.getAttribute("data-draft-count")).toBe("0");
     await settle();
     expect(host()?.getAttribute("data-draft-count")).toBe("3");
+  });
+
+  it("the_heights_layer_shows_with_its_switch", async () => {
+    const canvas = () => container.querySelector("canvas");
+    show(null, { showHeights: true });
+    await settle();
+    expect(container.querySelector("canvas[data-heights-shown]")).not.toBeNull();
+    show(null, { showPermissions: true, showHeights: false });
+    await settle();
+    expect(canvas()).not.toBeNull();
+    expect(container.querySelector("canvas[data-heights-shown]")).toBeNull();
+    show(null, { showHeights: true });
+    await settle();
+    expect(container.querySelector("canvas[data-heights-shown]")).not.toBeNull();
   });
 });

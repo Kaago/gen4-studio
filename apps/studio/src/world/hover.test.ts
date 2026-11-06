@@ -15,17 +15,24 @@ describe("tileSummary", () => {
   const grass = { kind: 0x2, collision: 0, blocked: false, name: "TALL_GRASS", class: "grass" };
 
   it("formats map, coordinates, type and blocking in tinkering", () => {
-    expect(tileSummary(187, 8, 4, named, "tuefteln")).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x5E WARP_STAIRS_EAST · blockiert");
-    expect(tileSummary(1, 0, 31, unnamed, "tuefteln")).toBe("Karte 0001 · Kachel x 0, y 31 · Typ 0x03 · begehbar");
-    expect(tileSummary(1, 0, 31, grass, "tuefteln")).toBe("Karte 0001 · Kachel x 0, y 31 · Typ 0x02 TALL_GRASS · begehbar");
+    expect(tileSummary(187, 8, 4, named, "tuefteln", null)).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x5E WARP_STAIRS_EAST · blockiert · keine Höhe");
+    expect(tileSummary(1, 0, 31, unnamed, "tuefteln", null)).toBe("Karte 0001 · Kachel x 0, y 31 · Typ 0x03 · begehbar · keine Höhe");
+    expect(tileSummary(1, 0, 31, grass, "tuefteln", null)).toBe("Karte 0001 · Kachel x 0, y 31 · Typ 0x02 TALL_GRASS · begehbar · keine Höhe");
   });
 
   it("says the tile first and no type or constant in building", () => {
-    expect(tileSummary(190, 9, 13, unnamed, "bauen")).toBe("Kachel x 9, y 13 · Karte 0190 · begehbar");
-    expect(tileSummary(190, 9, 13, grass, "bauen")).toBe("Kachel x 9, y 13 · Karte 0190 · hohes Gras");
+    expect(tileSummary(190, 9, 13, unnamed, "bauen", null)).toBe("Kachel x 9, y 13 · Karte 0190 · begehbar · keine Höhe");
+    expect(tileSummary(190, 9, 13, grass, "bauen", null)).toBe("Kachel x 9, y 13 · Karte 0190 · hohes Gras · keine Höhe");
     // A walkable warp tile has no plain word of its own; a blocked tile is blocked whatever it is.
-    expect(tileSummary(190, 9, 13, { ...named, blocked: false }, "bauen")).toBe("Kachel x 9, y 13 · Karte 0190 · begehbar");
-    expect(tileSummary(187, 8, 4, named, "bauen")).toBe("Kachel x 8, y 4 · Karte 0187 · blockiert");
-    expect(tileSummary(190, 9, 13, { ...grass, name: "TALL_GRASS" }, "bauen")).not.toMatch(/0x|TALL_GRASS/);
+    expect(tileSummary(190, 9, 13, { ...named, blocked: false }, "bauen", null)).toBe("Kachel x 9, y 13 · Karte 0190 · begehbar · keine Höhe");
+    expect(tileSummary(187, 8, 4, named, "bauen", null)).toBe("Kachel x 8, y 4 · Karte 0187 · blockiert · keine Höhe");
+    expect(tileSummary(190, 9, 13, { ...grass, name: "TALL_GRASS" }, "bauen", null)).not.toMatch(/0x|TALL_GRASS/);
+  });
+
+  it("tile_summary_names_the_height", () => {
+    const ground = { kind: 0, collision: 0, blocked: false, name: "NONE", class: null };
+    expect(tileSummary(187, 8, 4, ground, "bauen", 32)).toBe("Kachel x 8, y 4 · Karte 0187 · begehbar · Höhe 4 Stufen");
+    expect(tileSummary(187, 8, 4, ground, "tuefteln", 32)).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x00 NONE · begehbar · Höhe 32 E (4 Stufen)");
+    expect(tileSummary(187, 8, 4, ground, "bauen", null)).toBe("Kachel x 8, y 4 · Karte 0187 · begehbar · keine Höhe");
   });
 });

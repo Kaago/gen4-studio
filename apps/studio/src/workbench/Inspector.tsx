@@ -52,6 +52,8 @@ export type InspectorModel =
       absX: number;
       absZ: number;
       info: TileInfo;
+      /** BDHC height of the tile centre in world units (null: none, see `Ground.units`). */
+      units: number | null;
     };
 
 /** What the scene reports under the pointer: the middle of the status line names it while the inspector keeps the selection. */

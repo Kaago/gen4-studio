@@ -73,6 +73,11 @@ const SOLL: &[(&str, [usize; 3])] = &[
     ("map.model-invalid", [0, 0, 0]),
     ("map.bdhc-size", [0, 0, 0]),
     ("map.building-range", [0, 0, 0]),
+    // Terrain (6.2, B §2.4, §2.7, §2.8): no walkable cell with an altitude, the free two-step
+    // edges of the vanilla BDHC (free_steps, measured here), no map past 32 buildings.
+    ("map.altitude-walkable", [0, 0, 0]),
+    ("map.step-unblocked", [152, 52, 52]),
+    ("map.buildings-over-limit", [0, 0, 0]),
     ("area.tileset-range", [0, 0, 0]),
     // Places (3f.2): every vanilla name fits 16 characters, every header names one of the bank.
     ("place.name-too-long", [0, 0, 0]),

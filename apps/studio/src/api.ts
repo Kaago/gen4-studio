@@ -169,6 +169,9 @@ export interface MapDto {
   /** [kind, collision] per cell, row-major (32 x 32). */
   permissions: [number, number][];
   buildings: BuildingDto[];
+  /** Walk height of every tile centre in world units (16 per tile), row-major (32 x 32); `null` where no plate lies
+   * under the centre and everywhere when the BDHC is unreadable (`getMapHeights` names the reason). */
+  heights: (number | null)[];
 }
 
 /**
@@ -1102,3 +1105,41 @@ export * from "./api.dialog";
 export * from "./api.stories";
 export * from "./api.live";
 export * from "./api.delete";
+
+// Terrain (6.2).
+
+/** The walk heights of a map as `get_map` carries them, with the reader's reason when the BDHC is unreadable. */
+export interface MapHeightsDto {
+  index: number;
+  heights: (number | null)[];
+  error: string | null;
+}
+/** „Ruhig“, „Knapp“, „Voll“. */
+export type BudgetState = "calm" | "tight" | "full";
+export interface BudgetItemDto {
+  used: number;
+  max: number;
+  state: BudgetState;
+}
+/** The texture VRAM of the map's area: both packs against the bank (`vram.max`) and the vanilla maximum. */
+export interface TextureBudgetDto {
+  area: number;
+  map_pack: number;
+  building_pack: number;
+  textures: number;
+  vanilla_max: number;
+  vram: BudgetItemDto;
+}
+export interface MapBudgetDto {
+  map: number;
+  model: BudgetItemDto;
+  bdhc: BudgetItemDto;
+  buildings: BudgetItemDto;
+  textures: TextureBudgetDto | null;
+  /** Why `textures` is `null` (German, shown as it is). */
+  textures_missing: string | null;
+}
+
+export const getMapHeights = (index: number) => invoke<MapHeightsDto>("get_map_heights", { index });
+/** Model, terrain payload, buildings and texture VRAM of map `index` against the game's limits. */
+export const getMapBudget = (index: number) => invoke<MapBudgetDto>("get_map_budget", { index });

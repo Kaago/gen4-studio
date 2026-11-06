@@ -69,6 +69,10 @@ pub struct MapDto {
     /// `[kind, collision]` per cell, row-major (32 x 32).
     pub permissions: Vec<[u8; 2]>,
     pub buildings: Vec<BuildingDto>,
+    /// The walk height of every tile centre in world units, row-major (32 x 32), as
+    /// `get_map_heights` answers it; `null` where no plate lies under the centre and everywhere
+    /// when the BDHC is unreadable.
+    pub heights: Vec<Option<f32>>,
 }
 
 /// One map tile is 16 world units; positions are fx32 (20.12), so 16 * 4096 raw units per tile.
@@ -99,6 +103,7 @@ impl MapDto {
                     rotation: b.rotation.map(|r| format!("{:08X}", r as u32)),
                 })
                 .collect(),
+            heights: super::terrain::tile_heights(&map.bdhc).0,
         }
     }
 }

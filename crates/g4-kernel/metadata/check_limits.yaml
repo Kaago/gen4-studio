@@ -155,3 +155,29 @@ permissions:
     value: 2048
     verified: true
     source: "g4-formats map reader (PERMISSIONS_LEN), docs/formats/map.md; DSPRE Collisions.toByteArray; import-report.md"
+
+buildings:
+  # Buildings per map the game loads; the others are skipped silently (map.buildings-over-limit).
+  max_loaded:
+    value: 32
+    verified: true
+    source: "pokeplatinum include/overlay005/map_prop.h:13 MAX_LOADED_MAP_PROPS 32 (src/overlay005/map_prop.c loads at most that many); HGSS not found in the asm; vanilla maximum Pt 32, HG 30; Gutachten B (docs/research/2026-11-05-phase-6/gutachten-b-bdhc-engine.md) section 2.4"
+
+vram:
+  # Texture VRAM of the field: banks A and B, shared with the characters (get_map_budget).
+  bank:
+    value: 262144
+    verified: true
+    source: "pokeplatinum src/fieldmap.c:527 GX_VRAM_TEX_01_AB, src/easy3d.c:83; Gutachten B section 2.8"
+  # Largest map plus building texture pack of an area on a vanilla project: the budget says
+  # Knapp above it.
+  vanilla_max:
+    pt: 110640
+    hgss: 87424
+    verified: false
+    source: "measured on Platin DE and HeartGold DE/US (map plus building textures per area); Gutachten A (docs/research/2026-11-05-phase-6/gutachten-a-writer.md) section 2.4, entscheidungen.md"
+  # Above this the budget says Voll: an estimate, the characters' share is not measured.
+  full_estimate:
+    value: 204800
+    verified: false
+    source: "estimate: Gutachten B section 2.8 Voll geschätzt ab 200 KB (the characters' share of the bank is not measured)"

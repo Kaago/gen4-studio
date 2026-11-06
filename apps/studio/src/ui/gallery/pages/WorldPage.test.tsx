@@ -67,6 +67,20 @@ describe("WorldPage", () => {
     expect(shared.querySelector("[data-split-room]")?.textContent).toContain("Nicht rückgängig");
   });
 
+  it("shows_the_budget_in_three_states_and_the_seven_height_steps", () => {
+    const budgets = state("budget");
+    expect([...budgets.querySelectorAll("[data-budget-state]")].map((b) => b.getAttribute("data-budget-state"))).toEqual(["calm", "tight", "full"]);
+    expect(budgets.textContent).toContain("Knapp");
+    expect(budgets.textContent).toContain("Voll");
+    expect(budgets.querySelectorAll("[role=meter]")).toHaveLength(3);
+
+    const steps = [...state("hoehen").querySelectorAll("[data-height-step]")];
+    expect(steps.map((s) => s.getAttribute("data-height-step"))).toEqual(["0", "1", "2", "3", "4", "5", "6"]);
+    expect(steps[0].textContent).toBe("Stufe 0 · 0 E");
+    expect(steps[6].textContent).toBe("Stufe 6 · 48 E");
+    expect(state("hoehen").textContent).toContain("Isolinien");
+  });
+
   it("speaks_bauen_without_raster_matrix_or_header", () => {
     const bauen = [...container.querySelectorAll('[data-depth="bauen"]')];
     expect(bauen.length).toBeGreaterThanOrEqual(7);

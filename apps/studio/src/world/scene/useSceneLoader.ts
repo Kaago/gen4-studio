@@ -10,8 +10,10 @@ import { reportBuildings } from "./buildingReport";
 import { buildingModelJob } from "./buildingModels";
 import { showCellFrame } from "./cellFrame";
 import { frameCells } from "./camera";
+import { createGround } from "../ground";
 import { addModel, buildContent, removeMapModel, removeModels, setMarkers } from "./content";
 import { fetchEvents } from "./eventFetch";
+import { setHeightsShown } from "./heightLayer";
 import type { SceneHost } from "./SceneHost";
 import { loadNames } from "./tileNames";
 import type { Loaded, ReportEvents, SceneRefs } from "./types";
@@ -65,7 +67,8 @@ async function showMaps(
   );
   problems.maps = mapProblems;
   if (stale()) return false;
-  const { content, overlay, tiles, bases, buildings } = buildContent(matrix, loaded, names);
+  h.ground = createGround(matrix, loaded);
+  const { content, overlay, tiles, bases, buildings } = buildContent(matrix, loaded, names, h.ground);
   h.scene.remove(h.content);
   h.buildings?.dispose();
   disposeTree(h.content);
@@ -81,6 +84,9 @@ async function showMaps(
   h.bases = bases;
   h.names = names;
   overlay.visible = refs.showPermissions.current;
+  // The old layer went with the old content; a new one is built only while „Höhen“ is on (else on its first switch-on).
+  h.heights = null;
+  setHeightsShown(h, refs.showHeights.current);
   h.scene.add(content);
   // The selected cell is framed at its height in this matrix.
   showCellFrame(h);

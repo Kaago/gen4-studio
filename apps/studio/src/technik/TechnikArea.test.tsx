@@ -520,7 +520,7 @@ describe("TechnikArea", () => {
     await click(button("Prüfungen ein- und ausschalten"));
     const list = surface()!.querySelector<HTMLElement>("[role=list][aria-label='Prüfungen ein- und ausschalten']")!;
     const toggle = (code: string) => list.querySelector<HTMLElement>(`[data-check="${code}"] [role=switch]`)!;
-    expect(list.querySelectorAll("[data-check]")).toHaveLength(45);
+    expect(list.querySelectorAll("[data-check]")).toHaveLength(48);
     expect(toggle("encounter.empty-slot").getAttribute("aria-checked")).toBe("true");
     await click(toggle("encounter.empty-slot"));
     expect(checks.setEnabled).toHaveBeenCalledWith("encounter.empty-slot", false);
@@ -535,6 +535,11 @@ describe("TechnikArea", () => {
     // A header of another matrix is an error too (ruling R16).
     const elsewhere = toggle("matrix.header-elsewhere");
     expect(elsewhere.getAttribute("aria-disabled") === "true" || elsewhere.hasAttribute("data-disabled")).toBe(true);
+    // The terrain checks (6.2): the altitude error stays on, the step hint can be switched off.
+    const altitude = toggle("map.altitude-walkable");
+    expect(altitude.getAttribute("aria-disabled") === "true" || altitude.hasAttribute("data-disabled")).toBe(true);
+    expect(toggle("map.step-unblocked").getAttribute("aria-checked")).toBe("true");
+    expect(toggle("map.step-unblocked").hasAttribute("data-disabled")).toBe(false);
   });
 
   it("pruefen_und_bauen_says_when_there_are_no_problems", async () => {

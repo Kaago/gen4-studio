@@ -21,6 +21,7 @@ import { ExportPartDialog } from "./ExportPartDialog";
 import { ImportPartsDialog } from "./ImportPartsDialog";
 import { isDirty } from "./dirtyAssets";
 import { InspectorHead } from "./InspectorHead";
+import { MapBudgetSection } from "./MapBudgetSection";
 import { RawRowSection } from "./RawRowSection";
 import { TechnicalSection } from "./TechnicalSection";
 
@@ -38,6 +39,8 @@ export interface MatrixCellContext {
   counts: MemberCounts;
   /** Changes whenever matrix data may have changed behind the editor (edits, undo, redo, reload). */
   revision: number;
+  /** Changes whenever a map's model, terrain or buildings may have changed (parts import, terrain, building edits, undo, redo): the budget reads again. */
+  mapRevision?: number;
   onEdited: (index: number) => void | Promise<void>;
   onCountsChanged: () => void | Promise<void>;
   onError: (e: unknown) => void;
@@ -158,7 +161,7 @@ function OwnerField({
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
-  const { dirty, headers, identify, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError, onMapImported, checks } = context;
+  const { dirty, headers, identify, headerCount, goTo, counts, revision, mapRevision = 0, onEdited, onCountsChanged, onError, onMapImported, checks } = context;
   const matrix = useMatrix(index, revision, onError);
   const { world } = useWorld();
   const reset = useReset();
@@ -289,6 +292,8 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         <InspectorRow label="Höhe" hint="0 bis 255">
           <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depthAtLeast(depth, "tuefteln")} />
         </InspectorRow>
+        {/* The game's limits for the cell's map, from Bauen on. */}
+        {map !== null && depthAtLeast(depth, "bauen") && <MapBudgetSection map={map} revision={revision + mapRevision} depth={depth} onError={onError} />}
         {depthAtLeast(depth, "tuefteln") && <RawRowSection matrix={matrix} x={x} y={y} />}
         {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
         <p className={styles.note}>

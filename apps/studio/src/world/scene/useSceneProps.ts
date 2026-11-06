@@ -4,6 +4,8 @@ import type { CellRect } from "../../workbench/sceneScope";
 import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
 import { showCellFrame } from "./cellFrame";
+import { reportSelectedMarker } from "./content";
+import { setHeightsShown } from "./heightLayer";
 import type { SceneRefs } from "./types";
 
 /** The selected building (made by a click, the header list, ...) is outlined; the scene also drags it. */
@@ -24,6 +26,7 @@ export function useEventSelection(refs: SceneRefs, selectedEvent: EventRef | nul
     if (!h) return;
     h.selectedEvent = selectedEvent;
     if (h.markers) selectMarker(h.markers, selectedEvent && selectedEvent.file === h.events?.event_file_id ? selectedEvent : null);
+    reportSelectedMarker(h);
     h.render();
   }, [selectedEvent]);
 }
@@ -74,6 +77,18 @@ export function usePermissionVisibility(refs: SceneRefs, showPermissions: boolea
       h.render();
     }
   }, [showPermissions]);
+}
+
+/** Shows or hides the layer „Höhen“, built on its first switch-on (the canvas says so in `data-heights-shown`). */
+export function useHeightVisibility(refs: SceneRefs, showHeights: boolean) {
+  useEffect(() => {
+    refs.showHeights.current = showHeights;
+    const h = refs.handle.current;
+    // Before the first matrix is loaded there is nothing to show; the load reads the switch itself.
+    if (!h?.matrix) return;
+    setHeightsShown(h, showHeights);
+    h.render();
+  }, [showHeights]);
 }
 
 /** Shows or hides the event markers. */

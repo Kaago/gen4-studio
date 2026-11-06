@@ -254,6 +254,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("restore_entity", Kind::Write),
     // One undo step (a file step: register, story, side file), like story_create.
     ("story_delete", Kind::Write),
+    // Terrain (6.2): set_map_terrain writes BDHC and permissions as one undo step.
+    ("get_map_heights", Kind::Read),
+    ("set_map_terrain", Kind::Write),
+    ("get_map_budget", Kind::Read),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -1300,5 +1304,14 @@ mod tests {
         ] {
             assert_eq!(kind(name), APP_ONLY, "{name}");
         }
+    }
+
+    #[test]
+    fn terrain_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        assert_eq!(kind("get_map_heights"), Kind::Read);
+        assert_eq!(kind("get_map_budget"), Kind::Read);
+        // One undo step for BDHC and permissions.
+        assert_eq!(kind("set_map_terrain"), Kind::Write);
     }
 }

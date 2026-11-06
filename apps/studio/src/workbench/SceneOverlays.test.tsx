@@ -38,7 +38,7 @@ describe("SceneOverlays", () => {
 
   const show = (over: Partial<WorkbenchData> = {}) => {
     const data = { tool: "select", onTool, eventFileId: 3, eventLock: null, selected: 7, onOpenWizard, ...over } as unknown as WorkbenchData;
-    const layers = { showPermissions: true, showEvents: false, onShowPermissions, onShowEvents };
+    const layers = { showPermissions: true, showHeights: false, showEvents: false, onShowPermissions, onShowHeights: () => {}, onShowEvents };
     act(() =>
       root.render(
         <ShellProvider>

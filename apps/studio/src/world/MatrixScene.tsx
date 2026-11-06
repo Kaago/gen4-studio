@@ -17,7 +17,7 @@ import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
 import { useSceneTheme } from "./scene/useSceneTheme";
 import styles from "./MatrixScene.module.css";
-import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility, useTopDown } from "./scene/useSceneProps";
+import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, useHeightVisibility, usePermissionVisibility, useTopDown } from "./scene/useSceneProps";
 
 interface Props {
   /** The matrix the scene loads; its empty cells (null maps) are not loaded (see `scopedMatrix`). */
@@ -40,6 +40,8 @@ interface Props {
    */
   bus: EditBus;
   showPermissions: boolean;
+  /** The layer „Höhen“ is shown (App keeps it and the permission overlay from being on together). */
+  showHeights: boolean;
   /** Event file of the selected header; its events are shown as markers (null: none). */
   eventFileId: number | null;
   showEvents: boolean;
@@ -97,6 +99,7 @@ function MatrixScene({
   areaDataId,
   bus,
   showPermissions,
+  showHeights,
   eventFileId,
   showEvents,
   destName,
@@ -135,6 +138,7 @@ function MatrixScene({
   const modelsToken = useBusRevision(bus, "modelsReload");
   const refs = useSceneRefs({
     showPermissions,
+    showHeights,
     showEvents,
     eventFileId,
     destName,
@@ -164,6 +168,7 @@ function MatrixScene({
   useFaultyEvents(refs, faultyEvents);
   useEventRefresh(refs, eventRefresh, reportEvents);
   usePermissionVisibility(refs, showPermissions);
+  useHeightVisibility(refs, showHeights);
   useEventVisibility(refs, showEvents);
   const draftCount = useDraft(refs, draft, matrix, sceneBuilt);
 
