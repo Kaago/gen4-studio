@@ -164,6 +164,27 @@ fn first_error(world: &WorldJson) -> Result<(), KernelError> {
     })
 }
 
+/// Refused when map `map` cannot carry a world: its member does not decode (it is written as
+/// `{locked, raw}`, without a place for a world) or the store holds it locked
+/// ([`locked_map_refusal`]).
+fn refuse_locked_map(store: &mut Store, map: u16) -> Result<(), KernelError> {
+    match store.map(map) {
+        Ok(_) => {}
+        Err(KernelError::Format(_) | KernelError::Uxie(_)) => {
+            return Err(refused(locked_map_refusal(map)));
+        }
+        Err(e) => return Err(e),
+    }
+    let id = crate::project::AssetId {
+        kind: crate::project::AssetKind::Map,
+        index: map,
+    };
+    if store.locked(id).is_some() {
+        return Err(refused(locked_map_refusal(map)));
+    }
+    Ok(())
+}
+
 /// Refused with `text` (a parser's sentence).
 fn refused(text: String) -> KernelError {
     KernelError::Refused(text)
@@ -187,21 +208,7 @@ pub fn world_create(
     if store.world(map)?.is_some() {
         return Err(refused(already_world(map)));
     }
-    match store.map(map) {
-        Ok(_) => {}
-        // A member that does not decode is written as `{locked, raw}`: no place for a world.
-        Err(KernelError::Format(_) | KernelError::Uxie(_)) => {
-            return Err(refused(locked_map_refusal(map)));
-        }
-        Err(e) => return Err(e),
-    }
-    let map_id = crate::project::AssetId {
-        kind: crate::project::AssetKind::Map,
-        index: map,
-    };
-    if store.locked(map_id).is_some() {
-        return Err(refused(locked_map_refusal(map)));
-    }
+    refuse_locked_map(store, map)?;
     let package = match req.tileset {
         Some(package) => package,
         None => *packs_of_map(store, map)?
@@ -255,6 +262,7 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
         .world(map)?
         .cloned()
         .ok_or_else(|| refused(not_a_world_map(map)))?;
+    refuse_locked_map(store, map)?;
     first_error(&before)?;
     let tiles = store.tileset(before.tileset)?.tiles.len();
     let mut checked = Vec::with_capacity(req.changes.len());
@@ -1062,5 +1070,134 @@ mod tests {
         let report = world_create(&mut store, &create_req(json!({"map": 0}))).unwrap();
         assert_eq!(report.tileset, package);
         assert_eq!(world(&mut store, 0).unwrap().tileset, package);
+    }
+
+    #[test]
+    fn a_world_map_diffs_as_its_map() {
+        use crate::diff::{Against, DiffSources, DiffState, DiffSubject, EntityDiff, diff_entity};
+        use crate::original::ChangeState;
+        let (fx, mut store) = fixture();
+        create(&mut store, 0);
+        let entries = crate::diff::unsaved_entries(&mut store).unwrap();
+        let rows: Vec<(ChangeState, &str, &DiffSubject)> = entries
+            .iter()
+            .map(|e| (e.state, e.label.as_str(), &e.subject))
+            .collect();
+        assert_eq!(
+            rows,
+            [(
+                ChangeState::Changed,
+                "Karte 0000",
+                &DiffSubject::Map { index: 0 }
+            )]
+        );
+        let project = fx.project();
+        let sources = DiffSources {
+            original: None,
+            base_label: None,
+            repo: None,
+        };
+        let subject = DiffSubject::Map { index: 0 };
+        let report = diff_entity(
+            &project,
+            Some(&mut store),
+            &sources,
+            &subject,
+            Against::Saved,
+        )
+        .unwrap();
+        assert_eq!(report.state, DiffState::Changed);
+        let EntityDiff::Map { parts, .. } = &report.diff else {
+            panic!("{report:?}");
+        };
+        let world = parts.iter().find(|p| p.part == "world").unwrap();
+        assert!(
+            world.changed && world.old.is_none() && world.new.is_some(),
+            "{world:?}"
+        );
+        assert!(
+            parts
+                .iter()
+                .filter(|p| p.part != "world")
+                .all(|p| !p.changed)
+        );
+        store.save().unwrap();
+        assert!(crate::diff::unsaved_entries(&mut store).unwrap().is_empty());
+        let report = diff_entity(
+            &project,
+            Some(&mut store),
+            &sources,
+            &subject,
+            Against::Saved,
+        )
+        .unwrap();
+        assert_eq!(report.state, DiffState::Same);
+    }
+
+    #[test]
+    fn world_edit_refuses_a_locked_map() {
+        let (fx, mut store) = fixture();
+        create(&mut store, 0);
+        store.save().unwrap();
+        let file = fx.read(MAP);
+        store
+            .lock(
+                AssetId {
+                    kind: AssetKind::Map,
+                    index: 0,
+                },
+                "gesperrt",
+            )
+            .unwrap();
+        let before = world(&mut store, 0);
+        let history = store.history();
+        assert_eq!(
+            refused(edit(
+                &mut store,
+                json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]})
+            )),
+            "textproject.map-source: Karte 0000 ist eine Welt-Karte, ihr Member lässt sich \
+             nicht lesen; Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder \
+             die Welt aus der Datei sichern)."
+        );
+        assert_eq!(world(&mut store, 0), before);
+        assert_eq!(store.history(), history);
+        assert!(store.dirty().is_empty());
+        assert_eq!(fx.read(MAP), file);
+    }
+
+    #[test]
+    fn a_hand_written_world_survives_a_map_save() {
+        let (fx, _) = fixture();
+        let mut v: Value =
+            serde_json::from_slice(&with_world(fx.read(MAP), Some(&blank())).unwrap()).unwrap();
+        // Not as the store writes it: a piece without `rotate`, an empty `freeform`.
+        v["world"]["pieces"] = json!([{"tile": 5, "at": [3, 3]}]);
+        v["world"]["freeform"] = json!([]);
+        let hand = to_canonical(&v);
+        fx.write(MAP, &hand);
+        let mut store = store_of(&fx);
+        // Loaded and unchanged in the store.
+        assert_eq!(world(&mut store, 0).unwrap().pieces[0].rotate, 0);
+        paint_permission(&mut store);
+        store.save().unwrap();
+        let now: Value = serde_json::from_slice(&fx.read(MAP)).unwrap();
+        assert_eq!(now["world"], v["world"]);
+        let (old, new) = (
+            String::from_utf8(hand).unwrap(),
+            String::from_utf8(fx.read(MAP)).unwrap(),
+        );
+        let differ = old.lines().zip(new.lines()).filter(|(a, b)| a != b).count();
+        assert_eq!((old.lines().count(), differ), (new.lines().count(), 1));
+    }
+
+    #[test]
+    fn a_refused_world_read_unpacks_nothing() {
+        let fx = TextFixture::dspre();
+        let maps = fx.project().unpacked_dir(AssetKind::Map);
+        std::fs::remove_dir_all(&maps).unwrap();
+        let mut store = store(&fx);
+        assert_eq!(refused(store.world(0)), WORLD_NEEDS_TEXT_PROJECT);
+        assert!(!maps.exists());
     }
 }

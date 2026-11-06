@@ -428,7 +428,16 @@ impl<'a> Sides<'a> {
             })
         };
         match *self.subject {
-            DiffSubject::Map { index } => entity(&[AssetKind::Map], index),
+            // The map's member, and its world (no member) beside the map in the store.
+            DiffSubject::Map { index } => Ok(Kind::Entity {
+                assets: [AssetKind::Map, AssetKind::WorldMap]
+                    .into_iter()
+                    .map(|kind| AssetId { kind, index })
+                    .collect(),
+                kinds: vec![AssetKind::Map],
+                member: index,
+                json: self.entity_file(AssetKind::Map, index)?,
+            }),
             DiffSubject::Matrix { index } => entity(&[AssetKind::Matrix], index),
             DiffSubject::AreaData { index } => entity(&[AssetKind::AreaData], index),
             DiffSubject::EventFile { index } => entity(&[AssetKind::Event], index),

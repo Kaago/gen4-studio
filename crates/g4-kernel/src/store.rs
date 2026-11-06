@@ -1439,6 +1439,13 @@ impl Store {
         if !Loaded::is_editable(id.kind) {
             return Err(KernelError::NotEditable(id.kind));
         }
+        // A world is read from its map's unit only: refused before anything is unpacked.
+        if id.kind == AssetKind::WorldMap && *self.project.source_mode() != SourceMode::TextProject
+        {
+            return Err(KernelError::Refused(
+                crate::world::WORLD_NEEDS_TEXT_PROJECT.to_owned(),
+            ));
+        }
         self.ensure_unpacked(id.kind)?;
         let location = self.project.asset_location(id.kind, id.index)?;
         let bytes = match (&location, read) {
