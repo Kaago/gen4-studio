@@ -69,6 +69,9 @@ pub struct MapDto {
     /// `[kind, collision]` per cell, row-major (32 x 32).
     pub permissions: Vec<[u8; 2]>,
     pub buildings: Vec<BuildingDto>,
+    /// The map is a world map (6.3a): a text project's map file with `source: "world"`. Always
+    /// false outside a text project; [`MapDto::from_map`] says false, `get_map` sets it.
+    pub world: bool,
 }
 
 /// One map tile is 16 world units; positions are fx32 (20.12), so 16 * 4096 raw units per tile.
@@ -99,6 +102,7 @@ impl MapDto {
                     rotation: b.rotation.map(|r| format!("{:08X}", r as u32)),
                 })
                 .collect(),
+            world: false,
         }
     }
 }
@@ -282,8 +286,17 @@ pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, CmdErr
 pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    let map = session.store.map(index).map_err(CmdError::from)?;
-    Ok(MapDto::from_map(index, map))
+    let store = &mut session.store;
+    // Worlds exist only in a text project of the current schema (the store refuses elsewhere).
+    // A world that does not read leaves the map without one here; the check names its
+    // problems.
+    let world = *store.project().source_mode() == g4_kernel::project::SourceMode::TextProject
+        && matches!(store.world(index), Ok(Some(_)));
+    let map = store.map(index).map_err(CmdError::from)?;
+    Ok(MapDto {
+        world,
+        ..MapDto::from_map(index, map)
+    })
 }
 
 pub fn get_events_impl(state: &AppState, event_file_id: u16) -> Result<EventsDto, CmdError> {

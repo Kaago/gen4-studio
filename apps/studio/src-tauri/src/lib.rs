@@ -60,6 +60,10 @@ use commands::{dialog_of, dialogs_of_header, split_message};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
 use commands::{flag_usage, free_flag, list_flags, name_flag};
 use commands::{get_battle_sprite, get_trainer_sprite};
+use commands::{
+    get_tileset_texture, get_world_mesh, tileset_get, tileset_save, world_create, world_edit,
+    world_get,
+};
 use commands::{git_commit_all, publish_patch, releases, reveal_path};
 use commands::{list_threads, story_create, story_get, story_list, story_update, thread_graph};
 use commands::{
@@ -274,7 +278,14 @@ pub fn run() {
             plan_delete,
             delete_entity,
             restore_entity,
-            story_delete
+            story_delete,
+            world_create,
+            world_edit,
+            world_get,
+            tileset_get,
+            tileset_save,
+            get_world_mesh,
+            get_tileset_texture
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
