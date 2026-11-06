@@ -44,9 +44,9 @@ describe("importParts", () => {
   });
 
   it("covers_every_part_code_of_the_kernel_and_says_a_broken_terrain_structure", () => {
-    // `PartCode::ALL` has 35 codes; the Rust test holds the order against it.
+    // `PartCode::ALL` has 39 codes; the Rust test holds the order against it.
     const codes = Object.keys(PART_TEXTS);
-    expect(codes).toHaveLength(35);
+    expect(codes).toHaveLength(39);
     expect(codes).toContain("bdhc.structure");
     expect(said("bdhc.structure", ["plate 0 names point 99, past the 2 points"])).toBe(
       "Das Terrain ist beschädigt (plate 0 names point 99, past the 2 points). Wähle eine unbeschädigte .bdhc-Datei.",
@@ -60,6 +60,18 @@ describe("importParts", () => {
     expect(said("model.faces-dropped", ["1200"])).toBe("1.200 Flächen fallen weg: nach dem Runden auf ganze Einheiten haben sie keine Fläche mehr.");
     expect(said("model.material-untextured", [""])).toBe(
       "Das Material „“ hat keine Textur, und das Gebiets-Paket hat keine Textur dieses Namens. Gib dem Material eine PNG-Textur.",
+    );
+    expect(said("model.source-unreadable", ["OBJ", "face parse error"])).toBe(
+      "Die Datei ist kein lesbares OBJ-Modell (face parse error). Exportiere das Modell neu als OBJ oder glTF.",
+    );
+    expect(said("model.file-outside", ["../x.mtl"])).toBe(
+      "Das Modell verweist auf ../x.mtl außerhalb seines Ordners. Lege Material und Texturen in den Ordner des Modells.",
+    );
+    expect(said("model.file-missing", ["fehlt.mtl"])).toBe(
+      "Die Datei fehlt.mtl, auf die das Modell verweist, fehlt. Lege sie neben das Modell oder exportiere es neu.",
+    );
+    expect(said("texture.unreadable", ["g4_imp_cube.png", "invalid signature"])).toBe(
+      "Das Bild g4_imp_cube.png lässt sich nicht lesen (invalid signature). Wähle ein PNG.",
     );
   });
 

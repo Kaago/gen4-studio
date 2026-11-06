@@ -148,6 +148,15 @@ pub enum PartCode {
     PartDuplicate,
     /// Error, args: the first structure error of the terrain (`BdhcProblem::message`).
     BdhcStructure,
+    /// Error, args: the format (`OBJ`, `glTF`), the reader's reason. The model file (or its
+    /// material library) cannot be read as that format.
+    ModelSourceUnreadable,
+    /// Error, args: the path as the model file writes it. A file the model refers to (material
+    /// library, image, buffer) does not exist.
+    ModelFileMissing,
+    /// Error, args: the path as the model file writes it. A file the model refers to lies
+    /// outside the model's folder (absolute, `..` out, a URI scheme, a symlink out).
+    ModelFileOutside,
     /// Error: a converted model without a face (none read, or every face gone when rounded).
     ModelNoGeometry,
     /// Error, args: the material's name (empty for a polygon without material); it has no
@@ -159,11 +168,13 @@ pub enum PartCode {
     ModelOutOfRange,
     /// Hint, args: how many faces have no area once rounded to whole world units (dropped).
     ModelFacesDropped,
+    /// Error, args: the image file as the model writes it, the decoder's reason.
+    TextureUnreadable,
 }
 
 impl PartCode {
     /// Every code, in the order above.
-    pub const ALL: [PartCode; 35] = [
+    pub const ALL: [PartCode; 39] = [
         PartCode::ModelInvalid,
         PartCode::ModelBlocks,
         PartCode::ModelCount,
@@ -194,11 +205,15 @@ impl PartCode {
         PartCode::WholeBuildingsTail,
         PartCode::PartDuplicate,
         PartCode::BdhcStructure,
+        PartCode::ModelSourceUnreadable,
+        PartCode::ModelFileMissing,
+        PartCode::ModelFileOutside,
         PartCode::ModelNoGeometry,
         PartCode::ModelMaterialUntextured,
         PartCode::ModelUvMissing,
         PartCode::ModelOutOfRange,
         PartCode::ModelFacesDropped,
+        PartCode::TextureUnreadable,
     ];
 
     /// The code as the UI gets it (`model.too-big`).
@@ -234,11 +249,15 @@ impl PartCode {
             PartCode::WholeBuildingsTail => "whole.buildings-tail",
             PartCode::PartDuplicate => "part.duplicate",
             PartCode::BdhcStructure => "bdhc.structure",
+            PartCode::ModelSourceUnreadable => "model.source-unreadable",
+            PartCode::ModelFileMissing => "model.file-missing",
+            PartCode::ModelFileOutside => "model.file-outside",
             PartCode::ModelNoGeometry => "model.no-geometry",
             PartCode::ModelMaterialUntextured => "model.material-untextured",
             PartCode::ModelUvMissing => "model.uv-missing",
             PartCode::ModelOutOfRange => "model.out-of-range",
             PartCode::ModelFacesDropped => "model.faces-dropped",
+            PartCode::TextureUnreadable => "texture.unreadable",
         }
     }
 }
@@ -1555,11 +1574,15 @@ mod tests {
             ModelTexturesMissing,
             ModelTexturesUnreadable,
             ModelTexturesUnchecked,
+            ModelSourceUnreadable,
+            ModelFileMissing,
+            ModelFileOutside,
             ModelNoGeometry,
             ModelMaterialUntextured,
             ModelUvMissing,
             ModelOutOfRange,
             ModelFacesDropped,
+            TextureUnreadable,
         ];
         let mut all: HashSet<PartCode> = seen.clone();
         all.extend(unreached);

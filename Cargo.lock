@@ -1589,6 +1589,7 @@ dependencies = [
  "sha1",
  "tempfile",
  "thiserror 2.0.21",
+ "tobj",
  "toml 0.8.2",
  "uxie",
  "windows-sys 0.61.2",
@@ -5763,6 +5764,12 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
+name = "tobj"
+version = "4.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6eb8e04167c1c0c76b5de63226fd733485ad63ef71e40de31e16272f47b099e2"
 
 [[package]]
 name = "tokio"

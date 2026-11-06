@@ -2,15 +2,18 @@
 //! [`mesh::to_faces`] turns it into the faces of the baker (`bake::Face`).
 
 pub mod mesh;
+mod read_obj;
 pub mod samples;
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
+use g4_formats::nsbtx::Rgba;
 use g4_formats::texconv::Colors;
 
 use crate::bake::{BakeCode, BakeMessage, WORLD_MAX, WORLD_MIN};
 use crate::error::KernelError;
 use crate::map_import::{PartCode, PartMessage};
+use mesh::Mesh;
 
 /// What the user chooses for an import: `unit` world units per model unit (16: one model unit
 /// is one tile), `colors` per texture (4 or 16).
@@ -89,6 +92,142 @@ impl SourceFormat {
             SourceFormat::Gltf => "glTF",
         }
     }
+}
+
+/// The mesh of an OBJ or glTF file and its notes (model.parts-ignored); the refusal with code.
+///
+/// The format follows the extension ([`SourceFormat::of`]); every file the model refers to is
+/// read only from inside the model's folder ([`resolve_inside`]).
+pub fn read_model(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMessage> {
+    match SourceFormat::of(path) {
+        Some(SourceFormat::Obj) => read_obj::read_obj(path),
+        // The glTF reader comes with its own task; until then a glTF file is refused.
+        Some(SourceFormat::Gltf) => Err(source_unreadable(
+            SourceFormat::Gltf,
+            "the glTF reader is not built in yet",
+        )),
+        None => Err(PartMessage::new(
+            PartCode::ModelSourceUnreadable,
+            &[&"OBJ/glTF", &"unknown file extension"],
+            format!("{} is neither an OBJ nor a glTF file", path.display()),
+        )),
+    }
+}
+
+/// `model.source-unreadable` with the format's label and the reason.
+pub(crate) fn source_unreadable(format: SourceFormat, reason: &str) -> PartMessage {
+    let label = format.label();
+    PartMessage::new(
+        PartCode::ModelSourceUnreadable,
+        &[&label, &reason],
+        format!("not a readable {label} model ({reason})"),
+    )
+}
+
+fn file_outside(reference: &str) -> PartMessage {
+    PartMessage::new(
+        PartCode::ModelFileOutside,
+        &[&reference],
+        format!("the model refers to {reference}, outside its folder"),
+    )
+}
+
+fn file_missing(reference: &str, why: &str) -> PartMessage {
+    PartMessage::new(
+        PartCode::ModelFileMissing,
+        &[&reference],
+        format!("the file {reference} the model refers to is missing ({why})"),
+    )
+}
+
+/// A URI scheme in front of `reference` (`https:`, `file:`, `data:`, a drive letter `C:`).
+fn has_scheme(reference: &str) -> bool {
+    let Some((scheme, _)) = reference.split_once(':') else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
+/// `reference` (as written in a file inside `root`, relative to `from`) as a path inside the
+/// canonical folder `root`: model.file-outside for absolute paths, schemes and anything
+/// leaving `root` after canonicalising; model.file-missing when it does not exist.
+///
+/// `from` is the folder of the referring file. Backslashes count as separators (exports from
+/// Windows). Refused before any file is touched: an absolute path, a URI scheme (also `data:`;
+/// the glTF reader decodes those itself) and a `..` that leaves `root` on its own. After that
+/// the path is canonicalised (symlinks followed) and must still lie in `root` and be a file.
+/// The returned path is the canonical one, so the caller reads exactly what was checked.
+pub(crate) fn resolve_inside(
+    root: &Path,
+    from: &Path,
+    reference: &str,
+) -> Result<PathBuf, PartMessage> {
+    let written = reference.trim();
+    if written.is_empty() {
+        return Err(file_missing(written, "no file name"));
+    }
+    let slashed = written.replace('\\', "/");
+    if slashed.starts_with('/') || Path::new(&slashed).has_root() || has_scheme(&slashed) {
+        return Err(file_outside(written));
+    }
+    let root = root
+        .canonicalize()
+        .map_err(|e| file_missing(written, &e.to_string()))?;
+    let from = from
+        .canonicalize()
+        .map_err(|e| file_missing(written, &e.to_string()))?;
+    if !from.starts_with(&root) {
+        return Err(file_outside(written));
+    }
+    // Lexically first: `..` must not climb above `root`, whether the target exists or not.
+    let mut lexical = from;
+    for part in Path::new(&slashed).components() {
+        match part {
+            Component::Normal(name) => lexical.push(name),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !lexical.pop() || !lexical.starts_with(&root) {
+                    return Err(file_outside(written));
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => return Err(file_outside(written)),
+        }
+    }
+    if !lexical.starts_with(&root) {
+        return Err(file_outside(written));
+    }
+    // A dangling symlink is missing as well: nothing is read either way.
+    let canonical = lexical
+        .canonicalize()
+        .map_err(|e| file_missing(written, &e.to_string()))?;
+    if !canonical.starts_with(&root) {
+        return Err(file_outside(written));
+    }
+    if !canonical.is_file() {
+        return Err(file_missing(written, "not a file"));
+    }
+    Ok(canonical)
+}
+
+/// The pixels of a PNG or JPEG as RGBA8; texture.unreadable `[file, reason]` (`file` as the
+/// model writes it).
+pub(crate) fn decode_image(bytes: &[u8], file: &str) -> Result<Rgba, PartMessage> {
+    let image = image::load_from_memory(bytes).map_err(|e| {
+        let reason = e.to_string();
+        PartMessage::new(
+            PartCode::TextureUnreadable,
+            &[&file, &reason],
+            format!("the image {file} cannot be read ({reason})"),
+        )
+    })?;
+    let rgba = image.to_rgba8();
+    Ok(Rgba {
+        width: rgba.width(),
+        height: rgba.height(),
+        pixels: rgba.into_raw(),
+    })
 }
 
 /// The finding of `bake` as a part message; `area` is the first argument of the VRAM warning.
