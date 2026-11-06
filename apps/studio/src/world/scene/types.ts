@@ -66,6 +66,8 @@ export interface SceneRefs {
   callbacks: RefObject<SceneCallbacks>;
   /** Whether the permission overlay is shown. */
   showPermissions: RefObject<boolean>;
+  /** Whether the layer „Höhen“ is shown. */
+  showHeights: RefObject<boolean>;
   /** Whether the event markers are shown. */
   showEvents: RefObject<boolean>;
   /** Like the area data, the event file belongs to the header and is read when a matrix loads. */

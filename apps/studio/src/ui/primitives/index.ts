@@ -68,6 +68,8 @@ export { TypeBadge } from "./TypeBadge";
 export type { TypeBadgeProps } from "./TypeBadge";
 export { StatBar } from "./StatBar";
 export type { StatBarProps } from "./StatBar";
+export { Budget } from "./Budget";
+export type { BudgetProps, BudgetState } from "./Budget";
 export { Table } from "./Table";
 export type { TableColumn, TableProps, TableRow } from "./Table";
 export { FilterChips } from "./FilterChips";

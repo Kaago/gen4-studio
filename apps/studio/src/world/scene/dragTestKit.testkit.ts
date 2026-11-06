@@ -117,6 +117,7 @@ export function fakeRefs(overrides: Partial<SceneCallbacks> = {}) {
     handle: { current: null },
     callbacks: { current: callbacks },
     showPermissions: { current: true },
+    showHeights: { current: false },
     showEvents: { current: true },
     eventFile: { current: 1 },
     destName: { current: () => undefined },

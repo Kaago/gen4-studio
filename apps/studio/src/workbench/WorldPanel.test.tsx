@@ -40,11 +40,12 @@ describe("WorldPanel", () => {
   const onSelect = vi.fn();
   const onShowPermissions = vi.fn();
   const onShowEvents = vi.fn();
+  const onShowHeights = vi.fn();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    for (const f of [onSelect, onShowPermissions, onShowEvents]) f.mockReset();
+    for (const f of [onSelect, onShowPermissions, onShowEvents, onShowHeights]) f.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -56,6 +57,7 @@ describe("WorldPanel", () => {
       headers: [header(3), header(4)],
       matrix: null,
       showPermissions: true,
+      showHeights: false,
       showEvents: false,
       paintEnabled: true,
       tool: "select",
@@ -65,6 +67,7 @@ describe("WorldPanel", () => {
       onSelect,
       onShowPermissions,
       onShowEvents,
+      onShowHeights,
       ...over,
     } as unknown as WorkbenchData;
     act(() =>
@@ -150,6 +153,15 @@ describe("WorldPanel", () => {
     expect(onShowEvents).toHaveBeenCalledWith(true);
     act(() => button("Gelände").click());
     expect(onShowPermissions).toHaveBeenCalledWith(false);
+    // „Höhen“ asks the workbench, and the scene shows the heights as the workbench says.
+    expect(button("Höhen").getAttribute("aria-pressed")).toBe("false");
+    act(() => button("Höhen").click());
+    expect(onShowHeights).toHaveBeenCalledWith(true);
+    expect(sceneProps.current?.showHeights).toBe(false);
+    show({ matrix, showPermissions: false, showHeights: true });
+    expect(sceneProps.current?.showHeights).toBe(true);
+    expect(sceneProps.current?.showPermissions).toBe(false);
+    expect(button("Höhen").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("has_no_add_buttons_over_the_scene_any_more_the_tools_add", () => {
@@ -157,8 +169,8 @@ describe("WorldPanel", () => {
     expect(button("Neues Gebäude")).toBeUndefined();
     expect(button("Hinzufügen")).toBeUndefined();
     expect(container.querySelector('[aria-label="Art des neuen Events"]')).toBeNull();
-    // Only the two layer toggles and the top-down switch are left in the layer bar.
-    expect([...container.querySelectorAll('[role="toolbar"][aria-label="Ebenen der Schau"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse", "Draufsicht"]);
+    // Only the three layer toggles and the top-down switch are left in the layer bar.
+    expect([...container.querySelectorAll('[role="toolbar"][aria-label="Ebenen der Schau"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Höhen", "Ereignisse", "Draufsicht"]);
   });
 
   it("switches_the_scene_to_the_top_down_view_and_remembers_it", () => {

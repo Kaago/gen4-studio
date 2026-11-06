@@ -9,6 +9,7 @@ import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, markFaulty, moveMa
 import type { MarkerSet } from "../markers";
 import { cloneModel, disposeTree } from "../sceneUtil";
 import { peekSprite, spriteTexture } from "../sprites";
+import { showHeightLayer } from "./heightLayer";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
@@ -181,7 +182,8 @@ export function recolourMap(h: SceneHost, mapId: number) {
 
 /**
  * Puts what stands on the ground of map `mapId` onto `h.ground` again (its heights changed: `set_map_terrain`, its undo): the overlay
- * plates of every cell showing the map and the markers on its tiles; the other maps stay as they are. Does not render.
+ * plates of every cell showing the map and the markers on its tiles; the other maps stay as they are. The layer „Höhen“ is built anew
+ * on `h.ground` (its isolines run across map borders), shown or hidden as before. Does not render.
  */
 export function moveMapGround(h: SceneHost, mapId: number) {
   const matrix = h.matrix;
@@ -213,6 +215,7 @@ export function moveMapGround(h: SceneHost, mapId: number) {
       for (const event of data) if (onMap(event.x, event.z)) moveMarker(set, { kind, index: event.index }, { x: event.x, z: event.z });
     }
   }
+  if (h.heights) showHeightLayer(h, h.heights.visible);
   reportSelectedMarker(h);
 }
 

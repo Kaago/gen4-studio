@@ -60,6 +60,8 @@ export class SceneHost {
   loaded = new Map<number, Loaded>();
   /** The walking surface of `matrix` and `loaded` (overlay, markers, picking, drags and the draft stand on it; models and buildings do not). */
   ground: Ground = flatGround(null);
+  /** The layer „Höhen“ in `content` (plates in the colours of their steps and the isolines; see `heightLayer`), null until a matrix is loaded. */
+  heights: THREE.Group | null = null;
   tiles: THREE.InstancedMesh | null = null;
   /** Map id to the first overlay instance of each matrix cell showing that map. */
   bases = new Map<number, number[]>();

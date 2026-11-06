@@ -5,6 +5,7 @@ import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
 import { showCellFrame } from "./cellFrame";
 import { reportSelectedMarker } from "./content";
+import { reportHeights } from "./heightLayer";
 import type { SceneRefs } from "./types";
 
 /** The selected building (made by a click, the header list, ...) is outlined; the scene also drags it. */
@@ -76,6 +77,19 @@ export function usePermissionVisibility(refs: SceneRefs, showPermissions: boolea
       h.render();
     }
   }, [showPermissions]);
+}
+
+/** Shows or hides the layer „Höhen“ (the canvas says so in `data-heights-shown`). */
+export function useHeightVisibility(refs: SceneRefs, showHeights: boolean) {
+  useEffect(() => {
+    refs.showHeights.current = showHeights;
+    const h = refs.handle.current;
+    if (h?.heights) {
+      h.heights.visible = showHeights;
+      reportHeights(h);
+      h.render();
+    }
+  }, [showHeights]);
 }
 
 /** Shows or hides the event markers. */

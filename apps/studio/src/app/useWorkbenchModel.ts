@@ -84,6 +84,8 @@ interface WorkbenchModelParams {
   view: {
     showPermissions: boolean;
     setShowPermissions: (show: boolean) => void;
+    showHeights: boolean;
+    setShowHeights: (show: boolean) => void;
     showEvents: boolean;
     setShowEvents: (show: boolean) => void;
     /** The depth of the app (the shell's). */
@@ -133,6 +135,8 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHisto
     areaDataId: scene.sceneArea,
     showPermissions: view.showPermissions,
     onShowPermissions: view.setShowPermissions,
+    showHeights: view.showHeights,
+    onShowHeights: view.setShowHeights,
     eventFileId,
     showEvents: view.showEvents,
     onShowEvents: view.setShowEvents,

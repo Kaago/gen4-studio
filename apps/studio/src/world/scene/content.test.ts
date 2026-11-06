@@ -8,6 +8,7 @@ import { resetSprites } from "../sprites";
 import { createGround, flatGround } from "../ground";
 import { MARKER_Y, selectMarker } from "../markers";
 import { OVERLAY_Y, addModel, buildContent, moveMapGround, recolourMap, removeMapModel, removeModels, reportSelectedMarker, setMarkers } from "./content";
+import { HEIGHT_LAYER_Y, showHeightLayer } from "./heightLayer";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
@@ -371,6 +372,41 @@ describe("moveMapGround", () => {
     expect(tileY(h, MAP_SIZE * MAP_SIZE + 5 * MAP_SIZE + 8)).toBeCloseTo(OVERLAY_Y + 1, 5);
     expect(markerY(h, "warp")).toBeCloseTo(MARKER_Y + 1, 5);
     built.buildings.dispose();
+  });
+
+  it("a_map_refresh_with_new_heights_rebuilds_the_heights_layer", () => {
+    const loaded = new Map([
+      [1, withHeight(1, 0)],
+      [2, withHeight(2, 0)],
+    ]);
+    const h = handle({ matrix: two, loaded, ground: createGround(two, loaded) });
+    showHeightLayer(h, true);
+    const before = h.heights!;
+    expect(h.content.children).toContain(before);
+    expect(h.canvas.dataset.heightsShown).toBe("true");
+    const plateY = (i: number) => {
+      const m = new THREE.Matrix4();
+      (h.heights!.getObjectByName("tiles") as THREE.InstancedMesh).getMatrixAt(i, m);
+      return new THREE.Vector3().setFromMatrixPosition(m).y;
+    };
+    const lines = () => (h.heights!.getObjectByName("isolines") as THREE.LineSegments).geometry.getAttribute("position").count / 2;
+    expect(plateY(5 * MAP_SIZE + 5)).toBeCloseTo(HEIGHT_LAYER_Y, 5);
+    expect(lines()).toBe(0);
+    // Map 1 rises by two steps: its plates move, the border to map 2 gets its line; the layer stays shown.
+    loaded.set(1, withHeight(1, 16));
+    h.ground = createGround(two, loaded);
+    moveMapGround(h, 1);
+    expect(h.heights).not.toBe(before);
+    expect(h.content.children).not.toContain(before);
+    expect(h.content.children).toContain(h.heights);
+    expect(plateY(5 * MAP_SIZE + 5)).toBeCloseTo(HEIGHT_LAYER_Y + 1, 5);
+    expect(lines()).toBe(MAP_SIZE);
+    expect(h.heights!.visible).toBe(true);
+    // A hidden layer stays hidden.
+    h.heights!.visible = false;
+    moveMapGround(h, 1);
+    expect(h.heights!.visible).toBe(false);
+    expect(h.canvas.dataset.heightsShown).toBeUndefined();
   });
 
   it("reports no marker height without a selection", () => {

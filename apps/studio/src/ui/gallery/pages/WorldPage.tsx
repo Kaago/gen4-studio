@@ -7,7 +7,7 @@ import { nameWarning, placeKeyOf } from "../../../workbench/places/placeChoices"
 import { SHARED_HINT, sharedText } from "../../../workbench/sharedRooms";
 import { PatchConsent, patchReady } from "../../../workbench/wizards/PatchConsent";
 import { ThumbnailCache } from "../../../world/thumbnails";
-import { Badge, Button, Checkbox, InspectorRow, Notice, PanelHead, TextField, Tooltip } from "../../primitives";
+import { Badge, Budget, Button, Checkbox, InspectorRow, Notice, PanelHead, TextField, Tooltip } from "../../primitives";
 import type { PanelHeadSwitcher } from "../../primitives";
 import styles from "../Gallery.module.css";
 
@@ -239,7 +239,38 @@ function SharedRoom() {
   );
 }
 
-/** Phase 3f „Weltmodell“: the world map with its views and the room plan, places, the patch line and the shared room, with example data. */
+/** The swatch class of each height step (the tokens `szene/hoehe/0..6`). */
+const STEP_CLASSES = [styles.hoehe0, styles.hoehe1, styles.hoehe2, styles.hoehe3, styles.hoehe4, styles.hoehe5, styles.hoehe6];
+
+/** The seven height steps of the layer „Höhen“: a step is half a tile (8 E), step 7 starts over at the first colour. */
+function HeightSteps() {
+  return (
+    <ul className={styles.heightSteps} aria-label="Höhenstufen">
+      {STEP_CLASSES.map((swatch, step) => (
+        <li key={step} className={styles.heightStep} data-height-step={step}>
+          <span className={`${styles.heightSwatch} ${swatch}`} aria-hidden="true" />
+          Stufe {step} · {step * 8} E
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The budget in its three states, as the map inspector shows it. */
+function Budgets() {
+  return (
+    <div className={styles.inspectorWide} data-depth="bauen">
+      <Budget label="Terrain (BDHC)" used={300} max={36864} state="calm" unit="B" />
+      <Budget label="Modell" used={58000} max={61440} state="tight" unit="B" />
+      <Budget label="Gebäude" used={33} max={32} state="full" />
+    </div>
+  );
+}
+
+/**
+ * Phase 3f „Weltmodell“: the world map with its views and the room plan, places, the patch line and the shared room, with example data;
+ * phase 6.2 adds the budget and the height steps.
+ */
 export function WorldPage() {
   return (
     <div className={styles.stack}>
@@ -274,6 +305,21 @@ export function WorldPage() {
         <h2 className={styles.blockTitle}>Patch-Zeile</h2>
         <p className={styles.note}>Fehlt der Spielcode für neue Orte, fragt die Zusammenfassung einmal; ist er fehlerhaft, zeigt sie den Weg zur Reparatur.</p>
         <PatchLine />
+      </section>
+
+      <section className={styles.block} data-gallery-state="budget">
+        <h2 className={styles.blockTitle}>Budget</h2>
+        <p className={styles.note}>Grenzen des Spiels, ruhig gezeigt: Ruhig ohne Plakette, ab 90 % „Knapp“, über der Grenze „Voll“. Speichern geht immer.</p>
+        <Budgets />
+      </section>
+
+      <section className={styles.block} data-gallery-state="hoehen">
+        <h2 className={styles.blockTitle}>Höhenstufen</h2>
+        <p className={styles.note}>
+          Die Schicht „Höhen“ färbt jede Kachel nach ihrer Stufe (eine halbe Kachel, 8 E) in sieben Stufen cividis, danach von vorn; Isolinien in Stufe 0 an jeder Kante
+          mit Stufenwechsel, auf der höheren Seite. „Höhen“ und „Gelände“ schließen sich aus.
+        </p>
+        <HeightSteps />
       </section>
 
       <section className={styles.block} data-gallery-state="geteilt">
