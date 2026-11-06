@@ -291,16 +291,16 @@ Tilesets und leere Zellen ergeben keine Fläche.
 - **Wände:** zwischen zwei Bodenzellen, deren Oberkanten an der gemeinsamen Kante verschieden hoch
   liegen, eine senkrechte Fläche vom unteren zum oberen Profil, Vorderseite zur niedrigeren Zelle,
   `layer` 0. Textur: `wall` der Kachel der oberen Zelle im Tileset, ohne `wall` deren eigene
-  Kachel. Wandstücke einer Linie mit gleicher Textur, gleicher Richtung und geradem Unter- und
-  Oberprofil werden eine Fläche. Keine Wand an der Kartengrenze (Nachbarkarten sieht erst 6.4b), zu
+  Kachel. Wandstücke einer Linie mit gleicher Wandkachel (Kachelindex, nicht Texturname), gleicher
+  Richtung und geradem Unter- und Oberprofil werden eine Fläche. Keine Wand an der Kartengrenze (Nachbarkarten sieht erst 6.4b), zu
   einer leeren Zelle und wo sich die Profile **kreuzen** (gegenläufige Rampen nebeneinander). Liegt
   eine Rampe neben einer ebenen Zelle, die an einem Ende gleich hoch ist, wird die Wand ein
   **entartetes Viereck**: zwei Ecken fallen zusammen, es ist ein Dreieck.
 - **Fußabdrücke:** je Teilmodell eine Fläche auf `PIECE_LAYER` (siehe „Teilmodelle“).
-- **Reihenfolge:** Ebene aufsteigend; je Ebene erst die Böden in Reihenfolge ihrer Startzelle
+- **Reihenfolge:** Ebene aufsteigend; je Ebene die Böden in Reihenfolge ihrer Startzelle
   (Zeile, dann Spalte), auf der Bodenebene danach die Wände (Nordkanten zeilenweise, dann
-  Westkanten spaltenweise), zuletzt die Fußabdrücke in Listenreihenfolge. Deterministisch, ohne
-  Hash-Reihenfolge.
+  Westkanten spaltenweise). Die Fußabdrücke kommen einmal nach allen Ebenen, in
+  Listenreihenfolge. Deterministisch, ohne Hash-Reihenfolge.
 - **Budget-Schätzung:** `estimate_model_bytes(Flächen, Texturen) = 1 024 + 600 · Texturen +
   56 · Flächen`, eine obere Schranke (Vierecke mit `TEXCOORD` und `VTX_16`; gemessen in
   [Gutachten A](../research/2026-11-05-phase-6/gutachten-a-writer.md) §2.5: 1 024 Flächen mit

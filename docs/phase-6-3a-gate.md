@@ -48,6 +48,7 @@ Durchgeführt 2026-11-05 bis 2026-11-06 (Befehle: [docs/agent-gate.md](agent-gat
 - [x] 2. **Gated Kernel-Tests** je Projekt im Release-Profil, `--nocapture --test-threads 1`:
    - `vanilla_tilesets_have_one_ground_tile_per_texture` und `vanilla_vote_shares_match_task0` (`crates/g4-kernel/tests/world.rs`, Task 5 auf `6-3a-task0-*`): druckt `tilesets <Spielcode> packages=… tiles=… vanilla=… unclear=… ms=…`. Ergebnis: Platin DE `packages=74 tiles=3130 vanilla=1765 unclear=1365 ms=6470`, HeartGold DE `106 / 3659 / 2612 / 1047, ms=7751`, HeartGold US `106 / 3659 / 2612 / 1047, ms=5988`; die Anteile `vote-shares` (Median 0,951 bzw. 0,918) passen zu Task 0.
    - `textproject_round_trip_with_world`, `textproject_export_idempotent_with_world` (`tests/textproject.rs`) und `vanilla_migration_v2_to_v3_changes_only_the_manifest` (`tests/textproject_migrate.rs`), Task 8 auf `6-3a-t8-*`: Platin DE Welt auf Karte 0000, Paket 0006 (78 Kacheln), HeartGold DE und US Karte 0000, Paket 0002 (67 Kacheln); Round-Trip byte-gleich, zweiter Export ohne Änderung, Migration ändert nur das Manifest (6 577 bzw. 6 305 Quellen). `textproject-stats` Platin DE `world_ms=4625 export_ms=163288 import_ms=123636 build_ms=48738`, HeartGold DE `world_ms=4385 build_ms=50499`, HeartGold US `world_ms=4389 build_ms=50247`.
+   - **Stand der Läufe:** die gated Tests von `tests/world.rs` liefen auf `d748f5c1` (Task 5), Round-Trip, Export und Migration auf `48b0ad0b` (Task 8; die Fix-Runde bis `f390e740` brachte nur einen Negativtest und Doku, ohne neuen gated Lauf). Beide Stände liegen **vor** dem Merge von main (`5d7f5cc3`, 6.1 Writer, 6.2 BDHC) und vor der Rampen-Umrechnung zu 6.2 (`6a58f17d`, Lexer der Rampen). Für den Code des Merges sind sie Indiz, kein Nachweis: **maßgeblich vor dem Merge nach main ist der `scripts/gate.sh`-Lauf der Hauptsitzung mit seinen gated Schritten je Projekt.**
 - [x] 3. **Zeittests** mit `G4_TIMING_STRICT=1`, in Task 14 wiederholt (Last 8,8 bis 13,4):
    - `mesh_of_a_full_map_is_fast` (Release, Grenze 20 ms): `world-mesh faces=1866 median_us=107` (Task 3: 83 µs).
    - `world_mesh_over_the_command_path_is_fast` (`-p studio`, Debug, Grenze 50 ms): `world-mesh-bridge median_ms=9.56 faces=1802` (Task 9: 6,71 ms).
@@ -77,8 +78,8 @@ Durchgeführt 2026-11-05 bis 2026-11-06 (Befehle: [docs/agent-gate.md](agent-gat
 | Punkt | Wer | Ergebnis | Datum |
 |---|---|---|---|
 | (1) 1 `scripts/gate.sh` | Agent | **offen: Lauf in der Hauptsitzung**; Schritte angehängt, `bash -n` ok; die Teile einzeln grün (Workspace 3 375, pnpm 3 970, fmt, clippy, keine ROM-Daten) | 2026-11-06 |
-| (1) 2 gated `tests/world.rs` | Agent | bestanden: 74 / 3 130, 106 / 3 659, 106 / 3 659 | 2026-11-05 |
-| (1) 2 gated Round-Trip, Export, Migration | Agent | bestanden auf allen drei Spielen | 2026-11-06 |
+| (1) 2 gated `tests/world.rs` | Agent | bestanden auf `d748f5c1` (vor dem Merge `5d7f5cc3` und `6a58f17d`): 74 / 3 130, 106 / 3 659, 106 / 3 659; maßgeblich: `scripts/gate.sh` der Hauptsitzung | 2026-11-05 |
+| (1) 2 gated Round-Trip, Export, Migration | Agent | bestanden auf allen drei Spielen auf `48b0ad0b` (Fix-Runde bis `f390e740` ohne neuen Lauf; vor dem Merge `5d7f5cc3` und `6a58f17d`); maßgeblich: `scripts/gate.sh` der Hauptsitzung | 2026-11-06 |
 | (1) 3 Zeittests | Agent | bestanden: Netz 107 µs Median (≤ 20 ms), Brücke 9,56 ms (≤ 50 ms); Last 8,8 bis 13,4 | 2026-11-06 |
 | (1) 4 `cargo deny` | Agent | bestanden | 2026-11-06 |
 | (2) Task 0 | Agent | K1 0,6, 72,1 % | 2026-11-05 |
@@ -102,6 +103,6 @@ Keine offenen Befunde aus dem Gate. Befunde der Tasks sind in ihren Fix-Runden b
 
 ## Offen
 
-- `scripts/gate.sh` als Ganzes (Hauptsitzung, nach dem Merge).
+- `scripts/gate.sh` als Ganzes mit seinen gated Schritten (Hauptsitzung, vor dem Merge nach main): die gated Läufe der Tasks 5 und 8 liegen vor dem Merge von main und vor `6a58f17d`; erst dieser Lauf belegt den Stand, der gemergt wird.
 - Blick auf die Szene einer Welt-Karte in Hell und Dunkel; das Textprojekt in einem älteren Studio (Nutzer).
 - Aus der Umsetzung für 6.3b und später: `get_map_heights` liest für Welt-Karten noch die BDHC des Members, Vorschaubilder gemalter Karten kommen weiter aus dem GLB, `From<MeshFace> for bake::Face`.
