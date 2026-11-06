@@ -148,11 +148,22 @@ pub enum PartCode {
     PartDuplicate,
     /// Error, args: the first structure error of the terrain (`BdhcProblem::message`).
     BdhcStructure,
+    /// Error: a converted model without a face (none read, or every face gone when rounded).
+    ModelNoGeometry,
+    /// Error, args: the material's name (empty for a polygon without material); it has no
+    /// image and the area's pack no texture of its name.
+    ModelMaterialUntextured,
+    /// Error, args: the material's name; a textured polygon without texture coordinates.
+    ModelUvMissing,
+    /// Error, args: the corner (x, y, z) in rounded world units, the range (−512, 511).
+    ModelOutOfRange,
+    /// Hint, args: how many faces have no area once rounded to whole world units (dropped).
+    ModelFacesDropped,
 }
 
 impl PartCode {
     /// Every code, in the order above.
-    pub const ALL: [PartCode; 30] = [
+    pub const ALL: [PartCode; 35] = [
         PartCode::ModelInvalid,
         PartCode::ModelBlocks,
         PartCode::ModelCount,
@@ -183,6 +194,11 @@ impl PartCode {
         PartCode::WholeBuildingsTail,
         PartCode::PartDuplicate,
         PartCode::BdhcStructure,
+        PartCode::ModelNoGeometry,
+        PartCode::ModelMaterialUntextured,
+        PartCode::ModelUvMissing,
+        PartCode::ModelOutOfRange,
+        PartCode::ModelFacesDropped,
     ];
 
     /// The code as the UI gets it (`model.too-big`).
@@ -218,6 +234,11 @@ impl PartCode {
             PartCode::WholeBuildingsTail => "whole.buildings-tail",
             PartCode::PartDuplicate => "part.duplicate",
             PartCode::BdhcStructure => "bdhc.structure",
+            PartCode::ModelNoGeometry => "model.no-geometry",
+            PartCode::ModelMaterialUntextured => "model.material-untextured",
+            PartCode::ModelUvMissing => "model.uv-missing",
+            PartCode::ModelOutOfRange => "model.out-of-range",
+            PartCode::ModelFacesDropped => "model.faces-dropped",
         }
     }
 }
@@ -238,7 +259,11 @@ pub struct PartMessage {
 }
 
 impl PartMessage {
-    fn new(code: PartCode, args: &[&dyn std::fmt::Display], message: String) -> PartMessage {
+    pub(crate) fn new(
+        code: PartCode,
+        args: &[&dyn std::fmt::Display],
+        message: String,
+    ) -> PartMessage {
         PartMessage {
             code,
             args: args.iter().map(ToString::to_string).collect(),
@@ -1523,12 +1548,18 @@ mod tests {
 
         // Not reached here: whole building records always read, a map file that reads is
         // valid, and the texture hints need materials, packs and headers the fixture lacks.
+        // The converted-model codes come from `model_import` (its tests reach them).
         let unreached = [
             BuildingsUnreadable,
             WholeInvalid,
             ModelTexturesMissing,
             ModelTexturesUnreadable,
             ModelTexturesUnchecked,
+            ModelNoGeometry,
+            ModelMaterialUntextured,
+            ModelUvMissing,
+            ModelOutOfRange,
+            ModelFacesDropped,
         ];
         let mut all: HashSet<PartCode> = seen.clone();
         all.extend(unreached);

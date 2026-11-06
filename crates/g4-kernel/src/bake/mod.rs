@@ -7,7 +7,7 @@
 //! `docs/formats/nsbmd.md`, section „Teilmenge des Bäckers“.
 
 mod encode;
-mod strips;
+pub(crate) mod strips;
 mod test_surface;
 mod textures;
 

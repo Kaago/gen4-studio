@@ -44,12 +44,22 @@ describe("importParts", () => {
   });
 
   it("covers_every_part_code_of_the_kernel_and_says_a_broken_terrain_structure", () => {
-    // `PartCode::ALL` has 30 codes; the Rust test holds the order against it.
+    // `PartCode::ALL` has 35 codes; the Rust test holds the order against it.
     const codes = Object.keys(PART_TEXTS);
-    expect(codes).toHaveLength(30);
-    expect(codes[codes.length - 1]).toBe("bdhc.structure");
+    expect(codes).toHaveLength(35);
+    expect(codes).toContain("bdhc.structure");
     expect(said("bdhc.structure", ["plate 0 names point 99, past the 2 points"])).toBe(
       "Das Terrain ist beschädigt (plate 0 names point 99, past the 2 points). Wähle eine unbeschädigte .bdhc-Datei.",
+    );
+  });
+
+  it("says_the_findings_of_a_converted_model", () => {
+    expect(said("model.out-of-range", ["640", "0", "0", "-512", "511"])).toBe(
+      "Eine Ecke liegt bei (640, 0, 0), außerhalb von -512 bis 511 Einheiten. Verkleinere das Modell oder wähle eine kleinere Einheit.",
+    );
+    expect(said("model.faces-dropped", ["1200"])).toBe("1.200 Flächen fallen weg: nach dem Runden auf ganze Einheiten haben sie keine Fläche mehr.");
+    expect(said("model.material-untextured", [""])).toBe(
+      "Das Material „“ hat keine Textur, und das Gebiets-Paket hat keine Textur dieses Namens. Gib dem Material eine PNG-Textur.",
     );
   });
 
