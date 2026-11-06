@@ -1016,4 +1016,55 @@ mod tests {
             .sum();
         assert_eq!(area, 512 * 512 - 16 * 16);
     }
+
+    /// The normal rule of 6.1's baker (`bake::strips::normal`, crate-private there):
+    /// `(c1 − c0) × (c2 − c0)`, at length 0 `(c2 − c0) × (c3 − c0)`, else none.
+    fn baker_normal(face: &MeshFace) -> Option<[i64; 3]> {
+        let c = face.corners.map(|p| p.map(i64::from));
+        let sub = |a: [i64; 3], b: [i64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        let cross = |a: [i64; 3], b: [i64; 3]| {
+            [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ]
+        };
+        let n = cross(sub(c[1], c[0]), sub(c[2], c[0]));
+        let n = if n == [0; 3] {
+            cross(sub(c[2], c[0]), sub(c[3], c[0]))
+        } else {
+            n
+        };
+        (n != [0; 3]).then_some(n)
+    }
+
+    #[test]
+    fn degenerate_walls_keep_their_normal_under_the_baker_rule() {
+        // A ramp next to a level cell of its lower height leaves a triangular wall (two
+        // corners of the quad coincide); in every direction and on both sides of the ramp the
+        // baker's rule gives the same direction as the whole quad (Newell), towards the lower
+        // cell.
+        let mut degenerate = 0;
+        for ramp in [Ramp::North(1), Ramp::East(2), Ramp::South(1), Ramp::West(2)] {
+            let mut g = flat();
+            g.ramps[at(10, 10)] = ramp;
+            let faces = mesh(&g, &Tileset::synthetic());
+            let walls = walls(&faces);
+            assert_eq!(walls.len(), 3, "{ramp:?}: {walls:?}");
+            for w in walls {
+                let c = &w.corners;
+                if (0..4).any(|i| c[i] == c[(i + 1) % 4]) {
+                    degenerate += 1;
+                }
+                let n = baker_normal(w).unwrap_or_else(|| panic!("{ramp:?}: no normal {w:?}"));
+                let whole = normal(w);
+                assert_eq!(n[1], 0, "{ramp:?}: {w:?}");
+                // Parallel and the same way round.
+                assert_eq!(n[0] * whole[2] - n[2] * whole[0], 0, "{ramp:?}: {w:?}");
+                assert!(n[0] * whole[0] + n[2] * whole[2] > 0, "{ramp:?}: {w:?}");
+            }
+        }
+        // Two triangles beside each ramp.
+        assert_eq!(degenerate, 8);
+    }
 }

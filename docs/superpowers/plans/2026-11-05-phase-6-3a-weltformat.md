@@ -469,11 +469,11 @@ pub fn get_tileset_texture_impl(state: &AppState, package: u16, texture: String)
 - Consumes: main mit 6.2 (`git log main --oneline | grep -i "6.2"`; `git grep -n "pub enum Ramp" main -- crates/g4-kernel/src/terrain`).
 - Produces: der Worktree auf main mit 6.2; dieselbe Rampe in beiden Modulen.
 
-- [ ] **Step 1: Prüfen**, dass 6.2 auf main ist (Merge-Commit „6.2“ in `git log main`); sonst wartet dieser Task, Tasks 11 bis 14 hängen daran.
-- [ ] **Step 2: Mergen** `git merge main` im Worktree; Konflikte an Anhängepunkten gesammelt lösen (beide Seiten anhängen: `checks/mod.rs` gehört 6.2, `dispatch.rs`, `lib.rs`, `access.rs`, `api.ts`, `docs/mcp.md`, `ROADMAP.md`, `design-system/README.md`, `.fig` von main behalten); nach dem Merge zählt `git log --format='%(trailers:only,unfold)' main..HEAD` die Trailer weiter richtig (Merge-Commit mit Trailer).
-- [ ] **Step 3: Test** `ramp_direction_matches_terrain` in `grid.rs` (`East(1)` bei `h = 0` hat an der Westkante 0 und an der Ostkante 8 Einheiten in beiden Modulen; `From` in beide Richtungen verlustfrei für 1 und 2 Stufen). Weicht 6.2s Richtungssinn ab, folgt `world::grid::Ramp` 6.2 (Änderung der Doku `world_map.md`, der Tests in Task 3 und des Token-Sinns), weil die BDHC die Wahrheit des Spiels ist.
-- [ ] **Step 4: Lauf** `cargo test --workspace --all-features > target/agent/6-3a-t10.log 2>&1` und `cd apps/studio && pnpm test` (Hintergrund) grün.
-- [ ] **Step 5: Commit** (Merge-Commit plus `feat(world): ramps convert to and from the terrain ramp of 6.2`, beide mit Trailer).
+- [x] **Step 1: Prüfen**, dass 6.2 auf main ist (Merge-Commit „6.2“ in `git log main`); sonst wartet dieser Task, Tasks 11 bis 14 hängen daran.
+- [x] **Step 2: Mergen** `git merge main` im Worktree; Konflikte an Anhängepunkten gesammelt lösen (beide Seiten anhängen: `checks/mod.rs` gehört 6.2, `dispatch.rs`, `lib.rs`, `access.rs`, `api.ts`, `docs/mcp.md`, `ROADMAP.md`, `design-system/README.md`, `.fig` von main behalten); nach dem Merge zählt `git log --format='%(trailers:only,unfold)' main..HEAD` die Trailer weiter richtig (Merge-Commit mit Trailer).
+- [x] **Step 3: Test** `ramp_direction_matches_terrain` in `grid.rs` (`East(1)` bei `h = 0` hat an der Westkante 0 und an der Ostkante 8 Einheiten in beiden Modulen; `From` in beide Richtungen verlustfrei für 1 und 2 Stufen). Weicht 6.2s Richtungssinn ab, folgt `world::grid::Ramp` 6.2 (Änderung der Doku `world_map.md`, der Tests in Task 3 und des Token-Sinns), weil die BDHC die Wahrheit des Spiels ist.
+- [x] **Step 4: Lauf** `cargo test --workspace --all-features > target/agent/6-3a-t10.log 2>&1` und `cd apps/studio && pnpm test` (Hintergrund) grün.
+- [x] **Step 5: Commit** (Merge-Commit plus `feat(world): ramps convert to and from the terrain ramp of 6.2`, beide mit Trailer).
 
 ### Task 11: Frontend: Netz in der Szene, `[data-world-mesh]`, Undo-Nachladen
 

@@ -9,9 +9,15 @@
 //! turn); read in any case, written lowercase. A height is a whole number from −16 to 62
 //! (steps of [`STEP_UNITS`](super::doc::STEP_UNITS)). A ramp is `.` or a direction `n`, `e`,
 //! `s`, `w` (uphill) with 1 or 2 steps. An override is `.` or `kkcc` like the permissions.
+//!
+//! The height and ramp cells are lexed by [`lex_height`] and [`lex_ramp`], which 6.2's rows of
+//! `set_map_terrain` (`terrain::parse_grid`) read too: one grammar, `+5` and `e01` included;
+//! written are the canonical forms (`5`, `e1`). The ramp is 6.2's `bdhc::Ramp` in the same sense
+//! (uphill, height at the lower edge); [`Ramp`] converts to and from it without loss.
 
 use std::fmt;
 
+use g4_formats::bdhc::{self, HeightGrid};
 use g4_formats::map::{Cell, MAP_SIZE};
 
 use super::doc::{HEIGHT_MAX, HEIGHT_MIN, LayerRole, PieceJson, WORLD_VERSION, WorldJson};
@@ -45,6 +51,30 @@ pub enum Ramp {
     East(u8),
     South(u8),
     West(u8),
+}
+
+impl From<bdhc::Ramp> for Ramp {
+    fn from(r: bdhc::Ramp) -> Ramp {
+        match r {
+            bdhc::Ramp::None => Ramp::None,
+            bdhc::Ramp::North(s) => Ramp::North(s),
+            bdhc::Ramp::East(s) => Ramp::East(s),
+            bdhc::Ramp::South(s) => Ramp::South(s),
+            bdhc::Ramp::West(s) => Ramp::West(s),
+        }
+    }
+}
+
+impl From<Ramp> for bdhc::Ramp {
+    fn from(r: Ramp) -> bdhc::Ramp {
+        match r {
+            Ramp::None => bdhc::Ramp::None,
+            Ramp::North(s) => bdhc::Ramp::North(s),
+            Ramp::East(s) => bdhc::Ramp::East(s),
+            Ramp::South(s) => bdhc::Ramp::South(s),
+            Ramp::West(s) => bdhc::Ramp::West(s),
+        }
+    }
 }
 
 /// An error of a world document at `path` (`world.layers[0].tiles[4]`).
@@ -237,6 +267,20 @@ impl WorldGrid {
     }
 }
 
+impl WorldGrid {
+    /// The heights and ramps of the ground layer as 6.2's height grid (steps of 8 units, a
+    /// ramp's height at its lower edge), e.g. for the walk height at a cell centre
+    /// ([`HeightGrid::center_units`]).
+    pub fn height_grid(&self) -> HeightGrid {
+        let mut grid = HeightGrid::flat(0);
+        for (c, (&h, &r)) in self.heights.iter().zip(&self.ramps).enumerate().take(CELLS) {
+            grid.height[c] = h;
+            grid.ramp[c] = r.into();
+        }
+        grid
+    }
+}
+
 /// Notes every row of the ground's ramps with a cell whose ramp ends above [`HEIGHT_MAX`]
 /// (height `h` and `s` steps need `h + s ≤ 62`), its first such cell like a token error.
 fn ramp_tops(heights: &[i8], ramps: &[Ramp], errors: &mut Errors) {
@@ -370,24 +414,45 @@ pub fn tile_token(t: Option<TileRef>) -> String {
     token
 }
 
-/// The ramp of a token: `.` or `n`, `e`, `s`, `w` with 1 or 2 steps.
+/// The ramp of a row cell in the grammar of both row formats (the world document and 6.2's
+/// rows of `set_map_terrain`): `.` or a direction letter `n`, `e`, `s`, `w` followed by the
+/// steps as digits (`e1`, `e01`), lowercase only. The steps are not bounded here: each reader
+/// checks their range with its own sentence.
+pub fn lex_ramp(token: &str) -> Option<bdhc::Ramp> {
+    if token == EMPTY {
+        return Some(bdhc::Ramp::None);
+    }
+    let mut chars = token.chars();
+    let letter = chars.next()?;
+    let digits = chars.as_str();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let steps: u8 = digits.parse().ok()?;
+    match letter {
+        'n' => Some(bdhc::Ramp::North(steps)),
+        'e' => Some(bdhc::Ramp::East(steps)),
+        's' => Some(bdhc::Ramp::South(steps)),
+        'w' => Some(bdhc::Ramp::West(steps)),
+        _ => None,
+    }
+}
+
+/// The height of a row cell in the grammar of both row formats: a whole number with an
+/// optional sign (`-3`, `+5`, `05`). Not bounded here: each reader checks the range.
+pub fn lex_height(token: &str) -> Option<i64> {
+    token.parse().ok()
+}
+
+/// The ramp of a token ([`lex_ramp`]): `.` or `n`, `e`, `s`, `w` with 1 or 2 steps.
 pub fn parse_ramp(token: &str) -> Result<Ramp, String> {
     let bad =
         || format!("`{token}` ist keine Rampe (`.` oder `n`, `e`, `s`, `w` mit 1 oder 2 Stufen).");
-    if token == EMPTY {
-        return Ok(Ramp::None);
-    }
-    let steps = match token.get(1..) {
-        Some("1") => 1,
-        Some("2") => 2,
-        _ => return Err(bad()),
-    };
-    match token.as_bytes()[0] {
-        b'n' => Ok(Ramp::North(steps)),
-        b'e' => Ok(Ramp::East(steps)),
-        b's' => Ok(Ramp::South(steps)),
-        b'w' => Ok(Ramp::West(steps)),
-        _ => Err(bad()),
+    let ramp = Ramp::from(lex_ramp(token).ok_or_else(bad)?);
+    if ramp == Ramp::None || (1..=2).contains(&ramp_steps(ramp)) {
+        Ok(ramp)
+    } else {
+        Err(bad())
     }
 }
 
@@ -403,12 +468,9 @@ pub fn ramp_token(r: Ramp) -> String {
     format!("{direction}{steps}")
 }
 
-/// The height step of a token: a whole number from −16 to 62.
+/// The height step of a token ([`lex_height`]): a whole number from −16 to 62.
 pub fn parse_height(token: &str) -> Result<i8, String> {
-    let digits = token.strip_prefix('-').unwrap_or(token);
-    let value = (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
-        .then(|| token.parse::<i64>().ok())
-        .flatten()
+    let value = lex_height(token)
         .ok_or_else(|| format!("`{token}` ist keine Höhe (ganze Zahl von \u{2212}16 bis 62)."))?;
     i8::try_from(value)
         .ok()
@@ -543,7 +605,10 @@ mod tests {
         for token in [".", "n1", "n2", "e1", "e2", "s1", "s2", "w1", "w2"] {
             assert_eq!(ramp_token(parse_ramp(token).unwrap()), token);
         }
-        for bad in ["n3", "x1", "n0", "", "n", "N1", "n12"] {
+        // 6.2's spelling with a leading zero reads the same; written is the canonical form.
+        assert_eq!(parse_ramp("e01"), Ok(Ramp::East(1)));
+        assert_eq!(ramp_token(parse_ramp("w02").unwrap()), "w2");
+        for bad in ["n3", "x1", "n0", "", "n", "N1", "n12", "n+1", "e256"] {
             let err = parse_ramp(bad).expect_err(bad);
             assert!(err.contains(&format!("`{bad}`")), "{bad}: {err}");
         }
@@ -562,7 +627,11 @@ mod tests {
             parse_height("-17").unwrap_err(),
             "`-17` liegt nicht in \u{2212}16 bis 62."
         );
-        for bad in ["", "x", "1.5", "+3", "--1", "99999999999"] {
+        // 6.2's spelling with a sign reads the same.
+        assert_eq!(parse_height("+3"), Ok(3));
+        assert_eq!(parse_height("+62"), Ok(62));
+        assert_eq!(parse_height("007"), Ok(7));
+        for bad in ["", "x", "1.5", "+", "-", "+-3", "--1", "99999999999"] {
             let err = parse_height(bad).expect_err(bad);
             assert!(err.contains(&format!("`{bad}`")), "{bad}: {err}");
         }
@@ -954,5 +1023,165 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// A world of only cell (5, 5) on the ground (tile 0000), at `h` with `ramp`.
+    fn lone_cell(h: i8, ramp: Ramp) -> WorldGrid {
+        let mut grid = WorldGrid::parse(&world(vec![ground()])).unwrap();
+        let c = 5 * MAP_SIZE + 5;
+        for (i, tile) in grid.layers[0].tiles.iter_mut().enumerate() {
+            if i != c {
+                *tile = None;
+            }
+        }
+        grid.heights[c] = h;
+        grid.ramps[c] = ramp;
+        grid
+    }
+
+    #[test]
+    fn ramp_direction_matches_terrain() {
+        use super::super::mesh::mesh;
+        use super::super::tileset::Tileset;
+        use bdhc::Direction;
+
+        let c = 5 * MAP_SIZE + 5;
+        // Cell (5, 5): x from −176 to −160, z from −176 (north) to −160 (south).
+        let (west, east, north, south) = (-176, -160, -176, -160);
+        // `East(1)` at `h = 0`: west edge 0, east edge 8 units, in both modules.
+        let terrain = lone_cell(0, Ramp::East(1)).height_grid();
+        assert_eq!(terrain.ramp[c], bdhc::Ramp::East(1));
+        assert_eq!(terrain.edge_units(c, Direction::West), 0);
+        assert_eq!(terrain.edge_units(c, Direction::East), 8);
+        let faces = mesh(&lone_cell(0, Ramp::East(1)), &Tileset::synthetic());
+        assert_eq!(faces.len(), 1, "{faces:?}");
+        for p in faces[0].corners {
+            assert_eq!(p[1], if p[0] == west { 0 } else { 8 }, "{p:?}");
+        }
+        // Every direction, 1 and 2 steps, two heights: the mesher's edges are the terrain's.
+        let sides = [
+            Direction::North,
+            Direction::East,
+            Direction::South,
+            Direction::West,
+        ];
+        for h in [0, 3] {
+            for steps in [1, 2] {
+                for ramp in [
+                    Ramp::North(steps),
+                    Ramp::East(steps),
+                    Ramp::South(steps),
+                    Ramp::West(steps),
+                ] {
+                    let grid = lone_cell(h, ramp);
+                    let terrain = grid.height_grid();
+                    let faces = mesh(&grid, &Tileset::synthetic());
+                    assert_eq!(faces.len(), 1, "{ramp:?}: {faces:?}");
+                    let corners = faces[0].corners;
+                    let mid = |side: Direction| {
+                        let on: Vec<i32> = corners
+                            .iter()
+                            .filter(|p| match side {
+                                Direction::North => p[2] == north,
+                                Direction::South => p[2] == south,
+                                Direction::West => p[0] == west,
+                                Direction::East => p[0] == east,
+                            })
+                            .map(|p| p[1])
+                            .collect();
+                        assert_eq!(on.len(), 2, "{ramp:?} {side:?}");
+                        (on[0] + on[1]) / 2
+                    };
+                    for side in sides {
+                        assert_eq!(
+                            mid(side),
+                            terrain.edge_units(c, side),
+                            "h {h}, {ramp:?}, {side:?}"
+                        );
+                    }
+                    let centre = corners.iter().map(|p| f64::from(p[1])).sum::<f64>() / 4.0;
+                    assert_eq!(centre, terrain.center_units(c), "h {h}, {ramp:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ramps_convert_to_and_from_the_terrain_ramp_without_loss() {
+        let pairs = [
+            (Ramp::None, bdhc::Ramp::None),
+            (Ramp::North(1), bdhc::Ramp::North(1)),
+            (Ramp::North(2), bdhc::Ramp::North(2)),
+            (Ramp::East(1), bdhc::Ramp::East(1)),
+            (Ramp::East(2), bdhc::Ramp::East(2)),
+            (Ramp::South(1), bdhc::Ramp::South(1)),
+            (Ramp::South(2), bdhc::Ramp::South(2)),
+            (Ramp::West(1), bdhc::Ramp::West(1)),
+            (Ramp::West(2), bdhc::Ramp::West(2)),
+        ];
+        for (world, terrain) in pairs {
+            assert_eq!(bdhc::Ramp::from(world), terrain);
+            assert_eq!(Ramp::from(terrain), world);
+            assert_eq!(Ramp::from(bdhc::Ramp::from(world)), world);
+        }
+    }
+
+    #[test]
+    fn ramp_top_rule_matches_the_terrain_check() {
+        // For every height and ramp the world check refuses a ramp top exactly where 6.2's
+        // `HeightGrid::check` does (top ≤ 62), and the bounds of the height are the same.
+        assert_eq!((HEIGHT_MIN, HEIGHT_MAX), (bdhc::MIN_STEP, bdhc::MAX_STEP));
+        for h in HEIGHT_MIN..=HEIGHT_MAX {
+            for ramp in [Ramp::None, Ramp::North(1), Ramp::West(2)] {
+                let mut doc = world(vec![ground()]);
+                let mut heights = rows("0");
+                let mut ramps = rows(".");
+                let mut cells: Vec<String> = vec!["0".to_owned(); MAP_SIZE];
+                cells[3] = h.to_string();
+                heights[2] = cells.join(" ");
+                let mut cells: Vec<String> = vec![".".to_owned(); MAP_SIZE];
+                cells[3] = ramp_token(ramp);
+                ramps[2] = cells.join(" ");
+                doc.layers[0].heights = Some(heights);
+                doc.layers[0].ramps = Some(ramps);
+                let world_refuses = WorldGrid::parse(&doc).is_err();
+                let mut terrain = HeightGrid::flat(0);
+                terrain.height[2 * MAP_SIZE + 3] = h;
+                terrain.ramp[2 * MAP_SIZE + 3] = ramp.into();
+                let terrain_refuses = matches!(
+                    terrain.check(),
+                    Some(bdhc::GridProblem::RampTop { x: 3, y: 2, .. })
+                );
+                assert_eq!(world_refuses, terrain_refuses, "h {h}, {ramp:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn both_row_formats_read_the_same_cells() {
+        use crate::terrain::{GridRows, parse_grid};
+
+        // 6.2's rows with its spellings (`+5`, `e01`) and the world document's canonical
+        // ones give the same heights and ramps.
+        let mut heights = rows("0");
+        let mut ramps = rows(".");
+        heights[4] = row("+5");
+        ramps[4] = row("e01");
+        let terrain = parse_grid(&GridRows {
+            heights: heights.clone(),
+            ramps: ramps.clone(),
+        })
+        .unwrap();
+        let mut doc = world(vec![ground()]);
+        doc.layers[0].heights = Some(heights);
+        doc.layers[0].ramps = Some(ramps);
+        let grid = WorldGrid::parse(&doc).unwrap();
+        assert_eq!(grid.height_grid(), terrain);
+        assert_eq!(grid.heights[4 * MAP_SIZE + 7], 5);
+        assert_eq!(grid.ramps[4 * MAP_SIZE + 7], Ramp::East(1));
+        // Written back, 6.2's rows are canonical.
+        let rows = crate::terrain::format_grid(&terrain);
+        assert_eq!(rows.heights[4], row("5"));
+        assert_eq!(rows.ramps[4], row("e1"));
     }
 }

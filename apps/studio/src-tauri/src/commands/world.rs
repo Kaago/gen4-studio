@@ -74,7 +74,8 @@ pub struct MapDto {
     pub world: bool,
     /// The walk height of every tile centre in world units, row-major (32 x 32), as
     /// `get_map_heights` answers it; `null` where no plate lies under the centre and everywhere
-    /// when the BDHC is unreadable.
+    /// when the BDHC is unreadable. A world map (6.3a) gives the heights of its world document
+    /// instead (`get_map` sets them; `get_map_heights` still reads the member's BDHC).
     pub heights: Vec<Option<f32>>,
 }
 
@@ -295,12 +296,31 @@ pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
     // Worlds exist only in a text project of the current schema (the store refuses elsewhere).
     // A world that does not read leaves the map without one here; the check names its
     // problems.
-    let world = *store.project().source_mode() == g4_kernel::project::SourceMode::TextProject
-        && matches!(store.world(index), Ok(Some(_)));
+    let text_project =
+        *store.project().source_mode() == g4_kernel::project::SourceMode::TextProject;
+    let world = if text_project {
+        store.world(index).ok().flatten().cloned()
+    } else {
+        None
+    };
+    // A world map walks on its world document, not on the old BDHC of its member: the height
+    // at each cell centre (8 units a step, a ramp half way up). A world that does not read
+    // keeps the member's heights.
+    let world_heights = world
+        .as_ref()
+        .and_then(|w| g4_kernel::world::grid::WorldGrid::parse(w).ok())
+        .map(|grid| {
+            let grid = grid.height_grid();
+            (0..grid.height.len())
+                .map(|c| Some(grid.center_units(c) as f32))
+                .collect::<Vec<_>>()
+        });
     let map = store.map(index).map_err(CmdError::from)?;
+    let dto = MapDto::from_map(index, map);
     Ok(MapDto {
-        world,
-        ..MapDto::from_map(index, map)
+        world: world.is_some(),
+        heights: world_heights.unwrap_or(dto.heights),
+        ..dto
     })
 }
 

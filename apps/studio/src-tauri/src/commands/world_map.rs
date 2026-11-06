@@ -429,6 +429,40 @@ mod tests {
     }
 
     #[test]
+    fn a_world_map_has_the_heights_of_its_world() {
+        let fx = TextFixture::exported();
+        let (state, policy) = open(&fx);
+        let before = call(&state, &policy, "get_map", json!({ "index": 0 }))["heights"].clone();
+        assert_eq!(before.as_array().unwrap().len(), 1024);
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0, "height": 2 } }),
+        );
+        call(
+            &state,
+            &policy,
+            "world_edit",
+            json!({ "req": { "map": 0, "changes": [{ "cells": [[3, 4]], "ramp": "e1" }] } }),
+        );
+        let map = call(&state, &policy, "get_map", json!({ "index": 0 }));
+        let heights = map["heights"].as_array().unwrap();
+        assert_eq!(heights.len(), 1024);
+        // Level cells at step 2 (16 units); the ramp half way up its step at the centre.
+        assert_eq!(heights[0], json!(16.0));
+        assert_eq!(heights[4 * 32 + 3], json!(20.0));
+        assert_eq!(heights.iter().filter(|h| **h == json!(16.0)).count(), 1023);
+        // Undoing both steps gives the member's heights back.
+        call(&state, &policy, "undo", json!({}));
+        call(&state, &policy, "undo", json!({}));
+        assert_eq!(
+            call(&state, &policy, "get_map", json!({ "index": 0 }))["heights"],
+            before
+        );
+    }
+
+    #[test]
     fn get_tileset_texture_is_null_for_the_synthetic_tileset() {
         let fx = TextFixture::exported();
         let (state, policy) = open(&fx);

@@ -16,13 +16,13 @@ pub const MAP_SOURCE_WORLD: &str = "world";
 /// The version of the world document this build reads and writes.
 pub const WORLD_VERSION: u32 = 1;
 /// World units (and texels) per tile.
-pub const TILE_UNITS: i32 = 16;
+pub const TILE_UNITS: i32 = g4_formats::bdhc::TILE_UNITS;
 /// World units per height step.
-pub const STEP_UNITS: i32 = 8;
-/// The lowest height step of a cell.
-pub const HEIGHT_MIN: i8 = -16;
-/// The highest height step of a cell.
-pub const HEIGHT_MAX: i8 = 62;
+pub const STEP_UNITS: i32 = g4_formats::bdhc::STEP_UNITS;
+/// The lowest height step of a cell (6.2's BDHC grid has the same bounds).
+pub const HEIGHT_MIN: i8 = g4_formats::bdhc::MIN_STEP;
+/// The highest height step of a cell, also of a ramp's upper edge (as in 6.2's BDHC grid).
+pub const HEIGHT_MAX: i8 = g4_formats::bdhc::MAX_STEP;
 
 /// The name of the ground layer of a new world.
 const GROUND_NAME: &str = "Boden";
