@@ -409,7 +409,7 @@ mod tests {
     use crate::textproject::canon::to_canonical;
     use crate::world::doc::{PieceJson, fixtures};
     use crate::world::grid::set_token;
-    use crate::world::keep::with_world;
+    use crate::world::keep::world_parts;
     use crate::world::tileset::tileset_rel;
 
     const MAP: &str = "data/maps/0000.json";
@@ -424,7 +424,7 @@ mod tests {
 
     /// Map 0 as a world map with `world`.
     fn put_world(fx: &TextFixture, world: &WorldJson) {
-        let bytes = with_world(fx.read(MAP), Some(world)).unwrap();
+        let bytes = world_parts(fx.read(MAP), world, &mut Vec::new()).unwrap();
         fx.write(MAP, &bytes);
     }
 
@@ -628,9 +628,10 @@ mod tests {
         let fx = fixture();
         assert!(problems_of(&fx).is_empty(), "{:#?}", problems_of(&fx));
         put_world(&fx, &fixtures::one_tile_world());
-        let bytes = with_world(
+        let bytes = world_parts(
             fx.read("data/maps/0002.json"),
-            Some(&fixtures::busy_world()),
+            &fixtures::busy_world(),
+            &mut Vec::new(),
         )
         .unwrap();
         fx.write("data/maps/0002.json", &bytes);

@@ -14,11 +14,10 @@ Schreiben, `check.rs` Prüfungen, `places.rs` Paket und Karten); das Tileset, au
 zeigen, steht in [tileset.md](tileset.md). Alle Beispiele stammen aus synthetischen Welten
 (`world::doc::fixtures`, Tileset `Tileset::synthetic()`), nicht aus einer ROM.
 
-**Grenze von 6.3a.** Das Weltdokument fließt noch in **keinen Member**. Die Pflichtfelder der Karte
-(`permissions`, `buildings`, `buildings_tail?`, `model`, `bdhc`, `bgs?`) bleiben, was sie in
-[text_project.md](text_project.md) sind: der bisherige Member, aus dem Import und Build die Karte
-bauen, Byte für Byte wie ohne Welt. Die Szene zeigt das Netz der Welt statt des Kartenmodells
-(„Vorschau“ unten), der Check meldet `world.not-baked`. Den Member aus der Welt backt 6.3b.
+**Grenze von 6.3a, Schema 4.** Seit Schema 4 (6.3b) trägt die Karten-Datei einer Welt-Karte
+`permissions`, `model` und `bdhc` nicht mehr (`buildings`, `buildings_tail?`, `bgs?` bleiben, was sie
+in [text_project.md](text_project.md) sind); der Import schreibt für sie kein Member, der Member
+entsteht beim Backen. Die Szene zeigt das Netz der Welt statt des Kartenmodells („Vorschau“ unten).
 
 ## Lage in der Karten-Datei
 
@@ -35,7 +34,7 @@ Textprojekts).
 
 | Schlüssel | Typ | Inhalt |
 |---|---|---|
-| `version` | Zahl | immer `1` (`WORLD_VERSION`); eine andere: „Version 2 kennt diese Fassung nicht (1).“ |
+| `version` | Zahl | immer `2` (`WORLD_VERSION`, seit 6.3b; die Migration 3 → 4 hebt 1 an); eine andere: „Version 1 kennt diese Fassung nicht (2).“ |
 | `tileset` | Zahl `u16` | das Kartentextur-Paket (`map_tileset` der Gebietsdaten), auf dessen Kacheln die Indizes zeigen |
 | `layers` | Liste | Ebene 0 ist die einzige Bodenebene (`role: "ground"`), jede weitere eine Überlagerung (`"overlay"`) |
 | `layers[].name` | Text | frei („Boden“ bei „Welt anlegen“) |
@@ -44,7 +43,8 @@ Textprojekts).
 | `layers[0].heights` | 32 Texte | Pflicht auf der Bodenebene: die Höhenstufe jeder Zelle |
 | `layers[0].ramps` | 32 Texte | nur Bodenebene, weggelassen ohne Rampe |
 | `pieces` | Liste | Teilmodelle `{tile, at: [x, z], rotate}`; weggelassen, wenn leer |
-| `freeform` | Liste | Freiform-Modelle `{glb? \| nsbmd?, at: [x, y, z]}`; weggelassen, wenn leer, nur Schema |
+| `freeform` | Liste | Freiform-Modelle `{glb? \| nsbmd?, at: [x, y, z]}`; weggelassen, wenn leer |
+| `terrain` | Objekt | `{bdhc: <Teil>}`: das Verbatim-Terrain (Form 1); weggelassen ohne |
 | `permissions` | Objekt | `{derive, override?}` |
 
 Eine Überlagerung mit `heights` oder `ramps` ist ein Fehler („nur die Bodenebene trägt Höhen und
@@ -142,9 +142,18 @@ Zellen des Abdrucks, auf der höchsten Ecke der Bodenzellen darunter, mit der Te
 (gedreht wie das Stück, nicht gespiegelt) und Ebene `PIECE_LAYER = 255`. Die Geometrie des Stücks
 (Beifile `NNNN.<name>.glb`) kommt mit 6.5b.
 
-**Freiform** `{ "glb": "…" }` oder `{ "nsbmd": "…" }`, dazu `at: [x, y, z]` in Welteinheiten
-(Vorgabe `[0, 0, 0]`): nur das Schema; genau eines von `glb` und `nsbmd` („braucht genau eines von
-`glb` und `nsbmd`.“). Gelesen wird es bis 6.5b von nichts.
+**Freiform** `{ "glb": "…" }` oder `{ "nsbmd": <Teil> }`, dazu `at: [x, y, z]` in Welteinheiten
+(Vorgabe `[0, 0, 0]`); genau eines von `glb` und `nsbmd` („braucht genau eines von `glb` und
+`nsbmd`.“). `nsbmd` ist seit 6.3b das Verbatim-Modell (Form 1) als Teil wie in
+[text_project.md](text_project.md) „Teile“ (`{"base_sha1"}`, `{"file": "0123.nsbmd"}`, `{"hex"}`,
+Basisschlüssel `maps NNNN model`): höchstens eines („Höchstens ein Verbatim-Modell (`nsbmd`) in
+`freeform`.“) an `[0, 0, 0]` („Ein Verbatim-Modell liegt an [0, 0, 0].“). `glb` backt erst 6.5b.
+
+**Terrain** `{ "bdhc": <Teil> }` (nach `freeform`, vor `permissions`; Basisschlüssel
+`maps NNNN bdhc`): solange es steht, ist die BDHC der Karte dieser Teil, nicht die aus dem Raster.
+
+Die Karten-Datei einer Welt-Karte trägt seit Schema 4 kein `permissions`, `model` und `bdhc`; mit
+Verbatim-Modell bzw. -Terrain stehen diese Teile an ihrem Platz in der Welt.
 
 ## Permissions
 
@@ -162,14 +171,14 @@ Backen kommt mit 6.3b.
 
 Karte 0 als Welt aus `world::doc::fixtures::one_tile_world()` (32 × 32 Zellen `0000` auf Höhe 0,
 synthetisches Tileset auf Paket 0). Gekürzt: jede Zeile hier zeigt nur ihren Anfang und ihr Ende
-(`…`), von den 32 Zeilen einer Liste nur die erste; die Pflichtfelder der Karte stehen wie im
-synthetischen Beispiel von [text_project.md](text_project.md).
+(`…`), von den 32 Zeilen einer Liste nur die erste; `permissions`, `model` und `bdhc` fehlen
+(seit Schema 4 entstehen sie beim Backen).
 
 ```json
 {
   "source": "world",
   "world": {
-    "version": 1,
+    "version": 2,
     "tileset": 0,
     "layers": [
       {
@@ -189,10 +198,7 @@ synthetischen Beispiel von [text_project.md](text_project.md).
       "derive": true
     }
   },
-  "permissions": ["0080 0100 0200 …", "…"],
-  "buildings": [],
-  "model": { "hex": "000000000000" },
-  "bdhc": { "hex": "cafe01" }
+  "buildings": []
 }
 ```
 

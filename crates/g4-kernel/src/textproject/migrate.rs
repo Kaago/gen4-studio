@@ -2,7 +2,7 @@
 //! files that change, then the writes. An error anywhere before the snapshot leaves every
 //! file as it was.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -15,10 +15,13 @@ use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 use crate::error::{KernelError, io_at};
 
 /// The manifest and every JSON under `data/` (without `data/raw/`), keyed by their path
-/// relative to the project root with `/`.
-#[derive(Debug, Clone, PartialEq)]
+/// relative to the project root with `/`, and the other files (side files) a step removes.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tree {
     pub files: BTreeMap<PathBuf, serde_json::Value>,
+    /// Files that are no JSON of the tree (a side file under `data/`) to remove, relative to
+    /// the root; one that is not there is no error.
+    pub removed: BTreeSet<PathBuf>,
 }
 
 /// One step of the chain: lifts a tree of version `from` to `from + 1`.
@@ -40,6 +43,10 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         from: 2,
         run: v2_to_v3,
+    },
+    Migration {
+        from: 3,
+        run: v3_to_v4,
     },
 ];
 
@@ -97,6 +104,21 @@ pub fn migrate(root: &Path) -> Result<MigrateReport, KernelError> {
         })?;
     }
     let manifest = current_manifest(&tree)?;
+    // The side files a step removes are snapshotted and removed like a JSON that left.
+    let mut originals = originals;
+    for rel in &tree.removed {
+        if tree.files.contains_key(rel) {
+            continue;
+        }
+        let path = root.join(rel);
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                originals.insert(rel.clone(), bytes);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_at(&path)(e)),
+        }
+    }
 
     let mut writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     for (rel, value) in &tree.files {
@@ -194,7 +216,13 @@ fn read_tree(root: &Path) -> Result<(Tree, BTreeMap<PathBuf, Vec<u8>>), KernelEr
     if !problems.is_empty() {
         return Err(KernelError::Compile(problems));
     }
-    Ok((Tree { files }, originals))
+    Ok((
+        Tree {
+            files,
+            removed: BTreeSet::new(),
+        },
+        originals,
+    ))
 }
 
 /// Adds the `*.json` files under `root/rel` (a folder; relative paths with `/`) to `out`,
@@ -416,6 +444,86 @@ fn v2_to_v3(tree: &mut Tree) -> Result<(), String> {
     Ok(())
 }
 
+/// The derived parts a world map's file stops carrying in version 4.
+const DERIVED_KEYS: [&str; 3] = ["permissions", "model", "bdhc"];
+
+/// v3 → v4 (phase 6.3b): the manifest's `schemas` names `maps.world` with version 2 (a higher
+/// version a newer Studio wrote stays). Every map file `data/maps/NNNN.json` with `source:
+/// "world"` loses `permissions`, `model` and `bdhc` (they are the bake's output now), its
+/// `world.version` 1 becomes 2, and a `world.freeform[].nsbmd` file name (the 6.3a form, which
+/// nothing read) becomes the part `{"file": <name>}`. A side file only a removed part named
+/// is removed. Binary maps and every other file stay as they are. The manifest version is set
+/// by the chain.
+fn v3_to_v4(tree: &mut Tree) -> Result<(), String> {
+    let manifest = tree
+        .files
+        .get_mut(Path::new(MANIFEST_FILE))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| format!("{MANIFEST_FILE} ist kein JSON-Objekt."))?;
+    let schemas = manifest
+        .entry("schemas")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| format!("{MANIFEST_FILE}: `schemas` ist kein Objekt."))?;
+    let kept = schemas
+        .get("maps.world")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    schemas.insert("maps.world".to_owned(), Value::from(kept.max(2)));
+
+    let maps = Path::new(DATA_DIR).join("maps");
+    let mut removed = Vec::new();
+    for (rel, value) in &mut tree.files {
+        if rel.parent() != Some(maps.as_path()) || rel.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let Some(object) = value.as_object_mut() else {
+            continue;
+        };
+        if object.get("source").and_then(Value::as_str) != Some("world") {
+            continue;
+        }
+        if let Some(world) = object.get_mut("world").and_then(Value::as_object_mut) {
+            if world.get("version").and_then(Value::as_u64) == Some(1) {
+                world.insert("version".to_owned(), Value::from(2));
+            }
+            let models = world.get_mut("freeform").and_then(Value::as_array_mut);
+            for model in models.into_iter().flatten() {
+                if let Some(nsbmd) = model.get_mut("nsbmd")
+                    && let Some(name) = nsbmd.as_str()
+                {
+                    *nsbmd = serde_json::json!({ "file": name });
+                }
+            }
+        }
+        let gone: Vec<Value> = DERIVED_KEYS
+            .iter()
+            .filter_map(|key| object.shift_remove(*key))
+            .collect();
+        for part in &gone {
+            if let Some(file) = part.get("file").and_then(Value::as_str)
+                && !names_file(value, file)
+            {
+                removed.push(maps.join(file));
+            }
+        }
+    }
+    tree.removed.extend(removed);
+    Ok(())
+}
+
+/// Whether some part in `value` (an object `{"file": <name>}` at any depth) names `file`.
+fn names_file(value: &Value, file: &str) -> bool {
+    match value {
+        Value::Object(object) => {
+            object.get("file").and_then(Value::as_str) == Some(file)
+                || object.values().any(|v| names_file(v, file))
+        }
+        Value::Array(items) => items.iter().any(|v| names_file(v, file)),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,7 +601,7 @@ mod tests {
         let before = contents(root);
 
         let report = migrate(root).unwrap();
-        assert_eq!((report.from, report.to), (2, 3));
+        assert_eq!((report.from, report.to), (2, 4));
         assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
         let after = contents(root);
         assert_eq!(
@@ -505,11 +613,12 @@ mod tests {
                 assert_eq!(&after[rel], bytes, "{rel}");
             }
         }
+        // v3 → v4 lifts `maps.world` to 2; the binary map stays.
         let expected = V2
-            .replace("\"schemaVersion\": 2", "\"schemaVersion\": 3")
+            .replace("\"schemaVersion\": 2", "\"schemaVersion\": 4")
             .replace(
                 "    \"flags\": 1,\n",
-                "    \"flags\": 1,\n    \"maps.world\": 1,\n",
+                "    \"flags\": 1,\n    \"maps.world\": 2,\n",
             );
         let expected = expected.replace(
             "    \"stories\": 1,\n",
@@ -532,6 +641,7 @@ mod tests {
                 PathBuf::from(MANIFEST_FILE),
                 serde_json::json!({"schemaVersion": 2, "schemas": {"tilesets": 4}}),
             )]),
+            ..Tree::default()
         };
         v2_to_v3(&mut tree).unwrap();
         assert_eq!(
@@ -543,6 +653,7 @@ mod tests {
                 PathBuf::from(MANIFEST_FILE),
                 serde_json::json!({"schemaVersion": 2}),
             )]),
+            ..Tree::default()
         };
         v2_to_v3(&mut tree).unwrap();
         assert_eq!(
@@ -552,12 +663,113 @@ mod tests {
     }
 
     #[test]
-    fn the_chain_reaches_version_three() {
-        assert_eq!(SCHEMA_VERSION, 3);
+    fn v3_to_v4_drops_derived_parts_of_world_maps() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let v3 = V2
+            .replace("\"schemaVersion\": 2", "\"schemaVersion\": 3")
+            .replace(
+                "    \"flags\": 1,\n",
+                "    \"flags\": 1,\n    \"maps.world\": 1,\n",
+            )
+            .replace(
+                "    \"stories\": 1,\n",
+                "    \"stories\": 1,\n    \"tilesets\": 1,\n",
+            );
+        write(root, MANIFEST_FILE, v3.as_bytes());
+        // A 6.3a world map: the derived parts beside the world, the model a side file, a
+        // verbatim model named by its file (the 6.3a form) and one by a side file no part
+        // keeps; the BGS a side file it keeps.
+        let world_map = serde_json::json!({
+            "source": "world",
+            "world": {
+                "version": 1,
+                "tileset": 0,
+                "layers": [],
+                "freeform": [{"nsbmd": "0003.extra.nsbmd", "at": [0, 0, 0]}],
+                "permissions": {"derive": true}
+            },
+            "permissions": ["0000"],
+            "buildings": [],
+            "model": {"file": "0003.nsbmd"},
+            "bdhc": {"hex": "00"},
+            "bgs": {"file": "0003.bgs"}
+        });
+        write(root, "data/maps/0003.json", &to_canonical(&world_map));
+        for side in ["0003.nsbmd", "0003.extra.nsbmd", "0003.bgs"] {
+            write(root, &format!("data/maps/{side}"), side.as_bytes());
+        }
+        // A binary map with its model side file, and a file elsewhere: neither changes.
+        let binary = serde_json::json!({
+            "source": "binary",
+            "permissions": ["0000"],
+            "buildings": [],
+            "model": {"file": "0004.nsbmd"},
+            "bdhc": {"hex": "00"}
+        });
+        write(root, "data/maps/0004.json", &to_canonical(&binary));
+        write(root, "data/maps/0004.nsbmd", b"model");
+        write(root, "data/ids/flags.json", b"{\n  \"FLAG_A\": 148\n}\n");
+        let before = contents(root);
+
+        let report = migrate(root).unwrap();
+        assert_eq!((report.from, report.to), (3, 4));
+        assert_eq!(
+            report.changed,
+            paths(&["data/maps/0003.json", "data/maps/0003.nsbmd", MANIFEST_FILE])
+        );
+        let after = contents(root);
+        let expected = serde_json::json!({
+            "source": "world",
+            "world": {
+                "version": 2,
+                "tileset": 0,
+                "layers": [],
+                "freeform": [{"nsbmd": {"file": "0003.extra.nsbmd"}, "at": [0, 0, 0]}],
+                "permissions": {"derive": true}
+            },
+            "buildings": [],
+            "bgs": {"file": "0003.bgs"}
+        });
+        assert_eq!(after["data/maps/0003.json"], to_canonical(&expected));
+        assert!(!after.contains_key("data/maps/0003.nsbmd"));
+        for kept in [
+            "data/maps/0003.extra.nsbmd",
+            "data/maps/0003.bgs",
+            "data/maps/0004.json",
+            "data/maps/0004.nsbmd",
+            "data/ids/flags.json",
+        ] {
+            assert_eq!(after[kept], before[kept], "{kept}");
+        }
+        let manifest: Value = serde_json::from_slice(&after[MANIFEST_FILE]).unwrap();
+        assert_eq!(manifest["schemaVersion"], 4);
+        assert_eq!(manifest["schemas"]["maps.world"], 2);
+        // The snapshot holds the old manifest, map file and side file.
+        let snapshot = contents(&report.snapshot.unwrap());
+        assert_eq!(snapshot["data/maps/0003.nsbmd"], b"0003.nsbmd");
+        assert_eq!(
+            snapshot["data/maps/0003.json"],
+            before["data/maps/0003.json"]
+        );
+        assert_eq!(snapshot.len(), 3, "{:?}", snapshot.keys());
+        // The world reads in this version.
+        let file = &after["data/maps/0003.json"];
+        let world = crate::world::keep::world_field(file).unwrap().unwrap();
+        assert_eq!(world.version, crate::world::WORLD_VERSION);
+    }
+
+    fn paths(list: &[&str]) -> Vec<PathBuf> {
+        list.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn the_chain_reaches_version_four() {
+        assert_eq!(SCHEMA_VERSION, 4);
         let froms: Vec<u32> = MIGRATIONS.iter().map(|m| m.from).collect();
         assert_eq!(froms, (0..SCHEMA_VERSION).collect::<Vec<_>>());
 
-        // From the v0 manifest the chain runs every step and ends at version 3.
+        // From the v0 manifest the chain runs every step and ends at version 4.
         let dir = tempfile::tempdir().unwrap();
         let v0 = V2
             .replace("\"schemaVersion\": 2", "\"schema\": 0")
@@ -568,13 +780,13 @@ mod tests {
             .replace("\"studioVersion\": \"0.1.0\",", "\"studioVersion\": \"0.1.0\"");
         write(dir.path(), MANIFEST_FILE, v0.as_bytes());
         let report = migrate(dir.path()).unwrap();
-        assert_eq!((report.from, report.to), (0, 3));
+        assert_eq!((report.from, report.to), (0, 4));
         let manifest = super::super::manifest::read_manifest(dir.path()).unwrap();
-        assert_eq!(manifest.schema_version, 3);
+        assert_eq!(manifest.schema_version, 4);
         assert_eq!(
             manifest.schemas,
             BTreeMap::from([
-                ("maps.world".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(2)),
                 ("tilesets".to_owned(), Value::from(1)),
             ])
         );

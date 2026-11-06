@@ -36,7 +36,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 ```json
 {
   "format": "g4-project",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "game": {
     "code": "CPUE",
     "family": "pt",
@@ -45,7 +45,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
   "studioVersion": "0.1.0",
   "schemas": {
     "flags": 1,
-    "maps.world": 1,
+    "maps.world": 2,
     "stories": 1,
     "tilesets": 1,
     "vars": 1
@@ -278,8 +278,14 @@ Members trägt die Daten (`data/items/0001.json`), eine weitere ID desselben Mem
 
 Karten: `source` ist `binary` oder seit 6.3a `world` mit dem Objekt `world` direkt danach
 ([world_map.md](world_map.md); jede andere Quelle, `world` ohne `source: "world"` und umgekehrt sind
-`textproject.map-source`). Eine Welt-Karte baut bis 6.3b aus ihren Binärteilen wie eine binäre;
-der Export und jedes Speichern aus den Member-Bytes nehmen `source` und `world` der Datei mit.
+`textproject.map-source`). Seit Schema 4 (6.3b) trägt eine Welt-Karte `permissions`, `model` und
+`bdhc` **nicht**: sie entstehen beim Backen („textproject.map-source: model: Eine Welt-Karte trägt
+`permissions`, `model` und `bdhc` nicht; sie entstehen beim Backen.“); ihre Verbatim-Teile (Form 1)
+stehen in der Welt (`world.freeform[].nsbmd`, `world.terrain.bdhc`, Basisschlüssel `maps NNNN model`
+bzw. `bdhc`). Der Import prüft eine Welt-Karte und löst ihre Teile auf, schreibt aber kein Member
+(`ImportPlan::world_maps`); eine binäre Karte braucht alle drei („textproject.schema: $: Schlüssel
+`model` fehlt.“). Der Export und jedes Speichern aus den Member-Bytes nehmen `source` und `world`
+der Datei mit und lassen die abgeleiteten Teile weg (`world::keep::world_parts`).
 `permissions` sind
 32 Zeilen zu 32 Zellen `kkcc` (Art, Kollision in Hex), `buildings_tail` (Hex) nur, wenn da, `bgs`
 nur auf HeartGold/SoulSilver. Header: `internal_name_bytes` (Hex) nur, wenn die 16 Byte von
@@ -1214,6 +1220,7 @@ den Umschlag als erste Zeile nach dem Kopf fest (`*.deleted?`).
 | 0 → 1 | Manifest-Schlüssel `schema` wird `schemaVersion`; jedes Register `{"ids": {"0003": "MAP_T01"}}` wird `{"MAP_T01": 3}` |
 | 1 → 2 | in jeder `data/events/NNNN.json` werden `object_events[].hidden_flag` und `coord_events[].var` von der Zahl zum eigenen Namen aus `data/ids/flags.json` bzw. `vars.json`, nur wo einer eingetragen ist (0 und Nummern ohne eigenen Namen bleiben Zahl); sonst ändert sich keine Datei, ein Projekt ohne eigene Namen bleibt bis auf das Manifest byte-gleich. Der Umschlag `deleted` kommt mit dieser Version dazu und braucht keine Änderung |
 | 2 → 3 | nur das Manifest: `schemas` bekommt `maps.world` und `tilesets`, je Version 1 (eine höhere, die ein neueres Studio schrieb, bleibt). Keine andere Datei ändert sich, eine Karte ohne `world` liest in Version 3, wie sie ist (`migrate::v2_to_v3`, Phase 6.3a; Test `v2_to_v3_changes_only_the_manifest`) |
+| 3 → 4 | `schemas` bekommt `maps.world` 2; jede `data/maps/NNNN.json` mit `source: "world"` verliert `permissions`, `model` und `bdhc`, ihr `world.version` 1 wird 2, ein Dateiname in `world.freeform[].nsbmd` (Form von 6.3a) wird der Teil `{"file": …}`; ein Beifile, auf das nur ein entfernter Teil zeigte, wird gelöscht. Binäre Karten und alles andere bleiben byte-gleich (`migrate::v3_to_v4`, Phase 6.3b; Test `v3_to_v4_drops_derived_parts_of_world_maps`). Ein Manifest mit `maps.world` über 2 gilt wie eine neuere Schema-Version (nur lesen) |
 
 Das Gate von 3d.4 (Grabstein je Art, Round-Trip und Idempotenz mit Grabstein, Kürz-Regel des Imports über Git hinweg, Migration 1 → 2 ändert nur Manifest und die Namen in der Event-JSON) und die Zahlen dazu stehen in [phase-3d-4-gate.md](../phase-3d-4-gate.md); die Befehle in [agent-gate.md](../agent-gate.md), Abschnitt „Phase 3d.4“.
 

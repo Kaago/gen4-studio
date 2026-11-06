@@ -243,12 +243,28 @@ impl WorldGrid {
                 );
             }
         }
+        let mut verbatim = 0;
         for (i, model) in world.freeform.iter().enumerate() {
             if model.glb.is_some() == model.nsbmd.is_some() {
                 errors.push(
                     format!("world.freeform[{i}]"),
                     "braucht genau eines von `glb` und `nsbmd`.",
                 );
+            }
+            if model.nsbmd.is_some() {
+                verbatim += 1;
+                if verbatim > 1 {
+                    errors.push(
+                        format!("world.freeform[{i}]"),
+                        "Höchstens ein Verbatim-Modell (`nsbmd`) in `freeform`.",
+                    );
+                }
+                if model.at != [0, 0, 0] {
+                    errors.push(
+                        format!("world.freeform[{i}].at"),
+                        "Ein Verbatim-Modell liegt an [0, 0, 0].",
+                    );
+                }
             }
         }
         match (errors.0.is_empty(), heights, ramps, overrides) {
@@ -515,15 +531,23 @@ mod tests {
 
     fn world(layers: Vec<LayerJson>) -> WorldJson {
         WorldJson {
-            version: 1,
+            version: 2,
             tileset: 0,
             layers,
             pieces: Vec::new(),
             freeform: Vec::new(),
+            terrain: None,
             permissions: PermissionsJson {
                 derive: true,
                 overrides: None,
             },
+        }
+    }
+
+    /// A small verbatim model part.
+    fn hex_part() -> crate::textproject::Part {
+        crate::textproject::Part::Hex {
+            hex: "00".to_owned(),
         }
     }
 
@@ -698,7 +722,7 @@ mod tests {
     #[test]
     fn parse_reports_every_error_with_its_path() {
         let mut w = world(vec![ground()]);
-        w.version = 2;
+        w.version = 3;
         let g = &mut w.layers[0];
         g.tiles[4] = vec!["0000"; 31].join(" ");
         g.tiles[5] = set_token(&row("0000"), 7, "00g2").unwrap();
@@ -743,7 +767,7 @@ mod tests {
         w.freeform = vec![
             FreeformJson {
                 glb: Some("a.glb".to_owned()),
-                nsbmd: Some("a.nsbmd".to_owned()),
+                nsbmd: Some(hex_part()),
                 at: [0, 0, 0],
             },
             FreeformJson {
@@ -762,7 +786,7 @@ mod tests {
         let expected: Vec<(String, String)> = [
             (
                 "world.version",
-                "Version 2 kennt diese Fassung nicht (1).".to_owned(),
+                "Version 3 kennt diese Fassung nicht (2).".to_owned(),
             ),
             ("world.layers[0].tiles[4]", "31 Zellen statt 32.".to_owned()),
             (
@@ -824,6 +848,58 @@ mod tests {
         .collect();
         assert_eq!(errors_of(&w), expected);
         assert_eq!(errors_of(&w).len(), 15);
+    }
+
+    #[test]
+    fn version_one_is_refused() {
+        let mut w = world(vec![ground()]);
+        assert!(WorldGrid::parse(&w).is_ok());
+        w.version = 1;
+        assert_eq!(
+            errors_of(&w),
+            vec![(
+                "world.version".to_owned(),
+                "Version 1 kennt diese Fassung nicht (2).".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn at_most_one_verbatim_model_at_the_origin() {
+        let verbatim = |at: [i32; 3]| FreeformJson {
+            glb: None,
+            nsbmd: Some(hex_part()),
+            at,
+        };
+        let mut w = world(vec![ground()]);
+        w.freeform = vec![verbatim([0, 0, 0])];
+        assert!(WorldGrid::parse(&w).is_ok());
+        w.freeform = vec![verbatim([0, 0, 0]), verbatim([0, 0, 0])];
+        assert_eq!(
+            errors_of(&w),
+            vec![(
+                "world.freeform[1]".to_owned(),
+                "Höchstens ein Verbatim-Modell (`nsbmd`) in `freeform`.".to_owned()
+            )]
+        );
+        w.freeform = vec![verbatim([0, 8, 0])];
+        assert_eq!(
+            errors_of(&w),
+            vec![(
+                "world.freeform[0].at".to_owned(),
+                "Ein Verbatim-Modell liegt an [0, 0, 0].".to_owned()
+            )]
+        );
+        // A glTF model may lie anywhere and beside a verbatim one (the bake refuses it).
+        w.freeform = vec![
+            verbatim([0, 0, 0]),
+            FreeformJson {
+                glb: Some("a.glb".to_owned()),
+                nsbmd: None,
+                at: [16, 0, 16],
+            },
+        ];
+        assert!(WorldGrid::parse(&w).is_ok());
     }
 
     #[test]
@@ -921,7 +997,7 @@ mod tests {
         assert_eq!(
             error_cell(&e(
                 "world.version",
-                "Version 2 kennt diese Fassung nicht (1)."
+                "Version 3 kennt diese Fassung nicht (2)."
             )),
             None
         );

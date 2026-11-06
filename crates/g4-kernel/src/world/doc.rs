@@ -1,20 +1,21 @@
 //! The world document: the object `world` of a map file `data/maps/NNNN.json` whose `source`
 //! is [`MAP_SOURCE_WORLD`], as it is on disk. Keys in this order: `version`, `tileset` (the
-//! map texture package), `layers`, `pieces` and `freeform` (left out when empty),
-//! `permissions`. A layer holds its cells as 32 rows of 32 tokens separated by one space
-//! (`tiles`; only the ground layer `heights` and `ramps`), so a painted cell is one changed
-//! line in a Git diff. The grammar of the tokens and the check of the whole document are
-//! [`super::grid`]; this file only holds the serde form, which refuses unknown keys on every
-//! level.
+//! map texture package), `layers`, `pieces` and `freeform` (left out when empty), `terrain`
+//! (left out without verbatim terrain), `permissions`. A layer holds its cells as 32 rows of
+//! 32 tokens separated by one space (`tiles`; only the ground layer `heights` and `ramps`), so
+//! a painted cell is one changed line in a Git diff. The grammar of the tokens and the check of
+//! the whole document are [`super::grid`]; this file only holds the serde form, which refuses
+//! unknown keys on every level.
 
 use serde::{Deserialize, Serialize};
 
 use super::grid::{TileRef, tile_token};
+use crate::textproject::Part;
 
 /// The `source` of a map file that carries a world document.
 pub const MAP_SOURCE_WORLD: &str = "world";
 /// The version of the world document this build reads and writes.
-pub const WORLD_VERSION: u32 = 1;
+pub const WORLD_VERSION: u32 = 2;
 /// World units (and texels) per tile.
 pub const TILE_UNITS: i32 = g4_formats::bdhc::TILE_UNITS;
 /// World units per height step.
@@ -40,7 +41,18 @@ pub struct WorldJson {
     pub pieces: Vec<PieceJson>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub freeform: Vec<FreeformJson>,
+    /// The verbatim terrain (Form 1 of „Karte als Quelle übernehmen“): while it is there, the
+    /// map's BDHC is its bytes, not the generator's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terrain: Option<TerrainJson>,
     pub permissions: PermissionsJson,
+}
+
+/// The verbatim terrain of a world: the BDHC as a part (base key `maps NNNN bdhc`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerrainJson {
+    pub bdhc: Part,
 }
 
 /// One layer: `tiles` 32 rows of 32 tile tokens; the ground layer also `heights` (required)
@@ -76,15 +88,16 @@ pub struct PieceJson {
     pub rotate: u16,
 }
 
-/// A free-form model: exactly one of `glb` and `nsbmd`, at `at` (world units). Only the schema
-/// until 6.3b/6.5b; nothing reads it yet.
+/// A free-form model: exactly one of `glb` (a file name; baked from 6.5b on) and `nsbmd`, at
+/// `at` (world units). `nsbmd` is the verbatim model (Form 1) as a part (base key
+/// `maps NNNN model`): at most one, at `[0, 0, 0]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FreeformJson {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glb: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nsbmd: Option<String>,
+    pub nsbmd: Option<Part>,
     #[serde(default)]
     pub at: [i32; 3],
 }
@@ -115,6 +128,7 @@ impl WorldJson {
             }],
             pieces: Vec::new(),
             freeform: Vec::new(),
+            terrain: None,
             permissions: PermissionsJson {
                 derive: true,
                 overrides: None,
@@ -290,7 +304,7 @@ mod tests {
         let w = WorldJson::blank(7, BLANK, 0);
         let v: Value = serde_json::from_slice(&to_canonical(&w)).unwrap();
         assert_eq!(keys(&v), ["version", "tileset", "layers", "permissions"]);
-        assert_eq!(v["version"], 1);
+        assert_eq!(v["version"], 2);
         assert_eq!(v["tileset"], 7);
         assert_eq!(keys(&v["permissions"]), ["derive"]);
         assert_eq!(v["permissions"]["derive"], true);
@@ -339,16 +353,22 @@ mod tests {
             nsbmd: None,
             at: [0, 0, 0],
         });
+        w.terrain = Some(TerrainJson {
+            bdhc: Part::Hex {
+                hex: "00".to_owned(),
+            },
+        });
         let good: Value = serde_json::from_slice(&to_canonical(&w)).unwrap();
         assert_eq!(
             serde_json::from_value::<WorldJson>(good.clone()).unwrap(),
             w
         );
-        let levels: [fn(&mut Value) -> &mut Value; 5] = [
+        let levels: [fn(&mut Value) -> &mut Value; 6] = [
             |v| v,
             |v| &mut v["layers"][0],
             |v| &mut v["pieces"][0],
             |v| &mut v["freeform"][0],
+            |v| &mut v["terrain"],
             |v| &mut v["permissions"],
         ];
         for (i, level) in levels.iter().enumerate() {
@@ -366,6 +386,93 @@ mod tests {
         let mut v = good.clone();
         v["layers"][0]["role"] = Value::from("bridge");
         assert!(serde_json::from_value::<WorldJson>(v).is_err());
+    }
+
+    #[test]
+    fn a_v2_world_round_trips_with_terrain_and_verbatim_model() {
+        let mut w = one_tile_world();
+        w.freeform.push(FreeformJson {
+            glb: None,
+            nsbmd: Some(Part::Base {
+                base_sha1: "ab".repeat(20),
+            }),
+            at: [0, 0, 0],
+        });
+        w.terrain = Some(TerrainJson {
+            bdhc: Part::File {
+                file: "0003.bdhc".to_owned(),
+            },
+        });
+        let bytes = to_canonical(&w);
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            keys(&v),
+            [
+                "version",
+                "tileset",
+                "layers",
+                "freeform",
+                "terrain",
+                "permissions"
+            ]
+        );
+        assert_eq!(v["version"], 2);
+        assert_eq!(
+            v["freeform"],
+            serde_json::json!([{"nsbmd": {"base_sha1": "ab".repeat(20)}, "at": [0, 0, 0]}])
+        );
+        assert_eq!(
+            v["terrain"],
+            serde_json::json!({"bdhc": {"file": "0003.bdhc"}})
+        );
+        let again: WorldJson = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(again, w);
+        assert_eq!(to_canonical(&again), bytes);
+        WorldGrid::parse(&again).unwrap();
+        // Without verbatim terrain the key is left out; an unknown key in it is refused.
+        assert!(!keys(&serde_json::to_value(one_tile_world()).unwrap()).contains(&"terrain"));
+        let mut bad = v.clone();
+        bad["terrain"]["nsbmd"] = serde_json::json!({"hex": "00"});
+        let err = serde_json::from_value::<WorldJson>(bad).unwrap_err();
+        assert!(err.to_string().contains("unknown field `nsbmd`"), "{err}");
+    }
+
+    #[test]
+    fn freeform_nsbmd_is_a_part() {
+        let read = |nsbmd: Value| {
+            let mut v = serde_json::to_value(one_tile_world()).unwrap();
+            v["freeform"] = serde_json::json!([{ "nsbmd": nsbmd }]);
+            serde_json::from_value::<WorldJson>(v).map(|w| w.freeform[0].nsbmd.clone())
+        };
+        for (json, part) in [
+            (
+                serde_json::json!({"base_sha1": "00".repeat(20)}),
+                Part::Base {
+                    base_sha1: "00".repeat(20),
+                },
+            ),
+            (
+                serde_json::json!({"file": "0123.nsbmd"}),
+                Part::File {
+                    file: "0123.nsbmd".to_owned(),
+                },
+            ),
+            (
+                serde_json::json!({"hex": "0102"}),
+                Part::Hex {
+                    hex: "0102".to_owned(),
+                },
+            ),
+        ] {
+            assert_eq!(read(json).unwrap(), Some(part));
+        }
+        // The 6.3a form, a file name, is no part any more (the migration lifts it).
+        assert!(read(Value::from("0123.nsbmd")).is_err());
+        // `at` defaults to the origin.
+        let mut v = serde_json::to_value(one_tile_world()).unwrap();
+        v["freeform"] = serde_json::json!([{"nsbmd": {"hex": "00"}}]);
+        let w: WorldJson = serde_json::from_value(v).unwrap();
+        assert_eq!(w.freeform[0].at, [0, 0, 0]);
     }
 
     #[test]
@@ -522,6 +629,7 @@ mod tests {
                             })
                             .collect(),
                         freeform: Vec::new(),
+                        terrain: None,
                         permissions: PermissionsJson {
                             derive: true,
                             overrides,

@@ -113,6 +113,9 @@ pub(crate) struct ImportPlan {
     /// `textproject.member-removed` in `problems`). „Nummer freigeben“ deleted their JSON,
     /// maybe on another Git branch.
     pub removals: Vec<PathBuf>,
+    /// The world maps the import checked (their JSON and verbatim parts) but wrote no member
+    /// for: the build step `world` bakes them.
+    pub world_maps: Vec<u16>,
 }
 
 /// Members on disk without their JSON (or without their part in it, or a binary member with
@@ -943,7 +946,12 @@ fn plan_entities<E: EntitySchema>(
             // already counts them; they are not read.
             continue;
         }
-        if art == Art::Maps && world_broken(project, &file, base, plan)? {
+        let world = if art == Art::Maps {
+            world_map_of(project, &file, base, plan)?
+        } else {
+            WorldFile::None
+        };
+        if world == WorldFile::Broken {
             // Not imported, like an entity that fails to import.
             next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
             continue;
@@ -959,6 +967,12 @@ fn plan_entities<E: EntitySchema>(
             next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
             continue;
         };
+        if world == WorldFile::World {
+            // Checked and its parts resolved; its member is the world step's to bake.
+            next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
+            plan.world_maps.push(u16::try_from(n).unwrap_or(u16::MAX));
+            continue;
+        }
         let unit = unit_of(&rel_dir, &names, n);
         for (k, part) in parts.into_iter().enumerate() {
             let Some(&kind) = kinds.get(k) else { break };
@@ -1005,26 +1019,44 @@ fn plan_entities<E: EntitySchema>(
     Ok(())
 }
 
-/// Whether the map file `file` is a world map with a `world.schema` error (its errors then in
-/// the plan): such a map is not imported. A file that does not read is `import_entity`'s. A
-/// map texture package the base has counts even when its member is not on disk: the import
-/// restores it. With `only`, that may accept a package whose member this import does not
-/// restore (it is not among the files the import writes).
-fn world_broken(
+/// What a map file is for the import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorldFile {
+    /// A binary map, or a file that does not read (`import_entity`'s to report).
+    None,
+    /// A world map without `world.schema` error.
+    World,
+    /// A world map with a `world.schema` error (in the plan): not imported.
+    Broken,
+}
+
+/// Whether the map file `file` is a world map, and one with a `world.schema` error (its
+/// errors then in the plan): such a map is not imported. A file that does not read is
+/// `import_entity`'s. A map texture package the base has counts even when its member is not
+/// on disk: the import restores it. With `only`, that may accept a package whose member this
+/// import does not restore (it is not among the files the import writes).
+fn world_map_of(
     project: &Project,
     file: &Path,
     base: &dyn BasePart,
     plan: &mut ImportPlan,
-) -> Result<bool, KernelError> {
+) -> Result<WorldFile, KernelError> {
     let Ok(bytes) = std::fs::read(project.root.join(file)) else {
-        return Ok(false);
+        return Ok(WorldFile::None);
     };
+    if !matches!(crate::world::keep::world_field(&bytes), Ok(Some(_))) {
+        return Ok(WorldFile::None);
+    }
     let in_base =
         |package: u16| base.has_member(AssetKind::MapTexture, usize::from(package)) == Some(true);
     let found = crate::world::check::map_schema_problems(project, file, &bytes, &in_base)?;
     let broken = !found.is_empty();
     plan.problems.extend(found);
-    Ok(broken)
+    Ok(if broken {
+        WorldFile::Broken
+    } else {
+        WorldFile::World
+    })
 }
 
 /// Entity `n` of file `file` read, parsed and imported against its current members `cur`;
@@ -2735,11 +2767,7 @@ mod tests {
         let (_s, p) = exported();
         let world = fixtures::one_tile_world();
         let rel = "data/maps/0000.json";
-        let mut v: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(p.root.join(rel)).unwrap()).unwrap();
-        v["source"] = "world".into();
-        v["world"] = serde_json::to_value(&world).unwrap();
-        write_to(&p, rel, &serde_json::to_vec_pretty(&v).unwrap());
+        write_world_map(&p, rel, &world);
         let dir = p.unpacked_dir(AssetKind::MapTexture);
         let mut removed = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {
@@ -2763,6 +2791,73 @@ mod tests {
                 .all(|p| p.file != Path::new(rel) || p.severity != Severity::Error),
             "{:#?}",
             plan.problems
+        );
+    }
+
+    /// Makes the map file `rel` a world map with `world`, without the derived parts.
+    fn write_world_map(p: &Project, rel: &str, world: &crate::world::WorldJson) {
+        let fresh = std::fs::read(p.root.join(rel)).unwrap();
+        let file = crate::world::keep::world_parts(fresh, world, &mut Vec::new()).unwrap();
+        write_to(p, rel, &file);
+    }
+
+    #[test]
+    fn the_import_leaves_world_maps_to_the_world_step() {
+        use crate::world::doc::fixtures;
+
+        let (_s, p) = exported();
+        let maps = numbered(&p.root.join("data/maps"), "json").unwrap();
+        assert!(maps.len() > 1, "{maps:?}");
+        // Every map with a permission cell changed; map 0 then a world map.
+        for &n in &maps {
+            let rel = format!("data/maps/{n:04}.json");
+            let mut v: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(p.root.join(&rel)).unwrap()).unwrap();
+            let row = v["permissions"][0].as_str().unwrap().to_owned();
+            v["permissions"][0] = set_token_of(&row, "0180").into();
+            write_to(&p, &rel, &serde_json::to_vec_pretty(&v).unwrap());
+        }
+        write_world_map(&p, "data/maps/0000.json", &fixtures::one_tile_world());
+        let member_0 = std::fs::read(p.root.join(member_rel(&p, AssetKind::Map, 0))).unwrap();
+
+        let (plan, _) = plan(&p, None);
+        assert_eq!(plan.world_maps, [0]);
+        let errors: Vec<&Problem> = plan
+            .problems
+            .iter()
+            .filter(|p| p.severity == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "{errors:#?}");
+        let written: BTreeSet<PathBuf> = plan.writes.iter().map(|w| slash(&w.path)).collect();
+        for &n in &maps {
+            let member = slash(&member_rel(&p, AssetKind::Map, n));
+            assert_eq!(written.contains(&member), n != 0, "{n}: {written:?}");
+        }
+        apply_import(&p, &plan).unwrap();
+        assert_eq!(
+            std::fs::read(p.root.join(member_rel(&p, AssetKind::Map, 0))).unwrap(),
+            member_0
+        );
+
+        // A world map with a derived part is refused with its path and not baked either.
+        let rel = "data/maps/0000.json";
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.root.join(rel)).unwrap()).unwrap();
+        v["model"] = serde_json::json!({"hex": "00"});
+        write_to(&p, rel, &serde_json::to_vec_pretty(&v).unwrap());
+        let (again, _) = super::tests::plan(&p, None);
+        assert!(again.world_maps.is_empty());
+        let refused: Vec<&Problem> = again
+            .problems
+            .iter()
+            .filter(|p| p.file == Path::new(rel))
+            .collect();
+        assert_eq!(refused.len(), 1, "{:#?}", again.problems);
+        assert!(
+            refused[0]
+                .message
+                .starts_with("textproject.map-source: model: Eine Welt-Karte trägt"),
+            "{refused:#?}"
         );
     }
 

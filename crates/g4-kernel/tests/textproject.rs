@@ -157,7 +157,7 @@ fn export_writes_manifest_entities_registries_and_quirks() {
 
     let manifest = fx.json("g4-project.json");
     assert_eq!(manifest["format"], "g4-project");
-    assert_eq!(manifest["schemaVersion"], 3);
+    assert_eq!(manifest["schemaVersion"], 4);
     assert_eq!(manifest["game"]["code"], "CPUE");
     assert_eq!(manifest["game"]["family"], "pt");
 
@@ -242,7 +242,7 @@ fn export_writes_manifest_entities_registries_and_quirks() {
     assert_eq!(
         manifest["schemas"],
         serde_json::json!({
-            "flags": 1, "maps.world": 1, "stories": 1, "tilesets": 1, "vars": 1
+            "flags": 1, "maps.world": 2, "stories": 1, "tilesets": 1, "vars": 1
         })
     );
     assert!(
@@ -1118,7 +1118,7 @@ fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
     let fx = built();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 3",
+        "\"schemaVersion\": 4",
         "\"schemaVersion\": 0",
     );
     let before = fx.mtimes();
@@ -1777,8 +1777,8 @@ fn a_changed_manifest_leaves_the_judgement_to_the_step() {
     tick();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 3",
-        "\"schemaVersion\":  3",
+        "\"schemaVersion\": 4",
+        "\"schemaVersion\":  4",
     );
     fx.dspre_power(57);
     let problems = compile_problems(build::prepare(&fx.p()));
@@ -2393,7 +2393,7 @@ fn locked(value: &serde_json::Value, at: &str, out: &mut Vec<(String, String)>) 
 /// A check of the deletion independent of `owned_paths`: every archive with an entity holds
 /// no member any more, and as many text and script members went as there are text JSON and
 /// script sources.
-fn deletion_was_complete(project: &Project, deleted: &[PathBuf]) {
+fn deletion_was_complete(project: &Project, deleted: &[PathBuf], kept: Option<&PathBuf>) {
     use AssetKind::*;
     for kind in [
         Map,
@@ -2421,9 +2421,11 @@ fn deletion_was_complete(project: &Project, deleted: &[PathBuf]) {
         let left = std::fs::read_dir(&dir)
             .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
             .filter(|e| {
-                let name = e.as_ref().unwrap().file_name();
+                let e = e.as_ref().unwrap();
+                let name = e.file_name();
                 name.to_str()
                     .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+                    && kept != Some(&e.path())
             })
             .count();
         assert_eq!(left, 0, "{kind:?}: members left in {}", dir.display());
@@ -2559,8 +2561,9 @@ fn textproject_round_trip_with_tombstone() {
     round_trip(true, false);
 }
 
-/// The round trip with a world on a map ([`world_on_first_map`]): the world does not reach the
-/// member, the ROM builds byte-equal and the import leaves the map JSON as saved.
+/// The round trip with a world on a map ([`world_on_first_map`]): the import makes no member
+/// for the world map (its member stays as it was), the ROM builds byte-equal and the import
+/// leaves the map JSON as saved.
 #[test]
 fn textproject_round_trip_with_world() {
     round_trip(false, true);
@@ -2595,12 +2598,21 @@ fn round_trip(tombstone: bool, with_world: bool) {
     hashes(&copy, mapname_rel.to_str().unwrap(), &mut before);
 
     // Every member the text project owns goes; the header table and the internal names are
-    // zeroed.
+    // zeroed. A world map's member stays: the import makes none (the build step `world` bakes
+    // it, Task 5), and until the store bakes it it is the member the world was made on.
     let owned = g4_kernel::textproject::base_layer::owned_paths(&project).unwrap();
     let dynamic = project.unpacked_dir(AssetKind::DynamicHeaders);
+    let world_member = world.as_ref().map(|(map, _)| {
+        project
+            .unpacked_dir(AssetKind::Map)
+            .join(format!("{map:04}"))
+    });
     let mut deleted = Vec::new();
     for rel in &owned {
         let path = copy.join(rel);
+        if world_member.as_ref() == Some(&path) {
+            continue;
+        }
         if path == mapname || path.starts_with(&dynamic) {
             let len = std::fs::metadata(&path).unwrap().len() as usize;
             std::fs::write(&path, vec![0u8; len]).unwrap();
@@ -2609,7 +2621,7 @@ fn round_trip(tombstone: bool, with_world: bool) {
             deleted.push(path);
         }
     }
-    deletion_was_complete(&project, &deleted);
+    deletion_was_complete(&project, &deleted, world_member.as_ref());
     use g4_kernel::project::Location;
     match project.member_location(AssetKind::HeaderTable, 0).unwrap() {
         Location::Slice { path, offset, len } => {

@@ -7,10 +7,11 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::bake::{AreaStyle, BakeInput, Face, VANILLA_VRAM_MAX_PT, bake, decode_quads};
+use crate::textproject::Part;
 use crate::world::doc::fixtures::{
     busy_world, checkerboard_world, gate_world, one_tile_world, oversize_world,
 };
-use crate::world::doc::{FreeformJson, LayerJson, LayerRole, PieceJson, WorldJson};
+use crate::world::doc::{FreeformJson, LayerJson, LayerRole, PieceJson, TerrainJson, WorldJson};
 use crate::world::grid::{Ramp, WorldGrid, ramp_token};
 use crate::world::tileset::Tileset;
 
@@ -513,14 +514,41 @@ fn verbatim_parts_pass_through_byte_equal() {
 fn verbatim_of_takes_the_model_the_world_names() {
     let mut map = base();
     map.model = b"map model".to_vec();
+    map.bdhc = b"map terrain".to_vec();
     let mut w = empty_world();
     assert_eq!(Verbatim::of(&w, &map), Verbatim::default());
+    // The parts in the world are what the file says; the bytes are the map's.
+    let part = || Part::File {
+        file: "0007.nsbmd".into(),
+    };
     w.freeform.push(FreeformJson {
         glb: None,
-        nsbmd: Some("0007.nsbmd".into()),
+        nsbmd: Some(part()),
         at: [0, 0, 0],
     });
-    assert_eq!(Verbatim::of(&w, &map).model, Some(map.model.clone()));
+    assert_eq!(
+        Verbatim::of(&w, &map),
+        Verbatim {
+            model: Some(map.model.clone()),
+            bdhc: None,
+        }
+    );
+    w.terrain = Some(TerrainJson { bdhc: part() });
+    assert_eq!(
+        Verbatim::of(&w, &map),
+        Verbatim {
+            model: Some(map.model.clone()),
+            bdhc: Some(map.bdhc.clone()),
+        }
+    );
+    w.freeform.clear();
+    assert_eq!(
+        Verbatim::of(&w, &map),
+        Verbatim {
+            model: None,
+            bdhc: Some(map.bdhc.clone()),
+        }
+    );
 }
 
 #[test]

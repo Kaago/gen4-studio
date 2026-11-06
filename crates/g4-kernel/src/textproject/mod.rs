@@ -65,6 +65,9 @@ pub use export::{
     UNSYNCED_EXPORT, export, export_reported, unsynced_export,
 };
 pub use import::{ImportOptions, ImportReport, import, import_with};
+/// A binary part of an entity: public because the world document ([`crate::world::WorldJson`])
+/// holds its verbatim parts as parts.
+pub use part::Part;
 pub use record::ref_kind;
 pub use schema::data::item_owners;
 pub use schema::header::NO_DP;
@@ -75,7 +78,7 @@ pub const MANIFEST_FILE: &str = "g4-project.json";
 pub const DATA_DIR: &str = "data";
 /// The schema version this build reads and writes. Every rename of a key or a file raises
 /// it and adds a step to [`migrate::MIGRATIONS`].
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Whether `root` holds a manifest, whatever its version.
 pub fn is_text_project(root: &Path) -> bool {

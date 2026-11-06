@@ -48,11 +48,13 @@ use super::ids::{Stamp, stamp, watched};
 use super::import::LazyBase;
 use super::locate::{located, relocate};
 use super::manifest::{SchemaState, refusal, schema_state};
+use super::part::Member;
 use super::part::sha1_hex;
 use super::quirks::QUIRKS_FILE;
 use super::registry::Symbols;
 use super::schema::data::ItemEntity;
 use super::schema::header::{HeaderWrite, import_headers};
+use super::schema::map::{MapEntity, WorldMapSource, is_world_map, world_source};
 use super::schema::{EntitySchema, ImportCtx};
 use super::step::forget_kept;
 use super::tombstone::{file_deleted, read_deleted};
@@ -405,6 +407,52 @@ impl EntitySource {
             e => e,
         })?;
         Ok(Some(to_canonical(&world)))
+    }
+
+    /// The source of world map `map` from its JSON: the world, the map's own parts and the
+    /// verbatim parts resolved against the member on disk and the base ([`world_source`]);
+    /// `None` when the JSON is missing or is no world map (a binary or locked map). A JSON
+    /// that does not read, a world map with derived parts or a part that does not resolve is
+    /// [`KernelError::Compile`] with file, line and path. Remembers the JSON's `base_sha1`
+    /// parts, as [`Self::read`] does.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the store's bake of a world map reads it")
+    )]
+    pub(crate) fn read_world_map(
+        &mut self,
+        project: &Project,
+        map: u16,
+    ) -> Result<Option<WorldMapSource>, KernelError> {
+        self.refresh(project)?;
+        let rel = json_rel(Art::Maps, map);
+        let Some(bytes) = read_optional(&self.root.join(&rel))? else {
+            return Ok(None);
+        };
+        let (entity, _deleted): (MapEntity, bool) = parse_entity(&rel, &bytes, SCHEMA_CODE)
+            .map_err(|problem| KernelError::Compile(vec![problem]))?;
+        let Member::Value(j) = &entity.0 else {
+            return Ok(None);
+        };
+        let compile = |message: String| KernelError::Compile(vec![located(&rel, &bytes, &message)]);
+        if !is_world_map(j).map_err(compile)? {
+            return Ok(None);
+        }
+        let current = disk_member(project, AssetKind::Map, map)?;
+        let lazy = LazyBase::new(project, None, false);
+        let dir = self.root.join(Art::Maps.dir());
+        let members = [current.clone()];
+        let ctx = ImportCtx {
+            family: self.family,
+            symbols: &self.symbols,
+            dir: &dir,
+            base: &lazy,
+            current: &members,
+        };
+        let source = world_source(j, u32::from(map), current.as_deref(), &ctx).map_err(compile)?;
+        let named = self.base_sha1.entry(key_of(&rel)).or_default();
+        collect_base_sha1(&bytes, named);
+        Ok(Some(source))
     }
 
     /// The members of entity `index` of `art` from its JSON, imported against the members on

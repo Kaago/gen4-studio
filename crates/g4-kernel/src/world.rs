@@ -11,7 +11,8 @@
 //! vanilla permissions, and the synthetic test tileset; `places.rs` the map texture packages a
 //! map is shown with and the maps of every package; `mesh.rs` the mesher from layers, heights,
 //! ramps and footprints to a face list and the budget estimate; `keep.rs` the world object
-//! kept when the map file is written from its member; `edit.rs` „Welt anlegen“
+//! kept when the map file is written from its member, without the derived parts
+//! ([`keep::world_parts`]); `edit.rs` „Welt anlegen“
 //! ([`edit::world_create`]) and the changes of cells ([`edit::world_edit`]), each one undo step
 //! on the store's world map asset ([`crate::project::AssetKind::WorldMap`]); `check.rs` the
 //! checks `world.schema`, `world.tileset-mismatch`, `world.not-baked` and `world.budget` of the
@@ -34,12 +35,13 @@ pub use bake::{
 };
 pub use doc::{
     FreeformJson, HEIGHT_MAX, HEIGHT_MIN, LayerJson, LayerRole, MAP_SOURCE_WORLD, PermissionsJson,
-    PieceJson, STEP_UNITS, TILE_UNITS, WORLD_VERSION, WorldJson,
+    PieceJson, STEP_UNITS, TILE_UNITS, TerrainJson, WORLD_VERSION, WorldJson,
 };
 pub use grid::{
     GridLayer, Ramp, TileRef, WorldError, WorldGrid, error_cell, override_token, parse_height,
     parse_override, parse_ramp, parse_tile, ramp_token, set_token, tile_token,
 };
+pub use keep::world_parts;
 pub use places::{maps_of_packages, packs_of_map};
 pub use tileset::{
     DEFAULT_RULE, Deriver, HeightBehavior, TILESET_VERSION, TILESETS_DIR, TileJson, TileOrigin,

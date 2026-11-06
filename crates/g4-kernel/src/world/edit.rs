@@ -443,7 +443,7 @@ mod tests {
     use crate::textproject::canon::to_canonical;
     use crate::textproject::part::sha1_hex;
     use crate::world::grid::TileRef;
-    use crate::world::keep::{with_world, world_field};
+    use crate::world::keep::{world_field, world_parts};
     use crate::world::tileset::{Tileset, tileset_rel};
 
     const MAP: &str = "data/maps/0000.json";
@@ -677,12 +677,10 @@ mod tests {
         paint_permission(&mut store);
         store.save().unwrap();
         assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(blank()));
-        let (old, new) = (
-            String::from_utf8(with_world).unwrap(),
-            String::from_utf8(fx.read(MAP)).unwrap(),
-        );
-        let differ = old.lines().zip(new.lines()).filter(|(a, b)| a != b).count();
-        assert_eq!((old.lines().count(), differ), (new.lines().count(), 1));
+        // A world map's file carries no permissions: it stays byte for byte, the member moves.
+        assert_eq!(fx.read(MAP), with_world);
+        let map = store.map(0).unwrap().write(family);
+        assert_eq!(std::fs::read(member_path(&fx)).unwrap(), map);
     }
 
     #[test]
@@ -718,11 +716,14 @@ mod tests {
                 "Welt geändert: Karte 0000 (1 Zelle)"
             ]
         );
-        // The world steps leave the member as it is; the permission writes it.
+        // The world steps leave the member as it is and change the file; the permission
+        // writes the member only (a world map's file carries no permissions).
         assert_eq!(states[1].1, states[0].1);
         assert_ne!(states[2].1, states[1].1);
         assert_eq!(states[3].1, states[2].1);
-        assert!(states.windows(2).all(|w| w[0].0 != w[1].0));
+        assert_ne!(states[1].0, states[0].0);
+        assert_eq!(states[2].0, states[1].0);
+        assert_ne!(states[3].0, states[2].0);
         for at in (0..3).rev() {
             store.undo().unwrap();
             store.save().unwrap();
@@ -996,7 +997,7 @@ mod tests {
         let mut broken = blank();
         broken.layers[0].tiles.pop();
         broken.layers[0].heights.as_mut().unwrap()[4] = vec!["70"; 32].join(" ");
-        let file = with_world(fx.read(MAP), Some(&broken)).unwrap();
+        let file = world_parts(fx.read(MAP), &broken, &mut Vec::new()).unwrap();
         fx.write(MAP, &file);
         let mut store = store(&fx);
         assert_eq!(world(&mut store, 0), Some(broken.clone()));
@@ -1043,7 +1044,7 @@ mod tests {
         let mut row: Vec<&str> = vec!["0000"; 32];
         row[3] = "0120";
         broken.layers[0].tiles[2] = row.join(" ");
-        let file = with_world(fx.read(MAP), Some(&broken)).unwrap();
+        let file = world_parts(fx.read(MAP), &broken, &mut Vec::new()).unwrap();
         fx.write(MAP, &file);
         let mut store = store(&fx);
         assert_eq!(world(&mut store, 0), Some(broken.clone()));
@@ -1169,12 +1170,12 @@ mod tests {
             world.changed && world.old.is_none() && world.new.is_some(),
             "{world:?}"
         );
-        assert!(
-            parts
-                .iter()
-                .filter(|p| p.part != "world")
-                .all(|p| !p.changed)
-        );
+        // The derived parts leave the file of a world map (schema 4); the others stay.
+        for p in parts.iter().filter(|p| p.part != "world") {
+            let derived = ["model", "permissions", "bdhc"].contains(&p.part.as_str());
+            assert_eq!(p.changed, derived, "{p:?}");
+            assert_eq!(p.new.is_none(), derived, "{p:?}");
+        }
         store.save().unwrap();
         assert!(crate::diff::unsaved_entries(&mut store).unwrap().is_empty());
         let report = diff_entity(
@@ -1298,7 +1299,8 @@ mod tests {
     fn a_hand_written_world_survives_a_map_save() {
         let (fx, _) = fixture();
         let mut v: Value =
-            serde_json::from_slice(&with_world(fx.read(MAP), Some(&blank())).unwrap()).unwrap();
+            serde_json::from_slice(&world_parts(fx.read(MAP), &blank(), &mut Vec::new()).unwrap())
+                .unwrap();
         // Not as the store writes it: a piece without `rotate`, an empty `freeform`.
         v["world"]["pieces"] = json!([{"tile": 5, "at": [3, 3]}]);
         v["world"]["freeform"] = json!([]);
@@ -1311,12 +1313,8 @@ mod tests {
         store.save().unwrap();
         let now: Value = serde_json::from_slice(&fx.read(MAP)).unwrap();
         assert_eq!(now["world"], v["world"]);
-        let (old, new) = (
-            String::from_utf8(hand).unwrap(),
-            String::from_utf8(fx.read(MAP)).unwrap(),
-        );
-        let differ = old.lines().zip(new.lines()).filter(|(a, b)| a != b).count();
-        assert_eq!((old.lines().count(), differ), (new.lines().count(), 1));
+        // The file has no derived part the map edit could change: byte for byte as written.
+        assert_eq!(fx.read(MAP), hand);
     }
 
     #[test]

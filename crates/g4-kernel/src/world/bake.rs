@@ -56,8 +56,7 @@ pub struct Verbatim {
 
 impl Verbatim {
     /// The verbatim parts `world` names, taken from `map` (store side: the Map asset holds them):
-    /// the model when `freeform` has an `nsbmd` entry. The terrain follows with `world.terrain`
-    /// (schema 2, Task 3); until then a world has no verbatim terrain.
+    /// the model when `freeform` has an `nsbmd` entry, the BDHC when the world has `terrain`.
     pub fn of(world: &WorldJson, map: &MapFile) -> Verbatim {
         Verbatim {
             model: world
@@ -65,7 +64,7 @@ impl Verbatim {
                 .iter()
                 .any(|f| f.nsbmd.is_some())
                 .then(|| map.model.clone()),
-            bdhc: None,
+            bdhc: world.terrain.is_some().then(|| map.bdhc.clone()),
         }
     }
 }
