@@ -124,6 +124,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         include_str!("../../../../../docs/formats/text_project.md"),
     ),
     (
+        "tileset",
+        include_str!("../../../../../docs/formats/tileset.md"),
+    ),
+    (
         "trainer",
         include_str!("../../../../../docs/formats/trainer.md"),
     ),
@@ -134,6 +138,10 @@ pub static FORMATS: &[(&str, &str)] = &[
     (
         "trainer_text",
         include_str!("../../../../../docs/formats/trainer_text.md"),
+    ),
+    (
+        "world_map",
+        include_str!("../../../../../docs/formats/world_map.md"),
     ),
     (
         "xdelta_patch",

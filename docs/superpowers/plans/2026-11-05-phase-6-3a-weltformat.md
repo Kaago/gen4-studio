@@ -519,9 +519,9 @@ Material je Ebene: `MeshLambertMaterial`, `side: FrontSide`, `alphaTest: 0.5`, �
 - Create: `docs/formats/world_map.md`, `docs/formats/tileset.md`
 - Modify: `docs/formats/text_project.md` (Tabelle „Arten“: `maps` mit `source: "world"`, Zeile `tilesets`; „Manifest“: `schemaVersion` 3, `schemas` mit `maps.world` und `tilesets`; „Migration“: Schritt 2 → 3; „Prüfungen“: die vier `world.*`-Codes), `docs/formats/map.md` (Satz „Welt-Karten: siehe `world_map.md`; bis 6.3b ist der Member der bisherige“)
 
-- [ ] **Step 1: `world_map.md`:** Zweck und Grenze von 6.3a (Member bis 6.3b), Schlüssel mit Typen und Reihenfolge, Grammatik der Zellen (Tabelle Token → Bedeutung), Höhen und Rampen mit Richtungssinn und Zahlen (8 Einheiten je Stufe, −16 bis 62), Koordinaten und UV mit den Formeln aus „Entscheidungen“, Teilmodelle, Freiform (Schema), Permissions, ein synthetisches Beispiel (aus `fixtures::one_tile_world`, Zeilen mit „…“ gekürzt und gesagt), Store-Art und Undo, Prüfungen mit Wortlaut, Vernetzer-Regeln (Zusammenfassen, Wände, Reihenfolge, Budget-Formel), was 6.3b und 6.4a ergänzen.
-- [ ] **Step 2: `tileset.md`:** Datei und Felder, Ableitung (Regel und Schwelle aus Task 0 mit Verweis auf `task0-6-3a-vorgaben.md`, Palettenregel, Rolle aus `kind`), Zwischenspeicher und `tileset_save`, reservierte Felder, synthetisches Tileset, „nie im Repo“.
-- [ ] **Step 3: Commit** `docs(formats): world map and tileset formats, text project schema 3` (mit Trailer).
+- [x] **Step 1: `world_map.md`:** Zweck und Grenze von 6.3a (Member bis 6.3b), Schlüssel mit Typen und Reihenfolge, Grammatik der Zellen (Tabelle Token → Bedeutung), Höhen und Rampen mit Richtungssinn und Zahlen (8 Einheiten je Stufe, −16 bis 62), Koordinaten und UV mit den Formeln aus „Entscheidungen“, Teilmodelle, Freiform (Schema), Permissions, ein synthetisches Beispiel (aus `fixtures::one_tile_world`, Zeilen mit „…“ gekürzt und gesagt), Store-Art und Undo, Prüfungen mit Wortlaut, Vernetzer-Regeln (Zusammenfassen, Wände, Reihenfolge, Budget-Formel), was 6.3b und 6.4a ergänzen.
+- [x] **Step 2: `tileset.md`:** Datei und Felder, Ableitung (Regel und Schwelle aus Task 0 mit Verweis auf `task0-6-3a-vorgaben.md`, Palettenregel, Rolle aus `kind`), Zwischenspeicher und `tileset_save`, reservierte Felder, synthetisches Tileset, „nie im Repo“.
+- [x] **Step 3: Commit** `docs(formats): world map and tileset formats, text project schema 3` (mit Trailer).
 
 ### Task 13: Design-System-Nachtrag
 
