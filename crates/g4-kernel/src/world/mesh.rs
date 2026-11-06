@@ -8,10 +8,11 @@
 //! and ramp of the ground; between two ground cells whose top edges differ at their shared edge
 //! stands a wall from the lower to the upper profile, facing the lower cell, with the `wall`
 //! texture of the upper cell's tile (without one, the tile's own); collinear wall pieces of one
-//! texture and facing merge. No wall at the map border, next to an empty cell or where the
+//! wall tile (its index) and facing merge. No wall at the map border, next to an empty cell or where the
 //! profiles cross. Every piece leaves one footprint face on [`PIECE_LAYER`]. Order: layer
 //! ascending; per layer the floors by start cell (row, then column), then the walls (north
-//! edges row by row, then west edges column by column); the footprints last, in list order.
+//! edges row by row, then west edges column by column); the footprints once after all layers,
+//! in list order.
 //!
 //! [`estimate_model_bytes`] is the upper bound of the model size from the face and texture
 //! count (quads with `TEXCOORD` and `VTX_16`); the baker of 6.3b gives the real number.
@@ -291,7 +292,7 @@ fn wall_between(
 }
 
 /// The walls of the ground layer: north edges row by row, then west edges column by column;
-/// along each line the pieces of one texture, facing and straight profile merge.
+/// along each line the pieces of one wall tile (its index), facing and straight profile merge.
 fn walls(
     tiles: &[Option<TileRef>],
     corners: &[Corners],

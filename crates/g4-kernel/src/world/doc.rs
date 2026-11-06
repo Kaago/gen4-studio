@@ -365,7 +365,7 @@ mod tests {
         ]
     }
 
-    fn token_of_ramp() -> impl Strategy<Value = String> {
+    fn a_ramp() -> impl Strategy<Value = Ramp> {
         prop_oneof![
             4 => Just(Ramp::None),
             1 => (1u8..3).prop_map(Ramp::North),
@@ -373,7 +373,47 @@ mod tests {
             1 => (1u8..3).prop_map(Ramp::South),
             1 => (1u8..3).prop_map(Ramp::West),
         ]
-        .prop_map(ramp_token)
+    }
+
+    /// The steps a ramp climbs (0: none).
+    fn steps(ramp: Ramp) -> i16 {
+        match ramp {
+            Ramp::None => 0,
+            Ramp::North(s) | Ramp::East(s) | Ramp::South(s) | Ramp::West(s) => i16::from(s),
+        }
+    }
+
+    /// The ground's heights (−16 to 62) and ramps as rows; a ramp that would end above 62
+    /// (`h + steps > 62`) is `.`.
+    fn heights_and_ramps() -> impl Strategy<Value = (Vec<String>, Option<Vec<String>>)> {
+        (
+            proptest::collection::vec(-16i8..=62, 1024),
+            proptest::option::of(proptest::collection::vec(a_ramp(), 1024)),
+        )
+            .prop_map(|(heights, ramps)| {
+                let rows = |tokens: Vec<String>| -> Vec<String> {
+                    tokens.chunks(32).map(|r| r.join(" ")).collect()
+                };
+                let ramps = ramps.map(|ramps| {
+                    rows(
+                        ramps
+                            .into_iter()
+                            .zip(&heights)
+                            .map(|(r, &h)| {
+                                if i16::from(h) + steps(r) > 62 {
+                                    ramp_token(Ramp::None)
+                                } else {
+                                    ramp_token(r)
+                                }
+                            })
+                            .collect(),
+                    )
+                });
+                (
+                    rows(heights.iter().map(ToString::to_string).collect()),
+                    ramps,
+                )
+            })
     }
 
     fn token_of_override() -> impl Strategy<Value = String> {
@@ -395,15 +435,13 @@ mod tests {
         (
             any::<u16>(),
             grid_of(token_of_tile()),
-            // Up to 60, so every ramp (at most 2 steps) ends at 62 at most.
-            grid_of((-16i8..=60).prop_map(|h| h.to_string())),
-            proptest::option::of(grid_of(token_of_ramp())),
+            heights_and_ramps(),
             proptest::option::of(grid_of(token_of_tile())),
             proptest::option::of(grid_of(token_of_override())),
             proptest::collection::vec((any::<u16>(), 0u8..32, 0u8..32, 0u16..4), 0..3),
         )
             .prop_map(
-                |(tileset, tiles, heights, ramps, overlay, overrides, pieces)| {
+                |(tileset, tiles, (heights, ramps), overlay, overrides, pieces)| {
                     let mut layers = vec![LayerJson {
                         name: "Boden".to_owned(),
                         role: LayerRole::Ground,

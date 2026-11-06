@@ -286,7 +286,7 @@ fn schema_of(
 /// The tiles of `grid` past `tileset` (the first per row, like a token error), the pieces whose
 /// tile is past it, no piece or has a footprint without area, and the pieces over the edge
 /// ([`piece_problems`]).
-fn tile_errors(grid: &WorldGrid, tileset: &Tileset) -> Vec<WorldError> {
+pub(crate) fn tile_errors(grid: &WorldGrid, tileset: &Tileset) -> Vec<WorldError> {
     let package = grid.tileset;
     let count = tileset.tiles.len();
     let outside = |path: &str, tile: u16| {

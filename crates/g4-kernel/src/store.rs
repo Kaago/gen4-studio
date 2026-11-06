@@ -2924,7 +2924,8 @@ impl Store {
     /// stays, [`Store::remove_trailing_headers`] shortened it), their parts and file steps leave
     /// the undo and redo stacks (their tombstone steps stay: the barrier the caller records
     /// next keeps undo from reaching them), the store's own tombstone flags of them go, and
-    /// their assets are reported changed. The sync forgets the files ([`Known::Drop`]) and the
+    /// their assets are reported changed (a map: its world map asset too, so a later map with
+    /// the number has no world). The sync forgets the files ([`Known::Drop`]) and the
     /// build step's members kept as newer. Returns the files removed. Not undoable.
     pub(crate) fn remove_member_files(
         &mut self,
@@ -2965,6 +2966,13 @@ impl Store {
                         });
                     }
                 }
+                // A map's world goes with it: the next map with the number has none.
+                if id.kind == AssetKind::Map {
+                    ids.push(AssetId {
+                        kind: AssetKind::WorldMap,
+                        index: id.index,
+                    });
+                }
             }
         }
         for &id in &ids {
@@ -2985,6 +2993,12 @@ impl Store {
         for target in targets {
             for id in target.assets() {
                 self.note_change(id);
+                if id.kind == AssetKind::Map {
+                    self.note_change(AssetId {
+                        kind: AssetKind::WorldMap,
+                        index: id.index,
+                    });
+                }
             }
         }
         // Caches the next scan or build puts right: neither fails the files removed already.

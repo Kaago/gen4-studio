@@ -14,6 +14,7 @@ use crate::error::KernelError;
 use crate::project::SourceMode;
 use crate::store::{ChangeId, Store};
 
+use super::check::tile_errors;
 use super::doc::WorldJson;
 use super::grid::{
     WorldGrid, override_token, parse_height, parse_override, parse_ramp, parse_tile, ramp_token,
@@ -21,7 +22,7 @@ use super::grid::{
 };
 use super::keep::locked_map_refusal;
 use super::places::packs_of_map;
-use super::tileset::tile_outside;
+use super::tileset::{Tileset, tile_outside};
 
 /// Why painting is refused outside a text project (`world_create`, `world_edit`,
 /// `tileset_save` in the DSPRE layout or a text project of another schema).
@@ -164,6 +165,22 @@ fn first_error(world: &WorldJson) -> Result<(), KernelError> {
     })
 }
 
+/// The first error of a world that does not read into cells or does not fit `tileset` (a tile
+/// past it, a piece that is none or lies over the edge: [`tile_errors`]), with its path.
+fn first_error_with(world: &WorldJson, tileset: &Tileset) -> Result<(), KernelError> {
+    let grid = WorldGrid::parse(world).map_err(|errors| {
+        KernelError::Refused(
+            errors
+                .first()
+                .map_or_else(|| "world: kaputt.".to_owned(), ToString::to_string),
+        )
+    })?;
+    match tile_errors(&grid, tileset).first() {
+        Some(e) => Err(KernelError::Refused(e.to_string())),
+        None => Ok(()),
+    }
+}
+
 /// Refused when map `map` cannot carry a world: its member does not decode (it is written as
 /// `{locked, raw}`, without a place for a world) or the store holds it locked
 /// ([`locked_map_refusal`]).
@@ -246,11 +263,12 @@ pub fn world_create(
 
 /// The changes `req.changes` of the world of map `req.map` as one undo step (label `req.label`,
 /// else „Welt geändert: Karte 0123 (37 Zellen)“). Only the rows of touched cells are written
-/// anew; the world must read into cells before and after.
+/// anew; the world must read into cells and fit its tileset before and after.
 ///
 /// Refused ([`KernelError::Refused`], nothing changed): outside a text project
 /// ([`WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]), a world that does
-/// not read into cells already (its first error with path), a change with none or more than
+/// not read into cells or does not fit its tileset already (its first error with path, a tile
+/// past the tileset: [`tile_outside`]), a change with none or more than
 /// one field ([`ONE_FIELD`]), a permission with a layer, a height or ramp off the ground, a
 /// layer the world lacks, a cell off the map, a token the parser refuses (its sentence), a tile
 /// past the tileset ([`tile_outside`]), a package that is not there, changes that change
@@ -264,7 +282,9 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
         .ok_or_else(|| refused(not_a_world_map(map)))?;
     refuse_locked_map(store, map)?;
     first_error(&before)?;
-    let tiles = store.tileset(before.tileset)?.tiles.len();
+    let tileset = store.tileset(before.tileset)?;
+    first_error_with(&before, &tileset)?;
+    let tiles = tileset.tiles.len();
     let mut checked = Vec::with_capacity(req.changes.len());
     for (i, change) in req.changes.iter().enumerate() {
         checked.push(check_change(change, i, map, &before, tiles)?);
@@ -305,14 +325,14 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
     if world == before {
         return Err(refused(NOTHING_TO_CHANGE.to_owned()));
     }
-    first_error(&world)?;
+    first_error_with(&world, &tileset)?;
     let cells: usize = req.changes.iter().map(|c| c.cells.len()).sum();
     let label = match &req.label {
         Some(label) => label.clone(),
         None if cells == 1 => format!("Welt geändert: Karte {map:04} (1 Zelle)"),
         None => format!("Welt geändert: Karte {map:04} ({cells} Zellen)"),
     };
-    let tileset = world.tileset;
+    let package = world.tileset;
     let ((), change) = store.transaction(&label, |tx| {
         tx.edit_world(map, |w| {
             *w = Some(world);
@@ -321,7 +341,7 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
     })?;
     Ok(WorldReport {
         map,
-        tileset,
+        tileset: package,
         cells,
         change,
     })
@@ -1007,6 +1027,40 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+        // The map itself does not read then either (`get_map` answers with the error).
+        assert!(
+            matches!(store.map(0), Err(KernelError::Compile(_))),
+            "{:?}",
+            store.map(0).err()
+        );
+    }
+
+    #[test]
+    fn world_edit_refuses_a_tile_past_the_tileset_unchanged() {
+        let (fx, _) = fixture();
+        let mut broken = blank();
+        // Hand-edited: cell (3, 2) names tile 0x0120, the synthetic tileset has six.
+        let mut row: Vec<&str> = vec!["0000"; 32];
+        row[3] = "0120";
+        broken.layers[0].tiles[2] = row.join(" ");
+        let file = with_world(fx.read(MAP), Some(&broken)).unwrap();
+        fx.write(MAP, &file);
+        let mut store = store(&fx);
+        assert_eq!(world(&mut store, 0), Some(broken.clone()));
+        let text = refused(edit(
+            &mut store,
+            json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]}),
+        ));
+        assert_eq!(
+            text,
+            "world.layers[0].tiles[2]: Zelle 3: Kachel 0x0120 gibt es im Tileset 0000 nicht \
+             (6 Kacheln)."
+        );
+        assert_eq!(world(&mut store, 0), Some(broken));
+        assert!(store.history().0.is_empty());
+        assert!(store.dirty().is_empty());
+        store.save().unwrap();
+        assert_eq!(fx.read(MAP), file);
     }
 
     #[test]
@@ -1132,6 +1186,80 @@ mod tests {
         )
         .unwrap();
         assert_eq!(report.state, DiffState::Same);
+    }
+
+    #[test]
+    fn a_saved_world_diffs_as_added_against_the_original() {
+        use crate::diff::{Against, DiffSources, DiffState, DiffSubject, EntityDiff, diff_entity};
+        use crate::test_support::ProjectOriginal;
+        let (fx, mut store) = fixture();
+        create(&mut store, 0);
+        store.save().unwrap();
+        let project = fx.project();
+        let base = ProjectOriginal::new(&fx.root().join(".g4/cache/base-layer").join(fx.sha1()));
+        let sources = DiffSources {
+            original: Some(&base),
+            base_label: None,
+            repo: None,
+        };
+        let subject = DiffSubject::Map { index: 0 };
+        let report = diff_entity(&project, None, &sources, &subject, Against::Base).unwrap();
+        assert_eq!(report.state, DiffState::Changed, "{report:?}");
+        let EntityDiff::Map { parts, .. } = &report.diff else {
+            panic!("{report:?}");
+        };
+        let world = parts.iter().find(|p| p.part == "world").unwrap();
+        assert!(
+            world.changed && world.old.is_none() && world.new.is_some(),
+            "{world:?}"
+        );
+        // Map 1 has no world: the same as the original.
+        let other = DiffSubject::Map { index: 1 };
+        let report = diff_entity(&project, None, &sources, &other, Against::Base).unwrap();
+        assert_eq!(report.state, DiffState::Same, "{report:?}");
+    }
+
+    #[test]
+    fn a_freed_map_number_takes_its_world_with_it() {
+        use crate::data::refs::RefIndex;
+        use crate::delete::{DeleteTarget, delete, free_number};
+        use crate::test_support::ProjectOriginal;
+        let (fx, mut store) = fixture();
+        // The base counts the packed maps: the copy at the end is new.
+        let base = ProjectOriginal::new(fx.root());
+        let n = store.duplicate_map(0).unwrap();
+        create(&mut store, n);
+        store.save().unwrap();
+        let rel = format!("data/maps/{n:04}.json");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fx.read(&rel)).unwrap()["source"],
+            "world"
+        );
+        let mut refs = RefIndex::new();
+        let target = DeleteTarget::Map { index: n };
+        delete(&mut store, &mut refs, &base, target).unwrap();
+        let result = free_number(&mut store, &mut refs, &base, target).unwrap();
+        assert!(result.freed.is_some());
+        assert!(!fx.root().join(&rel).exists());
+        // The next map takes the number, without the old world.
+        assert_eq!(store.duplicate_map(0).unwrap(), n);
+        assert_eq!(world(&mut store, n), None);
+        let world_id = AssetId {
+            kind: AssetKind::WorldMap,
+            index: n,
+        };
+        assert!(store.locked(world_id).is_none());
+        store
+            .edit_map(n, "Permission gemalt", |m| {
+                m.permissions[0].collision ^= 0x80;
+                Ok(())
+            })
+            .unwrap();
+        store.save().unwrap();
+        let v: Value = serde_json::from_slice(&fx.read(&rel)).unwrap();
+        assert_eq!(v["source"], "binary", "{v}");
+        assert!(v.get("world").is_none_or(Value::is_null), "{v}");
+        assert_eq!(world(&mut store, n), None);
     }
 
     #[test]

@@ -453,7 +453,20 @@ mod tests {
         assert_eq!(heights[0], json!(16.0));
         assert_eq!(heights[4 * 32 + 3], json!(20.0));
         assert_eq!(heights.iter().filter(|h| **h == json!(16.0)).count(), 1023);
-        // Undoing both steps gives the member's heights back.
+        // An empty ground cell has no floor: no height.
+        call(
+            &state,
+            &policy,
+            "world_edit",
+            json!({ "req": { "map": 0, "changes": [{ "cells": [[5, 6]], "tile": "." }] } }),
+        );
+        let heights = call(&state, &policy, "get_map", json!({ "index": 0 }))["heights"].clone();
+        let heights = heights.as_array().unwrap();
+        assert_eq!(heights[6 * 32 + 5], Value::Null);
+        assert_eq!(heights[0], json!(16.0));
+        assert_eq!(heights.iter().filter(|h| h.is_null()).count(), 1);
+        // Undoing the three steps gives the member's heights back.
+        call(&state, &policy, "undo", json!({}));
         call(&state, &policy, "undo", json!({}));
         call(&state, &policy, "undo", json!({}));
         assert_eq!(
