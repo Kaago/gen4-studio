@@ -1008,7 +1008,8 @@ fn plan_entities<E: EntitySchema>(
 /// Whether the map file `file` is a world map with a `world.schema` error (its errors then in
 /// the plan): such a map is not imported. A file that does not read is `import_entity`'s. A
 /// map texture package the base has counts even when its member is not on disk: the import
-/// restores it.
+/// restores it. With `only`, that may accept a package whose member this import does not
+/// restore (it is not among the files the import writes).
 fn world_broken(
     project: &Project,
     file: &Path,
@@ -2763,6 +2764,54 @@ mod tests {
             "{:#?}",
             plan.problems
         );
+    }
+
+    /// A world map on a package that is neither on disk nor in the base is refused with the
+    /// package sentence and not imported.
+    #[test]
+    fn a_world_map_on_a_package_missing_everywhere_is_refused() {
+        use crate::world::check::WORLD_SCHEMA_CODE;
+        use crate::world::doc::fixtures;
+
+        let (_s, p) = exported();
+        let mut world = fixtures::one_tile_world();
+        world.tileset = 200;
+        let rel = "data/maps/0000.json";
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.root.join(rel)).unwrap()).unwrap();
+        // A permission cell changed, so an imported map would be a write.
+        let row = v["permissions"][0].as_str().unwrap().to_owned();
+        v["permissions"][0] = set_token_of(&row, "0180").into();
+        v["source"] = "world".into();
+        v["world"] = serde_json::to_value(&world).unwrap();
+        write_to(&p, rel, &serde_json::to_vec_pretty(&v).unwrap());
+        let lazy = LazyBase::new(&p, None, false);
+        assert_eq!(lazy.has_member(AssetKind::MapTexture, 200), Some(false));
+        let (plan, _) = plan(&p, None);
+        let schema: Vec<&Problem> = plan
+            .problems
+            .iter()
+            .filter(|p| p.message.starts_with(WORLD_SCHEMA_CODE))
+            .collect();
+        assert_eq!(schema.len(), 1, "{:#?}", plan.problems);
+        assert_eq!(schema[0].file, Path::new(rel));
+        assert_eq!(schema[0].severity, Severity::Error);
+        assert!(
+            schema[0].message.starts_with(
+                "world.schema: world.tileset: Kartentextur-Paket 0200 gibt es nicht ("
+            ),
+            "{schema:#?}"
+        );
+        let written: Vec<PathBuf> = plan.writes.iter().map(|w| slash(&w.path)).collect();
+        assert!(
+            !written.contains(&slash(&member_rel(&p, AssetKind::Map, 0))),
+            "{written:?}"
+        );
+    }
+
+    /// `row` with its first cell set to `token`.
+    fn set_token_of(row: &str, token: &str) -> String {
+        crate::world::grid::set_token(row, 0, token).unwrap()
     }
 
     #[test]

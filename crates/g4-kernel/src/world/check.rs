@@ -85,6 +85,7 @@ fn thousands(n: usize) -> String {
 /// Problems of every world map of the project (the `data/maps/*.json` with `source: "world"`, read with `world_field`):
 /// schema (grid, tiles against the tileset file or `textures_only` of the package, package range, pieces), tileset
 /// mismatch, not baked, budget. The headers for the mismatch come from a Store on `Project::open(&project.root)`, read only.
+/// Without a base at hand it reports a package missing on disk even when the import would restore it from the base.
 pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
     let dir = Art::Maps.dir();
     let mut problems = Vec::new();
