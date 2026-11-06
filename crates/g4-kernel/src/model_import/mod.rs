@@ -109,16 +109,39 @@ impl SourceFormat {
 /// The mesh of an OBJ or glTF file and its notes (model.parts-ignored); the refusal with code.
 ///
 /// The format follows the extension ([`SourceFormat::of`]); every file the model refers to is
-/// read only from inside the model's folder ([`resolve_inside`]).
+/// read only from inside the model's folder ([`resolve_inside`]). A polygon of more than
+/// [`mesh::MAX_CORNERS`] corners is `model.source-unreadable`.
 pub fn read_model(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMessage> {
-    match SourceFormat::of(path) {
-        Some(SourceFormat::Obj) => read_obj::read_obj(path),
-        Some(SourceFormat::Gltf) => read_gltf::read_gltf(path),
-        None => Err(PartMessage::new(
-            PartCode::ModelSourceUnreadable,
-            &[&"OBJ/glTF", &"unknown file extension"],
-            format!("{} is neither an OBJ nor a glTF file", path.display()),
+    let (format, read) = match SourceFormat::of(path) {
+        Some(SourceFormat::Obj) => (SourceFormat::Obj, read_obj::read_obj(path)?),
+        Some(SourceFormat::Gltf) => (SourceFormat::Gltf, read_gltf::read_gltf(path)?),
+        None => {
+            return Err(PartMessage::new(
+                PartCode::ModelSourceUnreadable,
+                &[&"OBJ/glTF", &"unknown file extension"],
+                format!("{} is neither an OBJ nor a glTF file", path.display()),
+            ));
+        }
+    };
+    check_corners(&read.0, format)?;
+    Ok(read)
+}
+
+/// Every polygon at most [`mesh::MAX_CORNERS`] corners (ear clipping one huge n-gon would take
+/// minutes), else `model.source-unreadable`. glTF brings triangles only; the check holds for
+/// both readers alike.
+fn check_corners(mesh: &Mesh, format: SourceFormat) -> Result<(), PartMessage> {
+    match mesh
+        .polygons
+        .iter()
+        .map(|p| p.corners.len())
+        .find(|&n| n > mesh::MAX_CORNERS)
+    {
+        Some(n) => Err(source_unreadable(
+            format,
+            &format!("a polygon has {n} corners, more than {}", mesh::MAX_CORNERS),
         )),
+        None => Ok(()),
     }
 }
 

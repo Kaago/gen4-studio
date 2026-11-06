@@ -353,6 +353,7 @@ fn append_model(mesh: &mut Mesh, m: &tobj::Mesh, material: Option<usize>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model_import::mesh::MAX_CORNERS;
     use crate::model_import::read_model;
     use crate::model_import::samples::{CUBE_OBJ, PDSMS_OBJ, write_samples};
 
@@ -606,6 +607,40 @@ mod tests {
         let e = refusal(&path);
         assert_eq!(e.code, PartCode::ModelSourceUnreadable);
         assert!(e.args[1].contains("a.mtl"), "{e:?}");
+    }
+
+    /// An OBJ with one face of `corners` corners on a circle.
+    fn ngon_obj(dir: &Path, corners: usize) -> PathBuf {
+        let mut text = String::new();
+        for k in 0..corners {
+            let angle = std::f64::consts::TAU * k as f64 / corners as f64;
+            text.push_str(&format!("v {} 0 {}\n", angle.cos(), -angle.sin()));
+        }
+        text.push('f');
+        for k in 1..=corners {
+            text.push_str(&format!(" {k}"));
+        }
+        text.push('\n');
+        let path = dir.join(format!("eck{corners}.obj"));
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    /// A polygon of more than MAX_CORNERS corners is refused before ear clipping would take
+    /// minutes; one of exactly MAX_CORNERS is read.
+    #[test]
+    fn a_polygon_with_too_many_corners_is_source_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mesh, _) = read_model(&ngon_obj(dir.path(), MAX_CORNERS)).unwrap();
+        assert_eq!(mesh.polygons[0].corners.len(), MAX_CORNERS);
+        let started = std::time::Instant::now();
+        let e = read_model(&ngon_obj(dir.path(), 100_000)).unwrap_err();
+        assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+        assert_eq!(
+            (e.code, e.args[0].as_str()),
+            (PartCode::ModelSourceUnreadable, "OBJ")
+        );
+        assert!(e.args[1].contains("100000 corners"), "{e:?}");
     }
 
     #[test]

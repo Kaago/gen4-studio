@@ -27,6 +27,9 @@ const MAX_DEPTH: usize = 128;
 const MAX_INSTANCES: usize = 65_536;
 /// How many triangles a model may bring in all (far above what a map holds).
 const MAX_POLYGONS: usize = 1_000_000;
+/// How many elements one accessor may hold and how many positions (and uvs) the model may
+/// bring in all, over every node instance: three corners for each of [`MAX_POLYGONS`].
+const MAX_VERTICES: usize = 3 * MAX_POLYGONS;
 
 /// A node transform, column first (`m[column][row]`) as glTF writes it.
 type Matrix = [[f64; 4]; 4];
@@ -189,17 +192,23 @@ fn percent_decode(uri: &str) -> Result<String, String> {
     String::from_utf8(out).map_err(|_| format!("the URI {uri} is no UTF-8 once decoded"))
 }
 
-/// The data of every buffer, cut to its `byteLength`: the BIN chunk, a `data:` URI or a file.
+/// The data of every buffer, cut to its `byteLength`: the BIN chunk (only buffer 0 may stand
+/// for it, as the GLB format says), a `data:` URI or a file.
 fn load_buffers(
     document: &Document,
-    blob: Option<Vec<u8>>,
+    mut blob: Option<Vec<u8>>,
     root: &Path,
 ) -> Result<Vec<Vec<u8>>, PartMessage> {
     let mut out = Vec::new();
     for buffer in document.buffers() {
         let index = buffer.index();
         let mut data = match buffer.source() {
-            gltf::buffer::Source::Bin => blob.clone().ok_or_else(|| {
+            gltf::buffer::Source::Bin if index != 0 => {
+                return Err(unreadable(&format!(
+                    "buffer {index} has no uri (only buffer 0 may stand for the BIN chunk)"
+                )));
+            }
+            gltf::buffer::Source::Bin => blob.take().ok_or_else(|| {
                 unreadable(&format!(
                     "buffer {index} has no uri and the file no BIN chunk"
                 ))
@@ -253,8 +262,9 @@ fn check_range(
     }
 }
 
-/// An accessor `gltf` may read as `dimensions` of one of `types`: not empty, of that type, its
-/// data (and that of its sparse part) inside the buffers. Errors are reasons.
+/// An accessor `gltf` may read as `dimensions` of one of `types`: not empty, at most
+/// [`MAX_VERTICES`] elements (a sparse accessor without buffer view names its count freely),
+/// of that type, its data (and that of its sparse part) inside the buffers. Errors are reasons.
 fn check_accessor(
     accessor: &gltf::Accessor,
     types: &[DataType],
@@ -265,6 +275,11 @@ fn check_accessor(
     let count = accessor.count();
     if count == 0 {
         return Err(format!("accessor {index} is empty"));
+    }
+    if count > MAX_VERTICES {
+        return Err(format!(
+            "accessor {index} names {count} elements, more than {MAX_VERTICES}"
+        ));
     }
     if !types.contains(&accessor.data_type()) || accessor.dimensions() != dimensions {
         return Err(format!(
@@ -479,6 +494,12 @@ impl<'a> Reader<'a> {
             .get(&Semantic::Positions)
             .ok_or_else(|| bad("no POSITION".to_string()))?;
         check_accessor(&positions, &[DataType::F32], Dimensions::Vec3, buffers).map_err(bad)?;
+        // Every instance copies its positions: the cap holds for the model, before reading.
+        if self.mesh.positions.len().saturating_add(positions.count()) > MAX_VERTICES {
+            return Err(unreadable(&format!(
+                "the model has more than {MAX_VERTICES} positions"
+            )));
+        }
         let reader = primitive.reader(|b| buffers.get(b.index()).map(Vec::as_slice));
         let points: Vec<[f32; 3]> = reader
             .read_positions()
@@ -501,6 +522,11 @@ impl<'a> Reader<'a> {
             Some(accessor) => {
                 let types = [DataType::F32, DataType::U8, DataType::U16];
                 check_accessor(&accessor, &types, Dimensions::Vec2, buffers).map_err(bad)?;
+                if self.mesh.uvs.len().saturating_add(accessor.count()) > MAX_VERTICES {
+                    return Err(unreadable(&format!(
+                        "the model has more than {MAX_VERTICES} uvs"
+                    )));
+                }
                 let uvs: Vec<[f32; 2]> = reader
                     .read_tex_coords(set)
                     .ok_or_else(|| bad(format!("TEXCOORD_{set} has no data")))?
@@ -1294,6 +1320,111 @@ mod tests {
             refusal(&root.join("weg.glb")).code,
             PartCode::ModelSourceUnreadable
         );
+    }
+
+    /// The plane's accessor 0 as a sparse accessor without buffer view: `count` positions,
+    /// all zero but the one sparse value (the second plane position); no uv.
+    fn sparse_positions(document: &mut Value, count: u64) {
+        let accessor = document["accessors"][0].as_object_mut().unwrap();
+        accessor.remove("bufferView");
+        accessor.remove("byteOffset");
+        accessor.insert("count".into(), json!(count));
+        accessor.insert(
+            "sparse".into(),
+            json!({
+                "count": 1,
+                "indices": {"bufferView": 2, "componentType": 5123},
+                "values": {"bufferView": 0, "byteOffset": 12}
+            }),
+        );
+        let attributes = document["meshes"][0]["primitives"][0]["attributes"]
+            .as_object_mut()
+            .unwrap();
+        attributes.remove("TEXCOORD_0");
+    }
+
+    /// A tiny file naming 2^40 positions (sparse, without buffer view, no indices): refused
+    /// at once, before a single position is read.
+    #[test]
+    fn a_sparse_accessor_without_view_and_a_huge_count_is_refused_quickly() {
+        let (_guard, root) = samples();
+        let mut document = plane_json(&root);
+        sparse_positions(&mut document, 1 << 40);
+        document["meshes"][0]["primitives"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("indices");
+        let path = write_json(&root, "riesig.gltf", &document);
+        assert!(std::fs::metadata(&path).unwrap().len() < 4096);
+        let started = std::time::Instant::now();
+        let e = refusal(&path);
+        assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+        assert_eq!(e.code, PartCode::ModelSourceUnreadable, "{e:?}");
+        assert!(e.args[1].contains("accessor 0"), "{e:?}");
+    }
+
+    /// One mesh of a million positions (sparse, two triangles) placed four times: four million
+    /// positions in all, past the cap, refused before the fourth copy is made.
+    #[test]
+    fn positions_copied_per_instance_are_capped() {
+        let (_guard, root) = samples();
+        let mut document = plane_json(&root);
+        sparse_positions(&mut document, 1_000_000);
+        document["nodes"] = json!([{"mesh": 0}, {"mesh": 0}, {"mesh": 0}, {"mesh": 0}]);
+        document["scenes"] = json!([{"nodes": [0, 1, 2, 3]}]);
+        // Three copies stay inside the cap.
+        let three = json!([{"nodes": [0, 1, 2]}]);
+        let mut fits = document.clone();
+        fits["scenes"] = three;
+        let (mesh, _) = read(&write_json(&root, "dreimal.gltf", &fits));
+        assert_eq!(mesh.positions.len(), 3_000_000);
+        assert_eq!(mesh.polygons.len(), 6);
+        let e = refusal(&write_json(&root, "viermal.gltf", &document));
+        assert_eq!(e.code, PartCode::ModelSourceUnreadable, "{e:?}");
+        assert!(e.args[1].contains("positions"), "{e:?}");
+    }
+
+    /// The plane GLB with `buffers` replaced: its JSON chunk rewritten, the BIN chunk kept.
+    fn glb_with_buffers(glb: &[u8], buffers: Value) -> Vec<u8> {
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let mut document: Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        document["buffers"] = buffers;
+        let mut json = serde_json::to_vec(&document).unwrap();
+        while !json.len().is_multiple_of(4) {
+            json.push(b' ');
+        }
+        let bin = &glb[20 + json_len..];
+        let total = 12 + 8 + json.len() + bin.len();
+        let mut out = Vec::with_capacity(total);
+        out.extend_from_slice(b"glTF");
+        out.extend(2u32.to_le_bytes());
+        out.extend(u32::try_from(total).unwrap().to_le_bytes());
+        out.extend(u32::try_from(json.len()).unwrap().to_le_bytes());
+        out.extend_from_slice(b"JSON");
+        out.extend(json);
+        out.extend_from_slice(bin);
+        out
+    }
+
+    /// Only buffer 0 may stand for the BIN chunk; a second buffer without uri would copy it
+    /// once more for each such buffer.
+    #[test]
+    fn only_buffer_0_takes_the_bin_chunk() {
+        let (_guard, root) = samples();
+        let glb = std::fs::read(root.join(PLANE_GLB)).unwrap();
+        let (plain, _) = read(&root.join(PLANE_GLB));
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let document: Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        let buffer = document["buffers"][0].clone();
+        // Buffer 0 alone, rewritten: read as before.
+        let path = root.join("neu.glb");
+        std::fs::write(&path, glb_with_buffers(&glb, json!([buffer.clone()]))).unwrap();
+        assert_eq!(read(&path).0, plain);
+        let many: Vec<Value> = std::iter::repeat_n(buffer, 1000).collect();
+        std::fs::write(&path, glb_with_buffers(&glb, json!(many))).unwrap();
+        let e = refusal(&path);
+        assert_eq!(e.code, PartCode::ModelSourceUnreadable, "{e:?}");
+        assert!(e.args[1].contains("buffer 1"), "{e:?}");
     }
 
     /// Every cut of the GLB and every byte flipped in its headers: refused (or read), never a

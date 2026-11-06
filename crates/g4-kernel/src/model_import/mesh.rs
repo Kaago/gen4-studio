@@ -71,6 +71,10 @@ pub struct Converted {
 /// (after scaling, before rounding).
 const PLANE_TOLERANCE: f64 = 0.5;
 
+/// How many corners one polygon may have (ear clipping takes up to n³ steps; a polygon of a
+/// map piece has far fewer). [`super::read_model`] refuses more with `model.source-unreadable`.
+pub(crate) const MAX_CORNERS: usize = 1024;
+
 /// A corner after scaling: position in world units, uv in texels (both not yet rounded).
 type Corner = ([f64; 3], [f64; 2]);
 
