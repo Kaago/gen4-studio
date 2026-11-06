@@ -1741,7 +1741,7 @@ function AppBody() {
           />
         )}
         {importMap !== null && (
-          <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
+          <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} tinker={depthAtLeast(depth, "tuefteln")} />
         )}
         {dialogEditor !== null && session.info !== null && (
           <DialogEditor

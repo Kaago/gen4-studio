@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PART_TEXTS, isForeignWhole, partText, partView, sourceMapItems } from "./importParts";
+import type { ImportPreview, PartReport } from "../../api";
+import { PART_TEXTS, isForeignWhole, partText, partView, previewLines, sourceMapItems } from "./importParts";
 
 const said = (code: string, args: string[]) => partText({ code, args, message: "the kernel's sentence" });
 
@@ -106,6 +107,55 @@ describe("importParts", () => {
     expect(said("texture.vram-high", ["3", "120000", "110640"])).toBe(
       "Gebiet 3: die Texturen belegen 120.000 B VRAM, mehr als das größte Vanilla-Gebiet (110.640 B). Prüfe die Karte im Spiel.",
     );
+  });
+
+  it("words_the_preview_of_a_converted_cube_in_three_lines", () => {
+    const preview: ImportPreview = {
+      pack: 0,
+      area: 0,
+      style: "outdoor",
+      vram_bytes: 23544,
+      vram_limit: 110640,
+      textures: [{ name: "g4_imp_cube", file: "/p/g4_imp_cube.png", width: 16, height: 16, colors: 16, new: true, mean_error: 7.6 }],
+      model: { format: "obj", stats: { polygons: 6, quads: 6, triangles: 0, dropped: 0 }, strips: 2, single_quads: 0, budget: { used: 1200, max: 61440, state: "calm" } },
+      files: ["/p/g4_imp_cube.obj"],
+    };
+    const cube: PartReport = { part: "model", file: "/p/g4_imp_cube.obj", size: 1200, state: { kind: "ok" }, notes: [], preview };
+    expect(previewLines(cube)).toEqual([
+      "OBJ · 6 Vierecke · 0 Dreiecke · 2 Streifen",
+      "g4_imp_cube · 16 × 16 · 16 Farben · neu",
+      "VRAM des Gebiets 23.544 B · Vanilla höchstens 110.640 B",
+    ]);
+    // A texture of the pack says so, without the colours it does not read.
+    const reused = { ...preview, model: { ...preview.model!, format: "gltf" as const }, textures: [{ ...preview.textures[0], file: null, colors: 0, new: false, mean_error: null }] };
+    expect(previewLines({ ...cube, preview: reused })).toEqual([
+      "glTF · 6 Vierecke · 0 Dreiecke · 2 Streifen",
+      "g4_imp_cube · 16 × 16 · im Paket",
+      "VRAM des Gebiets 23.544 B · Vanilla höchstens 110.640 B",
+    ]);
+  });
+
+  it("words_the_preview_of_textures_without_a_model_line_and_nothing_without_a_preview", () => {
+    const preview: ImportPreview = {
+      pack: 3,
+      area: 2,
+      style: "indoor",
+      vram_bytes: 4096,
+      vram_limit: 110640,
+      textures: [
+        { name: "gras", file: "/p/gras.png", width: 32, height: 32, colors: 4, new: true, mean_error: 2.5 },
+        { name: "weg", file: "/p/weg.png", width: 8, height: 16, colors: 16, new: true, mean_error: 0 },
+      ],
+      model: null,
+      files: ["/p/gras.png", "/p/weg.png"],
+    };
+    const textures: PartReport = { part: "textures", file: null, size: 2048, state: { kind: "ok" }, notes: [], preview };
+    expect(previewLines(textures)).toEqual([
+      "gras · 32 × 32 · 4 Farben · neu",
+      "weg · 8 × 16 · 16 Farben · neu",
+      "VRAM des Gebiets 4.096 B · Vanilla höchstens 110.640 B",
+    ]);
+    expect(previewLines({ part: "permissions", file: null, size: 2048, state: { kind: "ok" }, notes: [] })).toEqual([]);
   });
 
   it("keeps_the_kernel_sentence_for_a_code_it_does_not_know", () => {

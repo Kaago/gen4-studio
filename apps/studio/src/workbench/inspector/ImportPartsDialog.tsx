@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorText, importMapParts, inspectMapImport } from "../../api";
-import type { CheckProblemDto, ImportSource, MapPart, PartReport } from "../../api";
+import type { CheckProblemDto, ImportOptions, ImportSource, MapPart, PartReport } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import { openFiles } from "../../platform/dialogs";
 import { inTauri } from "../../platform/transport";
 import {
+  Budget,
   Button,
   CheckList,
   Checkbox,
@@ -27,6 +28,7 @@ import {
   partView,
   partsWord,
   preselected,
+  previewLines,
   sourceMapItems,
 } from "./importParts";
 import styles from "./ImportPartsDialog.module.css";
@@ -46,6 +48,8 @@ export interface ImportPartsDialogProps {
   checks?: ChecksApi | null;
   /** „Zeigen“ of such a finding (the dialog closes first). */
   goTo?: (target: NavTarget) => void;
+  /** Tüfteln: the model budget names its limit in hex („0xF000“). */
+  tinker?: boolean;
 }
 
 /** The findings of the map after an import: the next run is awaited, gave no report, or found these. */
@@ -57,6 +61,35 @@ const MODES = [
 ] as const;
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+/** The file types the system dialog offers: map parts, models and images (the extension decides the part). */
+const PART_FILES = [
+  {
+    name: "Kartenteile und Modelle",
+    extensions: ["nsbmd", "bmd", "per", "mp", "bld", "bdhc", "bgs", "bin", "obj", "gltf", "glb", "png"],
+  },
+];
+
+const extension = (path: string) => /\.([^.\\/]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
+const MODEL_EXTENSIONS: ReadonlySet<string> = new Set(["obj", "gltf", "glb"]);
+
+const COLOURS = [
+  { value: "16", label: "16" },
+  { value: "4", label: "4" },
+] as const;
+type Colours = (typeof COLOURS)[number]["value"];
+
+/** The default unit: one model unit is one tile (16 world units). */
+const UNIT_DEFAULT = 16;
+const UNIT_ERROR = "Zwischen 0,0625 und 256.";
+
+/** A unit as typed („16“, „0,5“, „0.5“), or null when it is no number in 0.0625 to 256 (`ImportOptions::check`). */
+function parseUnit(text: string): number | null {
+  const t = text.trim().replace(",", ".");
+  if (!/^(\d+(\.\d*)?|\.\d+)$/.test(t)) return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0.0625 && n <= 256 ? n : null;
+}
 
 /**
  * „Teile importieren…“: parts from files or from another map of the project are checked first (`inspect_map_import`), each one with its
@@ -72,6 +105,7 @@ export function ImportPartsDialog({
   onImported,
   checks = null,
   goTo,
+  tinker = false,
 }: ImportPartsDialogProps) {
   const [mode, setMode] = useState<Mode>("map");
   const [paths, setPaths] = useState("");
@@ -85,6 +119,10 @@ export function ImportPartsDialog({
   const [working, setWorking] = useState(false);
   const [done, setDone] = useState<number | null>(null);
   const [found, setFound] = useState<Found | null>(null);
+  const [colours, setColours] = useState<Colours>("16");
+  const [unit, setUnit] = useState(UNIT_DEFAULT);
+  const [unitText, setUnitText] = useState(String(UNIT_DEFAULT));
+  const [unitError, setUnitError] = useState<string | undefined>();
   // Counts the openings and the sources: a report that arrives after the dialog was opened again, or after the source changed, belongs
   // to the earlier import.
   const opening = useRef(0);
@@ -103,6 +141,10 @@ export function ImportPartsDialog({
     setChosen(new Set());
     setKeepBuildings(false);
     setDone(null);
+    setColours("16");
+    setUnit(UNIT_DEFAULT);
+    setUnitText(String(UNIT_DEFAULT));
+    setUnitError(undefined);
   }, [open, map]);
 
   const source = useMemo<ImportSource | null>(() => {
@@ -125,6 +167,18 @@ export function ImportPartsDialog({
   }, [mode, paths, sourceText, mapCount]);
   const sourceKey = source === null ? null : JSON.stringify(source);
 
+  // Models and images are converted: the row „Umwandeln“ offers the colours per texture and, for a model, the unit; the check and the
+  // import get them as `options` (other parts go without).
+  const extensions = source !== null && "files" in source ? source.files.map(extension) : [];
+  const hasModel = extensions.some((e) => MODEL_EXTENSIONS.has(e));
+  const converting = hasModel || extensions.includes("png");
+  const options: ImportOptions | undefined = converting
+    ? hasModel
+      ? { unit, colors: Number(colours) as 4 | 16 }
+      : { colors: Number(colours) as 4 | 16 }
+    : undefined;
+  const optionsKey = options === undefined ? null : JSON.stringify(options);
+
   // The check runs whenever the source changes; an answer for an older source is dropped, and so are the findings of an import from it.
   useEffect(() => {
     opening.current++;
@@ -135,7 +189,7 @@ export function ImportPartsDialog({
     setFound(null);
     if (!open || source === null) return;
     let current = true;
-    inspectMapImport(map, source).then(
+    (options === undefined ? inspectMapImport(map, source) : inspectMapImport(map, source, options)).then(
       (list) => {
         if (!current) return;
         setReports(list);
@@ -146,7 +200,7 @@ export function ImportPartsDialog({
     return () => {
       current = false;
     };
-  }, [open, map, sourceKey]);
+  }, [open, map, sourceKey, optionsKey]);
 
   const foreignWhole =
     reports?.some((r) => isForeignWhole(r) && chosen.has(r.part)) ?? false;
@@ -168,12 +222,10 @@ export function ImportPartsDialog({
       const parts = (reports ?? [])
         .map((r) => r.part)
         .filter((p) => chosen.has(p));
-      const changed = await importMapParts(
-        map,
-        source,
-        parts,
-        foreignWhole && keepBuildings,
-      );
+      const keep = foreignWhole && keepBuildings;
+      const changed = await (options === undefined
+        ? importMapParts(map, source, parts, keep)
+        : importMapParts(map, source, parts, keep, options));
       setDone(changed.length > 0 ? parts.length : 0);
       if (changed.length > 0) {
         // Asked before the import's edit is announced (`onImported`): the run after its pause is the one that counts.
@@ -217,6 +269,25 @@ export function ImportPartsDialog({
               {partText(n)}
             </p>
           ))}
+          {r.preview !== undefined && (
+            <div className={styles.preview} data-import-preview={r.part}>
+              {previewLines(r).map((line, i) => (
+                <p key={`${i}:${line}`} className={styles.reason}>
+                  {line}
+                </p>
+              ))}
+              {r.preview.model !== null && (
+                <Budget
+                  label="Modell"
+                  used={r.preview.model.budget.used}
+                  max={r.preview.model.budget.max}
+                  state={r.preview.model.budget.state}
+                  unit="B"
+                  tech={tinker ? `0x${r.preview.model.budget.max.toString(16).toUpperCase()}` : undefined}
+                />
+              )}
+            </div>
+          )}
         </div>
       ),
     };
@@ -254,7 +325,7 @@ export function ImportPartsDialog({
                 kind="secondary"
                 size="s"
                 onClick={() =>
-                  void openFiles({ title: "Teile wählen" }).then((files) => {
+                  void openFiles({ title: "Teile oder Modelle wählen", filters: PART_FILES }).then((files) => {
                     if (files && files.length > 0) setPaths(files.join("\n"));
                   })
                 }
@@ -300,6 +371,36 @@ export function ImportPartsDialog({
               placeholder="Nummer suchen"
               onPick={(item) => setSourceText(String(item.id))}
             />
+          </div>
+        )}
+        {mode === "files" && converting && (
+          <div className={styles.convert} data-import-convert="">
+            <span className={styles.convertTitle}>Umwandeln</span>
+            <div className={styles.convertOptions}>
+              <div className={styles.option}>
+                <span className={styles.optionLabel}>Farben je Textur</span>
+                <Segmented ariaLabel="Farben je Textur" options={COLOURS} value={colours} onChange={setColours} size="s" />
+              </div>
+              {hasModel && (
+                <TextField
+                  label="Einheit"
+                  showLabel
+                  value={unitText}
+                  hint="Welteinheiten je Modelleinheit; 16 = eine Kachel"
+                  error={unitError}
+                  onChange={() => setUnitError(undefined)}
+                  onCommit={(text) => {
+                    setUnitText(text);
+                    const parsed = parseUnit(text);
+                    if (parsed === null) setUnitError(UNIT_ERROR);
+                    else {
+                      setUnitError(undefined);
+                      setUnit(parsed);
+                    }
+                  }}
+                />
+              )}
+            </div>
           </div>
         )}
         {source !== null && reports === null && failure === null && (

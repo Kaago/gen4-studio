@@ -102,6 +102,31 @@ export function partText({ code, args, message }: PartMessage): string {
   });
 }
 
+const FORMAT_WORDS: Readonly<Record<string, string>> = { obj: "OBJ", gltf: "glTF" };
+
+const de = (n: number) => n.toLocaleString("de-DE");
+
+/**
+ * The lines under a converted part (model or textures): „OBJ · 6 Vierecke · 0 Dreiecke · 2 Streifen“ for a model, one per texture
+ * „g4_imp_cube · 16 × 16 · 16 Farben · neu“ (a texture of the pack „g4_imp_cube · 16 × 16 · im Paket“), then
+ * „VRAM des Gebiets 23.544 B · Vanilla höchstens 110.640 B“. Nothing for a part without a preview.
+ */
+export function previewLines(r: PartReport): string[] {
+  const p = r.preview;
+  if (p === undefined) return [];
+  const lines: string[] = [];
+  if (p.model !== null) {
+    const { format, stats, strips } = p.model;
+    lines.push(`${FORMAT_WORDS[format] ?? format} · ${de(stats.quads)} Vierecke · ${de(stats.triangles)} Dreiecke · ${de(strips)} Streifen`);
+  }
+  for (const t of p.textures) {
+    const size = `${t.width} × ${t.height}`;
+    lines.push(t.new ? `${t.name} · ${size} · ${t.colors} Farben · neu` : `${t.name} · ${size} · im Paket`);
+  }
+  lines.push(`VRAM des Gebiets ${de(p.vram_bytes)} B · Vanilla höchstens ${de(p.vram_limit)} B`);
+  return lines;
+}
+
 /** Whether the report is a whole map file of the other game family (only then can its buildings be taken over). */
 export const isForeignWhole = (r: PartReport) => r.part === "whole" && r.notes.some((n) => n.code === "whole.foreign");
 

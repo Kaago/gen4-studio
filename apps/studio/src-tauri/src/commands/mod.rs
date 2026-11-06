@@ -141,6 +141,21 @@ pub(crate) fn open_synthetic() -> (g4_kernel::test_support::Synthetic, AppState)
     (fixture, state)
 }
 
+/// [`open_synthetic`] ready for converted imports (6.5a): real map texture pack 0 and building
+/// texture pack 0 (`write_texture_packs`) and the synthetic models and images under `import/`
+/// (`write_samples`), written before the project opens.
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+pub(crate) fn open_synthetic_for_models() -> (g4_kernel::test_support::Synthetic, AppState) {
+    let fixture = g4_kernel::test_support::synthetic_project();
+    let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
+    g4_kernel::test_support::write_texture_packs(&project);
+    g4_kernel::model_import::samples::write_samples(&fixture.dir.path().join("import")).unwrap();
+    let state = AppState::default();
+    open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+    (fixture, state)
+}
+
 /// [`open_synthetic`] with adopted scripts and a battle script like Platinum's for its three
 /// trainers (slot 4 is the sight script), as `trainer_create`'s own tests set it up.
 #[cfg(test)]
