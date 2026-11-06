@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) und [phase-6-1-gate.md](phase-6-1-gate.md) (Writer: Modelle und Texturen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -682,6 +682,7 @@ Im Browser-Modus geprüft, Test-Umgebung auf eigenen Ports (`G4_VITE_PORT=1480 G
 - **3d.3 (Teil B):** eine Ei-Attacke in Platin im Spiel wirksam (Zucht nach einem Tausch innerhalb des Budgets), ein echtes, mit DSPRE gepatchtes Platin-Projekt (Patch-NARC, Klon und Wiederherstellung; getestet ist nur der synthetische NARC von `3d-3-patch`), der Blick auf die Bilder `blick-pokedex-eiattacken-*.png` in Hell, Dunkel und Kompakt und der Frame in der `.fig`. Liste mit Ort: [phase-3d-3-gate.md](phase-3d-3-gate.md), Abschnitt „Teil B“, „(4) Hand und Blick“.
 - **4.5:** Rom Patcher JS im Browser mit der eigenen Basis-ROM und einem Patch aus (2), die SHA-1 des Ergebnisses gegen die Begleitdatei; „Im Finder zeigen“ in der gepackten App (macOS markiert die Datei, Linux öffnet nur den Ordner, Windows ungeprüft); das eigene Git-Werkzeug zeigt den Commit „Veröffentlicht v0.1.0“ mit Body und ohne Remote; der Blick auf Titelleiste, Assistent, Fläche und Dialog „Stand sichern?“ in Hell, Dunkel, Kompakt. Liste mit Ort: [phase-4-5-gate.md](phase-4-5-gate.md), Abschnitte „Hand“ und „Blick“.
 - **3d.6:** die Fäden gegen die Spielkenntnis (sind die 60 bzw. 62 Fäden die Handlung?), der Graph eines bekannten Fadens (etwa der Galaktik-Handlung) und die Knotenarten Fortschritt und Erscheinen/Verschwinden am Bild, der Blick auf Fäden, Geschichten, Dialog, Detail und Löschen in Hell, Dunkel und Kompakt und die Frames in der `.fig`. Liste mit Ort: [phase-3d-6-gate.md](phase-3d-6-gate.md), „(4) Hand und Blick“.
+- **6.1:** der Blick auf die sechs Bilder der Szenarien `pt-bake`, `hg-bake`, `hgus-bake` (`target/agent/gate-2026-11-05/6-1/<szenario>/zimmer.png` und `unten.png` im Worktree `phase-6-1`: eigene Texturen mit Block im Zimmer, Nachbarraum mit Vanilla-Texturen); `docs/formats/nsbmd.md` gelesen; `scripts/gate.sh` auf main nach dem Merge (Hauptsitzung). Liste mit Ort: [phase-6-1-gate.md](phase-6-1-gate.md), „(4) Beim Nutzer (Hand und Blick)“.
 
 ## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A und B)
 
@@ -1923,3 +1924,54 @@ uv run g4emu scenario ../agent/scenarios/pt-geschichte-gate.yaml --project $K/3d
 ```
 
 Das Szenario hat keine Änderungen (`mcp: []`, `edits: []`): `studio mcp` speichert und baut `build/out.nds`, `check` prüft, `play` ist der Spielteil von `pt-geschichte` ohne Raum (für das Wiedererscheinen durch die Ankunftstür ins Zimmer 415 und zurück). Erwartet: Rückgabe 0, Header-Folge 415, 593, 415, 593, `expect-var VAR` 0 → 1, `expect-flag FLAG_B` 1 → 0, `expect-battle 25 12`, `expect-flag FLAG_R 1` zweimal; Bilder `gespraech`, `kampf`, `belohnung`, `belohnung-2` („Hallo, Reisender!“). Danach Chrome, Brücke und Vite über ihre PIDs beenden (`kill -INT` auf `studio-web.sh`), `lsof -iTCP:1800 -iTCP:1801 -sTCP:LISTEN` leer, die Kopien löschen.
+
+## Phase 6.1 ([phase-6-1-gate.md](phase-6-1-gate.md))
+
+6.1 bringt den Writer: `nitro_dict` (Nitro-Dictionary mit dem Patricia-Baum), den MDL0-Codec `nsbmd` (Leser, Writer, Display-List- und SBC-Codec, byte-gleich für jedes Vanilla-Kartenmodell), `nsbtx::write`/`append`/`build`, den Texturkonverter `texconv` (RGBA → 16 oder 4 Farben), im Kernel `bake` (Flächenliste `Face` → Kartenmodell mit Budget-Bericht und Prüfcodes `bake.*`/`texture.*`, Texturen anhängen als ein Undo-Schritt, Testfläche und `bake_test`), den Befehl `bake_test` (über MCP nur per `g4_call`, also `--expert`), `check-data` mit `map_texture:<n>:sha1` und [docs/formats/nsbmd.md](formats/nsbmd.md). 6.1 hat keine Oberfläche: es gibt keinen Browser-Teil.
+
+**Kopien** (unter `$G4_ROMS_DIR/_testkopien`, je `_DSPRE_contents`, per `cp -cR` bzw. `cp -c`): `6-1-pt`, `6-1-hgde`, `6-1-hgus` für die gated Tests (nur gelesen; geschrieben wird nur auf `vanilla_copy()`); `6-1-szen-pt`, `6-1-szen-hg`, `6-1-szen-hgus` mit `.nds` daneben für die Szenarien. Nach einem Lauf ist eine Szenario-Kopie gespeichert und gebaut: ein neuer Lauf braucht eine neue Kopie (`6-1-szen-pt2` …).
+
+**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA` absolut auf `tools/apicula/bin/apicula` des Haupt-Checkouts. Lange Läufe im Hintergrund mit Log unter `target/agent/6-1/<name>.log`, `uptime` davor; die Bilder der Szenarien unter `target/agent/gate-<datum>/6-1/<szenario>/`. Zeitgrenzen in Tests können unter Last reißen: den Test allein wiederholen, die Grenze nie lockern.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent | läuft in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; die neuen Tests laufen in „cargo test (no ROM data)“ und „gated tests (cargo test)“ ohne Änderung am Skript mit |
+| (1) `cargo deny`, fmt, clippy, Tests ohne ROM-Daten | Agent | Befehle unten |
+| (1) gated `vanilla_nitro`, `bake` | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`; die Zeilen `nitro-models`, `nitro-packs`, `nitro-append` und `bake-room` in die Zahlentabelle |
+| (2) Unit-Punkte | Agent | `the_test_surface_bakes_under_40000_bytes`, `the_own_reader_reads_the_baked_model`, `an_oversize_model_is_refused_with_model_too_big` (Bibliothek `g4-kernel`, `bake::tests`), `apicula_reads_the_test_surface_like_the_input`, `sample_images_read_back_without_a_pixel_off`, `apicula_decodes_the_sample_pack_like_g4_formats` (`tests/bake.rs`, die apicula-Tests nur mit `G4_APICULA`), `vanilla_append_keeps_every_old_entry` (gated) |
+| (3) Szenarien `pt-bake`, `hg-bake`, `hgus-bake` | Agent + Blick | `g4emu scenario` kopflos über `studio mcp`, Befehle unten; je zwei Bilder `zimmer`, `unten` |
+| (4) Blick auf die sechs Bilder, `docs/formats/nsbmd.md` gelesen | Hand | siehe „Was beim Nutzer bleibt“ |
+
+**Automatik (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`; `P` nacheinander `$K/6-1-pt_DSPRE_contents`, `$K/6-1-hgde_DSPRE_contents`, `$K/6-1-hgus_DSPRE_contents`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+cargo deny --locked check licenses advisories
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+env -u G4_TEST_PROJECT cargo test -p g4-formats -p g4-kernel --all-features
+G4_TEST_PROJECT=$P cargo test --release -p g4-formats --all-features --test vanilla_nitro -- --nocapture --test-threads 1
+G4_TEST_PROJECT=$P G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula \
+  cargo test --release --workspace --all-features --test bake -- --nocapture --test-threads 1
+cargo test -p g4-kernel --all-features --lib bake:: -- --nocapture     # Größen der Testfläche (test surface …)
+```
+
+Erwartet: `cargo deny` „advisories ok, licenses ok“ ohne neue Abhängigkeit (`g4-formats` nur `thiserror`); `vanilla_nitro` 3/3 mit `nitro-models CPUD models=666 equal=666 dicts=3996 stale=`, `IPKD models=676 equal=676 dicts=4056 stale=0468,0475,0476`, `IPKE … stale=0468,0473,0475,0476`; `nitro-packs CPUD map=74 building=71 equal=145 dicts_total=4286`, `IPKD`/`IPKE map=106 building=94 equal=200 dicts_total=4456`; `nitro-append CPUD packs=74 ok=74`, `IPKD`/`IPKE packs=106 ok=106`; `bake` 8/8 mit `bake-room CPUD map=187 pack=20 style=indoor size=35020 share=0.570 vram=21656 warn=-` und `IPKD`/`IPKE map=217 pack=25 style=indoor size=35024 share=0.570 vram=23544 warn=-`, apicula 1 110 / 1 110 Paare aus Position und UV, 0 Pixel Abweichung. „veraltete Zähler“ (`stale`) sind Vanilla-Modelle, deren Zähler im Kopf nicht zur Display List passen; der Writer behält sie byte-gleich.
+
+**Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-1`), nacheinander:
+
+```sh
+W=/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-1
+export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k \
+  G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+O=$W/target/agent/gate-$(date +%F)/6-1; mkdir -p $O/pt-bake $O/hg-bake $O/hgus-bake
+uv run g4emu scenario ../agent/scenarios/pt-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-pt_DSPRE_contents" \
+  --out $O/pt-bake > $W/target/agent/6-1/pt-bake.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/pt-bake.log
+uv run g4emu scenario ../agent/scenarios/hg-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-hg_DSPRE_contents" \
+  --out $O/hg-bake > $W/target/agent/6-1/hg-bake.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/hg-bake.log
+uv run g4emu scenario ../agent/scenarios/hgus-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-hgus_DSPRE_contents" \
+  --out $O/hgus-bake > $W/target/agent/6-1/hgus-bake.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/hgus-bake.log
+```
+
+Erwartet: Rückgabe 0, `"ok": true`; `bake_test` mit Paket 20 (Platin) bzw. 25 (HeartGold DE und US), angehängt `g4_bake_a`, `g4_bake_b`, Block (5, 7) bzw. (5, 6), keine Meldung; „2 expectation(s) met“ (Modell der Karte 187 bzw. 217 und Paket 20 bzw. 25 in `out.nds` gleich den Dateien unter `build/bake/`); Header 415 → 414 bzw. 64 → 63. Im Bild `zimmer` der Boden aus Schachbrett, grünen Streifen und zwei Vanilla-Texturen mit dem Block, in `unten` der Nachbarraum mit Vanilla-Texturen. Farben nicht vergleichen (Rot und Blau vertauscht bis zum Farbfix von 6.2).
