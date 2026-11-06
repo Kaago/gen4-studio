@@ -57,6 +57,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         "matrix",
         include_str!("../../../../../docs/formats/matrix.md"),
     ),
+    (
+        "model_import",
+        include_str!("../../../../../docs/formats/model_import.md"),
+    ),
     ("move", include_str!("../../../../../docs/formats/move.md")),
     ("narc", include_str!("../../../../../docs/formats/narc.md")),
     (

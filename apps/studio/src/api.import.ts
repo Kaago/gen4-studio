@@ -5,15 +5,17 @@ import { invoke } from "./platform/transport";
  * Map part import and export, mirroring `apps/studio/src-tauri/src/commands/map_import.rs`
  * and `g4_kernel::map_import`. `api.ts` re-exports everything.
  *
- * The file extension decides the part: `.nsbmd`/`.bmd` model, `.per`/`.mp` permissions,
- * `.bld` buildings, `.bdhc`/`.bdhcam` terrain, `.bgs` background sound (HGSS only), `.bin` the
- * whole map file (also of the other family). Every check runs before anything is written; a
+ * The file extension decides the part: `.nsbmd`/`.bmd` model, `.obj`/`.gltf`/`.glb` a model
+ * converted by the baker, `.png` textures (all PNG files of a call are one part, appended to the
+ * area's map texture pack), `.per`/`.mp` permissions, `.bld` buildings, `.bdhc`/`.bdhcam`
+ * terrain, `.bgs` background sound (HGSS only), `.bin` the whole map file (also of the other
+ * family). Every check runs before anything is written; a
  * refused import changes nothing. An import is one undo step. What the checks say carries a
  * code the dialog words in German (`workbench/inspector/importParts.ts`) and the kernel's
  * English sentence with the numbers; Diamond/Pearl is refused.
  */
 
-export type MapPart = "model" | "permissions" | "buildings" | "bdhc" | "bgs" | "whole";
+export type MapPart = "model" | "permissions" | "buildings" | "bdhc" | "bgs" | "whole" | "textures";
 
 /** Files (absolute paths; in the browser bridge they must lie under its roots) or another map of the project, unsaved edits included. */
 export type ImportSource = { files: string[] } | { map: number };

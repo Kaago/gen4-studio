@@ -44,9 +44,9 @@ describe("importParts", () => {
   });
 
   it("covers_every_part_code_of_the_kernel_and_says_a_broken_terrain_structure", () => {
-    // `PartCode::ALL` has 47 codes; the Rust test holds the order against it.
+    // `PartCode::ALL` has 51 codes; the Rust test holds the order against it.
     const codes = Object.keys(PART_TEXTS);
-    expect(codes).toHaveLength(47);
+    expect(codes).toHaveLength(51);
     expect(codes).toContain("bdhc.structure");
     expect(said("bdhc.structure", ["plate 0 names point 99, past the 2 points"])).toBe(
       "Das Terrain ist beschädigt (plate 0 names point 99, past the 2 points). Wähle eine unbeschädigte .bdhc-Datei.",
@@ -54,6 +54,16 @@ describe("importParts", () => {
   });
 
   it("says_the_findings_of_a_converted_model", () => {
+    expect(said("model.uv-range", ["kachel", "s", "4096"])).toBe(
+      "Die Textur kachel läuft auf einer Fläche über 4.096 Texel in s; das Spiel trägt höchstens 2.047. Teile die Fläche oder wiederhole die Textur seltener.",
+    );
+    expect(said("model.texture-count", ["300", "255"])).toBe("Das Modell nutzt 300 Texturen, ein Kartenmodell trägt höchstens 255. Fasse Materialien zusammen.");
+    expect(said("model.converted", ["OBJ", "1200", "1100", "100", "40", "12"])).toBe(
+      "OBJ-Modell umgewandelt: 1.200 Flächen, 1.100 Vierecke, 100 Dreiecke, 40 Streifen.",
+    );
+    expect(said("part.no-area", ["2"])).toBe(
+      "Kein Header zeigt die Karte 2; ohne Gebiet gibt es kein Texturpaket und kein Licht. Setze die Karte zuerst in eine Matrix mit Header.",
+    );
     expect(said("model.out-of-range", ["640", "0", "0", "-512", "511"])).toBe(
       "Eine Ecke liegt bei (640, 0, 0), außerhalb von -512 bis 511 Einheiten. Verkleinere das Modell oder wähle eine kleinere Einheit.",
     );

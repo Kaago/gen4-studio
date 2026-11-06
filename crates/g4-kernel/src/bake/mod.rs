@@ -15,6 +15,7 @@ pub use test_surface::{
     BAKE_TEXTURE_A, BAKE_TEXTURE_B, BakeTestOptions, BakeTestReport, SampleImage, bake_test,
     bake_test_label, bake_textures, sample_images, test_surface,
 };
+pub(crate) use textures::appended_pack_or_refusal;
 pub use textures::{
     AppendReport, BakeContext, append_label, append_textures, area_vram, areas_of_pack,
     bake_context, bake_for_map, pack_textures, pack_vram,

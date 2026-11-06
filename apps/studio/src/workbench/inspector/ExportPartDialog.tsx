@@ -8,18 +8,21 @@ import { id4 } from "../terms";
 import { PART_NAME } from "./importParts";
 import styles from "./ImportPartsDialog.module.css";
 
-const EXTENSION: Record<MapPart, string> = { model: "nsbmd", permissions: "per", buildings: "bld", bdhc: "bdhc", bgs: "bgs", whole: "bin" };
-const PARTS: readonly MapPart[] = ["model", "permissions", "buildings", "bdhc", "bgs", "whole"];
+/** The parts a map file holds: textures live in the area's map texture pack and are not exported. */
+type FilePart = Exclude<MapPart, "textures">;
+
+const EXTENSION: Record<FilePart, string> = { model: "nsbmd", permissions: "per", buildings: "bld", bdhc: "bdhc", bgs: "bgs", whole: "bin" };
+const PARTS: readonly FilePart[] = ["model", "permissions", "buildings", "bdhc", "bgs", "whole"];
 const KNOWN = new Set(Object.values(EXTENSION));
 
 /** The default file of a part: `karte_0006.per`. */
-const defaultName = (map: number, part: MapPart) => `karte_${id4(map)}.${EXTENSION[part]}`;
+const defaultName = (map: number, part: FilePart) => `karte_${id4(map)}.${EXTENSION[part]}`;
 
 /**
  * `path` for another part: a typed file keeps its folder and name and takes the part's ending (an ending of another part is replaced,
  * any other kept), a folder alone gets the default name, an empty field stays empty (its placeholder shows the default).
  */
-function pathFor(path: string, map: number, part: MapPart): string {
+function pathFor(path: string, map: number, part: FilePart): string {
   const trimmed = path.trim();
   if (trimmed === "") return path;
   const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
@@ -52,12 +55,12 @@ export interface ExportPartDialogProps {
 
 /** „Teile exportieren…“: writes one part of the map (unsaved edits included) to a file. */
 export function ExportPartDialog({ map, open, onClose }: ExportPartDialogProps) {
-  const [part, setPart] = useState<MapPart>("model");
+  const [part, setPart] = useState<FilePart>("model");
   const [path, setPath] = useState("");
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   // What the last export wrote: the notice names that part and path, and goes when either changes.
-  const [written, setWritten] = useState<{ part: MapPart; path: string } | null>(null);
+  const [written, setWritten] = useState<{ part: FilePart; path: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -83,7 +86,7 @@ export function ExportPartDialog({ map, open, onClose }: ExportPartDialogProps) 
     }
   }
 
-  function choosePart(next: MapPart) {
+  function choosePart(next: FilePart) {
     setPart(next);
     setPath((current) => pathFor(current, map, next));
     setFailure(null);

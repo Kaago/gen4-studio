@@ -142,38 +142,10 @@ fn bake_textures_follow_the_formulas() {
 
 // --- bake_test on the synthetic project ------------------------------------------------------
 
-/// A `side` × `side` 16-colour texture with palette `palette_name(name)`.
-fn tex16(name: &str, side: u32) -> NewTexture {
-    NewTexture {
-        name: name.to_string(),
-        palette: palette_name(name),
-        width: side,
-        height: side,
-        format: 3,
-        color0: false,
-        texels: vec![0x5A; (side * side / 2) as usize],
-        colors: (0..16).map(|c| c * 0x421).collect(),
-    }
-}
-
-/// Map texture pack 0 with two 16 × 16 textures, building pack 0 with one.
-fn prepare(project: &Project) {
-    project.ensure_unpacked(AssetKind::MapTexture).unwrap();
-    project.ensure_unpacked(AssetKind::BuildingTexture).unwrap();
-    let map = nsbtx::build(&[tex16("gras", 16), tex16("weg", 16)]).unwrap();
-    let buildings = nsbtx::build(&[tex16("haus", 32)]).unwrap();
-    std::fs::write(project.member_path(AssetKind::MapTexture, 0), map).unwrap();
-    std::fs::write(
-        project.member_path(AssetKind::BuildingTexture, 0),
-        buildings,
-    )
-    .unwrap();
-}
-
 fn synthetic_store() -> (common::Synthetic, Store) {
     let synth = common::synthetic_project();
     let project = Project::open(synth.dir.path()).unwrap();
-    prepare(&project);
+    common::write_texture_packs(&project);
     (synth, Store::new(Arc::new(project)))
 }
 
@@ -204,7 +176,7 @@ fn bake_test_on_the_synthetic_project_is_one_undo_step() {
     assert_eq!((report.map, report.pack, report.area), (0, 0, 0));
     assert_eq!(report.style, AreaStyle::Outdoor);
     assert_eq!(report.appended, ["g4_bake_a", "g4_bake_b"]);
-    assert_eq!(report.floor, ["g4_bake_a", "gras", "g4_bake_b", "weg"]);
+    assert_eq!(report.floor, ["g4_bake_a", "t0", "g4_bake_b", "t1"]);
     assert_eq!(report.block_texture, "g4_bake_a");
     // The synthetic map's model is no NSBMD: the frame is not readable.
     assert_eq!(report.block, (15, 15));

@@ -19,7 +19,6 @@ use crate::map_import::{PartCode, PartMessage};
 /// `mean_error` of the conversion) or one of the pack (`colors` 0: its format is not read,
 /// `mean_error` `None`).
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TexturePreview {
     pub name: String,
     #[serde(serialize_with = "crate::relpath::ser_opt")]

@@ -11,6 +11,7 @@ export const PART_NAME: Record<MapPart, string> = {
   bdhc: "BDHC (Laufhöhen)",
   bgs: "Hintergrundklang",
   whole: "Ganze Karte",
+  textures: "Texturen",
 };
 
 /**
@@ -57,8 +58,12 @@ export const PART_TEXTS: Readonly<Record<string, string>> = {
   "model.material-untextured": "Das Material „{0}“ hat keine Textur, und das Gebiets-Paket hat keine Textur dieses Namens. Gib dem Material eine PNG-Textur.",
   "model.uv-missing": "Flächen mit dem Material „{0}“ haben keine Texturkoordinaten. Exportiere das Modell mit UV.",
   "model.out-of-range": "Eine Ecke liegt bei ({0}, {1}, {2}), außerhalb von {3} bis {4} Einheiten. Verkleinere das Modell oder wähle eine kleinere Einheit.",
+  "model.uv-range": "Die Textur {0} läuft auf einer Fläche über {2:num} Texel in {1}; das Spiel trägt höchstens 2.047. Teile die Fläche oder wiederhole die Textur seltener.",
+  "model.texture-count": "Das Modell nutzt {0:num} Texturen, ein Kartenmodell trägt höchstens {1:num}. Fasse Materialien zusammen.",
+  "model.converted": "{0}-Modell umgewandelt: {1:num} Flächen, {2:num} Vierecke, {3:num} Dreiecke, {4:num} Streifen.",
   "model.faces-dropped": "{0:num} Flächen fallen weg: nach dem Runden auf ganze Einheiten haben sie keine Fläche mehr.",
   "model.parts-ignored": "Nicht übernommen: {0:ignored}.",
+  "part.no-area": "Kein Header zeigt die Karte {0}; ohne Gebiet gibt es kein Texturpaket und kein Licht. Setze die Karte zuerst in eine Matrix mit Header.",
   "texture.side": "Die Textur {0} ist {1} × {2} Pixel groß; jede Seite muss eine Zweierpotenz von 8 bis 1.024 sein. Skaliere das Bild.",
   "texture.name": "„{0}“ taugt nicht als Texturname (höchstens 16 Zeichen, ASCII ohne Leerzeichen). Benenne die Datei um.",
   "texture.taken": "Der Name {1} ist im Gebiets-Paket schon vergeben. Benenne die Datei um; Ersetzen gibt es nicht.",

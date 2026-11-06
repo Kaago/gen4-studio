@@ -2,8 +2,12 @@
 //! buildings, terrain, background sound or a whole map file, also across Platinum and
 //! HeartGold/SoulSilver) and export of the same parts.
 //!
+//! OBJ and glTF files become the map's model through the baker (`model_import`), PNG files one
+//! part „textures“ appended to the area's map texture pack.
+//!
 //! Every check runs before anything is written; a refused import changes nothing. An
-//! import is one `Store::edit_map` changeset, so it is undone like any other map edit.
+//! import is one undo step (the map edit and the textures appended to the pack together), so
+//! it is undone like any other map edit.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,11 +17,18 @@ use g4_formats::map::{BGS_SIGNATURE, BLANK_BGS, BUILDING_LEN, MapFile, PERMISSIO
 use g4_formats::nsbmd_header::{
     self, NsbmdHeader, material_palette_names, material_texture_names, model_count,
 };
-use g4_formats::nsbtx::Nsbtx;
+use g4_formats::nsbtx::{NewTexture, Nsbtx};
 
+use crate::bake::{AreaStyle, append_textures, appended_pack_or_refusal, area_vram, bake_context};
 use crate::error::{KernelError, io_at};
+use crate::model_import::mesh::MeshStats;
+use crate::model_import::{
+    ImportOptions, SourceFormat, TexturePreview, convert_for_map, from_bake, no_area, png_textures,
+    vram_findings,
+};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::Store;
+use crate::terrain::BudgetItem;
 
 /// Largest map model the game's buffer holds (`MAP_MODEL_FILE_SIZE`, both families,
 /// `docs/research/2026-10-23-3b4/task0-3b4.md` §3): `model.max_bytes` of `check_limits.yaml`.
@@ -43,19 +54,24 @@ pub enum Part {
     Bdhc,
     Bgs,
     Whole,
+    /// Textures from PNG files, appended to the map texture pack of the map's area (not a part
+    /// of the map file: it is neither exported nor taken from another map).
+    Textures,
 }
 
 impl Part {
-    /// The part a file stands for, from its extension.
+    /// The part a file stands for, from its extension: `.obj`, `.gltf`, `.glb` are a model as
+    /// well (converted), `.png` textures.
     pub fn from_path(path: &Path) -> Option<Part> {
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();
         Some(match ext.as_str() {
-            "nsbmd" | "bmd" => Part::Model,
+            "nsbmd" | "bmd" | "obj" | "gltf" | "glb" => Part::Model,
             "per" | "mp" => Part::Permissions,
             "bld" => Part::Buildings,
             "bdhc" | "bdhcam" => Part::Bdhc,
             "bgs" => Part::Bgs,
             "bin" => Part::Whole,
+            "png" => Part::Textures,
             _ => return None,
         })
     }
@@ -69,6 +85,7 @@ impl Part {
             Part::Bdhc => "terrain",
             Part::Bgs => "background sound",
             Part::Whole => "whole map",
+            Part::Textures => "textures",
         }
     }
 }
@@ -166,12 +183,23 @@ pub enum PartCode {
     ModelUvMissing,
     /// Error, args: the corner (x, y, z) in rounded world units, the range (−512, 511).
     ModelOutOfRange,
+    /// Error, args: the texture name, the axis (`s`, `t`), the span in texels; a face's uv
+    /// span does not fit the game's texture coordinates (at most 2047 texels).
+    ModelUvRange,
+    /// Error, args: the textures the model uses, the most a map model holds (255).
+    ModelTextureCount,
+    /// Hint, args: the format (`OBJ`, `glTF`), polygons read, quads, triangles, strips, single
+    /// quads; the model was converted.
+    ModelConverted,
     /// Hint, args: how many faces have no area once rounded to whole world units (dropped).
     ModelFacesDropped,
     /// Hint, args: what of the model is not taken over, as tokens joined by `,` (`lines`,
     /// `points`, `animations`, `skins`, `cameras`, `lights`, `vertex-colours`,
     /// `texture-options`; in that order, each once).
     ModelPartsIgnored,
+    /// Error, args: the map; no header shows it, so there is no area (no texture pack, no light)
+    /// for a converted model or textures.
+    PartNoArea,
     /// Error, args: the texture name, its width, its height; a side is no power of two from 8
     /// to 1024 (images are not scaled).
     TextureSide,
@@ -198,7 +226,7 @@ pub enum PartCode {
 
 impl PartCode {
     /// Every code, in the order above.
-    pub const ALL: [PartCode; 47] = [
+    pub const ALL: [PartCode; 51] = [
         PartCode::ModelInvalid,
         PartCode::ModelBlocks,
         PartCode::ModelCount,
@@ -236,8 +264,12 @@ impl PartCode {
         PartCode::ModelMaterialUntextured,
         PartCode::ModelUvMissing,
         PartCode::ModelOutOfRange,
+        PartCode::ModelUvRange,
+        PartCode::ModelTextureCount,
+        PartCode::ModelConverted,
         PartCode::ModelFacesDropped,
         PartCode::ModelPartsIgnored,
+        PartCode::PartNoArea,
         PartCode::TextureSide,
         PartCode::TextureName,
         PartCode::TextureTaken,
@@ -288,8 +320,12 @@ impl PartCode {
             PartCode::ModelMaterialUntextured => "model.material-untextured",
             PartCode::ModelUvMissing => "model.uv-missing",
             PartCode::ModelOutOfRange => "model.out-of-range",
+            PartCode::ModelUvRange => "model.uv-range",
+            PartCode::ModelTextureCount => "model.texture-count",
+            PartCode::ModelConverted => "model.converted",
             PartCode::ModelFacesDropped => "model.faces-dropped",
             PartCode::ModelPartsIgnored => "model.parts-ignored",
+            PartCode::PartNoArea => "part.no-area",
             PartCode::TextureSide => "texture.side",
             PartCode::TextureName => "texture.name",
             PartCode::TextureTaken => "texture.taken",
@@ -354,8 +390,9 @@ pub enum PartState {
     Error(PartMessage),
 }
 
-/// One recognized part with its size (as it would be written) and the result of its checks.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+/// One recognized part with its size (as it would be written; for textures the growth of the
+/// pack) and the result of its checks.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct PartReport {
     pub part: Part,
     /// The file it came from, `None` for a map of the project.
@@ -365,12 +402,55 @@ pub struct PartReport {
     pub state: PartState,
     /// Hints that never block the import (removed texture block, texture names).
     pub notes: Vec<PartMessage>,
+    /// The figures of a converted model or of textures (only for those, and only when their
+    /// checks got that far).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<ImportPreview>,
+}
+
+/// What the dialog shows of a converted model or of textures before the import: the area's
+/// map texture pack, the area, its style, its VRAM with the new textures and the largest
+/// vanilla area's, every texture used (new or of the pack), the model's figures and the files.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct ImportPreview {
+    pub pack: u16,
+    pub area: u8,
+    pub style: AreaStyle,
+    pub vram_bytes: usize,
+    pub vram_limit: usize,
+    pub textures: Vec<TexturePreview>,
+    pub model: Option<ModelPreview>,
+    #[serde(serialize_with = "crate::relpath::ser_vec")]
+    pub files: Vec<PathBuf>,
+}
+
+/// The figures of a converted model: its format, the conversion's counts (`stats.triangles` =
+/// faces sent as triangles), the quad strips and single quads sent, and its size against the
+/// game's buffer (0xF000).
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct ModelPreview {
+    pub format: SourceFormat,
+    pub stats: MeshStats,
+    pub strips: usize,
+    pub single_quads: usize,
+    pub budget: BudgetItem,
 }
 
 /// What would be written for a part.
 enum Payload {
     Bytes(Vec<u8>),
     Whole(Box<MapFile>, Family),
+    /// A baked model and the textures to append to map texture pack `pack` for it.
+    Converted {
+        nsbmd: Vec<u8>,
+        pack: u16,
+        new: Vec<NewTexture>,
+    },
+    /// Textures to append to map texture pack `pack`.
+    Textures {
+        pack: u16,
+        new: Vec<NewTexture>,
+    },
     Nothing,
 }
 
@@ -388,23 +468,33 @@ fn refuse_dp(store: &Store) -> Result<Family, KernelError> {
     }
 }
 
-/// Checks the parts of `source` for map `map` without changing anything.
+/// Checks the parts of `source` for map `map` without changing anything (default
+/// [`ImportOptions`]).
 pub fn inspect(
     store: &mut Store,
     map: u16,
     source: &Source,
 ) -> Result<Vec<PartReport>, KernelError> {
-    Ok(prepare(store, map, source)?
+    inspect_with(store, map, source, &ImportOptions::default())
+}
+
+/// Checks the parts of `source` for map `map` without changing anything; OBJ and glTF are
+/// baked and PNG files converted with `opts` (refused before any check when out of range).
+pub fn inspect_with(
+    store: &mut Store,
+    map: u16,
+    source: &Source,
+    opts: &ImportOptions,
+) -> Result<Vec<PartReport>, KernelError> {
+    opts.check()?;
+    Ok(prepare(store, map, source, opts)?
         .into_iter()
         .map(|p| p.report)
         .collect())
 }
 
-/// Imports `parts` of `source` into map `map` as one undo step. Refuses with the reason
-/// of the first selected part that failed its checks, or when a part is not in the source;
-/// nothing is changed then. `keep_buildings` takes the buildings of a whole map file of the
-/// other family over (they are left out by default). Returns the changed assets (empty
-/// when the import leaves the map as it was).
+/// Imports `parts` of `source` into map `map` as one undo step (default [`ImportOptions`]);
+/// see [`import_with`].
 pub fn import(
     store: &mut Store,
     map: u16,
@@ -412,11 +502,39 @@ pub fn import(
     parts: &[Part],
     keep_buildings: bool,
 ) -> Result<Vec<AssetId>, KernelError> {
+    import_with(
+        store,
+        map,
+        source,
+        parts,
+        keep_buildings,
+        &ImportOptions::default(),
+    )
+}
+
+/// Imports `parts` of `source` into map `map` as one undo step. Refuses with the reason
+/// of the first selected part that failed its checks, or when a part is not in the source;
+/// nothing is changed then. `keep_buildings` takes the buildings of a whole map file of the
+/// other family over (they are left out by default). The new textures of every chosen part (a
+/// converted model, textures) are appended to the area's map texture pack in one go (a name
+/// chosen by two parts is `texture.taken` before anything is written), then the map is
+/// written; both are one step `map NNNN: <parts> imported`, and a failed map step rolls the
+/// pack back. Returns the changed assets: the map, then the pack (empty when the import leaves
+/// both as they were).
+pub fn import_with(
+    store: &mut Store,
+    map: u16,
+    source: &Source,
+    parts: &[Part],
+    keep_buildings: bool,
+    opts: &ImportOptions,
+) -> Result<Vec<AssetId>, KernelError> {
     let family = refuse_dp(store)?;
+    opts.check()?;
     if parts.is_empty() {
         return Err(KernelError::Import("no part selected".into()));
     }
-    let mut prepared = prepare(store, map, source)?;
+    let mut prepared = prepare(store, map, source, opts)?;
     let mut chosen: Vec<(Part, Payload)> = Vec::new();
     for &part in parts {
         if chosen.iter().any(|(p, _)| *p == part) {
@@ -436,26 +554,89 @@ pub fn import(
         }
         chosen.push((part, p.payload));
     }
-    // A whole map goes first, so single parts chosen next to it win.
-    chosen.sort_by_key(|(p, _)| *p != Part::Whole);
+    // A whole map goes first, so single parts chosen next to it win; textures last.
+    chosen.sort_by_key(|(p, _)| (*p != Part::Whole, *p == Part::Textures));
     let names: Vec<&str> = chosen.iter().map(|(p, _)| p.label()).collect();
     let label = format!("map {map:04}: {} imported", names.join(" and "));
-    let before = store.history().0.len();
-    store.edit_map(map, &label, |m| {
-        for (part, payload) in chosen {
-            apply(m, part, payload, family, keep_buildings);
+    let (pack, new) = textures_to_append(&chosen)?;
+    let edits_map = chosen.iter().any(|(p, _)| *p != Part::Textures);
+
+    let mark = store.undo_depth();
+    let mut changed = Vec::new();
+    let mut appended = None;
+    if let Some(pack) = pack
+        && !new.is_empty()
+    {
+        append_textures(store, pack, &new, &label)?;
+        appended = Some(pack);
+    }
+    if edits_map {
+        let before = store.undo_depth();
+        let edited = store.edit_map(map, &label, |m| {
+            for (part, payload) in chosen {
+                apply(m, part, payload, family, keep_buildings);
+            }
+            Ok(())
+        });
+        if let Err(e) = edited {
+            store.rollback_to(mark)?;
+            return Err(e);
         }
-        Ok(())
-    })?;
-    let changed = store.history().0.len() > before;
-    Ok(if changed {
-        vec![AssetId {
-            kind: AssetKind::Map,
-            index: map,
-        }]
-    } else {
-        Vec::new()
-    })
+        if store.undo_depth() > before {
+            changed.push(AssetId {
+                kind: AssetKind::Map,
+                index: map,
+            });
+        }
+    }
+    store.squash_since(mark, &label);
+    if let Some(pack) = appended {
+        changed.push(AssetId {
+            kind: AssetKind::MapTexture,
+            index: pack,
+        });
+    }
+    Ok(changed)
+}
+
+/// The map texture pack and the new textures of the chosen parts, in order; a texture or
+/// palette name chosen by two parts is `texture.taken`.
+fn textures_to_append(
+    chosen: &[(Part, Payload)],
+) -> Result<(Option<u16>, Vec<NewTexture>), KernelError> {
+    let mut pack = None;
+    let mut new: Vec<NewTexture> = Vec::new();
+    for (_, payload) in chosen {
+        let (Payload::Converted {
+            pack: p, new: n, ..
+        }
+        | Payload::Textures { pack: p, new: n }) = payload
+        else {
+            continue;
+        };
+        pack = Some(*p);
+        for t in n {
+            let taken = new.iter().find_map(|o| {
+                if o.name == t.name || o.palette == t.name {
+                    Some(("texture", &t.name))
+                } else if o.palette == t.palette || o.name == t.palette {
+                    Some(("palette", &t.palette))
+                } else {
+                    None
+                }
+            });
+            if let Some((what, name)) = taken {
+                return Err(KernelError::Import(format!(
+                    "{}: {}: the {what} name {name} is chosen by the model and by a PNG file; \
+                     rename a file",
+                    Part::Textures.label(),
+                    PartCode::TextureTaken.as_str()
+                )));
+            }
+            new.push(t.clone());
+        }
+    }
+    Ok((pack, new))
 }
 
 fn apply(m: &mut MapFile, part: Part, payload: Payload, family: Family, keep_buildings: bool) {
@@ -468,8 +649,13 @@ fn apply(m: &mut MapFile, part: Part, payload: Payload, family: Family, keep_bui
             Part::Buildings => m.buildings = decode_buildings(&bytes),
             Part::Bdhc => m.bdhc = bytes,
             Part::Bgs => m.bgs = Some(bytes),
-            Part::Whole => {}
+            Part::Whole | Part::Textures => {}
         },
+        Payload::Converted { nsbmd, .. } => {
+            if part == Part::Model {
+                m.model = nsbmd;
+            }
+        }
         Payload::Whole(src, src_family) => {
             let src = *src;
             let same = src_family == family;
@@ -488,7 +674,7 @@ fn apply(m: &mut MapFile, part: Part, payload: Payload, family: Family, keep_bui
                 _ => None,
             };
         }
-        Payload::Nothing => {}
+        Payload::Textures { .. } | Payload::Nothing => {}
     }
 }
 
@@ -522,7 +708,7 @@ fn parse_buildings(bytes: &[u8]) -> Option<Vec<g4_formats::map::Building>> {
 
 /// Writes `part` of map `map` (as the store holds it) to `path`: the model as it is in the
 /// map (no texture block), `.per`, `.bld` (whole records), `.bdhc`, `.bgs` (HGSS only) or
-/// the whole map file.
+/// the whole map file. Textures are refused: they live in the area's map texture pack.
 pub fn export(store: &mut Store, map: u16, part: Part, path: &Path) -> Result<(), KernelError> {
     let bytes = part_bytes(store, map, part)?;
     std::fs::write(path, bytes).map_err(io_at(path))
@@ -555,27 +741,52 @@ pub fn part_bytes(store: &mut Store, map: u16, part: Part) -> Result<Vec<u8>, Ke
             }
         },
         Part::Whole => m.write(family),
+        Part::Textures => {
+            return Err(KernelError::Import(
+                "textures are not a part of the map file: they live in the area's map texture \
+                 pack"
+                    .into(),
+            ));
+        }
     })
 }
 
-fn prepare(store: &mut Store, map: u16, source: &Source) -> Result<Vec<Prepared>, KernelError> {
+fn prepare(
+    store: &mut Store,
+    map: u16,
+    source: &Source,
+    opts: &ImportOptions,
+) -> Result<Vec<Prepared>, KernelError> {
     let family = refuse_dp(store)?;
     // The target must exist; its model is the reference for texture names.
     let old_model = store.map(map)?.model.clone();
     let mut prepared = match source {
         Source::Files(paths) => {
             let mut out = Vec::new();
+            let mut pngs = Vec::new();
             for path in paths {
                 let part = Part::from_path(path).ok_or_else(|| {
                     KernelError::Import(format!(
-                        "{}: unknown file type (expected .nsbmd, .per, .bld, .bdhc, .bgs or .bin)",
+                        "{}: unknown file type (expected .nsbmd, .obj, .gltf, .glb, .png, .per, \
+                         .bld, .bdhc, .bgs or .bin)",
                         path.display()
                     ))
                 })?;
-                let bytes = std::fs::read(path).map_err(io_at(path))?;
-                let mut p = check(part, bytes, family);
+                if part == Part::Textures {
+                    pngs.push(path.clone());
+                    continue;
+                }
+                let mut p = if part == Part::Model && SourceFormat::of(path).is_some() {
+                    prepare_converted(store, map, path, opts)?
+                } else {
+                    let bytes = std::fs::read(path).map_err(io_at(path))?;
+                    check(part, bytes, family)
+                };
                 p.report.file = Some(path.clone());
                 out.push(p);
+            }
+            if !pngs.is_empty() {
+                out.push(prepare_textures(store, map, &pngs, opts)?);
             }
             mark_duplicates(&mut out);
             out
@@ -607,12 +818,9 @@ fn prepare(store: &mut Store, map: u16, source: &Source) -> Result<Vec<Prepared>
         .iter()
         .any(|p| matches!(p.report.part, Part::Bdhc | Part::Whole));
     for p in &mut prepared {
-        let model = match (&p.report.state, &p.payload) {
-            (PartState::Error(_), _) => continue,
-            (_, Payload::Bytes(b)) if p.report.part == Part::Model => b.clone(),
-            (_, Payload::Whole(m, _)) => m.model.clone(),
-            _ => continue,
-        };
+        if matches!(p.report.state, PartState::Error(_)) {
+            continue;
+        }
         if p.report.part == Part::Model && !has_bdhc {
             p.report.notes.push(PartMessage::new(
                 PartCode::ModelBdhcUnchanged,
@@ -620,11 +828,114 @@ fn prepare(store: &mut Store, map: u16, source: &Source) -> Result<Vec<Prepared>
                 "terrain (BDHC) stays unchanged; check walking heights".into(),
             ));
         }
+        // A converted model's names are in the pack once its textures are appended.
+        let model = match &p.payload {
+            Payload::Bytes(b) if p.report.part == Part::Model => b.clone(),
+            Payload::Whole(m, _) => m.model.clone(),
+            _ => continue,
+        };
         if let Some(note) = texture_note(store, map, &model, &old_model) {
             p.report.notes.push(note);
         }
     }
     Ok(prepared)
+}
+
+/// The model part of an OBJ or glTF file: its bake for map `map` ([`convert_for_map`]); a
+/// refusal keeps the hints found before it.
+fn prepare_converted(
+    store: &mut Store,
+    map: u16,
+    path: &Path,
+    opts: &ImportOptions,
+) -> Result<Prepared, KernelError> {
+    Ok(match convert_for_map(store, map, path, opts)? {
+        Ok(c) => {
+            let mut p = prepared(
+                Part::Model,
+                c.nsbmd.len(),
+                c.state,
+                Payload::Converted {
+                    nsbmd: c.nsbmd,
+                    pack: c.pack,
+                    new: c.new,
+                },
+            );
+            p.report.notes = c.notes;
+            p.report.preview = Some(c.preview);
+            p
+        }
+        Err(refusal) => {
+            let mut p = error(Part::Model, 0, refusal.reason);
+            p.report.notes = refusal.notes;
+            p
+        }
+    })
+}
+
+/// The one part „textures“ of the PNG files `files`: converted with `opts`, appended in memory
+/// to the map texture pack of the first area that shows map `map`. Its size is the growth of
+/// the pack; the VRAM of that area is the state (`Warning(texture.vram-high)`), the other areas
+/// of the pack above the vanilla maximum are hints.
+fn prepare_textures(
+    store: &mut Store,
+    map: u16,
+    files: &[PathBuf],
+    opts: &ImportOptions,
+) -> Result<Prepared, KernelError> {
+    let part = Part::Textures;
+    if map_areas(store, map)?.is_empty() {
+        return Ok(error(part, 0, no_area(map)));
+    }
+    let ctx = bake_context(store, map)?;
+    let plan = match png_textures(files, &ctx.textures, opts.texconv_colors()) {
+        Ok(plan) => plan,
+        Err(reason) => return Ok(error(part, 0, reason)),
+    };
+    let before = store
+        .project()
+        .map_tileset_member(ctx.pack)?
+        .ok_or_else(|| {
+            KernelError::Refused(format!(
+                "map texture pack {:04} is not in the archive",
+                ctx.pack
+            ))
+        })?;
+    let after = match appended_pack_or_refusal(&before, &plan.new)? {
+        Ok(after) => after,
+        Err(m) => return Ok(error(part, 0, from_bake(&m, ctx.area, &[]))),
+    };
+    let vram = area_vram(store, ctx.area, Some(&after))?;
+    let (own, others) = vram_findings(
+        store,
+        ctx.area,
+        ctx.pack,
+        Some(&after),
+        vram,
+        ctx.vram_limit,
+    )?;
+    let mut p = prepared(
+        part,
+        after.len().saturating_sub(before.len()),
+        own.map_or(PartState::Ok, PartState::Warning),
+        Payload::Textures {
+            pack: ctx.pack,
+            new: plan.new,
+        },
+    );
+    p.report.notes = plan.notes;
+    p.report.notes.extend(others);
+    p.report.preview = Some(ImportPreview {
+        pack: ctx.pack,
+        area: ctx.area,
+        style: ctx.style,
+        vram_bytes: vram,
+        vram_limit: ctx.vram_limit,
+        textures: plan.previews,
+        model: None,
+        files: files.to_vec(),
+    });
+    Ok(p)
 }
 
 fn mark_duplicates(prepared: &mut [Prepared]) {
@@ -651,6 +962,7 @@ fn prepared(part: Part, size: usize, state: PartState, payload: Payload) -> Prep
             size,
             state,
             notes: Vec::new(),
+            preview: None,
         },
         payload,
     }
@@ -733,6 +1045,16 @@ fn check(part: Part, bytes: Vec<u8>, family: Family) -> Prepared {
             }
         }
         Part::Whole => check_whole(bytes, family),
+        // PNG files are prepared together (`prepare_textures`), never as bytes of a map part.
+        Part::Textures => error(
+            part,
+            size,
+            PartMessage::new(
+                PartCode::TextureUnreadable,
+                &[&"", &"textures come from PNG files"],
+                "textures come from PNG files, not from a map".into(),
+            ),
+        ),
     }
 }
 
@@ -1607,7 +1929,8 @@ mod tests {
 
         // Not reached here: whole building records always read, a map file that reads is
         // valid, and the texture hints need materials, packs and headers the fixture lacks.
-        // The converted-model codes come from `model_import` (its tests reach them).
+        // The converted-model codes come from `model_import` (its tests and the converted tests
+        // below reach them).
         let unreached = [
             BuildingsUnreadable,
             WholeInvalid,
@@ -1621,8 +1944,12 @@ mod tests {
             ModelMaterialUntextured,
             ModelUvMissing,
             ModelOutOfRange,
+            ModelUvRange,
+            ModelTextureCount,
+            ModelConverted,
             ModelFacesDropped,
             ModelPartsIgnored,
+            PartNoArea,
             TextureSide,
             TextureName,
             TextureTaken,
@@ -1736,5 +2063,500 @@ mod tests {
         assert_eq!(map_areas(&mut f.store, 0).unwrap(), [0, 1]);
         assert_eq!(map_areas(&mut f.store, 1).unwrap(), [0, 1]);
         assert!(map_areas(&mut f.store, 2).unwrap().is_empty());
+    }
+
+    // --- converted models and textures ---------------------------------------------------
+
+    use crate::model_import::samples::{
+        BIG_OBJ, CUBE_OBJ, PDSMS_OBJ, PLANE_GLB, PLANE_GLTF, PNG_40, write_samples,
+    };
+    use crate::test_support::write_texture_packs;
+    use g4_formats::nsbtx::Btx0;
+
+    fn map_texture(index: u16) -> AssetId {
+        AssetId {
+            kind: AssetKind::MapTexture,
+            index,
+        }
+    }
+
+    /// The synthetic project with real texture packs (`t0`, `t1`) and the samples in its folder
+    /// `import/`.
+    struct Converting {
+        synth: crate::test_support::Synthetic,
+        store: Store,
+    }
+
+    fn converting() -> Converting {
+        let synth = synthetic_project();
+        let project = Project::open(synth.dir.path()).unwrap();
+        write_texture_packs(&project);
+        write_samples(&synth.dir.path().join("import")).unwrap();
+        Converting {
+            synth,
+            store: Store::new(Arc::new(project)),
+        }
+    }
+
+    impl Converting {
+        fn sample(&self, name: &str) -> PathBuf {
+            self.synth.dir.path().join("import").join(name)
+        }
+
+        fn files(&self, names: &[&str]) -> Source {
+            Source::Files(names.iter().map(|n| self.sample(n)).collect())
+        }
+
+        fn member(&self, kind: AssetKind, index: u16) -> Vec<u8> {
+            std::fs::read(self.store.project().member_path(kind, index)).unwrap()
+        }
+
+        fn pack(&self) -> Vec<u8> {
+            self.member(AssetKind::MapTexture, 0)
+        }
+
+        fn map_bytes(&mut self, map: u16) -> Vec<u8> {
+            self.store.map(map).unwrap();
+            self.store.current_bytes(map_id(map)).unwrap().unwrap()
+        }
+
+        fn inspect(&mut self, map: u16, names: &[&str]) -> Vec<PartReport> {
+            let source = self.files(names);
+            inspect(&mut self.store, map, &source).unwrap()
+        }
+
+        fn import(&mut self, map: u16, names: &[&str], parts: &[Part]) -> Vec<AssetId> {
+            let source = self.files(names);
+            import(&mut self.store, map, &source, parts, false).unwrap()
+        }
+
+        /// The model `convert_for_map` bakes for `name` into `map` now.
+        fn baked(&mut self, map: u16, name: &str) -> Vec<u8> {
+            let path = self.sample(name);
+            convert_for_map(&mut self.store, map, &path, &ImportOptions::default())
+                .unwrap()
+                .unwrap()
+                .nsbmd
+        }
+    }
+
+    fn note_codes(report: &PartReport) -> Vec<PartCode> {
+        report.notes.iter().map(|n| n.code).collect()
+    }
+
+    fn texture_names(pack: &[u8]) -> Vec<String> {
+        Nsbtx::read(pack)
+            .unwrap()
+            .textures
+            .into_iter()
+            .map(|t| t.name)
+            .collect()
+    }
+
+    /// The pack `after` starts with every entry and byte of `before`.
+    fn keeps_the_old_entries(before: &[u8], after: &[u8]) {
+        let (b, a) = (Btx0::read(before).unwrap(), Btx0::read(after).unwrap());
+        assert_eq!(a.textures[..b.textures.len()], b.textures[..]);
+        assert_eq!(a.palettes[..b.palettes.len()], b.palettes[..]);
+        assert_eq!(a.texels[..b.texels.len()], b.texels[..]);
+        assert_eq!(a.palette_data[..b.palette_data.len()], b.palette_data[..]);
+    }
+
+    #[test]
+    fn inspect_converts_a_cube_obj_without_writing() {
+        let mut f = converting();
+        let pack = f.pack();
+        let map = f.map_bytes(0);
+        let depth = f.store.undo_depth();
+        let r = f.inspect(0, &[CUBE_OBJ]);
+        assert_eq!(r.len(), 1);
+        let report = &r[0];
+        assert_eq!(report.part, Part::Model);
+        assert_eq!(report.state, PartState::Ok, "{report:?}");
+        let preview = report.preview.as_ref().unwrap();
+        let model = preview.model.as_ref().unwrap();
+        assert_eq!(model.format, SourceFormat::Obj);
+        assert_eq!(model.stats.quads, 6);
+        assert_eq!(model.stats.triangles, 0);
+        assert_eq!(model.budget.used, report.size as u64);
+        assert_eq!(model.budget.max, 0xF000);
+        assert_eq!(preview.textures.len(), 1);
+        let t = &preview.textures[0];
+        assert_eq!(
+            (t.name.as_str(), t.new, t.colors),
+            ("g4_imp_cube", true, 16)
+        );
+        assert_eq!((preview.pack, preview.area), (0, 0));
+        assert_eq!(preview.files, [f.sample(CUBE_OBJ)]);
+        assert_eq!(
+            note_codes(report),
+            [
+                PartCode::ModelConverted,
+                PartCode::TextureNew,
+                PartCode::ModelBdhcUnchanged
+            ]
+        );
+        assert_eq!(report.notes[0].args[..4], ["OBJ", "6", "6", "0"]);
+        // Nothing written.
+        assert_eq!(f.store.undo_depth(), depth);
+        assert_eq!(f.map_bytes(0), map);
+        assert_eq!(f.pack(), pack);
+        assert!(f.store.dirty().is_empty());
+        // The preview reaches the UI with snake_case keys.
+        let json = serde_json::to_value(report).unwrap();
+        assert!(json["preview"]["textures"][0]["mean_error"].is_number());
+        assert_eq!(json["preview"]["model"]["single_quads"], model.single_quads);
+        assert_eq!(json["preview"]["model"]["format"], "obj");
+        assert!(json["preview"]["vram_bytes"].is_number());
+        assert_eq!(
+            json["preview"]["files"][0],
+            f.sample(CUBE_OBJ).display().to_string()
+        );
+    }
+
+    #[test]
+    fn import_writes_model_and_pack_as_one_undo_step() {
+        let mut f = converting();
+        let pack = f.pack();
+        let map = f.map_bytes(0);
+        let nsbmd = f.baked(0, CUBE_OBJ);
+        let changed = f.import(0, &[CUBE_OBJ], &[Part::Model]);
+        assert_eq!(changed, [map_id(0), map_texture(0)]);
+        assert_eq!(
+            f.store.history().0.last().map(String::as_str),
+            Some("map 0000: model imported")
+        );
+        assert_eq!(f.store.undo_depth(), 1);
+        assert_eq!(f.store.map(0).unwrap().model, nsbmd);
+        let after = f.pack();
+        assert_eq!(texture_names(&after), ["t0", "t1", "g4_imp_cube"]);
+        keeps_the_old_entries(&pack, &after);
+        let imported = f.map_bytes(0);
+
+        f.store.undo().unwrap();
+        assert_eq!(f.map_bytes(0), map);
+        assert_eq!(f.pack(), pack);
+        f.store.redo().unwrap();
+        assert_eq!(f.map_bytes(0), imported);
+        assert_eq!(f.pack(), after);
+    }
+
+    #[test]
+    fn the_plane_glb_and_gltf_give_the_same_model() {
+        let mut models = Vec::new();
+        for name in [PLANE_GLB, PLANE_GLTF] {
+            let mut f = converting();
+            let r = f.inspect(0, &[name]);
+            assert_eq!(r[0].state, PartState::Ok, "{name}: {r:?}");
+            let model = r[0].preview.as_ref().unwrap().model.as_ref().unwrap();
+            assert_eq!(model.format, SourceFormat::Gltf);
+            assert_eq!((model.stats.quads, model.stats.triangles), (1, 0));
+            f.import(0, &[name], &[Part::Model]);
+            models.push(f.store.map(0).unwrap().model.clone());
+        }
+        assert_eq!(models[0], models[1]);
+    }
+
+    #[test]
+    fn the_oversize_obj_is_refused_with_the_number() {
+        let mut f = converting();
+        let pack = f.pack();
+        let map = f.map_bytes(0);
+        let r = f.inspect(0, &[BIG_OBJ]);
+        let PartState::Error(e) = &r[0].state else {
+            panic!("{r:?}");
+        };
+        assert_eq!(e.code, PartCode::ModelTooBig);
+        assert_eq!(e.args[1], "61440");
+        let size: usize = e.args[0].parse().unwrap();
+        assert!(size > 61_440, "{size}");
+        assert!(
+            e.message.contains(&e.args[0]) && e.message.contains("61440"),
+            "{e}"
+        );
+        let source = f.files(&[BIG_OBJ]);
+        let err = import(&mut f.store, 0, &source, &[Part::Model], false).unwrap_err();
+        assert!(err.to_string().contains("61440"), "{err}");
+        assert_eq!(f.map_bytes(0), map);
+        assert_eq!(f.pack(), pack);
+        assert!(f.store.history().0.is_empty());
+    }
+
+    #[test]
+    fn the_pdsms_style_obj_imports() {
+        let mut f = converting();
+        let r = f.inspect(0, &[PDSMS_OBJ]);
+        assert_eq!(r[0].state, PartState::Ok, "{r:?}");
+        let preview = r[0].preview.as_ref().unwrap();
+        assert_eq!(preview.model.as_ref().unwrap().stats.quads, 64);
+        let new: Vec<&str> = preview
+            .textures
+            .iter()
+            .filter(|t| t.new)
+            .map(|t| t.name.as_str())
+            .collect();
+        assert_eq!(new, ["g4_pds_gras", "g4_pds_weg"]);
+        let changed = f.import(0, &[PDSMS_OBJ], &[Part::Model]);
+        assert_eq!(changed, [map_id(0), map_texture(0)]);
+        assert_eq!(f.store.history().0, ["map 0000: model imported"]);
+        assert_eq!(
+            texture_names(&f.pack()),
+            ["t0", "t1", "g4_pds_gras", "g4_pds_weg"]
+        );
+    }
+
+    #[test]
+    fn pngs_are_one_textures_part_appended_in_one_step() {
+        let mut f = converting();
+        let pack = f.pack();
+        let map = f.map_bytes(0);
+        let names = [PNG_40, "g4_imp_cube.png"];
+        let r = f.inspect(0, &names);
+        assert_eq!(r.len(), 1);
+        let report = &r[0];
+        assert_eq!(report.part, Part::Textures);
+        assert_eq!(report.state, PartState::Ok, "{report:?}");
+        let preview = report.preview.as_ref().unwrap();
+        assert_eq!(preview.files, [f.sample(names[0]), f.sample(names[1])]);
+        assert_eq!(preview.model, None);
+        assert_eq!(
+            note_codes(report),
+            [PartCode::TextureNew, PartCode::TextureNew]
+        );
+        let changed = f.import(0, &names, &[Part::Textures]);
+        assert_eq!(changed, [map_texture(0)]);
+        assert_eq!(f.store.history().0, ["map 0000: textures imported"]);
+        let after = f.pack();
+        assert_eq!(report.size, after.len() - pack.len());
+        assert_eq!(
+            texture_names(&after),
+            ["t0", "t1", "g4_imp_40", "g4_imp_cube"]
+        );
+        keeps_the_old_entries(&pack, &after);
+        assert_eq!(f.map_bytes(0), map);
+        f.store.undo().unwrap();
+        assert_eq!(f.pack(), pack);
+    }
+
+    #[test]
+    fn model_and_textures_together_are_one_step() {
+        let mut f = converting();
+        let pack = f.pack();
+        let map = f.map_bytes(0);
+        let changed = f.import(0, &[CUBE_OBJ, PNG_40], &[Part::Textures, Part::Model]);
+        assert_eq!(changed, [map_id(0), map_texture(0)]);
+        assert_eq!(
+            f.store.history().0,
+            ["map 0000: model and textures imported"]
+        );
+        assert_eq!(
+            texture_names(&f.pack()),
+            ["t0", "t1", "g4_imp_cube", "g4_imp_40"]
+        );
+        f.store.undo().unwrap();
+        assert_eq!(f.map_bytes(0), map);
+        assert_eq!(f.pack(), pack);
+        assert!(f.store.history().0.is_empty());
+    }
+
+    #[test]
+    fn a_name_chosen_by_the_model_and_a_png_is_taken_before_writing() {
+        let mut f = converting();
+        let pack = f.pack();
+        let source = f.files(&[CUBE_OBJ, "g4_imp_cube.png"]);
+        let r = inspect(&mut f.store, 0, &source).unwrap();
+        assert!(r.iter().all(|r| r.state == PartState::Ok), "{r:?}");
+        let err = import(
+            &mut f.store,
+            0,
+            &source,
+            &[Part::Model, Part::Textures],
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("texture.taken"), "{err}");
+        assert!(err.to_string().contains("g4_imp_cube"), "{err}");
+        assert_eq!(f.pack(), pack);
+        assert!(f.store.history().0.is_empty());
+    }
+
+    #[test]
+    fn a_png_name_already_in_the_pack_is_taken() {
+        let mut f = converting();
+        let png = std::fs::read(f.sample("g4_imp_cube.png")).unwrap();
+        std::fs::write(f.sample("t0.png"), png).unwrap();
+        let r = f.inspect(0, &["t0.png"]);
+        let PartState::Error(e) = &r[0].state else {
+            panic!("{r:?}");
+        };
+        assert_eq!(e.code, PartCode::TextureTaken);
+        assert_eq!(e.args, ["texture", "t0"]);
+        assert_eq!(r[0].preview, None);
+    }
+
+    #[test]
+    fn reimporting_the_cube_reuses_its_texture() {
+        let mut f = converting();
+        f.import(0, &[CUBE_OBJ], &[Part::Model]);
+        let pack = f.pack();
+        let r = f.inspect(0, &[CUBE_OBJ]);
+        let preview = r[0].preview.as_ref().unwrap();
+        assert!(!preview.textures[0].new);
+        assert!(note_codes(&r[0]).contains(&PartCode::TextureReused));
+        assert!(!note_codes(&r[0]).contains(&PartCode::TextureNew));
+        // The same model again changes nothing.
+        assert!(f.import(0, &[CUBE_OBJ], &[Part::Model]).is_empty());
+        assert_eq!(f.store.history().0.len(), 1);
+        // Twice the size: a new model with the texture of the pack.
+        let source = f.files(&[CUBE_OBJ]);
+        let opts = ImportOptions {
+            unit: 32.0,
+            ..ImportOptions::default()
+        };
+        let changed = import_with(&mut f.store, 0, &source, &[Part::Model], false, &opts).unwrap();
+        assert_eq!(changed, [map_id(0)]);
+        assert_eq!(f.pack(), pack);
+        assert_eq!(texture_names(&pack), ["t0", "t1", "g4_imp_cube"]);
+    }
+
+    #[test]
+    fn unchanged_maps_stay_byte_identical() {
+        let mut f = converting();
+        let others: Vec<(u16, Vec<u8>)> =
+            [1u16, 2].into_iter().map(|m| (m, f.map_bytes(m))).collect();
+        let archive = f
+            .synth
+            .dir
+            .path()
+            .join("files/fielddata/land_data/land_data.narc");
+        let land_data = std::fs::read(&archive).unwrap();
+        let buildings = f.member(AssetKind::BuildingTexture, 0);
+        let packs = f
+            .store
+            .project()
+            .member_count(AssetKind::MapTexture)
+            .unwrap();
+        f.import(0, &[CUBE_OBJ, PNG_40], &[Part::Model, Part::Textures]);
+        for (m, current) in others {
+            assert_eq!(f.map_bytes(m), current, "map {m}");
+        }
+        // The map edit lives in the store until it is saved; the archive on disk is untouched.
+        assert_eq!(std::fs::read(&archive).unwrap(), land_data);
+        assert_eq!(f.member(AssetKind::BuildingTexture, 0), buildings);
+        assert_eq!(
+            f.store
+                .project()
+                .member_count(AssetKind::MapTexture)
+                .unwrap(),
+            packs
+        );
+        let dirty: Vec<AssetId> = f.store.dirty().into_iter().collect();
+        assert_eq!(dirty, [map_id(0)]);
+    }
+
+    #[test]
+    fn a_map_without_header_is_part_no_area() {
+        let mut f = converting();
+        // Map 2 is in no matrix, so no header shows it.
+        let r = f.inspect(2, &[CUBE_OBJ, PNG_40]);
+        assert_eq!(r.len(), 2);
+        for report in &r {
+            let PartState::Error(e) = &report.state else {
+                panic!("{report:?}");
+            };
+            assert_eq!(e.code, PartCode::PartNoArea);
+            assert_eq!(e.args, ["2"]);
+        }
+    }
+
+    #[test]
+    fn options_out_of_range_are_refused() {
+        let mut f = converting();
+        let source = f.files(&[CUBE_OBJ]);
+        for opts in [
+            ImportOptions {
+                unit: 0.0,
+                ..ImportOptions::default()
+            },
+            ImportOptions {
+                colors: 8,
+                ..ImportOptions::default()
+            },
+        ] {
+            assert!(matches!(
+                inspect_with(&mut f.store, 0, &source, &opts),
+                Err(KernelError::Refused(_))
+            ));
+            assert!(matches!(
+                import_with(&mut f.store, 0, &source, &[Part::Model], false, &opts),
+                Err(KernelError::Refused(_))
+            ));
+        }
+        assert!(f.store.history().0.is_empty());
+    }
+
+    #[test]
+    fn two_model_files_are_part_duplicate() {
+        let mut f = converting();
+        let nsbmd = f.sample("m.nsbmd");
+        std::fs::write(&nsbmd, model(&["m"])).unwrap();
+        let source = Source::Files(vec![f.sample(CUBE_OBJ), nsbmd]);
+        let r = inspect(&mut f.store, 0, &source).unwrap();
+        assert_eq!(r.len(), 2);
+        for report in &r {
+            let PartState::Error(e) = &report.state else {
+                panic!("{report:?}");
+            };
+            assert_eq!(e.code, PartCode::PartDuplicate);
+        }
+    }
+
+    #[test]
+    fn textures_cannot_be_exported() {
+        let mut f = converting();
+        let path = f.synth.dir.path().join("out.png");
+        assert!(export(&mut f.store, 0, Part::Textures, &path).is_err());
+        assert!(!path.exists());
+        assert!(part_bytes(&mut f.store, 0, Part::Textures).is_err());
+    }
+
+    #[test]
+    fn a_gltf_of_lines_only_has_no_geometry_and_keeps_its_hint() {
+        let mut f = converting();
+        let text = std::fs::read_to_string(f.sample(PLANE_GLTF)).unwrap();
+        let mut document: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for primitive in document["meshes"][0]["primitives"].as_array_mut().unwrap() {
+            primitive["mode"] = serde_json::json!(1);
+        }
+        std::fs::write(f.sample("linien.gltf"), document.to_string()).unwrap();
+        let r = f.inspect(0, &["linien.gltf"]);
+        let PartState::Error(e) = &r[0].state else {
+            panic!("{r:?}");
+        };
+        assert_eq!(e.code, PartCode::ModelNoGeometry);
+        assert_eq!(note_codes(&r[0]), [PartCode::ModelPartsIgnored]);
+        assert_eq!(r[0].notes[0].args, ["lines"]);
+    }
+
+    #[test]
+    fn the_converted_codes_carry_their_args() {
+        // model.converted: format, polygons, quads, triangles, strips, single quads.
+        let mut f = converting();
+        let r = f.inspect(0, &[PLANE_GLB]);
+        let converted = &r[0].notes[0];
+        assert_eq!(converted.code, PartCode::ModelConverted);
+        let model = r[0].preview.as_ref().unwrap().model.as_ref().unwrap();
+        assert_eq!(
+            converted.args,
+            [
+                "glTF".to_string(),
+                model.stats.polygons.to_string(),
+                "1".into(),
+                "0".into(),
+                model.strips.to_string(),
+                model.single_quads.to_string(),
+            ]
+        );
+        assert_eq!(model.stats.polygons, 2);
     }
 }

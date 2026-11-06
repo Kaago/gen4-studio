@@ -13,14 +13,19 @@ pub use textures::{
 
 use std::path::{Component, Path, PathBuf};
 
-use g4_formats::nsbtx::Rgba;
+use g4_formats::nsbtx::{NewTexture, Rgba};
 use g4_formats::texconv::Colors;
 
-use crate::bake::Level;
-use crate::bake::{BakeCode, BakeMessage, WORLD_MAX, WORLD_MIN};
+use crate::bake::{
+    BakeCode, BakeInput, BakeMessage, Face, Level, WORLD_MAX, WORLD_MIN, appended_pack_or_refusal,
+    area_vram, areas_of_pack, bake, bake_context, pack_textures,
+};
 use crate::error::KernelError;
-use crate::map_import::{PartCode, PartMessage, PartState};
-use mesh::Mesh;
+use crate::map_import::{ImportPreview, ModelPreview, PartCode, PartMessage, PartState, map_areas};
+use crate::project::Project;
+use crate::store::Store;
+use crate::terrain::{BudgetItem, budget_state};
+use mesh::{Mesh, MeshStats, to_faces};
 
 /// What the user chooses for an import: `unit` world units per model unit (16: one model unit
 /// is one tile), `colors` per texture (4 or 16).
@@ -290,30 +295,29 @@ pub(crate) fn decode_image(bytes: &[u8], file: &str) -> Result<Rgba, PartMessage
     })
 }
 
-/// The finding of `bake` as a part message; `area` is the first argument of the VRAM warning.
+/// The finding of `bake` as a part message; `area` is the first argument of the VRAM warning,
+/// `faces` the faces given to `bake` (the uv range names the texture of its face).
 ///
 /// `bake.empty` → `model.no-geometry`; `bake.model-too-big` → `model.too-big` (same args);
 /// `bake.face-out-of-range` → `model.out-of-range` (`[x, y, z, -512, 511]`);
-/// `bake.texture-missing` → `model.material-untextured` (the texture name: a bound texture the
-/// pack has without a palette); the codes of appending keep their args: `texture.side`
-/// `[name, width, height]`, `texture.name` `[name]`, `texture.taken` `["texture" | "palette",
-/// name]`, `texture.pack-full` `[what, value, most]`; `bake.vram-high` → `texture.vram-high`
-/// `[area, vram, most]` (`bake` gives `[vram, most]`, `append_textures` `[area, vram, most]`).
-/// The VRAM finding is a warning: [`bake_state`] gives the state of a part. The uv range has no
-/// part code yet: it keeps the baker's English sentence under `model.invalid` (args: that
-/// sentence) until its own code exists.
-///
-/// Public, not crate-internal, so the library builds without a dead-code exception before
-/// `map_import` calls it.
-pub fn from_bake(m: &BakeMessage, area: u8) -> PartMessage {
+/// `bake.face-uv-range` → `model.uv-range` (`[texture, axis, span]`; the baker gives the face
+/// index, a face outside `faces` keeps it); `bake.texture-missing` → `model.material-untextured`
+/// (the texture name: a bound texture the pack has without a palette); the codes of appending
+/// keep their args: `texture.side` `[name, width, height]`, `texture.name` `[name]`,
+/// `texture.taken` `["texture" | "palette", name]`, `texture.pack-full` `[what, value, most]`;
+/// `bake.vram-high` → `texture.vram-high` `[area, vram, most]` (`bake` gives `[vram, most]`,
+/// `append_textures` `[area, vram, most]`). The VRAM finding is a warning: [`bake_state`] gives
+/// the state of a part.
+pub(crate) fn from_bake(m: &BakeMessage, area: u8, faces: &[Face]) -> PartMessage {
     let message = m.message.clone();
+    let keep = |code: PartCode| PartMessage {
+        code,
+        args: m.args.clone(),
+        message: message.clone(),
+    };
     match m.code {
         BakeCode::Empty => PartMessage::new(PartCode::ModelNoGeometry, &[], message),
-        BakeCode::ModelTooBig => PartMessage {
-            code: PartCode::ModelTooBig,
-            args: m.args.clone(),
-            message,
-        },
+        BakeCode::ModelTooBig => keep(PartCode::ModelTooBig),
         BakeCode::FaceOutOfRange => {
             let corner = m.args.get(1..4).unwrap_or_default();
             let mut args = corner.to_vec();
@@ -324,11 +328,20 @@ pub fn from_bake(m: &BakeMessage, area: u8) -> PartMessage {
                 message,
             }
         }
-        BakeCode::TextureMissing => PartMessage {
-            code: PartCode::ModelMaterialUntextured,
-            args: m.args.clone(),
-            message,
-        },
+        BakeCode::FaceUvRange => {
+            let mut args = m.args.clone();
+            if let Some(first) = args.first_mut()
+                && let Some(face) = first.parse::<usize>().ok().and_then(|i| faces.get(i))
+            {
+                *first = face.texture.clone();
+            }
+            PartMessage {
+                code: PartCode::ModelUvRange,
+                args,
+                message,
+            }
+        }
+        BakeCode::TextureMissing => keep(PartCode::ModelMaterialUntextured),
         BakeCode::VramHigh => {
             let args = match m.args.as_slice() {
                 [_, _, _] => m.args.clone(),
@@ -347,36 +360,260 @@ pub fn from_bake(m: &BakeMessage, area: u8) -> PartMessage {
                 message,
             }
         }
-        BakeCode::TextureSide
-        | BakeCode::TextureName
-        | BakeCode::TextureTaken
-        | BakeCode::PackFull => {
-            let code = match m.code {
-                BakeCode::TextureSide => PartCode::TextureSide,
-                BakeCode::TextureName => PartCode::TextureName,
-                BakeCode::TextureTaken => PartCode::TextureTaken,
-                _ => PartCode::TexturePackFull,
-            };
-            PartMessage {
-                code,
-                args: m.args.clone(),
-                message,
-            }
-        }
-        BakeCode::FaceUvRange => {
-            PartMessage::new(PartCode::ModelInvalid, &[&message], message.clone())
-        }
+        BakeCode::TextureSide => keep(PartCode::TextureSide),
+        BakeCode::TextureName => keep(PartCode::TextureName),
+        BakeCode::TextureTaken => keep(PartCode::TextureTaken),
+        BakeCode::PackFull => keep(PartCode::TexturePackFull),
     }
 }
 
 /// The state a finding of `bake` or of appending gives a part: an error refuses it, a warning
 /// (`texture.vram-high`) only tells; the message as [`from_bake`] maps it.
-pub fn bake_state(m: &BakeMessage, area: u8) -> PartState {
-    let message = from_bake(m, area);
+pub(crate) fn bake_state(m: &BakeMessage, area: u8, faces: &[Face]) -> PartState {
+    let message = from_bake(m, area, faces);
     match m.level {
         Level::Error => PartState::Error(message),
         Level::Warning => PartState::Warning(message),
     }
+}
+
+/// The most textures a map model holds (one material each).
+pub const MODEL_TEXTURES_MAX: usize = 255;
+
+/// Everything `inspect` needs for a model file of map `map`: the bake (nothing written).
+///
+/// `faces` as given to the baker, `nsbmd` the baked model, `pack` the area's map texture pack,
+/// `new` the textures to append to it (empty when every texture is in the pack), `preview` the
+/// figures of the dialog, `state` `Ok` or `Warning(texture.vram-high)` of the own area, `notes`
+/// in the order `model.converted`, the reader's hints, `model.faces-dropped`, `texture.new` /
+/// `texture.reused` per texture, then `texture.vram-high` of the other areas of the pack.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConvertedModel {
+    pub faces: Vec<Face>,
+    pub nsbmd: Vec<u8>,
+    pub pack: u16,
+    pub new: Vec<NewTexture>,
+    pub preview: ImportPreview,
+    pub state: PartState,
+    pub notes: Vec<PartMessage>,
+}
+
+/// Why a model file is refused, with the hints found before (a glTF of lines only: its
+/// `model.parts-ignored` stays next to `model.no-geometry`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRefusal {
+    pub reason: PartMessage,
+    pub notes: Vec<PartMessage>,
+}
+
+impl From<PartMessage> for ModelRefusal {
+    fn from(reason: PartMessage) -> ModelRefusal {
+        ModelRefusal {
+            reason,
+            notes: Vec::new(),
+        }
+    }
+}
+
+/// `part.no-area` `[map]`: no header shows map `map`.
+pub(crate) fn no_area(map: u16) -> PartMessage {
+    PartMessage::new(
+        PartCode::PartNoArea,
+        &[&map],
+        format!(
+            "no map header shows map {map}; without an area there is no texture pack and no light"
+        ),
+    )
+}
+
+/// The area's own `texture.vram-high` from `vram` against `limit` (a warning, `None` within),
+/// and the hints of the other areas of `pack` whose VRAM with `after` (the pack after
+/// appending) is above `limit`.
+pub(crate) fn vram_findings(
+    store: &mut Store,
+    area: u8,
+    pack: u16,
+    after: Option<&[u8]>,
+    vram: usize,
+    limit: usize,
+) -> Result<(Option<PartMessage>, Vec<PartMessage>), KernelError> {
+    let high = |a: u8, vram: usize| {
+        PartMessage::new(
+            PartCode::TextureVramHigh,
+            &[&a, &vram, &limit],
+            format!(
+                "area {a}: the textures take {vram} bytes of VRAM; the largest vanilla area \
+                 takes {limit}"
+            ),
+        )
+    };
+    let own = (vram > limit).then(|| high(area, vram));
+    let mut others = Vec::new();
+    if let Some(after) = after {
+        for other in areas_of_pack(store, pack)? {
+            if other == area {
+                continue;
+            }
+            let v = area_vram(store, other, Some(after))?;
+            if v > limit {
+                others.push(high(other, v));
+            }
+        }
+    }
+    Ok((own, others))
+}
+
+/// The bake of model file `path` for map `map` (rules „Prüfen ohne Schreiben“); nothing is
+/// written. Outer error: the project cannot be read; inner: the refusal with its code.
+///
+/// In order, each refusal with its code: the map's area (`part.no-area`), the model file
+/// (`read_model`), the texture plan against the area's pack (`plan_textures`), at most
+/// [`MODEL_TEXTURES_MAX`] textures (`model.texture-count`), the pack with the new textures
+/// appended (in memory, only when there are new ones), the faces (`to_faces`), the bake (its
+/// refusal through [`from_bake`]). The VRAM of the own area with the new pack is the state
+/// (`Warning(texture.vram-high)`), the other areas of the pack above the vanilla maximum are
+/// hints with the same code.
+pub fn convert_for_map(
+    store: &mut Store,
+    map: u16,
+    path: &Path,
+    opts: &ImportOptions,
+) -> Result<Result<ConvertedModel, ModelRefusal>, KernelError> {
+    opts.check()?;
+    if map_areas(store, map)?.is_empty() {
+        return Ok(Err(no_area(map).into()));
+    }
+    let ctx = bake_context(store, map)?;
+    let format = SourceFormat::of(path);
+    let (mesh, read_notes) = match read_model(path) {
+        Ok(read) => read,
+        Err(reason) => return Ok(Err(reason.into())),
+    };
+    let refuse = |reason: PartMessage| {
+        Ok(Err(ModelRefusal {
+            reason,
+            notes: read_notes.clone(),
+        }))
+    };
+    let plan = match plan_textures(&mesh.materials, &ctx.textures, opts.texconv_colors()) {
+        Ok(plan) => plan,
+        Err(reason) => return refuse(reason),
+    };
+    let count = plan.previews.len();
+    if count > MODEL_TEXTURES_MAX {
+        return refuse(PartMessage::new(
+            PartCode::ModelTextureCount,
+            &[&count, &MODEL_TEXTURES_MAX],
+            format!(
+                "the model uses {count} textures; a map model holds at most {MODEL_TEXTURES_MAX}"
+            ),
+        ));
+    }
+    let (after, textures, vram) = if plan.new.is_empty() {
+        (None, ctx.textures.clone(), ctx.vram_bytes)
+    } else {
+        let before = store
+            .project()
+            .map_tileset_member(ctx.pack)?
+            .ok_or_else(|| {
+                KernelError::Refused(format!(
+                    "map texture pack {:04} is not in the archive",
+                    ctx.pack
+                ))
+            })?;
+        let after = match appended_pack_or_refusal(&before, &plan.new)? {
+            Ok(after) => after,
+            Err(m) => return refuse(from_bake(&m, ctx.area, &[])),
+        };
+        let textures = pack_textures(&after)?;
+        let vram = area_vram(store, ctx.area, Some(&after))?;
+        (Some(after), textures, vram)
+    };
+    let converted = match to_faces(&mesh, opts.unit, &plan.bindings) {
+        Ok(c) => c,
+        Err(reason) => return refuse(reason),
+    };
+    let report = bake(
+        &converted.faces,
+        &BakeInput {
+            style: ctx.style,
+            textures: &textures,
+            vram_bytes: vram,
+            vram_limit: ctx.vram_limit,
+        },
+    );
+    if let Some(m) = report.refusal() {
+        return refuse(from_bake(m, ctx.area, &converted.faces));
+    }
+    // The own area's VRAM is the bake's warning (same VRAM, same limit).
+    let (_, others) = vram_findings(
+        store,
+        ctx.area,
+        ctx.pack,
+        after.as_deref(),
+        vram,
+        ctx.vram_limit,
+    )?;
+    let state = report
+        .messages
+        .iter()
+        .find(|m| m.code == BakeCode::VramHigh)
+        .map_or(PartState::Ok, |m| bake_state(m, ctx.area, &converted.faces));
+    let label = format.map_or("OBJ/glTF", SourceFormat::label);
+    let stats = MeshStats {
+        triangles: report.triangles,
+        ..converted.stats
+    };
+    let mut notes = vec![PartMessage::new(
+        PartCode::ModelConverted,
+        &[
+            &label,
+            &stats.polygons,
+            &stats.quads,
+            &stats.triangles,
+            &report.strips,
+            &report.single_quads,
+        ],
+        format!(
+            "{label} model converted: {} polygons, {} quads, {} triangles, {} strips, {} \
+             single quads",
+            stats.polygons, stats.quads, stats.triangles, report.strips, report.single_quads
+        ),
+    )];
+    notes.extend(read_notes);
+    notes.extend(converted.notes);
+    notes.extend(plan.notes);
+    notes.extend(others);
+    let limit = Project::limits().model.max_bytes.value;
+    let preview = ImportPreview {
+        pack: ctx.pack,
+        area: ctx.area,
+        style: ctx.style,
+        vram_bytes: vram,
+        vram_limit: ctx.vram_limit,
+        textures: plan.previews,
+        model: format.map(|format| ModelPreview {
+            format,
+            stats,
+            strips: report.strips,
+            single_quads: report.single_quads,
+            budget: BudgetItem {
+                used: report.size as u64,
+                max: limit as u64,
+                state: budget_state(report.size as u64, limit as u64),
+            },
+        }),
+        files: vec![path.to_path_buf()],
+    };
+    Ok(Ok(ConvertedModel {
+        faces: converted.faces,
+        nsbmd: report.nsbmd,
+        pack: ctx.pack,
+        new: plan.new,
+        preview,
+        state,
+        notes,
+    }))
 }
 
 #[cfg(test)]
@@ -459,30 +696,35 @@ mod tests {
 
     #[test]
     fn bake_findings_map_to_part_codes() {
-        let m = from_bake(&bake_message(BakeCode::ModelTooBig, &["70000", "61440"]), 3);
+        let m = from_bake(
+            &bake_message(BakeCode::ModelTooBig, &["70000", "61440"]),
+            3,
+            &[],
+        );
         assert_eq!(m.code, PartCode::ModelTooBig);
         assert_eq!(m.args, ["70000", "61440"]);
-        let m = from_bake(&bake_message(BakeCode::Empty, &[]), 3);
+        let m = from_bake(&bake_message(BakeCode::Empty, &[]), 3, &[]);
         assert_eq!((m.code, m.args.len()), (PartCode::ModelNoGeometry, 0));
         let m = from_bake(
             &bake_message(BakeCode::FaceOutOfRange, &["7", "640", "0", "-1"]),
             3,
+            &[],
         );
         assert_eq!(m.code, PartCode::ModelOutOfRange);
         assert_eq!(m.args, ["640", "0", "-1", "-512", "511"]);
-        let m = from_bake(&bake_message(BakeCode::TextureMissing, &["grass"]), 3);
+        let m = from_bake(&bake_message(BakeCode::TextureMissing, &["grass"]), 3, &[]);
         assert_eq!(m.code, PartCode::ModelMaterialUntextured);
         assert_eq!(m.args, ["grass"]);
         // VRAM: `bake` has no area, appending names it; a warning, not an error.
         let mut vram = bake_message(BakeCode::VramHigh, &["120000", "110640"]);
         vram.level = Level::Warning;
-        let m = from_bake(&vram, 3);
+        let m = from_bake(&vram, 3, &[]);
         assert_eq!(m.code, PartCode::TextureVramHigh);
         assert_eq!(m.args, ["3", "120000", "110640"]);
         assert_eq!(m.message, "area 3: why");
-        assert_eq!(bake_state(&vram, 3), PartState::Warning(m));
+        assert_eq!(bake_state(&vram, 3, &[]), PartState::Warning(m));
         vram.args = vec!["5".into(), "120000".into(), "110640".into()];
-        let m = from_bake(&vram, 3);
+        let m = from_bake(&vram, 3, &[]);
         assert_eq!(
             (m.args.as_slice(), m.message.as_str()),
             (
@@ -510,14 +752,22 @@ mod tests {
             ),
         ] {
             let found = bake_message(code, args);
-            let m = from_bake(&found, 3);
+            let m = from_bake(&found, 3, &[]);
             assert_eq!((m.code, m.args.as_slice()), (part, &found.args[..]));
-            assert_eq!(bake_state(&found, 3), PartState::Error(m));
+            assert_eq!(bake_state(&found, 3, &[]), PartState::Error(m));
         }
-        let m = from_bake(&bake_message(BakeCode::FaceUvRange, &["0", "s", "4000"]), 3);
-        assert_eq!(
-            (m.code, m.message.as_str()),
-            (PartCode::ModelInvalid, "why")
-        );
+        // The uv range names the texture of the face; a face outside the list keeps its index.
+        let faces = [Face {
+            corners: [[0, 0, 0], [0, 0, 16], [16, 0, 16], [16, 0, 0]],
+            uv: [[0, 0], [0, 16], [4096, 16], [4096, 0]],
+            texture: "weit".into(),
+            layer: 0,
+        }];
+        let uv = bake_message(BakeCode::FaceUvRange, &["0", "s", "4096"]);
+        let m = from_bake(&uv, 3, &faces);
+        assert_eq!(m.code, PartCode::ModelUvRange);
+        assert_eq!(m.args, ["weit", "s", "4096"]);
+        assert_eq!(m.message, "why");
+        assert_eq!(from_bake(&uv, 3, &[]).args, ["0", "s", "4096"]);
     }
 }
