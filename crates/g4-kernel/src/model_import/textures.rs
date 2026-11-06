@@ -423,7 +423,8 @@ mod tests {
     ///
     /// A palette hit: the palette has a colour within one 5-bit step per channel of the
     /// pixel's BGR555 colour `q`. (The median cut gives box means, so none of the 40 colours
-    /// is in the palette exactly; measured: 0 of 40.)
+    /// is in the palette exactly; measured: 0 of 40.) Over all pixels: at most 3 steps per
+    /// channel and a mean colour error of at most 13.0.
     #[test]
     fn a_64x64_png_with_40_colours_becomes_a_16_colour_texture_within_one_step() {
         let dir = tempfile::tempdir().unwrap();
@@ -482,6 +483,10 @@ mod tests {
              exact={exact}/40",
             hit_colours.len()
         );
+        // The quality of the quantizer over every pixel, so a worse median cut is caught:
+        // measured 3 steps and 12.82 (texconv of 6.1, deterministic); the bounds keep that.
+        assert!(max_step <= 3, "max_step {max_step}");
+        assert!(mean <= 13.0, "mean {mean}");
     }
 
     #[test]

@@ -257,7 +257,11 @@ Kartenpakets ihres Gebiets.
   Farben steht genau in der Palette (0/40: der Median-Cut nimmt Mittelwerte der Boxen); 8 der
   40 Farben haben eine Palettenfarbe innerhalb einer 5-Bit-Stufe je Kanal („Treffer“, 816 von
   4 096 Pixeln), und jedes dieser Pixel kommt innerhalb einer Stufe zurück. Über alle Pixel
-  höchstens 3 Stufen je Kanal, mittlerer Farbfehler 12,8 (RGB8 je Kanal). Log:
+  höchstens 3 Stufen je Kanal, mittlerer Farbfehler 12,8 (RGB8 je Kanal). Der Test prüft
+  deshalb über alle Pixel `max_step ≤ 3` und `mean ≤ 13,0`: die Treffer allein sichert schon
+  `texconv::nearest`, erst die Grenzen fangen einen schlechteren Median-Cut (der Konverter ist
+  deterministisch, die Grenzen sind die gemessenen Werte, aufgerundet). Das Gate der
+  Spezifikation wörtlich (genaue Palettenfarbe) ergibt mit diesem Bild 0/40 Treffer. Log:
   `png40 hits=8/40 pixels=816/4096 max_step=3 mean=12.8203125 exact=0/40`.
 
 ## Fehlerverhalten
