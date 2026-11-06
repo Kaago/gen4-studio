@@ -2,9 +2,12 @@
 //! facts the map import needs (model count, material texture and palette names).
 //! See `docs/formats/nsbmd_header.md`.
 //!
-//! Nothing here decodes geometry: the MDL0 block is moved byte for byte.
+//! A thin shell for the import: nothing here decodes geometry, the MDL0 block is moved
+//! byte for byte. The dictionaries are read with [`crate::nitro_dict`]; the structure of
+//! the whole model (bones, SBC, materials, shapes) lives in [`crate::nsbmd`].
 
 use crate::error::FormatError;
+use crate::nitro_dict::{self, Dict};
 
 const BMD0_MAGIC: &[u8; 4] = b"BMD0";
 const MDL0_MAGIC: &[u8; 4] = b"MDL0";
@@ -16,7 +19,6 @@ const VERSION: u16 = 0x0002;
 pub const HEADER_LEN: usize = 16;
 /// Map models carry the model block and at most an embedded texture block.
 pub const MAX_BLOCKS: usize = 2;
-const NAME_LEN: usize = 16;
 
 /// One block of the container: tag, offset from the file start and its own size field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,10 +45,6 @@ fn slice_at(bytes: &[u8], off: usize, len: usize) -> Result<&[u8], FormatError> 
     bytes
         .get(off..end)
         .ok_or_else(|| truncated(end, bytes.len()))
-}
-
-fn u8_at(bytes: &[u8], off: usize) -> Result<u8, FormatError> {
-    Ok(slice_at(bytes, off, 1)?[0])
 }
 
 fn u16_at(bytes: &[u8], off: usize) -> Result<u16, FormatError> {
@@ -159,46 +157,23 @@ pub fn strip_tex0(bytes: &[u8]) -> Result<Vec<u8>, FormatError> {
     Ok(out)
 }
 
-/// A Nitro resource dictionary at `off`: its names and the offset of its data entries.
-struct Dict {
-    names: Vec<String>,
-    data: usize,
-    unit: usize,
+/// The dictionary at `off` (vanilla layout, see `nitro_dict::read`).
+fn dict_at(bytes: &[u8], off: usize) -> Result<Dict, FormatError> {
+    Ok(nitro_dict::read(bytes, off)?.0)
 }
 
-fn dict_at(bytes: &[u8], off: usize) -> Result<Dict, FormatError> {
-    let revision = u8_at(bytes, off)?;
-    if revision != 0 {
-        return Err(FormatError::BadSignature {
-            expected: 0,
-            found: u16::from(revision),
-        });
-    }
-    let count = u8_at(bytes, off + 1)? as usize;
-    let entry = off + u16_at(bytes, off + 6)? as usize;
-    let unit = u16_at(bytes, entry)? as usize;
-    let names_at = entry + u16_at(bytes, entry + 2)? as usize;
-    let names = (0..count)
-        .map(|i| {
-            let raw = slice_at(bytes, names_at + NAME_LEN * i, NAME_LEN)?;
-            let len = raw.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
-            Ok(raw[..len]
-                .iter()
-                .map(|&b| if b < 0x20 { '.' } else { b as char })
-                .collect())
-        })
-        .collect::<Result<Vec<String>, FormatError>>()?;
-    Ok(Dict {
-        names,
-        data: entry + 4,
-        unit,
-    })
+/// The names of `dict` as the readers show them.
+fn names_of(dict: &Dict) -> Vec<String> {
+    dict.names.iter().map(nitro_dict::name_text).collect()
 }
 
 /// Offset of the `MDL0` block and its model dictionary.
 fn models(bytes: &[u8]) -> Result<(usize, Dict), FormatError> {
     let mdl0 = NsbmdHeader::read(bytes)?.mdl0()?.offset as usize;
-    Ok((mdl0, dict_at(bytes, mdl0 + 8)?))
+    let at = mdl0
+        .checked_add(8)
+        .ok_or_else(|| truncated(usize::MAX, bytes.len()))?;
+    Ok((mdl0, dict_at(bytes, at)?))
 }
 
 /// Number of models in the `MDL0` dictionary. The game takes model 0 and asserts that
@@ -217,11 +192,20 @@ fn material_names(bytes: &[u8]) -> Result<(Vec<String>, Vec<String>), FormatErro
             max: 1,
         });
     }
-    let model = mdl0 + u32_at(bytes, dict.data)? as usize;
-    let mat = model + u32_at(bytes, model + 8)? as usize;
-    let tex = mat + u16_at(bytes, mat)? as usize;
-    let pal = mat + u16_at(bytes, mat + 2)? as usize;
-    Ok((dict_at(bytes, tex)?.names, dict_at(bytes, pal)?.names))
+    let datum = dict.entry(0);
+    let first = u32::from_le_bytes([datum[0], datum[1], datum[2], datum[3]]) as usize;
+    let add = |a: usize, b: usize| {
+        a.checked_add(b)
+            .ok_or_else(|| truncated(usize::MAX, bytes.len()))
+    };
+    let model = add(mdl0, first)?;
+    let mat = add(model, u32_at(bytes, add(model, 8)?)? as usize)?;
+    let tex = add(mat, u16_at(bytes, mat)? as usize)?;
+    let pal = add(mat, u16_at(bytes, add(mat, 2)?)? as usize)?;
+    Ok((
+        names_of(&dict_at(bytes, tex)?),
+        names_of(&dict_at(bytes, pal)?),
+    ))
 }
 
 /// Texture names the materials of model 0 bind (MDL0 texture-to-material dictionary).

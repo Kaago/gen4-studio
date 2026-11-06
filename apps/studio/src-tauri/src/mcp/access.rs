@@ -258,6 +258,9 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("get_map_heights", Kind::Read),
     ("set_map_terrain", Kind::Write),
     ("get_map_budget", Kind::Read),
+    // One undo step (appending to the map texture pack and the model import, squashed); the
+    // files under `outDir` are build output, confined to `build/`. Only through `g4_call`.
+    ("bake_test", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -1313,5 +1316,12 @@ mod tests {
         assert_eq!(kind("get_map_budget"), Kind::Read);
         // One undo step for BDHC and permissions.
         assert_eq!(kind("set_map_terrain"), Kind::Write);
+    }
+
+    #[test]
+    fn bake_test_is_a_write() {
+        // One undo step (appending to the pack and the model import, squashed); the files
+        // under `outDir` are build output under `build/`.
+        assert_eq!(kind_of("bake_test"), Some(Kind::Write));
     }
 }

@@ -64,6 +64,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         include_str!("../../../../../docs/formats/ncgr_nclr.md"),
     ),
     (
+        "nsbmd",
+        include_str!("../../../../../docs/formats/nsbmd.md"),
+    ),
+    (
         "nsbmd_header",
         include_str!("../../../../../docs/formats/nsbmd_header.md"),
     ),

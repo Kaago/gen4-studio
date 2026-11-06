@@ -45,4 +45,5 @@ pub mod live;
 
 pub mod delete;
 
+pub mod bake;
 pub mod terrain;

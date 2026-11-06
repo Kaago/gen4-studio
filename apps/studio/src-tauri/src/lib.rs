@@ -19,6 +19,7 @@ mod state;
 /// The state behind the commands (for the dev bridge and the tests of the MCP server).
 pub use state::AppState;
 
+use commands::bake_test;
 use commands::close_project;
 use commands::git_commit_prepare;
 use commands::resolve_text_conflicts;
@@ -278,7 +279,8 @@ pub fn run() {
             story_delete,
             get_map_heights,
             set_map_terrain,
-            get_map_budget
+            get_map_budget,
+            bake_test
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

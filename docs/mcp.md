@@ -361,6 +361,8 @@ Mit `--expert` kommen `g4_commands` und `g4_call` dazu: `g4_call {command, args}
 
 Namen der Musikstücke (seit 3d.8): der Befehl `name_tables` (lesend, kein kuratiertes Werkzeug; über `g4_call` mit `--expert` und über die Brücke) trägt `sounds` (`id`, `name`, `used_in` oder `null`), die Musikstücke der Befehlsdatenbank der Familie nach Nummer.
 
+Testfläche (seit 6.1): `bake_test {map, block?, outDir?}` (schreibend, ein Undo-Schritt, nur über `g4_call`): backt die Testfläche aus Gutachten A §2.7 in Karte `map` und hängt `g4_bake_a`/`g4_bake_b` an ihr Kartentextur-Paket an; Antwort mit `pack`, `appended`, `report` (Größe, Anteil an 0xF000, Texturen, VRAM, Meldungen) und den Dateien unter `outDir` (Standard keine; nur unter `build/`). Bis 6.4a das Werkzeug des Gates 6.1. `block` ist die Kachel `[x, z]` des Blocks (0 bis 30), ohne sie die Mitte des Rahmens des alten Modells; die Dateien heißen `bake-NNNN.nsbmd` (Kartennummer) und `maptex-NNNN.nsbtx` (Paketnummer), ihre Pfade stehen in `model_file` und `pack_file`, und `g4k check-data --expect map_texture:<pack>:sha1=…` prüft das Paket im gebauten ROM. Ein Paket, das sich nicht lesen lässt, ein Block außerhalb der Karte und eine Ablehnung des Bäckers schreiben nichts.
+
 ### Höhenraster setzen (bis 6.3a/6.4a)
 
 Bis das Weltformat (6.3a) und das Malen (6.4a) da sind, setzt ein Agent das Gelände einer Karte mit `set_map_terrain`. „Mach auf Karte 12 rechts ein Plateau von 16 E mit einer Treppe hinauf“ führt zu einem Aufruf mit 32 Zeilen je Liste, etwa (Zeilen gekürzt):

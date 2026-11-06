@@ -693,6 +693,14 @@ fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<PartMessage>), P
 /// container header (`BMD0`, byte-order mark `FFFE`, version 2, size field equal to the
 /// length, header 16, 1 or 2 blocks inside the file), exactly one `MDL0` block holding
 /// exactly one model, and at most `model.max_bytes`. The error is the reason.
+///
+/// The model dictionary is read strictly (`g4_formats::nitro_dict::read`, the vanilla Nitro
+/// layout: revision 0, the vanilla tree word, the entry offset and the size fields exactly as
+/// the writer lays them out); a dictionary in a layout the writer would not produce is
+/// refused as an invalid model, even where the game might still load it. This holds for the
+/// import and equally for the stored-model check `map.model-invalid` (`checks/world.rs`): a
+/// model from another tool with such a dictionary is reported there, where the reader before
+/// Phase 6.1 only checked the revision.
 pub(crate) fn check_model_bytes(model: &[u8]) -> Result<(), PartMessage> {
     let header = NsbmdHeader::read(model).map_err(invalid_model)?;
     let blocks = header.blocks.iter().filter(|b| &b.tag == b"MDL0").count();
@@ -1016,6 +1024,20 @@ fn texture_note(
 
 /// Map texture packs of the area data of every header whose matrix shows map `map`.
 fn map_packs(store: &mut Store, map: u16) -> Result<Vec<u16>, KernelError> {
+    let mut packs = Vec::new();
+    for area in map_areas(store, map)? {
+        if let Some(pack) = store.map_tileset_index(area)?
+            && !packs.contains(&pack)
+        {
+            packs.push(pack);
+        }
+    }
+    Ok(packs)
+}
+
+/// The area data of every header whose matrix shows map `map`, in header order, each once
+/// (a matrix with header ids counts only the cells of that header).
+pub fn map_areas(store: &mut Store, map: u16) -> Result<Vec<u8>, KernelError> {
     let headers: Vec<(usize, u16, u8)> = store
         .header_table()?
         .iter()
@@ -1039,15 +1061,34 @@ fn map_packs(store: &mut Store, map: u16) -> Result<Vec<u16>, KernelError> {
             areas.push(area);
         }
     }
-    let mut packs = Vec::new();
-    for area in areas {
-        if let Some(pack) = store.map_tileset_index(area)?
-            && !packs.contains(&pack)
-        {
-            packs.push(pack);
-        }
-    }
-    Ok(packs)
+    Ok(areas)
+}
+
+/// Writes `model` as the model of map `map` (the checks of a model import first) as one map
+/// step `label`. Returns the changed assets (empty when the map already holds the model).
+pub fn import_model_bytes(
+    store: &mut Store,
+    map: u16,
+    model: Vec<u8>,
+    label: &str,
+) -> Result<Vec<AssetId>, KernelError> {
+    refuse_dp(store)?;
+    let (model, _, _) = check_model(&model).map_err(|reason| {
+        KernelError::Import(format!("{}: {}", Part::Model.label(), reason.message))
+    })?;
+    let depth = store.undo_depth();
+    store.edit_map(map, label, |m| {
+        m.model = model;
+        Ok(())
+    })?;
+    Ok(if store.undo_depth() > depth {
+        vec![AssetId {
+            kind: AssetKind::Map,
+            index: map,
+        }]
+    } else {
+        Vec::new()
+    })
 }
 
 #[cfg(all(test, feature = "test-support"))]
@@ -1529,5 +1570,69 @@ mod tests {
             serde_json::to_value(PartState::Ok).unwrap(),
             serde_json::json!({ "kind": "ok" })
         );
+    }
+
+    #[test]
+    fn import_model_bytes_is_one_map_step_and_refuses_oversize() {
+        use crate::bake::{AreaStyle, BakeInput, Face, PackTexture, VANILLA_VRAM_MAX_PT, bake};
+        let mut f = fixture();
+        let old = f.store.map(0).unwrap().clone();
+
+        // 0xF004 bytes: one model, four bytes over the buffer.
+        let header = model_plain().len() - mdl0_block(&["m"], &[], &[]).len();
+        let mut block = mdl0_block(&["m"], &[], &[]);
+        block.resize(0xF004 - header, 0);
+        let len = block.len() as u32;
+        block[4..8].copy_from_slice(&len.to_le_bytes());
+        let big = bmd0(&[block]);
+        assert_eq!(big.len(), 0xF004);
+        let err = import_model_bytes(&mut f.store, 0, big, "zu groß").unwrap_err();
+        assert!(err.to_string().contains("61440"), "{err}");
+        assert_eq!(f.store.map(0).unwrap(), &old);
+        assert!(f.store.history().0.is_empty());
+
+        let textures = [PackTexture {
+            name: "gras".into(),
+            palette: "gras_pl".into(),
+            width: 16,
+            height: 16,
+        }];
+        let face = Face {
+            corners: [[0, 0, 0], [0, 0, 16], [16, 0, 16], [16, 0, 0]],
+            uv: [[0, 0], [0, 16], [16, 16], [16, 0]],
+            texture: "gras".into(),
+            layer: 0,
+        };
+        let report = bake(
+            &[face],
+            &BakeInput {
+                style: AreaStyle::Outdoor,
+                textures: &textures,
+                vram_bytes: 0,
+                vram_limit: VANILLA_VRAM_MAX_PT,
+            },
+        );
+        assert!(report.refusal().is_none(), "{:?}", report.messages);
+        let changed =
+            import_model_bytes(&mut f.store, 0, report.nsbmd.clone(), "Modell gebacken").unwrap();
+        assert_eq!(changed, vec![map_id(0)]);
+        assert_eq!(f.store.map(0).unwrap().model, report.nsbmd);
+        assert_eq!(f.store.history().0, ["Modell gebacken"]);
+        // The same model again changes nothing.
+        let again =
+            import_model_bytes(&mut f.store, 0, report.nsbmd.clone(), "Modell gebacken").unwrap();
+        assert!(again.is_empty());
+        assert_eq!(f.store.history().0.len(), 1);
+        f.store.undo().unwrap();
+        assert_eq!(f.store.map(0).unwrap(), &old);
+    }
+
+    #[test]
+    fn map_areas_lists_the_areas_of_every_header_that_shows_the_map() {
+        let mut f = fixture();
+        // Both headers use matrix 0 (maps 0 and 1) without header ids; map 2 is in no matrix.
+        assert_eq!(map_areas(&mut f.store, 0).unwrap(), [0, 1]);
+        assert_eq!(map_areas(&mut f.store, 1).unwrap(), [0, 1]);
+        assert!(map_areas(&mut f.store, 2).unwrap().is_empty());
     }
 }
