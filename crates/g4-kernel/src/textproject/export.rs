@@ -851,4 +851,63 @@ mod tests {
         assert_eq!(report.written, 0, "{report:#?}");
         assert_eq!(fx.text(MAP), broken);
     }
+
+    const MAP: &str = "data/maps/0000.json";
+
+    fn forced(fx: &TextFixture) -> Result<ExportReport, KernelError> {
+        export(
+            &fx.project(),
+            &fx.base(),
+            &ExportOptions {
+                adopt_scripts: true,
+                force: true,
+            },
+        )
+    }
+
+    #[test]
+    fn export_keeps_a_tombstoned_world_map() {
+        let fx = TextFixture::exported();
+        let world = busy_world();
+        let file = crate::textproject::tombstone::with_envelope(
+            with_world(fx.read(MAP), Some(&world)).unwrap(),
+        );
+        fx.write(MAP, &file);
+        // Carried first, then the envelope: world after `source`, `deleted` last.
+        let v: serde_json::Value = serde_json::from_slice(&file).unwrap();
+        let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys[..2], ["source", "world"]);
+        assert_eq!(keys.last(), Some(&"deleted"));
+        for _ in 0..2 {
+            let report = forced(&fx).unwrap();
+            assert_eq!(report.written, 0, "{report:#?}");
+            assert_eq!(fx.read(MAP), file);
+        }
+        assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(world));
+    }
+
+    #[test]
+    fn export_of_a_locked_world_map_leaves_its_file() {
+        let fx = TextFixture::exported();
+        let file = with_world(fx.read(MAP), Some(&busy_world())).unwrap();
+        fx.write(MAP, &file);
+        // The member of map 0 stops decoding: the export would lock it and drop the world.
+        let p = fx.project();
+        let member = crate::textproject::arts::member_rel(&p, AssetKind::Map, 0);
+        let mut broken = fx.read(&member.to_string_lossy());
+        broken.push(0);
+        fx.write(&member.to_string_lossy(), &broken);
+        let err = forced(&fx).unwrap_err();
+        let KernelError::Refused(text) = err else {
+            panic!("{err:?}")
+        };
+        assert!(
+            text.starts_with(
+                "textproject.map-source: Karte 0000 ist eine Welt-Karte, ihr Member lässt sich \
+                 nicht lesen;"
+            ),
+            "{text}"
+        );
+        assert_eq!(fx.read(MAP), file);
+    }
 }

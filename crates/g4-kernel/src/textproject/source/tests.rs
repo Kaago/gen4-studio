@@ -1250,3 +1250,36 @@ fn writing_a_map_keeps_its_world() {
         painted
     );
 }
+
+#[test]
+fn saving_a_locked_world_map_leaves_its_file() {
+    use crate::world::doc::fixtures::busy_world;
+    use crate::world::keep::with_world;
+    const MAP: &str = "data/maps/0000.json";
+    let fx = TextFixture::exported();
+    let file = with_world(fx.read(MAP), Some(&busy_world())).unwrap();
+    fx.write(MAP, &file);
+    let p = fx.project();
+    let mut source = EntitySource::open(&p).unwrap();
+    // A member that does not decode would be written as `{locked, raw}`: refused, file kept.
+    let mut broken = member(&fx, AssetKind::Map, 0);
+    broken.push(0);
+    let before = tree(&fx);
+    let err = source
+        .write(
+            &p,
+            &[(id(AssetKind::Map, 0), broken)],
+            &|_| None,
+            &|_, _| false,
+        )
+        .unwrap_err();
+    let KernelError::Refused(text) = err else {
+        panic!("{err:?}")
+    };
+    assert!(
+        text.starts_with("textproject.map-source: Karte 0000 ist eine Welt-Karte,"),
+        "{text}"
+    );
+    assert_eq!(fx.read(MAP), file);
+    assert_eq!(changed(&before, &tree(&fx)), Vec::<PathBuf>::new());
+}

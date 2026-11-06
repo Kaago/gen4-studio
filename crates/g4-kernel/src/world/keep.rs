@@ -55,8 +55,8 @@ pub fn world_field(bytes: &[u8]) -> Result<Option<WorldJson>, KernelError> {
 /// left as `binary`).
 ///
 /// `world` goes right after `source`; every other key and its bytes stay as `fresh` has them
-/// (the tombstone envelope too). A locked map (`{locked, raw}`) has no place for a world and
-/// is returned as it is; `fresh` that is no JSON object is `Err`.
+/// (the tombstone envelope too). A locked map (`{locked, raw}`) has no place for a world: with
+/// `world` it is refused, without it returned as it is; `fresh` that is no JSON object is `Err`.
 pub fn with_world(fresh: Vec<u8>, world: Option<&WorldJson>) -> Result<Vec<u8>, KernelError> {
     match world {
         Some(world) => put(
@@ -74,7 +74,8 @@ pub fn with_world(fresh: Vec<u8>, world: Option<&WorldJson>) -> Result<Vec<u8>, 
 /// unchanged, and so does one that is no JSON object (there is nothing to keep). The `source`
 /// and `world` of every other file are taken as they are, as JSON values: a world the check
 /// refuses (a typo, `source` and `world` apart) is the user's to mend, never the writer's to
-/// drop, and it never stops a save or an export.
+/// drop, and it never stops a save or an export. Only a locked `fresh` with a world to carry is
+/// refused ([`KernelError::Refused`], `textproject.map-source`): writing it would drop the world.
 pub fn carry_world(on_disk: Option<&[u8]>, fresh: Vec<u8>) -> Result<Vec<u8>, KernelError> {
     let Some(Ok(Value::Object(mut disk))) = on_disk.map(serde_json::from_slice::<Value>) else {
         return Ok(fresh);
@@ -87,7 +88,13 @@ pub fn carry_world(on_disk: Option<&[u8]>, fresh: Vec<u8>) -> Result<Vec<u8>, Ke
     put(fresh, source.unwrap_or(Value::Null), world)
 }
 
-/// `fresh` with `source` set to `source` and `world` (when given) right after it.
+/// `fresh` with `source` set to `source` and `world` (when given) right after it; a `fresh`
+/// without `source` gets both in front.
+///
+/// A locked `fresh` (`{locked, raw}`: the member does not decode) has no place for a world:
+/// with a world to carry (`world` given or `source` `"world"`) it is refused
+/// ([`locked_world_refusal`]), so the file on disk keeps its world; without one it is returned
+/// as it is.
 fn put(fresh: Vec<u8>, source: Value, world: Option<Value>) -> Result<Vec<u8>, KernelError> {
     let value: Value = serde_json::from_slice(&fresh).map_err(|e| {
         KernelError::InvalidProject(format!("map JSON written from its member: {e}"))
@@ -97,12 +104,23 @@ fn put(fresh: Vec<u8>, source: Value, world: Option<Value>) -> Result<Vec<u8>, K
             "map JSON written from its member is no object".to_owned(),
         ));
     };
-    if object.contains_key(LOCKED_KEY) {
+    if let Some(locked) = object.get(LOCKED_KEY) {
+        if world.is_some() || source.as_str() == Some(MAP_SOURCE_WORLD) {
+            return Err(KernelError::Refused(locked_world_refusal(
+                locked.as_str().unwrap_or_default(),
+            )));
+        }
         return Ok(fresh);
     }
     let mut world = world;
     let mut source = Some(source);
-    let mut out = Map::with_capacity(object.len() + 1);
+    let mut out = Map::with_capacity(object.len() + 2);
+    if !object.contains_key(SOURCE_KEY) {
+        out.insert(SOURCE_KEY.to_owned(), source.take().unwrap_or(Value::Null));
+        if let Some(world) = world.take() {
+            out.insert(WORLD_KEY.to_owned(), world);
+        }
+    }
     for (key, value) in object {
         match key.as_str() {
             WORLD_KEY => {}
@@ -118,6 +136,26 @@ fn put(fresh: Vec<u8>, source: Value, world: Option<Value>) -> Result<Vec<u8>, K
         }
     }
     Ok(to_canonical(&Value::Object(out)))
+}
+
+/// „textproject.map-source: Karte 0123 ist eine Welt-Karte, ihr Member lässt sich nicht lesen;
+/// Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder die Welt aus der Datei
+/// sichern).“ The number comes from the reason of the locked member (`map 0123: …`); without
+/// one the sentence says „Diese Karte“.
+fn locked_world_refusal(reason: &str) -> String {
+    let number = reason
+        .strip_prefix("map ")
+        .and_then(|rest| rest.get(..4))
+        .filter(|digits| digits.bytes().all(|b| b.is_ascii_digit()));
+    let map = match number {
+        Some(digits) => format!("Karte {digits}"),
+        None => "Diese Karte".to_owned(),
+    };
+    format!(
+        "{MAP_SOURCE_CODE}: {map} ist eine Welt-Karte, ihr Member lässt sich nicht lesen; \
+         Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder die Welt aus der \
+         Datei sichern)."
+    )
 }
 
 /// „source: „world“ braucht das Objekt `world`.“ as a `textproject.map-source` error.
@@ -214,12 +252,13 @@ mod tests {
         let fresh = fresh();
         assert_eq!(carry_world(None, fresh.clone()).unwrap(), fresh);
         assert_eq!(carry_world(Some(&fresh), fresh.clone()).unwrap(), fresh);
-        // A locked map on disk has no world; a fresh locked map takes none.
+        // A locked map on disk has no world; a fresh locked map over a binary file stays locked.
         let locked = to_canonical(&json!({"locked": "map 0001: x", "raw": {"hex": "00"}}));
         assert_eq!(world_field(&locked).unwrap(), None);
         assert_eq!(carry_world(Some(&locked), fresh.clone()).unwrap(), fresh);
+        assert_eq!(carry_world(Some(&fresh), locked.clone()).unwrap(), locked);
+        assert_eq!(with_world(locked.clone(), None).unwrap(), locked);
         let on_disk = with_world(fresh.clone(), Some(&one_tile_world())).unwrap();
-        assert_eq!(carry_world(Some(&on_disk), locked.clone()).unwrap(), locked);
 
         // A world that does not read, or source and world apart, is carried as it is (the
         // check reports it); `world_field` refuses it with its path.
@@ -277,5 +316,68 @@ mod tests {
         assert_eq!(binary, fresh());
         assert_eq!(world_field(&binary).unwrap(), None);
         assert_eq!(with_world(fresh(), None).unwrap(), fresh());
+    }
+
+    #[test]
+    fn a_locked_map_refuses_to_drop_its_world() {
+        let world_file = with_world(fresh(), Some(&one_tile_world())).unwrap();
+        let locked = to_canonical(&json!({
+            "locked": "map 0123: does not write back byte for byte",
+            "raw": {"file": "0123.map.bin"}
+        }));
+        let refusal = "textproject.map-source: Karte 0123 ist eine Welt-Karte, ihr Member lässt \
+                       sich nicht lesen; Schreiben verlöre das Weltobjekt. Erst den Member \
+                       reparieren (oder die Welt aus der Datei sichern).";
+        let refused = |r: Result<Vec<u8>, KernelError>| match r {
+            Err(KernelError::Refused(text)) => text,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            refused(carry_world(Some(&world_file), locked.clone())),
+            refusal
+        );
+        assert_eq!(
+            refused(with_world(locked.clone(), Some(&one_tile_world()))),
+            refusal
+        );
+        // `source: "world"` alone (its world missing) is a world map too.
+        let mut v: Value = serde_json::from_slice(&world_file).unwrap();
+        v.as_object_mut().unwrap().remove("world");
+        assert_eq!(
+            refused(carry_world(Some(&to_canonical(&v)), locked.clone())),
+            refusal
+        );
+        // A reason without the map's number: „Diese Karte“.
+        let other = to_canonical(&json!({"locked": "kaputt", "raw": {"hex": "00"}}));
+        assert!(
+            refused(carry_world(Some(&world_file), other))
+                .starts_with("textproject.map-source: Diese Karte ist eine Welt-Karte,")
+        );
+    }
+
+    #[test]
+    fn a_fresh_file_without_source_gets_source_and_world_in_front() {
+        let mut v: Value = serde_json::from_slice(&fresh()).unwrap();
+        // `shift_remove` keeps the order of the other keys.
+        v.as_object_mut().unwrap().shift_remove("source");
+        let world = one_tile_world();
+        let written = with_world(to_canonical(&v), Some(&world)).unwrap();
+        assert_eq!(
+            keys(&written),
+            [
+                "source",
+                "world",
+                "permissions",
+                "buildings",
+                "model",
+                "bdhc"
+            ]
+        );
+        assert_eq!(world_field(&written).unwrap(), Some(world));
+        let on_disk = with_world(fresh(), Some(&one_tile_world())).unwrap();
+        assert_eq!(
+            carry_world(Some(&on_disk), to_canonical(&v)).unwrap(),
+            on_disk
+        );
     }
 }
