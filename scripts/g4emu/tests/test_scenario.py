@@ -10,7 +10,7 @@ import yaml
 from g4emu import scenario
 from g4emu.cli import main
 from g4emu.scenario import (
-    Scenario, bridge_command, g4k_command, load_scenario, resolve, run_scenario, substitute,
+    Scenario, bridge_command, g4k_command, import_samples_command, load_scenario, resolve, run_scenario, substitute,
 )
 
 SCENARIO_YAML = """\
@@ -1489,6 +1489,49 @@ check:
 """
     sc = load_scenario(write_yaml(tmp_path, text), {"KOPIE": "/k"})
     assert sc.prepare and sc.edits[1][2] == {"expect": [{"error": "zu groß"}]}
+
+
+def test_make_import_samples_is_a_prepare_step(tmp_path, roms, monkeypatch, capsys):
+    text = "game: CPUD\nprepare:\n  - [make-import-samples, {path: import}]\nedits: []\n"
+    assert load_scenario(write_yaml(tmp_path, text), {}).prepare == [["make-import-samples", {"path": "import"}]]
+    for prepare, message in (("[[make-import-samples, {}]]", "path fehlt"),
+                             ("[[make-import-samples, {path: x, bytes: 70000}]]", "bytes")):
+        with pytest.raises(ValueError, match=message):
+            load_scenario(write_yaml(tmp_path, f"game: CPUD\nprepare: {prepare}\nedits: []\n"), {})
+    assert import_samples_command(["/x/g4k"], Path("/k/import")) == ["/x/g4k", "import-samples", "/k/import"]
+
+    # run: the folder is made in the copy and `g4k import-samples <folder>` writes into it
+    args = tmp_path / "g4k-args"
+    monkeypatch.setenv("G4K_BIN", str(make_fake_g4k(tmp_path, f'echo "$@" >> {args}\ntouch "$2/g4_imp_cube.obj"\n')))
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, "exit 0\n")))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    project = (roms / "_testkopien" / "proj").resolve()
+    sc = simple_scenario(prepare=[["make-import-samples", {"path": "import"}]], play=[])
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert args.read_text().split() == ["import-samples", str(project / "import")]
+    assert (project / "import" / "g4_imp_cube.obj").is_file()
+    assert "make-import-samples" in captured.err
+
+    # a g4k that fails ends the scenario before the edits
+    monkeypatch.setenv("G4K_BIN", str(make_fake_g4k(tmp_path, "echo kaputt >&2\nexit 3\n")))
+    assert run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves") == 1
+    assert "kaputt" in capsys.readouterr().err
+
+    # a folder outside the project copy is refused like with make-oversize-nsbmd; g4k is not called
+    args.unlink()
+    monkeypatch.setenv("G4K_BIN", str(make_fake_g4k(tmp_path, f'echo "$@" >> {args}\n')))
+    for path in (str(roms / "outside" / "import"), "../import", "."):
+        sc = simple_scenario(prepare=[["make-import-samples", {"path": path}]])
+        assert run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves") == 1
+        assert "Projektordner" in capsys.readouterr().err
+    assert not args.exists() and not (roms / "outside" / "import").exists()
+    # a file in the way is no folder to write into
+    (project / "datei").write_text("x")
+    sc = simple_scenario(prepare=[["make-import-samples", {"path": "datei"}]])
+    assert run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves") == 1
+    assert "datei" in capsys.readouterr().err and not args.exists()
 
 
 # --- scenarios over MCP: `mcp: [flags]` runs the edits as tool calls in one `studio mcp` session ---
