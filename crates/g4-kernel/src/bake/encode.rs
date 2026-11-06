@@ -240,16 +240,19 @@ fn dict_name(text: &str) -> Result<Name, BakeMessage> {
     })
 }
 
-/// The box over every corner in 1/4096 model units: `ext` the largest of |min|, |max| and
-/// the extent over all axes; `box_scale` the least power of two ≥ 1 with
-/// `ext / box_scale < 7.99 · 4096`; position `round(min / box_scale)`, size
-/// `round((max − min) / box_scale)`.
+/// The box over every corner in the vanilla map model convention: 1/4096 world units, so that
+/// `world = box · box_scale / 4096²` (the reading of `frame_block`; vanilla rooms carry
+/// `box_scale == up_scale` and a box in world units). `ext` the largest of |min|, |max| and the
+/// extent over all axes (in 1/4096 world units); `box_scale / 4096` the least power of two ≥ 1
+/// with `ext / (box_scale / 4096) < 7.99 · 4096`; position `round(min / (box_scale / 4096))`,
+/// size `round((max − min) / (box_scale / 4096))`. Corners are whole world units and the scale
+/// at most 256 for corners in range, so the box is exact.
 fn bounding_box(faces: &[Face]) -> ([i16; 3], [i16; 3], i32) {
     let mut lo = [i64::MAX; 3];
     let mut hi = [i64::MIN; 3];
     for c in faces.iter().flat_map(|f| f.corners.iter()) {
         for k in 0..3 {
-            let v = i64::from(c[k]) * i64::from(POS_SCALE);
+            let v = i64::from(c[k]) * i64::from(FX);
             lo[k] = lo[k].min(v);
             hi[k] = hi[k].max(v);
         }
@@ -262,7 +265,7 @@ fn bounding_box(faces: &[Face]) -> ([i16; 3], [i16; 3], i32) {
         .max()
         .unwrap_or(0);
     let mut scale: i64 = 1;
-    // ext / scale < 7.99 · 4096, in integers; corners in range keep scale at most 4.
+    // ext / scale < 7.99 · 4096, in integers; corners in range keep scale at most 256.
     while ext * 100 >= 799 * i64::from(FX) * scale && scale < i64::from(FX) {
         scale *= 2;
     }
@@ -376,7 +379,10 @@ impl<'a> List<'a> {
     /// The uv shift of a strip or single quad starting with face `f`, per axis: 0 while the
     /// face fits, else the largest multiple of the texture side at or below its least uv (one
     /// side more when the face still does not fit, so every face with a span ≤ 2047 texels
-    /// fits); a face that fits under neither is `bake.face-uv-range`.
+    /// fits); a face that fits under none of the three is `bake.face-uv-range`. With
+    /// `r = min mod side` a shifted face fits exactly when `span ≤ 2047 + side − r`, so a span
+    /// over 2047 + side is always refused (unless the uv fit unshifted), and one over 4095
+    /// always.
     fn shift(&self, f: usize) -> Result<[i64; 2], BakeMessage> {
         let face = &self.faces[f];
         let mut shift = [0; 2];
@@ -397,12 +403,14 @@ impl<'a> List<'a> {
                 None => {
                     let axis = ["s", "t"][a];
                     let span = max - min;
+                    let side = self.side[a];
                     return Err(BakeMessage::error(
                         BakeCode::FaceUvRange,
                         &[&f, &axis, &span],
                         format!(
-                            "face {f} spans {span} texels in {axis}; one face may span at most \
-                             {TC_MAX}"
+                            "face {f} spans {span} texels in {axis}: its uv fit \
+                             {TC_MIN}..={TC_MAX} neither as they are nor shifted by whole \
+                             textures ({side} texels); a span up to {TC_MAX} always fits"
                         ),
                     ));
                 }

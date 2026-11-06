@@ -273,8 +273,9 @@ fn bake_test_twice_reuses_the_own_textures() {
     assert!(second.appended.is_empty(), "{:?}", second.appended);
     assert_eq!(member(&store, AssetKind::MapTexture, 0), pack);
     assert_eq!(second.floor, first.floor);
-    // Now the old model is the baked one; its head box (`bake` writes it in vertex units,
-    // ±4 world units at `box_scale` 2) reads as tiles 15..=15, the block moves to (15, 16).
+    // Now the old model is the baked one; its head box (`bake` writes it in world units like
+    // the vanilla models, −256..=256 at `box_scale` 128) reads as tiles 0..=31, the block
+    // lands at (15, 16).
     assert_eq!(second.block, (15, 16));
     assert_eq!(second.changed, [map_id(0)]);
     let rewritten = store.map(0).unwrap().model.clone();
@@ -602,11 +603,7 @@ fn vanilla_bake_test_in_the_room() {
     let mut store = Store::new(Arc::new(project));
     let (map, want_pack, neighbour) = room(&code);
     let pack = first_tileset(&mut store, map);
-    if code == "IPKE" && pack != want_pack {
-        println!("bake-room-detail {code}: pack {pack} differs from the assumed {want_pack}");
-    } else {
-        assert_eq!(pack, want_pack);
-    }
+    assert_eq!(pack, want_pack, "{code}: pack of map {map}");
     let pack_bytes =
         |store: &Store| -> Vec<u8> { store.project().map_tileset_member(pack).unwrap().unwrap() };
     let before = pack_bytes(&store);
@@ -668,21 +665,77 @@ fn vanilla_bake_test_in_the_room() {
     );
     assert_eq!(first_tileset(&mut store, neighbour), pack);
 
-    // The old entries of the pack are byte for byte as before.
+    // The old entries of the pack are byte for byte as before. ROM-derived values are never
+    // printed: only lengths, offsets, indices and names.
     let after = pack_bytes(&store);
     let (old, new) = (Btx0::read(&before).unwrap(), Btx0::read(&after).unwrap());
     let (nt, np) = (old.textures.len(), old.palettes.len());
     assert_eq!(new.textures.len(), nt + 2);
-    assert_eq!(new.textures[..nt], old.textures[..]);
-    assert_eq!(new.palettes[..np], old.palettes[..]);
-    assert!(new.texels.starts_with(&old.texels));
-    assert!(new.palette_data.starts_with(&old.palette_data));
-    assert_eq!(new.compressed, old.compressed);
-    assert_eq!(new.compressed_index, old.compressed_index);
-    assert_eq!(store.map(map).unwrap().model, report.report.nsbmd);
+    assert_eq!(new.palettes.len(), np + 2);
+    if let Some(i) = (0..nt).find(|&i| new.textures[i] != old.textures[i]) {
+        panic!(
+            "{code}: texture entry {i} ({}) changed",
+            entry_name(&old.textures[i].name)
+        );
+    }
+    if let Some(i) = (0..np).find(|&i| new.palettes[i] != old.palettes[i]) {
+        panic!(
+            "{code}: palette entry {i} ({}) changed",
+            entry_name(&old.palettes[i].name)
+        );
+    }
+    same_prefix("texels", &new.texels, &old.texels);
+    same_prefix("palette data", &new.palette_data, &old.palette_data);
+    same_bytes("compressed texels", &new.compressed, &old.compressed);
+    same_bytes(
+        "compressed index",
+        &new.compressed_index,
+        &old.compressed_index,
+    );
+    assert!(
+        store.map(map).unwrap().model == report.report.nsbmd,
+        "{code}: the stored model is not the baked one"
+    );
 
     store.undo().unwrap();
-    assert_eq!(pack_bytes(&store), before);
-    assert_eq!(map_bytes(&mut store, map), map_before);
+    same_bytes("pack after undo", &pack_bytes(&store), &before);
+    same_bytes("map after undo", &map_bytes(&mut store, map), &map_before);
     assert!(store.history().0.is_empty());
+}
+
+/// A dictionary name as text (names are not ROM bytes in the sense of the data rule).
+fn entry_name(name: &[u8; 16]) -> String {
+    String::from_utf8_lossy(name)
+        .trim_end_matches('\0')
+        .to_string()
+}
+
+/// The first offset where `a` and `b` differ (or the shorter length).
+fn first_diff(a: &[u8], b: &[u8]) -> usize {
+    a.iter()
+        .zip(b)
+        .position(|(x, y)| x != y)
+        .unwrap_or(a.len().min(b.len()))
+}
+
+/// `a == b`, failing with the lengths and the first differing offset only.
+fn same_bytes(what: &str, a: &[u8], b: &[u8]) {
+    assert!(
+        a == b,
+        "{what}: {} vs {} bytes, first difference at {}",
+        a.len(),
+        b.len(),
+        first_diff(a, b)
+    );
+}
+
+/// `a` starts with `b`, failing with the lengths and the first differing offset only.
+fn same_prefix(what: &str, a: &[u8], b: &[u8]) {
+    assert!(
+        a.starts_with(b),
+        "{what}: {} bytes do not start with the old {} bytes, first difference at {}",
+        a.len(),
+        b.len(),
+        first_diff(a, b)
+    );
 }

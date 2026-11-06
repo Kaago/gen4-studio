@@ -92,7 +92,7 @@ pub struct NewTexture {
     pub color0: bool,
     /// Row-major colour indices, lowest bits first within a byte.
     pub texels: Vec<u8>,
-    /// BGR555 colours, 1 to 4 (format 2) or 1 to 16 (format 3).
+    /// BGR555 colours, exactly 4 (format 2) or exactly 16 (format 3).
     pub colors: Vec<u16>,
 }
 

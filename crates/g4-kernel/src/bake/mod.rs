@@ -642,15 +642,16 @@ mod tests {
             }
         );
         assert!(m.shapes.iter().all(|s| (s.tag, s.size) == (0, 16)));
-        // The box holds every corner: x, z −256..=256, y 0..=16 world units.
+        // The box holds every corner in 1/4096 world units (vanilla convention):
+        // x, z −256..=256, y 0..=16 world units, box_scale 128 (· 4096).
         let s = h.box_scale / 4096;
-        assert_eq!(h.box_scale_inv, 4096 / s);
+        assert_eq!((s, h.box_scale_inv), (128, 4096 / 128));
         let lo = h.box_pos.map(|v| i32::from(v) * s);
         let hi: Vec<i32> = (0..3)
             .map(|k| lo[k] + i32::from(h.box_size[k]) * s)
             .collect();
-        assert_eq!(lo, [-256 * 64, 0, -256 * 64]);
-        assert_eq!(hi, [256 * 64, 16 * 64, 256 * 64]);
+        assert_eq!(lo, [-256 * 4096, 0, -256 * 4096]);
+        assert_eq!(hi, [256 * 4096, 16 * 4096, 256 * 4096]);
     }
 
     type Name16 = g4_formats::nitro_dict::Name;

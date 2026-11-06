@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use g4_formats::game::Family;
 use g4_formats::nsbmd::Nsbmd;
+use g4_formats::nsbmd::model::ModelHead;
 use g4_formats::nsbtx::{Nsbtx, Rgba};
 use g4_formats::texconv::{Colors, convert};
 
@@ -239,7 +240,9 @@ pub fn bake_test_label(map: u16) -> String {
 /// or of appending is `KernelError::Refused("<code>: <message>")`, a block past 30 is refused.
 /// With `out_dir`, `bake-NNNN.nsbmd` (map number) and `maptex-NNNN.nsbtx` (pack number) are
 /// written there first. Appending and the model import are then one undo step
-/// [`bake_test_label`]; when the import fails the append is undone.
+/// [`bake_test_label`]; when the import fails the append is rolled back (no redo entry). The
+/// report's messages are the bake's plus the `bake.vram-high` warnings of appending for the
+/// other areas that share the pack (the own area's is the bake's warning, not repeated).
 pub fn bake_test(store: &mut Store, opts: &BakeTestOptions) -> Result<BakeTestReport, KernelError> {
     let map = opts.map;
     if store.project().family == Family::Dp {
@@ -296,7 +299,7 @@ pub fn bake_test(store: &mut Store, opts: &BakeTestOptions) -> Result<BakeTestRe
         None => frame_block(&store.map(map)?.model).unwrap_or(BLOCK_FALLBACK),
     };
     let faces = test_surface(floor, BAKE_TEXTURE_A, block);
-    let report = bake(
+    let mut report = bake(
         &faces,
         &BakeInput {
             style: ctx.style,
@@ -328,7 +331,16 @@ pub fn bake_test(store: &mut Store, opts: &BakeTestOptions) -> Result<BakeTestRe
     let mark = store.undo_depth();
     let mut changed = Vec::new();
     if !new.is_empty() {
-        append_textures(store, pack, &new, &append_label(pack, new.len()))?;
+        let appended = append_textures(store, pack, &new, &append_label(pack, new.len()))?;
+        // `bake.vram-high` of the other areas sharing the pack; the own area's warning is
+        // the bake's (same VRAM, same limit), so the append's one for it is left out.
+        let own = ctx.area.to_string();
+        report.messages.extend(
+            appended
+                .messages
+                .into_iter()
+                .filter(|m| m.args.first() != Some(&own)),
+        );
         changed.push(AssetId {
             kind: AssetKind::MapTexture,
             index: pack,
@@ -337,9 +349,8 @@ pub fn bake_test(store: &mut Store, opts: &BakeTestOptions) -> Result<BakeTestRe
     match import_model_bytes(store, map, report.nsbmd.clone(), &label) {
         Ok(ids) => changed.extend(ids),
         Err(e) => {
-            if store.undo_depth() > mark
-                && let Err(u) = store.undo()
-            {
+            // Rolled back, not undone: the failed batch leaves no redo entry.
+            if let Err(u) = store.rollback_to(mark) {
                 return Err(KernelError::Refused(format!(
                     "{e}; undoing the appended textures failed too: {u}"
                 )));
@@ -364,24 +375,29 @@ pub fn bake_test(store: &mut Store, opts: &BakeTestOptions) -> Result<BakeTestRe
     })
 }
 
-/// The block tile at the middle of the frame (box) of the first model in `model`: the box in
-/// world units is `box · box_scale` (1/4096 each; every vanilla map model has `box_scale ==
-/// up_scale`, so the box holds world units, not vertex units), its tiles `tx0 = ⌊x / 16⌋ + 16`,
+/// The frame (box) of a model head in world units, per axis `(min, max)`: `box · box_scale /
+/// 4096²` (the convention of the vanilla map models, measured with `box_scale == up_scale` on
+/// the rooms CPUD 187, IPKD/IPKE 217, and the one `bake` writes).
+pub(crate) fn world_frame(h: &ModelHead) -> [(f64, f64); 3] {
+    const FX: f64 = 4096.0;
+    let k = f64::from(h.box_scale) / FX / FX;
+    [0, 1, 2].map(|a| {
+        let lo = f64::from(h.box_pos[a]);
+        (lo * k, (lo + f64::from(h.box_size[a])) * k)
+    })
+}
+
+/// The block tile at the middle of the frame (box) of the first model in `model`: the frame
+/// in world units ([`world_frame`]), its tiles `tx0 = ⌊x / 16⌋ + 16`,
 /// `tx1 = ⌊(x + w) / 16⌋ + 16 − 1` (z alike), then `cx = (tx0 + tx1) / 2`,
 /// `cz = (tz0 + tz1) / 2 + 1`, each held to 0..=30 (Gutachten A prototype, `room`). `None`
 /// when the model does not read.
 pub(crate) fn frame_block(model: &[u8]) -> Option<(u8, u8)> {
     let file = Nsbmd::read(model).ok()?;
     let (_, m) = file.models.first()?;
-    let h = &m.head;
-    const FX: f64 = 4096.0;
-    let k = f64::from(h.box_scale) / FX / FX;
+    let frame = world_frame(&m.head);
     let tile = |v: f64| (v / f64::from(TILE)).floor() as i64 + i64::from(TILES / 2);
-    let span = |a: usize| {
-        let lo = f64::from(h.box_pos[a]) * k;
-        let hi = (f64::from(h.box_pos[a]) + f64::from(h.box_size[a])) * k;
-        (tile(lo), tile(hi) - 1)
-    };
+    let span = |a: usize| (tile(frame[a].0), tile(frame[a].1) - 1);
     let ((tx0, tx1), (tz0, tz1)) = (span(0), span(2));
     let held = |v: i64| u8::try_from(v.clamp(0, i64::from(BLOCK_MAX))).ok();
     Some((
@@ -432,5 +448,45 @@ mod tests {
         let wide = model_with_box([-32768, 0, 30000], [32767, 0, 2000], 64 * 4096);
         assert_eq!(frame_block(&wide), Some((0, 30)));
         assert_eq!(frame_block(b"not a model"), None);
+    }
+
+    #[test]
+    fn the_baked_frame_is_the_world_frame_of_the_input_corners() {
+        let textures: Vec<PackTexture> = ["a", "b"]
+            .iter()
+            .map(|n| PackTexture {
+                name: n.to_string(),
+                palette: format!("{n}_pl"),
+                width: 16,
+                height: 16,
+            })
+            .collect();
+        for block in [(0, 0), (15, 15), (30, 7)] {
+            let faces = test_surface(["a", "b", "a", "b"], "a", block);
+            let report = bake(
+                &faces,
+                &BakeInput {
+                    style: AreaStyle::Outdoor,
+                    textures: &textures,
+                    vram_bytes: 0,
+                    vram_limit: usize::MAX,
+                },
+            );
+            assert_eq!(report.refusal(), None);
+            let file = Nsbmd::read(&report.nsbmd).unwrap();
+            let h = &file.models[0].1.head;
+            let want: Vec<(f64, f64)> = (0..3)
+                .map(|k| {
+                    let all = faces.iter().flat_map(|f| f.corners.iter()).map(|c| c[k]);
+                    let (lo, hi) = all.fold((i32::MAX, i32::MIN), |(l, h), v| (l.min(v), h.max(v)));
+                    (f64::from(lo), f64::from(hi))
+                })
+                .collect();
+            assert_eq!(world_frame(h).to_vec(), want, "block {block:?}");
+            // The test surface spans 512 world units: box_scale 128 (· 4096).
+            assert_eq!((h.box_scale, h.box_scale_inv), (128 * 4096, 32));
+            // The whole map: the block lands at the middle (15, 16).
+            assert_eq!(frame_block(&report.nsbmd), Some((15, 16)));
+        }
     }
 }

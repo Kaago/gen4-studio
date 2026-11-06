@@ -359,12 +359,21 @@ die NSBMD-Bytes und ein Bericht mit Prüfcodes kommen heraus. Er schreibt nur di
   Texel). Mit Wiederholen S/T ändert das Bild sich nicht. Ein Strip wird vor der Fläche
   geteilt, deren neue Ecken (`c3`, `c2`) unter seiner Verschiebung nicht mehr passen; das
   Teilstück bleibt ein Strip (auch mit einer Fläche) und zählt im Bericht als eigener Strip.
-  Eine Fläche mit einer Spanne über 2 047 Texel ist `bake.face-uv-range`.
-- **Zähler und Rahmen:** Zähler aus der Display List (`Model::geometry`). Rahmen über alle
-  `fx`: `ext` = größter Betrag von Minimum, Maximum und Ausdehnung über alle Achsen;
-  `box_scale` = kleinste Zweierpotenz ≥ 1 mit `ext / box_scale < 7,99 · 4096`;
-  `box_pos = round(min / box_scale)`, `box_size = round((max − min) / box_scale)`, Felder
-  `box_scale · 4096` und `4096 / box_scale`.
+  `bake.face-uv-range` ist eine Fläche, deren UV weder unverschoben noch unter einer der
+  beiden Verschiebungen in −2 048..=2 047 passt: mit `r` = kleinstes UV mod Texturseite passt
+  eine verschobene Fläche genau bei `Spanne ≤ 2 047 + Seite − r`. Eine Spanne bis 2 047 passt
+  also immer, eine über 2 047 + Seite nur unverschoben (dann höchstens 4 095), eine über 4 095
+  nie.
+- **Zähler und Rahmen:** Zähler aus der Display List (`Model::geometry`). Der Rahmen folgt
+  der Konvention der Vanilla-Kartenmodelle: Welt = `box · box_scale / 4096²` (so liest ihn
+  `frame_block`; gemessen auf den Räumen CPUD 187 und IPKD/IPKE 217 mit
+  `box_scale == up_scale`). Über alle Ecken in 1/4096 Welteinheiten (`Welt · 4096`):
+  `ext` = größter Betrag von Minimum, Maximum und Ausdehnung über alle Achsen;
+  `s` = kleinste Zweierpotenz ≥ 1 mit `ext / s < 7,99 · 4096` (Ecken in −512..=511: höchstens
+  256); `box_pos = round(min / s)`, `box_size = round((max − min) / s)`, Felder
+  `box_scale = s · 4096` und `box_scale_inv = 4096 / s`. Ganze Welteinheiten bleiben exakt; die
+  Testfläche (−256..=256) hat `s` = 128, `box_pos` (−8 192, 0, −8 192), `box_size`
+  (16 384, 512, 16 384).
 
 **Prüfcodes** (`BakeMessage { code, level, args, message }`, Code als Text):
 
@@ -374,9 +383,12 @@ die NSBMD-Bytes und ein Bericht mit Prüfcodes kommen heraus. Er schreibt nur di
 | `bake.model-too-big` | Fehler | Datei über `model.max_bytes` (0xF000, `check_limits.yaml`); auch über 255 Texturen oder ein Fehler des Writers | Größe, Grenze (Texturen: Zahl, 255; Writer: Grund) |
 | `bake.texture-missing` | Fehler | Texturname nicht im Paket oder ohne Palette (einmal je Name) | Name |
 | `bake.face-out-of-range` | Fehler | erste Fläche mit einer Ecke außerhalb −512..=511 | Index, x, y, z |
-| `bake.face-uv-range` | Fehler | eine Fläche spannt über 2 047 Texel | Index, Achse, Spanne |
+| `bake.face-uv-range` | Fehler | das UV einer Fläche passt weder unverschoben noch um ganze Texturseiten verschoben in −2 048..=2 047 (sicher bei einer Spanne über 2 047 + Seite ohne unverschobenen Sitz; bis 2 047 nie) | Index, Achse, Spanne |
 | `bake.vram-high` | Warnung | VRAM des Gebiets über dem Vanilla-Maximum (110 640 Byte Platin/DP, 87 424 HGSS) | VRAM, Maximum |
-| `texture.side`, `texture.name`, `texture.taken`, `texture.pack-full` | Fehler | Anhängen an das Paket (Task 7); `texture.name` auch im Bäcker, wenn ein Textur- oder Palettenname kein Nitro-Name ist | – |
+| `texture.side` | Fehler | Anhängen: eine Seite keine Zweierpotenz 8..=1024 | Name, Breite, Höhe |
+| `texture.name` | Fehler | Anhängen, und im Bäcker: ein Textur- oder Palettenname ist kein Nitro-Name | Name |
+| `texture.taken` | Fehler | Anhängen: ein Textur- oder Palettenname schon im Paket oder doppelt in der Anfrage | `texture` oder `palette`, Name |
+| `texture.pack-full` | Fehler | Anhängen: über 255 Einträge, Texel- oder Palettenbank voll, Offset über `0xFFFF · 8` | was, Wert, Höchstwert |
 
 Ein Fehler vor dem Kodieren (leer, Ecke, Textur, UV-Spanne) lässt `nsbmd` leer; über 0xF000
 ist das Modell gebaut (Größe im Bericht), aber abgelehnt (`BakeReport::refusal`).

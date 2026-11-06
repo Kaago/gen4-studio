@@ -689,6 +689,14 @@ fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<PartMessage>), P
 /// container header (`BMD0`, byte-order mark `FFFE`, version 2, size field equal to the
 /// length, header 16, 1 or 2 blocks inside the file), exactly one `MDL0` block holding
 /// exactly one model, and at most `model.max_bytes`. The error is the reason.
+///
+/// The model dictionary is read strictly (`g4_formats::nitro_dict::read`, the vanilla Nitro
+/// layout: revision 0, the vanilla tree word, the entry offset and the size fields exactly as
+/// the writer lays them out); a dictionary in a layout the writer would not produce is
+/// refused as an invalid model, even where the game might still load it. This holds for the
+/// import and equally for the stored-model check `map.model-invalid` (`checks/world.rs`): a
+/// model from another tool with such a dictionary is reported there, where the reader before
+/// Phase 6.1 only checked the revision.
 pub(crate) fn check_model_bytes(model: &[u8]) -> Result<(), PartMessage> {
     let header = NsbmdHeader::read(model).map_err(invalid_model)?;
     let blocks = header.blocks.iter().filter(|b| &b.tag == b"MDL0").count();
