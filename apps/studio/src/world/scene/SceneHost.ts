@@ -87,6 +87,8 @@ export class SceneHost {
   readonly draft = new THREE.Group();
   /** How many cells, tiles and markers the draft layer draws. */
   draftCount = 0;
+  /** Map id to the faces of its world mesh, for every shown map that is a world map (see `noteWorldMesh`). */
+  worldMeshes = new Map<number, number>();
   /** Re-resolves the tile under the pointer on the next frame (set by the setup effect). */
   refreshHover: (() => void) | null = null;
   /** A render is already queued for the next animation frame. */
@@ -228,6 +230,24 @@ export class SceneHost {
     }
     this.frame = frame;
     if (frame) this.cellFrame.add(frame);
+  }
+
+  /**
+   * Notes that map `map` shows a world mesh of `faces` faces (null: it shows none, or is gone). The canvas carries the world maps as
+   * `data-world-mesh` (ascending, comma separated) and their faces summed as `data-world-mesh-faces` while there is at least one; the
+   * test API reads them instead of WebGL.
+   */
+  noteWorldMesh(map: number, faces: number | null) {
+    if (faces === null) this.worldMeshes.delete(map);
+    else this.worldMeshes.set(map, faces);
+    const el = this.renderer.domElement;
+    if (this.worldMeshes.size === 0) {
+      delete el.dataset.worldMesh;
+      delete el.dataset.worldMeshFaces;
+      return;
+    }
+    el.dataset.worldMesh = [...this.worldMeshes.keys()].sort((x, y) => x - y).join(",");
+    el.dataset.worldMeshFaces = String([...this.worldMeshes.values()].reduce((sum, n) => sum + n, 0));
   }
 
   /** Renders on the next animation frame; bursts of arriving models cost one render. */

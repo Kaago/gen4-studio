@@ -691,7 +691,7 @@ fn open_refuses_a_folder_that_is_no_text_project_of_the_current_schema() {
     let fx = TextFixture::exported();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 2",
+        "\"schemaVersion\": 3",
         "\"schemaVersion\": 99",
     );
     assert!(refusal(&fx).contains("neueren Fassung"));
@@ -1191,4 +1191,155 @@ fn the_sync_takeover_keeps_the_envelope_on_disk() {
         &fx.read(other)
     ));
     assert_eq!(json(&fx, other)["data"]["ai"], 6);
+}
+
+#[test]
+fn writing_a_map_keeps_its_world() {
+    use crate::world::doc::fixtures::busy_world;
+    use crate::world::keep::{with_world, world_field};
+    const MAP: &str = "data/maps/0000.json";
+    let fx = TextFixture::exported();
+    let world = busy_world();
+    let file = with_world(fx.read(MAP), Some(&world)).unwrap();
+    fx.write(MAP, &file);
+    let p = fx.project();
+    let mut source = EntitySource::open(&p).unwrap();
+    // The world flows into no member: the map reads as its member.
+    let map = source.read(&p, id(AssetKind::Map, 0)).unwrap().unwrap();
+    assert_eq!(map, member(&fx, AssetKind::Map, 0));
+
+    // A painted permission: cell (0, 0) gets another collision byte.
+    let mut painted = map.clone();
+    painted[17] ^= 0x80;
+    let before = tree(&fx);
+    let out = source
+        .write(
+            &p,
+            &[(id(AssetKind::Map, 0), painted.clone())],
+            &|_| None,
+            &|_, _| false,
+        )
+        .unwrap();
+    assert_eq!(out.sources, paths(&[MAP]));
+    assert_eq!(changed(&before, &tree(&fx)), paths(&[MAP]));
+    let now = json(&fx, MAP);
+    assert_eq!(now["source"], "world");
+    let was: Value = serde_json::from_slice(&file).unwrap();
+    assert_ne!(now["permissions"], was["permissions"]);
+    assert_eq!(now["world"], was["world"]);
+    assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(world));
+    // Only the permission line changed, byte for byte.
+    let (old, new) = (String::from_utf8(file).unwrap(), fx.text(MAP));
+    let differ: Vec<(&str, &str)> = old
+        .lines()
+        .zip(new.lines())
+        .filter(|(a, b)| a != b)
+        .collect();
+    assert_eq!(old.lines().count(), new.lines().count());
+    assert_eq!(differ.len(), 1, "{differ:#?}");
+    // The first row of `permissions`, 32 cells.
+    let row = differ[0].1.trim().trim_matches(|c| c == '"' || c == ',');
+    assert_eq!(row.split(' ').count(), 32, "{differ:?}");
+    // (The map's `permissions`, a list; the world's is an object.)
+    let rows = new.find("\n  \"permissions\": [\n").unwrap() + 20;
+    assert_eq!(new.find(differ[0].1), Some(rows));
+    // The file reads back as the painted member.
+    let mut source = EntitySource::open(&p).unwrap();
+    assert_eq!(
+        source.read(&p, id(AssetKind::Map, 0)).unwrap().unwrap(),
+        painted
+    );
+}
+
+#[test]
+fn saving_a_locked_world_map_leaves_its_file() {
+    use crate::world::doc::fixtures::busy_world;
+    use crate::world::keep::with_world;
+    const MAP: &str = "data/maps/0000.json";
+    let fx = TextFixture::exported();
+    let file = with_world(fx.read(MAP), Some(&busy_world())).unwrap();
+    fx.write(MAP, &file);
+    let p = fx.project();
+    let mut source = EntitySource::open(&p).unwrap();
+    // A member that does not decode would be written as `{locked, raw}`: refused, file kept.
+    let mut broken = member(&fx, AssetKind::Map, 0);
+    broken.push(0);
+    let before = tree(&fx);
+    let err = source
+        .write(
+            &p,
+            &[(id(AssetKind::Map, 0), broken)],
+            &|_| None,
+            &|_, _| false,
+        )
+        .unwrap_err();
+    let KernelError::Refused(text) = err else {
+        panic!("{err:?}")
+    };
+    assert!(
+        text.starts_with("textproject.map-source: Karte 0000 ist eine Welt-Karte,"),
+        "{text}"
+    );
+    assert_eq!(fx.read(MAP), file);
+    assert_eq!(changed(&before, &tree(&fx)), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn the_map_unit_holds_map_and_world() {
+    use crate::world::doc::fixtures::one_tile_world;
+    use crate::world::keep::with_world;
+    const MAP: &str = "data/maps/0000.json";
+    let fx = TextFixture::exported();
+    let p = fx.project();
+    let map = unit_of(&p, id(AssetKind::Map, 0)).unwrap().unwrap();
+    let world = unit_of(&p, id(AssetKind::WorldMap, 0)).unwrap().unwrap();
+    assert_eq!(
+        map.assets,
+        [id(AssetKind::Map, 0), id(AssetKind::WorldMap, 0)]
+    );
+    assert_eq!(map.key, world.key);
+    assert_eq!(map, world);
+    assert_eq!(map.key, MAP);
+    assert_eq!(map.members, paths(&["unpacked/maps/0000"]));
+    // In the store: the map's unit around the world's derived location.
+    match p.asset_location(AssetKind::WorldMap, 0).unwrap() {
+        Location::Entity { unit, members } => {
+            assert_eq!(unit, map);
+            assert_eq!(
+                *members,
+                Location::Derived {
+                    json: fx.root().join(MAP)
+                }
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    // A binary map has no world (`null`); a world map its world, the map as its member.
+    let mut source = EntitySource::open(&p).unwrap();
+    assert_eq!(
+        source
+            .read(&p, id(AssetKind::WorldMap, 0))
+            .unwrap()
+            .unwrap(),
+        b"null\n"
+    );
+    let painted = one_tile_world();
+    fx.write(MAP, &with_world(fx.read(MAP), Some(&painted)).unwrap());
+    let mut source = EntitySource::open(&p).unwrap();
+    assert_eq!(
+        source
+            .read(&p, id(AssetKind::WorldMap, 0))
+            .unwrap()
+            .unwrap(),
+        crate::textproject::canon::to_canonical(&Some(painted))
+    );
+    assert_eq!(
+        source.read(&p, id(AssetKind::Map, 0)).unwrap().unwrap(),
+        member(&fx, AssetKind::Map, 0)
+    );
+    // In step: the JSON reads to the member, the world has no member to compare.
+    assert!(source.matches_members(&p, &map.assets).unwrap());
+    // Without JSON there is nothing to read.
+    std::fs::remove_file(fx.root().join(MAP)).unwrap();
+    assert_eq!(source.read(&p, id(AssetKind::WorldMap, 0)).unwrap(), None);
 }

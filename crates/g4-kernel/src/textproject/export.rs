@@ -22,6 +22,7 @@ use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::start::{MarkState, mark_state};
 use crate::text::{self, Problem, Severity};
+use crate::world::keep::carry_world;
 
 use super::MANIFEST_FILE;
 use super::arts::{
@@ -362,7 +363,7 @@ fn export_with(
             continue;
         };
         report.problems.extend(files.surplus.clone());
-        let mut stats = write_folder(root, &art.dir(), &files)?;
+        let mut stats = write_folder(root, art, &files)?;
         stats.art = art.name().to_owned();
         stats.entities = files.entities;
         stats.ms = ms_since(start);
@@ -664,15 +665,24 @@ pub(crate) fn entity_files(
     Ok(files)
 }
 
-/// Writes `files` into folder `rel` (each only when it changes) and deletes every other
+/// Writes `files` into the folder of `art` (each only when it changes) and deletes every other
 /// visible file there; the folder goes when it ends up empty. JSON and side files are told
 /// apart by their extension. A JSON whose file on disk carries the tombstone envelope keeps
-/// it ([`file_deleted`]): the export never brings a deleted entity back.
-fn write_folder(root: &Path, rel: &Path, files: &ArtFiles) -> Result<ArtStats, KernelError> {
+/// it ([`file_deleted`]): the export never brings a deleted entity back. A map file keeps the
+/// `source` and `world` of its file on disk ([`carry_world`]): the member knows no world.
+fn write_folder(root: &Path, art: Art, files: &ArtFiles) -> Result<ArtStats, KernelError> {
+    let rel = &art.dir();
     let mut stats = ArtStats::default();
     for (name, bytes) in &files.files {
         let file = rel.join(name);
         let json = name.ends_with(".json");
+        let carried;
+        let bytes = if json && art == Art::Maps {
+            carried = carry_world_at(root, &file, bytes.clone())?;
+            &carried
+        } else {
+            bytes
+        };
         let enveloped;
         let bytes = if json && file_deleted(root, &file)? {
             enveloped = with_envelope(bytes.clone());
@@ -700,6 +710,17 @@ fn write_folder(root: &Path, rel: &Path, files: &ArtFiles) -> Result<ArtStats, K
     }
     remove_if_empty(&dir)?;
     Ok(stats)
+}
+
+/// [`carry_world`] with the map file `root/rel` as it is on disk.
+fn carry_world_at(root: &Path, rel: &Path, fresh: Vec<u8>) -> Result<Vec<u8>, KernelError> {
+    let path = root.join(rel);
+    let on_disk = match std::fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(io_at(&path)(e)),
+    };
+    carry_world(on_disk.as_deref(), fresh)
 }
 
 /// Deletes folder `dir` when it holds nothing (a missing folder is fine).
@@ -776,4 +797,117 @@ fn write_blobs(
         remove_if_empty(&root.join(dir))?;
     }
     Ok(())
+}
+
+#[cfg(all(test, feature = "test-support"))]
+mod tests {
+    use super::*;
+    use crate::test_support::TextFixture;
+    use crate::world::doc::fixtures::busy_world;
+    use crate::world::keep::{with_world, world_field};
+
+    fn export_again(fx: &TextFixture) -> ExportReport {
+        export(
+            &fx.project(),
+            &fx.base(),
+            &ExportOptions {
+                adopt_scripts: true,
+                force: false,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn export_keeps_a_world_map() {
+        const MAP: &str = "data/maps/0000.json";
+        let fx = TextFixture::exported();
+        let world = busy_world();
+        let file = with_world(fx.read(MAP), Some(&world)).unwrap();
+        fx.write(MAP, &file);
+
+        let report = export_again(&fx);
+        assert_eq!(report.written, 0, "{report:#?}");
+        assert_eq!(fx.read(MAP), file);
+        assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(world));
+        // And once more: still nothing to write.
+        assert_eq!(export_again(&fx).written, 0);
+        assert_eq!(fx.read(MAP), file);
+
+        // A world the check refuses (a typo) is kept as it is: the export drops nothing.
+        let broken = String::from_utf8(file)
+            .unwrap()
+            .replacen("\"tiles\"", "\"tile\"", 1);
+        fx.write(MAP, broken.as_bytes());
+        let report = export(
+            &fx.project(),
+            &fx.base(),
+            &ExportOptions {
+                adopt_scripts: true,
+                force: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(report.written, 0, "{report:#?}");
+        assert_eq!(fx.text(MAP), broken);
+    }
+
+    const MAP: &str = "data/maps/0000.json";
+
+    fn forced(fx: &TextFixture) -> Result<ExportReport, KernelError> {
+        export(
+            &fx.project(),
+            &fx.base(),
+            &ExportOptions {
+                adopt_scripts: true,
+                force: true,
+            },
+        )
+    }
+
+    #[test]
+    fn export_keeps_a_tombstoned_world_map() {
+        let fx = TextFixture::exported();
+        let world = busy_world();
+        let file = crate::textproject::tombstone::with_envelope(
+            with_world(fx.read(MAP), Some(&world)).unwrap(),
+        );
+        fx.write(MAP, &file);
+        // Carried first, then the envelope: world after `source`, `deleted` last.
+        let v: serde_json::Value = serde_json::from_slice(&file).unwrap();
+        let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys[..2], ["source", "world"]);
+        assert_eq!(keys.last(), Some(&"deleted"));
+        for _ in 0..2 {
+            let report = forced(&fx).unwrap();
+            assert_eq!(report.written, 0, "{report:#?}");
+            assert_eq!(fx.read(MAP), file);
+        }
+        assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(world));
+    }
+
+    #[test]
+    fn export_of_a_locked_world_map_leaves_its_file() {
+        let fx = TextFixture::exported();
+        let file = with_world(fx.read(MAP), Some(&busy_world())).unwrap();
+        fx.write(MAP, &file);
+        // The member of map 0 stops decoding: the export would lock it and drop the world.
+        let p = fx.project();
+        let member = crate::textproject::arts::member_rel(&p, AssetKind::Map, 0);
+        let mut broken = fx.read(&member.to_string_lossy());
+        broken.push(0);
+        fx.write(&member.to_string_lossy(), &broken);
+        let err = forced(&fx).unwrap_err();
+        let KernelError::Refused(text) = err else {
+            panic!("{err:?}")
+        };
+        assert!(
+            text.starts_with(
+                "textproject.map-source: Karte 0000 ist eine Welt-Karte, ihr Member lässt sich \
+                 nicht lesen;"
+            ),
+            "{text}"
+        );
+        assert_eq!(fx.read(MAP), file);
+    }
 }

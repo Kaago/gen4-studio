@@ -264,3 +264,13 @@ done
 if [ "$rom_ran" -eq 0 ]; then
   record "gated tests (project start)" "-" "skipped (keine ROM)" 0
 fi
+
+# World mesh (6.3a): the mesher on a full map (busy_world, limit 20 ms, release) and the mesh
+# over the command path get_world_mesh (limit 50 ms, debug like the bridge). Synthetic data, no
+# ROM; the gated tests of tests/world.rs run per project in the gated step above.
+run_step "world mesh (timing)" "" \
+  env G4_TIMING_STRICT=1 cargo test --release -p g4-kernel --all-features --test world -- \
+  mesh_of_a_full_map_is_fast --nocapture --test-threads 1
+run_step "world mesh bridge (timing)" "" \
+  env G4_TIMING_STRICT=1 cargo test -p studio world_mesh_over_the_command_path_is_fast -- \
+  --nocapture --test-threads 1

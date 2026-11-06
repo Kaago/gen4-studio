@@ -47,3 +47,4 @@ pub mod delete;
 
 pub mod bake;
 pub mod terrain;
+pub mod world;

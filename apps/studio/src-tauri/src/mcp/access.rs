@@ -254,6 +254,15 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("restore_entity", Kind::Write),
     // One undo step (a file step: register, story, side file), like story_create.
     ("story_delete", Kind::Write),
+    // World maps (6.3a, over `g4_call` only): the readers read; „Welt anlegen“, a change of
+    // cells and the tileset file are one undo step each.
+    ("world_create", Kind::Write),
+    ("world_edit", Kind::Write),
+    ("world_get", Kind::Read),
+    ("tileset_get", Kind::Read),
+    ("tileset_save", Kind::Write),
+    ("get_world_mesh", Kind::Read),
+    ("get_tileset_texture", Kind::Read),
     // Terrain (6.2): set_map_terrain writes BDHC and permissions as one undo step.
     ("get_map_heights", Kind::Read),
     ("set_map_terrain", Kind::Write),
@@ -1306,6 +1315,23 @@ mod tests {
             "live_breakpoint_clear",
         ] {
             assert_eq!(kind(name), APP_ONLY, "{name}");
+        }
+    }
+
+    #[test]
+    fn world_map_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        for name in [
+            "world_get",
+            "tileset_get",
+            "get_world_mesh",
+            "get_tileset_texture",
+        ] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        // One undo step each.
+        for name in ["world_create", "world_edit", "tileset_save"] {
+            assert_eq!(kind(name), Kind::Write, "{name}");
         }
     }
 

@@ -92,13 +92,19 @@ pub enum AssetKind {
     /// or in Platinum without the patch a fixed slice of overlay 5, read only when its
     /// signature holds (see `data::egg_moves`). Diamond/Pearl has none.
     EggMoves,
+    /// The world document of one map (phase 6.3a): the object `world` of the map's file
+    /// `data/maps/NNNN.json` in a text project, as `Option<WorldJson>` (`None`: a map without
+    /// world). Store-only like the trainer: no archive and no member of its own
+    /// ([`Location::Derived`]); its index is the map's, its member count the maps'. It lives in
+    /// the map's unit next to the map ([`crate::textproject::source::unit_of`]).
+    WorldMap,
 }
 
 impl AssetKind {
     /// Every kind, in the order archives are unpacked, packed and listed: the world kinds,
     /// the store-only kinds and the scripts, then the data kinds, and last the trainer, the
-    /// store-only pair of two data kinds, the battle sprites and the egg moves.
-    pub const ALL: [AssetKind; 29] = [
+    /// store-only pair of two data kinds, the battle sprites, the egg moves and the world map.
+    pub const ALL: [AssetKind; 30] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -128,6 +134,7 @@ impl AssetKind {
         AssetKind::OtherPokemonBattleSprites,
         AssetKind::TrainerGraphics,
         AssetKind::EggMoves,
+        AssetKind::WorldMap,
     ];
 
     /// Human-readable name used in error messages.
@@ -162,6 +169,7 @@ impl AssetKind {
             AssetKind::OtherPokemonBattleSprites => "form battle sprites",
             AssetKind::TrainerGraphics => "trainer graphics",
             AssetKind::EggMoves => "egg moves",
+            AssetKind::WorldMap => "world map",
         }
     }
 
@@ -197,6 +205,7 @@ impl AssetKind {
             AssetKind::OtherPokemonBattleSprites => 26,
             AssetKind::TrainerGraphics => 27,
             AssetKind::EggMoves => 28,
+            AssetKind::WorldMap => 29,
         }
     }
 }
@@ -277,6 +286,9 @@ const EGG_MOVES_UNPACKED_NAME: &str = "eggMoves";
 /// What `unpacked_name` reports for the trainer, which has two folders (see
 /// [`Location::MemberPair`]).
 const TRAINER_PAIR_NAME: &str = "trainerProperties+trainerParty";
+/// What `unpacked_name` reports for the world map, which has no folder (see
+/// [`Location::Derived`]).
+const WORLD_MAP_NAME: &str = "maps+world";
 
 /// Where the bytes of one asset live on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,6 +311,11 @@ pub enum Location {
     /// `TrainerProperties` and `TrainerParty`, same index). The asset's bytes are
     /// `u32 len(props) | props | party` (little endian).
     MemberPair { props: PathBuf, party: PathBuf },
+    /// A store kind without member: the world map ([`AssetKind::WorldMap`]), whose bytes the
+    /// map's JSON `json` (`data/maps/NNNN.json`) holds. Read only from a text project's unit
+    /// ([`Location::Entity`] around it); read alone (outside a text project) it is refused
+    /// ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]), and saving it writes no member.
+    Derived { json: PathBuf },
     /// An asset of a text project ([`SourceMode::TextProject`]): its unit's JSON under `data/`
     /// is its source, `members` (one of the locations above) the build's intermediate state.
     /// The asset's bytes are those of `members`, read from the JSON
@@ -432,6 +449,8 @@ impl ArchiveMap {
                 Some(resolve(archives.other_pokemon_battle_sprites)),
                 Some(resolve(archives.trainer_graphics)),
                 archives.egg_moves.map(resolve),
+                // The world map lives in the map's JSON, no archive of its own.
+                None,
             ],
             pack_only: archives.pack_only.into_iter().map(resolve).collect(),
         })
@@ -456,6 +475,7 @@ impl ArchiveMap {
             // No folder of its own: a name that never is one, so a path built from it never
             // reaches another archive's members.
             None if kind == AssetKind::Trainer => TRAINER_PAIR_NAME,
+            None if kind == AssetKind::WorldMap => WORLD_MAP_NAME,
             None => INTERIOR_UNPACKED_NAME,
         }
     }
@@ -732,6 +752,13 @@ impl Project {
                 member: self.member_path(kind, index),
             });
         }
+        if kind == AssetKind::WorldMap {
+            let json = crate::textproject::source::entity_file(AssetKind::Map, index)
+                .ok_or_else(|| store_only(kind))?;
+            return Ok(Location::Derived {
+                json: self.root.join(json),
+            });
+        }
         if kind == AssetKind::Trainer {
             return Ok(Location::MemberPair {
                 props: self.member_path(AssetKind::TrainerProperties, index),
@@ -929,6 +956,8 @@ impl Project {
                 let props = self.ensure_unpacked(AssetKind::TrainerProperties)?;
                 return Ok(props.min(self.ensure_unpacked(AssetKind::TrainerParty)?));
             }
+            // One world map per map: the maps' archive.
+            AssetKind::WorldMap => return self.ensure_unpacked(AssetKind::Map),
             // The folder belongs to the Dynamic Headers patch: it exists once the patch is
             // applied (and in DSPRE projects, holding the NARC's vanilla members), and
             // unpacking it would fake that patch.
@@ -1010,6 +1039,7 @@ impl Project {
                 let props = self.member_count(AssetKind::TrainerProperties)?;
                 return Ok(props.min(self.member_count(AssetKind::TrainerParty)?));
             }
+            AssetKind::WorldMap => return self.member_count(AssetKind::Map),
             _ => {}
         }
         self.require_packed(kind)?;
@@ -1190,6 +1220,7 @@ impl Project {
             Location::Member(_)
             | Location::TextSource { .. }
             | Location::MemberPair { .. }
+            | Location::Derived { .. }
             | Location::Entity { .. } => Err(KernelError::InvalidProject(
                 "the header table is not a member file".to_owned(),
             )),
@@ -1206,6 +1237,7 @@ impl Project {
             Location::Member(_)
             | Location::TextSource { .. }
             | Location::MemberPair { .. }
+            | Location::Derived { .. }
             | Location::Entity { .. } => Err(KernelError::InvalidProject(
                 "the header table is not a member file".to_owned(),
             )),
@@ -1325,7 +1357,9 @@ mod tests {
                 assert_eq!(
                     exists,
                     match kind {
-                        AssetKind::HeaderTable | AssetKind::Trainer => false,
+                        AssetKind::HeaderTable | AssetKind::Trainer | AssetKind::WorldMap => {
+                            false
+                        }
                         AssetKind::InteriorBuildingModel => family == Family::Hgss,
                         AssetKind::DynamicHeaders | AssetKind::EggMoves => family != Family::Dp,
                         _ => true,
@@ -1387,5 +1421,39 @@ mod tests {
         assert_eq!(tables["IPKD"], 0xF6B94);
         assert_eq!(tables["IPGJ"], 0xF6390);
         assert_eq!(tables.len(), 30);
+    }
+
+    #[test]
+    fn world_map_is_a_store_kind_without_archive() {
+        assert_eq!(AssetKind::ALL.len(), 30);
+        assert_eq!(AssetKind::ALL[29], AssetKind::WorldMap);
+        for (slot, kind) in AssetKind::ALL.into_iter().enumerate() {
+            assert_eq!(kind.slot(), slot, "{kind}");
+        }
+        assert_eq!(AssetKind::WorldMap.label(), "world map");
+        assert!(crate::store::is_store_kind(AssetKind::WorldMap));
+        let s = crate::test_support::synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        assert_eq!(p.archives.packed(AssetKind::WorldMap), None);
+        assert!(!p.has_archive(AssetKind::WorldMap));
+        assert!(!p.archives.kinds().any(|k| k == AssetKind::WorldMap));
+        assert!(!p.unpackable_kinds().any(|k| k == AssetKind::WorldMap));
+        assert_eq!(p.archives.unpacked_name(AssetKind::WorldMap), "maps+world");
+        // The map's JSON, never a member; in a DSPRE folder that is where the store reads it.
+        let derived = Location::Derived {
+            json: p.root.join("data/maps/0003.json"),
+        };
+        assert_eq!(p.member_location(AssetKind::WorldMap, 3).unwrap(), derived);
+        assert_eq!(p.asset_location(AssetKind::WorldMap, 3).unwrap(), derived);
+        // One world map per map.
+        assert_eq!(
+            p.member_count(AssetKind::WorldMap).unwrap(),
+            p.member_count(AssetKind::Map).unwrap()
+        );
+        assert_eq!(
+            p.ensure_unpacked(AssetKind::WorldMap).unwrap(),
+            p.ensure_unpacked(AssetKind::Map).unwrap()
+        );
+        assert!(!p.root.join("unpacked/maps+world").exists());
     }
 }

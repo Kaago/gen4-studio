@@ -370,7 +370,7 @@ fn older_and_newer_schemas_refuse_edits_with_the_manifest_sentence() {
     };
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 2",
+        "\"schemaVersion\": 3",
         "\"schemaVersion\": 0",
     );
     refused(&fx, SourceMode::Older { schema: 0 }, "g4k text migrate");

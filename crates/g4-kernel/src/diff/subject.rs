@@ -179,13 +179,15 @@ impl DiffSubject {
     }
 
     /// The subject of store asset `id`: personal data, learnset and evolution are their
-    /// species, properties and party their trainer, an item member the first item id naming
-    /// it; a member of a kind without a subject of its own is a `member`. `None` for the
-    /// header table (one subject per header) and an item member no item id names.
+    /// species, properties and party their trainer, a world map its map, an item member the
+    /// first item id naming it; a member of a kind without a subject of its own is a
+    /// `member`. `None` for the header table (one subject per header) and an item member no
+    /// item id names.
     pub fn from_asset(project: &Project, id: AssetId) -> Option<DiffSubject> {
         let index = id.index;
         Some(match id.kind {
-            AssetKind::Map => DiffSubject::Map { index },
+            // A world lives in its map's JSON: the map's subject.
+            AssetKind::Map | AssetKind::WorldMap => DiffSubject::Map { index },
             AssetKind::Matrix => DiffSubject::Matrix { index },
             AssetKind::AreaData => DiffSubject::AreaData { index },
             AssetKind::Event => DiffSubject::EventFile { index },

@@ -487,8 +487,17 @@ fn messages_diff(old: &[String], new: &[String]) -> EntityDiff {
     EntityDiff::Messages { messages, more }
 }
 
-/// The parts of a map, in this order; `raw` is a locked map's member.
-const MAP_PARTS: [&str; 6] = ["model", "permissions", "buildings", "bdhc", "bgs", "raw"];
+/// The parts of a map, in this order; `raw` is a locked map's member, `world` the world
+/// document of a world map (phase 6.3a).
+const MAP_PARTS: [&str; 7] = [
+    "model",
+    "permissions",
+    "buildings",
+    "bdhc",
+    "bgs",
+    "raw",
+    "world",
+];
 /// The fields of a map listed with its buildings.
 const MAP_FIELDS: [&str; 4] = ["source", "buildings", "buildings_tail", "locked"];
 

@@ -1,0 +1,188 @@
+import * as THREE from "three";
+import { getMapModelGlb, getTilesetTexture, getWorldMesh } from "../../api";
+import type { MeshTextureDto, WorldMeshDto } from "../../api";
+import { szene } from "../../ui/tokens/tokens";
+import { disposeTree, parseGlb } from "../sceneUtil";
+import { toTexture } from "../sprites";
+import type { SceneHost } from "./SceneHost";
+
+/** The layer of the footprints of the pieces (`g4_kernel::world::mesh::PIECE_LAYER`). */
+const PIECE_LAYER = 255;
+/** Opacity of the footprints: they say where a piece stands, the ground stays visible. */
+const FOOTPRINT_OPACITY = 0.6;
+
+/** The placeholder colour of a tile without a texture, by its role (`szene.gelaende`; no new tokens). */
+export function placeholderColor(role: MeshTextureDto["role"]): number {
+  switch (role) {
+    case "grass":
+      return szene.gelaende["hohes-gras"];
+    case "water":
+      return szene.gelaende.wasser;
+    case "wall":
+      return szene.gelaende.blockiert;
+    case "piece":
+      return szene.gelaende.spezial;
+    default:
+      return szene.gelaende.unbekannt;
+  }
+}
+
+/**
+ * One geometry per texture index: positions from `corners`, uv = (u / width, −v / height), indices 0 1 2, 0 2 3 per face (the corners
+ * come counter-clockwise seen from the front, so both triangles face it). The faces of a geometry are ordered by layer, each run of a
+ * layer one group; `userData.layers` holds the layer of each group (its material index).
+ */
+export function meshGeometries(dto: WorldMeshDto): Map<number, THREE.BufferGeometry> {
+  const byTexture = new Map<number, number[]>();
+  for (let f = 0; f < dto.faces; f++) {
+    const t = dto.texture[f];
+    let faces = byTexture.get(t);
+    if (!faces) byTexture.set(t, (faces = []));
+    faces.push(f);
+  }
+  const out = new Map<number, THREE.BufferGeometry>();
+  for (const [t, unsorted] of [...byTexture].sort(([a], [b]) => a - b)) {
+    // Stable: the faces of one layer keep the mesher's order.
+    const faces = [...unsorted].sort((a, b) => dto.layer[a] - dto.layer[b]);
+    const { width, height } = dto.textures[t] ?? { width: 1, height: 1 };
+    const positions = new Float32Array(faces.length * 12);
+    const uv = new Float32Array(faces.length * 8);
+    const index: number[] = [];
+    const geometry = new THREE.BufferGeometry();
+    const layers: number[] = [];
+    faces.forEach((f, i) => {
+      positions.set(dto.corners.slice(f * 12, f * 12 + 12), i * 12);
+      for (let c = 0; c < 4; c++) {
+        uv[i * 8 + c * 2] = dto.uv[f * 8 + c * 2] / width;
+        uv[i * 8 + c * 2 + 1] = -dto.uv[f * 8 + c * 2 + 1] / height;
+      }
+      const v = i * 4;
+      index.push(v, v + 1, v + 2, v, v + 2, v + 3);
+      const layer = dto.layer[f];
+      if (layers[layers.length - 1] !== layer) {
+        layers.push(layer);
+        geometry.addGroup(i * 6, 0, layers.length - 1);
+      }
+      geometry.groups[geometry.groups.length - 1].count += 6;
+    });
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    geometry.setIndex(index);
+    geometry.computeVertexNormals();
+    geometry.userData.layers = layers;
+    out.set(t, geometry);
+  }
+  return out;
+}
+
+/**
+ * The textures of the world meshes, by package and texture name. The cache hands out shared textures (a disposed one is uploaded again
+ * when drawn) and frees them in `resetWorldTextures`. Concurrent asks share one request; a texture the package lacks (`null`) is
+ * remembered, a failed request is not.
+ */
+const textures = new Map<string, Promise<THREE.Texture | null>>();
+/** Bumped by `resetWorldTextures`; a request started before it belongs to the previous project. */
+let generation = 0;
+
+function worldTexture(pkg: number, texture: string): Promise<THREE.Texture | null> {
+  const key = `${pkg}:${texture}`;
+  const known = textures.get(key);
+  if (known) return known;
+  const started = generation;
+  const request = getTilesetTexture(pkg, texture).then(
+    (dto) => {
+      const made = dto ? toTexture(dto.width, dto.height, dto.rgba) : null;
+      if (started !== generation) {
+        made?.dispose();
+        return null;
+      }
+      if (made) {
+        made.wrapS = THREE.RepeatWrapping;
+        made.wrapT = THREE.RepeatWrapping;
+      }
+      return made;
+    },
+    () => {
+      if (textures.get(key) === request) textures.delete(key);
+      return null;
+    },
+  );
+  textures.set(key, request);
+  return request;
+}
+
+/** Forgets every world texture and disposes them (another project, or the package's files were written). */
+export function resetWorldTextures(): void {
+  generation++;
+  const all = [...textures.values()];
+  textures.clear();
+  for (const request of all) void request.then((t) => t?.dispose());
+}
+
+/** The material of one layer: the texture where there is one (else the placeholder colour of `role`), overlays and footprints pulled to the front. */
+function layerMaterial(texture: THREE.Texture | null, role: MeshTextureDto["role"], layer: number, footprintOffset: number): THREE.MeshLambertMaterial {
+  const material = new THREE.MeshLambertMaterial({ side: THREE.FrontSide, alphaTest: 0.5 });
+  if (texture) material.map = texture;
+  else material.color.setHex(placeholderColor(role));
+  if (layer > 0) {
+    const offset = layer === PIECE_LAYER ? footprintOffset : -layer;
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = offset;
+    material.polygonOffsetUnits = offset;
+  }
+  if (layer === PIECE_LAYER) {
+    material.transparent = true;
+    material.opacity = FOOTPRINT_OPACITY;
+  }
+  material.userData.layer = layer;
+  return material;
+}
+
+/** The mesh group of map `map` (name `world-mesh:<map>`), textured where the package has the texture, else the placeholder of the role. */
+export async function worldMeshModel(map: number): Promise<{ model: THREE.Group; faces: number }> {
+  const dto = await getWorldMesh(map);
+  const loaded = await Promise.all(dto.textures.map((t) => worldTexture(dto.tileset, t.name)));
+  // The footprints lie over the highest overlay.
+  const overlays = dto.layer.filter((l) => l !== PIECE_LAYER);
+  const footprintOffset = -(Math.max(0, ...overlays) + 1);
+  const model = new THREE.Group();
+  model.name = `world-mesh:${map}`;
+  for (const [t, geometry] of meshGeometries(dto)) {
+    const role = dto.textures[t]?.role ?? "ground";
+    const materials = (geometry.userData.layers as number[]).map((layer) => layerMaterial(loaded[t] ?? null, role, layer, footprintOffset));
+    const mesh = new THREE.Mesh(geometry, materials);
+    mesh.name = dto.textures[t]?.name ?? `texture:${t}`;
+    model.add(mesh);
+  }
+  model.userData.faces = dto.faces;
+  return { model, faces: dto.faces };
+}
+
+/**
+ * The terrain model of `map` for the scene: the world mesh of a world map, else the GLB as before. The initial load trusts the flag
+ * (`h.loaded.get(map)?.map.world`, fresh from its own fetch). A refresh (`probe`) does not: undo, redo and agent edits refetch the map
+ * and its model at the same time, so it asks for the mesh first and takes it when it has faces, else the GLB. An empty mesh (no world,
+ * or one that does not read into cells) always gives way to the GLB.
+ *
+ * Notes the result on the host (`noteWorldMesh`) only while the map's model generation (`mapModelGen`, bumped by both callers before
+ * they call) is the one it started under: a superseded call's model is dropped by its caller, so its mark must not land either.
+ * Forgets the marks of maps the scene no longer holds.
+ */
+export async function mapModel(h: SceneHost, map: number, area: number, { probe = false }: { probe?: boolean } = {}): Promise<THREE.Object3D> {
+  for (const shown of [...h.worldMeshes.keys()]) if (!h.loaded.has(shown)) h.noteWorldMesh(shown, null);
+  const gen = h.mapModelGen.get(map);
+  const note = (faces: number | null) => {
+    if (h.mapModelGen.get(map) === gen) h.noteWorldMesh(map, faces);
+  };
+  if (probe || h.loaded.get(map)?.map.world === true) {
+    const { model, faces } = await worldMeshModel(map);
+    if (faces > 0) {
+      note(faces);
+      return model;
+    }
+    disposeTree(model);
+  }
+  const model = await getMapModelGlb(map, area).then(parseGlb);
+  note(null);
+  return model;
+}

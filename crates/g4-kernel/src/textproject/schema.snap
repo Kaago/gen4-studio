@@ -1,4 +1,4 @@
-schemaVersion 2
+schemaVersion 3
 symbolTables 6f38b9f6c8379b86
 *.deleted?
 species.id →SPECIES
@@ -490,6 +490,13 @@ events.coord_events[].value
 events.coord_events[].var →VAR
 events <member>
 maps.source
+maps.world?.version
+maps.world?.tileset
+maps.world?.layers[].name
+maps.world?.layers[].role
+maps.world?.layers[].tiles[]
+maps.world?.layers[].heights[]
+maps.world?.permissions.derive
 maps.permissions[]
 maps.buildings[].model_id
 maps.buildings[].position[]

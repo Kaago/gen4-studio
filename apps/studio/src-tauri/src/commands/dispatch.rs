@@ -227,6 +227,13 @@ pub const COMMANDS: &[&str] = &[
     "delete_entity",
     "restore_entity",
     "story_delete",
+    "world_create",
+    "world_edit",
+    "world_get",
+    "tileset_get",
+    "tileset_save",
+    "get_world_mesh",
+    "get_tileset_texture",
     "get_map_heights",
     "set_map_terrain",
     "get_map_budget",
@@ -1203,6 +1210,33 @@ pub fn dispatch(
         "story_delete" => run!(json, "story_delete", args, { id: String }, |a| {
             story_delete_impl(state, a.id)
         }),
+        "world_create" => run!(
+            json, "world_create", args,
+            { req: g4_kernel::world::edit::WorldCreateRequest },
+            |a| world_create_impl(state, a.req)
+        ),
+        "world_edit" => run!(
+            json, "world_edit", args,
+            { req: g4_kernel::world::edit::WorldEditRequest },
+            |a| world_edit_impl(state, a.req)
+        ),
+        "world_get" => run!(json, "world_get", args, { map: u16 }, |a| world_get_impl(
+            state, a.map
+        )),
+        "tileset_get" => run!(json, "tileset_get", args, { package: u16 }, |a| {
+            tileset_get_impl(state, a.package)
+        }),
+        "tileset_save" => run!(json, "tileset_save", args, { package: u16 }, |a| {
+            tileset_save_impl(state, a.package)
+        }),
+        "get_world_mesh" => run!(json, "get_world_mesh", args, { map: u16 }, |a| {
+            get_world_mesh_impl(state, a.map)
+        }),
+        "get_tileset_texture" => run!(
+            json, "get_tileset_texture", args,
+            { package: u16, texture: String },
+            |a| get_tileset_texture_impl(state, a.package, a.texture)
+        ),
         "get_map_heights" => run!(json, "get_map_heights", args, { index: u16 }, |a| {
             get_map_heights_impl(state, a.index)
         }),
@@ -1692,6 +1726,20 @@ mod tests {
                 json!({ "target": { "kind": "header", "id": 0 } }),
             ),
             ("story_delete", json!({"id": "STORY_TEST"})),
+            // The DSPRE layout: the writers refuse, the readers answer no world.
+            ("world_create", json!({ "req": { "map": 0, "tileset": 0 } })),
+            (
+                "world_edit",
+                json!({ "req": { "map": 0, "changes": [{ "cells": [[0, 0]], "tile": "0001" }] } }),
+            ),
+            ("world_get", json!({ "map": 0 })),
+            ("tileset_get", json!({ "package": 0 })),
+            ("tileset_save", json!({ "package": 0 })),
+            ("get_world_mesh", json!({ "map": 0 })),
+            (
+                "get_tileset_texture",
+                json!({ "package": 0, "texture": "syn_boden" }),
+            ),
             ("get_map_heights", json!({ "index": 0 })),
             (
                 "set_map_terrain",

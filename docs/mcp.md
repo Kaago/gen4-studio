@@ -445,3 +445,24 @@ Löschen geht ebenso über Plan und Zustimmung: „Lösch Trainer 928, wenn nich
 - Ein Unix-Socket statt TCP für die App und unter Windows ein eigener Weg (Named Pipe); heute nur TCP auf `127.0.0.1` mit Token.
 - Ein Werkzeug, das einen einzelnen Schritt einer Geschichte ändert oder entfernt (heute ersetzt `story_update` die ganze Liste `steps`), und Geschichten als Quelle im Referenzindex („Verwendet in“).
 - Agenten öffnen oder schließen keine Projekte in der App und arbeiten nie auf Originalen (bewusst, nicht geplant).
+
+## Welt-Karten (6.3a, über `g4_call`)
+
+Kuratierte Werkzeuge für Welt-Karten kommen mit 6.4a; bis dahin gehen die sieben Befehle über `g4_call` (Expertenmodus, `--expert`). Argumente wie in `api.ts` (camelCase), die Anfragen von `world_create` und `world_edit` unter `req`.
+
+| Befehl | Art | Argumente | Antwort |
+|---|---|---|---|
+| `world_create` | Schreiben (ein Undo-Schritt) | `req: {map, tileset?, fill?, height?}` | `{map, tileset, cells, change}`: „Welt anlegen“, der Boden mit `fill` (Standard `0000`) auf `height` (Standard 0), das Paket ohne `tileset` aus dem ersten Header der Karte |
+| `world_edit` | Schreiben (ein Undo-Schritt) | `req: {map, label?, changes: [{cells: [[x, z]], layer?, tile? \| height? \| ramp? \| permission?}]}` | `{map, tileset, cells, change}`; alle Änderungen eines Aufrufs sind ein Schritt („Welt geändert: Karte 0000 (37 Zellen)“) |
+| `world_get` | Lesen | `map` | `{map, world, faces, textures, estimate, share}`: das Weltobjekt (`null` ohne Welt), Flächen und Texturen des Netzes, die geschätzte Modellgröße in Byte und ihr Anteil an 0xF000 |
+| `tileset_get` | Lesen | `package` | `{package, stored, tileset}`: die Datei `data/tilesets/NNNN.json` (`stored: true`) oder aus dem Paket und den Vanilla-Permissions abgeleitet (`stored: false`) |
+| `tileset_save` | Schreiben (ein Undo-Schritt) | `package` | `{package, file, tiles, vanilla, unclear, change}`: schreibt das abgeleitete Tileset als Datei |
+| `get_world_mesh` | Lesen | `map` | `{map, tileset, faces, textures: [{name, width, height, role, palette?}], corners, uv, texture, layer}`: je Fläche 12 Koordinaten, 8 UV-Werte, der Index der Textur und die Ebene; ohne Welt `faces: 0` und leere Felder |
+| `get_tileset_texture` | Lesen | `package, texture` | `{width, height, rgba}` mit der Palette der Kachel, oder `null` (Textur oder Paket fehlt, das Paket liest sich nicht, Format ohne Decoder) |
+
+Ablehnungen (`error` mit dem Text, nichts geändert):
+
+- Außerhalb eines Textprojekts der aktuellen Fassung (DSPRE-Layout, ältere oder neuere Schemaversion) lehnen `world_create`, `world_edit` und `tileset_save` mit „Boden malen gibt es im Textprojekt (Technik › Textprojekt).“ ab; `world_get` antwortet dort `world: null`, `get_world_mesh` `faces: 0`, `tileset_get` leitet ab, `get_map` sagt `world: false`.
+- Eine Welt, deren JSON nicht zum Schema passt (ein Serde-Fehler, etwa ein unbekanntes Feld unter `world`), macht im Textprojekt die ganze Karte unlesbar: `get_map`, `world_get` und `world_edit` antworten mit dem Fehler (Datei und Pfad), die Szene meldet „1 Karte(n) nicht geladen: …“; `get_map` sagt dann **nicht** `world: false`. Eine Welt, die liest, aber Zeilen- oder Kachelfehler hat, lässt `get_map` mit `world: true` und den Höhen des Members antworten; `world_edit` lehnt mit dem ersten Fehler ab.
+- `world_create` auf einer Welt-Karte („Karte 0000 ist schon eine Welt-Karte.“), `world_edit` auf einer Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“), eine Zelle außerhalb der Karte, eine Kachel jenseits des Tilesets, eine Änderung mit keinem oder mehreren von `tile`, `height`, `ramp`, `permission`, eine Welt-Datei mit Fehlern (der erste mit seinem Pfad) und ein Aufruf, der nichts ändert („Nichts zu ändern.“).
+- `tileset_save`, wenn die Datei schon da ist („data/tilesets/0006.json gibt es schon.“), und ein Paket, das es nicht gibt („Kartentextur-Paket 0200 gibt es nicht (74 Pakete).“).

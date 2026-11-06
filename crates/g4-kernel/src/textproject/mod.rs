@@ -75,7 +75,7 @@ pub const MANIFEST_FILE: &str = "g4-project.json";
 pub const DATA_DIR: &str = "data";
 /// The schema version this build reads and writes. Every rename of a key or a file raises
 /// it and adds a step to [`migrate::MIGRATIONS`].
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Whether `root` holds a manifest, whatever its version.
 pub fn is_text_project(root: &Path) -> bool {

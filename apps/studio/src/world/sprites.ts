@@ -30,7 +30,7 @@ let generation = 0;
 const keyOf = (graphicsId: number, facing: Facing) => `${graphicsId}:${facing}`;
 
 /** An upright texture of RGBA rows (row 0 on top): the GPU takes the bottom row first, so the rows are reversed. */
-function toTexture(width: number, height: number, rgba: ArrayLike<number>): THREE.DataTexture | null {
+export function toTexture(width: number, height: number, rgba: ArrayLike<number>): THREE.DataTexture | null {
   const row = width * 4;
   if (width < 1 || height < 1 || rgba.length !== row * height) return null;
   const data = new Uint8Array(rgba.length);

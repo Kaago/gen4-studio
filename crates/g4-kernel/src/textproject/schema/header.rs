@@ -769,6 +769,7 @@ pub(crate) fn write_headers(
         | Location::Member(_)
         | Location::TextSource { .. }
         | Location::MemberPair { .. }
+        | Location::Derived { .. }
         | Location::Entity { .. } => {
             return Err(KernelError::InvalidProject(
                 "the header table is not a slice of arm9.bin".to_owned(),

@@ -40,6 +40,7 @@ mod textproject;
 mod textsource;
 mod wizards;
 mod world;
+mod world_map;
 mod world_meta;
 
 pub use agents::*;
@@ -80,6 +81,7 @@ pub use textproject::*;
 pub use textsource::*;
 pub use wizards::*;
 pub use world::*;
+pub use world_map::*;
 pub use world_meta::*;
 
 use std::sync::MutexGuard;

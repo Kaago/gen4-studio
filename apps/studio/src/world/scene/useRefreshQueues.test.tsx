@@ -23,6 +23,8 @@ vi.mock("../../api", async (importOriginal) => ({
   getMap: vi.fn(),
   getMapModelGlb: vi.fn(),
   mapModelTextureStatus: vi.fn(),
+  // A model refresh asks for the mesh first: these maps have no world (an empty mesh), so they take their GLB.
+  getWorldMesh: vi.fn(async (map: number) => ({ map, tileset: 0, faces: 0, textures: [], corners: [], uv: [], texture: [], layer: [] })),
 }));
 vi.mock("../sceneUtil", async (importOriginal) => ({ ...(await importOriginal<typeof import("../sceneUtil")>()), parseGlb: vi.fn() }));
 
@@ -52,11 +54,14 @@ function fakeScene() {
   const h = {
     matrix,
     loaded: new Map([
-      [5, {}],
-      [2, {}],
+      [5, { map: { world: false } }],
+      [2, { map: { world: false } }],
     ]),
     content: new THREE.Group(),
     models: [],
+    // Binary maps: `mapModel` takes their GLB and notes that they show no world mesh.
+    worldMeshes: new Map(),
+    noteWorldMesh: vi.fn(),
     queueRender: vi.fn(),
     disposed: false,
     mapModelGen: new Map(),
@@ -150,6 +155,8 @@ describe("useMapModelRefresh", () => {
     const q1 = enqueue(null, 5);
     act(() => root.render(<Probe refs={refs} queue={q1} />));
     act(() => root.render(<Probe refs={refs} queue={enqueue(q1, 5)} />));
+    // The refresh asks for the mesh first (empty here), then fetches the GLB.
+    await flush();
     expect(getMapModelGlb).toHaveBeenCalledTimes(2);
     second.resolve(glbOf(newer));
     await flush();
@@ -267,6 +274,7 @@ describe("useMapModelRefresh", () => {
       const [fullFetch] = callsFor(5);
       // The import lands while the full load still fetches map 5 (the old model).
       act(() => root.render(<Probe refs={refs} queue={enqueue(null, 5)} />));
+      await flush();
       const [, reloadFetch] = callsFor(5);
       const fresh = mesh();
       const outdated = mesh();
@@ -286,6 +294,7 @@ describe("useMapModelRefresh", () => {
     it("ein Einzelreload, der beim Start der vollen Ladung noch lädt, wird verworfen", async () => {
       const { h, refs } = fakeScene();
       act(() => root.render(<Probe refs={refs} queue={enqueue(null, 5)} />));
+      await flush();
       // The full load starts while the reload still fetches map 5; its own fetch is current too.
       const loading = loadModels(h, matrix, 3, () => false, vi.fn());
       const [reloadFetch, fullFetch] = callsFor(5);
@@ -308,6 +317,7 @@ describe("useMapModelRefresh", () => {
       const { h, refs } = fakeScene();
       // The reload lands first; the full load starts after it, so its fetch is current too.
       act(() => root.render(<Probe refs={refs} queue={enqueue(null, 5)} />));
+      await flush();
       const first = mesh();
       const second = mesh();
       callsFor(5)[0].resolve(glbOf(first));

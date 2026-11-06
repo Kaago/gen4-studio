@@ -1,9 +1,10 @@
 //! The schema version of a text project and the migration chain: `schema_state` reads the
 //! version from the manifest (`schemaVersion`, or `schema` in the invented v0), `migrate`
 //! lifts an older project to the current version with a snapshot of the old files. The
-//! fixtures under `tests/fixtures/textproject/` are synthetic: `v0/` is the input, `v2/` the
+//! fixtures under `tests/fixtures/textproject/` are synthetic: `v0/` is the input, `v3/` the
 //! expected result, byte for byte (`v1/` is the same project before 1 → 2, which changes
-//! only the manifest when no flag or variable has an own name).
+//! only the manifest when no flag or variable has an own name; `v2/` before 2 → 3, which
+//! changes only the manifest: `schemas` names `maps.world` and `tilesets`).
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -91,24 +92,25 @@ fn schema_state_tells_missing_current_older_and_newer() {
     assert!(!is_text_project(dir.path()));
     assert_eq!(schema_state(dir.path()).unwrap(), SchemaState::Missing);
 
-    assert!(is_text_project(&fixture("v2")));
-    assert_eq!(schema_state(&fixture("v2")).unwrap(), SchemaState::Current);
+    assert!(is_text_project(&fixture("v3")));
+    assert_eq!(schema_state(&fixture("v3")).unwrap(), SchemaState::Current);
+    assert_eq!(schema_state(&fixture("v2")).unwrap(), SchemaState::Older(2));
     assert_eq!(schema_state(&fixture("v1")).unwrap(), SchemaState::Older(1));
     assert_eq!(schema_state(&fixture("v0")).unwrap(), SchemaState::Older(0));
 
     let (_tmp, root) = v0_project();
     let manifest = root.join(MANIFEST_FILE);
-    let text = std::fs::read_to_string(fixture("v2").join(MANIFEST_FILE)).unwrap();
+    let text = std::fs::read_to_string(fixture("v3").join(MANIFEST_FILE)).unwrap();
     std::fs::write(
         &manifest,
-        text.replace("\"schemaVersion\": 2", "\"schemaVersion\": 3"),
+        text.replace("\"schemaVersion\": 3", "\"schemaVersion\": 4"),
     )
     .unwrap();
-    assert_eq!(schema_state(&root).unwrap(), SchemaState::Newer(3));
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Newer(4));
 }
 
 #[test]
-fn migrate_v0_fixture_matches_expected_v2() {
+fn migrate_v0_fixture_matches_expected_v3() {
     let (_tmp, root) = v0_project();
     let matrix = root.join("data/matrices/0000.json");
     let matrix_mtime = mtime(&matrix);
@@ -126,7 +128,7 @@ fn migrate_v0_fixture_matches_expected_v2() {
         ]
     );
 
-    let expected = fixture("v2");
+    let expected = fixture("v3");
     assert_eq!(files_under(&root), files_under(&expected));
     for rel in files_under(&expected) {
         assert_eq!(
@@ -244,7 +246,7 @@ fn migrate_refuses_a_newer_schema() {
 fn migrate_on_a_current_project_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("project");
-    copy_tree(&fixture("v2"), &root);
+    copy_tree(&fixture("v3"), &root);
     let before: Vec<(String, SystemTime)> = files_under(&root)
         .into_iter()
         .map(|rel| {
@@ -341,7 +343,8 @@ fn migration_1_to_2_changes_only_the_manifest_without_own_names() {
 
     let report = migrate(&root).unwrap();
     assert_eq!((report.from, report.to), (1, SCHEMA_VERSION));
-    assert_eq!(SCHEMA_VERSION, 2);
+    // The chain goes on to 3, which changes only the manifest as well.
+    assert_eq!(SCHEMA_VERSION, 3);
     assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
     for (rel, bytes) in before {
         let now = std::fs::read(root.join(&rel)).unwrap();
@@ -350,7 +353,11 @@ fn migration_1_to_2_changes_only_the_manifest_without_own_names() {
                 String::from_utf8(now).unwrap(),
                 String::from_utf8(bytes)
                     .unwrap()
-                    .replace("\"schemaVersion\": 1", "\"schemaVersion\": 2")
+                    .replace("\"schemaVersion\": 1", "\"schemaVersion\": 3")
+                    .replace(
+                        "\"schemas\": {}",
+                        "\"schemas\": {\n    \"maps.world\": 1,\n    \"tilesets\": 1\n  }"
+                    )
             );
         } else {
             assert_eq!(now, bytes, "{rel}");
@@ -443,4 +450,124 @@ fn a_v1_project_is_refused_until_migrated() {
     );
     migrate(&root).unwrap();
     assert_eq!(read_manifest(&root).unwrap().schema_version, SCHEMA_VERSION);
+}
+
+#[test]
+fn migrate_v2_fixture_changes_only_the_manifest_to_v3() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    copy_tree(&fixture("v2"), &root);
+    let matrix = root.join("data/matrices/0000.json");
+    let matrix_mtime = mtime(&matrix);
+
+    let report = migrate(&root).unwrap();
+    assert_eq!((report.from, report.to), (2, 3));
+    assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
+    let expected = fixture("v3");
+    assert_eq!(files_under(&root), files_under(&expected));
+    for rel in files_under(&expected) {
+        assert_eq!(
+            String::from_utf8(std::fs::read(root.join(&rel)).unwrap()).unwrap(),
+            String::from_utf8(std::fs::read(expected.join(&rel)).unwrap()).unwrap(),
+            "{rel}"
+        );
+    }
+    assert_eq!(mtime(&matrix), matrix_mtime, "the matrix was not touched");
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Current);
+}
+
+fn sha1_hex(bytes: &[u8]) -> String {
+    use sha1::{Digest, Sha1};
+    Sha1::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// SHA-1 of every source of the text project at `root` (`textproject::sources`), by path.
+fn source_hashes(root: &Path) -> std::collections::BTreeMap<PathBuf, String> {
+    let project = g4_kernel::project::Project::open(root).unwrap();
+    g4_kernel::textproject::sources(&project)
+        .unwrap()
+        .into_iter()
+        .map(|rel| {
+            let sha1 = sha1_hex(&std::fs::read(root.join(&rel)).unwrap());
+            (rel, sha1)
+        })
+        .collect()
+}
+
+/// Gated (`G4_TEST_PROJECT`, a DSPRE folder with its `<Name>.nds` beside it): the vanilla
+/// project exported, its manifest put back to schema version 2 without `maps.world` and
+/// `tilesets`; `migrate` changes only the manifest, back to what the export wrote, and every
+/// other source keeps its SHA-1.
+#[test]
+fn vanilla_migration_v2_to_v3_changes_only_the_manifest() {
+    use g4_kernel::base::BaseRom;
+    use g4_kernel::textproject::{ExportOptions, export};
+    let Some(orig) = g4_kernel::test_support::vanilla_project() else {
+        return;
+    };
+    let Some(nds) = g4_kernel::start::suggest_base(&orig) else {
+        eprintln!(
+            "skipped: no <Name>.nds with the same game code next to {}",
+            orig.display()
+        );
+        return;
+    };
+    let (_tmp, copy) = g4_kernel::test_support::vanilla_copy().unwrap();
+    let (check, _mark) = g4_kernel::start::assign_base(&copy, &nds).unwrap();
+    assert_eq!(check.refused, None);
+    let base = BaseRom::open(&nds, None).unwrap();
+    export(
+        &g4_kernel::project::Project::open(&copy).unwrap(),
+        &base,
+        &ExportOptions {
+            adopt_scripts: true,
+            force: false,
+        },
+    )
+    .unwrap();
+
+    let manifest = copy.join(MANIFEST_FILE);
+    let exported: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(exported["schemaVersion"], SCHEMA_VERSION);
+    let mut v2 = exported.clone();
+    v2["schemaVersion"] = serde_json::Value::from(2);
+    let schemas = v2["schemas"].as_object_mut().unwrap();
+    assert!(schemas.remove("maps.world").is_some());
+    assert!(schemas.remove("tilesets").is_some());
+    let mut bytes = serde_json::to_vec_pretty(&v2).unwrap();
+    bytes.push(b'\n');
+    std::fs::write(&manifest, &bytes).unwrap();
+    assert_eq!(schema_state(&copy).unwrap(), SchemaState::Older(2));
+    let mut before = source_hashes(&copy);
+    before.remove(Path::new(MANIFEST_FILE));
+
+    let started = std::time::Instant::now();
+    let report = migrate(&copy).unwrap();
+    let migrate_ms = started.elapsed().as_millis();
+    assert_eq!((report.from, report.to), (2, SCHEMA_VERSION));
+    assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
+    let migrated: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(migrated, exported, "the manifest is the exported one again");
+    let mut after = source_hashes(&copy);
+    after.remove(Path::new(MANIFEST_FILE));
+    if after != before {
+        let changed: Vec<&PathBuf> = before
+            .keys()
+            .chain(after.keys())
+            .filter(|k| before.get(*k) != after.get(*k))
+            .take(10)
+            .collect();
+        panic!("the migration changed sources: {changed:?}");
+    }
+    assert_eq!(schema_state(&copy).unwrap(), SchemaState::Current);
+    eprintln!(
+        "textproject-migrate-v2 {} sources={} ms={migrate_ms}",
+        base.game_code(),
+        before.len() + 1
+    );
 }

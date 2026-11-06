@@ -42,11 +42,13 @@ use crate::project::{AssetId, AssetKind, Project, SourceMode};
 use crate::scripts;
 use crate::store::{HEADER_TABLE, Store, trainer_pair_bytes};
 use crate::text::TextArchiveDoc;
+use crate::textproject::canon::to_canonical;
 use crate::textproject::source::{
     EntitySource, deleted_on_disk, disk_member, entity_file, item_member_of, raw_key,
     text_archive_key,
 };
 use crate::textproject::tombstone::DELETED_KEY;
+use crate::world::doc::WorldJson;
 
 use super::json::normalize_parts;
 use super::{DiffSubject, NO_BASE_FOR_FILES, SCRIPTS_HAVE_NO_UNSAVED};
@@ -428,7 +430,16 @@ impl<'a> Sides<'a> {
             })
         };
         match *self.subject {
-            DiffSubject::Map { index } => entity(&[AssetKind::Map], index),
+            // The map's member, and its world (no member) beside the map in the store.
+            DiffSubject::Map { index } => Ok(Kind::Entity {
+                assets: [AssetKind::Map, AssetKind::WorldMap]
+                    .into_iter()
+                    .map(|kind| AssetId { kind, index })
+                    .collect(),
+                kinds: vec![AssetKind::Map],
+                member: index,
+                json: self.entity_file(AssetKind::Map, index)?,
+            }),
             DiffSubject::Matrix { index } => entity(&[AssetKind::Matrix], index),
             DiffSubject::AreaData { index } => entity(&[AssetKind::AreaData], index),
             DiffSubject::EventFile { index } => entity(&[AssetKind::Event], index),
@@ -527,11 +538,19 @@ impl<'a> Sides<'a> {
             }
             // A missing later member (an evolution) is not given: the export takes the one on
             // disk then.
-            assets
+            let mut writes: Vec<(AssetId, Vec<u8>)> = assets
                 .iter()
                 .zip(members)
                 .filter_map(|(&id, bytes)| Some((id, bytes?)))
-                .collect()
+                .collect();
+            // A map's world has no member: the side without one is a map without world (the
+            // canonical bytes of `None`), not the world on disk.
+            for &id in &assets {
+                if id.kind == AssetKind::WorldMap && !writes.iter().any(|(w, _)| *w == id) {
+                    writes.push((id, to_canonical(&Option::<WorldJson>::None)));
+                }
+            }
+            writes
         };
         let files =
             self.with_source(|source| source.export_bytes(self.project, &writes, &|_| None))?;
