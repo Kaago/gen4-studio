@@ -10,6 +10,7 @@ import { reportBuildings } from "./buildingReport";
 import { buildingModelJob } from "./buildingModels";
 import { showCellFrame } from "./cellFrame";
 import { frameCells } from "./camera";
+import { createGround } from "../ground";
 import { addModel, buildContent, removeMapModel, removeModels, setMarkers } from "./content";
 import { fetchEvents } from "./eventFetch";
 import type { SceneHost } from "./SceneHost";
@@ -65,7 +66,8 @@ async function showMaps(
   );
   problems.maps = mapProblems;
   if (stale()) return false;
-  const { content, overlay, tiles, bases, buildings } = buildContent(matrix, loaded, names);
+  h.ground = createGround(matrix, loaded);
+  const { content, overlay, tiles, bases, buildings } = buildContent(matrix, loaded, names, h.ground);
   h.scene.remove(h.content);
   h.buildings?.dispose();
   disposeTree(h.content);

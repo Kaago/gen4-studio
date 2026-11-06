@@ -4,16 +4,17 @@ import { drainWhenReady, pendingSince } from "../../reload";
 import type { RefreshQueue } from "../../reload";
 import { reconcileBuildings } from "../buildings";
 import type { BuildingRefresh } from "../buildings";
+import { createGround } from "../ground";
 import { textureNote } from "../load";
 import { disposeTree, parseGlb } from "../sceneUtil";
 import { dropMissingSelection, loadMissingBuildingModels } from "./buildingModels";
 import { reportBuildings } from "./buildingReport";
-import { addModel, recolourMap, removeMapModel } from "./content";
+import { addModel, moveMapGround, recolourMap, removeMapModel } from "./content";
 import { refreshEvents } from "./eventFetch";
 import type { ReportEvents, SceneRefs } from "./types";
 
 /**
- * Undo or redo restored maps: refetch each and show its overlay colours and buildings in every
+ * Undo or redo restored maps: refetch each and show its overlay colours, buildings and (new heights) its ground in every
  * cell that shows it. The requests are a queue (several can arrive before this runs, for
  * different maps) and are never cancelled by newer ones; a result is dropped when the scene shows
  * another matrix by then, or when a newer request for the same map was made.
@@ -40,8 +41,14 @@ export function useMapRefresh(refs: SceneRefs, mapRefresh: RefreshQueue<number> 
         // An unchanged building keeps its object, which the layer's slots hold: map data and layer
         // never point at different objects.
         const { buildings, changed } = reconcileBuildings(data.map.buildings, fresh.buildings);
+        const moved = fresh.heights.length !== data.map.heights.length || fresh.heights.some((units, i) => units !== data.map.heights[i]);
         data.map = { ...fresh, buildings };
         recolourMap(h, map);
+        // New heights: a new ground for the scene, and what stands on this map onto it.
+        if (moved) {
+          h.ground = createGround(matrixAtStart, h.loaded);
+          moveMapGround(h, map);
+        }
         const layer = h.buildings;
         if (changed) layer?.syncMap(matrixAtStart, map, buildings);
         dropMissingSelection(h, refs.callbacks.current.onSelectBuilding);

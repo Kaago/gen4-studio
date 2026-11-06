@@ -4,19 +4,23 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { errorText, getMapModelGlb, mapModelTextureStatus } from "../../api";
-import type { MatrixDto, TextureIssue } from "../../api";
+import { errorText, getMap, getMapModelGlb, mapModelTextureStatus } from "../../api";
+import type { MapDto, MatrixDto, TextureIssue } from "../../api";
 import { enqueue } from "../../reload";
 import type { RefreshQueue } from "../../reload";
+import { createGround } from "../ground";
+import { MAP_SIZE } from "../layout";
 import { textureNote } from "../load";
 import { parseGlb } from "../sceneUtil";
 import type { SceneHost } from "./SceneHost";
 import type { SceneRefs } from "./types";
-import { useMapModelRefresh } from "./useRefreshQueues";
+import { OVERLAY_Y, buildContent } from "./content";
+import { useMapModelRefresh, useMapRefresh } from "./useRefreshQueues";
 import { loadModels } from "./useSceneLoader";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
+  getMap: vi.fn(),
   getMapModelGlb: vi.fn(),
   mapModelTextureStatus: vi.fn(),
 }));
@@ -319,5 +323,73 @@ describe("useMapModelRefresh", () => {
       expect(h.models.map((m) => m.userData.mapId).sort()).toEqual([2, 5, 5]);
       expect(h.content.children).toHaveLength(3);
     });
+  });
+});
+
+function MapProbe({ refs, queue }: { refs: SceneRefs; queue: RefreshQueue<number> | null }) {
+  useMapRefresh(refs, queue);
+  return null;
+}
+
+describe("useMapRefresh", () => {
+  let container: HTMLElement;
+  let root: Root;
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.mocked(getMap).mockReset();
+  });
+
+  const flat = (index: number, units: number): MapDto => ({ index, permissions: Array.from({ length: MAP_SIZE * MAP_SIZE }, () => [0, 0] as [number, number]), buildings: [], heights: Array.from({ length: MAP_SIZE * MAP_SIZE }, () => units) });
+
+  it("gives the scene a new ground when the refetched map has new heights", async () => {
+    // Map 5 in cells 0 and 2, map 2 in cell 1, all flat; an undo gives map 5 a height of 32 E.
+    const loaded = new Map([
+      [5, { map: flat(5, 0) }],
+      [2, { map: flat(2, 0) }],
+    ]);
+    const ground = createGround(matrix, loaded);
+    const built = buildContent(matrix, loaded, new Map(), ground);
+    const h = {
+      matrix,
+      loaded,
+      ground,
+      tiles: built.tiles,
+      bases: built.bases,
+      names: new Map(),
+      markers: null,
+      buildings: null,
+      selection: null,
+      canvas: document.createElement("canvas"),
+      disposed: false,
+      render: vi.fn(),
+      refreshHover: vi.fn(),
+    } as unknown as SceneHost;
+    const refs = { handle: { current: h }, area: { current: 3 }, callbacks: { current: { onError: vi.fn(), onBuildings: vi.fn(), onSelectBuilding: vi.fn() } } } as unknown as SceneRefs;
+    vi.mocked(getMap).mockResolvedValue(flat(5, 32));
+    act(() => root.render(<MapProbe refs={refs} queue={enqueue(null, 5)} />));
+    await flush();
+    expect(h.ground).not.toBe(ground);
+    expect(h.ground.y(0, 0)).toBe(2);
+    const y = (i: number) => {
+      const m = new THREE.Matrix4();
+      built.tiles.getMatrixAt(i, m);
+      return new THREE.Vector3().setFromMatrixPosition(m).y;
+    };
+    // Both cells of map 5 stand on the new height, map 2 stays.
+    expect(y(0)).toBeCloseTo(OVERLAY_Y + 2, 5);
+    expect(y(2 * MAP_SIZE * MAP_SIZE)).toBeCloseTo(OVERLAY_Y + 2, 5);
+    expect(y(MAP_SIZE * MAP_SIZE)).toBeCloseTo(OVERLAY_Y, 5);
+    // The same heights again keep the ground.
+    const kept = h.ground;
+    act(() => root.render(<MapProbe refs={refs} queue={enqueue(enqueue(null, 5), 5)} />));
+    await flush();
+    expect(h.ground).toBe(kept);
+    built.buildings.dispose();
   });
 });

@@ -18,7 +18,7 @@ vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof i
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const matrixOf = (index: number): MatrixDto => ({ index, name: "m", width: 1, height: 1, maps: [index] });
-const tile = (absX: number, absZ: number): InspectorModel => ({ kind: "tile", map: 1, x: 0, y: 0, absX, absZ, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
+const tile = (absX: number, absZ: number): InspectorModel => ({ kind: "tile", map: 1, x: 0, y: 0, absX, absZ, info: { kind: 0, collision: 0, blocked: false, name: null, class: null }, units: null });
 
 describe("useWorldActions.lastMatrixTile", () => {
   let container: HTMLElement;
@@ -124,7 +124,7 @@ describe("useWorldActions.onAddEvent", () => {
     actions = useWorldActions({ bus, pins, matrix, matrixRef: { current: matrix }, headersRef: { current: [header] }, selectedRef: { current: 3 }, setMessage, fail, refreshDirty: async () => {} });
     return null;
   }
-  const at = (x: number, z: number): InspectorModel => ({ kind: "tile", map: 40, x, y: z, absX: x, absZ: z, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
+  const at = (x: number, z: number): InspectorModel => ({ kind: "tile", map: 40, x, y: z, absX: x, absZ: z, info: { kind: 0, collision: 0, blocked: false, name: null, class: null }, units: null });
 
   it("offers_to_make_a_plain_tile_under_a_new_warp_a_door", async () => {
     // Gate 3b.1 (A) 9: a warp added on a snow tile was never taken in the game.

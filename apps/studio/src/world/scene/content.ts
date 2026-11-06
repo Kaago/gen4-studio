@@ -2,15 +2,17 @@ import * as THREE from "three";
 import type { EventsDto, MatrixDto, TileBehavior } from "../../api";
 import { BuildingLayer } from "../buildingLayer";
 import { permissionColor } from "../colors";
+import { createGround } from "../ground";
+import type { Ground } from "../ground";
 import { MAP_SIZE, MODEL_SCALE, cellOrigin, cellY } from "../layout";
-import { applySprite, buildMarkers, disposeMarkers, markFaulty, selectMarker } from "../markers";
+import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, markFaulty, moveMarker, selectMarker } from "../markers";
 import type { MarkerSet } from "../markers";
 import { cloneModel, disposeTree } from "../sceneUtil";
 import { peekSprite, spriteTexture } from "../sprites";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
-/** Height of the overlay plane of a cell on the ground (a raised cell adds its `cellY`); clicks are intersected with the same planes. */
+/** Height of the overlay plate of a tile over its ground (`Ground.y`); clicks are intersected with the same plates. */
 export const OVERLAY_Y = 0.05;
 
 /** Opacity of the overlay fill (spec §8.1: 42 %). */
@@ -68,8 +70,8 @@ export function removeMapModel(h: SceneHost, mapId: number) {
   h.models = kept;
 }
 
-/** Builds the overlay and the building boxes once all maps are known; models are added later. */
-export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map<number, TileBehavior>) {
+/** Builds the overlay (its tiles on `ground`) and the building boxes once all maps are known; models are added later. */
+export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map<number, TileBehavior>, ground: Ground = createGround(matrix, loaded)) {
   const content = new THREE.Group();
   const cells: { col: number; row: number; data: Loaded }[] = [];
   matrix.maps.forEach((id, i) => {
@@ -100,13 +102,14 @@ export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, nam
   let n = 0;
   for (const { col, row, data } of cells) {
     const origin = cellOrigin(col, row);
-    const y = OVERLAY_Y + cellY(matrix, col, row);
     const list = bases.get(data.map.index) ?? [];
     list.push(n);
     bases.set(data.map.index, list);
     for (let i = 0; i < perCell; i++) {
       const [kind, collision] = data.map.permissions[i] ?? [0, 0];
-      m4.setPosition(origin.x + (i % MAP_SIZE) + 0.5, y, origin.z + Math.floor(i / MAP_SIZE) + 0.5);
+      const x = origin.x + (i % MAP_SIZE);
+      const z = origin.z + Math.floor(i / MAP_SIZE);
+      m4.setPosition(x + 0.5, OVERLAY_Y + ground.y(x, z), z + 0.5);
       tiles.setMatrixAt(n, m4);
       tiles.setColorAt(n, overlayColor(kind, collision, names));
       n++;
@@ -129,11 +132,15 @@ export function setMarkers(h: SceneHost, events: EventsDto | null, visible: bool
     h.markers = null;
   }
   h.events = events;
-  if (!h.matrix || !events) return;
-  h.markers = buildMarkers(h.matrix, events);
+  if (!h.matrix || !events) {
+    reportSelectedMarker(h);
+    return;
+  }
+  h.markers = buildMarkers(h.matrix, events, h.ground);
   h.markers.group.visible = visible;
   const selected = h.selectedEvent;
   if (selected && selected.file === events.event_file_id) selectMarker(h.markers, selected);
+  reportSelectedMarker(h);
   markFaulty(h.markers, h.faulty.filter((ref) => ref.file === events.event_file_id));
   h.scene.add(h.markers.group);
   loadSprites(h, h.markers, events);
@@ -170,4 +177,51 @@ export function recolourMap(h: SceneHost, mapId: number) {
     });
   }
   if (h.tiles.instanceColor) h.tiles.instanceColor.needsUpdate = true;
+}
+
+/**
+ * Puts what stands on the ground of map `mapId` onto `h.ground` again (its heights changed: `set_map_terrain`, its undo): the overlay
+ * plates of every cell showing the map and the markers on its tiles; the other maps stay as they are. Does not render.
+ */
+export function moveMapGround(h: SceneHost, mapId: number) {
+  const matrix = h.matrix;
+  if (!matrix) return;
+  const tiles = h.tiles;
+  if (tiles) {
+    // Each plate keeps its place and takes the height of the ground of its tile.
+    const m4 = new THREE.Matrix4();
+    const at = new THREE.Vector3();
+    for (const base of h.bases.get(mapId) ?? []) {
+      for (let i = base; i < base + MAP_SIZE * MAP_SIZE; i++) {
+        tiles.getMatrixAt(i, m4);
+        at.setFromMatrixPosition(m4);
+        m4.setPosition(at.x, OVERLAY_Y + h.ground.y(Math.floor(at.x), Math.floor(at.z)), at.z);
+        tiles.setMatrixAt(i, m4);
+      }
+    }
+    tiles.instanceMatrix.needsUpdate = true;
+  }
+  const set = h.markers;
+  if (set) {
+    set.ground = h.ground;
+    const onMap = (x: number, z: number) => {
+      const col = Math.floor(x / MAP_SIZE);
+      const row = Math.floor(z / MAP_SIZE);
+      return col >= 0 && col < matrix.width && row >= 0 && row < matrix.height && matrix.maps[row * matrix.width + col] === mapId;
+    };
+    for (const { kind, data } of set.entries.values()) {
+      for (const event of data) if (onMap(event.x, event.z)) moveMarker(set, { kind, index: event.index }, { x: event.x, z: event.z });
+    }
+  }
+  reportSelectedMarker(h);
+}
+
+/** Says on the canvas how high the selected marker stands (`data-selected-marker-y`: `MARKER_Y` over its ground, 3 decimals); none selected: the attribute goes. */
+export function reportSelectedMarker(h: SceneHost) {
+  const set = h.markers;
+  const ref = set?.selected ?? null;
+  // Each object is an entry of its own: look through every entry of the kind.
+  const found = set && ref ? [...set.entries.values()].flatMap((e) => (e.kind === ref.kind ? e.data : [])).find((d) => d.index === ref.index) : undefined;
+  if (!set || !found) delete h.canvas.dataset.selectedMarkerY;
+  else h.canvas.dataset.selectedMarkerY = (MARKER_Y + set.ground.y(found.x, found.z)).toFixed(3);
 }

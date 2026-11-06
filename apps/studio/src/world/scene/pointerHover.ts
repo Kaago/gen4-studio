@@ -1,7 +1,7 @@
 import { MAP_SIZE } from "../layout";
 import type { WarpDto } from "../../api";
 import { describeTile } from "../hover";
-import type { Picker } from "./picking";
+import type { PickedTile, Picker } from "./picking";
 import type { SceneHost } from "./SceneHost";
 import type { SceneRefs } from "./types";
 
@@ -14,9 +14,26 @@ export interface PointerHover {
 }
 
 /**
+ * Says on the canvas which tile is under the pointer and how high its ground is (`data-hover-tile="<absX>,<absZ>"`,
+ * `data-hover-ground` with 3 decimals), the scene's test interface; over no tile both attributes go.
+ */
+function writeHoverTile(h: SceneHost, picked: PickedTile | null) {
+  const data = h.canvas.dataset;
+  if (!picked) {
+    delete data.hoverTile;
+    delete data.hoverGround;
+    return;
+  }
+  const absX = picked.col * MAP_SIZE + picked.x;
+  const absZ = picked.row * MAP_SIZE + picked.y;
+  data.hoverTile = `${absX},${absZ}`;
+  data.hoverGround = h.ground.y(absX, absZ).toFixed(3);
+}
+
+/**
  * Hover: the latest pointer position is resolved at most once per animation frame. A marker under
- * the pointer wins over the tile below it. While `busy()` (something is dragged) the hover keeps
- * what it reported; the end of the drag looks again (through `refresh`).
+ * the pointer wins over the tile below it (the canvas still names the tile, see `writeHoverTile`). While `busy()` (something is
+ * dragged) the hover keeps what it reported; the end of the drag looks again (through `refresh`).
  */
 export function createHover(h: SceneHost, picker: Picker, refs: SceneRefs, busy: () => boolean): PointerHover {
   let pointer: { x: number; y: number } | null = null;
@@ -26,6 +43,8 @@ export function createHover(h: SceneHost, picker: Picker, refs: SceneRefs, busy:
     frame = 0;
     // While something is dragged the reported hover stays; the end of the drag looks again.
     if (busy()) return;
+    const picked = pointer ? picker.pickTile(pointer.x, pointer.y) : null;
+    writeHoverTile(h, picked);
     // A marker under the pointer wins over the tile below it.
     const marker = pointer ? picker.markerAt(pointer.x, pointer.y) : null;
     if (marker) {
@@ -36,7 +55,6 @@ export function createHover(h: SceneHost, picker: Picker, refs: SceneRefs, busy:
       refs.callbacks.current.onInspect({ kind: "eventHover", eventFile: h.events?.event_file_id ?? 0, eventKind: marker.kind, index: marker.data.index, data: marker.data, destName });
       return;
     }
-    const picked = pointer ? picker.pickTile(pointer.x, pointer.y) : null;
     if (!picked) {
       if (shown !== "") refs.callbacks.current.onInspect({ kind: "none" });
       shown = "";
@@ -47,15 +65,9 @@ export function createHover(h: SceneHost, picker: Picker, refs: SceneRefs, busy:
     const key = `${picked.mapId}:${picked.col}:${picked.row}:${picked.x}:${picked.y}:${cell[0]}:${cell[1]}`;
     if (key === shown) return;
     shown = key;
-    refs.callbacks.current.onInspect({
-      kind: "tile",
-      map: picked.mapId,
-      x: picked.x,
-      y: picked.y,
-      absX: picked.col * MAP_SIZE + picked.x,
-      absZ: picked.row * MAP_SIZE + picked.y,
-      info: describeTile(cell, h.names),
-    });
+    const absX = picked.col * MAP_SIZE + picked.x;
+    const absZ = picked.row * MAP_SIZE + picked.y;
+    refs.callbacks.current.onInspect({ kind: "tile", map: picked.mapId, x: picked.x, y: picked.y, absX, absZ, info: describeTile(cell, h.names), units: h.ground.units(absX, absZ) });
   };
   const scheduleHover = () => {
     if (frame === 0) frame = requestAnimationFrame(showHover);

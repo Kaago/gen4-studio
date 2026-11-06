@@ -4,6 +4,7 @@ import type { EventsDto } from "../api";
 import { applyTheme } from "../ui/tokens/theme";
 import { szene } from "../ui/tokens/tokens";
 import { selectionColor } from "./colors";
+import type { Ground } from "./ground";
 import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, markFaulty, moveMarker, pickMarker, recolorMarkerOutline, selectMarker } from "./markers";
 
 const matrix = { index: 0, name: "m", width: 2, height: 1, maps: [1, 2] };
@@ -66,6 +67,28 @@ describe("buildMarkers", () => {
     const set = buildMarkers(matrix, events());
     const warps = [...set.entries.values()].find((e) => e.kind === "warp");
     expect(warps?.data.map((d) => d.index)).toEqual([0]);
+  });
+});
+
+describe("ground", () => {
+  /** Tile (5, 5) lies 2 up (32 E), every other tile on 0. */
+  const ground: Ground = { y: (x, z) => (x === 5 && z === 5 ? 2 : 0), units: (x, z) => (x === 5 && z === 5 ? 32 : 0), levels: () => [2, 0] };
+  const figure = { index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x: 5, z: 5, y: 0 };
+
+  it("markers_stand_on_the_ground", () => {
+    const set = buildMarkers(matrix, { ...events(), objects: [figure], bg: [{ index: 0, script: 1, event_type: 1, x: 5, z: 5, y: 0 }] }, ground);
+    const sprite = [...set.entries.keys()].find((o) => o instanceof THREE.Sprite) as THREE.Sprite;
+    const sign = [...set.entries.entries()].find(([, e]) => e.kind === "bg")?.[0] as THREE.InstancedMesh;
+    expect(instancePosition(sprite, 0)).toEqual([5.5, 2, 5.5]);
+    expect(instancePosition(sign, 0)[1]).toBeCloseTo(MARKER_Y + 2, 5);
+    selectMarker(set, { kind: "object", index: 0 });
+    expect(set.outline?.position.y).toBeCloseTo(2 + 0.2, 5);
+    // Onto a tile with ground 0: down to 0, outline with it.
+    moveMarker(set, { kind: "object", index: 0 }, { x: 6, z: 5 });
+    moveMarker(set, { kind: "bg", index: 0 }, { x: 6, z: 5 });
+    expect(instancePosition(sprite, 0)).toEqual([6.5, 0, 5.5]);
+    expect(instancePosition(sign, 0)[1]).toBeCloseTo(MARKER_Y, 5);
+    expect(set.outline?.position.y).toBeCloseTo(0.2, 5);
   });
 });
 

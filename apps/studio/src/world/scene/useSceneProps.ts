@@ -4,6 +4,7 @@ import type { CellRect } from "../../workbench/sceneScope";
 import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
 import { showCellFrame } from "./cellFrame";
+import { reportSelectedMarker } from "./content";
 import type { SceneRefs } from "./types";
 
 /** The selected building (made by a click, the header list, ...) is outlined; the scene also drags it. */
@@ -24,6 +25,7 @@ export function useEventSelection(refs: SceneRefs, selectedEvent: EventRef | nul
     if (!h) return;
     h.selectedEvent = selectedEvent;
     if (h.markers) selectMarker(h.markers, selectedEvent && selectedEvent.file === h.events?.event_file_id ? selectedEvent : null);
+    reportSelectedMarker(h);
     h.render();
   }, [selectedEvent]);
 }

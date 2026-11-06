@@ -6,6 +6,8 @@ import { MARKER_Y, moveMarker, pickMarker } from "../markers";
 import type { MarkerSet } from "../markers";
 import * as THREE from "three";
 import { OVERLAY_Y } from "./content";
+import { flatGround } from "../ground";
+import type { Ground } from "../ground";
 import { createEventDrag } from "./eventDrag";
 import { fakePicker, fakeRefs, settle, slantedView, surfaceKit } from "./dragTestKit.testkit";
 import type { Picker } from "./picking";
@@ -27,14 +29,17 @@ const set = {} as MarkerSet;
 const selected: EventRef = { file: 1, kind: "warp", index: 2 };
 const hitOn = (index: number) => ({ kind: "warp", data: { index, x: 10, z: 10 } }) as never;
 
-function setup(options: { locked?: string | null; select?: EventRef | null; paintEnabled?: boolean; altitudes?: number[]; matrix?: MatrixDto; picker?: Picker } = {}) {
+function setup(options: { locked?: string | null; select?: EventRef | null; paintEnabled?: boolean; altitudes?: number[]; matrix?: MatrixDto; picker?: Picker; ground?: Ground } = {}) {
   const events = { event_file_id: 1, locked: options.locked ?? null } as EventsDto;
+  const shown = options.matrix ?? options.altitudes ? { ...matrix, altitudes: options.altitudes } : matrix;
   const h = {
     selectedEvent: options.select === undefined ? selected : options.select,
     faulty: [],
     events,
     markers: set,
-    matrix: options.matrix ?? options.altitudes ? { ...matrix, altitudes: options.altitudes } : matrix,
+    matrix: shown,
+    ground: options.ground ?? flatGround(shown),
+    canvas: document.createElement("canvas"),
     scene: { add: vi.fn(), remove: vi.fn() },
     render: vi.fn(),
     refreshHover: vi.fn(),
@@ -108,6 +113,14 @@ describe("createEventDrag", () => {
     const flat = setup();
     flat.press(100, 100);
     expect(flat.planePoint.mock.calls[0][2].constant).toBeCloseTo(-MARKER_Y, 5);
+  });
+
+  it("the_drag_plane_lies_on_the_ground_of_the_event", () => {
+    // The marker is on tile (10, 10), whose BDHC height is 32 E (two tiles) over a flat cell; its neighbours lie lower.
+    const ground: Ground = { y: (x, z) => (x === 10 && z === 10 ? 2 : 0.5), units: () => null, levels: () => [2, 0.5] };
+    const t = setup({ ground });
+    t.press(100, 100);
+    expect(t.planePoint.mock.calls[0][2].constant).toBeCloseTo(-(MARKER_Y + 2), 5);
   });
 
   describe("across cells of another height", () => {

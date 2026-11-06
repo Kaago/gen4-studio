@@ -6,6 +6,7 @@ import { attachCanvasClicks } from "./canvasClicks";
 import { createEventDrag } from "./eventDrag";
 import { createPicker } from "./picking";
 import { createHover } from "./pointerHover";
+import { installSceneProbe } from "./sceneProbe";
 import { SceneHost } from "./SceneHost";
 import type { ReportEvents, SceneRefs } from "./types";
 
@@ -34,12 +35,15 @@ export function useSceneSetup(el: RefObject<HTMLDivElement | null>, refs: SceneR
     const detachEventDrag = eventDrag.attach();
     const detachClicks = attachCanvasClicks(h, picker, refs);
     const detachHover = hover.attach();
+    // The agent gate's probe exists in the dev build only; the production build drops it with this branch.
+    const removeProbe = import.meta.env.DEV ? installSceneProbe(h) : null;
 
     return () => {
       detachBuildingDrag();
       detachEventDrag();
       detachClicks();
       detachHover();
+      removeProbe?.();
       refs.callbacks.current.onInspect({ kind: "none" });
       refs.callbacks.current.onStatus(null);
       refs.handle.current = null;

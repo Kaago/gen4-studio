@@ -50,7 +50,7 @@ describe("Inspector and the scene's hover", () => {
     act(() => root.unmount());
     container.remove();
   });
-  const tile: SceneHover = { kind: "tile", map: 187, x: 8, y: 4, absX: 40, absZ: 36, info: { kind: 0x5e, collision: 1, name: "WARP_STAIRS_EAST", blocked: false, class: null } as never };
+  const tile: SceneHover = { kind: "tile", map: 187, x: 8, y: 4, absX: 40, absZ: 36, info: { kind: 0x5e, collision: 1, name: "WARP_STAIRS_EAST", blocked: false, class: null } as never, units: null };
   const marker: SceneHover = { kind: "eventHover", eventFile: 5, eventKind: "warp", index: 1, data: warp, destName: "T01R0201" };
   const text = () => container.textContent ?? "";
   let pins: InspectorState | null = null;

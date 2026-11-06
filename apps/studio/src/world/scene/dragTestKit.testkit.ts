@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { vi } from "vitest";
 import type { MatrixDto } from "../../api";
 import type { DragSurface, PointerLike } from "../dragController";
+import { createGround, flatGround } from "../ground";
 import { createPicker } from "./picking";
 import type { Picker } from "./picking";
 import type { SceneHost } from "./SceneHost";
@@ -129,22 +130,35 @@ export const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const VIEW_SIZE = 800;
 
+/** Tile heights in world units per map id, `MapDto.heights` of the maps a test view loads (missing: none). */
+export type TestHeights = Record<number, (number | null)[]>;
+
 /**
- * A scene handle with a real picker and a slanted perspective camera over `matrix` (every map in it
- * loaded); `through` gives the client position whose view ray passes through a scene point.
+ * A scene handle with a real picker that looks through `camera` at `matrix` (every map in it loaded, with `heights`, and its ground
+ * made from them); `through` gives the client position whose view ray passes through a scene point. The canvas is a real element.
  */
-export function slantedView(matrix: MatrixDto | null) {
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
-  camera.position.set(45, 30, 20);
-  camera.lookAt(32, 0, 5);
+export function viewThrough(camera: THREE.Camera, matrix: MatrixDto | null, heights: TestHeights = {}) {
   camera.updateMatrixWorld(true);
-  camera.updateProjectionMatrix();
-  const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0, width: VIEW_SIZE, height: VIEW_SIZE }) };
-  const loaded = new Map<number, Loaded>((matrix?.maps ?? []).flatMap((id) => (id === null ? [] : [[id, { map: { index: id, permissions: [], buildings: [], heights: [] } } as Loaded] as const])));
-  const h = { canvas, camera, matrix, loaded } as unknown as SceneHost;
+  if (camera instanceof THREE.PerspectiveCamera || camera instanceof THREE.OrthographicCamera) camera.updateProjectionMatrix();
+  const canvas = document.createElement("canvas");
+  canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: VIEW_SIZE, height: VIEW_SIZE }) as DOMRect;
+  const loaded = new Map<number, Loaded>((matrix?.maps ?? []).flatMap((id) => (id === null ? [] : [[id, { map: { index: id, permissions: [], buildings: [], heights: heights[id] ?? [] } } as Loaded] as const])));
+  const ground = matrix ? createGround(matrix, loaded) : flatGround(null);
+  const h = { canvas, camera, matrix, loaded, ground } as unknown as SceneHost;
   const through = (x: number, y: number, z: number) => {
     const p = new THREE.Vector3(x, y, z).project(camera);
     return { x: ((p.x + 1) / 2) * VIEW_SIZE, y: ((1 - p.y) / 2) * VIEW_SIZE };
   };
   return { h, picker: createPicker(h), through };
+}
+
+/**
+ * A scene handle with a real picker and a slanted perspective camera over `matrix` (every map in it
+ * loaded); `through` gives the client position whose view ray passes through a scene point.
+ */
+export function slantedView(matrix: MatrixDto | null, heights: TestHeights = {}) {
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+  camera.position.set(45, 30, 20);
+  camera.lookAt(32, 0, 5);
+  return viewThrough(camera, matrix, heights);
 }
