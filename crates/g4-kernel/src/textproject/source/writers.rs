@@ -9,6 +9,7 @@ use g4_formats::data::egg_moves::EggMoves;
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::split_pair;
+use crate::world::keep::carry_world;
 
 use super::super::MANIFEST_FILE;
 use super::super::arts::{Art, file_names, numbered};
@@ -226,6 +227,12 @@ impl EntitySource {
             egg_moves: eggs.as_ref(),
         };
         let mut files = entity_files(art, u32::from(index), &parts, &mut ctx, deleted)?;
+        // A map keeps the `source` and `world` its file has: the member knows no world.
+        if art == Art::Maps
+            && let Some((_, fresh)) = files.first_mut()
+        {
+            *fresh = carry_world(json.as_deref(), std::mem::take(fresh))?;
+        }
         if let (Some(field), Some((_, json))) = (keep_eggs, files.first_mut()) {
             let mut entity: SpeciesEntity = serde_json::from_slice(json).map_err(|e| {
                 KernelError::InvalidProject(format!("{}: {e}", crate::build::step::key(&rel)))

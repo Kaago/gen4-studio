@@ -1,9 +1,10 @@
 //! The schema version of a text project and the migration chain: `schema_state` reads the
 //! version from the manifest (`schemaVersion`, or `schema` in the invented v0), `migrate`
 //! lifts an older project to the current version with a snapshot of the old files. The
-//! fixtures under `tests/fixtures/textproject/` are synthetic: `v0/` is the input, `v2/` the
+//! fixtures under `tests/fixtures/textproject/` are synthetic: `v0/` is the input, `v3/` the
 //! expected result, byte for byte (`v1/` is the same project before 1 → 2, which changes
-//! only the manifest when no flag or variable has an own name).
+//! only the manifest when no flag or variable has an own name; `v2/` before 2 → 3, which
+//! changes only the manifest: `schemas` names `maps.world` and `tilesets`).
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -91,24 +92,25 @@ fn schema_state_tells_missing_current_older_and_newer() {
     assert!(!is_text_project(dir.path()));
     assert_eq!(schema_state(dir.path()).unwrap(), SchemaState::Missing);
 
-    assert!(is_text_project(&fixture("v2")));
-    assert_eq!(schema_state(&fixture("v2")).unwrap(), SchemaState::Current);
+    assert!(is_text_project(&fixture("v3")));
+    assert_eq!(schema_state(&fixture("v3")).unwrap(), SchemaState::Current);
+    assert_eq!(schema_state(&fixture("v2")).unwrap(), SchemaState::Older(2));
     assert_eq!(schema_state(&fixture("v1")).unwrap(), SchemaState::Older(1));
     assert_eq!(schema_state(&fixture("v0")).unwrap(), SchemaState::Older(0));
 
     let (_tmp, root) = v0_project();
     let manifest = root.join(MANIFEST_FILE);
-    let text = std::fs::read_to_string(fixture("v2").join(MANIFEST_FILE)).unwrap();
+    let text = std::fs::read_to_string(fixture("v3").join(MANIFEST_FILE)).unwrap();
     std::fs::write(
         &manifest,
-        text.replace("\"schemaVersion\": 2", "\"schemaVersion\": 3"),
+        text.replace("\"schemaVersion\": 3", "\"schemaVersion\": 4"),
     )
     .unwrap();
-    assert_eq!(schema_state(&root).unwrap(), SchemaState::Newer(3));
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Newer(4));
 }
 
 #[test]
-fn migrate_v0_fixture_matches_expected_v2() {
+fn migrate_v0_fixture_matches_expected_v3() {
     let (_tmp, root) = v0_project();
     let matrix = root.join("data/matrices/0000.json");
     let matrix_mtime = mtime(&matrix);
@@ -126,7 +128,7 @@ fn migrate_v0_fixture_matches_expected_v2() {
         ]
     );
 
-    let expected = fixture("v2");
+    let expected = fixture("v3");
     assert_eq!(files_under(&root), files_under(&expected));
     for rel in files_under(&expected) {
         assert_eq!(
@@ -244,7 +246,7 @@ fn migrate_refuses_a_newer_schema() {
 fn migrate_on_a_current_project_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("project");
-    copy_tree(&fixture("v2"), &root);
+    copy_tree(&fixture("v3"), &root);
     let before: Vec<(String, SystemTime)> = files_under(&root)
         .into_iter()
         .map(|rel| {
@@ -341,7 +343,8 @@ fn migration_1_to_2_changes_only_the_manifest_without_own_names() {
 
     let report = migrate(&root).unwrap();
     assert_eq!((report.from, report.to), (1, SCHEMA_VERSION));
-    assert_eq!(SCHEMA_VERSION, 2);
+    // The chain goes on to 3, which changes only the manifest as well.
+    assert_eq!(SCHEMA_VERSION, 3);
     assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
     for (rel, bytes) in before {
         let now = std::fs::read(root.join(&rel)).unwrap();
@@ -350,7 +353,11 @@ fn migration_1_to_2_changes_only_the_manifest_without_own_names() {
                 String::from_utf8(now).unwrap(),
                 String::from_utf8(bytes)
                     .unwrap()
-                    .replace("\"schemaVersion\": 1", "\"schemaVersion\": 2")
+                    .replace("\"schemaVersion\": 1", "\"schemaVersion\": 3")
+                    .replace(
+                        "\"schemas\": {}",
+                        "\"schemas\": {\n    \"maps.world\": 1,\n    \"tilesets\": 1\n  }"
+                    )
             );
         } else {
             assert_eq!(now, bytes, "{rel}");
@@ -443,4 +450,28 @@ fn a_v1_project_is_refused_until_migrated() {
     );
     migrate(&root).unwrap();
     assert_eq!(read_manifest(&root).unwrap().schema_version, SCHEMA_VERSION);
+}
+
+#[test]
+fn migrate_v2_fixture_changes_only_the_manifest_to_v3() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    copy_tree(&fixture("v2"), &root);
+    let matrix = root.join("data/matrices/0000.json");
+    let matrix_mtime = mtime(&matrix);
+
+    let report = migrate(&root).unwrap();
+    assert_eq!((report.from, report.to), (2, 3));
+    assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
+    let expected = fixture("v3");
+    assert_eq!(files_under(&root), files_under(&expected));
+    for rel in files_under(&expected) {
+        assert_eq!(
+            String::from_utf8(std::fs::read(root.join(&rel)).unwrap()).unwrap(),
+            String::from_utf8(std::fs::read(expected.join(&rel)).unwrap()).unwrap(),
+            "{rel}"
+        );
+    }
+    assert_eq!(mtime(&matrix), matrix_mtime, "the matrix was not touched");
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Current);
 }

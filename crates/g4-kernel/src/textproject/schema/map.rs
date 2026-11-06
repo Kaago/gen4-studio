@@ -1,13 +1,18 @@
-//! Map manifests: one map file (`land_data`) as its source (`"binary"`, the only one in this
-//! phase), the permissions as 32 text lines, the buildings, and the model, the terrain
-//! (BDHC) and on HeartGold/SoulSilver the background-sound block as parts. A map that does
-//! not decode or does not write back byte for byte is `{"locked", "raw"}`.
+//! Map manifests: one map file (`land_data`) as its source (`"binary"`, or `"world"` with the
+//! world document `world` of phase 6.3a), the permissions as 32 text lines, the buildings, and
+//! the model, the terrain (BDHC) and on HeartGold/SoulSilver the background-sound block as
+//! parts. A map that does not decode or does not write back byte for byte is
+//! `{"locked", "raw"}`. Until the baker of 6.3b the world flows into no member: a world map
+//! builds from its binary parts like a binary one.
 
 use g4_formats::game::Family;
 use g4_formats::map::{BUILDING_LEN, Building, Cell, MAP_SIZE, MapFile};
 use serde::{Deserialize, Serialize};
 
 use crate::error::KernelError;
+use crate::world::doc::{MAP_SOURCE_WORLD, WorldJson};
+use crate::world::grid::TileRef;
+use crate::world::keep::{source_without_world, world_without_source};
 
 use super::super::canon::{hex, unhex};
 use super::super::manifest::SCHEMA_CODE;
@@ -27,7 +32,8 @@ pub(crate) use super::super::codes::MAP_SOURCE_CODE;
 #[serde(transparent)]
 pub struct MapEntity(pub Member<MapJson>);
 
-/// A map file: `permissions` is 32 lines of 32 cells `kkcc` (hex of `kind` and `collision`)
+/// A map file: `world` (the world document, right after `source`) exactly when `source` is
+/// `"world"`; `permissions` is 32 lines of 32 cells `kkcc` (hex of `kind` and `collision`)
 /// separated by one space; `buildings_tail` (hex) the bytes after the last whole building,
 /// only when there are any; `model` (`.nsbmd`), `bdhc` (`.bdhc`) and the HeartGold/SoulSilver
 /// `bgs` (`.bgs`) are parts.
@@ -35,6 +41,8 @@ pub struct MapEntity(pub Member<MapJson>);
 #[serde(deny_unknown_fields)]
 pub struct MapJson {
     pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world: Option<WorldJson>,
     pub permissions: Vec<String>,
     pub buildings: Vec<BuildingJson>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,6 +147,7 @@ fn map_json(index: u32, m: &MapFile, ctx: &mut ExportCtx<'_>) -> Result<MapJson,
         .collect();
     Ok(MapJson {
         source: MAP_SOURCE_BINARY.to_owned(),
+        world: None,
         permissions,
         buildings,
         buildings_tail: (!m.buildings_tail.is_empty()).then(|| hex(&m.buildings_tail)),
@@ -183,18 +192,24 @@ fn read_permissions(lines: &[String]) -> Result<Vec<Cell>, String> {
     Ok(cells)
 }
 
-/// The map file of `j`; `current` (the member on disk) answers `base_sha1` parts first.
+/// The map file of `j`; `current` (the member on disk) answers `base_sha1` parts first. A
+/// world map (`source: "world"` with `world`) builds from its binary parts like a binary one:
+/// the world flows into no member before 6.3b.
 fn map_bytes(
     j: &MapJson,
     index: u32,
     current: Option<&[u8]>,
     ctx: &ImportCtx<'_>,
 ) -> Result<Vec<u8>, String> {
-    if j.source != MAP_SOURCE_BINARY {
-        return Err(format!(
-            "{MAP_SOURCE_CODE}: source: Unbekannte Kartenquelle „{}“.",
-            j.source
-        ));
+    match (j.source.as_str(), &j.world) {
+        (MAP_SOURCE_BINARY, None) | (MAP_SOURCE_WORLD, Some(_)) => {}
+        (MAP_SOURCE_WORLD, None) => return Err(source_without_world()),
+        (MAP_SOURCE_BINARY, Some(_)) => return Err(world_without_source()),
+        (other, _) => {
+            return Err(format!(
+                "{MAP_SOURCE_CODE}: source: Unbekannte Kartenquelle „{other}“."
+            ));
+        }
     }
     let permissions = read_permissions(&j.permissions)?;
     let mut buildings = Vec::with_capacity(j.buildings.len());
@@ -273,11 +288,23 @@ fn map_bytes(
     Ok(m.write(ctx.family))
 }
 
-/// A map with one building, its options set when `full`.
+/// A map with one building, its options set when `full` (a blank world on package 0 among
+/// them, `source` then `"world"`).
 fn sample_map(full: bool) -> MapJson {
     let hex = || Part::Hex { hex: "00".into() };
+    let fill = TileRef {
+        tile: 0,
+        rotate: 0,
+        flip: false,
+    };
     MapJson {
-        source: MAP_SOURCE_BINARY.into(),
+        source: if full {
+            MAP_SOURCE_WORLD
+        } else {
+            MAP_SOURCE_BINARY
+        }
+        .into(),
+        world: full.then(|| WorldJson::blank(0, fill, 0)),
         permissions: vec!["0000".into()],
         buildings: vec![BuildingJson {
             model_id: 0,
@@ -626,6 +653,112 @@ mod tests {
         v["buildings"][0]["model"] = json!(1);
         let err = serde_json::from_value::<MapEntity>(v).unwrap_err();
         assert!(err.to_string().contains("unknown field `model`"), "{err}");
+    }
+
+    /// The map of [`map`] with small parts (inline hex), exported: its entity and member.
+    fn small_map() -> (MapEntity, Vec<u8>) {
+        let m = MapFile {
+            model: vec![1; 4],
+            bdhc: vec![2; 4],
+            ..map()
+        };
+        let bytes = bytes_of(&m, Family::Pt);
+        let (e, side) = export::<MapEntity>(Family::Pt, 0, &[Some(bytes.clone())]);
+        assert!(side.is_empty(), "{side:?}");
+        (e, bytes)
+    }
+
+    fn blank_world() -> WorldJson {
+        WorldJson::blank(
+            0,
+            TileRef {
+                tile: 0,
+                rotate: 0,
+                flip: false,
+            },
+            0,
+        )
+    }
+
+    #[test]
+    fn a_world_map_imports_its_binary_parts() {
+        let (mut e, bytes) = small_map();
+        let j = json_of(&mut e);
+        j.source = MAP_SOURCE_WORLD.into();
+        j.world = Some(blank_world());
+        // The world sits right after `source` and reads back as it was written.
+        let text = to_canonical(&e);
+        let v: serde_json::Value = serde_json::from_slice(&text).unwrap();
+        let keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
+        assert_eq!(
+            keys,
+            [
+                "source",
+                "world",
+                "permissions",
+                "buildings",
+                "buildings_tail",
+                "model",
+                "bdhc"
+            ]
+        );
+        let back: MapEntity = serde_json::from_slice(&text).unwrap();
+        assert_eq!(back, e);
+        assert_eq!(to_canonical(&back), text);
+        // The member is the binary map's, byte for byte: the world flows into no member.
+        assert_eq!(
+            import(Family::Pt, &e, 0).unwrap(),
+            vec![Some(bytes.clone())]
+        );
+        let mut busy = e.clone();
+        json_of(&mut busy).world = Some(crate::world::doc::fixtures::busy_world());
+        assert_eq!(import(Family::Pt, &busy, 0).unwrap(), vec![Some(bytes)]);
+    }
+
+    #[test]
+    fn source_and_world_go_together() {
+        let (good, _) = small_map();
+        let edit = |f: &dyn Fn(&mut MapJson)| {
+            let mut e = good.clone();
+            f(json_of(&mut e));
+            import(Family::Pt, &e, 0).unwrap_err()
+        };
+        let err = edit(&|j| j.source = MAP_SOURCE_WORLD.into());
+        assert_eq!(
+            err,
+            "textproject.map-source: source: „world“ braucht das Objekt `world`."
+        );
+        assert_eq!(code_and_path(&err), ("textproject.map-source", "source"));
+        let err = edit(&|j| j.world = Some(blank_world()));
+        assert_eq!(
+            err,
+            "textproject.map-source: world: nur mit source „world“."
+        );
+        assert_eq!(code_and_path(&err), ("textproject.map-source", "world"));
+        let err = edit(&|j| {
+            j.source = "dsl".into();
+            j.world = Some(blank_world());
+        });
+        assert_eq!(
+            err,
+            "textproject.map-source: source: Unbekannte Kartenquelle „dsl“."
+        );
+    }
+
+    #[test]
+    fn a_typo_in_world_is_serdes() {
+        let (mut e, _) = small_map();
+        let j = json_of(&mut e);
+        j.source = MAP_SOURCE_WORLD.into();
+        j.world = Some(blank_world());
+        let mut v = serde_json::to_value(&e).unwrap();
+        v["world"]["layers"][0]["tile"] = v["world"]["layers"][0]["tiles"].clone();
+        let err = serde_json::from_value::<MapEntity>(v.clone()).unwrap_err();
+        assert!(err.to_string().contains("unknown field `tile`"), "{err}");
+        // With the path, as the import plan reports it.
+        let err = serde_path_to_error::deserialize::<_, MapJson>(&v).unwrap_err();
+        assert_eq!(err.path().to_string(), "world.layers[0].tile");
+        assert!(err.inner().to_string().contains("unknown field `tile`"));
     }
 
     use std::path::Path;

@@ -85,19 +85,20 @@ pub fn data_kind_of(symbol: SymbolKind) -> Option<&'static DataKind> {
     DATA_KINDS.iter().find(|kind| kind.symbol == symbol)
 }
 
-/// `schemas` of the manifest for this Studio: every data kind with the higher of its version
-/// and the one `keep` names (a newer Studio's version stays: an older Studio never lowers it),
-/// plus `keep`'s foreign keys (those that name no data kind) as they are.
+/// `schemas` of the manifest for this Studio: every data kind, file kind ([`FILE_KINDS`]) and
+/// part schema ([`PART_SCHEMAS`]) with the higher of its version and the one `keep` names (a
+/// newer Studio's version stays: an older Studio never lowers it), plus `keep`'s foreign keys
+/// (those that name none of them) as they are.
 pub fn schemas(keep: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
     let mut out: BTreeMap<String, Value> = keep
         .iter()
-        .filter(|(key, _)| data_kind(key).is_none())
+        .filter(|(key, _)| !is_schema_key(key))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
-    for kind in &DATA_KINDS {
-        let kept = keep.get(kind.folder).and_then(Value::as_u64).unwrap_or(0);
-        let version = kept.max(u64::from(kind.schema_version));
-        out.insert(kind.folder.to_owned(), Value::from(version));
+    for (key, known) in schema_keys() {
+        let kept = keep.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let version = kept.max(u64::from(known));
+        out.insert(key.to_owned(), Value::from(version));
     }
     out
 }
@@ -106,35 +107,54 @@ pub fn schemas(keep: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
 /// (`textproject.schema`), an `id` that is not the register's id of the number
 /// (`textproject.id-mismatch`), a number outside the save (`textproject.schema`), a register
 /// entry without its file (`textproject.id-dangling`, own sentence), a kind whose `schemas`
-/// version is higher than known (warning `textproject.schema`, nothing refused).
+/// version is higher than known (warning `textproject.schema`, nothing refused); then the files
+/// of every file kind by its own check ([`FileKind::check`]).
 pub(crate) fn check_files(
     project: &Project,
     manifest: &Manifest,
 ) -> Result<Vec<Problem>, KernelError> {
     let mut problems = Vec::new();
     for kind in &DATA_KINDS {
-        if let Some(newer) = newer_version(kind, manifest) {
-            problems.push(newer_problem(project, kind, newer));
+        if let Some(newer) = newer_version(kind.folder, kind.schema_version, manifest) {
+            problems.push(newer_problem(
+                project,
+                kind.folder,
+                kind.schema_version,
+                newer,
+            ));
             continue;
         }
         check_kind(project, kind, &mut problems)?;
     }
+    for kind in &FILE_KINDS {
+        if let Some(newer) = newer_version(kind.folder, kind.schema_version, manifest) {
+            problems.push(newer_problem(
+                project,
+                kind.folder,
+                kind.schema_version,
+                newer,
+            ));
+            continue;
+        }
+        (kind.check)(project, &mut problems)?;
+    }
     Ok(problems)
 }
 
-/// The version `manifest` names for `kind` when it is higher than this Studio knows.
-fn newer_version(kind: &DataKind, manifest: &Manifest) -> Option<u64> {
+/// The version `manifest` names for the kind of folder `folder` when it is higher than this
+/// Studio knows (`known`).
+fn newer_version(folder: &str, known: u32, manifest: &Manifest) -> Option<u64> {
     manifest
         .schemas
-        .get(kind.folder)
+        .get(folder)
         .and_then(Value::as_u64)
-        .filter(|&v| v > u64::from(kind.schema_version))
+        .filter(|&v| v > u64::from(known))
 }
 
-/// The warning for a data kind of a newer version, at its key in the manifest.
-fn newer_problem(project: &Project, kind: &DataKind, version: u64) -> Problem {
+/// The warning for the kind of folder `folder` of a newer version, at its key in the manifest.
+fn newer_problem(project: &Project, folder: &str, known: u32, version: u64) -> Problem {
     let bytes = std::fs::read(project.root.join(MANIFEST_FILE)).unwrap_or_default();
-    let (line, col) = position(&bytes, &format!("schemas.{}", kind.folder)).unwrap_or((1, 1));
+    let (line, col) = position(&bytes, &format!("schemas.{folder}")).unwrap_or((1, 1));
     Problem {
         severity: Severity::Warning,
         line,
@@ -144,9 +164,7 @@ fn newer_problem(project: &Project, kind: &DataKind, version: u64) -> Problem {
             SCHEMA_CODE,
             format!(
                 "`schemas.{folder}` ist Version {version}, diese Fassung kennt {known}; \
-                 data/{folder}/ bleibt, wie es ist.",
-                folder = kind.folder,
-                known = kind.schema_version
+                 data/{folder}/ bleibt, wie es ist."
             ),
         )
     }
@@ -269,6 +287,55 @@ fn slashed(rel: &Path) -> String {
     super::arts::slash(rel).to_string_lossy().into_owned()
 }
 
+/// A file kind: a folder under `data/` without ids and register (no entity of an art either),
+/// whose files the check reads with its own function; the manifest's `schemas` names its
+/// version. Export and import leave the folder alone.
+#[derive(Debug, Clone, Copy)]
+pub struct FileKind {
+    /// The folder under `data/`, also the key in the manifest's `schemas`.
+    pub folder: &'static str,
+    /// The version of the file format this Studio writes.
+    pub schema_version: u32,
+    /// The problems of the folder's files.
+    pub check: fn(&Project, &mut Vec<Problem>) -> Result<(), KernelError>,
+}
+
+/// Every file kind: the tilesets of the map texture packages (`data/tilesets/NNNN.json`,
+/// [`crate::world::tileset`]).
+pub const FILE_KINDS: [FileKind; 1] = [FileKind {
+    folder: "tilesets",
+    schema_version: 1,
+    check: crate::world::tileset::check_folder,
+}];
+
+/// The schemas of parts of an art's files, `<art>.<key>` with their version: the world
+/// document of a map file (`maps.world`, [`crate::world::doc`]).
+pub const PART_SCHEMAS: [(&str, u32); 1] = [("maps.world", 1)];
+
+/// The file kind of folder `folder` under `data/`.
+pub fn file_kind(folder: &str) -> Option<&'static FileKind> {
+    FILE_KINDS.iter().find(|kind| kind.folder == folder)
+}
+
+/// Every key of `schemas` this Studio writes, with its version: the data kinds, the file kinds
+/// and the part schemas.
+fn schema_keys() -> impl Iterator<Item = (&'static str, u32)> {
+    DATA_KINDS
+        .iter()
+        .map(|kind| (kind.folder, kind.schema_version))
+        .chain(
+            FILE_KINDS
+                .iter()
+                .map(|kind| (kind.folder, kind.schema_version)),
+        )
+        .chain(PART_SCHEMAS)
+}
+
+/// Whether `key` of `schemas` is one this Studio writes ([`schemas`]); the others are foreign.
+pub(crate) fn is_schema_key(key: &str) -> bool {
+    schema_keys().any(|(known, _)| known == key)
+}
+
 #[cfg(all(test, feature = "test-support"))]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -321,23 +388,34 @@ mod tests {
             schemas(&BTreeMap::new()),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(1)),
                 ("stories".to_owned(), Value::from(1)),
+                ("tilesets".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
         let keep = BTreeMap::from([
             ("plugins".to_owned(), serde_json::json!({"version": 2})),
             ("vars".to_owned(), Value::from(0)),
+            ("tilesets".to_owned(), Value::from(0)),
         ]);
         assert_eq!(
             schemas(&keep),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(1)),
                 ("plugins".to_owned(), serde_json::json!({"version": 2})),
                 ("stories".to_owned(), Value::from(1)),
+                ("tilesets".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
+        // The keys this Studio writes, and no other.
+        for key in ["flags", "vars", "stories", "tilesets", "maps.world"] {
+            assert!(is_schema_key(key), "{key}");
+        }
+        assert!(!is_schema_key("plugins"));
+        assert!(!is_schema_key("maps"));
     }
 
     #[test]
@@ -352,10 +430,20 @@ mod tests {
             schemas(&keep),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(2)),
+                ("maps.world".to_owned(), Value::from(1)),
                 ("stories".to_owned(), Value::from(1)),
+                ("tilesets".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
+        // A newer version of a file kind or a part schema stays as well.
+        let keep = BTreeMap::from([
+            ("tilesets".to_owned(), Value::from(3)),
+            ("maps.world".to_owned(), Value::from(2)),
+        ]);
+        let written = schemas(&keep);
+        assert_eq!(written["tilesets"], Value::from(3));
+        assert_eq!(written["maps.world"], Value::from(2));
         // And the manifest an older Studio writes keeps it.
         let fx = TextFixture::exported();
         let mut manifest = read_manifest(fx.root()).unwrap();
@@ -551,6 +639,132 @@ mod tests {
             text("data/stories/0001.json"),
             "textproject.id-mismatch: id: `STORY_B` ist nicht die ID der Geschichte 1 (das \
              Register nennt keine)."
+        );
+    }
+
+    #[test]
+    fn tilesets_is_a_known_folder() {
+        assert!(is_known_folder("tilesets"));
+        let kind = file_kind("tilesets").unwrap();
+        assert_eq!(kind.folder, "tilesets");
+        assert_eq!(kind.schema_version, 1);
+        assert_eq!(
+            Path::new(DATA_DIR).join(kind.folder),
+            Path::new(crate::world::tileset::TILESETS_DIR)
+        );
+        assert!(file_kind("flags").is_none());
+        assert!(data_kind("tilesets").is_none());
+        assert_eq!(PART_SCHEMAS, [("maps.world", 1)]);
+        // A part schema names no folder.
+        assert!(!is_known_folder("maps.world"));
+        // The export's check gives no hint for `data/tilesets/` nor for the manifest's keys.
+        let fx = TextFixture::exported();
+        let synthetic = crate::world::tileset::Tileset::synthetic();
+        fx.write(
+            "data/tilesets/0000.json",
+            &crate::textproject::canon::to_canonical(&synthetic),
+        );
+        let manifest = read_manifest(fx.root()).unwrap();
+        let hints = crate::textproject::check::hints(&fx.project(), &manifest).unwrap();
+        assert!(hints.is_empty(), "{hints:#?}");
+    }
+
+    #[test]
+    fn check_files_reads_tilesets() {
+        use crate::world::tileset::Tileset;
+        let fx = TextFixture::exported();
+        let p = fx.project();
+        let manifest = read_manifest(fx.root()).unwrap();
+        let canonical = crate::textproject::canon::to_canonical::<Tileset>;
+        // A valid file: nothing.
+        fx.write("data/tilesets/0000.json", &canonical(&Tileset::synthetic()));
+        assert!(check_files(&p, &manifest).unwrap().is_empty());
+
+        // Package 7 in the file of package 6, a wall past the tiles, a typo, a stray name.
+        let mut seven = Tileset::synthetic();
+        seven.package = 7;
+        seven.tiles[0].wall = Some(9);
+        fx.write("data/tilesets/0006.json", &canonical(&seven));
+        let typo = String::from_utf8(canonical(&Tileset::synthetic()))
+            .unwrap()
+            .replacen("\"role\"", "\"rolle\"", 1);
+        fx.write("data/tilesets/0008.json", typo.as_bytes());
+        fx.write("data/tilesets/notes.json", b"{}\n");
+        fx.write("data/tilesets/06.json", b"{}\n");
+        let problems = check_files(&p, &manifest).unwrap();
+        let six = String::from_utf8(canonical(&seven)).unwrap();
+        let line_of = |text: &str, needle: &str| {
+            u32::try_from(text.lines().position(|l| l.contains(needle)).unwrap() + 1).unwrap()
+        };
+        assert_eq!(
+            found(&problems),
+            [
+                (
+                    "textproject.schema".to_owned(),
+                    Severity::Error,
+                    "data/tilesets/0006.json".to_owned(),
+                    line_of(&six, "\"package\"")
+                ),
+                (
+                    "textproject.schema".to_owned(),
+                    Severity::Error,
+                    "data/tilesets/0006.json".to_owned(),
+                    line_of(&six, "\"wall\"")
+                ),
+                (
+                    "textproject.schema".to_owned(),
+                    Severity::Error,
+                    "data/tilesets/0008.json".to_owned(),
+                    line_of(&typo, "\"rolle\"")
+                ),
+                (
+                    "textproject.schema".to_owned(),
+                    Severity::Error,
+                    "data/tilesets/06.json".to_owned(),
+                    1
+                ),
+                (
+                    "textproject.schema".to_owned(),
+                    Severity::Error,
+                    "data/tilesets/notes.json".to_owned(),
+                    1
+                ),
+            ],
+            "{problems:#?}"
+        );
+        let texts: Vec<&str> = problems
+            .iter()
+            .filter(|p| p.file == Path::new("data/tilesets/0006.json"))
+            .map(|p| p.message.as_str())
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "textproject.schema: package: Paket 0007 passt nicht zum Dateinamen 0006.json.",
+                "textproject.schema: tiles[0].wall: Kachel 0x0009 gibt es im Tileset 0007 nicht \
+                 (6 Kacheln)."
+            ]
+        );
+        let notes = problems
+            .iter()
+            .find(|p| p.file == Path::new("data/tilesets/notes.json"))
+            .unwrap();
+        assert_eq!(
+            notes.message,
+            "textproject.schema: Der Dateiname ist keine Paketnummer (`NNNN.json`); die Datei \
+             gehört zu keinem Kartentextur-Paket."
+        );
+
+        // A newer version of the kind: one warning at its key, its files are not read.
+        fx.edit("g4-project.json", "\"tilesets\": 1", "\"tilesets\": 2");
+        let manifest = read_manifest(fx.root()).unwrap();
+        let problems = check_files(&p, &manifest).unwrap();
+        assert_eq!(problems.len(), 1, "{problems:#?}");
+        assert_eq!(problems[0].severity, Severity::Warning);
+        assert_eq!(
+            problems[0].message,
+            "textproject.schema: `schemas.tilesets` ist Version 2, diese Fassung kennt 1; \
+             data/tilesets/ bleibt, wie es ist."
         );
     }
 }

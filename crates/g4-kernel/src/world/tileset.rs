@@ -9,13 +9,18 @@
 //! [`tileset_problems`] refuses them. The only tileset data in the repository is the
 //! synthetic test tileset of [`Tileset::synthetic`], made in code (names `syn_*`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use g4_formats::game::Family;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{KernelError, io_at};
 use crate::project::Project;
+use crate::text::Problem;
+use crate::textproject::arts::file_names;
+use crate::textproject::canon::{parse_json, problem};
+use crate::textproject::codes::SCHEMA_CODE;
+use crate::textproject::locate::located;
 
 /// The version of the tileset file this build reads and writes.
 pub const TILESET_VERSION: u32 = 1;
@@ -296,6 +301,50 @@ pub fn tile_outside(path: &str, tile: u16, package: u16, tiles: usize) -> String
         format!("{tiles} Kacheln")
     };
     format!("{path}: Kachel {tile:#06x} gibt es im Tileset {package:04} nicht ({count}).")
+}
+
+/// The problems of the folder `data/tilesets/` (the file kind `tilesets` of
+/// [`check_files`](crate::textproject::kinds::check_files)), each `textproject.schema` with
+/// file and line: a file name that is no package number `NNNN.json`, a file that does not read
+/// as a [`Tileset`] (serde's path), and every one of [`tileset_problems`] of a file that does,
+/// at its JSON path.
+pub fn check_folder(project: &Project, problems: &mut Vec<Problem>) -> Result<(), KernelError> {
+    let dir = Path::new(TILESETS_DIR);
+    for name in file_names(&project.root.join(dir))? {
+        let rel = dir.join(&name);
+        let Some(package) = package_of(&name) else {
+            problems.push(problem(
+                &rel,
+                SCHEMA_CODE,
+                "Der Dateiname ist keine Paketnummer (`NNNN.json`); die Datei gehört zu keinem \
+                 Kartentextur-Paket."
+                    .to_owned(),
+            ));
+            continue;
+        };
+        let path = project.root.join(&rel);
+        let bytes = std::fs::read(&path).map_err(io_at(&path))?;
+        let tileset: Tileset = match parse_json(&rel, &bytes, SCHEMA_CODE) {
+            Ok(tileset) => tileset,
+            Err(found) => {
+                problems.push(found);
+                continue;
+            }
+        };
+        for text in tileset_problems(&tileset, package, project.family) {
+            problems.push(located(&rel, &bytes, &format!("{SCHEMA_CODE}: {text}")));
+        }
+    }
+    Ok(())
+}
+
+/// The package of a tileset file name `NNNN.json` (four decimal digits).
+fn package_of(name: &str) -> Option<u16> {
+    let digits = name.strip_suffix(".json")?;
+    if digits.len() != 4 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 #[cfg(test)]

@@ -9,10 +9,12 @@
 //! check that reads it into cells ([`WorldGrid::parse`]); `tileset.rs` the tileset file
 //! `data/tilesets/NNNN.json` of a map texture package and the synthetic test tileset;
 //! `mesh.rs` the mesher from layers, heights, ramps and footprints to a face list and the
-//! budget estimate.
+//! budget estimate; `keep.rs` the world object kept when the map file is written from its
+//! member.
 
 pub mod doc;
 pub mod grid;
+pub mod keep;
 pub mod mesh;
 pub mod tileset;
 

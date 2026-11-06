@@ -136,10 +136,12 @@ pub(crate) fn binary_name(kind: AssetKind) -> (&'static str, &'static str) {
 }
 
 /// Whether `name` is a folder under `data/` the text project knows: an art, a data kind
-/// ([`kinds::data_kind`](super::kinds::data_kind)), the registers, the blobs.
+/// ([`kinds::data_kind`](super::kinds::data_kind)), a file kind
+/// ([`kinds::file_kind`](super::kinds::file_kind)), the registers, the blobs.
 pub(crate) fn is_known_folder(name: &str) -> bool {
     ARTS.iter().any(|a| a.name() == name)
         || super::kinds::data_kind(name).is_some()
+        || super::kinds::file_kind(name).is_some()
         || Path::new(IDS_DIR)
             .file_name()
             .is_some_and(|ids| ids == name)

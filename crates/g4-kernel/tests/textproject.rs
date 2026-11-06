@@ -157,7 +157,7 @@ fn export_writes_manifest_entities_registries_and_quirks() {
 
     let manifest = fx.json("g4-project.json");
     assert_eq!(manifest["format"], "g4-project");
-    assert_eq!(manifest["schemaVersion"], 2);
+    assert_eq!(manifest["schemaVersion"], 3);
     assert_eq!(manifest["game"]["code"], "CPUE");
     assert_eq!(manifest["game"]["family"], "pt");
 
@@ -241,7 +241,9 @@ fn export_writes_manifest_entities_registries_and_quirks() {
     assert_eq!(fx.text("data/ids/stories.json"), "{}\n");
     assert_eq!(
         manifest["schemas"],
-        serde_json::json!({"flags": 1, "stories": 1, "vars": 1})
+        serde_json::json!({
+            "flags": 1, "maps.world": 1, "stories": 1, "tilesets": 1, "vars": 1
+        })
     );
     assert!(
         report.adopted.is_some_and(|n| n > 0),
@@ -1116,7 +1118,7 @@ fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
     let fx = built();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 2",
+        "\"schemaVersion\": 3",
         "\"schemaVersion\": 0",
     );
     let before = fx.mtimes();
@@ -1775,8 +1777,8 @@ fn a_changed_manifest_leaves_the_judgement_to_the_step() {
     tick();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 2",
-        "\"schemaVersion\":  2",
+        "\"schemaVersion\": 3",
+        "\"schemaVersion\":  3",
     );
     fx.dspre_power(57);
     let problems = compile_problems(build::prepare(&fx.p()));

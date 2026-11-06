@@ -102,7 +102,8 @@ pub fn sources(project: &Project) -> Result<Vec<PathBuf>, KernelError> {
 }
 
 /// The hints of the text project: folders under `data/` no art or data kind knows, reserved
-/// manifest keys in use (in `schemas` only keys no data kind has), register entries whose
+/// manifest keys in use (in `schemas` only keys this Studio does not write, see
+/// [`super::kinds::schemas`]), register entries whose
 /// number is gone, and the problems of the data kinds' files (a story's id that names nothing
 /// is the warning `story.dangling-ref`, never an error).
 pub(crate) fn hints(project: &Project, manifest: &Manifest) -> Result<Vec<Problem>, KernelError> {
@@ -128,7 +129,7 @@ pub(crate) fn hints(project: &Project, manifest: &Manifest) -> Result<Vec<Proble
     let foreign_schemas = manifest
         .schemas
         .keys()
-        .any(|key| super::kinds::data_kind(key).is_none());
+        .any(|key| !super::kinds::is_schema_key(key));
     for (key, used) in [
         ("schemas", foreign_schemas),
         ("plugins", !manifest.plugins.is_empty()),
@@ -355,11 +356,11 @@ mod tests {
     #[test]
     fn reserved_hint_only_for_foreign_schema_keys() {
         let fx = TextFixture::exported();
-        // The export names the data kinds in `schemas`: no hint.
+        // The export names the data kinds, file kinds and part schemas in `schemas`: no hint.
         let manifest = read_manifest(fx.root()).unwrap();
         assert_eq!(
             manifest.schemas.keys().collect::<Vec<_>>(),
-            ["flags", "stories", "vars"]
+            ["flags", "maps.world", "stories", "tilesets", "vars"]
         );
         assert!(hints_of(&fx).is_empty(), "{:#?}", hints_of(&fx));
 
