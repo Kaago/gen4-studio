@@ -106,7 +106,7 @@ pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
             bytes: &bytes,
             world: &world,
         };
-        let (schema, checked) = schema_of(project, &at, &mut tilesets)?;
+        let (schema, checked) = schema_of(project, &at, &mut tilesets, &|_| false)?;
         let clean = schema.is_empty();
         problems.extend(schema);
         if store.is_none() {
@@ -136,11 +136,14 @@ pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
 
 /// The `world.schema` errors of the map file `rel` (`bytes`) when it is a world map, for the
 /// import: a map with one of them is not imported. Empty for a binary map and for a file whose
-/// `world` does not read (that is `textproject.schema`, the import's own).
+/// `world` does not read (that is `textproject.schema`, the import's own). A package past the
+/// members on disk that `in_base` has is no error: the import restores its member from the
+/// base (its tiles stay unchecked until it is back).
 pub(crate) fn map_schema_problems(
     project: &Project,
     rel: &Path,
     bytes: &[u8],
+    in_base: &dyn Fn(u16) -> bool,
 ) -> Result<Vec<Problem>, KernelError> {
     let Ok(Some(world)) = world_field(bytes) else {
         return Ok(Vec::new());
@@ -150,7 +153,7 @@ pub(crate) fn map_schema_problems(
         bytes,
         world: &world,
     };
-    Ok(schema_of(project, &at, &mut Tilesets::default())?.0)
+    Ok(schema_of(project, &at, &mut Tilesets::default(), in_base)?.0)
 }
 
 /// The tileset of each package, read once per check: the tileset file, else the package's
@@ -248,6 +251,7 @@ fn schema_of(
     project: &Project,
     at: &Spot<'_>,
     tilesets: &mut Tilesets,
+    in_base: &dyn Fn(u16) -> bool,
 ) -> Result<(Vec<Problem>, Option<Checked>), KernelError> {
     let grid = match WorldGrid::parse(at.world) {
         Ok(grid) => grid,
@@ -256,7 +260,7 @@ fn schema_of(
     let package = grid.tileset;
     if project.has_archive(AssetKind::MapTexture) {
         let count = project.member_count(AssetKind::MapTexture)?;
-        if usize::from(package) >= count {
+        if usize::from(package) >= count && !in_base(package) {
             let text = match missing_package(package, count) {
                 KernelError::Refused(text) => text,
                 other => other.to_string(),

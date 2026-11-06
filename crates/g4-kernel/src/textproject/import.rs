@@ -943,7 +943,7 @@ fn plan_entities<E: EntitySchema>(
             // already counts them; they are not read.
             continue;
         }
-        if art == Art::Maps && world_broken(project, &file, plan)? {
+        if art == Art::Maps && world_broken(project, &file, base, plan)? {
             // Not imported, like an entity that fails to import.
             next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
             continue;
@@ -1006,16 +1006,21 @@ fn plan_entities<E: EntitySchema>(
 }
 
 /// Whether the map file `file` is a world map with a `world.schema` error (its errors then in
-/// the plan): such a map is not imported. A file that does not read is `import_entity`'s.
+/// the plan): such a map is not imported. A file that does not read is `import_entity`'s. A
+/// map texture package the base has counts even when its member is not on disk: the import
+/// restores it.
 fn world_broken(
     project: &Project,
     file: &Path,
+    base: &dyn BasePart,
     plan: &mut ImportPlan,
 ) -> Result<bool, KernelError> {
     let Ok(bytes) = std::fs::read(project.root.join(file)) else {
         return Ok(false);
     };
-    let found = crate::world::check::map_schema_problems(project, file, &bytes)?;
+    let in_base =
+        |package: u16| base.has_member(AssetKind::MapTexture, usize::from(package)) == Some(true);
+    let found = crate::world::check::map_schema_problems(project, file, &bytes, &in_base)?;
     let broken = !found.is_empty();
     plan.problems.extend(found);
     Ok(broken)
@@ -1786,6 +1791,14 @@ mod tests {
 
         fn available(&self) -> Result<bool, KernelError> {
             self.inner.available()
+        }
+
+        fn has_member(&self, kind: AssetKind, index: usize) -> Option<bool> {
+            self.inner.has_member(kind, index)
+        }
+
+        fn has_header(&self, id: usize) -> Option<bool> {
+            self.inner.has_header(id)
         }
     }
 
@@ -2709,6 +2722,47 @@ mod tests {
                 "{found:?}"
             );
         }
+    }
+
+    /// Regression (6.3a Task 8, vanilla round trip): with the map texture members deleted the
+    /// world map still imports, its package comes back from the base.
+    #[test]
+    fn a_world_map_imports_while_its_package_member_comes_from_the_base() {
+        use crate::world::check::WORLD_SCHEMA_CODE;
+        use crate::world::doc::fixtures;
+
+        let (_s, p) = exported();
+        let world = fixtures::one_tile_world();
+        let rel = "data/maps/0000.json";
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.root.join(rel)).unwrap()).unwrap();
+        v["source"] = "world".into();
+        v["world"] = serde_json::to_value(&world).unwrap();
+        write_to(&p, rel, &serde_json::to_vec_pretty(&v).unwrap());
+        let dir = p.unpacked_dir(AssetKind::MapTexture);
+        let mut removed = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_file() {
+                std::fs::remove_file(&path).unwrap();
+                removed += 1;
+            }
+        }
+        assert!(removed > usize::from(world.tileset), "{removed}");
+        let (plan, _) = plan(&p, None);
+        let schema: Vec<&Problem> = plan
+            .problems
+            .iter()
+            .filter(|p| p.message.starts_with(WORLD_SCHEMA_CODE))
+            .collect();
+        assert!(schema.is_empty(), "{schema:#?}");
+        assert!(
+            plan.problems
+                .iter()
+                .all(|p| p.file != Path::new(rel) || p.severity != Severity::Error),
+            "{:#?}",
+            plan.problems
+        );
     }
 
     #[test]
