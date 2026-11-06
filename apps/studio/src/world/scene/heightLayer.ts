@@ -161,3 +161,18 @@ export function showHeightLayer(h: SceneHost, visible: boolean) {
   }
   reportHeights(h);
 }
+
+/**
+ * Shows or hides the layer „Höhen“ of the shown matrix. It is built lazily: the first switch-on builds it (the scene opens without it),
+ * later switches only show or hide it; without a matrix nothing is built. Reports `data-heights-shown`. Does not render.
+ */
+export function setHeightsShown(h: SceneHost, on: boolean) {
+  if (h.heights) {
+    h.heights.visible = on;
+    reportHeights(h);
+  } else if (on && h.matrix) {
+    showHeightLayer(h, true);
+  } else {
+    reportHeights(h);
+  }
+}

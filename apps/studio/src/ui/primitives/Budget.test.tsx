@@ -50,8 +50,9 @@ describe("Budget", () => {
     expect(state()).toBe("full");
     expect(container.textContent).toContain("Voll");
     expect(container.textContent).toContain("Vanilla höchstens 35.592 B");
-    // Over the limit the bar stays full; the value still says how much.
-    expect(meter().getAttribute("aria-valuenow")).toBe("40000");
+    // Over the limit the bar stays full and the meter's value stops at its maximum; the words still say how much.
+    expect(meter().getAttribute("aria-valuenow")).toBe("36864");
+    expect(meter().getAttribute("aria-valuetext")).toBe("40.000 von 36.864 B, Voll");
     expect(container.querySelector<HTMLElement>("[data-budget-fill]")?.style.width).toBe("100%");
   });
 

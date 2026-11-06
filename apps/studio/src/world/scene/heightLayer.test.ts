@@ -4,7 +4,8 @@ import type { MatrixDto } from "../../api";
 import { szene } from "../../ui/tokens/tokens";
 import { createGround } from "../ground";
 import { MAP_SIZE } from "../layout";
-import { HEIGHT_LAYER_Y, buildHeightLayer, heightColor, heightStep, isolineSegments } from "./heightLayer";
+import { HEIGHT_LAYER_Y, buildHeightLayer, heightColor, heightStep, isolineSegments, setHeightsShown } from "./heightLayer";
+import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
 /** A map whose tile heights (in world units) are `at(x, y)`. */
@@ -100,5 +101,35 @@ describe("heightLayer", () => {
     // The raised tile has four edges of a step change; the lines take the first height colour.
     expect(isolines.geometry.getAttribute("position").count).toBe(4 * 2);
     expect((isolines.material as THREE.LineBasicMaterial).color.getHex()).toBe(new THREE.Color(szene.hoehe["0"]).getHex());
+  });
+
+  it("the_layer_is_not_built_while_off_and_built_on_its_first_switch_on", () => {
+    const one: MatrixDto = { index: 0, name: "m", width: 1, height: 1, maps: [1], headers: null, altitudes: null };
+    const loaded = new Map([[1, mapWith(1, () => 0)]]);
+    // The parts of a scene handle the layer touches; `canvas` only needs a dataset.
+    const h = { matrix: null, loaded, ground: createGround(one, loaded), content: new THREE.Group(), heights: null, canvas: { dataset: {} as DOMStringMap } } as unknown as SceneHost;
+    // Without a matrix nothing is built, even when switched on.
+    setHeightsShown(h, true);
+    expect(h.heights).toBeNull();
+    h.matrix = one;
+    setHeightsShown(h, false);
+    expect(h.heights).toBeNull();
+    expect(h.content.children).toHaveLength(0);
+    expect(h.canvas.dataset.heightsShown).toBeUndefined();
+    // The first switch-on builds it into the content.
+    setHeightsShown(h, true);
+    const layer = h.heights!;
+    expect(layer).not.toBeNull();
+    expect(h.content.children).toEqual([layer]);
+    expect(layer.visible).toBe(true);
+    expect(h.canvas.dataset.heightsShown).toBe("true");
+    // Later switches only hide and show the same layer.
+    setHeightsShown(h, false);
+    expect(h.heights).toBe(layer);
+    expect(layer.visible).toBe(false);
+    expect(h.canvas.dataset.heightsShown).toBeUndefined();
+    setHeightsShown(h, true);
+    expect(h.heights).toBe(layer);
+    expect(h.content.children).toHaveLength(1);
   });
 });

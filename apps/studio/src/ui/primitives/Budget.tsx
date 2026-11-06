@@ -14,7 +14,7 @@ export type BudgetProps = {
   unit?: string;
   /** A second line in small print („Vanilla höchstens 110.640 B“). */
   note?: string;
-  /** Replaces the words „<used> von <max> <unit>“ (they also name the meter's value). */
+  /** Replaces the words „<used> von <max> <unit>“ (they also name the meter's value, with the true number over the limit). */
   text?: string;
   /** The limit for Tüfteln (hex, „0xF000“), grey in mono after the words. */
   tech?: string;
@@ -49,7 +49,7 @@ export function Budget({ label, used, max, state, unit, note, text, tech }: Budg
       <div
         role="meter"
         aria-labelledby={labelId}
-        aria-valuenow={used}
+        aria-valuenow={Math.min(Math.max(used, 0), max)}
         aria-valuemin={0}
         aria-valuemax={max}
         aria-valuetext={badge ? `${words}, ${badge.text}` : words}

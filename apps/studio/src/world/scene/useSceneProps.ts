@@ -5,7 +5,7 @@ import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
 import { showCellFrame } from "./cellFrame";
 import { reportSelectedMarker } from "./content";
-import { reportHeights } from "./heightLayer";
+import { setHeightsShown } from "./heightLayer";
 import type { SceneRefs } from "./types";
 
 /** The selected building (made by a click, the header list, ...) is outlined; the scene also drags it. */
@@ -79,16 +79,15 @@ export function usePermissionVisibility(refs: SceneRefs, showPermissions: boolea
   }, [showPermissions]);
 }
 
-/** Shows or hides the layer „Höhen“ (the canvas says so in `data-heights-shown`). */
+/** Shows or hides the layer „Höhen“, built on its first switch-on (the canvas says so in `data-heights-shown`). */
 export function useHeightVisibility(refs: SceneRefs, showHeights: boolean) {
   useEffect(() => {
     refs.showHeights.current = showHeights;
     const h = refs.handle.current;
-    if (h?.heights) {
-      h.heights.visible = showHeights;
-      reportHeights(h);
-      h.render();
-    }
+    // Before the first matrix is loaded there is nothing to show; the load reads the switch itself.
+    if (!h?.matrix) return;
+    setHeightsShown(h, showHeights);
+    h.render();
   }, [showHeights]);
 }
 

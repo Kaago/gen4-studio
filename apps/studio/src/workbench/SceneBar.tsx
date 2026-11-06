@@ -25,7 +25,7 @@ export const SceneBar = memo(function SceneBar({ showPermissions, showHeights, s
         <IconButton label="Ereignisse" icon="pin" pressed={showEvents} onClick={() => onShowEvents(!showEvents)} />
       </div>
       <div className={styles.views}>
-        <IconButton label="Draufsicht" icon="map" pressed={topDown} onClick={() => onTopDown(!topDown)} />
+        <IconButton label="Draufsicht" icon="topDown" pressed={topDown} onClick={() => onTopDown(!topDown)} />
       </div>
     </div>
   );

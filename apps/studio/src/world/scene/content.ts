@@ -182,8 +182,9 @@ export function recolourMap(h: SceneHost, mapId: number) {
 
 /**
  * Puts what stands on the ground of map `mapId` onto `h.ground` again (its heights changed: `set_map_terrain`, its undo): the overlay
- * plates of every cell showing the map and the markers on its tiles; the other maps stay as they are. The layer „Höhen“ is built anew
- * on `h.ground` (its isolines run across map borders), shown or hidden as before. Does not render.
+ * plates of every cell showing the map and the markers on its tiles; the other maps stay as they are. A layer „Höhen“ that was built is
+ * built anew on `h.ground` (its isolines run across map borders), shown or hidden as before; one never switched on stays unbuilt. Does
+ * not render.
  */
 export function moveMapGround(h: SceneHost, mapId: number) {
   const matrix = h.matrix;

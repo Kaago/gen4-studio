@@ -59,6 +59,8 @@ describe("SceneBar", () => {
     const layers = [...toggle("Gelände").parentElement!.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"));
     expect(layers).toEqual(["Gelände", "Höhen", "Ereignisse"]);
     expect(toggle("Höhen").getAttribute("aria-pressed")).toBe("false");
+    // Its glyph is its own, not the one of „Draufsicht“ beside it (both unpressed here).
+    expect(toggle("Höhen").querySelector("svg")?.innerHTML).not.toBe(toggle("Draufsicht").querySelector("svg")?.innerHTML);
     act(() => toggle("Höhen").click());
     expect(onShowHeights).toHaveBeenCalledWith(true);
     show({ showPermissions: false, showHeights: true, onShowHeights });
