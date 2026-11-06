@@ -107,7 +107,7 @@ describe("useWorldActions.onAddEvent", () => {
     root = createRoot(container);
     resetTileNames();
     vi.mocked(tileBehaviors).mockReset().mockResolvedValue([{ value: 0x65, name: "WARP_ENTRANCE_SOUTH", class: "warp" }]);
-    vi.mocked(getMap).mockReset().mockResolvedValue({ index: 40, permissions, buildings: [] });
+    vi.mocked(getMap).mockReset().mockResolvedValue({ index: 40, permissions, buildings: [], heights: [] });
     vi.mocked(addEvent).mockReset().mockResolvedValue(2);
     vi.mocked(setPermission).mockReset().mockResolvedValue(undefined);
     vi.mocked(addBuilding).mockReset();

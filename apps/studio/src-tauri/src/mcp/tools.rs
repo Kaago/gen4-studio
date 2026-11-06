@@ -5215,4 +5215,46 @@ mod tests {
         assert_eq!(deleted(&toolbox), true);
         assert_eq!(history(&toolbox)["undo"], json!(["Agent: löschen"]));
     }
+
+    #[test]
+    fn set_map_terrain_over_mcp_refuses_wrong_rows_and_is_one_step() {
+        let (_fixture, toolbox) = open_toolbox(WRITE);
+        let rows = |cell: &str, n: usize| vec![vec![cell; 32].join(" "); n];
+        let args = |heights: Vec<String>| {
+            json!({ "index": 0, "grid": { "heights": heights, "ramps": rows(".", 32) },
+                    "kinds": rows(".", 32) })
+        };
+        // 31 rows: the kernel's sentence with the list and the count, nothing recorded.
+        let (code, message, _) =
+            failed(toolbox.call("set_map_terrain", args(rows("0", 31)), AGENT));
+        assert_eq!(code, "error");
+        assert_eq!(message, "heights: 32 Zeilen erwartet, 31 da.");
+        let mut high = rows("0", 32);
+        high[6] = format!("0 0 0 0 63{}", " 0".repeat(27));
+        let (_, message, _) = failed(toolbox.call("set_map_terrain", args(high), AGENT));
+        assert_eq!(
+            message,
+            "Kachel x 4, y 6: Höhe 63 liegt außerhalb von \u{2212}16 bis 62 Stufen."
+        );
+        assert_eq!(history(&toolbox)["undo"], json!([]));
+
+        let mut step = rows("0", 32);
+        step[5] = format!("0 0 0 0 0 2{}", " 0".repeat(26));
+        let report = toolbox.call("set_map_terrain", args(step), AGENT).unwrap();
+        assert_eq!(report["blocked"], 1, "{report}");
+        assert_eq!(history(&toolbox)["undo"], json!(["set terrain"]));
+        let heights = toolbox
+            .call("get_map_heights", json!({ "index": 0 }), AGENT)
+            .unwrap();
+        assert_eq!(heights["heights"][5 * 32 + 5], 16.0);
+        let budget = toolbox
+            .call("get_map_budget", json!({ "index": 0 }), AGENT)
+            .unwrap();
+        assert_eq!(budget["bdhc"]["state"], "calm");
+        // Read-only lists the two reading tools, not the writing one.
+        let (_fixture, reader) = open_toolbox(READ);
+        let listed = names(&reader);
+        assert!(listed.contains(&"get_map_heights") && listed.contains(&"get_map_budget"));
+        assert!(!listed.contains(&"set_map_terrain"));
+    }
 }

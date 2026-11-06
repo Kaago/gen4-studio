@@ -1881,7 +1881,111 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("story_delete"),
     },
+    // Terrain (6.2).
+    ToolDef {
+        name: "get_map_heights",
+        title: "Get map heights",
+        description: "BDHC height of every tile centre of a map in world units (16 per tile, \
+                      row-major y * 32 + x, null where no plate), the highest candidate where \
+                      plates overlap; the same numbers get_map carries as heights.",
+        input_schema: map_index_args,
+        output_schema: answers_object,
+        route: command("get_map_heights"),
+    },
+    ToolDef {
+        name: "set_map_terrain",
+        title: "Set map terrain",
+        description: "Sets a binary map's terrain from a height grid: grid.heights (32 rows of \
+                      32 steps of 8 units, \u{2212}16 to 62), grid.ramps (32 rows of 32 cells . \
+                      n1 n2 e1 e2 s1 s2 w1 w2: rises north/east/south/west by 1 or 2 steps per \
+                      tile), kinds (32 rows of 32 cells # . g G ~ r i ^ > v < D; all rows \
+                      space-separated), overrides (cells written as given), bdhc grid|flat, \
+                      permissions derive|keep. Writes BDHC and permissions as one undo step; \
+                      refused rows name row and column.",
+        input_schema: set_map_terrain_args,
+        output_schema: answers_object,
+        route: command("set_map_terrain"),
+    },
+    ToolDef {
+        name: "get_map_budget",
+        title: "Get map budget",
+        description: "The map's budgets against the game's limits: model (of 61 440 B), terrain \
+                      payload (of 36 864 B), buildings (of 32), textures and VRAM of its area's \
+                      packs against the bank and the vanilla maximum; state calm, tight or full.",
+        input_schema: map_index_args,
+        output_schema: answers_object,
+        route: command("get_map_budget"),
+    },
 ];
+
+/// The argument of `get_map_heights` and `get_map_budget`.
+fn map_index_args() -> Value {
+    object(
+        json!({ "index": uint("map index, as get_matrix returns in maps") }),
+        &["index"],
+    )
+}
+
+/// A list of 32 rows of a 32 × 32 map, each 32 cells separated by spaces. No `minItems`: a
+/// wrong count reaches the kernel, whose refusal names the list and the count.
+fn rows(cells: &str) -> Value {
+    json!({
+        "type": "array",
+        "items": { "type": "string" },
+        "description": format!("32 rows (row y from 0, north first), each 32 {cells} (column x \
+                                from 0) separated by spaces"),
+    })
+}
+
+/// The arguments of `set_map_terrain` (`g4_kernel::terrain::TerrainInput` and the map index).
+fn set_map_terrain_args() -> Value {
+    object(
+        json!({
+            "index": uint("map index, as get_matrix returns in maps"),
+            "grid": object_described(
+                json!({
+                    "heights": rows("integers: the height in steps of 8 units, \u{2212}16 to 62 \
+                                     (of a ramp: its lower edge)"),
+                    "ramps": rows("cells: . (level) or n1 n2 e1 e2 s1 s2 w1 w2 (rises north, \
+                                   east, south or west by 1 or 2 steps over the tile)"),
+                }),
+                &["heights", "ramps"],
+                "the height grid",
+            ),
+            "kinds": rows("characters: # blocked, . ground, g tall grass, G very tall grass, ~ \
+                           sea, r river, i ice, ^ > v < ledge north/east/south/west, D door"),
+            "overrides": {
+                "type": "array",
+                "description": "hand values written last, each replacing the whole permission \
+                                cell (default none)",
+                "items": object(
+                    json!({
+                        "x": uint("column, 0 to 31"),
+                        "y": uint("row, 0 to 31"),
+                        "kind": uint("the cell's tile behaviour (first permission byte)"),
+                        "collision": uint("the cell's collision byte (0x80 blocked)"),
+                    }),
+                    &["x", "y", "kind", "collision"],
+                ),
+            },
+            "bdhc": {
+                "type": "string",
+                "enum": ["grid", "flat"],
+                "default": "grid",
+                "description": "grid: the BDHC from the grid; flat: one level plate at 0 (the \
+                                counter test)",
+            },
+            "permissions": {
+                "type": "string",
+                "enum": ["derive", "keep"],
+                "default": "derive",
+                "description": "derive: from kinds and the grid's edges (two steps or more \
+                                block the upper cell); keep: the map's own permissions",
+            },
+        }),
+        &["index", "grid", "kinds"],
+    )
+}
 
 /// [`object`] with a description (a nested argument).
 fn object_described(properties: Value, required: &[&str], description: &str) -> Value {
@@ -2204,8 +2308,14 @@ mod tests {
                     t.name
                 );
             }
-            // One to three sentences.
-            let sentences = t.description.matches(". ").count() + 1;
+            // One to three sentences; a lone "." (a row code such as set_map_terrain's ". n1")
+            // ends none.
+            let sentences = t
+                .description
+                .match_indices(". ")
+                .filter(|&(i, _)| i > 0 && !t.description[..i].ends_with(' '))
+                .count()
+                + 1;
             assert!(
                 t.description.ends_with('.') && sentences <= 3,
                 "{}: {}",
@@ -2259,8 +2369,10 @@ mod tests {
         // a confirmation, and no tool there takes it over. 83 with 3d.4's delete tools, 84 with
         // 3d.6's story_delete (a story is no DeleteTarget); the curation of the catalog
         // (merging read tools, moving rarely used ones behind `tool_help`) is scheduled for the
-        // phase gate 3d, until then the bound only guards against runaway growth.
+        // phase gate 3d, until then the bound only guards against runaway growth. 87 with 6.2's
+        // get_map_heights, set_map_terrain and get_map_budget (the gate tool until 6.3a/6.4a).
         assert!((30..=90).contains(&catalog().len()), "{}", catalog().len());
+        assert_eq!(catalog().len(), 87);
     }
 
     #[test]
@@ -2321,6 +2433,8 @@ mod tests {
                 "live_status",
                 "dialogs_of_header",
                 "plan_delete",
+                "get_map_heights",
+                "get_map_budget",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -2381,6 +2495,7 @@ mod tests {
             "delete_entity",
             "restore_entity",
             "story_delete",
+            "set_map_terrain",
         ]
         .into_iter()
         .collect();
@@ -2910,6 +3025,17 @@ mod tests {
                 json!({ "target": { "kind": "header", "id": 0 } }),
             ),
             ("story_delete", json!({ "id": "STORY_TEST" })),
+            ("get_map_heights", json!({ "index": 0 })),
+            (
+                "set_map_terrain",
+                json!({ "index": 0,
+                        "grid": { "heights": vec![vec!["0"; 32].join(" "); 32],
+                                  "ramps": vec![vec!["."; 32].join(" "); 32] },
+                        "kinds": vec![vec!["."; 32].join(" "); 32],
+                        "overrides": [{ "x": 1, "y": 2, "kind": 0, "collision": 128 }],
+                        "bdhc": "flat", "permissions": "keep" }),
+            ),
+            ("get_map_budget", json!({ "index": 0 })),
         ]
     }
 

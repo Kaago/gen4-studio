@@ -11,9 +11,13 @@ use std::time::Instant;
 use g4_formats::bdhc::{Bdhc, FX_ONE, tile_center};
 use g4_formats::game::Family;
 use g4_formats::map::MapFile;
-use g4_kernel::terrain::{FreeStep, free_steps, map_heights};
+use g4_kernel::project::Project;
+use g4_kernel::store::Store;
+use g4_kernel::terrain::{
+    FreeStep, free_steps, map_heights, parse_grid, scenario_input, set_map_terrain,
+};
 
-use common::vanilla_project;
+use common::{vanilla_copy, vanilla_project};
 
 /// The game code of `root/header.yaml` (`gamecode: CPUD`).
 fn game_code(root: &Path) -> String {
@@ -225,4 +229,38 @@ fn vanilla_free_steps_are_counted() {
     steps.sort();
     eprintln!("free steps by step (E, rounded: count): {steps:?}");
     assert!(!maps.is_empty());
+}
+
+#[test]
+fn set_map_terrain_on_a_vanilla_copy_survives_save_and_reopen() {
+    let Some((_tmp, root)) = vanilla_copy() else {
+        return;
+    };
+    let input = scenario_input();
+    let grid = parse_grid(&input.grid).unwrap();
+    let mut store = Store::new(std::sync::Arc::new(Project::open(&root).unwrap()));
+    let started = Instant::now();
+    let report = set_map_terrain(&mut store, 0, &input).unwrap();
+    let set_ms = started.elapsed().as_millis();
+    let written = store.map(0).unwrap().clone();
+    store.save().unwrap();
+    drop(store);
+
+    let mut reopened = Store::new(std::sync::Arc::new(Project::open(&root).unwrap()));
+    let map = reopened.map(0).unwrap();
+    assert_eq!(map.bdhc, written.bdhc);
+    assert_eq!(map.permissions, written.permissions);
+    let heights = map_heights(&map.bdhc).unwrap();
+    for (i, h) in heights.iter().enumerate() {
+        let h = units(h.unwrap_or_else(|| panic!("tile {i} has no height")));
+        assert!(
+            (h - grid.center_units(i)).abs() <= 0.1,
+            "tile {i}: {h} vs {}",
+            grid.center_units(i)
+        );
+    }
+    eprintln!(
+        "set_map_terrain on {} map 0: {report:?} in {set_ms} ms",
+        game_code(&root)
+    );
 }

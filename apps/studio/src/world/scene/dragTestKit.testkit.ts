@@ -140,7 +140,7 @@ export function slantedView(matrix: MatrixDto | null) {
   camera.updateMatrixWorld(true);
   camera.updateProjectionMatrix();
   const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0, width: VIEW_SIZE, height: VIEW_SIZE }) };
-  const loaded = new Map<number, Loaded>((matrix?.maps ?? []).flatMap((id) => (id === null ? [] : [[id, { map: { index: id, permissions: [], buildings: [] } } as Loaded] as const])));
+  const loaded = new Map<number, Loaded>((matrix?.maps ?? []).flatMap((id) => (id === null ? [] : [[id, { map: { index: id, permissions: [], buildings: [], heights: [] } } as Loaded] as const])));
   const h = { canvas, camera, matrix, loaded } as unknown as SceneHost;
   const through = (x: number, y: number, z: number) => {
     const p = new THREE.Vector3(x, y, z).project(camera);

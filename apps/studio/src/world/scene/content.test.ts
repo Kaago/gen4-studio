@@ -13,7 +13,7 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 const matrix: MatrixDto = { index: 0, name: "m", width: 2, height: 1, maps: [1, 1], headers: null, altitudes: null };
 
-const loadedMap = (index: number): Loaded => ({ map: { index, permissions: Array.from({ length: MAP_SIZE * MAP_SIZE }, () => [0, 0] as [number, number]), buildings: [] } });
+const loadedMap = (index: number): Loaded => ({ map: { index, permissions: Array.from({ length: MAP_SIZE * MAP_SIZE }, () => [0, 0] as [number, number]), buildings: [], heights: [] } });
 
 /** The parts of a scene handle the content functions touch. */
 function handle(partial: Partial<SceneHost> = {}): SceneHost {

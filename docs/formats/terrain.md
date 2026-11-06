@@ -5,7 +5,7 @@ Quelle: [Gutachten B](../research/2026-11-05-phase-6/gutachten-b-bdhc-engine.md)
 `include/constants/field/map_tile_behaviors.h` und pret/pokeheartgold
 `include/constants/metatile_behavior.h` (nur gelesen, Formatwissen), Zeilenformat nach
 [Gutachten C](../research/2026-11-05-phase-6/gutachten-c-malen-import.md) §5.2.
-Implementierung: `crates/g4-kernel/src/terrain.rs` und `terrain/{rules,rows,derive,heights}.rs`,
+Implementierung: `crates/g4-kernel/src/terrain.rs` und `terrain/{rules,rows,derive,heights,apply,budget}.rs`,
 Regeltabelle `crates/g4-kernel/metadata/terrain_rules.yaml`. Die BDHC selbst und der Generator
 `from_grid` stehen in [bdhc.md](bdhc.md), die Permissions in [map.md](map.md).
 
@@ -142,13 +142,60 @@ Eine 16-E-Rampe über zwei Zellen hat Mitten 8 E auseinander, aber an der Kante 
 (kein Befund); eine Stufe von 24 E hat Mitten 24 E auseinander, die das Spiel ohnehin sperrt.
 Kartenränder zählen nicht.
 
+## Höhenraster setzen
+
+`set_map_terrain(store, map, input)` (Befehl `set_map_terrain`, MCP gleichnamig) liest die Zeilen
+(`parse_grid`, `parse_kinds`), baut die BDHC (`from_grid`, mit `bdhc: flat` stattdessen
+`Bdhc::flat(0)`), leitet die Permissions ab (`derive_permissions`, mit `permissions: keep` die
+der Karte) und legt die Handwerte darüber. Jede Ablehnung (Zeilen, Raster, Handwert) fällt,
+bevor etwas geschrieben ist; dann schreibt **ein** Schritt „set terrain“ (`Store::edit_map`)
+BDHC und Permissions zusammen, `undo` nimmt beide zurück. Der Bericht `TerrainReport` nennt
+Länge, Nutzlast, Platten und Streifen der BDHC, die blockierten Zellen, die Zahl der Handwerte
+und `permissions_kept`. Die Höhen der Kachelmitten trägt `get_map` als `heights` (E, `null` ohne
+Platte und überall bei unlesbarer BDHC); `get_map_heights` nennt dazu den Grund des Lesers.
+
+## Budget je Karte
+
+`map_budget(store, map)` (Befehl `get_map_budget`) misst die Karte gegen die Grenzen aus
+`check_limits.yaml` (B §2.8). Je Posten `{used, max, state}`; der Zustand ist **Voll** über
+`max`, **Knapp** ab 90 % (`10 · used ≥ 9 · max`), sonst **Ruhig** (`budget_state`). Das Budget
+zeigt nur an; Speichern blockiert es nie.
+
+| Posten | `used` | `max` |
+|---|---|---|
+| `model` | Länge des Modells | `model.max_bytes` 0xF000 = 61 440 B |
+| `bdhc` | Nutzlast aus den Zählern des Kopfs (`8 P + 12 N + 4 C + 8 Pl + 8 S + 2 A`), 0 ohne Kopf | `bdhc.max_bytes` 0x9000 = 36 864 B; ein Raster bleibt unter 35 592 B |
+| `buildings` | Zahl der Gebäude | `buildings.max_loaded` 32 (32 sind Knapp, ab 33 Voll) |
+| `textures.vram` | Schätzung von Karten- plus Gebäudepaket des Gebiets | `vram.bank` 262 144 B |
+
+**Gebiet:** das der Gebietsdaten des ersten Headers in Tabellenreihenfolge, dessen Matrix die
+Karte zeigt (eine Zelle mit der Karte und, wo die Matrix einen Header-Abschnitt hat, mit diesem
+Header; dieselbe Regel wie die Texturpakete des Kartenimports). Kartenpaket `map_tileset`,
+Gebäudepaket `buildings_tileset` der Gebietsdaten; `textures` ist die Zahl der Texturen im
+Kartenpaket. Ohne Gebiet ist `textures` `null` und `textures_missing` sagt warum: „Kein Header
+zeigt diese Karte.“, „Gebietsdaten 12 fehlen.“, „Texturpaket 6 nicht lesbar: <Grund>.“ bzw.
+„Gebäude-Texturpaket 6 nicht lesbar: <Grund>.“ (der Grund des NSBTX-Lesers oder „liegt außerhalb
+des Archivs“).
+
+**VRAM-Schätzung** (`vram_bytes`): je Textur `Breite · Höhe · bpp / 8` mit bpp 8, 2, 4, 8, 3, 8,
+16 für Format 1 bis 7 (A3I5, 4 Farben, 16, 256, 4×4 mit Indexdaten, A5I3, direkt), dazu zwei
+Byte je Palettenfarbe. Der Zustand folgt nicht der 90-%-Regel: **Knapp** über dem
+Vanilla-Maximum der Familie (`vram.vanilla_max`: Platin 110 640 B, HGSS 87 424 B, A §2.4),
+**Voll** über `vram.full_estimate` 204 800 B. **Grenzen der Schätzung:** Texel, die zwei
+Texturen teilen, zählen doppelt; die Ausrichtung im VRAM und der Anteil der Figuren an der Bank
+sind nicht gemessen (die Bank teilen Karte, Gebäude und Figuren); Polygone und Vertices fehlen
+(sie folgen mit dem Modell-Codec in 6.3b). Ein Paket, das nicht passt, bricht im Spiel beim
+Hochladen ab (A §2.4); die Schätzung ist eine Warnung, keine Prüfung.
+
 ## Quellen
 
 - Gutachten B §2.4 (Ablauf je Schritt, Permissions je Familie, Schrittgeräusch in HGSS,
   Karte 100) und §2.7 (Kantenzählung in Vanilla, Regelsatz).
 - pret/pokeplatinum `include/constants/field/map_tile_behaviors.h`, pret/pokeheartgold
   `include/constants/metatile_behavior.h` (Verhaltenswerte und Namen).
+- Gutachten B §2.8 (Grenzen und Budget je Karte), Gutachten A §2.4 (VRAM der Texturpakete).
 - Gutachten C §5.2 (Zeilen wie die Permissions).
 - Entscheidungen der Phase 6.2 im Plan `docs/superpowers/plans/2026-11-05-phase-6-2-bdhc.md`
   („Regeltabelle“, „Kollision zusammensetzen“, „Zeilenformat des Befehls“, „current im Studio“,
-  „map.step-unblocked auf binären Karten“).
+  „map.step-unblocked auf binären Karten“, „Name und Form „Höhenraster setzen““, „Höhen in der
+  Szene“, „Budget“).

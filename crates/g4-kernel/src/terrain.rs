@@ -10,12 +10,24 @@
 //!   least `free_below` units blocks its upper cell; [`apply_overrides`] puts hand values last.
 //! - [`map_heights`]: the walk height at every tile centre (highest candidate);
 //!   [`free_steps`]: two-step edges of a BDHC the game lets the player walk up.
+//! - [`set_map_terrain`]: BDHC and permissions of a map from rows, one store step;
+//!   [`map_budget`]: model, terrain payload, buildings and texture VRAM against the limits.
 
+mod apply;
+mod budget;
 mod derive;
 mod heights;
 mod rows;
 mod rules;
 
+#[cfg(any(test, feature = "test-support"))]
+pub use apply::scenario_input;
+pub use apply::{
+    BdhcSource, PermissionSource, SET_TERRAIN_LABEL, TerrainInput, TerrainReport, set_map_terrain,
+};
+pub use budget::{
+    BudgetItem, BudgetState, MapBudget, TextureBudget, budget_state, map_budget, vram_bytes,
+};
 pub use derive::{CellOverride, apply_overrides, derive_permissions};
 pub use g4_formats::bdhc::{Direction, HeightGrid, Ramp};
 pub use heights::{FreeStep, free_steps, map_heights};

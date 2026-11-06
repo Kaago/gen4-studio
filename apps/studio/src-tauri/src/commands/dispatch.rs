@@ -227,6 +227,9 @@ pub const COMMANDS: &[&str] = &[
     "delete_entity",
     "restore_entity",
     "story_delete",
+    "get_map_heights",
+    "set_map_terrain",
+    "get_map_budget",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1199,6 +1202,28 @@ pub fn dispatch(
         "story_delete" => run!(json, "story_delete", args, { id: String }, |a| {
             story_delete_impl(state, a.id)
         }),
+        "get_map_heights" => run!(json, "get_map_heights", args, { index: u16 }, |a| {
+            get_map_heights_impl(state, a.index)
+        }),
+        "set_map_terrain" => run!(
+            json, "set_map_terrain", args,
+            {
+                index: u16,
+                grid: g4_kernel::terrain::GridRows,
+                kinds: Vec<String>,
+                overrides: Option<Vec<g4_kernel::terrain::CellOverride>>,
+                bdhc: Option<g4_kernel::terrain::BdhcSource>,
+                permissions: Option<g4_kernel::terrain::PermissionSource>,
+            },
+            |a| set_map_terrain_impl(
+                state,
+                a.index,
+                terrain_input(a.grid, a.kinds, a.overrides, a.bdhc, a.permissions)
+            )
+        ),
+        "get_map_budget" => run!(json, "get_map_budget", args, { index: u16 }, |a| {
+            get_map_budget_impl(state, a.index)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1658,6 +1683,20 @@ mod tests {
                 json!({ "target": { "kind": "header", "id": 0 } }),
             ),
             ("story_delete", json!({"id": "STORY_TEST"})),
+            ("get_map_heights", json!({ "index": 0 })),
+            (
+                "set_map_terrain",
+                json!({
+                    "index": 0,
+                    "grid": { "heights": vec![vec!["0"; 32].join(" "); 32],
+                              "ramps": vec![vec!["."; 32].join(" "); 32] },
+                    "kinds": vec![vec!["."; 32].join(" "); 32],
+                    "overrides": [{ "x": 1, "y": 2, "kind": 0, "collision": 128 }],
+                    "bdhc": "grid",
+                    "permissions": "derive",
+                }),
+            ),
+            ("get_map_budget", json!({ "index": 0 })),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

@@ -19,7 +19,7 @@ const building = (model_id: number, x = 0, z = 0, over: Partial<BuildingDto> = {
 
 /** Map 5 appears in matrix cells 0 and 2 of a 3 x 1 matrix; map 6 in cell 1. */
 const matrix: MatrixDto = { index: 0, name: "m", width: 3, height: 1, maps: [5, 6, 5] };
-const mapOf = (index: number, buildings: BuildingDto[]): { map: MapDto } => ({ map: { index, permissions: [], buildings } });
+const mapOf = (index: number, buildings: BuildingDto[]): { map: MapDto } => ({ map: { index, permissions: [], buildings, heights: [] } });
 const loaded = () =>
   new Map([
     [5, mapOf(5, [building(7, 4, -2), building(8, 0, 0)])],
