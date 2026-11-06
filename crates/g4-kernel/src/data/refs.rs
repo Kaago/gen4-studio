@@ -766,7 +766,9 @@ fn value_refs(id: AssetId, value: &Loaded, family: Family, interior: &BTreeSet<u
         | Loaded::TrainerTextTable(_)
         | Loaded::TrainerTextOffsets(_)
         // Egg moves are no source of `Target::Move` before phase 3d is done.
-        | Loaded::EggMoves(_) => {}
+        | Loaded::EggMoves(_)
+        // A world names tiles of its package only, no reference target.
+        | Loaded::World(_) => {}
     }
     out.refs
 }

@@ -151,6 +151,18 @@ fn locked_world_refusal(reason: &str) -> String {
         Some(digits) => format!("Karte {digits}"),
         None => "Diese Karte".to_owned(),
     };
+    world_refusal(&map)
+}
+
+/// [`locked_world_refusal`] for map `map` („Karte 0123 ist eine Welt-Karte, …“): a world on a
+/// map whose member does not read is refused before it is made
+/// ([`super::edit::world_create`]), as writing it would be.
+pub(crate) fn locked_map_refusal(map: u16) -> String {
+    world_refusal(&format!("Karte {map:04}"))
+}
+
+/// The refusal of a world on a locked map, the map named `map`.
+fn world_refusal(map: &str) -> String {
     format!(
         "{MAP_SOURCE_CODE}: {map} ist eine Welt-Karte, ihr Member lässt sich nicht lesen; \
          Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder die Welt aus der \

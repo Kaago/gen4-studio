@@ -33,9 +33,11 @@ use crate::fsutil::{Journal, Notes};
 use crate::project::{AssetKind, Location, Project, SourceMode};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 use crate::textproject::Art;
+use crate::textproject::canon::to_canonical;
 use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite, deleted_on_disk};
 use crate::textproject::sync::{self, Known, changed_since_record, record_known};
 use crate::textproject::tombstone::{EnvelopeCache, read_deleted_cached};
+use crate::world::WorldJson;
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -113,6 +115,9 @@ pub(crate) enum Loaded {
     /// The egg move table; read from the slice of overlay 5 it carries the slice's length as
     /// its budget.
     EggMoves(EggMoves),
+    /// The world document of a map (`None`: a map without world); its bytes are the canonical
+    /// JSON of the option (`null` without world), see [`AssetKind::WorldMap`].
+    World(Option<WorldJson>),
     /// A data member of a length its codec rejects, kept as read. Such an asset is always
     /// locked (see [`decode`]).
     Raw(Vec<u8>),
@@ -130,6 +135,7 @@ impl Loaded {
                 | AssetKind::HeaderTable
                 | AssetKind::TextArchive
                 | AssetKind::Trainer
+                | AssetKind::WorldMap
         ) || Loaded::is_data(kind)
     }
 
@@ -219,6 +225,9 @@ impl Loaded {
             }
             // Without a budget: the store gives a table read from a slice its budget.
             AssetKind::EggMoves => Ok(Loaded::EggMoves(EggMoves::read(bytes)?)),
+            AssetKind::WorldMap => serde_json::from_slice::<Option<WorldJson>>(bytes)
+                .map(Loaded::World)
+                .map_err(|e| KernelError::InvalidProject(format!("world map bytes: {e}"))),
         }
     }
 
@@ -250,6 +259,7 @@ impl Loaded {
                 Ok(trainer_pair_bytes(&props, &party))
             }
             Loaded::EggMoves(table) => egg_move_bytes(table),
+            Loaded::World(world) => Ok(to_canonical(world)),
             Loaded::Raw(bytes) => Ok(bytes.clone()),
         }
     }
@@ -783,6 +793,21 @@ impl Tx<'_> {
         })
     }
 
+    /// Edits the world of map `map` ([`AssetKind::WorldMap`]; `None`: the map has none). `edit`
+    /// may set, change or remove it; an error from `edit` fails the transaction. Outside a text
+    /// project the world is refused ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]).
+    pub fn edit_world(
+        &mut self,
+        map: u16,
+        edit: impl FnOnce(&mut Option<WorldJson>) -> Result<(), KernelError>,
+    ) -> Result<(), KernelError> {
+        let id = world_id(map);
+        self.edit(id, |loaded| match loaded {
+            Loaded::World(world) => edit(world),
+            _ => Err(mismatch(id)),
+        })
+    }
+
     /// Edits text archive `index`.
     pub fn edit_text_archive(
         &mut self,
@@ -1109,6 +1134,14 @@ pub const EGG_MOVES: AssetId = AssetId {
     kind: AssetKind::EggMoves,
     index: 0,
 };
+
+/// The world map asset of map `map`.
+fn world_id(map: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::WorldMap,
+        index: map,
+    }
+}
 
 fn text_id(index: u16) -> AssetId {
     AssetId {
@@ -1437,6 +1470,10 @@ impl Store {
                 let missing = if props.is_file() { party } else { props };
                 Err(io_at(&missing)(std::io::ErrorKind::NotFound.into()))
             }
+            // No member: a world is read from its map's unit in a text project only.
+            (Location::Derived { .. }, None) => Err(KernelError::Refused(
+                crate::world::WORLD_NEEDS_TEXT_PROJECT.to_owned(),
+            )),
             (Location::Entity { unit, .. }, None) => {
                 let json = unit
                     .sources
@@ -1519,6 +1556,18 @@ impl Store {
         };
         match &self.load(id)?.current {
             Loaded::Map(m) => Ok(m),
+            _ => Err(mismatch(id)),
+        }
+    }
+
+    /// The world of map `map` (`None`: a map without world), read from the map's JSON in a text
+    /// project on first use. Outside a text project it is refused
+    /// ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]); a `world` that does not read is the
+    /// [`KernelError::Compile`] of the JSON (file, line, path).
+    pub fn world(&mut self, map: u16) -> Result<Option<&WorldJson>, KernelError> {
+        let id = world_id(map);
+        match &self.load(id)?.current {
+            Loaded::World(world) => Ok(world.as_ref()),
             _ => Err(mismatch(id)),
         }
     }
@@ -2800,6 +2849,7 @@ impl Store {
                 Location::Member(_)
                 | Location::TextSource { .. }
                 | Location::MemberPair { .. }
+                | Location::Derived { .. }
                 | Location::Entity { .. },
                 None,
             ) => None,
@@ -3651,6 +3701,8 @@ impl Store {
             Location::Member(path) => write_atomic(root, path, bytes),
             Location::MemberPair { props, party } => write_pair(root, props, party, bytes),
             Location::Slice { .. } => write_slice(root, id, location, base, bytes),
+            // No member: the world is written with its map's JSON.
+            Location::Derived { .. } => Ok(()),
             Location::HeaderFiles { dir, count } => {
                 if bytes.len() != count * MAP_HEADER_SIZE {
                     return Err(KernelError::InvalidProject(format!(
@@ -3804,7 +3856,9 @@ fn member_targets(location: &Location, bytes: &[u8]) -> Result<Vec<PathBuf>, Ker
             }
             out
         }
-        Location::TextSource { .. } | Location::Entity { .. } => Vec::new(),
+        Location::TextSource { .. } | Location::Derived { .. } | Location::Entity { .. } => {
+            Vec::new()
+        }
     })
 }
 
@@ -3831,6 +3885,8 @@ fn read_location(location: &Location, reading: Reading) -> Result<Option<Vec<u8>
             });
         }
         Location::Entity { members, .. } => return read_location(members, reading),
+        // No member to read; the store refuses it outside a unit (`read_member`).
+        Location::Derived { .. } => return Ok(None),
     };
     let Some(bytes) = read_file(path)? else {
         return Ok(None);

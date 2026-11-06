@@ -1,0 +1,1066 @@
+//! „Welt anlegen“ ([`world_create`]) and the changes of cells ([`world_edit`]): each is one
+//! undo step on the store's world map asset ([`AssetKind::WorldMap`]), whose bytes are the
+//! world object of the map's JSON. Both are refused outside a text project of the current
+//! schema ([`WORLD_NEEDS_TEXT_PROJECT`]) and change nothing when they are refused.
+//!
+//! A change names cells and exactly one of `tile` (on a layer, the ground by default),
+//! `height`, `ramp` (both the ground's only) and `permission` (the map's override, no layer),
+//! with the tokens of the file. Only the rows of the touched cells are written anew
+//! (normalized); every other row keeps its bytes.
+
+use serde::{Deserialize, Serialize};
+
+use crate::error::KernelError;
+use crate::project::SourceMode;
+use crate::store::{ChangeId, Store};
+
+use super::doc::WorldJson;
+use super::grid::{
+    WorldGrid, override_token, parse_height, parse_override, parse_ramp, parse_tile, ramp_token,
+    set_token, tile_token,
+};
+use super::keep::locked_map_refusal;
+use super::places::packs_of_map;
+use super::tileset::tile_outside;
+
+/// Why painting is refused outside a text project (`world_create`, `world_edit`,
+/// `tileset_save` in the DSPRE layout or a text project of another schema).
+pub const WORLD_NEEDS_TEXT_PROJECT: &str =
+    "Boden malen gibt es im Textprojekt (Technik › Textprojekt).";
+/// A change with none or more than one of its fields.
+pub const ONE_FIELD: &str = "Eine Änderung setzt genau eines von tile, height, ramp, permission.";
+/// A call whose changes leave the world as it is.
+pub const NOTHING_TO_CHANGE: &str = "Nichts zu ändern.";
+/// Why a world has no state to go back to (`reset` „Auf Original zurücksetzen“).
+pub const WORLD_HAS_NO_ORIGINAL: &str =
+    "Eine Welt hat kein Original; „Karte als Quelle übernehmen“ und zurück kommen mit 6.3b.";
+/// A height or a ramp on an overlay.
+const GROUND_ONLY: &str = "Höhen und Rampen gibt es nur auf der Bodenebene (0).";
+/// A permission with a layer.
+const PERMISSION_NO_LAYER: &str =
+    "permission gilt für die Karte, nicht für eine Ebene; layer weglassen.";
+/// The tile a new world is filled with.
+const DEFAULT_FILL: &str = "0000";
+/// Cells per row and rows per layer.
+const MAP_CELLS: usize = g4_formats::map::MAP_SIZE;
+/// The token of an empty cell.
+const EMPTY: &str = ".";
+
+/// „Karte 0123 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“
+pub fn not_a_world_map(map: u16) -> String {
+    format!("Karte {map:04} ist keine Welt-Karte; erst „Welt anlegen“ (world_create).")
+}
+
+/// „Karte 0123 ist schon eine Welt-Karte.“
+pub fn already_world(map: u16) -> String {
+    format!("Karte {map:04} ist schon eine Welt-Karte.")
+}
+
+/// „Karte 0123 liegt in keiner Matrixzelle mit Header; Tileset angeben (`tileset`).“
+fn no_package(map: u16) -> String {
+    format!("Karte {map:04} liegt in keiner Matrixzelle mit Header; Tileset angeben (`tileset`).")
+}
+
+/// „Zelle (32, 4) liegt außerhalb der Karte (0 bis 31).“
+fn cell_outside(x: u8, z: u8) -> String {
+    format!(
+        "Zelle ({x}, {z}) liegt außerhalb der Karte (0 bis {}).",
+        MAP_CELLS - 1
+    )
+}
+
+/// „Ebene 2 gibt es nicht (Karte 0123 hat 1).“
+fn no_layer(layer: u8, map: u16, layers: usize) -> String {
+    format!("Ebene {layer} gibt es nicht (Karte {map:04} hat {layers}).")
+}
+
+/// `world_create`: the map, the map texture package (`None`: the first package of the headers
+/// that show the map, [`packs_of_map`]), the tile the ground is filled with (`None`: `0000`)
+/// and its height (`None`: 0).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldCreateRequest {
+    pub map: u16,
+    #[serde(default)]
+    pub tileset: Option<u16>,
+    #[serde(default)]
+    pub fill: Option<String>,
+    #[serde(default)]
+    pub height: Option<i8>,
+}
+
+/// `world_edit`: the map, the label of the step (`None`: „Welt geändert: Karte 0123 (37
+/// Zellen)“) and the changes, all of them one undo step.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldEditRequest {
+    pub map: u16,
+    #[serde(default)]
+    pub label: Option<String>,
+    pub changes: Vec<WorldChange>,
+}
+
+/// One change: the cells (`[x, z]`) and exactly one of `tile` (on `layer`, the ground when it
+/// is left out), `height`, `ramp` (the ground's) and `permission` (no `layer`), as tokens of
+/// the file.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldChange {
+    #[serde(default)]
+    pub layer: Option<u8>,
+    pub cells: Vec<[u8; 2]>,
+    #[serde(default)]
+    pub tile: Option<String>,
+    #[serde(default)]
+    pub height: Option<i8>,
+    #[serde(default)]
+    pub ramp: Option<String>,
+    #[serde(default)]
+    pub permission: Option<String>,
+}
+
+/// What `world_create` or `world_edit` did: the map, its package, the cells it set (a new world:
+/// all 1024 of the ground) and the undo step (`None`: nothing recorded).
+#[derive(Debug, Clone, Serialize)]
+pub struct WorldReport {
+    pub map: u16,
+    pub tileset: u16,
+    pub cells: usize,
+    pub change: Option<ChangeId>,
+}
+
+/// The rows a change writes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rows {
+    Tiles(usize),
+    Heights,
+    Ramps,
+    Overrides,
+}
+
+/// A checked change: its rows, the normalized token and the cells.
+struct Checked<'a> {
+    rows: Rows,
+    token: String,
+    cells: &'a [[u8; 2]],
+}
+
+/// Refused outside a text project of the current schema.
+fn require_text_project(store: &Store) -> Result<(), KernelError> {
+    if *store.project().source_mode() != SourceMode::TextProject {
+        return Err(KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()));
+    }
+    Ok(())
+}
+
+/// The first error of a world that does not read into cells, with its path.
+fn first_error(world: &WorldJson) -> Result<(), KernelError> {
+    WorldGrid::parse(world).map(|_| ()).map_err(|errors| {
+        KernelError::Refused(
+            errors
+                .first()
+                .map_or_else(|| "world: kaputt.".to_owned(), ToString::to_string),
+        )
+    })
+}
+
+/// Refused with `text` (a parser's sentence).
+fn refused(text: String) -> KernelError {
+    KernelError::Refused(text)
+}
+
+/// „Welt anlegen“: the world of map `req.map` as one undo step „Welt angelegt: Karte 0123“, a
+/// ground layer „Boden“ all `fill` at `height`, no ramp, permissions derived.
+///
+/// Refused ([`KernelError::Refused`], nothing changed): outside a text project
+/// ([`WORLD_NEEDS_TEXT_PROJECT`]), a map that is a world map already ([`already_world`]), a map
+/// whose member does not read (it cannot carry a world, see [`super::keep::carry_world`]), no
+/// package given and none from the headers, a package that is not there (the refusal of
+/// [`Store::tileset`]), a `fill` that is no tile or lies past the tileset, a height outside
+/// −16 to 62.
+pub fn world_create(
+    store: &mut Store,
+    req: &WorldCreateRequest,
+) -> Result<WorldReport, KernelError> {
+    require_text_project(store)?;
+    let map = req.map;
+    if store.world(map)?.is_some() {
+        return Err(refused(already_world(map)));
+    }
+    match store.map(map) {
+        Ok(_) => {}
+        // A member that does not decode is written as `{locked, raw}`: no place for a world.
+        Err(KernelError::Format(_) | KernelError::Uxie(_)) => {
+            return Err(refused(locked_map_refusal(map)));
+        }
+        Err(e) => return Err(e),
+    }
+    let map_id = crate::project::AssetId {
+        kind: crate::project::AssetKind::Map,
+        index: map,
+    };
+    if store.locked(map_id).is_some() {
+        return Err(refused(locked_map_refusal(map)));
+    }
+    let package = match req.tileset {
+        Some(package) => package,
+        None => *packs_of_map(store, map)?
+            .first()
+            .ok_or_else(|| refused(no_package(map)))?,
+    };
+    let tiles = store.tileset(package)?.tiles.len();
+    let token = req.fill.as_deref().unwrap_or(DEFAULT_FILL);
+    let fill = parse_tile(token).map_err(refused)?.ok_or_else(|| {
+        refused(format!(
+            "`{token}` füllt keinen Boden; eine Kachel angeben."
+        ))
+    })?;
+    if usize::from(fill.tile) >= tiles {
+        return Err(refused(tile_outside("fill", fill.tile, package, tiles)));
+    }
+    let height = req.height.unwrap_or(0);
+    parse_height(&height.to_string()).map_err(refused)?;
+    let world = WorldJson::blank(package, fill, height);
+    first_error(&world)?;
+    let label = format!("Welt angelegt: Karte {map:04}");
+    let ((), change) = store.transaction(&label, |tx| {
+        tx.edit_world(map, |w| {
+            *w = Some(world);
+            Ok(())
+        })
+    })?;
+    Ok(WorldReport {
+        map,
+        tileset: package,
+        cells: MAP_CELLS * MAP_CELLS,
+        change,
+    })
+}
+
+/// The changes `req.changes` of the world of map `req.map` as one undo step (label `req.label`,
+/// else „Welt geändert: Karte 0123 (37 Zellen)“). Only the rows of touched cells are written
+/// anew; the world must read into cells before and after.
+///
+/// Refused ([`KernelError::Refused`], nothing changed): outside a text project
+/// ([`WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]), a world that does
+/// not read into cells already (its first error with path), a change with none or more than
+/// one field ([`ONE_FIELD`]), a permission with a layer, a height or ramp off the ground, a
+/// layer the world lacks, a cell off the map, a token the parser refuses (its sentence), a tile
+/// past the tileset ([`tile_outside`]), a package that is not there, changes that change
+/// nothing ([`NOTHING_TO_CHANGE`]).
+pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldReport, KernelError> {
+    require_text_project(store)?;
+    let map = req.map;
+    let before = store
+        .world(map)?
+        .cloned()
+        .ok_or_else(|| refused(not_a_world_map(map)))?;
+    first_error(&before)?;
+    let tiles = store.tileset(before.tileset)?.tiles.len();
+    let mut checked = Vec::with_capacity(req.changes.len());
+    for (i, change) in req.changes.iter().enumerate() {
+        checked.push(check_change(change, i, map, &before, tiles)?);
+    }
+    let mut world = before.clone();
+    let had_ramps = world.layers.first().is_some_and(|l| l.ramps.is_some());
+    let had_overrides = world.permissions.overrides.is_some();
+    for change in &checked {
+        let rows = rows_of(&mut world, change.rows)?;
+        for &[x, z] in change.cells {
+            let row = rows
+                .get_mut(usize::from(z))
+                .ok_or_else(|| refused(cell_outside(x, z)))?;
+            *row = set_token(row, usize::from(x), &change.token).map_err(refused)?;
+        }
+    }
+    // Rows made for a change that left every cell empty go again: the file stays as it was.
+    let all_empty = |rows: &[String]| {
+        rows.iter()
+            .all(|r| r.split_whitespace().all(|t| t == EMPTY))
+    };
+    if let Some(ground) = world.layers.first_mut()
+        && !had_ramps
+        && ground.ramps.as_deref().is_some_and(all_empty)
+    {
+        ground.ramps = None;
+    }
+    if !had_overrides
+        && world.permissions.derive
+        && world
+            .permissions
+            .overrides
+            .as_deref()
+            .is_some_and(all_empty)
+    {
+        world.permissions.overrides = None;
+    }
+    if world == before {
+        return Err(refused(NOTHING_TO_CHANGE.to_owned()));
+    }
+    first_error(&world)?;
+    let cells: usize = req.changes.iter().map(|c| c.cells.len()).sum();
+    let label = match &req.label {
+        Some(label) => label.clone(),
+        None if cells == 1 => format!("Welt geändert: Karte {map:04} (1 Zelle)"),
+        None => format!("Welt geändert: Karte {map:04} ({cells} Zellen)"),
+    };
+    let tileset = world.tileset;
+    let ((), change) = store.transaction(&label, |tx| {
+        tx.edit_world(map, |w| {
+            *w = Some(world);
+            Ok(())
+        })
+    })?;
+    Ok(WorldReport {
+        map,
+        tileset,
+        cells,
+        change,
+    })
+}
+
+/// Change `i` checked against `world` (map `map`, `tiles` tiles in its tileset): its rows and
+/// its token, normalized.
+fn check_change<'a>(
+    change: &'a WorldChange,
+    i: usize,
+    map: u16,
+    world: &WorldJson,
+    tiles: usize,
+) -> Result<Checked<'a>, KernelError> {
+    let fields = [
+        change.tile.is_some(),
+        change.height.is_some(),
+        change.ramp.is_some(),
+        change.permission.is_some(),
+    ];
+    if fields.iter().filter(|&&set| set).count() != 1 {
+        return Err(refused(ONE_FIELD.to_owned()));
+    }
+    let layer = change.layer.unwrap_or(0);
+    if change.permission.is_some() && change.layer.is_some() {
+        return Err(refused(PERMISSION_NO_LAYER.to_owned()));
+    }
+    if (change.height.is_some() || change.ramp.is_some()) && layer != 0 {
+        return Err(refused(GROUND_ONLY.to_owned()));
+    }
+    if usize::from(layer) >= world.layers.len() {
+        return Err(refused(no_layer(layer, map, world.layers.len())));
+    }
+    for &[x, z] in &change.cells {
+        if usize::from(x) >= MAP_CELLS || usize::from(z) >= MAP_CELLS {
+            return Err(refused(cell_outside(x, z)));
+        }
+    }
+    let (rows, token) = if let Some(token) = &change.tile {
+        let tile = parse_tile(token).map_err(refused)?;
+        if let Some(t) = tile
+            && usize::from(t.tile) >= tiles
+        {
+            let path = format!("changes[{i}].tile");
+            return Err(refused(tile_outside(&path, t.tile, world.tileset, tiles)));
+        }
+        (Rows::Tiles(usize::from(layer)), tile_token(tile))
+    } else if let Some(height) = change.height {
+        let token = height.to_string();
+        parse_height(&token).map_err(refused)?;
+        (Rows::Heights, token)
+    } else if let Some(token) = &change.ramp {
+        (Rows::Ramps, ramp_token(parse_ramp(token).map_err(refused)?))
+    } else {
+        let token = change.permission.as_deref().unwrap_or_default();
+        (
+            Rows::Overrides,
+            override_token(parse_override(token).map_err(refused)?),
+        )
+    };
+    Ok(Checked {
+        rows,
+        token,
+        cells: &change.cells,
+    })
+}
+
+/// The rows of `world` a change of `rows` writes; the ramps and the overrides are made all `.`
+/// when the world has none yet.
+fn rows_of(world: &mut WorldJson, rows: Rows) -> Result<&mut Vec<String>, KernelError> {
+    let empty = || vec![vec![EMPTY; MAP_CELLS].join(" "); MAP_CELLS];
+    let missing = || refused("world.layers: die Bodenebene fehlt.".to_owned());
+    Ok(match rows {
+        Rows::Tiles(layer) => &mut world.layers.get_mut(layer).ok_or_else(missing)?.tiles,
+        Rows::Heights => world
+            .layers
+            .first_mut()
+            .and_then(|ground| ground.heights.as_mut())
+            .ok_or_else(missing)?,
+        Rows::Ramps => world
+            .layers
+            .first_mut()
+            .ok_or_else(missing)?
+            .ramps
+            .get_or_insert_with(empty),
+        Rows::Overrides => world.permissions.overrides.get_or_insert_with(empty),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::project::{AssetId, AssetKind};
+    use crate::test_support::TextFixture;
+    use crate::textproject::canon::to_canonical;
+    use crate::textproject::part::sha1_hex;
+    use crate::world::grid::TileRef;
+    use crate::world::keep::{with_world, world_field};
+    use crate::world::tileset::{Tileset, tileset_rel};
+
+    const MAP: &str = "data/maps/0000.json";
+
+    fn store(fx: &TextFixture) -> Store {
+        Store::new(Arc::new(fx.project()))
+    }
+
+    /// The tileset file of `package`: the synthetic tileset (six tiles).
+    fn put_tileset(fx: &TextFixture, package: u16) {
+        let tileset = Tileset {
+            package,
+            ..Tileset::synthetic()
+        };
+        let rel = tileset_rel(package);
+        fx.write(rel.to_str().unwrap(), &to_canonical(&tileset));
+    }
+
+    /// A text project with the synthetic tileset as package 0 and its store.
+    fn fixture() -> (TextFixture, Store) {
+        let fx = TextFixture::exported();
+        put_tileset(&fx, 0);
+        let store = store(&fx);
+        (fx, store)
+    }
+
+    fn create_req(value: Value) -> WorldCreateRequest {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn edit_req(value: Value) -> WorldEditRequest {
+        serde_json::from_value(value).unwrap()
+    }
+
+    /// „Welt anlegen“ on map `map`, package 0.
+    fn create(store: &mut Store, map: u16) -> WorldReport {
+        world_create(store, &create_req(json!({"map": map, "tileset": 0}))).unwrap()
+    }
+
+    fn edit(store: &mut Store, value: Value) -> Result<WorldReport, KernelError> {
+        world_edit(store, &edit_req(value))
+    }
+
+    fn world(store: &mut Store, map: u16) -> Option<WorldJson> {
+        store.world(map).unwrap().cloned()
+    }
+
+    fn refused<T: std::fmt::Debug>(r: Result<T, KernelError>) -> String {
+        match r {
+            Err(KernelError::Refused(text)) => text,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn member_path(fx: &TextFixture) -> std::path::PathBuf {
+        fx.project().member_path(AssetKind::Map, 0)
+    }
+
+    fn member_sha1(fx: &TextFixture) -> String {
+        sha1_hex(&std::fs::read(member_path(fx)).unwrap())
+    }
+
+    fn file_json(fx: &TextFixture) -> Value {
+        serde_json::from_slice(&fx.read(MAP)).unwrap()
+    }
+
+    fn blank() -> WorldJson {
+        WorldJson::blank(
+            0,
+            TileRef {
+                tile: 0,
+                rotate: 0,
+                flip: false,
+            },
+            0,
+        )
+    }
+
+    /// Flips the collision bit of cell (0, 0) of map 0 as one step.
+    fn paint_permission(store: &mut Store) {
+        store
+            .edit_map(0, "Permission gemalt", |m| {
+                m.permissions[0].collision ^= 0x80;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn world_create_and_edit_are_one_undo_step_each() {
+        let (_fx, mut store) = fixture();
+        assert_eq!(world(&mut store, 0), None);
+        let made = create(&mut store, 0);
+        assert_eq!((made.map, made.tileset, made.cells), (0, 0, 1024));
+        assert!(made.change.is_some());
+        let created = world(&mut store, 0).unwrap();
+        assert_eq!(created, blank());
+
+        // 37 cells of tile 0001 (row 3 and five cells of row 4) and 4 heights in one call.
+        let tiles: Vec<[u8; 2]> = (0..32)
+            .map(|x| [x, 3])
+            .chain((0..5).map(|x| [x, 4]))
+            .collect();
+        let report = edit(
+            &mut store,
+            json!({"map": 0, "changes": [
+                {"cells": tiles, "tile": "0001"},
+                {"cells": [[0, 10], [1, 10], [2, 10], [3, 10]], "height": 3}
+            ]}),
+        )
+        .unwrap();
+        assert_eq!((report.map, report.tileset, report.cells), (0, 0, 41));
+        assert!(report.change.is_some());
+        let (undo, redo) = store.history();
+        assert_eq!(
+            undo,
+            [
+                "Welt angelegt: Karte 0000",
+                "Welt geändert: Karte 0000 (41 Zellen)"
+            ]
+        );
+        assert!(redo.is_empty());
+        let edited = world(&mut store, 0).unwrap();
+        let grid = WorldGrid::parse(&edited).unwrap();
+        let tile = |x: usize, z: usize| grid.layers[0].tiles[z * 32 + x].unwrap().tile;
+        assert_eq!((tile(31, 3), tile(4, 4), tile(5, 4)), (1, 1, 0));
+        assert_eq!(
+            (grid.heights[10 * 32 + 3], grid.heights[10 * 32 + 4]),
+            (3, 0)
+        );
+
+        assert_eq!(
+            store.undo().unwrap(),
+            [AssetId {
+                kind: AssetKind::WorldMap,
+                index: 0
+            }]
+        );
+        assert_eq!(world(&mut store, 0), Some(created.clone()));
+        store.undo().unwrap();
+        assert_eq!(world(&mut store, 0), None);
+        assert!(store.history().0.is_empty());
+        store.redo().unwrap();
+        assert_eq!(world(&mut store, 0), Some(created));
+        store.redo().unwrap();
+        assert_eq!(world(&mut store, 0), Some(edited));
+        assert_eq!(store.history().0.len(), 2);
+        // A label of the caller's.
+        let report = edit(
+            &mut store,
+            json!({"map": 0, "label": "Strich", "changes": [{"cells": [[9, 9]], "tile": "0002"}]}),
+        )
+        .unwrap();
+        assert_eq!(report.cells, 1);
+        assert_eq!(store.history().0.last().unwrap(), "Strich");
+    }
+
+    #[test]
+    fn undo_of_create_returns_to_binary() {
+        let (fx, mut store) = fixture();
+        let original = fx.read(MAP);
+        create(&mut store, 0);
+        store.save().unwrap();
+        assert_eq!(file_json(&fx)["source"], "world");
+        store.undo().unwrap();
+        store.save().unwrap();
+        let v = file_json(&fx);
+        assert_eq!(v["source"], "binary");
+        assert!(v.get("world").is_none());
+        assert_eq!(fx.read(MAP), original);
+        // A store opened anew reads no world.
+        assert_eq!(world(&mut store_of(&fx), 0), None);
+    }
+
+    fn store_of(fx: &TextFixture) -> Store {
+        store(fx)
+    }
+
+    #[test]
+    fn save_writes_world_and_keeps_member() {
+        let (fx, mut store) = fixture();
+        let sha1 = member_sha1(&fx);
+        create(&mut store, 0);
+        assert_eq!(
+            store.dirty(),
+            [AssetId {
+                kind: AssetKind::WorldMap,
+                index: 0
+            }]
+        );
+        let report = store.save().unwrap();
+        assert_eq!(
+            report.written,
+            [AssetId {
+                kind: AssetKind::WorldMap,
+                index: 0
+            }]
+        );
+        assert!(store.dirty().is_empty());
+        assert_eq!(member_sha1(&fx), sha1);
+        let v = file_json(&fx);
+        assert_eq!(v["source"], "world");
+        assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(blank()));
+        // Read back by a new store, the map as its member.
+        let mut again = store_of(&fx);
+        assert_eq!(world(&mut again, 0), Some(blank()));
+        let member = std::fs::read(member_path(&fx)).unwrap();
+        let family = fx.project().family;
+        assert_eq!(again.map(0).unwrap().write(family), member);
+        // A second save writes nothing.
+        let before = fx.read(MAP);
+        assert!(store.save().unwrap().written.is_empty());
+        assert_eq!(fx.read(MAP), before);
+    }
+
+    #[test]
+    fn a_map_edit_keeps_the_world() {
+        let (fx, mut store) = fixture();
+        create(&mut store, 0);
+        paint_permission(&mut store);
+        store.save().unwrap();
+        assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(blank()));
+        let family = fx.project().family;
+        let map = store.map(0).unwrap().write(family);
+        assert_eq!(std::fs::read(member_path(&fx)).unwrap(), map);
+        // And the other way round: a saved world, then a map edit alone.
+        let (fx, mut store) = fixture();
+        create(&mut store, 0);
+        store.save().unwrap();
+        let with_world = fx.read(MAP);
+        paint_permission(&mut store);
+        store.save().unwrap();
+        assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(blank()));
+        let (old, new) = (
+            String::from_utf8(with_world).unwrap(),
+            String::from_utf8(fx.read(MAP)).unwrap(),
+        );
+        let differ = old.lines().zip(new.lines()).filter(|(a, b)| a != b).count();
+        assert_eq!((old.lines().count(), differ), (new.lines().count(), 1));
+    }
+
+    #[test]
+    fn world_and_map_steps_undo_one_by_one() {
+        let (fx, mut store) = fixture();
+        let member = || std::fs::read(member_path(&fx)).unwrap();
+        let mut states = vec![(fx.read(MAP), member())];
+        let step = |store: &mut Store, what: usize| {
+            match what {
+                0 => {
+                    create(store, 0);
+                }
+                1 => paint_permission(store),
+                _ => {
+                    edit(
+                        store,
+                        json!({"map": 0, "changes": [{"cells": [[3, 3]], "tile": "0001"}]}),
+                    )
+                    .unwrap();
+                }
+            }
+            store.save().unwrap();
+        };
+        for what in 0..3 {
+            step(&mut store, what);
+            states.push((fx.read(MAP), member()));
+        }
+        assert_eq!(
+            store.history().0,
+            [
+                "Welt angelegt: Karte 0000",
+                "Permission gemalt",
+                "Welt geändert: Karte 0000 (1 Zelle)"
+            ]
+        );
+        // The world steps leave the member as it is; the permission writes it.
+        assert_eq!(states[1].1, states[0].1);
+        assert_ne!(states[2].1, states[1].1);
+        assert_eq!(states[3].1, states[2].1);
+        assert!(states.windows(2).all(|w| w[0].0 != w[1].0));
+        for at in (0..3).rev() {
+            store.undo().unwrap();
+            store.save().unwrap();
+            assert_eq!((fx.read(MAP), member()), states[at], "undo to {at}");
+        }
+        for (at, state) in states.iter().enumerate().skip(1) {
+            store.redo().unwrap();
+            store.save().unwrap();
+            assert_eq!(&(fx.read(MAP), member()), state, "redo to {at}");
+        }
+    }
+
+    #[test]
+    fn world_edit_writes_only_touched_rows() {
+        let (fx, mut store) = fixture();
+        create(&mut store, 0);
+        store.save().unwrap();
+        let before = String::from_utf8(fx.read(MAP)).unwrap();
+        // An upper-case token is written as the file writes it.
+        edit(
+            &mut store,
+            json!({"map": 0, "changes": [{"cells": [[4, 7]], "tile": "0002R1"}]}),
+        )
+        .unwrap();
+        let world = world(&mut store, 0).unwrap();
+        let blank = blank();
+        for (z, (now, was)) in world.layers[0]
+            .tiles
+            .iter()
+            .zip(&blank.layers[0].tiles)
+            .enumerate()
+        {
+            if z == 7 {
+                let tokens: Vec<&str> = now.split(' ').collect();
+                assert_eq!(tokens[4], "0002r1");
+                assert_eq!(tokens.iter().filter(|t| **t == "0000").count(), 31);
+            } else {
+                assert_eq!(now, was, "row {z}");
+            }
+        }
+        assert_eq!(world.layers[0].heights, blank.layers[0].heights);
+        store.save().unwrap();
+        let after = String::from_utf8(fx.read(MAP)).unwrap();
+        let differ: Vec<(&str, &str)> = before
+            .lines()
+            .zip(after.lines())
+            .filter(|(a, b)| a != b)
+            .collect();
+        assert_eq!(before.lines().count(), after.lines().count());
+        assert_eq!(differ.len(), 1, "{differ:#?}");
+        assert!(
+            differ[0].1.contains(&world.layers[0].tiles[7]),
+            "{differ:?}"
+        );
+        // Byte for byte the file with that one line (row 7 of the tiles).
+        let at = before.lines().position(|l| l == differ[0].0).unwrap() + 7;
+        let expected: Vec<&str> = before
+            .lines()
+            .enumerate()
+            .map(|(i, l)| if i == at { differ[0].1 } else { l })
+            .collect();
+        assert_eq!(after, expected.join("\n") + "\n");
+    }
+
+    #[test]
+    fn world_edit_refuses_each_rule() {
+        let (fx, mut store) = fixture();
+        assert_eq!(
+            refused(edit(
+                &mut store,
+                json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]})
+            )),
+            "Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create)."
+        );
+        create(&mut store, 0);
+        store.save().unwrap();
+        let file = fx.read(MAP);
+        let world_before = world(&mut store, 0);
+        let history = store.history();
+        let cases: Vec<(Value, &str)> = vec![
+            (json!([{"cells": [[0, 0]]}]), ONE_FIELD),
+            (
+                json!([{"cells": [[0, 0]], "tile": "0001", "height": 2}]),
+                ONE_FIELD,
+            ),
+            (
+                json!([{"cells": [[0, 0]], "ramp": "n1", "permission": "0080"}]),
+                ONE_FIELD,
+            ),
+            (
+                json!([{"cells": [[32, 4]], "tile": "0001"}]),
+                "Zelle (32, 4) liegt außerhalb der Karte (0 bis 31).",
+            ),
+            (
+                json!([{"layer": 2, "cells": [[0, 0]], "tile": "0001"}]),
+                "Ebene 2 gibt es nicht (Karte 0000 hat 1).",
+            ),
+            (
+                json!([{"layer": 1, "cells": [[0, 0]], "height": 2}]),
+                "Höhen und Rampen gibt es nur auf der Bodenebene (0).",
+            ),
+            (
+                json!([{"layer": 1, "cells": [[0, 0]], "ramp": "n1"}]),
+                "Höhen und Rampen gibt es nur auf der Bodenebene (0).",
+            ),
+            (
+                json!([{"layer": 0, "cells": [[0, 0]], "permission": "0080"}]),
+                "permission gilt für die Karte, nicht für eine Ebene; layer weglassen.",
+            ),
+            (
+                json!([{"cells": [[0, 0]], "tile": "00g2"}]),
+                "`00g2` ist keine Kachel (`.` oder vier Hex-Ziffern, dahinter `r1` bis `r3` \
+                 und `f`).",
+            ),
+            (
+                json!([{"cells": [[0, 0]], "height": 70}]),
+                "`70` liegt nicht in \u{2212}16 bis 62.",
+            ),
+            (
+                json!([{"cells": [[0, 0]], "ramp": "n3"}]),
+                "`n3` ist keine Rampe (`.` oder `n`, `e`, `s`, `w` mit 1 oder 2 Stufen).",
+            ),
+            (
+                json!([{"cells": [[0, 0]], "permission": "80"}]),
+                "`80` ist keine Permission (`.` oder `kkcc` aus vier Hex-Ziffern, Art und \
+                 Kollision).",
+            ),
+            (
+                json!([{"cells": [[0, 0]], "tile": "0006"}]),
+                "changes[0].tile: Kachel 0x0006 gibt es im Tileset 0000 nicht (6 Kacheln).",
+            ),
+            (
+                json!([{"cells": [[0, 0]], "tile": "0001"}, {"cells": [[0, 40]], "tile": "0001"}]),
+                "Zelle (0, 40) liegt außerhalb der Karte (0 bis 31).",
+            ),
+            (
+                json!([{"cells": [[0, 0]], "tile": "0000"}]),
+                NOTHING_TO_CHANGE,
+            ),
+            (json!([{"cells": [[0, 0]], "height": 0}]), NOTHING_TO_CHANGE),
+            (json!([{"cells": [[0, 0]], "ramp": "."}]), NOTHING_TO_CHANGE),
+            (
+                json!([{"cells": [[0, 0]], "permission": "."}]),
+                NOTHING_TO_CHANGE,
+            ),
+            (json!([{"cells": [], "tile": "0001"}]), NOTHING_TO_CHANGE),
+            (json!([]), NOTHING_TO_CHANGE),
+        ];
+        for (changes, expected) in cases {
+            let text = refused(edit(&mut store, json!({"map": 0, "changes": changes})));
+            assert_eq!(text, expected, "{changes}");
+            assert_eq!(world(&mut store, 0), world_before, "{changes}");
+            assert_eq!(store.history(), history, "{changes}");
+            assert!(store.dirty().is_empty(), "{changes}");
+            assert_eq!(fx.read(MAP), file, "{changes}");
+        }
+        // Unknown keys of a request are serde's.
+        assert!(
+            serde_json::from_value::<WorldEditRequest>(
+                json!({"map": 0, "changes": [{"cells": [], "tile": "0001", "paint": 1}]})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<WorldCreateRequest>(json!({"map": 0, "fil": "0001"})).is_err()
+        );
+    }
+
+    #[test]
+    fn world_create_refuses_each_rule() {
+        let (fx, mut store) = fixture();
+        let file = fx.read(MAP);
+        let cases: Vec<(Value, String)> = vec![
+            (
+                json!({"map": 0, "tileset": 0, "fill": "00g2"}),
+                "`00g2` ist keine Kachel (`.` oder vier Hex-Ziffern, dahinter `r1` bis `r3` und \
+                 `f`)."
+                    .to_owned(),
+            ),
+            (
+                json!({"map": 0, "tileset": 0, "fill": "0007"}),
+                "fill: Kachel 0x0007 gibt es im Tileset 0000 nicht (6 Kacheln).".to_owned(),
+            ),
+            (
+                json!({"map": 0, "tileset": 0, "fill": "."}),
+                "`.` füllt keinen Boden; eine Kachel angeben.".to_owned(),
+            ),
+            (
+                json!({"map": 0, "tileset": 0, "height": 70}),
+                "`70` liegt nicht in \u{2212}16 bis 62.".to_owned(),
+            ),
+            (
+                json!({"map": 0, "tileset": 0, "height": -17}),
+                "`-17` liegt nicht in \u{2212}16 bis 62.".to_owned(),
+            ),
+            // Map 2 lies in no matrix cell of the synthetic project.
+            (
+                json!({"map": 2}),
+                "Karte 0002 liegt in keiner Matrixzelle mit Header; Tileset angeben \
+                 (`tileset`)."
+                    .to_owned(),
+            ),
+        ];
+        for (req, expected) in cases {
+            assert_eq!(
+                refused(world_create(&mut store, &create_req(req.clone()))),
+                expected
+            );
+            assert_eq!(world(&mut store, 0), None, "{req}");
+            assert!(store.history().0.is_empty(), "{req}");
+        }
+        // A package past the archive: the refusal of `Store::tileset`.
+        let text = refused(world_create(
+            &mut store,
+            &create_req(json!({"map": 0, "tileset": 200})),
+        ));
+        assert!(
+            text.starts_with("Kartentextur-Paket 0200 gibt es nicht ("),
+            "{text}"
+        );
+        create(&mut store, 0);
+        assert_eq!(
+            refused(world_create(
+                &mut store,
+                &create_req(json!({"map": 0, "tileset": 0}))
+            )),
+            "Karte 0000 ist schon eine Welt-Karte."
+        );
+        assert_eq!(store.history().0.len(), 1);
+        assert_eq!(fx.read(MAP), file);
+        // Height and fill of the caller's.
+        let report = world_create(
+            &mut store,
+            &create_req(json!({"map": 1, "tileset": 0, "fill": "0001R2F", "height": -16})),
+        )
+        .unwrap();
+        assert_eq!(report.map, 1);
+        let one = world(&mut store, 1).unwrap();
+        let grid = WorldGrid::parse(&one).unwrap();
+        assert!(grid.heights.iter().all(|&h| h == -16));
+        assert_eq!(one.layers[0].tiles[0].split(' ').next(), Some("0001r2f"));
+    }
+
+    #[test]
+    fn create_refuses_a_locked_map() {
+        let fx = TextFixture::exported();
+        put_tileset(&fx, 0);
+        // A member that does not decode: the map file is `{locked, raw}`.
+        let locked = to_canonical(&json!({
+            "locked": "map 0000: does not decode",
+            "raw": {"hex": "00"}
+        }));
+        fx.write(MAP, &locked);
+        let mut store = store(&fx);
+        assert_eq!(
+            refused(world_create(
+                &mut store,
+                &create_req(json!({"map": 0, "tileset": 0}))
+            )),
+            "textproject.map-source: Karte 0000 ist eine Welt-Karte, ihr Member lässt sich \
+             nicht lesen; Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder \
+             die Welt aus der Datei sichern)."
+        );
+        assert!(store.history().0.is_empty());
+        assert_eq!(fx.read(MAP), locked);
+    }
+
+    #[test]
+    fn world_edit_refuses_a_broken_world_unchanged() {
+        let (fx, _) = fixture();
+        let mut broken = blank();
+        broken.layers[0].tiles.pop();
+        broken.layers[0].heights.as_mut().unwrap()[4] = vec!["70"; 32].join(" ");
+        let file = with_world(fx.read(MAP), Some(&broken)).unwrap();
+        fx.write(MAP, &file);
+        let mut store = store(&fx);
+        assert_eq!(world(&mut store, 0), Some(broken.clone()));
+        let text = refused(edit(
+            &mut store,
+            json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]}),
+        ));
+        assert_eq!(text, "world.layers[0].tiles: 31 Zeilen statt 32.");
+        assert_eq!(world(&mut store, 0), Some(broken));
+        assert!(store.history().0.is_empty());
+        assert!(store.dirty().is_empty());
+        store.save().unwrap();
+        assert_eq!(fx.read(MAP), file);
+        // A world that does not read at all is the JSON's error, with file and path.
+        let mut v: Value = serde_json::from_slice(&file).unwrap();
+        v["world"]["layers"][0]["tile"] = json!([]);
+        fx.write(MAP, &to_canonical(&v));
+        let mut store = store_of(&fx);
+        match store.world(0) {
+            Err(KernelError::Compile(problems)) => {
+                assert_eq!(problems[0].file, std::path::PathBuf::from(MAP));
+                assert!(
+                    problems[0]
+                        .message
+                        .starts_with("textproject.schema: world.layers[0].tile: unknown field"),
+                    "{problems:?}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn dspre_refuses_with_the_way() {
+        let fx = TextFixture::dspre();
+        put_tileset(&fx, 0);
+        let mut store = store(&fx);
+        let before = fx.read(&format!(
+            "unpacked/{}/0000",
+            fx.project().archives.unpacked_name(AssetKind::Map)
+        ));
+        assert_eq!(
+            refused(world_create(
+                &mut store,
+                &create_req(json!({"map": 0, "tileset": 0}))
+            )),
+            WORLD_NEEDS_TEXT_PROJECT
+        );
+        assert_eq!(
+            refused(edit(
+                &mut store,
+                json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]})
+            )),
+            WORLD_NEEDS_TEXT_PROJECT
+        );
+        assert_eq!(refused(store.world(0)), WORLD_NEEDS_TEXT_PROJECT);
+        assert!(store.history().0.is_empty());
+        assert!(!fx.root().join("data/maps").exists());
+        assert_eq!(
+            fx.read(&format!(
+                "unpacked/{}/0000",
+                fx.project().archives.unpacked_name(AssetKind::Map)
+            )),
+            before
+        );
+        // A text project of a newer schema reads from its members and paints nothing.
+        let fx = TextFixture::exported();
+        put_tileset(&fx, 0);
+        let manifest = crate::textproject::MANIFEST_FILE;
+        let mut v: Value = serde_json::from_slice(&fx.read(manifest)).unwrap();
+        v["schemaVersion"] = json!(crate::textproject::SCHEMA_VERSION + 1);
+        fx.write(manifest, &to_canonical(&v));
+        let mut store = store_of(&fx);
+        assert_eq!(
+            refused(world_create(
+                &mut store,
+                &create_req(json!({"map": 0, "tileset": 0}))
+            )),
+            WORLD_NEEDS_TEXT_PROJECT
+        );
+        assert_eq!(refused(store.world(0)), WORLD_NEEDS_TEXT_PROJECT);
+    }
+
+    #[test]
+    fn create_takes_the_package_of_the_header() {
+        let fx = TextFixture::exported();
+        let mut store = store(&fx);
+        let packs = packs_of_map(&mut store, 0).unwrap();
+        let package = *packs.first().expect("map 0 is shown by a header");
+        put_tileset(&fx, package);
+        let report = world_create(&mut store, &create_req(json!({"map": 0}))).unwrap();
+        assert_eq!(report.tileset, package);
+        assert_eq!(world(&mut store, 0).unwrap().tileset, package);
+    }
+}

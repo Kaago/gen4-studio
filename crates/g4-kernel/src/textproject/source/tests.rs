@@ -1283,3 +1283,63 @@ fn saving_a_locked_world_map_leaves_its_file() {
     assert_eq!(fx.read(MAP), file);
     assert_eq!(changed(&before, &tree(&fx)), Vec::<PathBuf>::new());
 }
+
+#[test]
+fn the_map_unit_holds_map_and_world() {
+    use crate::world::doc::fixtures::one_tile_world;
+    use crate::world::keep::with_world;
+    const MAP: &str = "data/maps/0000.json";
+    let fx = TextFixture::exported();
+    let p = fx.project();
+    let map = unit_of(&p, id(AssetKind::Map, 0)).unwrap().unwrap();
+    let world = unit_of(&p, id(AssetKind::WorldMap, 0)).unwrap().unwrap();
+    assert_eq!(
+        map.assets,
+        [id(AssetKind::Map, 0), id(AssetKind::WorldMap, 0)]
+    );
+    assert_eq!(map.key, world.key);
+    assert_eq!(map, world);
+    assert_eq!(map.key, MAP);
+    assert_eq!(map.members, paths(&["unpacked/maps/0000"]));
+    // In the store: the map's unit around the world's derived location.
+    match p.asset_location(AssetKind::WorldMap, 0).unwrap() {
+        Location::Entity { unit, members } => {
+            assert_eq!(unit, map);
+            assert_eq!(
+                *members,
+                Location::Derived {
+                    json: fx.root().join(MAP)
+                }
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    // A binary map has no world (`null`); a world map its world, the map as its member.
+    let mut source = EntitySource::open(&p).unwrap();
+    assert_eq!(
+        source
+            .read(&p, id(AssetKind::WorldMap, 0))
+            .unwrap()
+            .unwrap(),
+        b"null\n"
+    );
+    let painted = one_tile_world();
+    fx.write(MAP, &with_world(fx.read(MAP), Some(&painted)).unwrap());
+    let mut source = EntitySource::open(&p).unwrap();
+    assert_eq!(
+        source
+            .read(&p, id(AssetKind::WorldMap, 0))
+            .unwrap()
+            .unwrap(),
+        crate::textproject::canon::to_canonical(&Some(painted))
+    );
+    assert_eq!(
+        source.read(&p, id(AssetKind::Map, 0)).unwrap().unwrap(),
+        member(&fx, AssetKind::Map, 0)
+    );
+    // In step: the JSON reads to the member, the world has no member to compare.
+    assert!(source.matches_members(&p, &map.assets).unwrap());
+    // Without JSON there is nothing to read.
+    std::fs::remove_file(fx.root().join(MAP)).unwrap();
+    assert_eq!(source.read(&p, id(AssetKind::WorldMap, 0)).unwrap(), None);
+}

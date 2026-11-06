@@ -38,10 +38,11 @@ use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
 use crate::start::read_base_mark;
 use crate::store::HEADER_TABLE;
+use crate::world::keep::world_field;
 
 use super::arts::{Art, numbered};
 use super::base_layer::{BaseLayer, RAW_DIR};
-use super::canon::parse_entity;
+use super::canon::{parse_entity, to_canonical};
 use super::codes::SCHEMA_CODE;
 use super::ids::{Stamp, stamp, watched};
 use super::import::LazyBase;
@@ -177,6 +178,12 @@ pub fn unit_of(project: &Project, id: AssetId) -> Result<Option<EntityUnit>, Ker
                     kind: AssetKind::Trainer,
                     index,
                 }]
+            } else if art == Art::Maps {
+                // The map and its world: one JSON, two assets.
+                [AssetKind::Map, AssetKind::WorldMap]
+                    .into_iter()
+                    .map(|kind| AssetId { kind, index })
+                    .collect()
             } else {
                 art.kinds()
                     .iter()
@@ -354,6 +361,9 @@ impl EntitySource {
             return Ok(None);
         };
         match place {
+            Place::Entity { art, index } if id.kind == AssetKind::WorldMap => {
+                self.world_json(art, index)
+            }
             Place::Entity { art, index } => Ok(self
                 .json_parts(project, art, index)?
                 .and_then(|parts| store_bytes(art, id.kind, &parts))),
@@ -377,6 +387,24 @@ impl EntitySource {
                 Ok(bytes)
             }
         }
+    }
+
+    /// The world of map `index` (`art` is the maps') from its JSON as the store's bytes, the
+    /// canonical JSON of `Option<WorldJson>` (`null` for a map without world); `None` when the
+    /// JSON is missing. A `world` that does not read is [`KernelError::Compile`] with file,
+    /// line and path ([`world_field`]).
+    fn world_json(&self, art: Art, index: u16) -> Result<Option<Vec<u8>>, KernelError> {
+        let rel = json_rel(art, index);
+        let Some(bytes) = read_optional(&self.root.join(&rel))? else {
+            return Ok(None);
+        };
+        let world = world_field(&bytes).map_err(|e| match e {
+            KernelError::Refused(message) => {
+                KernelError::Compile(vec![located(&rel, &bytes, &message)])
+            }
+            e => e,
+        })?;
+        Ok(Some(to_canonical(&world)))
     }
 
     /// The members of entity `index` of `art` from its JSON, imported against the members on
@@ -604,6 +632,11 @@ impl EntitySource {
                 continue;
             }
             let from_json = self.read(project, id)?;
+            // A world has no member: its JSON is its only side (read above, so a `world` that
+            // does not read is the error).
+            if id.kind == AssetKind::WorldMap && from_json.is_some() {
+                continue;
+            }
             if from_json.is_none() || from_json != disk_bytes(project, id)? {
                 return Ok(false);
             }

@@ -11,9 +11,12 @@
 //! vanilla permissions, and the synthetic test tileset; `places.rs` the map texture packages a
 //! map is shown with and the maps of every package; `mesh.rs` the mesher from layers, heights,
 //! ramps and footprints to a face list and the budget estimate; `keep.rs` the world object
-//! kept when the map file is written from its member.
+//! kept when the map file is written from its member; `edit.rs` „Welt anlegen“
+//! ([`edit::world_create`]) and the changes of cells ([`edit::world_edit`]), each one undo step
+//! on the store's world map asset ([`crate::project::AssetKind::WorldMap`]).
 
 pub mod doc;
+pub mod edit;
 pub mod grid;
 pub mod keep;
 pub mod mesh;
@@ -36,7 +39,4 @@ pub use tileset::{
     tileset_texture,
 };
 
-/// Why painting is refused outside a text project (`world_create`, `world_edit`,
-/// `tileset_save` in the DSPRE layout).
-pub const WORLD_NEEDS_TEXT_PROJECT: &str =
-    "Boden malen gibt es im Textprojekt (Technik › Textprojekt).";
+pub use edit::WORLD_NEEDS_TEXT_PROJECT;

@@ -79,6 +79,8 @@ pub(super) fn place_of(project: &Project, id: AssetId) -> Option<Place> {
                 .then_some(Place::Item { member: id.index });
         }
         AssetKind::Trainer => Art::Trainers,
+        // The world of a map is the field `world` of the map's JSON: the map's unit.
+        AssetKind::WorldMap => Art::Maps,
         kind => ARTS.into_iter().find(|art| art.kinds().contains(&kind))?,
     };
     if !art.kinds().iter().all(|&k| project.has_archive(k)) {
@@ -163,6 +165,8 @@ pub(super) fn disk_bytes(project: &Project, id: AssetId) -> Result<Option<Vec<u8
             },
         ),
         AssetKind::HeaderTable => Ok(Some(project.read_header_table_bytes()?)),
+        // No member: the world lives in the map's JSON alone.
+        AssetKind::WorldMap => Ok(None),
         AssetKind::EggMoves => match egg_place(project) {
             Some(place) => place_bytes(project, &place),
             None => Ok(None),
