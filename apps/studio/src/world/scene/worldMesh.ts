@@ -159,38 +159,30 @@ export async function worldMeshModel(map: number): Promise<{ model: THREE.Group;
 }
 
 /**
- * The terrain model of `map` for the scene: the world mesh when `h.loaded.get(map)?.map.world`, else the GLB as before; notes the mesh
- * on the host (`noteWorldMesh`) and forgets the marks of maps the scene no longer holds. Undo and redo refetch the map and its model at
- * the same time, so the flag can change while the model loads: a GLB that arrives for a map that is a world map by then gives way to
- * the mesh, and an empty mesh (the map has no world, or it does not read into cells) to the GLB.
+ * The terrain model of `map` for the scene: the world mesh of a world map, else the GLB as before. The initial load trusts the flag
+ * (`h.loaded.get(map)?.map.world`, fresh from its own fetch). A refresh (`probe`) does not: undo, redo and agent edits refetch the map
+ * and its model at the same time, so it asks for the mesh first and takes it when it has faces, else the GLB. An empty mesh (no world,
+ * or one that does not read into cells) always gives way to the GLB.
+ *
+ * Notes the result on the host (`noteWorldMesh`) only while the map's model generation (`mapModelGen`, bumped by both callers before
+ * they call) is the one it started under: a superseded call's model is dropped by its caller, so its mark must not land either.
+ * Forgets the marks of maps the scene no longer holds.
  */
-export async function mapModel(h: SceneHost, map: number, area: number): Promise<THREE.Object3D> {
+export async function mapModel(h: SceneHost, map: number, area: number, { probe = false }: { probe?: boolean } = {}): Promise<THREE.Object3D> {
   for (const shown of [...h.worldMeshes.keys()]) if (!h.loaded.has(shown)) h.noteWorldMesh(shown, null);
-  const isWorld = () => h.loaded.get(map)?.map.world === true;
-  const mesh = async () => {
+  const gen = h.mapModelGen.get(map);
+  const note = (faces: number | null) => {
+    if (h.mapModelGen.get(map) === gen) h.noteWorldMesh(map, faces);
+  };
+  if (probe || h.loaded.get(map)?.map.world === true) {
     const { model, faces } = await worldMeshModel(map);
     if (faces > 0) {
-      h.noteWorldMesh(map, faces);
+      note(faces);
       return model;
     }
     disposeTree(model);
-    return null;
-  };
-  const glb = () => getMapModelGlb(map, area).then(parseGlb);
-  if (isWorld()) {
-    const model = await mesh();
-    if (model) return model;
-    h.noteWorldMesh(map, null);
-    return glb();
   }
-  const model = await glb();
-  if (isWorld()) {
-    const world = await mesh();
-    if (world) {
-      disposeTree(model);
-      return world;
-    }
-  }
-  h.noteWorldMesh(map, null);
+  const model = await getMapModelGlb(map, area).then(parseGlb);
+  note(null);
   return model;
 }

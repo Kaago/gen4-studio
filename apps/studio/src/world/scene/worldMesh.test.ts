@@ -48,6 +48,7 @@ function fakeHost(world: Record<number, boolean>) {
   const h = {
     loaded,
     worldMeshes,
+    mapModelGen: new Map<number, number>(),
     noteWorldMesh(map: number, faces: number | null) {
       notes.push([map, faces]);
       if (faces === null) worldMeshes.delete(map);
@@ -183,17 +184,40 @@ describe("worldMesh", () => {
     expect([...h.worldMeshes.keys()]).toEqual([]);
   });
 
-  it("map_model_follows_a_world_flag_that_changed_while_the_model_loaded", async () => {
-    // Undo or redo refetch the map and its model at once: the flag the model load started with may be stale.
+  it("refresh_asks_for_the_mesh_before_the_flag_follows", async () => {
+    // Redo of „Welt anlegen“: the map refetch has not flipped `world` yet when the model refresh starts.
     const { h, notes } = fakeHost({ 12: false });
-    api.getMapModelGlb.mockImplementation(async () => {
-      h.loaded.get(12)!.map.world = true;
-      return new ArrayBuffer(4);
-    });
     api.getWorldMesh.mockResolvedValue(dto([{ cx: 0, cz: 0, texture: 0, layer: 0 }], [small]));
     api.getTilesetTexture.mockResolvedValue(null);
-    expect((await mapModel(h, 12, 2)).name).toBe("world-mesh:12");
+    expect((await mapModel(h, 12, 2, { probe: true })).name).toBe("world-mesh:12");
+    expect(api.getMapModelGlb).not.toHaveBeenCalled();
     expect(notes).toEqual([[12, 1]]);
+  });
+
+  it("refresh_takes_the_glb_when_the_mesh_is_empty", async () => {
+    // Undo of „Welt anlegen“: the flag still says world, the backend has none any more.
+    const { h, notes } = fakeHost({ 12: true });
+    api.getWorldMesh.mockResolvedValue({ map: 12, tileset: 0, faces: 0, textures: [], corners: [], uv: [], texture: [], layer: [] });
+    api.getMapModelGlb.mockResolvedValue(new ArrayBuffer(4));
+    expect((await mapModel(h, 12, 2, { probe: true })).name).toBe("glb");
+    expect(notes).toEqual([[12, null]]);
+  });
+
+  it("only_the_latest_call_for_a_map_sets_its_mark", async () => {
+    // Fast ⌘Z, ⇧⌘Z: two refreshes overlap and the older one resolves last.
+    const { h, notes } = fakeHost({ 12: true });
+    api.getTilesetTexture.mockResolvedValue(null);
+    let resolveOld!: (d: WorldMeshDto) => void;
+    api.getWorldMesh.mockImplementationOnce(() => new Promise<WorldMeshDto>((r) => (resolveOld = r)));
+    api.getWorldMesh.mockResolvedValueOnce(dto([{ cx: 0, cz: 0, texture: 0, layer: 0 }], [small]));
+    h.mapModelGen.set(12, 1);
+    const older = mapModel(h, 12, 2, { probe: true });
+    h.mapModelGen.set(12, 2);
+    await mapModel(h, 12, 2, { probe: true });
+    resolveOld(dto([{ cx: 0, cz: 0, texture: 0, layer: 0 }, { cx: 1, cz: 0, texture: 0, layer: 0 }, { cx: 2, cz: 0, texture: 0, layer: 0 }], [small]));
+    await older;
+    expect(notes).toEqual([[12, 1]]);
+    expect(h.worldMeshes.get(12)).toBe(1);
   });
 
   it("map_model_takes_the_glb_when_the_world_went_meanwhile", async () => {

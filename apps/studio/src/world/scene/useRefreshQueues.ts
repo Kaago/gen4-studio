@@ -88,7 +88,7 @@ export function useMapModelRefresh(refs: SceneRefs, mapModelRefresh: RefreshQueu
       const stale = () => h.disposed || refs.handle.current !== h || h.matrix !== matrixAtStart || refs.area.current !== area || h.mapModelGen.get(map) !== gen;
       (async () => {
         if (!h.loaded.has(map)) return;
-        const model = await mapModel(h, map, area);
+        const model = await mapModel(h, map, area, { probe: true });
         if (stale()) {
           disposeTree(model);
           return;
