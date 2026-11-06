@@ -210,6 +210,57 @@ pub mod fixtures {
         });
         w
     }
+
+    /// The gate map (tokens given): ground `ground` at 0; grass `grass` x 16–28, z 3–10; water `water` x 2–8,
+    /// z 24–29; stair `e1` at x 16 (h 0) and 17 (h 1), z 20–22; plateau h 2 at x 18–22, z 20–22; door override
+    /// `6980` at (12, 21).
+    pub fn gate_world(tileset: u16, ground: &str, grass: &str, water: &str) -> WorldJson {
+        let mut w = one_tile_world();
+        w.tileset = tileset;
+        let band = |z: usize| (20..=22).contains(&z);
+        let ground_layer = &mut w.layers[0];
+        ground_layer.tiles = rows_of(|x, z| {
+            if (16..=28).contains(&x) && (3..=10).contains(&z) {
+                grass.to_owned()
+            } else if (2..=8).contains(&x) && (24..=29).contains(&z) {
+                water.to_owned()
+            } else {
+                ground.to_owned()
+            }
+        });
+        ground_layer.heights = Some(rows_of(|x, z| {
+            let h = match x {
+                17 if band(z) => 1,
+                18..=22 if band(z) => 2,
+                _ => 0,
+            };
+            h.to_string()
+        }));
+        ground_layer.ramps = Some(rows_of(|x, z| {
+            ramp_token(if (16..=17).contains(&x) && band(z) {
+                Ramp::East(1)
+            } else {
+                Ramp::None
+            })
+        }));
+        w.permissions.overrides = Some(rows_of(|x, z| {
+            if (x, z) == (12, 21) {
+                "6980".to_owned()
+            } else {
+                tile_token(None)
+            }
+        }));
+        w
+    }
+
+    /// A world over 0xF000 baked: checkerboard of three tiles, height (7x + 13z) mod 40.
+    pub fn oversize_world() -> WorldJson {
+        let mut w = one_tile_world();
+        let ground = &mut w.layers[0];
+        ground.tiles = rows_of(|x, z| tile(((x + z) % 3) as u16));
+        ground.heights = Some(rows_of(|x, z| ((7 * x + 13 * z) % 40).to_string()));
+        w
+    }
 }
 
 #[cfg(test)]

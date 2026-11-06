@@ -33,6 +33,18 @@ pub struct MeshFace {
     pub layer: u8,
 }
 
+impl From<MeshFace> for crate::bake::Face {
+    /// The same quad as the baker's input: the fields carry over unchanged.
+    fn from(f: MeshFace) -> crate::bake::Face {
+        crate::bake::Face {
+            corners: f.corners,
+            uv: f.uv,
+            texture: f.texture,
+            layer: f.layer,
+        }
+    }
+}
+
 /// The layer of the footprint faces of pieces.
 pub const PIECE_LAYER: u8 = 255;
 /// The most bytes a map model may have.
@@ -365,7 +377,11 @@ fn turned((w, d): (u8, u8), rotate: u16) -> (usize, usize) {
 
 /// The footprint of piece tile `tile` turned `rotate` degrees, `None` when the tile is past
 /// the tileset, not a piece or has none.
-fn footprint_of(tileset: &Tileset, tile: u16, rotate: u16) -> Option<(usize, usize, &str)> {
+pub(crate) fn footprint_of(
+    tileset: &Tileset,
+    tile: u16,
+    rotate: u16,
+) -> Option<(usize, usize, &str)> {
     let t = tileset.tile(tile).filter(|t| t.role == TileRole::Piece)?;
     let [w, d] = t.footprint?;
     let (w, d) = turned((w, d), rotate);

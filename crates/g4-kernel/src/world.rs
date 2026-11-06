@@ -15,8 +15,10 @@
 //! ([`edit::world_create`]) and the changes of cells ([`edit::world_edit`]), each one undo step
 //! on the store's world map asset ([`crate::project::AssetKind::WorldMap`]); `check.rs` the
 //! checks `world.schema`, `world.tileset-mismatch`, `world.not-baked` and `world.budget` of the
-//! text-project check ([`check::world_problems`]).
+//! text-project check ([`check::world_problems`]); `bake.rs` the pure baker of a world into the
+//! map's model, BDHC and permissions ([`bake::bake_grid`], [`bake::assemble`]).
 
+pub mod bake;
 pub mod check;
 pub mod doc;
 pub mod edit;
@@ -26,6 +28,10 @@ pub mod mesh;
 pub mod places;
 pub mod tileset;
 
+pub use bake::{
+    BakeEnv, EMPTY_CELL, FLOOR_TOLERANCE, GridBake, Verbatim, WORLD_BAKE_REV, WorldBakeMessage,
+    WorldBakeReport, assemble, bake_grid, report, world_permissions,
+};
 pub use doc::{
     FreeformJson, HEIGHT_MAX, HEIGHT_MIN, LayerJson, LayerRole, MAP_SOURCE_WORLD, PermissionsJson,
     PieceJson, STEP_UNITS, TILE_UNITS, WORLD_VERSION, WorldJson,
