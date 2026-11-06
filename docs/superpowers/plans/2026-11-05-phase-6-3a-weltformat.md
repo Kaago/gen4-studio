@@ -528,8 +528,8 @@ Material je Ebene: `MeshLambertMaterial`, `side: FrontSide`, `alphaTest: 0.5`, �
 **Files:**
 - Modify: `design-system/README.md` (Abschnitt „Nachtrag 6.3a“ am Ende der Nachträge; unter „Was die App umsetzt“ die Zeile „Welt-Karten zeigen ihr Netz (6.3a)“; unter „Szene (three.js)“ Platzhalter-Material nach Rolle und `polygonOffset` je Ebene)
 
-- [ ] **Step 1: Nachtrag** nach dem Muster „Nachtrag 3d.6“: Quelle (`world/scene/worldMesh.ts`, `SceneHost.ts`), Plan und Gate (`docs/phase-6-3a-gate.md`), keine neuen Tokens (Platzhalter aus `szene/gelaende/*`: `hohes-gras`, `wasser`, `blockiert`, `spezial`, `unbekannt`), keine neue Komponente, kein neuer Frame: „6.3a ändert keine Oberfläche außer dem Gelände in der Schau; Frames für Palette, Ebenen und Werkzeug kommen mit 6.4a (Screen „Gelände malen: Route 201“)“; Abweichung: Fußabdrücke halbdurchsichtig, bis 6.5b ohne Geometrie.
-- [ ] **Step 2:** `bash scripts/check-tokens.sh` grün; **Step 3: Commit** `docs(design-system): addendum 6.3a, world mesh in the scene` (mit Trailer).
+- [x] **Step 1: Nachtrag** nach dem Muster „Nachtrag 3d.6“: Quelle (`world/scene/worldMesh.ts`, `SceneHost.ts`), Plan und Gate (`docs/phase-6-3a-gate.md`), keine neuen Tokens (Platzhalter aus `szene/gelaende/*`: `hohes-gras`, `wasser`, `blockiert`, `spezial`, `unbekannt`), keine neue Komponente, kein neuer Frame: „6.3a ändert keine Oberfläche außer dem Gelände in der Schau; Frames für Palette, Ebenen und Werkzeug kommen mit 6.4a (Screen „Gelände malen: Route 201“)“; Abweichung: Fußabdrücke halbdurchsichtig, bis 6.5b ohne Geometrie.
+- [x] **Step 2:** `bash scripts/check-tokens.sh` grün; **Step 3: Commit** `docs(design-system): addendum 6.3a, world mesh in the scene` (mit Trailer).
 
 ### Task 14: Gate 6.3a, `agent-gate.md`, `gate.sh`, Roadmap
 
