@@ -6,8 +6,11 @@
 //!   `metadata/terrain_rules.yaml`, plus the edge rule ([`edge_rule`]).
 //! - [`parse_grid`] / [`parse_kinds`] and their `format_*` inverses: the row format of
 //!   `set_map_terrain` (32 rows of 32 cells, separated by spaces; row `y`, column `x`).
-//! - [`derive_permissions`]: pattern rule per cell, then every height edge inside the map of at
-//!   least `free_below` units blocks its upper cell; [`apply_overrides`] puts hand values last.
+//! - [`derive_permissions`]: pattern rule per cell, then [`block_edges`] (every height edge
+//!   inside the map of at least `free_below` units blocks its upper cell); [`apply_overrides`]
+//!   puts hand values last.
+//! - [`lex_height`] / [`lex_ramp`]: the cell grammar of both row formats (these rows and the
+//!   world document's grid).
 //! - [`map_heights`]: the walk height at every tile centre (highest candidate);
 //!   [`free_steps`]: two-step edges of a BDHC the game lets the player walk up.
 //! - [`set_map_terrain`]: BDHC and permissions of a map from rows, one store step;
@@ -28,10 +31,13 @@ pub use apply::{
 pub use budget::{
     BudgetItem, BudgetState, MapBudget, TextureBudget, budget_state, map_budget, vram_bytes,
 };
-pub use derive::{CellOverride, apply_overrides, derive_permissions};
+pub use derive::{CellOverride, apply_overrides, block_edges, derive_permissions};
 pub use g4_formats::bdhc::{Direction, HeightGrid, Ramp};
 pub use heights::{FreeStep, free_steps, map_heights};
-pub use rows::{GridRows, format_grid, format_kinds, grid_problem_text, parse_grid, parse_kinds};
+pub use rows::{
+    GridRows, format_grid, format_kinds, grid_problem_text, lex_height, lex_ramp, parse_grid,
+    parse_kinds,
+};
 pub use rules::{EdgeRule, KindRule, edge_rule, kind_rule};
 
 /// Cells per row and per column of a map.

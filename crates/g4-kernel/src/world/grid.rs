@@ -10,8 +10,8 @@
 //! (steps of [`STEP_UNITS`](super::doc::STEP_UNITS)). A ramp is `.` or a direction `n`, `e`,
 //! `s`, `w` (uphill) with 1 or 2 steps. An override is `.` or `kkcc` like the permissions.
 //!
-//! The height and ramp cells are lexed by [`lex_height`] and [`lex_ramp`], which 6.2's rows of
-//! `set_map_terrain` (`terrain::parse_grid`) read too: one grammar, `+5` and `e01` included;
+//! The height and ramp cells are lexed by [`lex_height`] and [`lex_ramp`] (`terrain`'s, which
+//! 6.2's rows of `set_map_terrain` read too): one grammar, `+5` and `e01` included;
 //! written are the canonical forms (`5`, `e1`). The ramp is 6.2's `bdhc::Ramp` in the same sense
 //! (uphill, height at the lower edge); [`Ramp`] converts to and from it without loss.
 
@@ -21,6 +21,7 @@ use g4_formats::bdhc::{self, HeightGrid};
 use g4_formats::map::{Cell, MAP_SIZE};
 
 use super::doc::{HEIGHT_MAX, HEIGHT_MIN, LayerRole, PieceJson, WORLD_VERSION, WorldJson};
+pub use crate::terrain::{lex_height, lex_ramp};
 
 /// The token of an empty cell (no tile, no ramp, no override).
 const EMPTY: &str = ".";
@@ -412,36 +413,6 @@ pub fn tile_token(t: Option<TileRef>) -> String {
         token.push('f');
     }
     token
-}
-
-/// The ramp of a row cell in the grammar of both row formats (the world document and 6.2's
-/// rows of `set_map_terrain`): `.` or a direction letter `n`, `e`, `s`, `w` followed by the
-/// steps as digits (`e1`, `e01`), lowercase only. The steps are not bounded here: each reader
-/// checks their range with its own sentence.
-pub fn lex_ramp(token: &str) -> Option<bdhc::Ramp> {
-    if token == EMPTY {
-        return Some(bdhc::Ramp::None);
-    }
-    let mut chars = token.chars();
-    let letter = chars.next()?;
-    let digits = chars.as_str();
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let steps: u8 = digits.parse().ok()?;
-    match letter {
-        'n' => Some(bdhc::Ramp::North(steps)),
-        'e' => Some(bdhc::Ramp::East(steps)),
-        's' => Some(bdhc::Ramp::South(steps)),
-        'w' => Some(bdhc::Ramp::West(steps)),
-        _ => None,
-    }
-}
-
-/// The height of a row cell in the grammar of both row formats: a whole number with an
-/// optional sign (`-3`, `+5`, `05`). Not bounded here: each reader checks the range.
-pub fn lex_height(token: &str) -> Option<i64> {
-    token.parse().ok()
 }
 
 /// The ramp of a token ([`lex_ramp`]): `.` or `n`, `e`, `s`, `w` with 1 or 2 steps.
