@@ -1,0 +1,68 @@
+.budget {
+  display: grid;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-4) 0;
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-primaer);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  min-height: var(--g4-dichte-zeile);
+}
+
+.label {
+  color: var(--g4-text-sekundaer);
+}
+
+.track {
+  position: relative;
+  height: var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-deck);
+  overflow: hidden;
+}
+
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-akzent-grund);
+}
+
+.tight .fill {
+  background: var(--g4-status-warnung);
+}
+
+.full .fill {
+  background: var(--g4-status-fehler);
+}
+
+.value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+}
+
+.tech {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}
+
+.note {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+@media (forced-colors: active) {
+  .track {
+    border: 1px solid CanvasText;
+  }
+
+  .fill {
+    background: Highlight;
+  }
+}

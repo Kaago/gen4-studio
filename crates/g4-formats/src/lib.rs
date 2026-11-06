@@ -1,4 +1,5 @@
 pub mod area_data;
+pub mod bdhc;
 pub mod data;
 pub mod error;
 pub mod game;
@@ -11,3 +12,7 @@ pub mod nsbmd_header;
 pub mod nsbtx;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+pub mod nitro_dict;
+pub mod nsbmd;
+pub mod texconv;

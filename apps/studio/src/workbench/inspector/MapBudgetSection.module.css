@@ -1,0 +1,24 @@
+.intro {
+  margin: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.rows {
+  display: grid;
+  gap: var(--g4-raum-4);
+  padding: 0 var(--g4-raum-8);
+}
+
+.missing {
+  display: grid;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-4) 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+.label {
+  color: var(--g4-text-sekundaer);
+}

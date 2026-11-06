@@ -980,7 +980,7 @@ impl SourceCheck for PlaceIndexOutOfBank {
 // --- matrices ---
 
 /// Every readable matrix that is not deleted, with its index.
-fn matrices(src: &dyn Source) -> impl Iterator<Item = (u16, &Matrix)> {
+pub(super) fn matrices(src: &dyn Source) -> impl Iterator<Item = (u16, &Matrix)> {
     (0..src.count(AssetKind::Matrix))
         .map(idx)
         .filter(move |&m| !src.deleted(AssetKind::Matrix, m))
@@ -988,7 +988,7 @@ fn matrices(src: &dyn Source) -> impl Iterator<Item = (u16, &Matrix)> {
 }
 
 /// The key of cell `c` of `m`: `cell:<x>,<y>`, and its coordinates.
-fn cell(m: &Matrix, c: usize) -> (String, usize, usize) {
+pub(super) fn cell(m: &Matrix, c: usize) -> (String, usize, usize) {
     let w = usize::from(m.width.max(1));
     let (x, y) = (c % w, c / w);
     (format!("cell:{x},{y}"), x, y)
@@ -1148,7 +1148,7 @@ impl SourceCheck for MatrixHeaderElsewhere {
 // --- maps and area data ---
 
 /// Every readable map that is not deleted, with its index.
-fn maps(src: &dyn Source) -> impl Iterator<Item = (u16, &g4_formats::map::MapFile)> {
+pub(super) fn maps(src: &dyn Source) -> impl Iterator<Item = (u16, &g4_formats::map::MapFile)> {
     (0..src.count(AssetKind::Map))
         .map(idx)
         .filter(move |&m| !src.deleted(AssetKind::Map, m))
@@ -1189,8 +1189,9 @@ impl SourceCheck for MapModelInvalid {
 }
 
 /// `map.bdhc-size` (error, both families): the terrain does not start with `BDHC`, its
-/// payload (from the counters after byte 16) exceeds `bdhc.max_bytes`, or its length is not
-/// 16 + payload (`map_import::check_bdhc`). Subject: map; key and field `bdhc`. Args:
+/// payload (from the counters after byte 16) exceeds `bdhc.max_bytes`, its length is not
+/// 16 + payload, or its structure is broken (the first error of `Bdhc::validate`: an index
+/// past its table, a strip past the access list or out of order; `map_import::check_bdhc`). Subject: map; key and field `bdhc`. Args:
 /// `[map, reason, terrain length]`. Fingerprint: the terrain bytes.
 pub(crate) struct MapBdhcSize;
 
@@ -1992,6 +1993,26 @@ mod tests {
             "{}",
             found[1].message
         );
+    }
+
+    #[test]
+    fn map_bdhc_size_reports_structure_errors() {
+        use g4_formats::bdhc::{HeightGrid, from_grid};
+        let mut f = Fake::world();
+        let mut broken = from_grid(&HeightGrid::flat(0));
+        broken.plates[0].first = 99;
+        f.map_mut(1).bdhc = broken.write();
+        let found = f.run(&MapBdhcSize);
+        assert_eq!(keys(&found), [(Subject::Map(1), "bdhc")]);
+        assert!(
+            found[0].message.contains("plate 0 names point 99"),
+            "{}",
+            found[0].message
+        );
+        assert!(args(&found[0])[1].contains("plate 0 names point 99"));
+        // A generated BDHC is sound.
+        f.map_mut(1).bdhc = from_grid(&HeightGrid::flat(2)).write();
+        assert!(f.run(&MapBdhcSize).is_empty());
     }
 
     #[test]

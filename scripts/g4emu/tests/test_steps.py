@@ -1,6 +1,14 @@
 import pytest
 
-from conftest import RAM_BASE, RAM_SIZE, battle_mon, put_location, put_save_block
+from conftest import (
+    FIGURE_BLOCK,
+    RAM_BASE,
+    RAM_SIZE,
+    battle_mon,
+    put_figure,
+    put_location,
+    put_save_block,
+)
 from g4emu import battle
 from g4emu.games import Location
 from g4emu.steps import Step, StepFailed, parse_steps, run_step
@@ -509,6 +517,72 @@ def test_expect_at_checks_the_position(fake_emu, cpud, tmp_path):
 def test_expect_at_without_location_fails(fake_emu, cpud, tmp_path):
     with pytest.raises(StepFailed, match="kein gültiger Ort"):
         run_step(fake_emu, cpud, Step("expect-at", ["1", "2"]), tmp_path)
+
+
+# --- expect-height: the figure's height from its position vector ----------------------------
+
+
+def test_parse_expect_height_takes_tolerance_with_or_without_plus_minus():
+    tokens = "expect-height 16 where expect-height 12 0.25 expect-height 12 ±0.25 shot a".split()
+    assert parse_steps(tokens) == [
+        Step("expect-height", ["16"]),
+        Step("where", []),
+        Step("expect-height", ["12", "0.25"]),
+        Step("expect-height", ["12", "±0.25"]),
+        Step("shot", ["a"]),
+    ]
+    for bad in (["expect-height", "hoch"], ["expect-height", "16", "±x"], ["expect-height", "16", "-1"]):
+        with pytest.raises(ValueError, match="expect-height"):
+            parse_steps(bad)
+
+
+def _room_with_figure(fake_emu, game, height: float, copies: int = 6) -> None:
+    fake_emu.attach(game, Location(415, -1, 18, 21))
+    for i in range(copies):
+        put_figure(fake_emu._ram, 18, 21, height, at=FIGURE_BLOCK + 0x40 * i)
+
+
+def test_expect_height_passes_within_tolerance(fake_emu, cpud, tmp_path):
+    _room_with_figure(fake_emu, cpud, 16.0)
+    out = run_step(fake_emu, cpud, Step("expect-height", ["16"]), tmp_path)
+    assert out == {
+        "step": "expect-height",
+        "ok": True,
+        "height": 16.0,
+        "hits": 6,
+        "x": 18,
+        "y": 21,
+        "frame": 0,
+    }
+    out = run_step(fake_emu, cpud, Step("expect-height", ["15.8", "±0.25"]), tmp_path)
+    assert out["height"] == 16.0
+
+
+def test_expect_height_fails_with_the_values(fake_emu, cpud, tmp_path):
+    _room_with_figure(fake_emu, cpud, 0.0)
+    with pytest.raises(StepFailed) as failed:
+        run_step(fake_emu, cpud, Step("expect-height", ["16"]), tmp_path)
+    assert str(failed.value) == "Höhe 0 statt 16 (±0.1) bei Kachel x 18, y 21; Treffer 0 (6×)"
+
+
+def test_expect_height_names_every_height_it_saw(fake_emu, cpud, tmp_path):
+    _room_with_figure(fake_emu, cpud, 3.989, copies=4)
+    for i in range(2):
+        put_figure(fake_emu._ram, 18, 21, 0.989, at=FIGURE_BLOCK + 0x1000 + 0x40 * i)
+    with pytest.raises(StepFailed) as failed:
+        run_step(fake_emu, cpud, Step("expect-height", ["0", "0.5"]), tmp_path)
+    assert str(failed.value) == (
+        "Höhe 3.989 statt 0 (±0.5) bei Kachel x 18, y 21; Treffer 3.989 (4×), 0.989 (2×)"
+    )
+
+
+def test_expect_height_without_hits_fails(fake_emu, cpud, tmp_path):
+    with pytest.raises(StepFailed, match="^kein gültiger Ort$"):
+        run_step(fake_emu, cpud, Step("expect-height", ["0"]), tmp_path)
+    fake_emu.attach(cpud, Location(415, -1, 18, 21))
+    with pytest.raises(StepFailed) as failed:
+        run_step(fake_emu, cpud, Step("expect-height", ["0"]), tmp_path)
+    assert str(failed.value) == "keine Figurenhöhe im RAM bei Kachel x 18, y 21"
 
 
 # --- flags and variables in the save block ---------------------------------------------------

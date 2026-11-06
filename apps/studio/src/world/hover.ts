@@ -1,6 +1,7 @@
 import type { TileBehavior } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
+import { heightWords } from "./ground";
 
 /** What the hover shows about one tile: raw bytes plus the decomp's behaviour name and class (null when unnamed). */
 export interface TileInfo {
@@ -30,14 +31,16 @@ export function describeTile(cell: [number, number], names: Map<number, TileBeha
 const CLASS_WORDS: Record<string, string> = { grass: "hohes Gras", water: "Wasser", ledge: "Vorsprung", ice: "Eis" };
 
 /**
- * One-line status text. Tüfteln: "Karte 0187 · Kachel x 8, y 4 · Typ 0x5E WARP_STAIRS_EAST · blockiert"; Bauen leaves out the type
- * and the ROM constant and puts the tile first: "Kachel x 8, y 4 · Karte 0187 · blockiert" (or "begehbar", "hohes Gras" ...).
+ * One-line status text, the BDHC height of the tile centre (`units`, see `heightWords`) last. Tüfteln: "Karte 0187 · Kachel x 8, y 4 ·
+ * Typ 0x5E WARP_STAIRS_EAST · blockiert · Höhe 32 E (4 Stufen)"; Bauen leaves out the type and the ROM constant and puts the tile first:
+ * "Kachel x 8, y 4 · Karte 0187 · blockiert · Höhe 4 Stufen" (or "begehbar", "hohes Gras" ...).
  */
-export function tileSummary(map: number, x: number, y: number, info: TileInfo, depth: Depth): string {
+export function tileSummary(map: number, x: number, y: number, info: TileInfo, depth: Depth, units: number | null): string {
   const where = `Karte ${String(map).padStart(4, "0")}`;
   const tile = `Kachel x ${x}, y ${y}`;
-  if (!depthAtLeast(depth, "tuefteln")) return [tile, where, info.blocked ? "blockiert" : (CLASS_WORDS[info.class ?? ""] ?? "begehbar")].join(" · ");
+  const height = heightWords(units, depth);
+  if (!depthAtLeast(depth, "tuefteln")) return [tile, where, info.blocked ? "blockiert" : (CLASS_WORDS[info.class ?? ""] ?? "begehbar"), height].join(" · ");
   const hex = `0x${info.kind.toString(16).toUpperCase().padStart(2, "0")}`;
   const type = info.name === null ? hex : `${hex} ${info.name}`;
-  return [where, tile, `Typ ${type}`, info.blocked ? "blockiert" : "begehbar"].join(" · ");
+  return [where, tile, `Typ ${type}`, info.blocked ? "blockiert" : "begehbar", height].join(" · ");
 }

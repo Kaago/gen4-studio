@@ -102,6 +102,7 @@ import { useProjectSession } from "./app/useProjectSession";
 import { dockRef, uncover, useSceneSync } from "./app/useSceneSync";
 import type { DockRef } from "./app/useSceneSync";
 import { useSceneHistory } from "./app/useSceneHistory";
+import { useSceneLayers } from "./app/useSceneLayers";
 import { useShortcuts } from "./app/useShortcuts";
 import { useF6Ring } from "./app/useF6Ring";
 import { useStableCallback } from "./app/useStable";
@@ -256,8 +257,8 @@ function AppBody() {
     if (wizardOpen.current && target !== "welt") return;
     setArea(target);
   });
-  const [showPermissions, setShowPermissions] = useState(true);
-  const [showEvents, setShowEvents] = useState(true);
+  // „Gelände“ and „Höhen“ exclude each other (see `useSceneLayers`).
+  const { showPermissions, setShowPermissions, showHeights, setShowHeights, showEvents, setShowEvents } = useSceneLayers();
   // The dockview api of each area's one dock: a link focuses the panel that shows its target, the hinge maximizes its view.
   const [docks] = useState<Record<DeckArea, DockRef>>(() => ({ welt: dockRef(), texte: dockRef(), pokemon: dockRef(), gegenstaende: dockRef() }));
 
@@ -1161,7 +1162,7 @@ function AppBody() {
     onDraft: setDraft,
     onOpenDialog: setDialogEditor,
     openStoryRecipe: storyRecipe.open,
-    view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
+    view: { showPermissions, setShowPermissions, showHeights, setShowHeights, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;
 

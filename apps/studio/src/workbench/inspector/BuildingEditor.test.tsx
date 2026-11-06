@@ -18,7 +18,7 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 const building = (over: Partial<BuildingDto> = {}): BuildingDto => ({ model_id: 7, x: 1, y: 0, z: -2, sx: 1, sy: 1, sz: 1, rotation: ["000000AB", "00000000", "00000000"], ...over });
 const outside: AreaDataDto = { family: "Dppt", buildings_tileset: 1, map_tileset: 2, unknown: 0, light_type: 0 };
-const map = (): MapDto => ({ index: 12, permissions: [], buildings: [building({ model_id: 1 }), building({ model_id: 2 }), building()] });
+const map = (): MapDto => ({ index: 12, permissions: [], buildings: [building({ model_id: 1 }), building({ model_id: 2 }), building()], heights: [] });
 
 describe("BuildingEditor", () => {
   let container: HTMLElement;

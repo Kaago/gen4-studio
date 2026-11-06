@@ -485,6 +485,55 @@ fn check_data_compares_the_model_hash_in_the_rom() {
         )));
 }
 
+#[test]
+fn check_data_reads_the_sha1_of_a_map_texture() {
+    // Two synthetic members (no NSBTX needed: the digest is of the whole member's bytes).
+    let packs: [Vec<u8>; 2] = [b"BTX0 pack zero".to_vec(), vec![0xA5; 300]];
+    let rom = rom_with_files(
+        "CPUE",
+        &[(
+            "fielddata/areadata/area_map_tex/map_tex_set.narc",
+            narc(&[&packs[0], &packs[1]]),
+        )],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("out.nds");
+    std::fs::write(&path, rom).unwrap();
+    let sha1 = sha1_hex(&packs[0]);
+    g4k()
+        .args(["check-data"])
+        .arg(&path)
+        .args(["--expect", &format!("map_texture:0:sha1={sha1}")])
+        .args([
+            "--expect",
+            &format!("map_texture:1:sha1={}", sha1_hex(&packs[1]).to_uppercase()),
+        ])
+        .assert()
+        .success()
+        .stdout(contains(format!("map_texture 0 sha1: {sha1}")))
+        .stdout(contains("2 expectation(s) met"));
+    let other = sha1_hex(&packs[1]);
+    g4k()
+        .args(["check-data"])
+        .arg(&path)
+        .args(["--expect", &format!("map_texture:0:sha1={other}")])
+        .args(["--expect", &format!("map_texture:2:sha1={other}")])
+        .assert()
+        .code(1)
+        .stderr(contains(format!(
+            "map_texture 0 sha1: expected {other}, found {sha1}"
+        )))
+        .stderr(contains("map_texture 2: the archive has 2 members"))
+        .stderr(contains("2 of 2 expectation(s) failed"));
+    g4k()
+        .args(["check-data"])
+        .arg(&path)
+        .args(["--expect", "map_texture:0:size=1"])
+        .assert()
+        .code(2)
+        .stderr(contains("map_texture has no field size (fields: sha1)"));
+}
+
 // The synthetic project's findings that are no error: `header.text-split` once (script file 0
 // runs with text archives 0 and 433) and `encounter.empty-slot` twice (encounter files 0, 1).
 

@@ -2,6 +2,7 @@
 
 mod agents;
 mod area;
+mod bake;
 mod base;
 mod buildings;
 mod checks;
@@ -33,6 +34,7 @@ mod sprites;
 mod start;
 mod stories;
 mod templates;
+mod terrain;
 mod text;
 mod textproject;
 mod textsource;
@@ -43,6 +45,7 @@ mod world_meta;
 
 pub use agents::*;
 pub use area::*;
+pub use bake::*;
 pub use base::*;
 pub use buildings::*;
 pub use checks::*;
@@ -72,6 +75,7 @@ pub use sprites::*;
 pub use start::*;
 pub use stories::*;
 pub use templates::*;
+pub use terrain::*;
 pub use text::*;
 pub use textproject::*;
 pub use textsource::*;

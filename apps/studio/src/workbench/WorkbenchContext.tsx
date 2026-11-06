@@ -77,6 +77,9 @@ export interface WorkbenchData {
   areaDataId: number;
   showPermissions: boolean;
   onShowPermissions: (show: boolean) => void;
+  /** The layer „Höhen“ of the scene; it and the permission overlay exclude each other. */
+  showHeights: boolean;
+  onShowHeights: (show: boolean) => void;
   /** Event file of the selected header (null: none selected). */
   eventFileId: number | null;
   showEvents: boolean;

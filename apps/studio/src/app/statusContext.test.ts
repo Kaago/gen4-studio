@@ -35,14 +35,14 @@ describe("statusContext", () => {
 
   it("says_the_hovered_tile_or_marker_first_then_the_place", () => {
     const info = { kind: 3, collision: 0, blocked: false, name: null, class: null };
-    const tile: SceneHover = { kind: "tile", map: 187, x: 8, y: 4, absX: 8, absZ: 4, info };
+    const tile: SceneHover = { kind: "tile", map: 187, x: 8, y: 4, absX: 8, absZ: 4, info, units: 32 };
     const warp: WarpDto = { index: 1, x: 8, z: 4, dest_header_id: 414, dest_warp_id: 0, height: 0 };
     const door = (destName?: string): SceneHover => ({ kind: "eventHover", eventFile: 3, eventKind: "warp", index: 1, data: warp, destName });
     const figure: SceneHover = { kind: "eventHover", eventFile: 3, eventKind: "object", index: 2, data: { index: 2, local_id: 7 } as ObjectDto };
     const cell = { kind: "matrixCell", matrix: 0, x: 3, y: 27 } as const;
     // The hover wins over the selection ...
-    expect(statusContext(cell, tile, header(), "bauen")).toBe("Kachel x 8, y 4 · Karte 0187 · begehbar");
-    expect(statusContext(cell, tile, header(), "tuefteln")).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x03 · begehbar");
+    expect(statusContext(cell, tile, header(), "bauen")).toBe("Kachel x 8, y 4 · Karte 0187 · begehbar · Höhe 4 Stufen");
+    expect(statusContext(cell, tile, header(), "tuefteln")).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x03 · begehbar · Höhe 32 E (4 Stufen)");
     // A door has the number the inspector's title gives it („Warp 1 → …“).
     expect(statusContext(cell, door("Haus des Rivalen"), header(), "bauen")).toBe("Tür 1 → Haus des Rivalen");
     expect(statusContext(cell, door(), header(), "bauen")).toBe("Tür 1 → Ort 0414");

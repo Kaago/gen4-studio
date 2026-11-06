@@ -77,6 +77,10 @@ und beim Schreiben unverändert ausgegeben. Die Abschnittslängen im Kopf
 berechnet `write` aus den Feldern (`permissions.len() * 2`,
 `buildings.len() * 48 + buildings_tail.len()`, `model.len()`, `bdhc.len()`).
 
+Den Inhalt der BDHC (Tabellen, Strukturprüfung, Höhensuche) beschreibt
+[bdhc.md](bdhc.md); `g4_formats::bdhc::Bdhc::read(&map.bdhc)` liest ihn. `MapFile`
+behält die Bytes trotzdem verbatim.
+
 ## Round-Trip-Garantie
 
 Für jede erfolgreich gelesene Datei gilt `write(read(bytes)) == bytes`. Die

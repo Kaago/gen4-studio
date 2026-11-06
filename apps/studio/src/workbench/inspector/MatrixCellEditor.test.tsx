@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MATRIX_EMPTY, duplicateMap, getMatrix, setMatrixCell } from "../../api";
+import { MATRIX_EMPTY, duplicateMap, getMapBudget, getMatrix, setMatrixCell } from "../../api";
 import type { AssetId, HeaderSummary, MatrixDto } from "../../api";
 import { typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
@@ -14,7 +14,7 @@ import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, closeMenu, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 import { deleteSpy, withDelete } from "../../delete/deleteTesting";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []) }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []), getMapBudget: vi.fn() }));
 // The world model the editor names areas and world maps from (Bauen); null until a test sets one.
 const shownWorld: { world: World | null } = { world: null };
 vi.mock("../WorkbenchContext", async (importOriginal) => {
@@ -71,6 +71,14 @@ describe("MatrixCellEditor", () => {
     vi.mocked(getMatrix).mockReset().mockImplementation(async () => matrix());
     vi.mocked(setMatrixCell).mockReset().mockResolvedValue(undefined);
     vi.mocked(duplicateMap).mockReset().mockResolvedValue(77);
+    vi.mocked(getMapBudget).mockReset().mockImplementation(async (map) => ({
+      map,
+      model: { used: 21452, max: 61440, state: "calm" },
+      bdhc: { used: 300, max: 36864, state: "calm" },
+      buildings: { used: 3, max: 32, state: "calm" },
+      textures: null,
+      textures_missing: "Kein Gebiet zeigt diese Karte.",
+    }));
     for (const fn of [goTo, onEdited, onCountsChanged, onError]) fn.mockReset();
     dirty = [];
     reset = resetSpy();
@@ -79,7 +87,7 @@ describe("MatrixCellEditor", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(x = 1, y = 0, depth: "bauen" | "tuefteln" = "bauen") {
+  async function show(x = 1, y = 0, depth: "erzaehlen" | "bauen" | "tuefteln" = "bauen") {
     await act(async () => root.render(withReset(reset, <MatrixCellEditor matrix={3} x={x} y={y} context={context()} depth={depth} />)));
     await flush();
   }
@@ -96,6 +104,33 @@ describe("MatrixCellEditor", () => {
     await act(async () => void input(label).blur());
     await flush();
   };
+
+  it("a_cell_with_a_map_shows_its_budget", async () => {
+    await show();
+    expect(container.querySelector("[data-map-budget]")?.textContent).toContain("Grenzen des Spiels; Speichern geht immer.");
+    expect(container.querySelector('[data-budget="model"]')?.textContent).toContain("21.452 von 61.440 B");
+    expect(getMapBudget).toHaveBeenLastCalledWith(11);
+    // The map changed behind the editor (its terrain, model or buildings): the budget reads again.
+    const reads = vi.mocked(getMapBudget).mock.calls.length;
+    await act(async () => root.render(withReset(reset, <MatrixCellEditor matrix={3} x={1} y={0} context={{ ...context(), mapRevision: 1 }} depth="bauen" />)));
+    await flush();
+    expect(vi.mocked(getMapBudget).mock.calls.length).toBe(reads + 1);
+    // Tüfteln shows it too.
+    await show(1, 0, "tuefteln");
+    expect(container.querySelector("[data-map-budget]")).not.toBeNull();
+    // Not in Erzählen.
+    vi.mocked(getMapBudget).mockClear();
+    await show(1, 0, "erzaehlen");
+    expect(container.querySelector("[data-map-budget]")).toBeNull();
+    expect(getMapBudget).not.toHaveBeenCalled();
+    // Not for a cell without a map.
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, null] }));
+    await act(async () => root.render(null));
+    await show(1, 0);
+    expect(container.querySelector("h2")?.textContent).toBe("Leere Zelle");
+    expect(container.querySelector("[data-map-budget]")).toBeNull();
+    expect(getMapBudget).not.toHaveBeenCalled();
+  });
 
   it("names_the_cell_and_the_matrix", async () => {
     await show();

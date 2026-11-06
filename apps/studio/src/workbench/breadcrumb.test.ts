@@ -112,7 +112,7 @@ describe("crumbsFor", () => {
     expect(pin({ kind: "header", id: 414 })).toHaveLength(2);
     expect(pin({ kind: "none" })).toHaveLength(2);
     // A hover over a tile is not a selection.
-    expect(pin({ kind: "tile", map: 1, x: 0, y: 0, absX: 0, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } })).toHaveLength(2);
+    expect(pin({ kind: "tile", map: 1, x: 0, y: 0, absX: 0, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null }, units: null })).toHaveLength(2);
   });
 
   it("writes_a_building_a_cell_and_area_data_as_the_last_crumb", () => {

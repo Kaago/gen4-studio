@@ -263,6 +263,13 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("tileset_save", Kind::Write),
     ("get_world_mesh", Kind::Read),
     ("get_tileset_texture", Kind::Read),
+    // Terrain (6.2): set_map_terrain writes BDHC and permissions as one undo step.
+    ("get_map_heights", Kind::Read),
+    ("set_map_terrain", Kind::Write),
+    ("get_map_budget", Kind::Read),
+    // One undo step (appending to the map texture pack and the model import, squashed); the
+    // files under `outDir` are build output, confined to `build/`. Only through `g4_call`.
+    ("bake_test", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -1326,5 +1333,21 @@ mod tests {
         for name in ["world_create", "world_edit", "tileset_save"] {
             assert_eq!(kind(name), Kind::Write, "{name}");
         }
+    }
+
+    #[test]
+    fn terrain_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        assert_eq!(kind("get_map_heights"), Kind::Read);
+        assert_eq!(kind("get_map_budget"), Kind::Read);
+        // One undo step for BDHC and permissions.
+        assert_eq!(kind("set_map_terrain"), Kind::Write);
+    }
+
+    #[test]
+    fn bake_test_is_a_write() {
+        // One undo step (appending to the pack and the model import, squashed); the files
+        // under `outDir` are build output under `build/`.
+        assert_eq!(kind_of("bake_test"), Some(Kind::Write));
     }
 }

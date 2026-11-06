@@ -7,6 +7,9 @@ import { MARKER_Y, PLACEHOLDER_SIZE, SPRITE_TEXELS_PER_TILE } from "../markers";
 import { peekSprite, spriteTexture } from "../sprites";
 import type { SpriteTexture } from "../sprites";
 import { OVERLAY_Y } from "./content";
+import { createGround, flatGround } from "../ground";
+import type { Ground } from "../ground";
+import { MAP_SIZE } from "../layout";
 import { DRAFT_DASH, DRAFT_OPACITY, setDraft } from "./draft";
 import type { SceneHost } from "./SceneHost";
 
@@ -32,7 +35,7 @@ const draft: DraftDto = {
 };
 
 /** The part of the host the draft layer lives on. */
-const fakeHost = () => ({ draft: new THREE.Group(), draftCount: 0 }) as unknown as SceneHost;
+const fakeHost = (ground: Ground = flatGround(matrix0)) => ({ draft: new THREE.Group(), draftCount: 0, ground }) as unknown as SceneHost;
 
 /** The y of every vertex of a line frame. */
 const heights = (line: THREE.LineSegments) => {
@@ -94,6 +97,19 @@ describe("setDraft", () => {
     expect(sharedGeometry).not.toHaveBeenCalled();
   });
 
+  it("draft_tiles_follow_the_ground", () => {
+    // Map 5 lies in the raised cell (1, 1); its tile (8, 1) (absolute 40, 33) is 16 E (one tile) above the cell.
+    const tileHeights = Array.from({ length: MAP_SIZE * MAP_SIZE }, (_, i) => (i === 1 * MAP_SIZE + 8 ? 16 : 0));
+    const ground = createGround(matrix0, new Map([[5, { map: { index: 5, permissions: [], buildings: [], heights: tileHeights } }]]));
+    const h = fakeHost(ground);
+    setDraft(h, draft, matrix0);
+    const [cell, tile, marker] = h.draft.children as [THREE.LineSegments, THREE.LineSegments, THREE.Sprite];
+    // The cell frame stays on the matrix height; the tile and the marker stand on the ground of their tile.
+    expect(heights(cell)).toEqual([Math.fround(OVERLAY_Y + 2 + 0.1)]);
+    expect(heights(tile)).toEqual([Math.fround(OVERLAY_Y + 3 + 0.1)]);
+    expect(marker.position.y).toBeCloseTo(MARKER_Y + 3, 5);
+  });
+
   it("draws_nothing_without_a_matrix_and_replaces_the_layer_before", () => {
     const h = fakeHost();
     setDraft(h, draft, matrix0);
@@ -136,7 +152,7 @@ describe("setDraft", () => {
     const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
     const figure: DraftDto = { ...draft, cells: [], tiles: [], events: [{ kind: "object", matrix: 0, x: 40, z: 33, look: 6, target: null }] };
     const loaded = (width: number, height: number): SpriteTexture => ({ texture: new THREE.DataTexture(new Uint8Array(width * height * 4), width, height), width, height });
-    const host = () => ({ draft: new THREE.Group(), draftCount: 0, render: vi.fn() }) as unknown as SceneHost & { render: ReturnType<typeof vi.fn> };
+    const host = () => ({ draft: new THREE.Group(), draftCount: 0, ground: flatGround(matrix0), render: vi.fn() }) as unknown as SceneHost & { render: ReturnType<typeof vi.fn> };
 
     // A sprite the cache already holds: at once, at its size in tiles, standing on the tile's ground, half transparent.
     const known = loaded(32, 32);

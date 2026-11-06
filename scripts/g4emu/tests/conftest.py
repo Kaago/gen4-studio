@@ -14,6 +14,7 @@ from g4emu.games import Game, Location
 RAM_BASE = 0x02000000
 RAM_SIZE = 4 * 1024 * 1024
 LOCATION_BLOCK = 0x02200000
+FIGURE_BLOCK = 0x02300000  # where `put_figure` writes the position vector by default
 STEP_FRAMES = 16  # a walking step
 WARP_DELAY = 20  # frames between stepping onto a warp tile and the fade
 FADE_FRAMES = 10  # frames the pointer reads invalid during the fade
@@ -140,6 +141,21 @@ def put_location(ram: bytearray, game: Game, loc: Location) -> None:
     struct.pack_into("<I", ram, game.pointer - RAM_BASE, LOCATION_BLOCK)
     struct.pack_into(
         "<IiII", ram, LOCATION_BLOCK - RAM_BASE + game.offset, loc.header, loc.warp, loc.x, loc.y
+    )
+
+
+def put_figure(
+    ram: bytearray, x: int, y: int, height: float, at: int = FIGURE_BLOCK
+) -> None:
+    """Write the figure's position vector (three fx32: X, Y, Z) for the centre of tile (x, y) at
+    `height` world units to the ARM9 address `at`, as the game keeps it in RAM."""
+    struct.pack_into(
+        "<iii",
+        ram,
+        at - RAM_BASE,
+        (x * 16 + 8) * 4096,
+        round(height * 4096),
+        (y * 16 + 8) * 4096,
     )
 
 

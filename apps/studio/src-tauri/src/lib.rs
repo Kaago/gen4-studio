@@ -19,6 +19,7 @@ mod state;
 /// The state behind the commands (for the dev bridge and the tests of the MCP server).
 pub use state::AppState;
 
+use commands::bake_test;
 use commands::close_project;
 use commands::git_commit_prepare;
 use commands::resolve_text_conflicts;
@@ -60,6 +61,7 @@ use commands::{dialog_of, dialogs_of_header, split_message};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
 use commands::{flag_usage, free_flag, list_flags, name_flag};
 use commands::{get_battle_sprite, get_trainer_sprite};
+use commands::{get_map_budget, get_map_heights, set_map_terrain};
 use commands::{
     get_tileset_texture, get_world_mesh, tileset_get, tileset_save, world_create, world_edit,
     world_get,
@@ -285,7 +287,11 @@ pub fn run() {
             tileset_get,
             tileset_save,
             get_world_mesh,
-            get_tileset_texture
+            get_tileset_texture,
+            get_map_heights,
+            set_map_terrain,
+            get_map_budget,
+            bake_test
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

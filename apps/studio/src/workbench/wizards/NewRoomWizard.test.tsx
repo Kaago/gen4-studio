@@ -92,7 +92,7 @@ describe("NewRoomWizard", () => {
     ]);
     vi.mocked(getMap)
       .mockReset()
-      .mockImplementation(async (index) => ({ index, buildings: [], permissions: Array.from({ length: 1024 }, (_, i): [number, number] => (index === 321 && i === 6 * 32 + 5 ? [0x65, 0] : [0, 0])) }));
+      .mockImplementation(async (index) => ({ index, buildings: [], permissions: Array.from({ length: 1024 }, (_, i): [number, number] => (index === 321 && i === 6 * 32 + 5 ? [0x65, 0] : [0, 0])), heights: [] }));
     vi.mocked(getEvents).mockReset().mockImplementation(async (file) => events(file, lockedFiles[file] ?? null));
     vi.mocked(createRoom).mockReset().mockResolvedValue(report);
     vi.mocked(recipePlan).mockReset().mockResolvedValue(planned);

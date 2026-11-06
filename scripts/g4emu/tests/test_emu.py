@@ -1,7 +1,7 @@
 import pytest
 from PIL import Image
 
-from g4emu.emu import EmuError, bgrx_to_image, game_code
+from g4emu.emu import EmuError, frame_to_image, game_code
 
 
 def test_game_code_reads_the_rom_header(make_rom):
@@ -15,10 +15,12 @@ def test_game_code_of_a_truncated_rom_fails(tmp_path):
         game_code(rom)
 
 
-def test_bgrx_is_swapped_to_rgb():
-    # One row, two pixels, stride padded to 12 bytes: (R=1,G=2,B=3) and (R=10,G=20,B=30).
-    data = bytes([3, 2, 1, 0, 30, 20, 10, 0, 9, 9, 9, 9])
-    img = bgrx_to_image(data, width=2, height=1)
+def test_core_frames_are_rgbx():
+    # The core hands its XRGB8888 frames over in RGB byte order (Gutachten A §8: a texture of
+    # (148, 90, 41) came out as (44, 93, 150) with BGRX). One row, two pixels, stride padded to
+    # 12 bytes: (R=1,G=2,B=3) and (R=10,G=20,B=30).
+    data = bytes([1, 2, 3, 0, 10, 20, 30, 0, 9, 9, 9, 9])
+    img = frame_to_image(data, width=2, height=1)
     assert isinstance(img, Image.Image)
     assert img.mode == "RGB"
     assert [img.getpixel((0, 0)), img.getpixel((1, 0))] == [(1, 2, 3), (10, 20, 30)]

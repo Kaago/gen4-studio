@@ -158,6 +158,48 @@ pub struct PermissionLimits {
     pub bytes: Limit<usize>,
 }
 
+/// The buildings of a map the game loads.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildingLimits {
+    /// At most this many buildings per map are loaded; the rest is skipped silently
+    /// (`map.buildings-over-limit`).
+    pub max_loaded: Limit<usize>,
+}
+
+/// The largest texture VRAM (map plus building textures of an area) on a vanilla project, per
+/// family.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaVram {
+    pub pt: usize,
+    pub hgss: usize,
+    pub verified: bool,
+    pub source: String,
+}
+
+impl VanillaVram {
+    /// The value of `family` (Diamond/Pearl as Platinum).
+    pub fn of(&self, family: Family) -> usize {
+        match family {
+            Family::Dp | Family::Pt => self.pt,
+            Family::Hgss => self.hgss,
+        }
+    }
+}
+
+/// The texture VRAM of the field: the bank, the vanilla maximum and the estimated full mark.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VramLimits {
+    /// Bytes of the texture banks the field maps (shared with the characters).
+    pub bank: Limit<usize>,
+    /// Above this the budget says „Knapp“.
+    pub vanilla_max: VanillaVram,
+    /// Above this the budget says „Voll“ (an estimate: the characters' share is not measured).
+    pub full_estimate: Limit<usize>,
+}
+
 /// All limits of `check_limits.yaml`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -177,6 +219,8 @@ pub struct Limits {
     /// Largest terrain payload in bytes, counted after the 16-byte BDHC header.
     pub bdhc: ByteLimits,
     pub permissions: PermissionLimits,
+    pub buildings: BuildingLimits,
+    pub vram: VramLimits,
 }
 
 /// One row of [`Limits::entries`]: the YAML key, the verified flag and the source.
@@ -242,6 +286,14 @@ impl Limits {
             row("model.max_bytes", &self.model.max_bytes),
             row("bdhc.max_bytes", &self.bdhc.max_bytes),
             row("permissions.bytes", &self.permissions.bytes),
+            row("buildings.max_loaded", &self.buildings.max_loaded),
+            row("vram.bank", &self.vram.bank),
+            LimitEntry {
+                key: "vram.vanilla_max",
+                verified: self.vram.vanilla_max.verified,
+                source: &self.vram.vanilla_max.source,
+            },
+            row("vram.full_estimate", &self.vram.full_estimate),
         ]
     }
 
@@ -300,6 +352,18 @@ mod tests {
         assert_eq!(l.model.max_bytes.value, 0xF000);
         assert_eq!(l.bdhc.max_bytes.value, 0x9000);
         assert_eq!(l.permissions.bytes.value, 2048);
+        // Phase 6.2: buildings the game loads, the texture VRAM of the field.
+        assert_eq!(l.buildings.max_loaded.value, 32);
+        assert!(l.buildings.max_loaded.verified);
+        assert!(l.buildings.max_loaded.source.contains("map_prop.h:13"));
+        assert_eq!(l.vram.bank.value, 262_144);
+        assert!(l.vram.bank.verified);
+        assert_eq!(l.vram.vanilla_max.of(Family::Pt), 110_640);
+        assert_eq!(l.vram.vanilla_max.of(Family::Dp), 110_640);
+        assert_eq!(l.vram.vanilla_max.of(Family::Hgss), 87_424);
+        assert!(!l.vram.vanilla_max.verified);
+        assert_eq!(l.vram.full_estimate.value, 204_800);
+        assert!(!l.vram.full_estimate.verified);
 
         // The verified ones, with their pret sources named.
         assert!(l.dialog_line_px.verified);
@@ -310,7 +374,7 @@ mod tests {
 
         // Every entry names its source.
         let entries = l.entries();
-        assert_eq!(entries.len(), 14);
+        assert_eq!(entries.len(), 18);
         // The message commands per family (task0 section 4: Pt 15).
         let params = &l.script.message_params;
         assert_eq!(params.of(Family::Pt).len(), 15);

@@ -94,6 +94,9 @@ enum Command {
         /// KIND `egg_moves` reads the one member of the egg move archive (HeartGold `a/2/2/9`,
         /// Platinum only with DSPRE's patch NARC; the overlay table is not read): MEMBER is the
         /// species, the fields `count` (0 without an entry) and `move0` to `move15`.
+        /// KIND `map` has `model_sha1` and `per_sha1` (SHA-1 of the model or the
+        /// permissions); KIND `map_texture` reads the map texture archive, MEMBER the pack
+        /// number, the field `sha1` (SHA-1 of the whole member). A digest is 40 hex digits.
         #[arg(long = "expect", required = true, value_parser = parse_expectation)]
         expect: Vec<Expectation>,
     },
@@ -759,6 +762,8 @@ enum DataKind {
     Map,
     /// The egg moves of a species (MEMBER), read from member 0 of the egg move archive.
     EggMoves,
+    /// A map texture pack (NSBTX): SHA-1 of the whole member (hex).
+    MapTexture,
 }
 
 /// The moves `check-data` can name per species: `move0` to `move15`.
@@ -766,6 +771,9 @@ const EGG_MOVE_FIELDS: usize = 16;
 
 /// Fields of a map file: SHA-1 of a part, lowercase hex.
 const MAP_FIELDS: &[&str] = &["model_sha1", "per_sha1"];
+
+/// Fields of a map texture pack: SHA-1 of the whole member, lowercase hex.
+const MAP_TEXTURE_FIELDS: &[&str] = &["sha1"];
 
 /// Fields of a species, read with `uxie::PersonalData` (names as in `Personal::FIELDS`).
 const SPECIES_FIELDS: &[&str] = &[
@@ -823,6 +831,7 @@ impl DataKind {
             DataKind::Encounter => "encounter",
             DataKind::Map => "map",
             DataKind::EggMoves => "egg_moves",
+            DataKind::MapTexture => "map_texture",
         }
     }
 
@@ -835,6 +844,7 @@ impl DataKind {
             DataKind::Encounter => AssetKind::Encounter,
             DataKind::Map => AssetKind::Map,
             DataKind::EggMoves => AssetKind::EggMoves,
+            DataKind::MapTexture => AssetKind::MapTexture,
         }
     }
 
@@ -859,6 +869,7 @@ impl DataKind {
             DataKind::EggMoves => std::iter::once("count".to_string())
                 .chain((0..EGG_MOVE_FIELDS).map(|i| format!("move{i}")))
                 .collect(),
+            DataKind::MapTexture => names(MAP_TEXTURE_FIELDS),
         }
     }
 
@@ -894,6 +905,7 @@ impl DataKind {
             }
             DataKind::Map => return map_field(bytes, field, family),
             DataKind::EggMoves => egg_move_field(bytes, member, field),
+            DataKind::MapTexture => return map_texture_field(bytes, field),
         };
         number.map(|v| v.to_string())
     }
@@ -901,8 +913,9 @@ impl DataKind {
     /// Whether `value` is a valid expected value for this kind.
     fn parse_value(self, value: &str) -> Option<String> {
         match self {
-            DataKind::Map => (value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit()))
-                .then(|| value.to_ascii_lowercase()),
+            DataKind::Map | DataKind::MapTexture => (value.len() == 40
+                && value.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| value.to_ascii_lowercase()),
             _ => value.parse::<i64>().ok().map(|v| v.to_string()),
         }
     }
@@ -942,9 +955,10 @@ fn parse_expectation(text: &str) -> Result<Expectation, String> {
         "encounter" => DataKind::Encounter,
         "map" => DataKind::Map,
         "egg_moves" => DataKind::EggMoves,
+        "map_texture" => DataKind::MapTexture,
         _ => {
             return Err(format!(
-                "{text}: unknown kind {kind} (species, move, item, learnset, encounter, map, egg_moves)"
+                "{text}: unknown kind {kind} (species, move, item, learnset, encounter, map, egg_moves, map_texture)"
             ));
         }
     };
@@ -963,7 +977,9 @@ fn parse_expectation(text: &str) -> Result<Expectation, String> {
             .map_err(|_| format!("{text}: member {member} is not a number"))?,
         field: field.to_owned(),
         value: kind.parse_value(value).ok_or_else(|| match kind {
-            DataKind::Map => format!("{text}: value {value} is not 40 hex digits"),
+            DataKind::Map | DataKind::MapTexture => {
+                format!("{text}: value {value} is not 40 hex digits")
+            }
             _ => format!("{text}: value {value} is not a number"),
         })?,
     })
@@ -1004,6 +1020,19 @@ fn map_field(bytes: &[u8], field: &str, family: Family) -> Result<String, String
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect())
+}
+
+/// SHA-1 (lowercase hex) of the whole map texture pack `bytes`: `out.nds` holds the pack a
+/// bake wrote (`maptex-NNNN.nsbtx` of `bake_test`).
+fn map_texture_field(bytes: &[u8], field: &str) -> Result<String, String> {
+    use sha1::{Digest, Sha1};
+    match field {
+        "sha1" => Ok(Sha1::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()),
+        _ => Err(format!("map_texture has no field {field}")),
+    }
 }
 
 fn species_field(bytes: &[u8], field: &str) -> Result<i64, String> {
@@ -2130,6 +2159,30 @@ mod tests {
         ] {
             assert!(parse_expectation(text).is_err(), "{text}");
         }
+    }
+
+    #[test]
+    fn map_texture_expectations_take_a_sha1() {
+        let hex = "0123456789ABCDEF0123456789abcdef01234567";
+        let e = parse_expectation(&format!("map_texture:20:sha1={hex}")).unwrap();
+        assert_eq!(
+            (e.kind, e.member, e.field.as_str(), e.value.as_str()),
+            (
+                DataKind::MapTexture,
+                20,
+                "sha1",
+                hex.to_ascii_lowercase().as_str()
+            )
+        );
+        assert_eq!(e.to_string(), "map_texture 20 sha1");
+        assert_eq!(DataKind::MapTexture.asset_kind(), AssetKind::MapTexture);
+        assert_eq!(DataKind::MapTexture.archive_member(20), 20);
+        let err = parse_expectation("map_texture:0:size=1").unwrap_err();
+        assert_eq!(err, "map_texture has no field size (fields: sha1)");
+        let err = parse_expectation("map_texture:0:sha1=12").unwrap_err();
+        assert!(err.contains("not 40 hex digits"), "{err}");
+        let err = parse_expectation("texture:0:sha1=12").unwrap_err();
+        assert!(err.contains("map_texture"), "{err}");
     }
 }
 

@@ -26,6 +26,7 @@ import {
   Door,
   DotsSixVertical,
   DotsThree,
+  Drone,
   FileCode,
   FloppyDisk,
   FolderOpen,
@@ -169,6 +170,10 @@ export const icons = {
   thread: FlowArrow,
   /** A story (3d.6): the area Geschichten › Geschichten. */
   story: Scroll,
+  /** The scene layer „Höhen“ (6.2): the walking heights in steps with isolines. */
+  heights: Mountains,
+  /** The scene bar's „Draufsicht“ (the view from straight above); `map` keeps its mountains for maps. */
+  topDown: Drone,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

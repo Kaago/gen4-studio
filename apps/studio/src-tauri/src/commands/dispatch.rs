@@ -234,6 +234,10 @@ pub const COMMANDS: &[&str] = &[
     "tileset_save",
     "get_world_mesh",
     "get_tileset_texture",
+    "get_map_heights",
+    "set_map_terrain",
+    "get_map_budget",
+    "bake_test",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1233,6 +1237,36 @@ pub fn dispatch(
             { package: u16, texture: String },
             |a| get_tileset_texture_impl(state, a.package, a.texture)
         ),
+        "get_map_heights" => run!(json, "get_map_heights", args, { index: u16 }, |a| {
+            get_map_heights_impl(state, a.index)
+        }),
+        "set_map_terrain" => run!(
+            json, "set_map_terrain", args,
+            {
+                index: u16,
+                grid: g4_kernel::terrain::GridRows,
+                kinds: Vec<String>,
+                overrides: Option<Vec<g4_kernel::terrain::CellOverride>>,
+                bdhc: Option<g4_kernel::terrain::BdhcSource>,
+                permissions: Option<g4_kernel::terrain::PermissionSource>,
+            },
+            |a| set_map_terrain_impl(
+                state,
+                a.index,
+                terrain_input(a.grid, a.kinds, a.overrides, a.bdhc, a.permissions)
+            )
+        ),
+        "get_map_budget" => run!(json, "get_map_budget", args, { index: u16 }, |a| {
+            get_map_budget_impl(state, a.index)
+        }),
+        "bake_test" => run!(
+            json, "bake_test", args,
+            { map: u16, block: Option<[u8; 2]>, out_dir: Option<String> },
+            |a| {
+                let out_dir = a.out_dir.map(|dir| policy.write_path(&dir)).transpose()?;
+                bake_test_impl(state, a.map, a.block, out_dir)
+            }
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1706,6 +1740,22 @@ mod tests {
                 "get_tileset_texture",
                 json!({ "package": 0, "texture": "syn_boden" }),
             ),
+            ("get_map_heights", json!({ "index": 0 })),
+            (
+                "set_map_terrain",
+                json!({
+                    "index": 0,
+                    "grid": { "heights": vec![vec!["0"; 32].join(" "); 32],
+                              "ramps": vec![vec!["."; 32].join(" "); 32] },
+                    "kinds": vec![vec!["."; 32].join(" "); 32],
+                    "overrides": [{ "x": 1, "y": 2, "kind": 0, "collision": 128 }],
+                    "bdhc": "grid",
+                    "permissions": "derive",
+                }),
+            ),
+            ("get_map_budget", json!({ "index": 0 })),
+            // Pack 0 of the synthetic project is no NSBTX: refused before anything is written.
+            ("bake_test", json!({ "map": 0 })),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -3342,5 +3392,53 @@ mod tests {
         let link = fixture.dir.path().join("anderes/zurück");
         std::os::unix::fs::symlink(fixture.dir.path(), &link).unwrap();
         assert_eq!(get(&link), own);
+    }
+
+    #[test]
+    fn bake_test_out_dir_outside_the_roots_is_refused() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let away = elsewhere.path().join("bake");
+        for out_dir in [away.to_str().unwrap(), "bake", "../bake"] {
+            match dispatch(
+                &state,
+                &policy,
+                "bake_test",
+                json!({ "map": 0, "block": [3, 4], "outDir": out_dir }),
+            ) {
+                Err(DispatchError::Cmd(e)) => assert!(
+                    e.message.starts_with("Pfad liegt außerhalb"),
+                    "{out_dir}: {}",
+                    e.message
+                ),
+                other => panic!("{out_dir}: {other:?}"),
+            }
+        }
+        assert!(!away.exists());
+        assert!(!fixture.dir.path().join("bake").exists());
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+
+        // `build/bake` as the g4emu scenarios pass it: relative to the project, `build/` made.
+        crate::commands::bake::tests::prepare(fixture.dir.path());
+        assert!(!fixture.dir.path().join("build").exists());
+        let reply = json_of(call(
+            &state,
+            &policy,
+            "bake_test",
+            json!({ "map": 0, "outDir": "build/bake" }),
+        ));
+        let build = fixture
+            .dir
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("build/bake");
+        let model_file = build.join("bake-0000.nsbmd");
+        assert_eq!(reply["model_file"], json!(model_file.to_str().unwrap()));
+        assert_eq!(reply["pack"], json!(0));
+        assert_eq!(reply["appended"], json!(["g4_bake_a", "g4_bake_b"]));
+        assert!(model_file.is_file());
+        assert!(build.join("maptex-0000.nsbtx").is_file());
     }
 }

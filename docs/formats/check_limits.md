@@ -5,7 +5,8 @@ Quelle der Werte: [task0-3b4.md](../research/2026-10-23-3b4/task0-3b4.md) §1–
 HeartGold DE und HeartGold US) und [checks-report.md](../research/2026-10-23-3b4/checks-report.md).
 Implementierung: `crates/g4-kernel/metadata/check_limits.yaml`, gelesen von `crates/g4-kernel/src/checks/limits.rs`
 (`Limits`, `Project::limits()`, einmal je Prozess geparst). Außer den Prüfungen liest sie der Kartenimport
-(`map_import.rs`: `model.max_bytes`, `bdhc.max_bytes`).
+(`map_import.rs`: `model.max_bytes`, `bdhc.max_bytes`) und ab Phase 6.2 das Budget je Karte (`get_map_budget`:
+`model.max_bytes`, `bdhc.max_bytes`, `buildings.max_loaded`, `vram.*`).
 
 Jeder Eintrag hat `verified` (gegen den Code der Spiele belegt, nicht nur gemessen) und `source` (Fundstelle, Pflicht,
 ein Test prüft, dass keiner leer ist). Ein Paar oder ein Wert je Familie nennt seine Felder selbst. Hex-Werte stehen
@@ -25,8 +26,18 @@ wie im Spiel.
 | `encounter.none` | `pt: 0xFFFF`, `hgss: 0xFF` | Header-Wert für „keine Begegnungen“; `header.wild-dangling` nimmt ihn aus. | Messung; DSPRE avalonia `ProjectIndex`; checks-report `header.wild-dangling` | nein |
 | `matrix.header_none` | 0 | Eine Header-Zelle mit 0 heißt „kein Header“ (Header 0 benutzt Matrix 0): `matrix.header-elsewhere` nimmt sie aus. Alle 14/13/13 Vanilla-Treffer sind solche Zellen. | Messung; dass das Spiel 0 so liest, ist nicht in pret belegt (task0 §4) | nein |
 | `model.max_bytes` | `0xF000` | Größter Kartenmodell-Puffer, beide Familien. `map.model-invalid` und der Modellimport lehnen größere ab. | pokeplatinum `src/overlay005/loaded_map_buffers.c:11`, pokeheartgold `asm/overlay_01_021FAC44.s:146–147`; task0 §3; größtes Vanilla-Modell Pt 60 556 B, HG 61 420 B | ja |
-| `bdhc.max_bytes` | `0x9000` | Größte Gelände-Nutzlast **nach dem 16-Byte-Kopf** (Summe aus den Zählern: Punkte × 8 + Normalen × 12 + Konstanten × 4 + Platten × 8 + Streifen × 8 + Zugriffsliste × 2), beide Familien. `map.bdhc-size` (Fehler) und der Geländeimport. | pokeplatinum `include/constants/field/bdhc.h:4`, `src/overlay005/bdhc.c:282`, pokeheartgold `asm/overlay_01_021FB04C.s:105–109`; task0 §3 | ja |
+| `bdhc.max_bytes` | `0x9000` | Größte Gelände-Nutzlast **nach dem 16-Byte-Kopf** (Summe aus den Zählern: Punkte × 8 + Normalen × 12 + Konstanten × 4 + Platten × 8 + Streifen × 8 + Zugriffsliste × 2), beide Familien. `map.bdhc-size` (Fehler) und der Geländeimport. Beide prüfen danach die Struktur ([bdhc.md](bdhc.md), `Bdhc::validate`): jeder Index in seiner Tabelle, jeder Streifen in der Zugriffsliste und aufsteigend; der erste Fehler ist der Grund (`map.bdhc-size`, Import `bdhc.structure`), eine senkrechte Platte (`y = 0`) ist nur eine Warnung und kein Grund. | pokeplatinum `include/constants/field/bdhc.h:4`, `src/overlay005/bdhc.c:282`, pokeheartgold `asm/overlay_01_021FB04C.s:105–109`; task0 §3 | ja |
 | `permissions.bytes` | 2048 | Länge des Abschnitts Begehbarkeit (32 × 32 Zellen, je Art und Kollision); `.per`-Import verlangt genau diese Länge. | `g4-formats` (`PERMISSIONS_LEN`), [map.md](map.md); DSPRE `Collisions.toByteArray` | ja |
+| `buildings.max_loaded` | 32 | Gebäude je Karte, die das Spiel lädt; weitere übergeht es still. `map.buildings-over-limit` (Warnung) meldet **mehr als** 32, die Budget-Leiste zeigt „n von 32“. | pokeplatinum `include/overlay005/map_prop.h:13` `MAX_LOADED_MAP_PROPS`; in HGSS im asm nicht belegt; Vanilla-Maximum Pt 32, HG 30; Gutachten B §2.4 | ja |
+| `vram.bank` | 262 144 | Textur-VRAM des Felds (Bänke A und B, geteilt mit den Figuren); Budget „Texturen des Gebiets“ „n von 262 144 B“. | pokeplatinum `src/fieldmap.c:527` `GX_VRAM_TEX_01_AB`, `src/easy3d.c:83`; Gutachten B §2.8 | ja |
+| `vram.vanilla_max` | `pt: 110640`, `hgss: 87424` | Größtes Karten- plus Gebäudepaket eines Gebiets in Vanilla; darüber sagt das Budget „Knapp“ (Diamant/Perl wie Platin). | Messung; Gutachten A §2.4, Entscheidungen Phase 6 | nein |
+| `vram.full_estimate` | 204 800 | Darüber sagt das Budget „Voll“; geschätzt, der Anteil der Figuren an der Bank ist nicht gemessen. | Gutachten B §2.8 „Voll geschätzt ab 200 KB“ | nein |
+
+Die Gelände-Prüfungen der Phase 6.2 (`checks/terrain.rs`, im Katalog nach `map.building-range`): `map.altitude-walkable`
+(Fehler) liest `matrix.header_none` (eine Zelle mit Karte, Höhe ≠ 0 und Header ≠ 0, oder in einer Matrix ohne
+Header-Abschnitt ein Header, der sie nennt); `map.step-unblocked` (Hinweis, Fix `block_upper` „Obere Zelle blockieren“)
+liest keinen Wert dieser Datei, sondern die Kantenregel `edge` aus `terrain_rules.yaml` ([terrain.md](terrain.md),
+`free_steps`); `map.buildings-over-limit` (Warnung) liest `buildings.max_loaded`.
 
 Ändert sich ein Wert, ändert sich nur die YAML-Datei (und diese Tabelle): Prüfungen und Import lesen ihn aus `Limits`.
 `verified: false` heißt: gemessen oder aus anderer Quelle übernommen, am Spielcode nicht nachgeschlagen; der Katalog

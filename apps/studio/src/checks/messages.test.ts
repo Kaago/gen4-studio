@@ -8,7 +8,7 @@ const sentences = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.
 describe("check messages", () => {
   // The Rust test `commands::checks::messages_ts` holds this list against the kernel's catalogue (codes, order, group, severity).
   it("has_a_title_and_a_sentence_with_a_way_out_for_every_code", () => {
-    expect(CHECK_CODES.length).toBe(45);
+    expect(CHECK_CODES.length).toBe(48);
     const args = ["0", "1", "2", "3", "4", "5"];
     for (const code of CHECK_CODES) {
       const m = CHECK_MESSAGES[code]!;
@@ -106,6 +106,33 @@ describe("check messages", () => {
     // Bauen says the same; the four are listed under the project.
     expect(findingText(finding("build.member-gap", "error", { args: ["maps", "0005"] }), "bauen")).toBe(text("build.member-gap", ["maps", "0005"]));
     expect(areaOf(finding("build.base-missing", "info", { subject: { kind: "project", index: 0 } }))).toBe("projekt");
+  });
+
+  it("the_terrain_checks_speak_german", () => {
+    const text = (code: string, args: string[], depth: "tuefteln" | "bauen" = "tuefteln") =>
+      findingText(finding(code, CHECK_MESSAGES[code]!.severity, { args }), depth);
+    expect(checkTitle("map.altitude-walkable", "tuefteln")).toBe("Höhe an begehbarer Zelle");
+    expect(text("map.altitude-walkable", ["0", "3", "4", "2", "414"])).toBe(
+      "Zelle 3, 4 von Weltkarte 0000 liegt auf Höhe 2 und trägt Header 0414; das Spiel zeichnet das Modell höher als den Boden, die Figur läuft darunter. Setze die Höhe der Zelle auf 0.",
+    );
+    expect(text("map.altitude-walkable", ["0", "3", "4", "2", "414"], "bauen")).toBe(
+      "Zelle 3, 4 von Weltkarte 0000 liegt auf Höhe 2 und trägt Ort 0414; das Spiel zeichnet das Modell höher als den Boden, die Figur läuft darunter. Setze die Höhe der Zelle auf 0.",
+    );
+    expect(checkTitle("map.step-unblocked", "tuefteln")).toBe("Stufe ohne Sperre");
+    expect(text("map.step-unblocked", ["666", "18", "25", "18", "24", "16"])).toBe(
+      "Zwischen Kachel 18, 25 und 18, 24 von Karte 0666 liegt eine Stufe von 16 Einheiten, die das Spiel betreten lässt. Blockiere die obere Zelle oder setze eine Treppe.",
+    );
+    expect(checkTitle("map.buildings-over-limit", "tuefteln")).toBe("Zu viele Gebäude");
+    expect(text("map.buildings-over-limit", ["7", "33", "32"])).toBe(
+      "Karte 0007 hat 33 Gebäude; das Spiel lädt höchstens 32, die übrigen fehlen im Spiel. Lösche Gebäude oder verteile sie auf Nachbarkarten.",
+    );
+    // In catalogue order after map.building-range.
+    const at = (code: string) => CHECK_CODES.indexOf(code);
+    expect([at("map.altitude-walkable"), at("map.step-unblocked"), at("map.buildings-over-limit")]).toEqual([
+      at("map.building-range") + 1,
+      at("map.building-range") + 2,
+      at("map.building-range") + 3,
+    ]);
   });
 
   it("names_the_asset_that_cannot_be_read", () => {

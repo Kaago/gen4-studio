@@ -43,6 +43,16 @@ describe("importParts", () => {
     expect(partView(whole("whole.bgs-dropped", "background sound (6 bytes) is dropped", "warning")).message).toContain("Der Hintergrundklang (2 Byte) fällt weg");
   });
 
+  it("covers_every_part_code_of_the_kernel_and_says_a_broken_terrain_structure", () => {
+    // `PartCode::ALL` has 30 codes; the Rust test holds the order against it.
+    const codes = Object.keys(PART_TEXTS);
+    expect(codes).toHaveLength(30);
+    expect(codes[codes.length - 1]).toBe("bdhc.structure");
+    expect(said("bdhc.structure", ["plate 0 names point 99, past the 2 points"])).toBe(
+      "Das Terrain ist beschädigt (plate 0 names point 99, past the 2 points). Wähle eine unbeschädigte .bdhc-Datei.",
+    );
+  });
+
   it("keeps_the_kernel_sentence_for_a_code_it_does_not_know", () => {
     expect(said("model.someday", [])).toBe("the kernel's sentence");
   });

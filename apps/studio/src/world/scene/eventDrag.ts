@@ -4,7 +4,6 @@ import { DragController } from "../dragController";
 import type { DragSurface } from "../dragController";
 import { clampToMatrix } from "../events";
 import type { EventRef } from "../events";
-import { cellYAtTile } from "../layout";
 import { MARKER_Y, moveMarker, pickMarker } from "../markers";
 import type { MarkerSet } from "../markers";
 import { refreshEvents } from "./eventFetch";
@@ -44,12 +43,12 @@ export function createEventDrag(h: SceneHost, picker: Picker, surface: DragSurfa
       if (!hit || hit.kind !== selected.kind || hit.data.index !== selected.index) return null;
       return {
         subject: { set: h.markers, file: events.event_file_id, kind: hit.kind, data: { index: hit.data.index, x: hit.data.x, z: hit.data.z } },
-        plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -(MARKER_Y + (h.matrix ? cellYAtTile(h.matrix, hit.data.x, hit.data.z) : 0))),
+        plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -(MARKER_Y + h.ground.y(hit.data.x, hit.data.z))),
         origin: { x: hit.data.x, z: hit.data.z },
       };
     },
-    // The pointer is resolved on the surface of the cell it is over (so a marker dragged across cells of
-    // other heights lands on the tile under the pointer); the start cell's plane is the fallback.
+    // The pointer is resolved on the ground of the tile it is over (so a marker dragged across tiles of
+    // other heights lands on the tile under the pointer); the plane of the start tile is the fallback.
     pointOn: (x, y, plane) => picker.surfacePoint(x, y) ?? picker.planePoint(x, y, plane),
     // Events stay on the matrix: beyond its edge the marker stops, and so does what is written.
     clamp: (at) => (h.matrix ? clampToMatrix(at, h.matrix) : at),

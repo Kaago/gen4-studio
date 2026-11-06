@@ -31,6 +31,7 @@ pub mod limits;
 pub mod runner;
 pub(crate) mod scripts;
 pub mod snapshot;
+mod terrain;
 mod text;
 mod world;
 
@@ -169,6 +170,8 @@ pub enum FixId {
     CreateScript,
     /// Move a hidden entry below `files/` to `.g4/backup/hidden-<time>/`.
     RemoveHidden,
+    /// Block the upper cell of a free two-step edge (`collision | 0x80`).
+    BlockUpper,
 }
 
 /// How a check is scheduled: cheap ones run on every change, the others per script file or
@@ -476,12 +479,13 @@ impl Registry {
         Registry::all().iter().position(|c| c.code() == code)
     }
 
-    /// Every registered check, in catalogue order: the world checks (the place checks last),
+    /// Every registered check, in catalogue order: the world checks (the terrain checks after
+    /// `map.building-range`, the place checks last),
     /// the data checks, the build checks, `asset.unreadable` (the last cheap one, it reads
     /// every member the cheap checks use first), then the script checks (per script file) and the text checks
     /// (per text archive).
     pub fn all() -> &'static [&'static dyn Check] {
-        static ALL: [&dyn Check; 45] = [
+        static ALL: [&dyn Check; 48] = [
             &world::WarpDestHeader,
             &world::WarpDestWarp,
             &world::WarpOffMap,
@@ -500,6 +504,9 @@ impl Registry {
             &world::MapModelInvalid,
             &world::MapBdhcSize,
             &world::MapBuildingRange,
+            &terrain::MapAltitudeWalkable,
+            &terrain::MapStepUnblocked,
+            &terrain::MapBuildingsOverLimit,
             &world::AreaTilesetRange,
             &world::PlaceNameTooLong,
             &world::PlaceIndexOutOfBank,
@@ -647,6 +654,10 @@ mod tests {
             "remove_hidden"
         );
         assert_eq!(
+            serde_json::from_str::<FixId>(r#""block_upper""#).unwrap(),
+            FixId::BlockUpper
+        );
+        assert_eq!(
             serde_json::to_value(Group::PerScript).unwrap(),
             "per_script"
         );
@@ -661,7 +672,7 @@ mod tests {
     fn registry_lists_each_code_once_in_its_group() {
         let all = Registry::all();
         let mut codes: Vec<&str> = all.iter().map(|c| c.code()).collect();
-        assert_eq!(codes.len(), 45);
+        assert_eq!(codes.len(), 48);
         let in_group = |group: Group| -> Vec<&str> {
             all.iter()
                 .filter(|c| c.group() == group)
@@ -669,7 +680,7 @@ mod tests {
                 .collect()
         };
         let cheap = in_group(Group::Cheap);
-        assert_eq!(cheap.len(), 36);
+        assert_eq!(cheap.len(), 39);
         assert_eq!(cheap.last(), Some(&"asset.unreadable"));
         assert_eq!(
             in_group(Group::PerScript),
@@ -692,25 +703,30 @@ mod tests {
         );
         codes.sort_unstable();
         codes.dedup();
-        assert_eq!(codes.len(), 45, "a code is registered twice");
+        assert_eq!(codes.len(), 48, "a code is registered twice");
         assert_eq!(
             Registry::get("warp.dest-header").map(|c| c.code()),
             Some("warp.dest-header")
         );
         assert_eq!(Registry::position("warp.dest-header"), Some(0));
+        // The terrain checks follow map.building-range (phase 6.2).
+        assert_eq!(Registry::position("map.building-range"), Some(17));
+        assert_eq!(Registry::position("map.altitude-walkable"), Some(18));
+        assert_eq!(Registry::position("map.step-unblocked"), Some(19));
+        assert_eq!(Registry::position("map.buildings-over-limit"), Some(20));
         // The place checks close the world checks, before the data checks.
-        assert_eq!(Registry::position("area.tileset-range"), Some(18));
-        assert_eq!(Registry::position("place.name-too-long"), Some(19));
-        assert_eq!(Registry::position("place.index-out-of-bank"), Some(20));
-        assert_eq!(Registry::position("trainer.no-party"), Some(21));
+        assert_eq!(Registry::position("area.tileset-range"), Some(21));
+        assert_eq!(Registry::position("place.name-too-long"), Some(22));
+        assert_eq!(Registry::position("place.index-out-of-bank"), Some(23));
+        assert_eq!(Registry::position("trainer.no-party"), Some(24));
         // The build checks close the data checks, before asset.unreadable.
-        assert_eq!(Registry::position("encounter.rate-byte"), Some(30));
-        assert_eq!(Registry::position("build.hidden-file"), Some(31));
-        assert_eq!(Registry::position("build.member-gap"), Some(32));
-        assert_eq!(Registry::position("build.unpacked-not-packed"), Some(33));
-        assert_eq!(Registry::position("build.base-missing"), Some(34));
-        assert_eq!(Registry::position("asset.unreadable"), Some(35));
-        assert_eq!(Registry::position("text.json-broken"), Some(44));
+        assert_eq!(Registry::position("encounter.rate-byte"), Some(33));
+        assert_eq!(Registry::position("build.hidden-file"), Some(34));
+        assert_eq!(Registry::position("build.member-gap"), Some(35));
+        assert_eq!(Registry::position("build.unpacked-not-packed"), Some(36));
+        assert_eq!(Registry::position("build.base-missing"), Some(37));
+        assert_eq!(Registry::position("asset.unreadable"), Some(38));
+        assert_eq!(Registry::position("text.json-broken"), Some(47));
         assert!(Registry::get("warp.no-such-check").is_none());
     }
 }

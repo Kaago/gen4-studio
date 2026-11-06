@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DraftDto, MatrixDto } from "../../api";
 import { szene } from "../../ui/tokens/tokens";
-import { MAP_SIZE, cellOrigin, cellY, cellYAtTile } from "../layout";
+import { MAP_SIZE, cellOrigin, cellY } from "../layout";
 import { MARKER_Y, PLACEHOLDER_SIZE, SPRITE_TEXELS_PER_TILE, markerPlaceholder } from "../markers";
 import { peekSprite, spriteTexture } from "../sprites";
 import type { SpriteTexture } from "../sprites";
@@ -75,7 +75,10 @@ function clear(group: THREE.Group) {
   }
 }
 
-/** Replaces the draft layer of `h` with `draft` for `matrix` (null: nothing); returns how many cells, tiles and markers it drew. Does not render. */
+/**
+ * Replaces the draft layer of `h` with `draft` for `matrix` (null: nothing); returns how many cells, tiles and markers it drew. Does not
+ * render. Cells lie on the matrix height, tiles and markers on the ground of the scene (`h.ground`, which belongs to the shown `matrix`).
+ */
 export function setDraft(h: SceneHost, draft: DraftDto | null, matrix: MatrixDto | null): number {
   clear(h.draft);
   let drawn = 0;
@@ -87,12 +90,12 @@ export function setDraft(h: SceneHost, draft: DraftDto | null, matrix: MatrixDto
       drawn++;
     }
     for (const tile of draft.tiles.filter(on)) {
-      h.draft.add(dashedFrame(tile.x, tile.z, tile.x + 1, tile.z + 1, OVERLAY_Y + cellYAtTile(matrix, tile.x, tile.z) + FRAME_LIFT));
+      h.draft.add(dashedFrame(tile.x, tile.z, tile.x + 1, tile.z + 1, OVERLAY_Y + h.ground.y(tile.x, tile.z) + FRAME_LIFT));
       drawn++;
     }
     for (const event of draft.events.filter(on)) {
       // The placeholder of the marker's kind; a figure with a `look` wears its overworld sprite once the cache has it.
-      const ground = cellYAtTile(matrix, event.x, event.z);
+      const ground = h.ground.y(event.x, event.z);
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerPlaceholder(event.kind), transparent: true, opacity: DRAFT_OPACITY, depthTest: false }));
       sprite.scale.set(PLACEHOLDER_SIZE.width, PLACEHOLDER_SIZE.height, 1);
       sprite.position.set(event.x + 0.5, MARKER_Y + ground, event.z + 0.5);

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,7 @@ from g4emu.games import (
     write_flag,
     write_var,
 )
+from g4emu.height import counts, figure_heights
 from g4emu.paths import same_file
 
 DEFAULT_HOLD = 6
@@ -46,6 +48,7 @@ ARITY: dict[str, tuple[int, int]] = {
     "new-game": (0, 0),
     "walk-until-blocked": (2, 2),
     "expect-at": (2, 2),
+    "expect-height": (1, 2),
     "flag": (1, 1),
     "set-flag": (2, 2),
     "var": (1, 1),
@@ -70,6 +73,7 @@ END_BATTLE_TIMEOUT = 6000  # the loss without a party took ~1150 frames of A in 
 END_STABLE_FRAMES = 60
 BACK_AND_FORTH = "back-and-forth"
 OPPOSITE = {"up": "down", "down": "up", "left": "right", "right": "left"}
+HEIGHT_TOLERANCE = 0.1  # `expect-height Y` without T: ±0.1 world units
 
 
 @dataclass
@@ -102,6 +106,8 @@ def parse_steps(tokens: list[str]) -> list[Step]:
             _walk_until_blocked_args(step)
         if name in FLAG_STEPS or name in VAR_STEPS:
             _flag_args(step)
+        if name == "expect-height":
+            _expect_height_args(step)
         steps.append(step)
     return steps
 
@@ -117,6 +123,28 @@ def _walk_until_blocked_args(step: Step) -> tuple[str, int]:
     if tiles < 1:
         raise ValueError("walk-until-blocked: N muss mindestens 1 sein")
     return direction, tiles
+
+
+def _real(text: str, what: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise ValueError(f"{what}: '{text}' ist keine Zahl") from None
+    if not math.isfinite(value):
+        raise ValueError(f"{what}: '{text}' ist keine Zahl")
+    return value
+
+
+def _expect_height_args(step: Step) -> tuple[float, float]:
+    """Height Y and tolerance T (world units) of `expect-height Y [T]`; T may carry a leading
+    `±`, is at least 0 and defaults to 0.1."""
+    want = _real(step.args[0], "expect-height")
+    if len(step.args) < 2:
+        return want, HEIGHT_TOLERANCE
+    tolerance = _real(step.args[1].removeprefix("±"), "expect-height")
+    if tolerance < 0:
+        raise ValueError(f"expect-height: Toleranz {step.args[1]} ist negativ")
+    return want, tolerance
 
 
 _NUMBER = re.compile(r"0[xX][0-9A-Fa-f]+|[0-9]+")
@@ -559,6 +587,28 @@ def _expect_at(
     return _loc_json(loc)
 
 
+def _expect_height(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """The figure stands at height Y (±T world units) now: the majority of the position vectors
+    in RAM on the centre of its tile (`height.figure_heights`)."""
+    want, tolerance = _expect_height_args(step)
+    loc = read_location(emu.ram(), _require_game(game))
+    if loc is None:
+        raise StepFailed("kein gültiger Ort")
+    found = counts(figure_heights(emu.ram(), loc.x, loc.y))
+    where = f"bei Kachel x {loc.x}, y {loc.y}"
+    if not found:
+        raise StepFailed(f"keine Figurenhöhe im RAM {where}")
+    height, hits = found[0]
+    if abs(height - want) > tolerance + 1e-9:
+        seen = ", ".join(f"{h:g} ({n}×)" for h, n in found)
+        raise StepFailed(
+            f"Höhe {height:g} statt {want:g} (±{tolerance:g}) {where}; Treffer {seen}"
+        )
+    return {"height": height, "hits": hits, "x": loc.x, "y": loc.y}
+
+
 def _require_save(emu: Emu, game: Game | None) -> tuple[Game, memoryview]:
     """The game with a save block and the RAM once the block's pointer is valid."""
     game = _require_game(game)
@@ -637,6 +687,7 @@ HANDLERS: dict[str, Handler] = {
     "new-game": _new_game,
     "walk-until-blocked": _walk_until_blocked,
     "expect-at": _expect_at,
+    "expect-height": _expect_height,
     "flag": _flag,
     "set-flag": _flag,
     "expect-flag": _flag,

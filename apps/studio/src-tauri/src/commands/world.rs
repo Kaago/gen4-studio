@@ -72,6 +72,10 @@ pub struct MapDto {
     /// The map is a world map (6.3a): a text project's map file with `source: "world"`. Always
     /// false outside a text project; [`MapDto::from_map`] says false, `get_map` sets it.
     pub world: bool,
+    /// The walk height of every tile centre in world units, row-major (32 x 32), as
+    /// `get_map_heights` answers it; `null` where no plate lies under the centre and everywhere
+    /// when the BDHC is unreadable.
+    pub heights: Vec<Option<f32>>,
 }
 
 /// One map tile is 16 world units; positions are fx32 (20.12), so 16 * 4096 raw units per tile.
@@ -103,6 +107,7 @@ impl MapDto {
                 })
                 .collect(),
             world: false,
+            heights: super::terrain::tile_heights(&map.bdhc).0,
         }
     }
 }

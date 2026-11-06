@@ -1,10 +1,13 @@
 # NSBMD-Kopf (BMD0) und MDL0-Wörterbücher
 
-Quelle: apicula `src/nitro/{container,info_block}.rs` (0BSD) als Layout-Referenz, PDSMS
-`NsbmdUtils.java` (MDL0 über die Blockoffsets), pret/pokeplatinum `land_data.c`
-(`numEntry == 1`), Messung `docs/research/2026-10-23-3b4/task0-3b4.md` §6.
+Quelle: apicula `src/nitro/{container,info_block}.rs` (0BSD) als Layout-Referenz, GBATEK,
+pret/pokeplatinum `land_data.c` (`numEntry == 1`), eigene Messung
+(`docs/research/2026-10-23-3b4/task0-3b4.md` §6).
 Implementierung: `crates/g4-formats/src/nsbmd_header.rs`. Alle Werte Little Endian.
-Kein Geometrie-Leser: der MDL0-Block wird byteweise übernommen.
+Eine dünne Hülle für den Import: kein Geometrie-Leser, der MDL0-Block wird byteweise
+übernommen. Die Wörterbücher liest `nitro_dict`; die ganze Struktur des Modells (Wörterbuch
+mit Baum, Knochen, SBC, Materialien, Shapes, GPU-Befehle) und der Writer stehen in
+[`nsbmd.md`](nsbmd.md).
 
 ## Container
 
@@ -22,7 +25,7 @@ Alle Vanilla-Kartenmodelle (Pt DE 666, HG DE/US je 676) haben einen Block `MDL0`
 
 ## TEX0 entfernen (`strip_tex0`)
 
-- MDL0 wird über die Blockoffsets gesucht, nicht fest an 0x18 (DSPRE) angenommen; TEX0 darf vor oder hinter MDL0 liegen.
+- MDL0 wird über die Blockoffsets gesucht, nicht fest an 0x18 angenommen; TEX0 darf vor oder hinter MDL0 liegen.
 - Ein Modell mit nur `MDL0` bleibt unverändert (Vanilla byte-gleich).
 - Sonst: neuer Kopf mit einem Block, Offset 0x14, Größenfeld = neue Länge, danach der MDL0-Block (Größe aus seinem Feld). Offsets im MDL0 sind blockrelativ und bleiben gültig.
 
@@ -37,6 +40,10 @@ Alle Vanilla-Kartenmodelle (Pt DE 666, HG DE/US je 676) haben einen Block `MDL0`
 | e + 2 | `u16` Offset der Namen (relativ zu `e`) |
 | e + 4 | n Daten |
 | Namen | n × 16 Byte, mit NUL aufgefüllt |
+
+Gelesen mit `nitro_dict::read`: nur das Vanilla-Layout wird angenommen (Größenfeld,
+Eintragsoffset `12 + 4n` und Namensoffset `4 + unit · n` müssen passen, sonst `BadSize`;
+Wort an o + 4 gleich 8). Einzelheiten und der Baum in [`nsbmd.md`](nsbmd.md).
 
 ## MDL0
 

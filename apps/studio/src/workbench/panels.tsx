@@ -273,6 +273,7 @@ export function WorldPanel() {
         topDown={topDown}
         areaDataId={d.areaDataId}
         showPermissions={d.showPermissions}
+        showHeights={d.showHeights}
         eventFileId={d.eventFileId}
         showEvents={d.showEvents}
         destName={destName}
@@ -301,7 +302,14 @@ export function WorldPanel() {
       />
       {/* The layer bar and the toolbar; they read the shell themselves, so moving the toolbar does not render the scene. */}
       <SceneOverlays
-        layers={{ showPermissions: d.showPermissions, showEvents: d.showEvents, onShowPermissions: d.onShowPermissions, onShowEvents: d.onShowEvents }}
+        layers={{
+          showPermissions: d.showPermissions,
+          showHeights: d.showHeights,
+          showEvents: d.showEvents,
+          onShowPermissions: d.onShowPermissions,
+          onShowHeights: d.onShowHeights,
+          onShowEvents: d.onShowEvents,
+        }}
       />
       <Legend />
     </div>
@@ -430,6 +438,8 @@ export function InspectorPanel() {
   const matrixRevision = useBusRevision(d.bus, "matrixData");
   const buildingRevision = useBusRevision(d.bus, "buildingData");
   const eventRevision = useBusRevision(d.bus, "eventData");
+  // The budget of a map cell follows its map's model (a parts import), terrain (a refetch) and buildings.
+  const mapRevision = useBusRevision(d.bus, ["mapRefetch", "mapModelReload", "buildingData"]);
   // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
   const goTo = d.goTo;
   const openScript = (file: number, line?: number) => goTo({ kind: "script", file, line });
@@ -519,6 +529,7 @@ export function InspectorPanel() {
         goTo: d.goTo,
         counts: d.memberCounts,
         revision: matrixRevision,
+        mapRevision,
         onEdited: d.onMatrixEdited,
         onCountsChanged: d.onCountsChanged,
         onError: d.onError,

@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) [phase-6-1-gate.md](phase-6-1-gate.md) (Writer: Modelle und Texturen) und [phase-6-2-gate.md](phase-6-2-gate.md) (BDHC und Gelände) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -149,7 +149,7 @@ scripts/agent/call.sh accept_baseline                       # alle Warnungen und
 scripts/agent/call.sh set_check_enabled '{"code":"text.three-lines","enabled":false}'
 ```
 
-Die Fix-Ids sind `wrap` (`text.too-wide`), `append_message` (`script.message-missing`), `swap_min_max` (`encounter.min-max`) und `create_script` (`event.script-missing`, braucht übernommene Scripts und gespeicherte Textarchive, schreibt sofort, kein Schritt im Verlauf). Hat sich die Stelle seit dem Befund geändert, lehnt `apply_fix` mit dem Code `finding_stale` ab („finding is no longer current“) und schreibt nichts. Fehler lassen sich weder ausblenden noch abschalten. Ausblenden, Ausgangslage und Schalter schreiben sofort `<Kopie>/g4-checks.json` (`{ignored: [{code, subject, key, fingerprint}], disabled: [code]}`); eine neue Sitzung (Neuladen der Seite, nächster Batch eines Szenarios) liest die Datei beim Öffnen.
+Die Fix-Ids sind `wrap` (`text.too-wide`), `append_message` (`script.message-missing`), `swap_min_max` (`encounter.min-max`), `block_upper` (`map.step-unblocked`, sperrt die obere Zelle der freien Stufe, `collision | 0x80`), `create_script` (`event.script-missing`, braucht übernommene Scripts und gespeicherte Textarchive, schreibt sofort, kein Schritt im Verlauf) und `remove_hidden` (`build.hidden-file`, verschiebt den versteckten Eintrag nach `.g4/backup/hidden-<Zeit>/`, schreibt sofort, kein Schritt im Verlauf). Hat sich die Stelle seit dem Befund geändert, lehnt `apply_fix` mit dem Code `finding_stale` ab („finding is no longer current“) und schreibt nichts. Fehler lassen sich weder ausblenden noch abschalten. Ausblenden, Ausgangslage und Schalter schreiben sofort `<Kopie>/g4-checks.json` (`{ignored: [{code, subject, key, fingerprint}], disabled: [code]}`); eine neue Sitzung (Neuladen der Seite, nächster Batch eines Szenarios) liest die Datei beim Öffnen.
 
 **Emulator** (`cd scripts/g4emu`; alle Pfade zu `../Roms` sind von dort `../../../Roms`; aus einem Git-Worktree stimmt das nicht, dann `G4_ROMS_DIR` absolut setzen und `--rom`, `--project` und `--save` absolut angeben):
 
@@ -158,7 +158,7 @@ uv run g4emu run --rom <rom.nds> --save ../../../Roms/_testkopien/_saves/CPUD-zi
   --out ../../target/agent/gate-$(date +%F)/<punkt> continue expect-map 415 shot start
 ```
 
-Schritte: `continue`, `wait N`, `press TASTE[:N]`, `mash TASTE N`, `tap X Y`, `walk RICHTUNG N`, `walk-to X Y`, `expect-map ID [N]`, `where`, `shot NAME`, `state NAME`, `write-save NAME`, `dump-ram NAME`, dazu die Kampfschritte `walk-until-battle RICHTUNG N [back-and-forth]`, `expect-battle ART LEVEL [N]`, `end-battle [N]`, `win-battle [N]` (unten) und seit 3g.2 `new-game`, `walk-until-blocked RICHTUNG N` und `expect-at X Y` (unten, „Neues Spiel ohne Spielstand“), seit 3d.1 `flag N`, `set-flag N 0|1`, `var N`, `set-var N W`, `expect-flag N W` und `expect-var N W` (unten, „Flags und Variablen im Spielstand“). Rückgabe: 0 ok, 2 ein Schritt hat sein Ziel verfehlt (`walk`, `expect-map`, Kampfschritte; die Zeile nennt Position, zuletzt gelesene ID bzw. die zuletzt gesehenen Kampfdaten), 1 sonstiger Fehler (ROM oder Kern fehlt). Jeder Schritt druckt eine JSON-Zeile; im Ausgabeordner liegen `last.png` und `last.state` (mit `--state <out>/last.state` geht es dort weiter, um Schritt für Schritt zu erkunden) und `core.log`. Der Spielstand wird immer zuerst kopiert; `--save` ist nach dem Lauf unverändert. Spielcodes in `scripts/g4emu/g4emu/games.yaml`: CPUD, IPKD, IPKE.
+Schritte: `continue`, `wait N`, `press TASTE[:N]`, `mash TASTE N`, `tap X Y`, `walk RICHTUNG N`, `walk-to X Y`, `expect-map ID [N]`, `where`, `shot NAME`, `state NAME`, `write-save NAME`, `dump-ram NAME`, dazu die Kampfschritte `walk-until-battle RICHTUNG N [back-and-forth]`, `expect-battle ART LEVEL [N]`, `end-battle [N]`, `win-battle [N]` (unten) und seit 3g.2 `new-game`, `walk-until-blocked RICHTUNG N` und `expect-at X Y` (unten, „Neues Spiel ohne Spielstand“), seit 3d.1 `flag N`, `set-flag N 0|1`, `var N`, `set-var N W`, `expect-flag N W` und `expect-var N W` (unten, „Flags und Variablen im Spielstand“), seit 6.2 `expect-height Y [T]` (unten, „Höhe der Figur“). Rückgabe: 0 ok, 2 ein Schritt hat sein Ziel verfehlt (`walk`, `expect-map`, `expect-height`, Kampfschritte; die Zeile nennt Position, zuletzt gelesene ID bzw. die zuletzt gesehenen Kampfdaten), 1 sonstiger Fehler (ROM oder Kern fehlt). Jeder Schritt druckt eine JSON-Zeile; im Ausgabeordner liegen `last.png` und `last.state` (mit `--state <out>/last.state` geht es dort weiter, um Schritt für Schritt zu erkunden) und `core.log`. Der Spielstand wird immer zuerst kopiert; `--save` ist nach dem Lauf unverändert. Die Bilder sind seit 6.2 farbrichtig (der Kern liefert die Bytes in RGB-Reihenfolge, `frame_to_image` liest `RGBX`); Bilder vor 6.2 haben Rot und Blau vertauscht. Spielcodes in `scripts/g4emu/g4emu/games.yaml`: CPUD, IPKD, IPKE.
 
 - Platin DE: Start im Spielerzimmer (Header 415) bei x 7, y 4. Die Treppe ist der Warp 0 von Eventdatei 394 bei x 8, z 4: `walk-to 8 4`, `walk right 1` führt nach 414 (Ankunft x 10, y 3). Beim Ankommen läuft die Überblendung noch: `expect-map` kehrt früh zurück, danach `wait 150`, bevor man ein Bild macht oder weitergeht (die Figur macht nach der Ankunft von selbst einen Schritt).
 - HeartGold (IPKD/IPKE): Start im Zimmer oben (Header 64, x 3, y 4). `walk left 1` bringt auf die Treppenkachel (2, 4), `walk down 1` löst den Warp nach 63 aus (Ankunft x 3, y 3). Header-IDs im `g4k` sind dezimal.
@@ -194,6 +194,11 @@ Schritte: `continue`, `wait N`, `press TASTE[:N]`, `mash TASTE N`, `tap X Y`, `w
 - `set-flag N 0|1` und `set-var N W` (W 0–65535) schreiben und drucken den Wert danach. Ein Sichtbarkeits-Flag wirkt erst beim nächsten Laden der Karte, ein Wert, den ein Script oder Auslöser liest, sobald das Spiel ihn liest.
 - `expect-flag N W` und `expect-var N W`: Exit 2 „Flag 0x0173 ist 0 statt 1“ bzw. „Variable 0x40A5 ist 1 statt 0“, sonst die Zeile wie `flag`/`var`.
 - Vor dem Laden des Spielstands (vor `continue`, beim Einschalten) ist der Zeiger ungültig: Exit 2 „kein gültiger Spielstand im RAM“. Ein Spielcode ohne `save_block` scheitert mit „save_block fehlt in games.yaml“, eine Nummer außerhalb des Blocks oder ein Wert außerhalb des Bereichs ist eine falsche Eingabe (Exit 1).
+
+**Höhe der Figur** (seit 6.2, `scripts/g4emu/g4emu/height.py`). Das Spiel hält die Position der Figur als drei fx32 (X, Y, Z; Welteinheiten × 4096) im RAM, auf der Kachelmitte X = (x · 16 + 8) · 4096 und Z = (y · 16 + 8) · 4096 mit x, y aus dem Ort (`where`); Y ist die Laufhöhe der BDHC dort. Mehrere Strukturen tragen so einen Vektor, darum entscheidet die Mehrheit.
+
+- `expect-height Y [T]` (`T` mit oder ohne `±`, Vorgabe 0.1 Welteinheiten): sucht alle auf 4 Byte ausgerichteten Tripel (X, Y, Z) der Kachelmitte mit |Y| < 0x400000, rundet die Höhen auf 3 Stellen und nimmt die häufigste (bei Gleichstand die zuerst gefundene). Erfolg druckt `height`, `hits` (Zahl der Treffer dieser Höhe), `x`, `y`. Exit 2 „kein gültiger Ort“, „keine Figurenhöhe im RAM bei Kachel x 18, y 21“ oder „Höhe 0 statt 16 (±0.1) bei Kachel x 18, y 21; Treffer 0 (6×)“ (alle gesehenen Höhen mit ihrer Zahl); Y oder T keine Zahl (oder T negativ) ist eine falsche Eingabe (Exit 1).
+- Gemessen in Gutachten B §2.5 (Platin DE, HeartGold DE und US, Zimmerkarte mit synthetischer BDHC): je Abzug 6 Treffer, auf der Rampenmitte 4 × 3,989 neben 2 × 0,989 (eine andere Struktur). Im Vanilla-Zimmer von Platin DE (Start 7, 4; `continue expect-map 415 wait 150`) liefert `expect-height 0` `height` 0 mit 6 Treffern, `expect-height 16` scheitert mit „Höhe 0 statt 16 (±0.1) bei Kachel x 7, y 4; Treffer 0 (6×)“ (06.11.2026). Der Schritt liest den Augenblick und wartet nicht: er gehört hinter einen beendeten Gang (`walk`, `walk-until-blocked`, `expect-at`).
 
 **Szenario** (Projekt ändern, bauen, spielen in einem Lauf), aus `scripts/g4emu` heraus; die Kopf-Kommentare der Dateien nennen die Platzhalter und ein Beispiel für `--set`:
 
@@ -682,6 +687,8 @@ Im Browser-Modus geprüft, Test-Umgebung auf eigenen Ports (`G4_VITE_PORT=1480 G
 - **3d.3 (Teil B):** eine Ei-Attacke in Platin im Spiel wirksam (Zucht nach einem Tausch innerhalb des Budgets), ein echtes, mit DSPRE gepatchtes Platin-Projekt (Patch-NARC, Klon und Wiederherstellung; getestet ist nur der synthetische NARC von `3d-3-patch`), der Blick auf die Bilder `blick-pokedex-eiattacken-*.png` in Hell, Dunkel und Kompakt und der Frame in der `.fig`. Liste mit Ort: [phase-3d-3-gate.md](phase-3d-3-gate.md), Abschnitt „Teil B“, „(4) Hand und Blick“.
 - **4.5:** Rom Patcher JS im Browser mit der eigenen Basis-ROM und einem Patch aus (2), die SHA-1 des Ergebnisses gegen die Begleitdatei; „Im Finder zeigen“ in der gepackten App (macOS markiert die Datei, Linux öffnet nur den Ordner, Windows ungeprüft); das eigene Git-Werkzeug zeigt den Commit „Veröffentlicht v0.1.0“ mit Body und ohne Remote; der Blick auf Titelleiste, Assistent, Fläche und Dialog „Stand sichern?“ in Hell, Dunkel, Kompakt. Liste mit Ort: [phase-4-5-gate.md](phase-4-5-gate.md), Abschnitte „Hand“ und „Blick“.
 - **3d.6:** die Fäden gegen die Spielkenntnis (sind die 60 bzw. 62 Fäden die Handlung?), der Graph eines bekannten Fadens (etwa der Galaktik-Handlung) und die Knotenarten Fortschritt und Erscheinen/Verschwinden am Bild, der Blick auf Fäden, Geschichten, Dialog, Detail und Löschen in Hell, Dunkel und Kompakt und die Frames in der `.fig`. Liste mit Ort: [phase-3d-6-gate.md](phase-3d-6-gate.md), „(4) Hand und Blick“.
+- **6.1:** der Blick auf die sechs Bilder der Szenarien `pt-bake`, `hg-bake`, `hgus-bake` (`target/agent/gate-2026-11-05/6-1/<szenario>/zimmer.png` und `unten.png` im Worktree `phase-6-1`: eigene Texturen mit Block im Zimmer, Nachbarraum mit Vanilla-Texturen); `docs/formats/nsbmd.md` gelesen; `scripts/gate.sh` auf main nach dem Merge (Hauptsitzung). Liste mit Ort: [phase-6-1-gate.md](phase-6-1-gate.md), „(4) Beim Nutzer (Hand und Blick)“.
+- **6.2:** DSPRE (Windows) öffnet die gebauten Karten aus `_testkopien/6-2-szen-pt_DSPRE_contents/out.nds` und `6-2-szen-hg_DSPRE_contents/out.nds` und zeigt die BDHC-Größe; optional `pt-gelaende` auf HeartGold US (`game: IPKE`); `scripts/gate.sh` auf main nach dem Merge (Hauptsitzung); der Blick auf Schicht „Höhen“, Overlay und Budget in Hell, Dunkel und Kompakt (18 Bilder), auf die `g4emu`-Bilder der Szenarien (Farben; die Figur ist dort teils von Bäumen verdeckt) und die Farbprobe `target/agent/6-2/farbe/zimmer.png`; die Frames 6.2 in der `.fig`. Liste mit Ort: [phase-6-2-gate.md](phase-6-2-gate.md), Abschnitte „Hand“ und „Blick“.
 
 ## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A und B)
 
@@ -1923,3 +1930,134 @@ uv run g4emu scenario ../agent/scenarios/pt-geschichte-gate.yaml --project $K/3d
 ```
 
 Das Szenario hat keine Änderungen (`mcp: []`, `edits: []`): `studio mcp` speichert und baut `build/out.nds`, `check` prüft, `play` ist der Spielteil von `pt-geschichte` ohne Raum (für das Wiedererscheinen durch die Ankunftstür ins Zimmer 415 und zurück). Erwartet: Rückgabe 0, Header-Folge 415, 593, 415, 593, `expect-var VAR` 0 → 1, `expect-flag FLAG_B` 1 → 0, `expect-battle 25 12`, `expect-flag FLAG_R 1` zweimal; Bilder `gespraech`, `kampf`, `belohnung`, `belohnung-2` („Hallo, Reisender!“). Danach Chrome, Brücke und Vite über ihre PIDs beenden (`kill -INT` auf `studio-web.sh`), `lsof -iTCP:1800 -iTCP:1801 -sTCP:LISTEN` leer, die Kopien löschen.
+
+## Phase 6.1 ([phase-6-1-gate.md](phase-6-1-gate.md))
+
+6.1 bringt den Writer: `nitro_dict` (Nitro-Dictionary mit dem Patricia-Baum), den MDL0-Codec `nsbmd` (Leser, Writer, Display-List- und SBC-Codec, byte-gleich für jedes Vanilla-Kartenmodell), `nsbtx::write`/`append`/`build`, den Texturkonverter `texconv` (RGBA → 16 oder 4 Farben), im Kernel `bake` (Flächenliste `Face` → Kartenmodell mit Budget-Bericht und Prüfcodes `bake.*`/`texture.*`, Texturen anhängen als ein Undo-Schritt, Testfläche und `bake_test`), den Befehl `bake_test` (über MCP nur per `g4_call`, also `--expert`), `check-data` mit `map_texture:<n>:sha1` und [docs/formats/nsbmd.md](formats/nsbmd.md). 6.1 hat keine Oberfläche: es gibt keinen Browser-Teil.
+
+**Kopien** (unter `$G4_ROMS_DIR/_testkopien`, je `_DSPRE_contents`, per `cp -cR` bzw. `cp -c`): `6-1-pt`, `6-1-hgde`, `6-1-hgus` für die gated Tests (nur gelesen; geschrieben wird nur auf `vanilla_copy()`); `6-1-szen-pt`, `6-1-szen-hg`, `6-1-szen-hgus` mit `.nds` daneben für die Szenarien. Nach einem Lauf ist eine Szenario-Kopie gespeichert und gebaut: ein neuer Lauf braucht eine neue Kopie (`6-1-szen-pt2` …).
+
+**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA` absolut auf `tools/apicula/bin/apicula` des Haupt-Checkouts. Lange Läufe im Hintergrund mit Log unter `target/agent/6-1/<name>.log`, `uptime` davor; die Bilder der Szenarien unter `target/agent/gate-<datum>/6-1/<szenario>/`. Zeitgrenzen in Tests können unter Last reißen: den Test allein wiederholen, die Grenze nie lockern.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent | läuft in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; die neuen Tests laufen in „cargo test (no ROM data)“ und „gated tests (cargo test)“ ohne Änderung am Skript mit |
+| (1) `cargo deny`, fmt, clippy, Tests ohne ROM-Daten | Agent | Befehle unten |
+| (1) gated `vanilla_nitro`, `bake` | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`; die Zeilen `nitro-models`, `nitro-packs`, `nitro-append` und `bake-room` in die Zahlentabelle |
+| (2) Unit-Punkte | Agent | `the_test_surface_bakes_under_40000_bytes`, `the_own_reader_reads_the_baked_model`, `an_oversize_model_is_refused_with_model_too_big` (Bibliothek `g4-kernel`, `bake::tests`), `apicula_reads_the_test_surface_like_the_input`, `sample_images_read_back_without_a_pixel_off`, `apicula_decodes_the_sample_pack_like_g4_formats` (`tests/bake.rs`, die apicula-Tests nur mit `G4_APICULA`), `vanilla_append_keeps_every_old_entry` (gated) |
+| (3) Szenarien `pt-bake`, `hg-bake`, `hgus-bake` | Agent + Blick | `g4emu scenario` kopflos über `studio mcp`, Befehle unten; je zwei Bilder `zimmer`, `unten` |
+| (4) Blick auf die sechs Bilder, `docs/formats/nsbmd.md` gelesen | Hand | siehe „Was beim Nutzer bleibt“ |
+
+**Automatik (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`; `P` nacheinander `$K/6-1-pt_DSPRE_contents`, `$K/6-1-hgde_DSPRE_contents`, `$K/6-1-hgus_DSPRE_contents`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+cargo deny --locked check licenses advisories
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+env -u G4_TEST_PROJECT cargo test -p g4-formats -p g4-kernel --all-features
+G4_TEST_PROJECT=$P cargo test --release -p g4-formats --all-features --test vanilla_nitro -- --nocapture --test-threads 1
+G4_TEST_PROJECT=$P G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula \
+  cargo test --release --workspace --all-features --test bake -- --nocapture --test-threads 1
+cargo test -p g4-kernel --all-features --lib bake:: -- --nocapture     # Größen der Testfläche (test surface …)
+```
+
+Erwartet: `cargo deny` „advisories ok, licenses ok“ ohne neue Abhängigkeit (`g4-formats` nur `thiserror`); `vanilla_nitro` 3/3 mit `nitro-models CPUD models=666 equal=666 dicts=3996 stale=`, `IPKD models=676 equal=676 dicts=4056 stale=0468,0475,0476`, `IPKE … stale=0468,0473,0475,0476`; `nitro-packs CPUD map=74 building=71 equal=145 dicts_total=4286`, `IPKD`/`IPKE map=106 building=94 equal=200 dicts_total=4456`; `nitro-append CPUD packs=74 ok=74`, `IPKD`/`IPKE packs=106 ok=106`; `bake` 8/8 mit `bake-room CPUD map=187 pack=20 style=indoor size=35020 share=0.570 vram=21656 warn=-` und `IPKD`/`IPKE map=217 pack=25 style=indoor size=35024 share=0.570 vram=23544 warn=-`, apicula 1 110 / 1 110 Paare aus Position und UV, 0 Pixel Abweichung. „veraltete Zähler“ (`stale`) sind Vanilla-Modelle, deren Zähler im Kopf nicht zur Display List passen; der Writer behält sie byte-gleich.
+
+**Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-1`), nacheinander. Die Log-Namen sind die der aufgezeichneten Läufe (`t10-<pt|hg|hgus>.log`, Task 10); ein Wiederholungslauf nimmt neue Kopien (`6-1-szen-pt2` …) und eigene Log-Namen (die Nachprüfung des Abschlussreviews: `fix-t10-<pt|hg>.log`), die Befehle sind sonst dieselben:
+
+```sh
+W=/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-1
+export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k \
+  G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+O=$W/target/agent/gate-$(date +%F)/6-1; mkdir -p $O/pt-bake $O/hg-bake $O/hgus-bake
+uv run g4emu scenario ../agent/scenarios/pt-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-pt_DSPRE_contents" \
+  --out $O/pt-bake > $W/target/agent/6-1/t10-pt.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/t10-pt.log
+uv run g4emu scenario ../agent/scenarios/hg-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-hg_DSPRE_contents" \
+  --out $O/hg-bake > $W/target/agent/6-1/t10-hg.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/t10-hg.log
+uv run g4emu scenario ../agent/scenarios/hgus-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-hgus_DSPRE_contents" \
+  --out $O/hgus-bake > $W/target/agent/6-1/t10-hgus.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/t10-hgus.log
+```
+
+Erwartet: Rückgabe 0, `"ok": true`; `bake_test` mit Paket 20 (Platin) bzw. 25 (HeartGold DE und US), angehängt `g4_bake_a`, `g4_bake_b`, Block (5, 7) bzw. (5, 6), keine Meldung; „2 expectation(s) met“ (Modell der Karte 187 bzw. 217 und Paket 20 bzw. 25 in `out.nds` gleich den Dateien unter `build/bake/`); Header 415 → 414 bzw. 64 → 63. Im Bild `zimmer` der Boden aus Schachbrett, grünen Streifen und zwei Vanilla-Texturen mit dem Block, in `unten` der Nachbarraum mit Vanilla-Texturen. Farben nicht vergleichen (Rot und Blau vertauscht bis zum Farbfix von 6.2).
+
+## Phase 6.2 ([phase-6-2-gate.md](phase-6-2-gate.md))
+
+6.2 bringt BDHC und Gelände: den Codec `g4-formats/src/bdhc.rs` (lesen, prüfen, byte-gleich schreiben, `height_at` wie die Höhensuche des Spiels), den Generator Höhenraster → BDHC (`bdhc/grid.rs`, nach Konstruktion ≤ 35 592 B), im Kernel das Modul `terrain` (Regeltabelle `terrain_rules.yaml`, abgeleitete Kollision, Handwerte, Höhen je Kachelmitte, Budget je Karte), die Prüfungen `map.altitude-walkable`, `map.step-unblocked` (Fix `block_upper` „Obere Zelle blockieren“), `map.buildings-over-limit` und die Strukturregeln in `map.bdhc-size`, die Befehle `get_map_heights`, `set_map_terrain` und `get_map_budget` (Tauri und MCP), in der Szene Overlay, Marker, Picking, Event-Drag und Entwurf auf der BDHC-Höhe, die Schicht „Höhen“ und die Budget-Leiste im Inspector der Karte, in `g4emu` den Farbfix und `expect-height` (oben, „Höhe der Figur“). Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien** (unter `$G4_ROMS_DIR/_testkopien`, je `_DSPRE_contents`, die Szenario- und Web-Kopien mit `.nds` daneben): `6-2-pt`, `6-2-hgde`, `6-2-hgus` für die gated Tests (nur gelesen; geschrieben wird nur auf `vanilla_copy()`); `6-2-szen-pt`, `6-2-szen-hg` für `pt-gelaende`/`hg-gelaende` und `6-2-flach-pt`, `6-2-flach-hg` für die Gegenprobe (je Lauf eine frische: nach `build` ist die Kopie verbraucht); `6-2-web` (Platin DE) für Browser und MCP über die Brücke; `6-2-farbe.nds` für die Farbprobe von `g4emu`. Die gated Tests von 6.2 brauchen keine Basis-ROM neben dem Ordner.
+
+**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (`ln -s <Haupt-Checkout>/tools tools`, nie einchecken; der Kern von `g4emu` liegt unter `tools/g4emu/core/`), Test-Umgebung auf eigenen Ports `G4_VITE_PORT=1440 G4_BRIDGE_PORT=1441`. Lange Läufe im Hintergrund mit Log unter `target/agent/6-2/<name>.log`, `uptime` davor und danach; ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+
+**Wo was ist:** Die Leinwand der Szene trägt `canvas[data-hover-tile="<x>,<z>"]` (absolute Kachel unter dem Zeiger) und `[data-hover-ground]` (Höhe der Kachel in Szenen-Einheiten, 1 Kachel = 16 E, also 32 E = `2.000`); die Statusleiste nennt „Kachel x 7, y 8 · Karte 0100 · blockiert · Höhe 4 Stufen“ (1 Stufe = 8 E). Ein gewählter Marker setzt `[data-selected-marker-y]` (Figur auf 32 E: `2.300`, 0,3 über dem Boden). `window.__g4SceneProbe` (nur im Dev-Build) liefert mit `tileToClient(x, z)` den Bildschirmpunkt einer Kachel auf ihrer BDHC-Höhe; an diesem Punkt ein echtes Zeigerereignis auslösen (`computer hover`, CDP-Maus). Die Szenenleiste hat die Taste „Höhen“ (Symbol `heights`, schließt „Gelände“ aus, `[data-heights-shown="true"]`, sieben cividis-Stufen, Isolinien an der höheren Seite) neben „Draufsicht“ (Symbol `topDown`). Der Inspector einer Karte (Bauen, Zelle gewählt) hat den Abschnitt „Budget“ `[data-map-budget]` mit vier Zeilen `[data-budget=model|bdhc|buildings|vram]` („Modell“, „Terrain (BDHC)“, „Gebäude“, „Texturen des Gebiets“ mit „VRAM … von 262.144 B · N Texturen“ und „Vanilla höchstens … B“), je Balken `[data-budget-state=calm|tight|full]` (ruhig ohne Plakette, „Knapp“, „Voll“).
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) Automatik | Agent | Schritt für Schritt, Befehle unten; `scripts/gate.sh` als Ganzes läuft auf main nach dem Merge (dort laufen die gated Tests von 6.2 im Schritt der gated Tests je Projekt mit) |
+| (1) gated Tests | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`; die Zeilen `Pt: 666 maps …`, `map 100 heights …`, `free steps …`, `step-unblocked … µs` und `terrain <Spielcode> …` in die Zahlentabelle |
+| (1) Generator | Agent | `cargo test -p g4-formats bdhc::grid --release -- --nocapture`: 1 000 Raster, größte Nutzlast und Abweichung |
+| (2) Szenarien `pt-gelaende`, `hg-gelaende`, Gegenprobe | Agent + Blick | `g4emu scenario` über die Brücke, Befehle unten; je sechs Bilder `geschenk`, `treppe`, `kante`, `stufe`, `wand`, `gras` |
+| (3) Browser | Agent | Test-Umgebung auf 1440/1441, Ablauf unten |
+| (3) MCP über die Brücke | Agent | `mcp.sh`, Befehle unten |
+| Blick | Agent + Blick | 18 Bilder `blick-karte*-*.png` unter `target/agent/gate-<datum>/6-2/` und die `g4emu`-Bilder |
+| (4) DSPRE mit der gebauten Karte, `pt-gelaende` auf HeartGold US | Hand | siehe „Was beim Nutzer bleibt“ |
+
+**Automatik (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`; `P` nacheinander `$K/6-2-pt_DSPRE_contents`, `$K/6-2-hgde_DSPRE_contents`, `$K/6-2-hgus_DSPRE_contents`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
+export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+G4_TEST_PROJECT=$P cargo test -p g4-formats --release --test vanilla_bdhc -- --nocapture --test-threads 1
+G4_TEST_PROJECT=$P cargo test -p g4-kernel --release --all-features --test vanilla_checks -- --nocapture --test-threads 1
+G4_TEST_PROJECT=$P cargo test -p g4-kernel --release --all-features --test terrain -- --nocapture --test-threads 1
+G4_TEST_PROJECT=$P cargo test -p studio --release --lib terrain_over_the_command_path -- --nocapture --test-threads 1
+cargo test -p g4-formats bdhc::grid --release -- --nocapture
+cargo deny --locked check licenses advisories
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+env -u G4_TEST_PROJECT cargo test -p g4-formats -p g4-kernel --all-features
+env -u G4_TEST_PROJECT cargo test -p studio
+(cd apps/studio && pnpm test && pnpm build)      # ein Skript `pnpm lint` gibt es nicht; tsc läuft in `pnpm build`
+bash scripts/check-styles.sh; bash scripts/check-tokens.sh
+(cd scripts/g4emu && uv run pytest -q)           # Unit und Integration (Kern unter tools/g4emu/core/)
+```
+
+Erwartet: `vanilla_bdhc_round_trip_byte_identical_and_valid` 666 / 676 / 676 Karten byte-gleich, Fehler 0, Warnungen 0 / 1 / 1 (HGSS Karte 0464, senkrechte Platte), größte Nutzlast 21 452 B (Karte 188) bzw. 10 778 B (658); `vanilla_checks_match_the_fixed_counts` mit `map.altitude-walkable` 0, `map.step-unblocked` 152 / 52 / 52, `map.buildings-over-limit` 0, `map.bdhc-size` 0; `tests/terrain.rs` 4/4 (auf HGSS meldet `vanilla_map_100_floor_is_two_tiles_high` „skipped“); der Studio-Test 1/1; `generated_bdhc_never_exceeds_the_bound` und `generated_heights_hit_five_points_per_cell` mit 1 000 Rastern (größte Nutzlast ≤ 35 592 B, Abweichung ≤ 0,1 E).
+
+**Szenarien (2)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `R` der absolute `G4_ROMS_DIR`, `O=$W/target/agent/gate-$(date +%F)/6-2`), Platin und HeartGold parallel, dann die beiden Gegenproben parallel:
+
+```sh
+export G4_ROMS_DIR=$R G4_BRIDGE_BIN=$W/target/debug/studio-bridge G4K_BIN=$W/target/debug/g4k
+uv run g4emu scenario ../agent/scenarios/pt-gelaende.yaml --project $R/_testkopien/6-2-szen-pt_DSPRE_contents --out $O/pt-gelaende \
+  --set NEUER_HEADER=593 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445 --set BDHC=grid > $W/target/agent/6-2/pt-gelaende.log 2>&1
+uv run g4emu scenario ../agent/scenarios/hg-gelaende.yaml --project $R/_testkopien/6-2-szen-hg_DSPRE_contents --out $O/hg-gelaende \
+  --set NEUER_HEADER=540 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445 --set BDHC=grid > $W/target/agent/6-2/hg-gelaende.log 2>&1
+uv run g4emu scenario ../agent/scenarios/pt-gelaende.yaml --project $R/_testkopien/6-2-flach-pt_DSPRE_contents --out $O/pt-flach \
+  --set NEUER_HEADER=593 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445 --set BDHC=flat > $W/target/agent/6-2/pt-flach.log 2>&1
+uv run g4emu scenario ../agent/scenarios/hg-gelaende.yaml --project $R/_testkopien/6-2-flach-hg_DSPRE_contents --out $O/hg-flach \
+  --set NEUER_HEADER=540 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445 --set BDHC=flat > $W/target/agent/6-2/hg-flach.log 2>&1
+```
+
+Erwartet mit `BDHC=grid`: Rückgabe 0, `"ok": true`, Header 415, 593 bzw. 64, 540, neun Zeilen „Erwartung erfüllt“ (`payload = 318`, `overrides = 1`, `permissions_kept = false`, `groups.length = 3`, `findings[code=map.step-unblocked].length = 1`, `findings.0.key = "step:18,25:18,24"`, `remaining = false`, `permissions.818 = [0, 128]`, `permissions_kept = true`), `expect-height` 0 auf (14, 21), 16 auf (18, 21), 12 auf (17, 21), `walk-until-blocked` hält auf (22, 21), (18, 24) und (24, 26), ein wildes Mewtu Lv 5 im Gras. Mit `BDHC=flat`: Rückgabe 2 mit „Höhe 0 statt 16 (±0.1) bei Kachel x 18, y 21; Treffer 0 (6×)“ direkt nach `expect-at 18 21`. Die gebaute ROM liegt danach als `out.nds` im Projektordner der Kopie (für die DSPRE-Probe). Die Treppe geht zuerst bis aufs Plateau (16), dann eine Kachel zurück auf 12 (Entscheidung R11 der Umsetzung, im Plan nachgezogen), damit die Gegenprobe an der 16 scheitert.
+
+**Browser (3)**, Test-Umgebung `G4_ROMS_DIR=$R G4_VITE_PORT=1440 G4_BRIDGE_PORT=1441 bash scripts/agent/studio-web.sh > target/agent/6-2/studio-web.log 2>&1 & echo $! > target/agent/6-2/studio-web.pid`, Seite `http://127.0.0.1:1440/?project=$R/_testkopien/6-2-web_DSPRE_contents`, 1440 × 900, Bauen. Ablauf:
+
+1. Karte 100 finden: `scripts/agent/call.sh get_matrix '{"index":0}'`, die Zelle mit `maps[i] == 100` (Platin DE: Zelle (9, 6)), der Ort über `call.sh list_headers` (Header 340 „Stärkeufer“); im Baum den Ort wählen, Schrägsicht („Draufsicht“ `aria-pressed=false`).
+2. Kamera drehen, sodass die untere Seite der Kante 32 → 96 E vorn liegt (sonst verdeckt das Plateau die Kacheln dahinter, und die Szene nennt richtig die sichtbare Kachel, nicht die angefahrene; Befund B1 der Gate-Datei). Eine Kachel auf 32 E per `__g4SceneProbe.tileToClient(x, z)` anfahren: `data-hover-ground` `2.000`, Statusleiste „… · Höhe 4 Stufen“.
+3. Eine Figur auf Karte 100 wählen (fehlt eine, `call.sh add_event '{"eventFile":326,"kind":"object","x":300,"z":212}'`, `call.sh save`, Seite neu laden): `data-selected-marker-y` `2.300`.
+4. Zehn Kacheln beiderseits der Kante per Probe anfahren: `data-hover-tile` nennt jedes Mal genau die angefahrene Kachel (ein Marker darüber gewinnt in der Statusleiste, die Leinwand nennt weiter die Kachel).
+5. Die Figur über die Kante ziehen: `call.sh get_events '{"eventFileId":326}'` zeigt die Kachel unter dem Zeiger, `data-selected-marker-y` danach `6.300`.
+6. „Höhen“ an: „Gelände“ aus, `data-heights-shown="true"`, Isolinien an der Kante.
+7. Inspector der Zelle: Budget mit vier Zeilen; Karte 188 (Matrix 130, Header 423 „Sandgemme, Haus 2“) „Terrain (BDHC) 21.452 von 36.864 B“; eine Karte mit 32 Gebäuden (Platin 242) zeigt „Gebäude“ Knapp.
+8. Undo: `scripts/agent/mcp.sh call set_map_terrain '{"index":100,…}'` (nicht `call.sh`: ein Schreiben über `call.sh` erreicht die offene Seite nicht, Befund B2), Overlay und Marker stehen auf der neuen Höhe; ⌘Z (echte Taste) stellt beide zurück. Nach dem Agenten-Schritt und nach ⌘Z springt die Auswahl auf das Gebiet (B3): die Figur neu wählen, dann `data-selected-marker-y` ablesen.
+
+**MCP (3)** über die Brücke (Kopie `6-2-web` in der Seite geöffnet):
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'          # die Nachfrage im Fenster mit „Lesen und bearbeiten“ beantworten
+scripts/agent/mcp.sh call get_map_heights '{"index":100}'      # 1 024 Werte: 32.0 × 724, 96.0 × 300, error null
+scripts/agent/mcp.sh call get_map_budget '{"index":188}'       # bdhc {used 21452, max 36864, state calm}
+```
+
+**Blick-Bilder** mit Chrome headless über CDP (1440 × 900, Hell und Dunkel über `g4.theme`, Kompakt über `g4.density`, je Neuladen): Karte 100 mit „Gelände“, mit „Höhen“, mit gewählter Figur und mit Budget, Karte 188 und Karte 242 mit Budget, je Hell, Dunkel, Kompakt (18 Bilder `blick-karte<Karte>-<Zustand>-<Thema>.png`). Danach die Test-Umgebung über ihre PID beenden, `lsof -iTCP:1440 -iTCP:1441 -sTCP:LISTEN` leer.

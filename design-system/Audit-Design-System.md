@@ -91,7 +91,7 @@ Von den 30 Screens sind **14 umgesetzt, 13 teilweise und 3 offen** (seit 3d.6 di
 
   Sie stehen in `base.css` oder fest in `export_tokens.py` und sind in OpenPencil nicht als Variablen pflegbar.
 - **Neues Muster (Verbesserung):** Das Scharnier belegt 13 Thema-Tokens lokal neu (`text-*`, `flaeche-*`, `linie-*`, `auswahl-*`, `fokus-ring`, `akzent-text` auf `scharnier/*`). So erscheinen alle Primitives darin dunkel, in beiden Themen.
-- **Nie genutzt:** Ungenutzt sind `text/invers`, `flaeche/bildschirm`, die `-punkt`-Farben außer Welt, `szene/hoehe/*` (es gibt kein Höhen-Overlay) und `szene/ereignis/gegenstand`.
+- **Nie genutzt:** Ungenutzt sind `text/invers`, `flaeche/bildschirm`, die `-punkt`-Farben außer Welt und `szene/ereignis/gegenstand`. `szene/hoehe/*` nutzt seit 6.2 die Schicht „Höhen“ (Flächen `hoehe/0` bis `hoehe/6`, Isolinien `hoehe/0`; README, „Nachtrag 6.2“).
 
 **Typografie**
 - Zen Maru Gothic läuft nur als `titel-s` (700, 24/30) für Seitentitel und Datenköpfe. `titel-m`, `titel-l` und `spiel-textbox` nutzt kein Baustein.
@@ -107,7 +107,7 @@ Von den 30 Screens sind **14 umgesetzt, 13 teilweise und 3 offen** (seit 3d.6 di
 
 **Szene (three.js)**
 - **Wie geplant:** Farben aus den Tokens, Overlay mit 42 %.
-- **Muster und Kontur fehlen:** keine Schraffur, Wellen oder Punkte, keine Kontur mit Halo, kein Höhen-Overlay (bewusst, Phase 6).
+- **Muster und Kontur fehlen:** keine Schraffur, Wellen oder Punkte, keine Kontur mit Halo (bewusst, Muster-Shader mit 6.4b). Das Höhen-Overlay ist seit 6.2 umgesetzt: die Schicht „Höhen“ mit sieben Stufen cividis und Isolinien, Taste „Höhen“ nach „Gelände“, die beiden schließen sich aus; Overlay, Marker und Picking stehen auf der BDHC-Höhe (README, „Nachtrag 6.2“).
 - **Marker:**
   - Warp, Auslöser und Schild sind Quader, der Warp mit Bake. Figuren sind Overworld-Sprites.
   - Es gibt keinen Gegenstand-Marker. Die Auslöser-Fläche ist gefüllt statt gestrichelt.
@@ -127,7 +127,7 @@ Von den 30 Screens sind **14 umgesetzt, 13 teilweise und 3 offen** (seit 3d.6 di
 | Typ | umgesetzt | zwei Größen (16 und 22) aus `szene/typ` |
 | Meldung | umgesetzt | ohne Rand, Statusfläche |
 | Wertebalken | umgesetzt | Schnitt-Strich, Urteil „über/unter Schnitt“, Abweichung links in Kobalt |
-| Budget | **fehlt** | nur Längenbalken in Texte („34 von 38“) und Zähler („4 von 7“) |
+| Budget | umgesetzt (6.2) | `ui/primitives/Budget.tsx`: Ruhig, Knapp, Voll (`[data-budget-state]`, Plakette und Füllung `akzent/grund`, `status/warnung`, `status/fehler`); im Inspector einer Karte der Abschnitt „Budget“ mit Modell, Terrain, Gebäude und Texturen des Gebiets (VRAM eine Schätzung, Polygone mit 6.3b). Texte behalten ihre Längenbalken („34 von 38“). `.fig` folgt (`openpencil/NACHTRAG-6-2.md`) |
 | Listenzeile, Baumzeile, Inspector-Zeile | umgesetzt | 32 hoch; Inspector-Bezeichnung 400 statt 600 |
 | Kontextmenü an Listen- und Baumzeile | teilweise (4.1b) | Rechtsklick, Shift+F10 und Kontextmenü-Taste öffnen das Popup des Menüs. Es trägt bisher nur „… auf Original zurücksetzen…“, nicht die übrigen Einträge des Menüs „Aktionen“ (Plan 4.1b: „gleiche Einträge“); in der `.fig` noch nicht gezeichnet (`openpencil/NACHTRAG-4-1b.md`) |
 | Änderungstabelle | umgesetzt (4.4) | Kein Vorbild in der `.fig`. `ChangeTable`: drei Spalten (Feld, alt, neu) in `code/s`, Feldspalte so breit wie ihr Inhalt (Pfad bricht nur an „.“ und „[“), Wort-Spannen als `<del>` auf `status/fehler-flaeche` (durchgestrichen) und `<ins>` auf `status/erfolg-flaeche` (unterstrichen), fehlende Seite „—“ (vorgelesen „fehlt“), Fußzeile für gekappte Zeilen. Keine neuen Tokens. Offen (Blick): in Dunkel sind die Flächen der Spannen kaum zu sehen (1,23 bzw. 1,35 : 1 gegen `flaeche/blatt`), es tragen die Linien. In der `.fig` seit 29.10.2026: Brett „Komponenten (App): Änderungstabelle und Git“ (Seite „Komponenten“, x 3440, y 15380) |
