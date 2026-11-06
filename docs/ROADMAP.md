@@ -381,6 +381,8 @@ Schnitt (Größen wie in Phase 4; „∥“ heißt parallel in eigenen Worktrees
 
 Reihenfolge: (6.1 ∥ 6.2 ∥ 6.3a) → (6.3b ∥ 6.5a) → (6.4a ∥ 6.5b) → 6.4b.
 
+**Stand 6.2 2026-11-06:** Gate vom Agenten bestanden: 2 018 Vanilla-BDHC byte-gleich (Platin DE 666, HeartGold DE und US je 676), Strukturregeln 0 Treffer, Generator ≤ 19 744 B bei 1 000 Rastern (Schranke 35 592 B, Abweichung höchstens 0,079 E), `map.step-unblocked` auf Vanilla 152 / 52 / 52, `pt-gelaende` und `hg-gelaende` mit `expect-height 16`, Gegenprobe scheitert mit „Höhe 0 statt 16“; Studio auf Platin Karte 100: Overlay und Marker auf 2 Kacheln Höhe (`2.000` / `2.300`), `pickTile` an der Kante 10 von 10, ⌘Z nach `set_map_terrain` stellt beide zurück; Branch `phase-6-2-bdhc`; [docs/phase-6-2-gate.md](phase-6-2-gate.md); beim Nutzer offen: Blick, DSPRE mit der gebauten Karte, `scripts/gate.sh` auf main.
+
 Gate (Phasen-Gate 6, Spezifikation §4): Eine im Studio gemalte Karte mit eigenem Gelände, Höhenstufe mit Treppe, Wasser und Gras-Kacheln und abgeleiteter Kollision wird gebaut und in eine Matrix gesetzt. Sie ist in `g4emu` und melonDS begehbar, auf Platin DE und HeartGold DE: Treppe (`expect-height`), Wand (`walk-until-blocked`), Gras (`expect-battle`), Außenkarte bei Tag und Nacht richtig beleuchtet. Unveränderte Projekte bauen byte-gleich, `vanilla_checks` 0 Fehler, `scripts/gate.sh` grün, DSPRE öffnet die Karte (Hand).
 
 Nicht in Phase 6 (Entscheidungen, die Liste gilt wörtlich): Brücken und zwei Ebenen an einer Stelle; Höhe je Ecke; diagonale Rampen; Richtungssperren; eigene Texturpakete und Gebietsdaten anlegen; Texturen ersetzen oder löschen; A3I5, A5I3, 256 Farben, 4 × 4 und direkte Texturen schreiben; Vanilla-NSBMD zurück ins Raster; Vanilla-Teilmodelle herauslösen; `.bdhcam`, `.pdsmap`, `.pdsts`; Tiled-Erweiterung; Automapping; Matrix-weites Weltdokument; Textur- und Wasseranimation; Kamera und Licht je Karte; Gebäude-Modelle schreiben; Kampfsprites schreiben (eigener Posten nach 6.5a); Stadtkarte und Flugziele; Git LFS.
@@ -395,7 +397,7 @@ Das Design-System „Doppeldeck“ ([design-system/README.md](../design-system/R
 - Flags und Variablen (3d.1; die Fläche seit 3d.6 im Bereich Geschichten) sowie Geschichten und Story-Graph: 3d.6 umgesetzt (lesen; Branch `phase-3d-6-geschichten-lesen`, [phase-3d-6-gate.md](phase-3d-6-gate.md)), 3d.7 umgesetzt (erzählen, [phase-3d-7-gate.md](phase-3d-7-gate.md)); bis zur Spezifikation 3b.4 standen sie bei 3b.4, der Atlas-Eintrag „Geschichten“ sagte von 3b.4a bis 3d.6 „Kommt mit Phase 3d“.
 - Prüfen und Bauen mit Build-Schritten (4.2) und Veröffentlichen (4.1a; der Assistent mit Version und Notizen und „Stand sichern“ sind mit der Zwischenphase 4.5 umgesetzt, Gate vom Agenten bestanden, auf main); Spielmodus live (Live-Flags, bernsteinfarbenes Scharnier): 3d.9 umgesetzt (Branch `phase-3d-9-spielmodus-live`, [phase-3d-9-gate.md](phase-3d-9-gate.md); nur macOS, Haltepunkte durch Abfrage statt `Z`-Pakete).
 - Plugins im Bereich Technik (Phase 5).
-- Gelände malen, Höhen-Overlay, Draufsicht-Kamera und Overlay-Muster (Phase 6).
+- Gelände malen, Höhen-Overlay, Draufsicht-Kamera und Overlay-Muster (Phase 6): das Höhen-Overlay (Schicht „Höhen“, sieben cividis-Stufen, Isolinien) ist mit 6.2 umgesetzt (Branch `phase-6-2-bdhc`, [phase-6-2-gate.md](phase-6-2-gate.md)); Malen und Kamera kommen mit 6.4a, die Muster mit 6.4b.
 
 Aus Phase 3b.3 (Spec 3b.3 §1, „Später“; die Tabelle gilt wörtlich, damit der Umfang nicht wandert):
 
