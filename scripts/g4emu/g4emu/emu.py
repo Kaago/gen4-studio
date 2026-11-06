@@ -59,10 +59,14 @@ def game_code(rom: Path) -> str:
     return raw.decode("ascii", errors="replace")
 
 
-def bgrx_to_image(data: bytes | memoryview, width: int, height: int) -> Image.Image:
-    """Convert a BGRX (XRGB8888 little endian) buffer, possibly with row padding, to an RGB image."""
+def frame_to_image(data: bytes | memoryview, width: int, height: int) -> Image.Image:
+    """Convert a frame of the core, possibly with row padding, to an RGB image.
+
+    The core reports XRGB8888 but hands the bytes over in RGB order (R, G, B, X), so the raw
+    mode is RGBX. Until 6.2 this read BGRX: pictures made before swap red and blue.
+    `frombytes`, not `frombuffer`: Pillow maps an RGBX buffer as is and keeps the mode RGBX."""
     stride = len(data) // height
-    return Image.frombuffer("RGB", (width, height), bytes(data), "raw", "BGRX", stride, 1)
+    return Image.frombytes("RGB", (width, height), bytes(data), "raw", "RGBX", stride, 1)
 
 
 class _LibretroEmu:
@@ -115,7 +119,7 @@ class _LibretroEmu:
             return
         if shot.pixel_format.name != "XRGB8888":
             raise EmuError(f"Unbekanntes Pixelformat {shot.pixel_format.name}")
-        bgrx_to_image(shot.data, shot.width, shot.height).save(path, format="PNG")
+        frame_to_image(shot.data, shot.width, shot.height).save(path, format="PNG")
 
     def save_state(self, path: Path) -> None:
         buf = bytearray(self._session.core.serialize_size())
