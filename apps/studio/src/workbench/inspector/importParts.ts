@@ -17,7 +17,7 @@ export const PART_NAME: Record<MapPart, string> = {
  * The German sentence of every code the part checks give (`g4_kernel::map_import::PartCode`; the Rust test
  * `commands::map_import::tests::every_part_code_has_its_german_sentence` holds this list against `PartCode::ALL`): an error or a warning
  * with its way out, a hint as a note. In a sentence `{n}` is argument n as the kernel gives it, `{n:num}` a number in German digits
- * („65.000“), `{n:family}` a game family.
+ * („65.000“), `{n:family}` a game family, `{n:ignored}` the parts of a model left out (tokens joined by `,`, each as a German word).
  */
 export const PART_TEXTS: Readonly<Record<string, string>> = {
   "model.invalid": "Die Datei ist kein gültiges NSBMD-Modell ({0}). Wähle ein Kartenmodell im NSBMD-Format.",
@@ -58,19 +58,33 @@ export const PART_TEXTS: Readonly<Record<string, string>> = {
   "model.uv-missing": "Flächen mit dem Material „{0}“ haben keine Texturkoordinaten. Exportiere das Modell mit UV.",
   "model.out-of-range": "Eine Ecke liegt bei ({0}, {1}, {2}), außerhalb von {3} bis {4} Einheiten. Verkleinere das Modell oder wähle eine kleinere Einheit.",
   "model.faces-dropped": "{0:num} Flächen fallen weg: nach dem Runden auf ganze Einheiten haben sie keine Fläche mehr.",
+  "model.parts-ignored": "Nicht übernommen: {0:ignored}.",
   "texture.unreadable": "Das Bild {0} lässt sich nicht lesen ({1}). Wähle ein PNG.",
 };
 
 const FAMILY_WORDS: Readonly<Record<string, string>> = { Pt: "Platin", Hgss: "HeartGold/SoulSilver", Dp: "Diamant/Perl" };
 
+/** The German word of each token of `model.parts-ignored` (an unknown token stays as it is). */
+const IGNORED_WORDS: Readonly<Record<string, string>> = {
+  lines: "Linien",
+  points: "Punkte",
+  animations: "Animationen",
+  skins: "Skelette",
+  cameras: "Kameras",
+  lights: "Lichter",
+  "vertex-colours": "Eckenfarben",
+  "texture-options": "Texturoptionen",
+};
+
 /** What a part check says, as the dialog shows it: the German sentence of its code; the kernel's (English) sentence for a code it does not know. */
 export function partText({ code, args, message }: PartMessage): string {
   const text = PART_TEXTS[code];
   if (text === undefined) return message;
-  return text.replace(/\{(\d+)(?::(num|family))?\}/g, (_, n: string, format?: string) => {
+  return text.replace(/\{(\d+)(?::(num|family|ignored))?\}/g, (_, n: string, format?: string) => {
     const value = args[Number(n)] ?? "";
     if (format === "num" && /^\d+$/.test(value)) return Number(value).toLocaleString("de-DE");
     if (format === "family") return FAMILY_WORDS[value] ?? value;
+    if (format === "ignored") return value.split(",").map((token) => IGNORED_WORDS[token] ?? token).join(", ");
     return value;
   });
 }

@@ -168,13 +168,17 @@ pub enum PartCode {
     ModelOutOfRange,
     /// Hint, args: how many faces have no area once rounded to whole world units (dropped).
     ModelFacesDropped,
+    /// Hint, args: what of the model is not taken over, as tokens joined by `,` (`lines`,
+    /// `points`, `animations`, `skins`, `cameras`, `lights`, `vertex-colours`,
+    /// `texture-options`; in that order, each once).
+    ModelPartsIgnored,
     /// Error, args: the image file as the model writes it, the decoder's reason.
     TextureUnreadable,
 }
 
 impl PartCode {
     /// Every code, in the order above.
-    pub const ALL: [PartCode; 39] = [
+    pub const ALL: [PartCode; 40] = [
         PartCode::ModelInvalid,
         PartCode::ModelBlocks,
         PartCode::ModelCount,
@@ -213,6 +217,7 @@ impl PartCode {
         PartCode::ModelUvMissing,
         PartCode::ModelOutOfRange,
         PartCode::ModelFacesDropped,
+        PartCode::ModelPartsIgnored,
         PartCode::TextureUnreadable,
     ];
 
@@ -257,6 +262,7 @@ impl PartCode {
             PartCode::ModelUvMissing => "model.uv-missing",
             PartCode::ModelOutOfRange => "model.out-of-range",
             PartCode::ModelFacesDropped => "model.faces-dropped",
+            PartCode::ModelPartsIgnored => "model.parts-ignored",
             PartCode::TextureUnreadable => "texture.unreadable",
         }
     }
@@ -1582,6 +1588,7 @@ mod tests {
             ModelUvMissing,
             ModelOutOfRange,
             ModelFacesDropped,
+            ModelPartsIgnored,
             TextureUnreadable,
         ];
         let mut all: HashSet<PartCode> = seen.clone();

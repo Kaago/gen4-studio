@@ -44,9 +44,9 @@ describe("importParts", () => {
   });
 
   it("covers_every_part_code_of_the_kernel_and_says_a_broken_terrain_structure", () => {
-    // `PartCode::ALL` has 39 codes; the Rust test holds the order against it.
+    // `PartCode::ALL` has 40 codes; the Rust test holds the order against it.
     const codes = Object.keys(PART_TEXTS);
-    expect(codes).toHaveLength(39);
+    expect(codes).toHaveLength(40);
     expect(codes).toContain("bdhc.structure");
     expect(said("bdhc.structure", ["plate 0 names point 99, past the 2 points"])).toBe(
       "Das Terrain ist beschädigt (plate 0 names point 99, past the 2 points). Wähle eine unbeschädigte .bdhc-Datei.",
@@ -72,6 +72,14 @@ describe("importParts", () => {
     );
     expect(said("texture.unreadable", ["g4_imp_cube.png", "invalid signature"])).toBe(
       "Das Bild g4_imp_cube.png lässt sich nicht lesen (invalid signature). Wähle ein PNG.",
+    );
+  });
+
+  it("words_the_parts_a_model_leaves_out", () => {
+    expect(said("model.parts-ignored", ["lines,animations"])).toBe("Nicht übernommen: Linien, Animationen.");
+    expect(said("model.parts-ignored", ["texture-options"])).toBe("Nicht übernommen: Texturoptionen.");
+    expect(said("model.parts-ignored", ["lines,points,animations,skins,cameras,lights,vertex-colours,texture-options"])).toBe(
+      "Nicht übernommen: Linien, Punkte, Animationen, Skelette, Kameras, Lichter, Eckenfarben, Texturoptionen.",
     );
   });
 

@@ -8,7 +8,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 use super::mesh::{Mesh, MeshImage, MeshMaterial, Polygon};
-use super::{SourceFormat, decode_image, resolve_inside, source_unreadable};
+use super::{SourceFormat, decode_image, parts_ignored, resolve_inside, source_unreadable};
 use crate::map_import::{PartCode, PartMessage};
 
 /// A material library as loaded: its folder (images are relative to it) and how many
@@ -19,9 +19,10 @@ struct Library {
 }
 
 /// The mesh of the OBJ at `path`, its materials with their images (only those a face uses, in
-/// the order of first use); no notes yet. Refuses with `model.source-unreadable` (OBJ or MTL
-/// unreadable), `model.file-missing`, `model.file-outside` (a material library or image) or
-/// `texture.unreadable`.
+/// the order of first use); the note model.parts-ignored `texture-options` when a used
+/// material's `map_Kd` has options (they are not applied). Refuses with
+/// `model.source-unreadable` (OBJ or MTL unreadable), `model.file-missing`,
+/// `model.file-outside` (a material library or image) or `texture.unreadable`.
 ///
 /// OBJ: v up is t down (`t = 1 − v`); quads and n-gons stay as written (`face_arities` empty
 /// means triangles only); points and lines are left out. The models `tobj` splits the file
@@ -110,6 +111,7 @@ pub(crate) fn read_obj(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMess
     let mut mesh = Mesh::default();
     // tobj material index → index in `mesh.materials`, given on first use.
     let mut used: Vec<Option<usize>> = vec![None; materials.len()];
+    let mut options_ignored = false;
     for model in &models {
         let m = &model.mesh;
         let material = match m.material_id {
@@ -118,8 +120,9 @@ pub(crate) fn read_obj(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMess
                     Some(index) => index,
                     None => {
                         let folder = folder_of(&libraries, id).unwrap_or(root.as_path());
-                        mesh.materials
-                            .push(material_of(&materials[id], &root, folder)?);
+                        let (material, had_options) = material_of(&materials[id], &root, folder)?;
+                        options_ignored |= had_options;
+                        mesh.materials.push(material);
                         let index = mesh.materials.len() - 1;
                         used[id] = Some(index);
                         index
@@ -131,7 +134,12 @@ pub(crate) fn read_obj(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMess
         };
         append_model(&mut mesh, m, material).map_err(|reason| unreadable(&reason))?;
     }
-    Ok((mesh, Vec::new()))
+    let notes = if options_ignored {
+        parts_ignored(&["texture-options"]).into_iter().collect()
+    } else {
+        Vec::new()
+    };
+    Ok((mesh, notes))
 }
 
 /// The name the library of the `usemtl` names is asked for by (only its first load counts).
@@ -234,15 +242,18 @@ fn folder_of(libraries: &[Library], id: usize) -> Option<&Path> {
     None
 }
 
-/// A material with its image (`map_Kd`, relative to the folder of its library).
+/// A material with its image (`map_Kd`, relative to the folder of its library), and whether
+/// the `map_Kd` had options in front of the file.
 fn material_of(
     material: &tobj::Material,
     root: &Path,
     folder: &Path,
-) -> Result<MeshMaterial, PartMessage> {
+) -> Result<(MeshMaterial, bool), PartMessage> {
+    let mut had_options = false;
     let image = match &material.diffuse_texture {
         Some(texture) => {
-            let written = texture_file(texture);
+            let (written, options) = texture_file(texture);
+            had_options = options;
             let file = resolve_inside(root, folder, written)?;
             let bytes = std::fs::read(&file).map_err(|e| {
                 let reason = e.to_string();
@@ -265,20 +276,22 @@ fn material_of(
         }
         None => None,
     };
-    Ok(MeshMaterial {
+    let material = MeshMaterial {
         name: material.name.clone(),
         image,
-    })
+    };
+    Ok((material, had_options))
 }
 
-/// The file of a `map_Kd` value: with options in front (`-s 1 1 1 bild.png`) the last word,
-/// else all of it (a file name may hold spaces). The options themselves are not applied.
-fn texture_file(value: &str) -> &str {
+/// The file of a `map_Kd` value and whether options stood in front: with options
+/// (`-s 1 1 1 bild.png`) the last word, else all of it (a file name may hold spaces). The
+/// options themselves are not applied.
+fn texture_file(value: &str) -> (&str, bool) {
     let value = value.trim();
     if value.starts_with('-') {
-        value.split_whitespace().last().unwrap_or(value)
+        (value.split_whitespace().last().unwrap_or(value), true)
     } else {
-        value
+        (value, false)
     }
 }
 
@@ -549,16 +562,25 @@ mod tests {
         // Inside stays allowed: a subfolder, `..` back into the folder, options before the file.
         std::fs::create_dir(root.join("tex")).unwrap();
         std::fs::copy(root.join("g4_imp_cube.png"), root.join("tex/stein.png")).unwrap();
-        for (line, stem) in [
-            ("map_Kd tex/../g4_imp_cube.png", "g4_imp_cube"),
-            ("map_Kd tex\\stein.png", "stein"),
-            ("map_Kd -s 1 1 1 g4_imp_cube.png", "g4_imp_cube"),
-            ("map_Kd -blendu on -o 0 0 tex/stein.png", "stein"),
+        for (line, stem, options) in [
+            ("map_Kd tex/../g4_imp_cube.png", "g4_imp_cube", false),
+            ("map_Kd tex\\stein.png", "stein", false),
+            ("map_Kd -s 1 1 1 g4_imp_cube.png", "g4_imp_cube", true),
+            ("map_Kd -blendu on -o 0 0 tex/stein.png", "stein", true),
         ] {
             std::fs::write(&mtl, format!("newmtl g4_imp_cube_mat\n{line}\n")).unwrap();
-            let (mesh, _) = read_obj(&obj).unwrap();
+            let (mesh, notes) = read_obj(&obj).unwrap();
             let image = mesh.materials[0].image.as_ref().unwrap();
             assert_eq!(image.stem, stem, "{line}");
+            // Options in front of the file are not applied: the hint says so, once.
+            let expected: Vec<(PartCode, Vec<String>)> = if options {
+                vec![(PartCode::ModelPartsIgnored, vec!["texture-options".into()])]
+            } else {
+                Vec::new()
+            };
+            let got: Vec<(PartCode, Vec<String>)> =
+                notes.into_iter().map(|n| (n.code, n.args)).collect();
+            assert_eq!(got, expected, "{line}");
         }
     }
 

@@ -2,6 +2,7 @@
 //! [`mesh::to_faces`] turns it into the faces of the baker (`bake::Face`).
 
 pub mod mesh;
+mod read_gltf;
 mod read_obj;
 pub mod samples;
 
@@ -101,17 +102,45 @@ impl SourceFormat {
 pub fn read_model(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMessage> {
     match SourceFormat::of(path) {
         Some(SourceFormat::Obj) => read_obj::read_obj(path),
-        // The glTF reader comes with its own task; until then a glTF file is refused.
-        Some(SourceFormat::Gltf) => Err(source_unreadable(
-            SourceFormat::Gltf,
-            "the glTF reader is not built in yet",
-        )),
+        Some(SourceFormat::Gltf) => read_gltf::read_gltf(path),
         None => Err(PartMessage::new(
             PartCode::ModelSourceUnreadable,
             &[&"OBJ/glTF", &"unknown file extension"],
             format!("{} is neither an OBJ nor a glTF file", path.display()),
         )),
     }
+}
+
+/// The tokens of model.parts-ignored in the order the hint lists them.
+pub(crate) const IGNORED_PARTS: [&str; 8] = [
+    "lines",
+    "points",
+    "animations",
+    "skins",
+    "cameras",
+    "lights",
+    "vertex-colours",
+    "texture-options",
+];
+
+/// model.parts-ignored with the tokens of `found` (each once, in the order of
+/// [`IGNORED_PARTS`], joined by `,`); `None` when nothing was left out. Unknown tokens are
+/// dropped (a reader's bug, never a wrong sentence).
+pub(crate) fn parts_ignored(found: &[&str]) -> Option<PartMessage> {
+    let tokens: Vec<&str> = IGNORED_PARTS
+        .iter()
+        .copied()
+        .filter(|t| found.contains(t))
+        .collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    let list = tokens.join(",");
+    Some(PartMessage::new(
+        PartCode::ModelPartsIgnored,
+        &[&list],
+        format!("not taken over: {}", tokens.join(", ")),
+    ))
 }
 
 /// `model.source-unreadable` with the format's label and the reason.
@@ -333,6 +362,19 @@ mod tests {
         assert_eq!(SourceFormat::of(Path::new("obj")), None);
         assert_eq!(SourceFormat::Obj.label(), "OBJ");
         assert_eq!(SourceFormat::Gltf.label(), "glTF");
+    }
+
+    #[test]
+    fn parts_ignored_lists_each_token_once_in_order() {
+        assert_eq!(parts_ignored(&[]), None);
+        assert_eq!(parts_ignored(&["unknown"]), None);
+        let m = parts_ignored(&["texture-options", "animations", "lines", "animations"]).unwrap();
+        assert_eq!(m.code, PartCode::ModelPartsIgnored);
+        assert_eq!(m.args, ["lines,animations,texture-options"]);
+        assert_eq!(
+            m.message,
+            "not taken over: lines, animations, texture-options"
+        );
     }
 
     fn bake_message(code: BakeCode, args: &[&str]) -> BakeMessage {
