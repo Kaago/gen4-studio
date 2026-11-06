@@ -395,7 +395,8 @@ mod tests {
         (
             any::<u16>(),
             grid_of(token_of_tile()),
-            grid_of((-16i8..=62).prop_map(|h| h.to_string())),
+            // Up to 60, so every ramp (at most 2 steps) ends at 62 at most.
+            grid_of((-16i8..=60).prop_map(|h| h.to_string())),
             proptest::option::of(grid_of(token_of_ramp())),
             proptest::option::of(grid_of(token_of_tile())),
             proptest::option::of(grid_of(token_of_override())),

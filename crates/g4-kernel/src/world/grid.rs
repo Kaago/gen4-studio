@@ -188,6 +188,9 @@ impl WorldGrid {
                 }
             }
         }
+        if let (Some(heights), Some(ramps)) = (&heights, &ramps) {
+            ramp_tops(heights, ramps, &mut errors);
+        }
         let overrides = permissions(world, &mut errors);
         for (i, piece) in world.pieces.iter().enumerate() {
             if !PIECE_TURNS.contains(&piece.rotate) {
@@ -232,6 +235,46 @@ impl WorldGrid {
             _ => Err(errors.0),
         }
     }
+}
+
+/// Notes every row of the ground's ramps with a cell whose ramp ends above [`HEIGHT_MAX`]
+/// (height `h` and `s` steps need `h + s ≤ 62`), its first such cell like a token error.
+fn ramp_tops(heights: &[i8], ramps: &[Ramp], errors: &mut Errors) {
+    for z in 0..MAP_SIZE {
+        let top = (0..MAP_SIZE).find_map(|x| {
+            let c = z * MAP_SIZE + x;
+            let steps = ramp_steps(ramps[c]);
+            (steps > 0 && i16::from(heights[c]) + i16::from(steps) > i16::from(HEIGHT_MAX))
+                .then_some((x, heights[c], steps))
+        });
+        if let Some((x, h, steps)) = top {
+            let steps = if steps == 1 {
+                "1 Stufe".to_owned()
+            } else {
+                format!("{steps} Stufen")
+            };
+            errors.push(
+                format!("world.layers[0].ramps[{z}]"),
+                format!("Zelle {x}: Die Rampe endet über {HEIGHT_MAX} (Höhe {h}, {steps})."),
+            );
+        }
+    }
+}
+
+/// The steps of `ramp` (0 without one).
+fn ramp_steps(ramp: Ramp) -> u8 {
+    match ramp {
+        Ramp::None => 0,
+        Ramp::North(s) | Ramp::East(s) | Ramp::South(s) | Ramp::West(s) => s,
+    }
+}
+
+/// The cell of a row error of [`WorldGrid::parse`] (its message starts `Zelle {x}: `), `None`
+/// for an error of the whole row or of no row.
+pub fn error_cell(e: &WorldError) -> Option<usize> {
+    let rest = e.message.strip_prefix("Zelle ")?;
+    let (x, _) = rest.split_once(": ")?;
+    x.parse().ok().filter(|&x| x < MAP_SIZE)
 }
 
 /// The 1024 overrides of `world` (all `None` without `override`); without `derive` every cell
@@ -787,6 +830,78 @@ mod tests {
         assert_eq!(
             format!("{}", WorldGrid::parse(&world(Vec::new())).unwrap_err()[0]),
             format!("world.layers: {ground_rule}")
+        );
+    }
+
+    #[test]
+    fn a_ramp_must_end_at_62_at_most() {
+        let mut w = world(vec![ground()]);
+        let mut heights = rows("0");
+        heights[3] = row("61");
+        heights[5] = row("62");
+        w.layers[0].heights = Some(heights.clone());
+        let mut ramps = rows(".");
+        // Row 3: 61 + 1 is 62, fine; 61 + 2 is not.
+        ramps[3] = set_token(&set_token(&row("."), 0, "n1").unwrap(), 4, "e2").unwrap();
+        ramps[5] = set_token(&row("."), 7, "s1").unwrap();
+        w.layers[0].ramps = Some(ramps);
+        let errors = WorldGrid::parse(&w).expect_err("ramps end above 62");
+        assert_eq!(
+            errors
+                .iter()
+                .map(|e| (e.path.as_str(), e.message.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "world.layers[0].ramps[3]",
+                    "Zelle 4: Die Rampe endet über 62 (Höhe 61, 2 Stufen)."
+                ),
+                (
+                    "world.layers[0].ramps[5]",
+                    "Zelle 7: Die Rampe endet über 62 (Höhe 62, 1 Stufe)."
+                ),
+            ]
+        );
+        assert_eq!(
+            errors.iter().map(error_cell).collect::<Vec<_>>(),
+            [Some(4), Some(7)]
+        );
+    }
+
+    #[test]
+    fn error_cell_reads_the_cell_of_a_token_error() {
+        let e = |path: &str, message: &str| WorldError {
+            path: path.to_owned(),
+            message: message.to_owned(),
+        };
+        assert_eq!(
+            error_cell(&e(
+                "world.layers[0].tiles[4]",
+                "Zelle 12: `00g2` ist keine Kachel."
+            )),
+            Some(12)
+        );
+        assert_eq!(
+            error_cell(&e("world.layers[0].tiles[4]", "31 Zellen statt 32.")),
+            None
+        );
+        assert_eq!(
+            error_cell(&e(
+                "world.version",
+                "Version 2 kennt diese Fassung nicht (1)."
+            )),
+            None
+        );
+        assert_eq!(error_cell(&e("x", "Zelle 40: zu weit.")), None);
+        let w = {
+            let mut w = world(vec![ground()]);
+            w.layers[0].tiles[4] = set_token(&row("0000"), 12, "00g2").unwrap();
+            w
+        };
+        let errors = WorldGrid::parse(&w).unwrap_err();
+        assert_eq!(
+            errors.iter().map(error_cell).collect::<Vec<_>>(),
+            [Some(12)]
         );
     }
 

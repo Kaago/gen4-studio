@@ -685,7 +685,7 @@ fn argmax(values: &[f64]) -> usize {
 }
 
 /// „Kartentextur-Paket 0200 gibt es nicht (74 Pakete).“
-fn missing_package(package: u16, count: usize) -> KernelError {
+pub(crate) fn missing_package(package: u16, count: usize) -> KernelError {
     let count = if count == 1 {
         "1 Paket".to_owned()
     } else {

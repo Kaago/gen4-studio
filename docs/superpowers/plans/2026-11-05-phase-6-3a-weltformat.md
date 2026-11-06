@@ -410,9 +410,9 @@ pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError>;
 
 `world.tileset-mismatch` (Warnung): „Karte 0123 nimmt Tileset 0006, ihr Header 0411 nennt Gebietsdaten mit Paket 0007.“ (je abweichendem Header einmal). Zeile und Spalte über `locate::position` mit dem Pfad `world.…`.
 
-- [ ] **Step 1: Scheiternde Tests** (Fixture wie Task 6, Tileset-Datei aus `Tileset::synthetic()`): `schema_problems_name_path_and_line` (Datei mit `00g2` in Zeile 12 der Datei: `world.schema`, Zeile und Spalte des Tokens), `tiles_past_the_tileset_are_schema_errors`, `a_header_with_another_package_warns` (Fixture: Gebietsdaten 1 auf Paket 1 umgestellt), `every_world_map_is_not_baked`, `budget_is_an_info_with_faces_and_textures` (`one_tile_world` → „Geschätzt höchstens 1 680 Byte (3 % von 0xF000) aus 1 Fläche und 1 Textur.“), `the_import_skips_a_broken_world_map_with_its_problem`.
-- [ ] **Step 2: Lauf** → FAIL; **Step 3: Umsetzen**; **Step 4: Lauf** → PASS.
-- [ ] **Step 5: Commit** `feat(world): checks world.schema, tileset-mismatch, not-baked and budget in the text project check` (mit Trailer).
+- [x] **Step 1: Scheiternde Tests** (Fixture wie Task 6, Tileset-Datei aus `Tileset::synthetic()`): `schema_problems_name_path_and_line` (Datei mit `00g2` in Zeile 12 der Datei: `world.schema`, Zeile und Spalte des Tokens), `tiles_past_the_tileset_are_schema_errors`, `a_header_with_another_package_warns` (Fixture: Gebietsdaten 1 auf Paket 1 umgestellt), `every_world_map_is_not_baked`, `budget_is_an_info_with_faces_and_textures` (`one_tile_world` → „Geschätzt höchstens 1 680 Byte (3 % von 0xF000) aus 1 Fläche und 1 Textur.“), `the_import_skips_a_broken_world_map_with_its_problem`.
+- [x] **Step 2: Lauf** → FAIL; **Step 3: Umsetzen**; **Step 4: Lauf** → PASS.
+- [x] **Step 5: Commit** `feat(world): checks world.schema, tileset-mismatch, not-baked and budget in the text project check` (mit Trailer).
 
 ### Task 8: Gated: Round-Trip, Export idempotent und Migration mit einer Welt-Karte
 

@@ -943,6 +943,11 @@ fn plan_entities<E: EntitySchema>(
             // already counts them; they are not read.
             continue;
         }
+        if art == Art::Maps && world_broken(project, &file, plan)? {
+            // Not imported, like an entity that fails to import.
+            next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
+            continue;
+        }
         let cur: Vec<Option<Vec<u8>>> = current
             .iter()
             .map(|c| c.bytes(n))
@@ -998,6 +1003,22 @@ fn plan_entities<E: EntitySchema>(
         }
     }
     Ok(())
+}
+
+/// Whether the map file `file` is a world map with a `world.schema` error (its errors then in
+/// the plan): such a map is not imported. A file that does not read is `import_entity`'s.
+fn world_broken(
+    project: &Project,
+    file: &Path,
+    plan: &mut ImportPlan,
+) -> Result<bool, KernelError> {
+    let Ok(bytes) = std::fs::read(project.root.join(file)) else {
+        return Ok(false);
+    };
+    let found = crate::world::check::map_schema_problems(project, file, &bytes)?;
+    let broken = !found.is_empty();
+    plan.problems.extend(found);
+    Ok(broken)
 }
 
 /// Entity `n` of file `file` read, parsed and imported against its current members `cur`;
@@ -2688,5 +2709,64 @@ mod tests {
                 "{found:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_import_skips_a_broken_world_map_with_its_problem() {
+        use crate::world::check::WORLD_SCHEMA_CODE;
+        use crate::world::doc::fixtures;
+        use crate::world::grid::set_token;
+
+        let (_s, p) = exported();
+        // Map 0 a world map with `00g2` in row 4, map 1 binary; both with a permission cell
+        // changed.
+        let mut world = fixtures::one_tile_world();
+        world.layers[0].tiles[4] = set_token(&world.layers[0].tiles[4], 3, "00g2").unwrap();
+        for (n, world) in [(0, Some(&world)), (1, None)] {
+            let rel = format!("data/maps/{n:04}.json");
+            let mut v: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(p.root.join(&rel)).unwrap()).unwrap();
+            let row = v["permissions"][0].as_str().unwrap().to_owned();
+            v["permissions"][0] = set_token(&row, 0, "0180").unwrap().into();
+            if let Some(world) = world {
+                v["source"] = "world".into();
+                v["world"] = serde_json::to_value(world).unwrap();
+            }
+            write_to(&p, &rel, &serde_json::to_vec_pretty(&v).unwrap());
+        }
+        let (plan, _) = plan(&p, None);
+        let schema: Vec<&Problem> = plan
+            .problems
+            .iter()
+            .filter(|p| p.message.starts_with(WORLD_SCHEMA_CODE))
+            .collect();
+        assert_eq!(schema.len(), 1, "{:#?}", plan.problems);
+        assert_eq!(schema[0].file, Path::new("data/maps/0000.json"));
+        assert_eq!(schema[0].severity, Severity::Error);
+        assert!(
+            schema[0]
+                .message
+                .starts_with("world.schema: world.layers[0].tiles[4]: Zelle 3: `00g2`"),
+            "{schema:#?}"
+        );
+        // Map 1 is planned, map 0 is not.
+        let written: Vec<PathBuf> = plan.writes.iter().map(|w| slash(&w.path)).collect();
+        assert!(
+            written.contains(&slash(&member_rel(&p, AssetKind::Map, 1))),
+            "{written:?}"
+        );
+        assert!(
+            !written.contains(&slash(&member_rel(&p, AssetKind::Map, 0))),
+            "{written:?}"
+        );
+
+        // The check shows the problem once.
+        let report = crate::textproject::check::check(&p).unwrap();
+        let shown = report
+            .problems
+            .iter()
+            .filter(|p| p.message.starts_with(WORLD_SCHEMA_CODE))
+            .count();
+        assert_eq!(shown, 1, "{:#?}", report.problems);
     }
 }

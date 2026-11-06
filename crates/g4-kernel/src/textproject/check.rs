@@ -51,7 +51,10 @@ pub fn check(project: &Project) -> Result<CheckReport, KernelError> {
     let plan = plan_import(project, &base, None)?;
     let mut problems = plan.problems.clone();
     if let Ok(manifest) = read_manifest(&project.root) {
-        problems.extend(hints(project, &manifest)?);
+        // A world map the import skips has its `world.schema` errors in the plan and in the
+        // hints: each shows once.
+        let found = hints(project, &manifest)?;
+        problems.extend(found.into_iter().filter(|h| !plan.problems.contains(h)));
     }
     problems.extend(shadowed(project)?);
     Ok(CheckReport {
@@ -105,7 +108,8 @@ pub fn sources(project: &Project) -> Result<Vec<PathBuf>, KernelError> {
 /// manifest keys in use (in `schemas` only keys this Studio does not write, see
 /// [`super::kinds::schemas`]), register entries whose
 /// number is gone, and the problems of the data kinds' files (a story's id that names nothing
-/// is the warning `story.dangling-ref`, never an error).
+/// is the warning `story.dangling-ref`, never an error), and the problems of the world maps
+/// ([`world_problems`](crate::world::check::world_problems)).
 pub(crate) fn hints(project: &Project, manifest: &Manifest) -> Result<Vec<Problem>, KernelError> {
     let mut hints = Vec::new();
     let data = project.root.join(DATA_DIR);
@@ -160,6 +164,7 @@ pub(crate) fn hints(project: &Project, manifest: &Manifest) -> Result<Vec<Proble
         dangling(project, kind, &mut hints)?;
     }
     hints.extend(super::kinds::check_files(project, manifest)?);
+    hints.extend(crate::world::check::world_problems(project)?);
     Ok(hints)
 }
 

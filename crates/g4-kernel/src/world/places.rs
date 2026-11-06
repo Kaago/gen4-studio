@@ -33,15 +33,35 @@ pub fn maps_of_packages(store: &mut Store) -> Result<BTreeMap<u16, Vec<u16>>, Ke
         .collect())
 }
 
-/// Per package the maps the headers on it show (only `only` when given): a header shows the
-/// maps of its matrix in the cells that are its own (every cell of a matrix without a header
-/// table); its area data names the package. A header whose matrix is past the archive or
-/// whose area data is shows nothing, as does an empty cell ([`MATRIX_EMPTY`]) or a map past
-/// the map archive.
+/// Every header whose matrix shows `map`, with the package its area data names, by header
+/// (the rule of [`packs_of_map`], one entry per header instead of per package).
+pub fn headers_of_map(store: &mut Store, map: u16) -> Result<Vec<(u16, u16)>, KernelError> {
+    Ok(shows(store, Some(map))?
+        .into_iter()
+        .filter(|(_, _, maps)| maps.contains(&map))
+        .map(|(header, pack, _)| (u16::try_from(header).unwrap_or(u16::MAX), pack))
+        .collect())
+}
+
+/// Per package the maps the headers on it show (only `only` when given).
 fn shown_maps(
     store: &mut Store,
     only: Option<u16>,
 ) -> Result<BTreeMap<u16, BTreeSet<u16>>, KernelError> {
+    let mut shown: BTreeMap<u16, BTreeSet<u16>> = BTreeMap::new();
+    for (_, pack, maps) in shows(store, only)? {
+        shown.entry(pack).or_default().extend(maps);
+    }
+    Ok(shown)
+}
+
+/// Per header that shows a map (only `only` when given) its number, its package and the maps
+/// it shows, by header: a header shows the
+/// maps of its matrix in the cells that are its own (every cell of a matrix without a header
+/// table); its area data names the package. A header whose matrix is past the archive or
+/// whose area data is shows nothing, as does an empty cell ([`MATRIX_EMPTY`]) or a map past
+/// the map archive.
+fn shows(store: &mut Store, only: Option<u16>) -> Result<Vec<(usize, u16, Vec<u16>)>, KernelError> {
     let headers: Vec<(usize, u16, u8)> = store
         .header_table()?
         .iter()
@@ -51,7 +71,7 @@ fn shown_maps(
     let matrices = store.member_count(AssetKind::Matrix)?;
     let maps = store.member_count(AssetKind::Map)?;
     let mut packs: BTreeMap<u8, Option<u16>> = BTreeMap::new();
-    let mut shown: BTreeMap<u16, BTreeSet<u16>> = BTreeMap::new();
+    let mut shown = Vec::new();
     for (header, matrix, area) in headers {
         if usize::from(matrix) >= matrices {
             continue;
@@ -81,7 +101,7 @@ fn shown_maps(
             }
         };
         if let Some(pack) = pack {
-            shown.entry(pack).or_default().extend(found);
+            shown.push((header, pack, found));
         }
     }
     Ok(shown)
@@ -152,6 +172,25 @@ mod tests {
             })
             .unwrap();
         assert_eq!(packs_of_map(&mut store, 1).unwrap(), [0]);
+    }
+
+    #[test]
+    fn headers_of_map_names_each_header_with_its_package() {
+        let (_synth, mut store) = store_with(None);
+        assert_eq!(headers_of_map(&mut store, 0).unwrap(), [(0, 0), (1, 2)]);
+        assert_eq!(
+            headers_of_map(&mut store, 2).unwrap(),
+            Vec::<(u16, u16)>::new()
+        );
+        let (_synth, mut store) = store_with(Some(Matrix {
+            name: "m".into(),
+            width: 3,
+            height: 1,
+            headers: Some(vec![0, 1, 0]),
+            altitudes: None,
+            maps: vec![0, 1, MATRIX_EMPTY],
+        }));
+        assert_eq!(headers_of_map(&mut store, 1).unwrap(), [(1, 2)]);
     }
 
     #[test]

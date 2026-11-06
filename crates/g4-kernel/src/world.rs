@@ -13,8 +13,11 @@
 //! ramps and footprints to a face list and the budget estimate; `keep.rs` the world object
 //! kept when the map file is written from its member; `edit.rs` „Welt anlegen“
 //! ([`edit::world_create`]) and the changes of cells ([`edit::world_edit`]), each one undo step
-//! on the store's world map asset ([`crate::project::AssetKind::WorldMap`]).
+//! on the store's world map asset ([`crate::project::AssetKind::WorldMap`]); `check.rs` the
+//! checks `world.schema`, `world.tileset-mismatch`, `world.not-baked` and `world.budget` of the
+//! text-project check ([`check::world_problems`]).
 
+pub mod check;
 pub mod doc;
 pub mod edit;
 pub mod grid;
@@ -28,8 +31,8 @@ pub use doc::{
     PieceJson, STEP_UNITS, TILE_UNITS, WORLD_VERSION, WorldJson,
 };
 pub use grid::{
-    GridLayer, Ramp, TileRef, WorldError, WorldGrid, override_token, parse_height, parse_override,
-    parse_ramp, parse_tile, ramp_token, set_token, tile_token,
+    GridLayer, Ramp, TileRef, WorldError, WorldGrid, error_cell, override_token, parse_height,
+    parse_override, parse_ramp, parse_tile, ramp_token, set_token, tile_token,
 };
 pub use places::{maps_of_packages, packs_of_map};
 pub use tileset::{
