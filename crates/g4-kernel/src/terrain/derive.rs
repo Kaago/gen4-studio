@@ -33,8 +33,14 @@ pub fn derive_permissions(
 /// Blocks (`| 0x80`, sound bits kept) the cell with the higher edge of every pair of neighbours
 /// inside the map (each pair once) whose edge heights ([`HeightGrid::edge_units`]) differ by at
 /// least `edge_rule().free_below` units. The map border is no edge: the neighbour map does not
-/// know the derivation. `cells` holds the 1 024 cells, index `y * 32 + x`.
+/// know the derivation. `cells` holds the 1 024 cells, index `y * 32 + x`; a shorter slice is a
+/// caller bug (a debug assertion; in release the cells past its end are skipped).
 pub fn block_edges(grid: &HeightGrid, cells: &mut [Cell]) {
+    debug_assert_eq!(
+        cells.len(),
+        CELLS,
+        "block_edges takes the 1 024 cells of a map"
+    );
     let free_below = edge_rule().free_below;
     for i in 0..CELLS {
         for (side, j) in neighbours(i) {

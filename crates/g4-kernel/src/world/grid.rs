@@ -21,10 +21,9 @@ use g4_formats::bdhc::{self, HeightGrid};
 use g4_formats::map::{Cell, MAP_SIZE};
 
 use super::doc::{HEIGHT_MAX, HEIGHT_MIN, LayerRole, PieceJson, WORLD_VERSION, WorldJson};
+use crate::terrain::EMPTY;
 pub use crate::terrain::{lex_height, lex_ramp};
 
-/// The token of an empty cell (no tile, no ramp, no override).
-const EMPTY: &str = ".";
 /// Cells of one layer.
 const CELLS: usize = MAP_SIZE * MAP_SIZE;
 /// The turns a piece may have, in degrees.
@@ -427,16 +426,10 @@ pub fn parse_ramp(token: &str) -> Result<Ramp, String> {
     }
 }
 
-/// The token of a ramp: `.`, `n1`, `w2`.
+/// The token of a ramp: `.`, `n1`, `w2` (`terrain::ramp_token`, one grammar for both row
+/// formats).
 pub fn ramp_token(r: Ramp) -> String {
-    let (direction, steps) = match r {
-        Ramp::None => return EMPTY.to_owned(),
-        Ramp::North(s) => ('n', s),
-        Ramp::East(s) => ('e', s),
-        Ramp::South(s) => ('s', s),
-        Ramp::West(s) => ('w', s),
-    };
-    format!("{direction}{steps}")
+    crate::terrain::ramp_token(r.into())
 }
 
 /// The height step of a token ([`lex_height`]): a whole number from −16 to 62.

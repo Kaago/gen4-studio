@@ -9,7 +9,7 @@
 //! - [`derive_permissions`]: pattern rule per cell, then [`block_edges`] (every height edge
 //!   inside the map of at least `free_below` units blocks its upper cell); [`apply_overrides`]
 //!   puts hand values last.
-//! - [`lex_height`] / [`lex_ramp`]: the cell grammar of both row formats (these rows and the
+//! - [`lex_height`] / [`lex_ramp`] / [`ramp_token`]: the cell grammar of both row formats (these rows and the
 //!   world document's grid).
 //! - [`map_heights`]: the walk height at every tile centre (highest candidate);
 //!   [`free_steps`]: two-step edges of a BDHC the game lets the player walk up.
@@ -34,9 +34,10 @@ pub use budget::{
 pub use derive::{CellOverride, apply_overrides, block_edges, derive_permissions};
 pub use g4_formats::bdhc::{Direction, HeightGrid, Ramp};
 pub use heights::{FreeStep, free_steps, map_heights};
+pub(crate) use rows::EMPTY;
 pub use rows::{
     GridRows, format_grid, format_kinds, grid_problem_text, lex_height, lex_ramp, parse_grid,
-    parse_kinds,
+    parse_kinds, ramp_token,
 };
 pub use rules::{EdgeRule, KindRule, edge_rule, kind_rule};
 
