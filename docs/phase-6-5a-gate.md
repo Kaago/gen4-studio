@@ -32,9 +32,9 @@ Nach Vorgabe des Nutzers läuft hier nicht `scripts/gate.sh` als Ganzes (das mac
 
 Task 11, 2026-11-06 ab 18:04 auf `90e105b9` (Logs `target/agent/6-5a/t11-<schritt>.log`, Übersicht `t11-summary.log`):
 
-- [x] 1. `cargo deny --locked check licenses advisories`: „advisories ok, licenses ok“ (Last 13,3). Neue Crates im Lockfile gegenüber main: `tobj` 4.0.5 (MIT), `gltf`, `gltf-json`, `gltf-derive` 1.4.1 (MIT OR Apache-2.0), `inflections` 1.1.1 (MIT), `lazy_static` 1.5.1 (MIT OR Apache-2.0); `base64` 0.22.1 war schon im Lockfile.
+- [x] 1. `cargo deny --locked check licenses advisories`: „advisories ok, licenses ok“ (Last 13,9). Neue Crates im Lockfile gegenüber main: `tobj` 4.0.5 (MIT), `gltf`, `gltf-json`, `gltf-derive` 1.4.1 (MIT OR Apache-2.0), `inflections` 1.1.1 (MIT), `lazy_static` 1.5.1 (MIT OR Apache-2.0); `base64` 0.22.1 war schon im Lockfile.
 - [x] 2. `cargo fmt --all --check` und `cargo clippy --workspace --all-features --all-targets -- -D warnings`: sauber.
-- [x] 3. `env -u G4_TEST_PROJECT cargo test -p g4-formats -p g4-kernel --all-features` (mit `G4_APICULA`, also laufen die apicula-Tests mit): 2 489 bestanden in 59 Testzielen, 0 fehlgeschlagen, 1 ignoriert; Bibliothek `g4-formats` 267, Bibliothek `g4-kernel` 1 333, `tests/model_import.rs` 5, `tests/bake.rs` 8, `tests/cli.rs` 66 (die gated Tests überspringen sich ohne `G4_TEST_PROJECT`); 18:05 bis 19:45 bei Last 14 → 32 (die Bibliothek `g4-kernel` allein 3 113 s). `-p g4-kernel` lud im Worktree nichts nach.
+- [x] 3. `env -u G4_TEST_PROJECT cargo test -p g4-formats -p g4-kernel --all-features` (mit `G4_APICULA`, also laufen die apicula-Tests mit): 2 489 bestanden in 59 Testzielen, 0 fehlgeschlagen, 1 ignoriert; Bibliothek `g4-formats` 267, Bibliothek `g4-kernel` 1 333, `tests/model_import.rs` 5, `tests/bake.rs` 8, `tests/cli.rs` 66 (die gated Tests überspringen sich ohne `G4_TEST_PROJECT`); 18:05 bis 19:45, Last 14,2 beim Start (die Bibliothek `g4-kernel` allein 3 113 s). `-p g4-kernel` lud im Worktree nichts nach.
 - [x] 4. `cargo test -p studio`: 775 bestanden in 6 Zielen, 0 fehlgeschlagen, 1 ignoriert (Bibliothek 732 in 577 s), Last 27.
 - [x] 5. `(cd apps/studio && pnpm test && pnpm build)`: 3 972 bestanden, 1 übersprungen in 417 Dateien (416 bestanden, 1 übersprungen); `pnpm build` gebaut, Last 21.
 - [x] 6. `bash scripts/check-styles.sh`, `bash scripts/check-tokens.sh`, `bash scripts/check-no-rom-data.sh`: „check-styles: ok“, „Alles stimmig.“, „no rom data: 2028 files ok“ (Last 19).
@@ -43,7 +43,7 @@ Task 11, 2026-11-06 ab 18:04 auf `90e105b9` (Logs `target/agent/6-5a/t11-<schrit
 - [x] 9. **Gated `--test bake`** (Release, mit `G4_APICULA`): je 8/8 (unverändert grün) auf Platin DE (23 s, Last 7,6), HeartGold DE (22 s, Last 5,1), HeartGold US (74 s, Last 12,2).
 - [ ] 10. `scripts/gate.sh`: offen, läuft in der Hauptsitzung auf main nach dem Merge.
 
-Die Punkte 8 und 9 sind die Läufe von Task 8 (Commit `23562ea0`, Logs `t8-<spiel>.log`, `t8-<spiel>-bake.log`), nicht in Task 11 wiederholt: seit `23562ea0` hat sich unter `crates/` nichts geändert (`git diff --stat 23562ea0..HEAD -- crates` leer; danach kamen nur Oberfläche, Design-Nachtrag und `g4emu`), die Läufe lagen nur vor einer reinen `cargo fmt`-Umformung dreier Anweisungen in den Testdateien desselben Commits, und die Last lag in Task 11 bei 13 bis 29. Die Kopien `6-5a-{pt,hgde,hgus}` sind unbeschrieben und für eine Wiederholung bereit. Beim Release-Bau warnt cargo „stripping debug info with `rust-objcopy` failed“ (Umgebung, bekannt aus 6.1).
+Die Punkte 8 und 9 sind die Läufe von Task 8 (Commit `23562ea0`, Logs `t8-<spiel>.log`, `t8-<spiel>-bake.log`), nicht in Task 11 wiederholt: seit `23562ea0` hat sich unter `crates/` nichts geändert (`git diff --stat 23562ea0..HEAD -- crates` leer; danach kamen nur Oberfläche, Design-Nachtrag und `g4emu`), die Läufe lagen nur vor einer reinen `cargo fmt`-Umformung dreier Anweisungen in den Testdateien desselben Commits, und die Last lag in Task 11 laut den `uptime`-Zeilen der Logs bei 13,9 bis 29,2. Die Kopien `6-5a-{pt,hgde,hgus}` sind unbeschrieben und für eine Wiederholung bereit. Beim Release-Bau warnt cargo „stripping debug info with `rust-objcopy` failed“ (Umgebung, bekannt aus 6.1).
 
 Belegzeilen der gated Tests (aus `t8-*.log`, wörtlich):
 
@@ -126,7 +126,7 @@ Danach: die Test-Umgebung (Skript, `studio-bridge`, Vite) über ihre PIDs beende
 
 | Punkt | Wer | Ergebnis | Datum |
 |---|---|---|---|
-| (1) 1 `cargo deny` | Agent | bestanden: advisories ok, licenses ok, `tobj` 4.0.5 und `gltf` 1.4.1 mit fünf transitiven Crates, alle MIT bzw. MIT OR Apache-2.0 | 2026-11-06 |
+| (1) 1 `cargo deny` | Agent | bestanden: advisories ok, licenses ok, `tobj` 4.0.5 und `gltf` 1.4.1 mit vier transitiven Crates (`gltf-json`, `gltf-derive`, `inflections`, `lazy_static`), alle MIT bzw. MIT OR Apache-2.0 | 2026-11-06 |
 | (1) 2 fmt, clippy | Agent | bestanden | 2026-11-06 |
 | (1) 3 Tests `g4-formats`, `g4-kernel` ohne ROM-Daten | Agent | bestanden: 2 489 in 59 Zielen, 1 ignoriert, mit den apicula-Tests | 2026-11-06 |
 | (1) 4–7 `studio`, Frontend, Stil, Tokens, ROM-Daten, `g4emu` | Agent | bestanden: `studio` 775, Frontend 3 972 (1 übersprungen) und Build, Stil, Tokens, ROM-Daten (2 028 Dateien), `g4emu` 404 | 2026-11-06 |
@@ -166,6 +166,7 @@ Aus dem Plan (Abschnitt „Abweichungen von Spezifikation und Gutachten“) und 
 9. **Relativer Pfad im Dialog:** Der Plan schreibt im Browser-Ablauf `import/g4_imp_big.obj`; das Feld „Pfade, eine je Zeile“ nimmt Pfade wie das Dateifenster, also absolut („Pfad nicht lesbar: import/g4_imp_big.obj: No such file or directory“ mit dem relativen Pfad, so seit 3b.4b). Der Test lief mit `$R/_testkopien/6-5a-web_DSPRE_contents/import/…`. Über MCP (Szenarien) gilt der Pfad relativ zum Projekt (Pfadregel von MCP).
 10. **`.fig` nicht gerendert:** Der Design-Nachtrag 6.5a steht in `design-system/README.md`, `design-system/openpencil/NACHTRAG-6-5a.md` und `design-system/openpencil/beispiele/import-modell.body.js`; die OpenPencil-Datei wird erst auf main nach dem Merge gerendert (binärer Mergekonflikt mit parallelen Phasen, Grenze von 10 000 Knoten).
 11. **Fix-Commits getrennt:** Die Korrekturen aus den Reviews liegen als eigene `fix(…)`-Commits auf dem Branch (`9efc5982`, `b2814968`), nicht in die Task-Commits eingefaltet.
+12. **Gated Läufe aus Task 8 übernommen, nach der Fix-Welle wiederholt:** Für das Gate (Punkte (1) 8 und 9) zählten zunächst die gated Läufe von Task 8 (kein Commit unter `crates/` seit `23562ea0`). Die Fix-Welle nach dem Schluss-Review (`5b6c4f02`, Grenzen für glTF-Accessoren, Instanzen, Puffer und Ecken je Polygon) ändert die Leser in `model_import`; darum lief gated `--test model_import` (Release, mit `G4_APICULA`, `--nocapture --test-threads 1`) am 2026-11-06 auf `5b6c4f02` je Spiel erneut auf den unbeschriebenen Kopien `6-5a-{pt,hgde,hgus}` (Logs `target/agent/6-5a/fix-gated-{pt,hgde,hgus}.log`): je 5/5, Platin DE 118 s (Last 21,1), HeartGold DE 117 s (Last 8,7), HeartGold US 155 s (Last 6,8). Die sechs Belegzeilen je Spiel (`import-room`, `png40-room`, `import-room-apicula` ×2, `oversize-room`, `pdsms-room`) sind gleich denen aus Task 8 bis auf die Laufzeit `ms=` (294, 269, 226 statt 214, 253, 256). Gated `--test bake` nicht wiederholt: `tests/bake.rs` nutzt die Leser nicht, der Bäcker ist unverändert.
 
 ## Befunde
 

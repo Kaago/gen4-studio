@@ -2102,23 +2102,29 @@ G4_TEST_PROJECT=$P cargo test --release --workspace --all-features --test bake -
 
 Erwartet: `cargo deny` „advisories ok, licenses ok“ mit den neuen Crates `tobj` 4.0.5 (MIT), `gltf`/`gltf-json`/`gltf-derive` 1.4.1, `lazy_static` 1.5.1 (MIT OR Apache-2.0), `inflections` 1.1.1 (MIT); `model_import` 5/5 mit `import-room CPUD cube map=187 size=672 share=0.011 quads=6 plane map=186 size=472 quads=1 tris=0 pack=20 appended=g4_imp_cube,g4_imp_plane vram=21744 warn=-` bzw. `IPKD`/`IPKE cube map=217 … plane map=216 … pack=25 … vram=23632 warn=-`, `png40-room … hits=8/40 max_step=3 mean=12.8203125`, `oversize-room … size=164272 limit=61440`, `pdsms-room … size=3164 quads=64 new=2`, `import-room-apicula … faces=6 corners=20` und `faces=1 corners=4`; `bake` 8/8 mit den `bake-room`-Zeilen von 6.1. Der Gate-Test des PNG druckt `png40 hits=8/40 pixels=816/4096 max_step=3 mean=12.8203125 exact=0/40` (mit `--nocapture`).
 
-**Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`O=$W/target/agent/gate-$(date +%F)/6-5a`), nacheinander, je eine frische Kopie mit `.nds`:
+**Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`O=$W/target/agent/gate-$(date +%F)/6-5a`), nacheinander, je eine frische Kopie mit `.nds` (`6-5a-szen-pt2`/`6-5a-szen-hg` und die Logs `t10-{pt,hg}.log` sind vom Lauf in Task 10 belegt; die nächsten Namen sind `6-5a-szen-pt3`/`6-5a-szen-hg2`, ein weiterer Lauf zählt weiter):
 
 ```sh
 export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k \
   G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 mkdir -p $O/pt-import $O/hg-import
-uv run g4emu scenario ../agent/scenarios/pt-import.yaml --project "$G4_ROMS_DIR/_testkopien/6-5a-szen-pt2_DSPRE_contents" \
-  --out $O/pt-import > $W/target/agent/6-5a/t10-pt.log 2>&1; echo "exit $?" >> $W/target/agent/6-5a/t10-pt.log
-uv run g4emu scenario ../agent/scenarios/hg-import.yaml --project "$G4_ROMS_DIR/_testkopien/6-5a-szen-hg_DSPRE_contents" \
-  --out $O/hg-import > $W/target/agent/6-5a/t10-hg.log 2>&1; echo "exit $?" >> $W/target/agent/6-5a/t10-hg.log
+K=$G4_ROMS_DIR/_testkopien
+cp -cR "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$K/6-5a-szen-pt3_DSPRE_contents"
+cp -c "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds" "$K/6-5a-szen-pt3.nds"
+cp -cR "$G4_ROMS_DIR/Pokemon - Goldene Edition HeartGold (Germany)_DSPRE_contents" "$K/6-5a-szen-hg2_DSPRE_contents"
+cp -c "$G4_ROMS_DIR/Pokemon - Goldene Edition HeartGold (Germany).nds" "$K/6-5a-szen-hg2.nds"
+uv run g4emu scenario ../agent/scenarios/pt-import.yaml --project "$K/6-5a-szen-pt3_DSPRE_contents" \
+  --out $O/pt-import > $W/target/agent/6-5a/szen-pt3.log 2>&1; echo "exit $?" >> $W/target/agent/6-5a/szen-pt3.log
+uv run g4emu scenario ../agent/scenarios/hg-import.yaml --project "$K/6-5a-szen-hg2_DSPRE_contents" \
+  --out $O/hg-import > $W/target/agent/6-5a/szen-hg2.log 2>&1; echo "exit $?" >> $W/target/agent/6-5a/szen-hg2.log
 ```
 
 Erwartet: Rückgabe 0, `"ok": true`; „prepare: make-import-samples … (14 Dateien)“; zwei erfüllte Erwartungen `model.too-big` / `61440` und die erwartete Ablehnung „import refused: model: the baked model is 164272 bytes; the game holds at most 61440“; Würfel auf Karte 187 (HG 217), Ebene auf 186 (HG 216), Paket 20 (HG 25); „2 expectation(s) met“; Header 415 → 414 bzw. 64 → 63. Im Bild `zimmer` fehlen Boden und Wände des Zimmers (das Modell ist ersetzt), Würfel und Ebene liegen um die Kartenmitte (16, 16) und damit außerhalb der Kamera (Abweichung 7 der Gate-Datei).
 
-**Browser (4)**, Test-Umgebung (`R=$G4_ROMS_DIR`):
+**Browser (4)**, Test-Umgebung (`R=$G4_ROMS_DIR`), aus der Wurzel des Worktrees (`cd $W`; alle relativen Pfade unten gelten von dort):
 
 ```sh
+cd $W
 cp -cR "$R/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$R/_testkopien/6-5a-web_DSPRE_contents"
 cp -c "$R/Pokemon - Platin-Edition (Germany).nds" "$R/_testkopien/6-5a-web.nds"
 cargo build --workspace --all-features
@@ -2135,4 +2141,4 @@ Abwarten, bis das Log „Brücke läuft auf 127.0.0.1:1501“ meldet; Seite `htt
 5. ⌘Z als echte Taste → Vanilla-Zimmer; `history` → `undo []`; `get_map_budget 187` → Modell 2 572, 45 Texturen, VRAM 21 760 (wie vorher).
 6. Pfad `$D/g4_imp_40.png` → „Texturen · 2.132 Bytes“, „Neue Textur g4_imp_40: 64 × 64, 16 Farben, mittlerer Farbfehler 12,8.“, „Umwandeln“ ohne „Einheit“; „Abbrechen“.
 
-**Bilder (4)** `blick-import-{fehler,wuerfel,png}-{hell,dunkel}.png` mit Chrome headless über CDP (das Browser-Fenster der Desktop-App liefert Bilder nur an den Agenten): `node target/agent/6-5a/t11-blick.mjs $W/target/agent/gate-$(date +%F)/6-5a <Profilordner im Scratchpad>` bei laufender Test-Umgebung; das Skript setzt `g4.theme` (`hell`, `dunkel`) und `prefers-color-scheme`, lädt neu und fährt die Schritte 1 bis 3 und 6 mit echten Maus- und Tastenereignissen ab (Zustände: Fehler, Würfel mit 16 Farben vor „übernehmen“, PNG). Danach die Test-Umgebung über ihre PIDs beenden (`lsof -iTCP:1500 -iTCP:1501 -sTCP:LISTEN` leer).
+**Bilder (4)** `blick-import-{fehler,wuerfel,png}-{hell,dunkel}.png` mit Chrome headless über CDP (das Browser-Fenster der Desktop-App liefert Bilder nur an den Agenten): `node $W/target/agent/6-5a/t11-blick.mjs $W/target/agent/gate-$(date +%F)/6-5a <Profilordner im Scratchpad>` bei laufender Test-Umgebung. Das Skript liegt nur unter `target/agent/` (nicht im Repo, nicht eingecheckt); nachzubauen als Node-Skript ohne Pakete, das Chrome headless mit `--remote-debugging-pipe` und `--window-size=1440,900` startet, über CDP (`Runtime.evaluate`, `Input.dispatchMouseEvent`/`dispatchKeyEvent`/`insertText`) die Seite der Test-Umgebung für `6-5a-web` fährt und je Zustand `Page.captureScreenshot` nach `<Ausgabe>/blick-import-<zustand>-<hell|dunkel>.png` schreibt. Es setzt `g4.theme` (`hell`, `dunkel`) und `prefers-color-scheme`, lädt neu und fährt die Schritte 1 bis 3 und 6 mit echten Maus- und Tastenereignissen ab (Zustände: Fehler, Würfel mit 16 Farben vor „übernehmen“, PNG). Danach die Test-Umgebung über ihre PIDs beenden (`lsof -iTCP:1500 -iTCP:1501 -sTCP:LISTEN` leer).
