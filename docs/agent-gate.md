@@ -1959,7 +1959,7 @@ cargo test -p g4-kernel --all-features --lib bake:: -- --nocapture     # Größe
 
 Erwartet: `cargo deny` „advisories ok, licenses ok“ ohne neue Abhängigkeit (`g4-formats` nur `thiserror`); `vanilla_nitro` 3/3 mit `nitro-models CPUD models=666 equal=666 dicts=3996 stale=`, `IPKD models=676 equal=676 dicts=4056 stale=0468,0475,0476`, `IPKE … stale=0468,0473,0475,0476`; `nitro-packs CPUD map=74 building=71 equal=145 dicts_total=4286`, `IPKD`/`IPKE map=106 building=94 equal=200 dicts_total=4456`; `nitro-append CPUD packs=74 ok=74`, `IPKD`/`IPKE packs=106 ok=106`; `bake` 8/8 mit `bake-room CPUD map=187 pack=20 style=indoor size=35020 share=0.570 vram=21656 warn=-` und `IPKD`/`IPKE map=217 pack=25 style=indoor size=35024 share=0.570 vram=23544 warn=-`, apicula 1 110 / 1 110 Paare aus Position und UV, 0 Pixel Abweichung. „veraltete Zähler“ (`stale`) sind Vanilla-Modelle, deren Zähler im Kopf nicht zur Display List passen; der Writer behält sie byte-gleich.
 
-**Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-1`), nacheinander:
+**Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-1`), nacheinander. Die Log-Namen sind die der aufgezeichneten Läufe (`t10-<pt|hg|hgus>.log`, Task 10); ein Wiederholungslauf nimmt neue Kopien (`6-1-szen-pt2` …) und eigene Log-Namen (die Nachprüfung des Abschlussreviews: `fix-t10-<pt|hg>.log`), die Befehle sind sonst dieselben:
 
 ```sh
 W=/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-1
@@ -1967,11 +1967,11 @@ export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/targe
   G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 O=$W/target/agent/gate-$(date +%F)/6-1; mkdir -p $O/pt-bake $O/hg-bake $O/hgus-bake
 uv run g4emu scenario ../agent/scenarios/pt-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-pt_DSPRE_contents" \
-  --out $O/pt-bake > $W/target/agent/6-1/pt-bake.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/pt-bake.log
+  --out $O/pt-bake > $W/target/agent/6-1/t10-pt.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/t10-pt.log
 uv run g4emu scenario ../agent/scenarios/hg-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-hg_DSPRE_contents" \
-  --out $O/hg-bake > $W/target/agent/6-1/hg-bake.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/hg-bake.log
+  --out $O/hg-bake > $W/target/agent/6-1/t10-hg.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/t10-hg.log
 uv run g4emu scenario ../agent/scenarios/hgus-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-hgus_DSPRE_contents" \
-  --out $O/hgus-bake > $W/target/agent/6-1/hgus-bake.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/hgus-bake.log
+  --out $O/hgus-bake > $W/target/agent/6-1/t10-hgus.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/t10-hgus.log
 ```
 
 Erwartet: Rückgabe 0, `"ok": true`; `bake_test` mit Paket 20 (Platin) bzw. 25 (HeartGold DE und US), angehängt `g4_bake_a`, `g4_bake_b`, Block (5, 7) bzw. (5, 6), keine Meldung; „2 expectation(s) met“ (Modell der Karte 187 bzw. 217 und Paket 20 bzw. 25 in `out.nds` gleich den Dateien unter `build/bake/`); Header 415 → 414 bzw. 64 → 63. Im Bild `zimmer` der Boden aus Schachbrett, grünen Streifen und zwei Vanilla-Texturen mit dem Block, in `unten` der Nachbarraum mit Vanilla-Texturen. Farben nicht vergleichen (Rot und Blau vertauscht bis zum Farbfix von 6.2).

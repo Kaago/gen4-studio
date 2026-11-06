@@ -1,6 +1,6 @@
 # Phase 6.1: Gate prüfen
 
-Stand: 2026-11-06. Branch `phase-6-1-writer` (Worktree `.claude/worktrees/phase-6-1`, Basis `d515c5ee` = main `d05fad84` mit den Plänen 6.1, 6.2 und 6.3a), nicht nach main gemergt. Arbeit begonnen am 2026-11-05. Vom Agenten erledigt: (1) Automatik Schritt für Schritt auf dem Stand `898d1d58` (`cargo deny`, fmt, clippy, die Tests von `g4-formats` und `g4-kernel` ohne ROM-Daten, die gated Tests `vanilla_nitro` und `bake` im Release-Profil auf Platin DE, HeartGold DE und HeartGold US), (2) die Unit-Punkte des Gates und (3) die Szenarien `pt-bake`, `hg-bake` und `hgus-bake` (Task 10, `898d1d58`, am 2026-11-05) mit dem Blick des Agenten auf die sechs Bilder. `scripts/gate.sh` als Ganzes läuft hier nicht (Vorgabe des Nutzers), sondern in der Hauptsitzung auf main nach dem Merge.
+Stand: 2026-11-06. Branch `phase-6-1-writer` (Worktree `.claude/worktrees/phase-6-1`, Basis `d515c5ee` = main `d05fad84` mit den Plänen 6.1, 6.2 und 6.3a), nicht nach main gemergt. Arbeit begonnen am 2026-11-05. Vom Agenten erledigt: (1) Automatik Schritt für Schritt auf dem Stand `898d1d58` (`cargo deny`, fmt, clippy, die Tests von `g4-formats` und `g4-kernel` ohne ROM-Daten, die gated Tests `vanilla_nitro` und `bake` im Release-Profil auf Platin DE, HeartGold DE und HeartGold US), (2) die Unit-Punkte des Gates und (3) die Szenarien `pt-bake`, `hg-bake` und `hgus-bake` (Task 10, `898d1d58`, am 2026-11-05) mit dem Blick des Agenten auf die sechs Bilder; (4) nach dem Abschlussreview (Fix `9684c558`, Rahmen des gebackenen Modells in Welteinheiten und Kleinkram) am 2026-11-06 nachgeprüft: fmt, clippy, die Tests ohne ROM-Daten, gated `bake` auf allen drei Kopien und `pt-bake`/`hg-bake` auf frischen Kopien (Abschnitt „Nachprüfung nach dem Abschlussreview“). `scripts/gate.sh` als Ganzes läuft hier nicht (Vorgabe des Nutzers), sondern in der Hauptsitzung auf main nach dem Merge.
 
 Beim Nutzer offen: der Blick auf die sechs Bilder, `docs/formats/nsbmd.md` gelesen, `scripts/gate.sh` auf main (Abschnitt „(4) Beim Nutzer (Hand und Blick)“).
 
@@ -18,9 +18,9 @@ Wer was prüft: Die Spalte „Wer“ sagt **Agent** (die Test-Umgebung aus [docs
 
 1. **Kopien** unter `Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`) aus den Originalen, die dabei nur gelesen wurden:
    - für (1): `6-1-pt_DSPRE_contents` (Platin DE), `6-1-hgde_DSPRE_contents` (HeartGold DE), `6-1-hgus_DSPRE_contents` (HeartGold US), angelegt in Task 3 und für alle gated Läufe wiederverwendet. Sie werden nur gelesen; geschrieben wird nur auf `vanilla_copy()`.
-   - für (3): `6-1-szen-pt_DSPRE_contents` + `6-1-szen-pt.nds`, `6-1-szen-hg_DSPRE_contents` + `6-1-szen-hg.nds`, `6-1-szen-hgus_DSPRE_contents` + `6-1-szen-hgus.nds`, frisch in Task 10. Nach dem Lauf sind sie gespeichert und gebaut (`build/out.nds`); ein neuer Lauf braucht neue Kopien (etwa `6-1-szen-pt2`).
+   - für (3): `6-1-szen-pt_DSPRE_contents` + `6-1-szen-pt.nds`, `6-1-szen-hg_DSPRE_contents` + `6-1-szen-hg.nds`, `6-1-szen-hgus_DSPRE_contents` + `6-1-szen-hgus.nds`, frisch in Task 10. Nach dem Lauf sind sie gespeichert und gebaut (`build/out.nds`); ein neuer Lauf braucht neue Kopien. Für die Nachprüfung nach dem Abschlussreview frisch: `6-1-szen-pt2_DSPRE_contents` + `6-1-szen-pt2.nds` (Platin DE), `6-1-szen-hg2_DSPRE_contents` + `6-1-szen-hg2.nds` (HeartGold DE).
 2. **Werkzeuge:** `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"`; `tools/` ist der Symlink auf den Haupt-Checkout (nie einchecken); `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` und `G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula` absolut (apicula `3d4e91e`). Für (3) `cargo build --workspace --all-features` (Debug-`studio` und `g4k`).
-3. **Ausgaben** im Worktree: Logs unter `target/agent/6-1/` (`gate-<schritt>.log` für (1) mit `uptime`, Stand, Befehl, Dauer und Rückgabe je Schritt, Übersicht `gate-summary.log`; `t10-{pt,hg,hgus}.log` für (3)); die Bilder der Szenarien unter `target/agent/gate-2026-11-05/6-1/<pt-bake|hg-bake|hgus-bake>/` (`zimmer.png`, `unten.png`). Das Skript für (1) lag im Scratchpad. Den Ordner `target/agent/` vor `git worktree remove` sichern.
+3. **Ausgaben** im Worktree: Logs unter `target/agent/6-1/` (`gate-<schritt>.log` für (1) mit `uptime`, Stand, Befehl, Dauer und Rückgabe je Schritt, Übersicht `gate-summary.log`; `t10-{pt,hg,hgus}.log` für (3); die Nachprüfung `fix-*.log`, Szenarien `fix-t10-{pt,hg}.log`); die Bilder der Szenarien unter `target/agent/gate-2026-11-05/6-1/<pt-bake|hg-bake|hgus-bake>/` (`zimmer.png`, `unten.png`), die der Nachprüfung unter `target/agent/gate-2026-11-06/6-1/<pt-bake|hg-bake>/`. Das Skript für (1) lag im Scratchpad. Den Ordner `target/agent/` vor `git worktree remove` sichern.
 4. **Last:** `uptime` vor jedem Schritt (Spalte „Last“ der Zahlentabelle). Auf dem Rechner liefen gleichzeitig andere Sitzungen; die drei Spiele liefen nacheinander, nie parallel.
 
 ## (1) Automatik
@@ -97,6 +97,28 @@ Blick des Agenten (Farben nicht verglichen: `g4emu` tauscht Rot und Blau bis zum
 - **HeartGold `unten.png`:** das Erdgeschoss von Header 63 (Karte 216, Paket 25), alles Vanilla; unten das Touch-Menü.
 - **HeartGold US:** der obere Bildschirm beider Bilder ist pixelgleich zu HeartGold DE (Differenz-Box von PIL leer), unten das englische Menü.
 
+## Nachprüfung nach dem Abschlussreview
+
+Der Fix `9684c558` ändert die Bytes des gebackenen Modells (Box im Kopf: `box_scale` 128 · 4096 statt 2 · 4096, Position und Größe in 1/4096 Welteinheiten), nicht seine Größe. Am 2026-11-06 auf `9684c558` (Logs `target/agent/6-1/fix-*.log`):
+
+- [x] `cargo fmt --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`: sauber.
+- [x] `cargo test --workspace --all-features -- bake:: map_import:: nsbtx::`: 24 + 40 + 4 bestanden; `--test bake` ohne ROM-Daten 8/8 (gated und apicula überspringen sich); `cargo test -p g4-formats -p g4-kernel --all-features` ohne ROM-Daten: 2 344 bestanden in 56 Testzielen (eins mehr als in (1) 3: der neue Rahmentest), 0 fehlgeschlagen, 1 ignoriert, rund 85 min bei Last um 19 bis 21.
+- [x] **Gated `--test bake`** (Release, mit `G4_APICULA`, `--nocapture --test-threads 1`): je 8/8 auf Platin DE (364 s mit Bau, Last 30,6), HeartGold DE (171 s, Last 26,9), HeartGold US (140 s, Last 24,1). Der Raumtest prüft jetzt `pack == 25` auch auf `IPKE` und meldet einen Unterschied nur mit Längen, Offsets und Namen.
+- [x] **Szenarien** `pt-bake` auf `6-1-szen-pt2` und `hg-bake` auf `6-1-szen-hg2` (Debug-`studio`/`g4k` aus `9684c558`, Last um 19 bis 20): je Rückgabe 0, `"ok": true`, „2 expectation(s) met“, Header 415 → 414 bzw. 64 → 63; `bake_test` wie in (3) (Platin: Karte 187, Paket 20, Block (5, 7), 35 020 B, VRAM 21 656; HeartGold: Karte 217, Paket 25, Block (5, 6), 35 024 B, VRAM 23 544; je 3 100 Ecken, 1 032 Flächen, 514 Strips, 4 Einzelvierecke, keine Meldung). `hgus-bake` lief nicht noch einmal: HeartGold US war in (3) gleich HeartGold DE (gleiche SHA-1, oberer Bildschirm pixelgleich).
+
+Neue Belegzeilen (wörtlich, gleich denen von (1)):
+
+```
+bake-room CPUD map=187 pack=20 style=indoor size=35020 share=0.570 vram=21656 warn=- ms=806
+bake-room-detail CPUD area=20 block=(5, 7) floor=["g4_bake_a", "carpet01_1", "g4_bake_b", "carpet01_2"] appended=["g4_bake_a", "g4_bake_b"] strips=514 single=4
+bake-room IPKD map=217 pack=25 style=indoor size=35024 share=0.570 vram=23544 warn=- ms=394
+bake-room-detail IPKD area=25 block=(5, 6) floor=["g4_bake_a", "01yuka_14", "g4_bake_b", "05fuchi03"] appended=["g4_bake_a", "g4_bake_b"] strips=514 single=4
+bake-room IPKE map=217 pack=25 style=indoor size=35024 share=0.570 vram=23544 warn=- ms=274
+apicula test surface: 1032 faces, 1110 distinct corners in, 1110 out, 79 ms
+```
+
+Blick des Agenten auf die vier neuen Bilder: **Platin `zimmer.png`** zeigt wieder den ganzen Boden als Testfläche (Schachbrett `g4_bake_a`, grüne Streifen `g4_bake_b`, die zwei Teppiche), den Block links unter dem Spieler mit Oberseite und Vorderseite, nicht weggeschnitten; **Platin `unten.png`** das Erdgeschoss mit Vanilla-Texturen. **HeartGold `zimmer.png`** dasselbe mit `01yuka_14`/`05fuchi03` und dem Block rechts unter dem Spieler, nicht weggeschnitten; **HeartGold `unten.png`** das Erdgeschoss, alles Vanilla. Gegen die Bilder vom 2026-11-05 unterscheidet sich der obere Bildschirm nur in kleinen Feldern um Spieler- und Personen-Sprites (Animationsphase; `zimmer` 15 × 6 Pixel), das Modell sieht gleich aus.
+
 ## (4) Beim Nutzer (Hand und Blick)
 
 - **Blick auf die sechs Bilder** (Agent + Blick): eigene Texturen sichtbar mit Block im Zimmer, Nachbarraum mit Vanilla-Texturen unverändert:
@@ -104,6 +126,8 @@ Blick des Agenten (Farben nicht verglichen: `g4emu` tauscht Rot und Blau bis zum
   - `target/agent/gate-2026-11-05/6-1/hg-bake/zimmer.png`, `target/agent/gate-2026-11-05/6-1/hg-bake/unten.png`
   - `target/agent/gate-2026-11-05/6-1/hgus-bake/zimmer.png`, `target/agent/gate-2026-11-05/6-1/hgus-bake/unten.png`
   
+  - Nachprüfung nach dem Abschlussreview (Box in Welteinheiten): `target/agent/gate-2026-11-06/6-1/pt-bake/zimmer.png`, `…/pt-bake/unten.png`, `…/hg-bake/zimmer.png`, `…/hg-bake/unten.png`
+
   (im Worktree `.claude/worktrees/phase-6-1`; `last.png` daneben ist das letzte Bild des Laufs, gleich `unten.png`)
 - **`docs/formats/nsbmd.md` gelesen** (Hand): Container, Wörterbuch, Modell, Layout des Writers, Teilmenge des Bäckers mit den Prüfcodes.
 - **`scripts/gate.sh` auf main** (Agent, Hauptsitzung): offen, läuft in der Hauptsitzung auf main nach dem Merge.
@@ -120,6 +144,7 @@ Blick des Agenten (Farben nicht verglichen: `g4emu` tauscht Rot und Blau bis zum
 | (1) 6 `scripts/gate.sh` | Agent (Hauptsitzung) | offen — läuft in der Hauptsitzung auf main nach dem Merge | – |
 | (2) Unit-Punkte des Gates | Agent | bestanden, alle sieben Tests grün (Tabelle in (2)) | 2026-11-06 |
 | (3) Szenarien `pt-bake`, `hg-bake`, `hgus-bake` | Agent + Blick | bestanden: Rückgabe 0, `check-data` 2/2, eigene Texturen mit Block im Zimmer, Nachbarraum Vanilla (Blick des Agenten); Bestätigung beim Nutzer offen | 2026-11-05 |
+| Nachprüfung nach dem Abschlussreview (`9684c558`) | Agent + Blick | bestanden: fmt, clippy, Tests ohne ROM-Daten, gated `bake` je 8/8 auf allen drei Kopien (gleiche `bake-room`-Zeilen), `pt-bake` und `hg-bake` auf frischen Kopien Rückgabe 0, 2/2, eigene Texturen mit Block, Nachbarraum Vanilla; `hgus-bake` nicht wiederholt (gleich HeartGold DE) | 2026-11-06 |
 | Browser-Teil | – | entfällt: 6.1 hat keine Oberfläche | – |
 | (4) Blick auf die sechs Bilder | Hand | offen | – |
 | (4) `docs/formats/nsbmd.md` gelesen | Hand | offen | – |
@@ -128,21 +153,21 @@ Zahlentabelle (Release; (1) aus den gated Tests, Szenario aus (3)):
 
 | Spiel | Modelle gleich | Pakete gleich | Wörterbücher | veraltete Zähler | Testfläche (Byte, Anteil) | Zimmer (Byte, VRAM, Meldungen) | Szenario | Last |
 |---|---|---|---|---|---|---|---|---|
-| Platin DE | 666 / 666 | 145 (Karte 74, Gebäude 71); Anhängen 74 / 74 | 4 286 (Modelle 3 996) | keine | 35 208 außen, 35 188 innen (57,3 %) | Karte 187, Paket 20: 35 020 B (57,0 %), VRAM 21 656, keine | `pt-bake` 0, 2/2, 415 → 414 | gated 22,7 → 23,9; Szenario um 37 |
-| HeartGold DE | 676 / 676 | 200 (106, 94); 106 / 106 | 4 456 (Modelle 4 056) | 0468, 0475, 0476 | wie Platin (synthetisch) | Karte 217, Paket 25: 35 024 B (57,0 %), VRAM 23 544, keine | `hg-bake` 0, 2/2, 64 → 63 | gated 22,5 → 23,2; Szenario um 37 |
-| HeartGold US | 676 / 676 | 200 (106, 94); 106 / 106 | 4 456 (Modelle 4 056) | 0468, 0473, 0475, 0476 | wie Platin (synthetisch) | Karte 217, Paket 25: 35 024 B (57,0 %), VRAM 23 544, keine | `hgus-bake` 0, 2/2, 64 → 63 | gated 21,8 → 21,4; Szenario um 37 |
+| Platin DE | 666 / 666 | 145 (Karte 74, Gebäude 71); Anhängen 74 / 74 | 4 286 (Modelle 3 996) | keine | 35 208 außen, 35 188 innen (57,3 %) | Karte 187, Paket 20: 35 020 B (57,0 %), VRAM 21 656, keine | `pt-bake` 0, 2/2, 415 → 414; nach dem Review wieder (`6-1-szen-pt2`) | gated 22,7 → 23,9; Szenario um 37; Nachprüfung gated 30,6, Szenario 18,9 |
+| HeartGold DE | 676 / 676 | 200 (106, 94); 106 / 106 | 4 456 (Modelle 4 056) | 0468, 0475, 0476 | wie Platin (synthetisch) | Karte 217, Paket 25: 35 024 B (57,0 %), VRAM 23 544, keine | `hg-bake` 0, 2/2, 64 → 63; nach dem Review wieder (`6-1-szen-hg2`) | gated 22,5 → 23,2; Szenario um 37; Nachprüfung gated 26,9, Szenario 20,0 |
+| HeartGold US | 676 / 676 | 200 (106, 94); 106 / 106 | 4 456 (Modelle 4 056) | 0468, 0473, 0475, 0476 | wie Platin (synthetisch) | Karte 217, Paket 25: 35 024 B (57,0 %), VRAM 23 544, keine | `hgus-bake` 0, 2/2, 64 → 63; nach dem Review nicht wiederholt (gleich DE) | gated 21,8 → 21,4; Szenario um 37; Nachprüfung gated 24,1 |
 
 „Last“ ist die 1-Minuten-Last aus `uptime` vor `vanilla_nitro` → vor `bake`. Die Testfläche ist synthetisch (32 × 32 Kacheln, vier Texturen 2 × 2, Block) und hängt nicht vom Spiel ab; im Zimmer ist sie innen gebacken mit den Texturen des Pakets.
 
 ## Befunde und Entscheidungen
 
-Kein Befund in (1) bis (3), der einen Fix in diesem Task brauchte. Die Entscheidungen der Umsetzung, die für Nutzer und Folgephasen zählen (aus dem Ledger der Umsetzung):
+Kein Befund in (1) bis (3), der einen Fix in diesem Task brauchte; das Abschlussreview brachte den Rahmen-Fix und Kleinkram (`9684c558`, nachgeprüft wie oben). Die Entscheidungen der Umsetzung, die für Nutzer und Folgephasen zählen (aus dem Ledger der Umsetzung):
 
 - **Paletten mit 16 Farben auf 16 Byte ausgerichtet** (Abweichung von der Planzeile „Paletten je auf 8 Byte“): die Hardware zählt `PLTT_BASE` in 16-Byte-Einheiten außer bei 4-Farben-Paletten; `push` legt darum eine angehängte Palette mit 16 Farben auf eine gerade 8-Byte-Einheit, eine mit 4 Farben auf 8 Byte. Der gated Test zählt die Vanilla-Paletten mit 16 Farben auf ungerader 8-Byte-Einheit: 0 in allen drei Spielen. Kosten: ein paar Füllbytes je Anhängen; ein angehängtes Paket ist nicht byte-gleich zum Prototyp (kein Test hängt daran). Der Leser zeigt die Lücke hinter einer 4-Farben-Palette als Palette mit 0 Farben (dokumentiert in `docs/formats/nsbtx.md`).
 - **Genaue Farbzahl:** `push` nimmt nur genau 4 Farben (Format 2) bzw. 16 Farben (Format 3), sonst `BadSize`; `texconv` füllt auf 4 bzw. 16 auf. Jeder Texel-Index muss unter der Farbzahl liegen.
-- **Strenges Wörterbuch-Lesen in `nsbmd_header` und `map_import`:** die Namen liest jetzt `nitro_dict::read`; ein Modell mit einem Wörterbuch, das der Writer nicht so schreiben würde (andere Kopf-Felder), lehnt der Import ab. Alle Vanilla-Modelle und die Ausgabe von g3dcvtr haben das Vanilla-Layout; ein fremd gebautes NSBMD mit abweichenden Feldern käme beim Import nicht mehr durch.
+- **Strenges Wörterbuch-Lesen in `nsbmd_header` und `map_import`:** die Namen liest jetzt `nitro_dict::read`; ein Modell mit einem Wörterbuch, das der Writer nicht so schreiben würde (Revision, Baumwort, Eintrags-Offset oder Größenfelder anders), lehnt der Import ab. Alle Vanilla-Modelle und die Ausgabe von g3dcvtr haben das Vanilla-Layout; ein fremd gebautes NSBMD mit abweichenden Feldern käme beim Import nicht mehr durch. Dasselbe gilt für die Prüfung des gespeicherten Modells `map.model-invalid` (`checks/world.rs`, über `check_model_bytes`): ein solches Modell meldet sie jetzt als Fehler, wo der Leser vor 6.1 nur die Revision prüfte (im Doc-Kommentar von `check_model_bytes` beschrieben).
 - **Attrappen-Gebäudepakete zählen 0 VRAM:** ein Member des Gebäudetextur-Archivs, das kein BTX0 ist (in HeartGold Attrappen von 4 Byte), zählt im VRAM des Gebiets 0 Byte; das gilt still für jedes Nicht-BTX0-Member.
-- **Rahmen des gebackenen Modells in Ecken-Einheiten:** die Box steht wie im Prototyp in Ecken-Einheiten (`box_scale` 2 für die Testfläche), Vanilla hält Welteinheiten (`box_scale == up_scale`). Im Spiel gezeigt und nicht weggeschnitten, in allen drei Spielen (Bilder `zimmer.png`). Schneidet die Engine einmal nach der Box (Außenkarten, Kamera am Kartenrand), ist der Fix in `crates/g4-kernel/src/bake/encode.rs` `bounding_box`: die Box aus Weltecken, für ±256 `box_scale = 64 · 4096 = up_scale` wie Vanilla.
+- **Rahmen des gebackenen Modells in Welteinheiten (Abschlussreview):** `bounding_box` (`crates/g4-kernel/src/bake/encode.rs`) schreibt die Box jetzt in der Konvention der Vanilla-Kartenmodelle, Welt = `box · box_scale / 4096²` (gemessen auf den Räumen CPUD 187 und IPKD/IPKE 217 mit `box_scale == up_scale`), mit derselben Regel für `box_scale` über die Welt-Ausdehnung: die Testfläche (−256..=256) hat `box_scale = 128 · 4096`, `box_pos` (−8 192, 0, −8 192), `box_size` (16 384, 512, 16 384). Vorher stand die Box wie im Prototyp in Ecken-Einheiten (`box_scale` 2, um den Faktor 64 zu klein gelesen). `frame_block` eines gebackenen Modells liefert jetzt den Weltrahmen der Eingabe (Test `the_baked_frame_is_the_world_frame_of_the_input_corners`); die Größe der Testfläche bleibt (die Box sind feste Kopffelder). Im Spiel nachgeprüft auf Platin DE und HeartGold DE (Abschnitt „Nachprüfung nach dem Abschlussreview“).
 - **Eintrag „nsbmd“ in `FORMATS`** (`apps/studio/src-tauri/src/mcp/docs.rs`, kein Anhängepunkt): Pflicht für `table_covers_every_format_file`; beim Merge trifft er die Zeile von 6.2 (`bdhc`), beide behalten.
 - **Textprojekt:** der Abgleich nach `append_textures` schreibt `data/map_textures/NNNN.nsbtx` (Test mit `TextFixture::exported()`), also kein Befund für 6.3b.
 - **`save` nach `bake_test`:** `written` nennt nur die Karte, obwohl `changed` von `bake_test` auch `MapTexture` nennt; das Paket ist schon mit dem Dateischritt geschrieben (`check-data` findet es in `out.nds`). Kein Fehler, nur ein Hinweis.
@@ -157,13 +182,13 @@ Kein Befund in (1) bis (3), der einen Fix in diesem Task brauchte. Die Entscheid
 
 ## Offen / später
 
-Kleine Punkte aus den Reviews, bewusst zurückgestellt (keiner betrifft das Gate):
+Kleine Punkte aus den Reviews, bewusst zurückgestellt (keiner betrifft das Gate; die Punkte des Abschlussreviews sind behoben, siehe „Nachprüfung nach dem Abschlussreview“):
 
 - `nitro_dict`: Tests der Layout-Ablehnung prüfen nur `is_err()`; der Leser nimmt Namen an, die der Writer ablehnt (Doppelte, Byte 15 ≥ 0x80), im Modulkopf nicht genannt; `Dict::entry` außerhalb gibt eine leere Scheibe.
 - `gpu`/`sbc`: die Proptest-Strategie trifft selten gültige Ströme; das Feld `max` von `OutOfRange` ist bei Tabellenlücken irreführend; `count()` übergeht `BEGIN_VTXS` ohne Parameter.
-- `nsbmd`: die Kürzungsschleife 2 in `model.rs` passt die Modellgröße nicht an; der Doc-Kommentar von `check_model_bytes` nennt die alten Regeln; die LE-Helfer stehen dreifach; `nsbmd_header.md` sagt `BadSize` für jede Abweichung (Revision und +4 geben `BadSignature`).
+- `nsbmd`: die Kürzungsschleife 2 in `model.rs` passt die Modellgröße nicht an; die LE-Helfer stehen dreifach; `nsbmd_header.md` sagt `BadSize` für jede Abweichung (Revision und +4 geben `BadSignature`).
 - `texconv`: `to_bgr555` schneidet ab, `nearest()` rechnet in RGB8 (ein Pixel kann im Pfad mit wenigen Farben die Nachbarfarbe bekommen); `check_side` doppelt.
-- `bake`: die Grenze von `bake.face-uv-range` ist lockerer als Doku und Meldung; die Tabelle der Prüfcodes in `nsbmd.md` nennt bei `texture.*` keine Argumente, `texture.name` trägt [Name]; `texture.name` je Textur bei geteiltem ungültigem Palettennamen; die Suche des Strip-Anfangs ist bei böswilliger Reihenfolge quadratisch.
-- `bake_test`: der Paket-Check für `IPKE` druckt nur (sollte `assert_eq` 25 sein); VRAM-Warnungen anderer Gebiete des Pakets fallen weg; ein gescheiterter Import nach dem Anhängen hinterlässt einen Redo-Eintrag und Dateien im `outDir`; schwache Zusicherungen im Ablehnungstest; die GLB-Prüfung kennt Typ, `normalized` und `sparse` nicht.
+- `bake`: `texture.name` je Textur bei geteiltem ungültigem Palettennamen; die Suche des Strip-Anfangs ist bei böswilliger Reihenfolge quadratisch.
+- `bake_test`: ein gescheiterter Import nach dem Anhängen hinterlässt Dateien im `outDir`; schwache Zusicherungen im Ablehnungstest; die GLB-Prüfung kennt Typ, `normalized` und `sparse` nicht.
 - Befehl: eine Ablehnung über `dispatch` kann ein leeres `build/` hinterlassen; Dateien im `outDir` ohne Symlink-Prüfung; der Tauri-Befehl nimmt die Sitzungssperre zweimal.
 - Szenarien: die Spielnotiz in `pt-bake.yaml` ist knapper als in den HG-Dateien; „unten ist Karte 216“ in `hg-bake`/`hgus-bake` stammt aus dem Kernel-Test, nicht aus dem Spiel.
