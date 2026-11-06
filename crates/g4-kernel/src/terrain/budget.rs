@@ -41,6 +41,8 @@ impl BudgetItem {
 /// `textures` textures) and its building texture pack `building_pack`; `vram.used` is the
 /// estimate of both packs against the bank (`vram.max`), `vanilla_max` the largest vanilla
 /// area of the family. Its state: Full above `vram.full_estimate`, Tight above `vanilla_max`.
+/// The estimate ([`vram_bytes`]) lies above the measured VRAM, so the largest vanilla area of
+/// each family (area 6, e.g. Platinum maps 0 and 3) is Tight on an unmodified project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TextureBudget {
     pub area: u8,
@@ -88,7 +90,11 @@ fn bits_per_texel(format: u8) -> u64 {
 }
 
 /// The VRAM a texture pack takes, estimated from its lists: texels `w · h · bpp / 8` per
-/// texture, two bytes per palette colour. Texels shared by two textures count twice.
+/// texture, two bytes per palette colour. Texels shared by two textures count twice: on vanilla
+/// the estimate is 2–15 % above the measurement of Gutachten A §2.4 (Platinum median 38 272 vs
+/// 37 744 B, maximum 115 648 vs 110 640 B; HGSS 31 136 vs 27 144 B, 89 296 vs 87 424 B), so
+/// area 6 of each family shows Tight until shared texels are counted once (when 6.1's `Nsbtx`
+/// exposes the texel offsets).
 pub fn vram_bytes(btx: &Nsbtx) -> u64 {
     let texels: u64 = btx
         .textures
@@ -366,6 +372,41 @@ mod tests {
         assert_eq!(
             b.textures_missing.as_deref(),
             Some("Gebietsdaten 12 fehlen.")
+        );
+    }
+
+    #[test]
+    fn map_budget_names_an_unreadable_or_missing_building_pack() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        // A readable map pack 0; building pack 0 stays the synthetic 8 bytes without TEX0.
+        write_narc(
+            root,
+            "files/fielddata/areadata/area_map_tex/map_tex_set.narc",
+            vec![map_pack()],
+        );
+        let mut st = Store::new(Arc::new(Project::open(root).unwrap()));
+        let why = map_budget(&mut st, 0).unwrap().textures_missing.unwrap();
+        assert!(
+            why.starts_with("Gebäude-Texturpaket 0 nicht lesbar: "),
+            "{why}"
+        );
+        assert!(why.ends_with('.'), "{why}");
+
+        // Area data 0 names building pack 5 (store edit); the archive has one member.
+        st.edit_area_data(0, "pack", |a| {
+            if let g4_formats::area_data::AreaData::Dppt {
+                buildings_tileset, ..
+            } = a
+            {
+                *buildings_tileset = 5;
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            map_budget(&mut st, 0).unwrap().textures_missing.as_deref(),
+            Some("Gebäude-Texturpaket 5 nicht lesbar: liegt außerhalb des Archivs.")
         );
     }
 }

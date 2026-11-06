@@ -164,7 +164,7 @@ zeigt nur an; Speichern blockiert es nie.
 | Posten | `used` | `max` |
 |---|---|---|
 | `model` | Länge des Modells | `model.max_bytes` 0xF000 = 61 440 B |
-| `bdhc` | Nutzlast aus den Zählern des Kopfs (`8 P + 12 N + 4 C + 8 Pl + 8 S + 2 A`), 0 ohne Kopf | `bdhc.max_bytes` 0x9000 = 36 864 B; ein Raster bleibt unter 35 592 B |
+| `bdhc` | Nutzlast aus den Zählern des Kopfs (`8 P + 12 N + 4 C + 8 Pl + 8 S + 2 A`), 0 ohne Kopf | `bdhc.max_bytes` 0x9000 = 36 864 B; ein Raster braucht höchstens 35 592 B |
 | `buildings` | Zahl der Gebäude | `buildings.max_loaded` 32 (32 sind Knapp, ab 33 Voll) |
 | `textures.vram` | Schätzung von Karten- plus Gebäudepaket des Gebiets | `vram.bank` 262 144 B |
 
@@ -186,6 +186,13 @@ Texturen teilen, zählen doppelt; die Ausrichtung im VRAM und der Anteil der Fig
 sind nicht gemessen (die Bank teilen Karte, Gebäude und Figuren); Polygone und Vertices fehlen
 (sie folgen mit dem Modell-Codec in 6.3b). Ein Paket, das nicht passt, bricht im Spiel beim
 Hochladen ab (A §2.4); die Schätzung ist eine Warnung, keine Prüfung.
+
+**Abweichung auf Vanilla** (gated Test `terrain_over_the_command_path_on_the_vanilla_copy`, über
+alle Gebiete): Platin Median 38 272 statt 37 744 B, Maximum 115 648 statt 110 640 B; HeartGold
+Median 31 136 statt 27 144 B, Maximum 89 296 statt 87 424 B (gemessen: A §2.4). Die Schätzung
+liegt also 2 bis 15 % zu hoch. Folge: das größte Gebiet jeder Familie (Gebiet 6, etwa die
+Platin-Karten 0 und 3) zeigt auf unverändertem Vanilla „Knapp“, bis `vram_bytes` geteilte Texel
+nur einmal zählt (sobald `Nsbtx` aus 6.1 die Texel-Offsets nennt).
 
 ## Quellen
 

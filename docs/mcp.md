@@ -373,7 +373,7 @@ Bis das Weltformat (6.3a) und das Malen (6.4a) da sind, setzt ein Agent das Gel�
  "overrides": [{"x": 18, "y": 25, "kind": 0, "collision": 0}]}
 ```
 
-Die Treppe `e1` mit Höhen 0 und 1 steigt über zwei Kacheln auf das Plateau mit Höhe 2; eine Kante von zwei Stufen oder mehr ohne Treppe blockiert die obere Zelle. Danach zeigt `get_map_heights` die Mitten (4 und 12 E auf den Treppenkacheln, 16 E auf dem Plateau), `run_checks` meldet eine freie Stufe als `map.step-unblocked` (Fix `block_upper`) und `get_map_budget` die Nutzlast gegen 36 864 B. Ein Raster bleibt immer unter 35 592 B; `undo` nimmt BDHC und Permissions zusammen zurück.
+Die Treppe `e1` mit Höhen 0 und 1 steigt über zwei Kacheln auf das Plateau mit Höhe 2; eine Kante von zwei Stufen oder mehr ohne Treppe blockiert die obere Zelle. Danach zeigt `get_map_heights` die Mitten (4 und 12 E auf den Treppenkacheln, 16 E auf dem Plateau), `run_checks` meldet eine freie Stufe als `map.step-unblocked` (Fix `block_upper`) und `get_map_budget` die Nutzlast gegen 36 864 B. Ein Raster braucht höchstens 35 592 B; `undo` nimmt BDHC und Permissions zusammen zurück.
 
 ## Ressourcen
 
