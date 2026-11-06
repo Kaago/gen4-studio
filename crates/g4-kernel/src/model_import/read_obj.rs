@@ -1,8 +1,10 @@
 //! The OBJ reader: `tobj` parses OBJ and MTL, every file next to the model is read only from
 //! inside the model's folder ([`resolve_inside`]).
 
-use std::cell::RefCell;
-use std::io::BufReader;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::io::Cursor;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 use super::mesh::{Mesh, MeshImage, MeshMaterial, Polygon};
@@ -24,7 +26,8 @@ struct Library {
 /// OBJ: v up is t down (`t = 1 − v`); quads and n-gons stay as written (`face_arities` empty
 /// means triangles only); points and lines are left out. The models `tobj` splits the file
 /// into are merged, their indices shifted. A model whose corners have uv only in part keeps
-/// no uv (`to_faces` then says `model.uv-missing`).
+/// no uv (`to_faces` then says `model.uv-missing`). A `usemtl` name no library defines is a
+/// material of that name without image (the pack texture of the name may draw it).
 pub(crate) fn read_obj(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMessage> {
     let unreadable = |reason: &str| source_unreadable(SourceFormat::Obj, reason);
     // `a.obj` has the parent "" (the current folder).
@@ -35,7 +38,16 @@ pub(crate) fn read_obj(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMess
     let root = folder
         .canonicalize()
         .map_err(|e| unreadable(&e.to_string()))?;
-    let file = std::fs::File::open(path).map_err(|e| unreadable(&e.to_string()))?;
+    let text = std::fs::read_to_string(path).map_err(|e| unreadable(&e.to_string()))?;
+    let names = check_obj(&text).map_err(|reason| unreadable(&reason))?;
+    // The `usemtl` names come first as a library of their own (no image), so a name without
+    // `newmtl` keeps its name; a real library loaded later overrides the name (tobj's merge).
+    let text = if names.is_empty() {
+        text
+    } else {
+        format!("mtllib {NAMES_LIBRARY}\n{text}")
+    };
+    let names_pending = Cell::new(!names.is_empty());
     let refusal: RefCell<Option<PartMessage>> = RefCell::new(None);
     let libraries: RefCell<Vec<Library>> = RefCell::new(Vec::new());
     let options = tobj::LoadOptions {
@@ -44,13 +56,27 @@ pub(crate) fn read_obj(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMess
         ignore_points: true,
         ignore_lines: true,
     };
-    let loaded = tobj::load_obj_buf(&mut BufReader::new(file), &options, |reference| {
+    let loader = |reference: &Path| {
+        if names_pending.replace(false) {
+            libraries.borrow_mut().push(Library {
+                folder: root.clone(),
+                materials: names.len(),
+            });
+            return Ok(names_library(&names));
+        }
         let written = reference.to_string_lossy();
         let library = resolve_inside(&root, &root, &written).and_then(|mtl| {
-            let file =
-                std::fs::File::open(&mtl).map_err(|e| unreadable(&format!("{written}: {e}")))?;
-            let (materials, names) = tobj::load_mtl_buf(&mut BufReader::new(file))
+            let text = std::fs::read_to_string(&mtl)
                 .map_err(|e| unreadable(&format!("{written}: {e}")))?;
+            let text = normalise_mtl(&text);
+            let parsed = catch_unwind(AssertUnwindSafe(|| {
+                tobj::load_mtl_buf(&mut Cursor::new(text.as_bytes()))
+            }));
+            let (materials, names) = match parsed {
+                Ok(Ok(library)) => library,
+                Ok(Err(e)) => return Err(unreadable(&format!("{written}: {e}"))),
+                Err(_) => return Err(unreadable(&format!("{written}: {PANICKED}"))),
+            };
             let folder = mtl.parent().map_or_else(|| root.clone(), Path::to_path_buf);
             Ok((folder, materials, names))
         });
@@ -67,10 +93,16 @@ pub(crate) fn read_obj(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMess
                 Err(tobj::LoadError::OpenFileFailed)
             }
         }
-    });
+    };
+    // tobj is checked against the inputs it panics on (`check_obj`, `normalise_mtl`); a panic
+    // left in it still only refuses the file.
+    let loaded = catch_unwind(AssertUnwindSafe(|| {
+        tobj::load_obj_buf(&mut Cursor::new(text.as_bytes()), &options, loader)
+    }));
     if let Some(e) = refusal.into_inner() {
         return Err(e);
     }
+    let loaded = loaded.map_err(|_| unreadable(PANICKED))?;
     let (models, materials) = loaded.map_err(|e| unreadable(&e.to_string()))?;
     let materials = materials.map_err(|e| unreadable(&e.to_string()))?;
     let libraries = libraries.into_inner();
@@ -100,6 +132,94 @@ pub(crate) fn read_obj(path: &Path) -> Result<(Mesh, Vec<PartMessage>), PartMess
         append_model(&mut mesh, m, material).map_err(|reason| unreadable(&reason))?;
     }
     Ok((mesh, Vec::new()))
+}
+
+/// The name the library of the `usemtl` names is asked for by (only its first load counts).
+const NAMES_LIBRARY: &str = "g4-studio-usemtl-names";
+
+/// The reason when tobj panics anyway.
+const PANICKED: &str = "the OBJ parser failed on this file";
+
+/// The `usemtl` names of `text` in first-use order, after checking every corner index of the
+/// `f`, `l` and `p` lines against the `v`, `vt`, `vn` lines before it: tobj overflows on an
+/// index past them (`f 1/-9223372036854775808 …`) instead of refusing. Errors are reasons for
+/// `model.source-unreadable`.
+fn check_obj(text: &str) -> Result<Vec<String>, String> {
+    let mut counts = [0usize; 3];
+    let mut names: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let mut words = line.split_whitespace();
+        match words.next() {
+            Some("v") => counts[0] += 1,
+            Some("vt") => counts[1] += 1,
+            Some("vn") => counts[2] += 1,
+            Some("f" | "l" | "p") => {
+                for corner in words {
+                    for (kind, part) in corner.split('/').enumerate().take(3) {
+                        let Ok(index) = part.parse::<isize>() else {
+                            continue; // empty (`1//1`) or not a number: tobj refuses that
+                        };
+                        let count = counts[kind];
+                        if index.unsigned_abs() > count {
+                            let what = ["positions", "texture coordinates", "normals"][kind];
+                            return Err(format!("corner index {index} past the {count} {what}"));
+                        }
+                    }
+                }
+            }
+            // As tobj reads the name: everything after the first space.
+            Some("usemtl") => {
+                let name = line.split_once(' ').unwrap_or_default().1.trim();
+                if !name.is_empty() && !names.iter().any(|n| n == name) {
+                    names.push(name.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(names)
+}
+
+/// A library with one material without image per name.
+fn names_library(names: &[String]) -> (Vec<tobj::Material>, HashMap<String, usize>) {
+    let materials = names
+        .iter()
+        .map(|name| tobj::Material {
+            name: name.clone(),
+            ..tobj::Material::default()
+        })
+        .collect();
+    let map = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (name.clone(), i))
+        .collect();
+    (materials, map)
+}
+
+/// `text` with every colour line (`Ka`, `Kd`, `Ks`, `Ke`) of one or two numbers filled to
+/// three (MTL: g and b default to r) and without the ones of no value: tobj panics on fewer
+/// than three. Colours are not imported; other lines stay as they are.
+fn normalise_mtl(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        let mut words = line.split_whitespace();
+        let keyword = words.next();
+        let values: Vec<&str> = words.collect();
+        let colour = matches!(keyword, Some("Ka" | "Kd" | "Ks" | "Ke"));
+        let numbers = values.iter().all(|v| v.parse::<f32>().is_ok());
+        match (keyword, values.len()) {
+            (_, 0) if colour => continue,
+            (Some(keyword), 1 | 2) if colour && numbers => {
+                let r = values[0];
+                let g = values.get(1).copied().unwrap_or(r);
+                out.push_str(&format!("{keyword} {r} {g} {r}"));
+            }
+            _ => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// The folder of the library tobj material `id` came from (libraries are appended in order).
@@ -492,5 +612,91 @@ mod tests {
         let names: Vec<&str> = mesh.materials.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(names, ["g4_imp_cube_mat"]);
         assert!(mesh.polygons.iter().all(|p| p.material == Some(0)));
+    }
+
+    #[test]
+    fn short_colour_lines_in_the_mtl_do_not_panic() {
+        let (_guard, root) = samples();
+        std::fs::write(
+            root.join("g4_imp_cube.mtl"),
+            "newmtl g4_imp_cube_mat\nKd 1\nKa 0.2\nKs\nKe 0 0\nmap_Kd g4_imp_cube.png\n",
+        )
+        .unwrap();
+        let (mesh, _) = read_obj(&root.join(CUBE_OBJ)).unwrap();
+        assert_eq!(
+            mesh.materials[0].image.as_ref().unwrap().stem,
+            "g4_imp_cube"
+        );
+        assert_eq!(
+            normalise_mtl("Kd 1\nKs\nKe 0 0.5\nKa 1 x\n"),
+            "Kd 1 1 1\nKe 0 0.5 0\nKa 1 x\n"
+        );
+    }
+
+    #[test]
+    fn corner_indices_past_the_lists_are_source_unreadable_not_a_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.obj");
+        let head = "v 0 0 0\nv 1 0 0\nv 0 0 1\nvt 0 0\nvn 0 1 0\n";
+        for face in [
+            "f 1/-9223372036854775808 2/1 3/1",
+            "f 1/-2 2/1 3/1",
+            "f 1/2 2/1 3/1",
+            "f 1//9223372036854775807 2//1 3//1",
+            "f -4 2 3",
+            "f 1 2 4",
+            "l 1/-9223372036854775808 2",
+        ] {
+            std::fs::write(&path, format!("{head}{face}\n")).unwrap();
+            let e = refusal(&path);
+            assert_eq!(e.code, PartCode::ModelSourceUnreadable, "{face}");
+        }
+        // Counted at the line: a later `vt` does not make an earlier index valid.
+        std::fs::write(&path, "v 0 0 0\nv 1 0 0\nv 0 0 1\nf 1/1 2/1 3/1\nvt 0 0\n").unwrap();
+        assert_eq!(refusal(&path).code, PartCode::ModelSourceUnreadable);
+        std::fs::write(&path, format!("{head}f -3/-1/-1 -2/1/1 -1/1/1\n")).unwrap();
+        assert_eq!(read_obj(&path).unwrap().0.polygons.len(), 1);
+    }
+
+    #[test]
+    fn a_usemtl_name_without_library_keeps_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("stein.obj");
+        let faces = "v 0 0 0\nv 1 0 0\nv 0 0 1\nvt 0 0\nusemtl stein\nf 1/1 2/1 3/1\n\
+                     usemtl fels\nf 1/1 3/1 2/1\nusemtl stein\nf 2/1 1/1 3/1\n";
+        std::fs::write(&path, faces).unwrap();
+        let (mesh, _) = read_obj(&path).unwrap();
+        assert_eq!(
+            mesh.materials,
+            [
+                MeshMaterial {
+                    name: "stein".into(),
+                    image: None
+                },
+                MeshMaterial {
+                    name: "fels".into(),
+                    image: None
+                },
+            ]
+        );
+        let materials: Vec<Option<usize>> = mesh.polygons.iter().map(|p| p.material).collect();
+        assert_eq!(materials, [Some(0), Some(1), Some(0)]);
+
+        // A library that defines the name wins; the other name stays without image.
+        let (_guard, root) = samples();
+        std::fs::copy(root.join("g4_imp_cube.png"), dir.path().join("stein.png")).unwrap();
+        std::fs::write(dir.path().join("a.mtl"), "newmtl stein\nmap_Kd stein.png\n").unwrap();
+        std::fs::write(&path, format!("mtllib a.mtl\n{faces}")).unwrap();
+        let (mesh, _) = read_obj(&path).unwrap();
+        assert_eq!(mesh.materials.len(), 2);
+        assert_eq!(mesh.materials[0].name, "stein");
+        assert_eq!(mesh.materials[0].image.as_ref().unwrap().stem, "stein");
+        assert_eq!(
+            mesh.materials[1],
+            MeshMaterial {
+                name: "fels".into(),
+                image: None
+            }
+        );
     }
 }
