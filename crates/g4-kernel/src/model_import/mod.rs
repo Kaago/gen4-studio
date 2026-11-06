@@ -5,15 +5,21 @@ pub mod mesh;
 mod read_gltf;
 mod read_obj;
 pub mod samples;
+pub mod textures;
+
+pub use textures::{
+    TexturePlan, TexturePreview, load_image, plan_textures, png_textures, texture_name,
+};
 
 use std::path::{Component, Path, PathBuf};
 
 use g4_formats::nsbtx::Rgba;
 use g4_formats::texconv::Colors;
 
+use crate::bake::Level;
 use crate::bake::{BakeCode, BakeMessage, WORLD_MAX, WORLD_MIN};
 use crate::error::KernelError;
-use crate::map_import::{PartCode, PartMessage};
+use crate::map_import::{PartCode, PartMessage, PartState};
 use mesh::Mesh;
 
 /// What the user chooses for an import: `unit` world units per model unit (16: one model unit
@@ -240,17 +246,42 @@ pub(crate) fn resolve_inside(
     Ok(canonical)
 }
 
+/// The largest side of a texture; an image whose header claims more is refused before it is
+/// decoded.
+const IMAGE_SIDE_MAX: u32 = 1024;
+
 /// The pixels of a PNG or JPEG as RGBA8; texture.unreadable `[file, reason]` (`file` as the
 /// model writes it).
+///
+/// The sides are read from the header first: one over 1024 is texture.side `[file, width,
+/// height]` without decoding (a header may claim any size); the decoder runs with a limit of
+/// 1024 × 1024 and 64 MiB of memory as well. Smaller sides that are no power of two are judged
+/// by the texture plan, which knows the texture's name.
 pub(crate) fn decode_image(bytes: &[u8], file: &str) -> Result<Rgba, PartMessage> {
-    let image = image::load_from_memory(bytes).map_err(|e| {
+    let unreadable = |e: image::ImageError| {
         let reason = e.to_string();
         PartMessage::new(
             PartCode::TextureUnreadable,
             &[&file, &reason],
             format!("the image {file} cannot be read ({reason})"),
         )
-    })?;
+    };
+    let reader = || {
+        image::ImageReader::new(std::io::Cursor::new(bytes))
+            .with_guessed_format()
+            .map_err(|e| unreadable(image::ImageError::IoError(e)))
+    };
+    let (width, height) = reader()?.into_dimensions().map_err(unreadable)?;
+    if width > IMAGE_SIDE_MAX || height > IMAGE_SIDE_MAX {
+        return Err(textures::side_refused(file, width, height));
+    }
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(IMAGE_SIDE_MAX);
+    limits.max_image_height = Some(IMAGE_SIDE_MAX);
+    limits.max_alloc = Some(64 << 20);
+    let mut decoder = reader()?;
+    decoder.limits(limits);
+    let image = decoder.decode().map_err(unreadable)?;
     let rgba = image.to_rgba8();
     Ok(Rgba {
         width: rgba.width(),
@@ -264,9 +295,13 @@ pub(crate) fn decode_image(bytes: &[u8], file: &str) -> Result<Rgba, PartMessage
 /// `bake.empty` → `model.no-geometry`; `bake.model-too-big` → `model.too-big` (same args);
 /// `bake.face-out-of-range` → `model.out-of-range` (`[x, y, z, -512, 511]`);
 /// `bake.texture-missing` → `model.material-untextured` (the texture name: a bound texture the
-/// pack has without a palette). The remaining codes (uv range, VRAM, the `texture.*` codes of
-/// appending) have no part code yet: they keep the baker's English sentence under
-/// `model.invalid` (args: that sentence) until their own codes exist.
+/// pack has without a palette); the codes of appending keep their args: `texture.side`
+/// `[name, width, height]`, `texture.name` `[name]`, `texture.taken` `["texture" | "palette",
+/// name]`, `texture.pack-full` `[what, value, most]`; `bake.vram-high` → `texture.vram-high`
+/// `[area, vram, most]` (`bake` gives `[vram, most]`, `append_textures` `[area, vram, most]`).
+/// The VRAM finding is a warning: [`bake_state`] gives the state of a part. The uv range has no
+/// part code yet: it keeps the baker's English sentence under `model.invalid` (args: that
+/// sentence) until its own code exists.
 ///
 /// Public, not crate-internal, so the library builds without a dead-code exception before
 /// `map_import` calls it.
@@ -295,16 +330,52 @@ pub fn from_bake(m: &BakeMessage, area: u8) -> PartMessage {
             message,
         },
         BakeCode::VramHigh => {
-            let message = format!("area {area}: {message}");
-            PartMessage::new(PartCode::ModelInvalid, &[&message], message.clone())
+            let args = match m.args.as_slice() {
+                [_, _, _] => m.args.clone(),
+                _ => std::iter::once(area.to_string())
+                    .chain(m.args.iter().cloned())
+                    .collect(),
+            };
+            let message = if m.args.len() == 3 {
+                message
+            } else {
+                format!("area {area}: {message}")
+            };
+            PartMessage {
+                code: PartCode::TextureVramHigh,
+                args,
+                message,
+            }
         }
-        BakeCode::FaceUvRange
-        | BakeCode::TextureSide
+        BakeCode::TextureSide
         | BakeCode::TextureName
         | BakeCode::TextureTaken
         | BakeCode::PackFull => {
+            let code = match m.code {
+                BakeCode::TextureSide => PartCode::TextureSide,
+                BakeCode::TextureName => PartCode::TextureName,
+                BakeCode::TextureTaken => PartCode::TextureTaken,
+                _ => PartCode::TexturePackFull,
+            };
+            PartMessage {
+                code,
+                args: m.args.clone(),
+                message,
+            }
+        }
+        BakeCode::FaceUvRange => {
             PartMessage::new(PartCode::ModelInvalid, &[&message], message.clone())
         }
+    }
+}
+
+/// The state a finding of `bake` or of appending gives a part: an error refuses it, a warning
+/// (`texture.vram-high`) only tells; the message as [`from_bake`] maps it.
+pub fn bake_state(m: &BakeMessage, area: u8) -> PartState {
+    let message = from_bake(m, area);
+    match m.level {
+        Level::Error => PartState::Error(message),
+        Level::Warning => PartState::Warning(message),
     }
 }
 
@@ -402,9 +473,47 @@ mod tests {
         let m = from_bake(&bake_message(BakeCode::TextureMissing, &["grass"]), 3);
         assert_eq!(m.code, PartCode::ModelMaterialUntextured);
         assert_eq!(m.args, ["grass"]);
-        let m = from_bake(&bake_message(BakeCode::VramHigh, &["9000", "8000"]), 3);
-        assert_eq!(m.code, PartCode::ModelInvalid);
-        assert_eq!(m.args, ["area 3: why"]);
+        // VRAM: `bake` has no area, appending names it; a warning, not an error.
+        let mut vram = bake_message(BakeCode::VramHigh, &["120000", "110640"]);
+        vram.level = Level::Warning;
+        let m = from_bake(&vram, 3);
+        assert_eq!(m.code, PartCode::TextureVramHigh);
+        assert_eq!(m.args, ["3", "120000", "110640"]);
+        assert_eq!(m.message, "area 3: why");
+        assert_eq!(bake_state(&vram, 3), PartState::Warning(m));
+        vram.args = vec!["5".into(), "120000".into(), "110640".into()];
+        let m = from_bake(&vram, 3);
+        assert_eq!(
+            (m.args.as_slice(), m.message.as_str()),
+            (
+                &["5".to_string(), "120000".into(), "110640".into()][..],
+                "why"
+            )
+        );
+        // The refusals of appending keep their args.
+        for (code, args, part) in [
+            (
+                BakeCode::TextureSide,
+                &["kachel", "24", "16"][..],
+                PartCode::TextureSide,
+            ),
+            (BakeCode::TextureName, &["a b"][..], PartCode::TextureName),
+            (
+                BakeCode::TextureTaken,
+                &["palette", "gras_pl"][..],
+                PartCode::TextureTaken,
+            ),
+            (
+                BakeCode::PackFull,
+                &["entries", "256", "255"][..],
+                PartCode::TexturePackFull,
+            ),
+        ] {
+            let found = bake_message(code, args);
+            let m = from_bake(&found, 3);
+            assert_eq!((m.code, m.args.as_slice()), (part, &found.args[..]));
+            assert_eq!(bake_state(&found, 3), PartState::Error(m));
+        }
         let m = from_bake(&bake_message(BakeCode::FaceUvRange, &["0", "s", "4000"]), 3);
         assert_eq!(
             (m.code, m.message.as_str()),

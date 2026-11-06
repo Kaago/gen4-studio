@@ -172,13 +172,33 @@ pub enum PartCode {
     /// `points`, `animations`, `skins`, `cameras`, `lights`, `vertex-colours`,
     /// `texture-options`; in that order, each once).
     ModelPartsIgnored,
+    /// Error, args: the texture name, its width, its height; a side is no power of two from 8
+    /// to 1024 (images are not scaled).
+    TextureSide,
+    /// Error, args: the name; not a name of the pack (empty, over 16 bytes, a byte outside
+    /// 0x21..=0x7E).
+    TextureName,
+    /// Error, args: `texture` or `palette`, the name; already in the area's pack (or twice in
+    /// one import). Replacing is not possible.
+    TextureTaken,
+    /// Error, args: what is full (`entries`, `texture bytes`, `palette bytes`, an offset), its
+    /// value, the most the pack holds.
+    TexturePackFull,
     /// Error, args: the image file as the model writes it, the decoder's reason.
     TextureUnreadable,
+    /// Hint, args: the name, width, height, colours, the mean colour error with one decimal
+    /// (`7.6`); a texture converted from an image and appended to the pack.
+    TextureNew,
+    /// Hint, args: the name; the pack already has a texture of the name, it is used as it is.
+    TextureReused,
+    /// Warning, args: the area, its VRAM bytes (map pack + buildings pack), the largest vanilla
+    /// area's VRAM.
+    TextureVramHigh,
 }
 
 impl PartCode {
     /// Every code, in the order above.
-    pub const ALL: [PartCode; 40] = [
+    pub const ALL: [PartCode; 47] = [
         PartCode::ModelInvalid,
         PartCode::ModelBlocks,
         PartCode::ModelCount,
@@ -218,7 +238,14 @@ impl PartCode {
         PartCode::ModelOutOfRange,
         PartCode::ModelFacesDropped,
         PartCode::ModelPartsIgnored,
+        PartCode::TextureSide,
+        PartCode::TextureName,
+        PartCode::TextureTaken,
+        PartCode::TexturePackFull,
         PartCode::TextureUnreadable,
+        PartCode::TextureNew,
+        PartCode::TextureReused,
+        PartCode::TextureVramHigh,
     ];
 
     /// The code as the UI gets it (`model.too-big`).
@@ -263,7 +290,14 @@ impl PartCode {
             PartCode::ModelOutOfRange => "model.out-of-range",
             PartCode::ModelFacesDropped => "model.faces-dropped",
             PartCode::ModelPartsIgnored => "model.parts-ignored",
+            PartCode::TextureSide => "texture.side",
+            PartCode::TextureName => "texture.name",
+            PartCode::TextureTaken => "texture.taken",
+            PartCode::TexturePackFull => "texture.pack-full",
             PartCode::TextureUnreadable => "texture.unreadable",
+            PartCode::TextureNew => "texture.new",
+            PartCode::TextureReused => "texture.reused",
+            PartCode::TextureVramHigh => "texture.vram-high",
         }
     }
 }
@@ -1589,7 +1623,14 @@ mod tests {
             ModelOutOfRange,
             ModelFacesDropped,
             ModelPartsIgnored,
+            TextureSide,
+            TextureName,
+            TextureTaken,
+            TexturePackFull,
             TextureUnreadable,
+            TextureNew,
+            TextureReused,
+            TextureVramHigh,
         ];
         let mut all: HashSet<PartCode> = seen.clone();
         all.extend(unreached);

@@ -44,9 +44,9 @@ describe("importParts", () => {
   });
 
   it("covers_every_part_code_of_the_kernel_and_says_a_broken_terrain_structure", () => {
-    // `PartCode::ALL` has 40 codes; the Rust test holds the order against it.
+    // `PartCode::ALL` has 47 codes; the Rust test holds the order against it.
     const codes = Object.keys(PART_TEXTS);
-    expect(codes).toHaveLength(40);
+    expect(codes).toHaveLength(47);
     expect(codes).toContain("bdhc.structure");
     expect(said("bdhc.structure", ["plate 0 names point 99, past the 2 points"])).toBe(
       "Das Terrain ist beschädigt (plate 0 names point 99, past the 2 points). Wähle eine unbeschädigte .bdhc-Datei.",
@@ -80,6 +80,21 @@ describe("importParts", () => {
     expect(said("model.parts-ignored", ["texture-options"])).toBe("Nicht übernommen: Texturoptionen.");
     expect(said("model.parts-ignored", ["lines,points,animations,skins,cameras,lights,vertex-colours,texture-options"])).toBe(
       "Nicht übernommen: Linien, Punkte, Animationen, Skelette, Kameras, Lichter, Eckenfarben, Texturoptionen.",
+    );
+  });
+
+  it("says_the_textures_of_an_import_with_a_german_decimal_comma", () => {
+    expect(said("texture.new", ["g4_imp_cube", "16", "16", "16", "7.6"])).toBe("Neue Textur g4_imp_cube: 16 × 16, 16 Farben, mittlerer Farbfehler 7,6.");
+    expect(said("texture.new", ["g4_imp_40", "64", "64", "16", "0.0"])).toContain("mittlerer Farbfehler 0,0.");
+    expect(said("texture.side", ["kachel", "24", "16"])).toBe(
+      "Die Textur kachel ist 24 × 16 Pixel groß; jede Seite muss eine Zweierpotenz von 8 bis 1.024 sein. Skaliere das Bild.",
+    );
+    expect(said("texture.taken", ["texture", "g4_imp_cube"])).toBe(
+      "Der Name g4_imp_cube ist im Gebiets-Paket schon vergeben. Benenne die Datei um; Ersetzen gibt es nicht.",
+    );
+    expect(said("texture.pack-full", ["entries", "256", "255"])).toBe("Das Gebiets-Paket ist voll (entries: 256, höchstens 255). Nimm weniger oder kleinere Texturen.");
+    expect(said("texture.vram-high", ["3", "120000", "110640"])).toBe(
+      "Gebiet 3: die Texturen belegen 120.000 B VRAM, mehr als das größte Vanilla-Gebiet (110.640 B). Prüfe die Karte im Spiel.",
     );
   });
 

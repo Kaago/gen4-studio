@@ -221,6 +221,45 @@ so viel von `_pl`, wie in 16 Byte passt.
 4×4-Index + Paletten. `push` prüft nur die Grenzen des Formats; die Bänke prüft der Aufrufer
 über alle Pakete eines Gebiets.
 
+## Import aus PNG
+
+Phase 6.5a (`g4_kernel::model_import::textures`): die Bilder eines Modells (OBJ `map_Kd`,
+glTF `baseColorTexture`) und PNG-Dateien als Teil „Texturen“ werden neue Texturen des
+Kartenpakets ihres Gebiets.
+
+- **Weg:** PNG/JPEG → `load_image` (RGBA8) → `texconv::convert` (Median-Cut in BGR555, 16
+  oder 4 Farben nach `options.colors`, `color0` bei Alpha < 128, ohne Dithering, eine Palette
+  je Textur, Palettenname `palette_name`) → `NewTexture` → Anhängen wie oben
+  (`appended_pack_or_refusal` im Speicher für die Vorschau, `append_textures` als
+  Dateischritt beim Import).
+- **Keine Skalierung:** jede Seite muss eine Zweierpotenz von 8 bis 1 024 sein, sonst
+  `texture.side` `[name, breite, höhe]`. Eine Seite über 1 024 wird schon am Bildkopf
+  abgelehnt, bevor dekodiert wird (ein Kopf kann jede Größe behaupten); der Dekoder läuft
+  zusätzlich mit 1 024 × 1 024 und 64 MiB als Grenze.
+- **Name:** `texture_name(stamm)`: druckbares ASCII `0x21..=0x7E` bleibt, jedes andere
+  Zeichen wird `_` (eins je Zeichen, auch für ein Mehrbyte-UTF-8-Zeichen: `größe` →
+  `gr__e`), auf 16 Byte gekürzt, leer → `g4_tex`. Zwei verschiedene Bilder mit gleichem
+  Namen in einem Aufruf: `_2`, `_3` … (der Stamm gekürzt, damit 16 Byte reichen; ein Name,
+  den das Paket hat, wird übersprungen); dasselbe Bild zweimal ist eine Textur.
+- **Name schon im Paket:** beim Modell wird die Paket-Textur benutzt (Hinweis
+  `texture.reused`, nichts angehängt, Größe aus dem Paket); bei einer PNG-Datei
+  `texture.taken` `["texture", name]` (Ersetzen gibt es nicht). Ein Material ohne Bild
+  bindet die Paket-Textur seines Namens, sonst bleibt es ohne Textur
+  (`model.material-untextured`, sobald eine Fläche es nutzt).
+- **Fehlercodes:** `texture.side`, `texture.name`, `texture.taken` (`texture` oder
+  `palette`), `texture.pack-full` (`[was, wert, höchstens]`), `texture.unreadable`
+  (`[datei, grund]`); Hinweis `texture.new` `[name, breite, höhe, farben, mittlerer fehler
+  mit einer Nachkommastelle]`; Warnung `texture.vram-high` `[gebiet, vram, höchstens]`. Die
+  Ablehnungen des Anhängens bildet `model_import::from_bake` mit denselben Argumenten ab.
+- **Messung „40 Farben“** (`a_64x64_png_with_40_colours_becomes_a_16_colour_texture_within_one_step`,
+  `g4_imp_40.png` aus `samples::write_samples`, 64 × 64, 40 Farben in einem Raster aus 8 × 5
+  Feldern): eine Textur Format 3 mit 16 Farben, gebaut, gelesen und dekodiert. Keine der 40
+  Farben steht genau in der Palette (0/40: der Median-Cut nimmt Mittelwerte der Boxen); 8 der
+  40 Farben haben eine Palettenfarbe innerhalb einer 5-Bit-Stufe je Kanal („Treffer“, 816 von
+  4 096 Pixeln), und jedes dieser Pixel kommt innerhalb einer Stufe zurück. Über alle Pixel
+  höchstens 3 Stufen je Kanal, mittlerer Farbfehler 12,8 (RGB8 je Kanal). Log:
+  `png40 hits=8/40 pixels=816/4096 max_step=3 mean=12.8203125 exact=0/40`.
+
 ## Fehlerverhalten
 
 Jeder Zugriff ist längengeprüft (`Truncated`, `BadMagic`, `BadSignature`, `BadSize`,
