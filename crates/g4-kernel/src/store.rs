@@ -1069,6 +1069,17 @@ pub struct Store {
     /// only when its `stat` changed ([`read_deleted_cached`]), so a list does not read every
     /// entity file each time and still sees a change made outside the app.
     envelopes: Mutex<HashMap<Art, EnvelopeCache>>,
+    /// What [`Store::tileset`] answered per map texture package, with the `stat` of the file
+    /// it came from (the tileset file, else the package's member): read again when it changed.
+    tilesets: HashMap<u16, CachedTileset>,
+}
+
+/// One answer of [`Store::tileset`]: the tileset and the file it came from with that file's
+/// size and time when it was read.
+struct CachedTileset {
+    from_file: bool,
+    stamp: (u64, Option<std::time::SystemTime>),
+    tileset: Arc<crate::world::Tileset>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -1151,8 +1162,52 @@ impl Store {
             unexpanded_texts: HashMap::new(),
             tombstones: BTreeMap::new(),
             envelopes: Mutex::new(HashMap::new()),
+            tilesets: HashMap::new(),
             project,
         }
+    }
+
+    /// The tileset file of `package` (read again when its size or time changes), else
+    /// [`textures_only`](crate::world::textures_only) of the package (cached); a missing
+    /// package is `Refused` („Kartentextur-Paket 0200 gibt es nicht (74 Pakete).“).
+    pub fn tileset(&mut self, package: u16) -> Result<Arc<crate::world::Tileset>, KernelError> {
+        use crate::world::tileset::{package_file, read_package_file};
+        let file = self.project.root.join(crate::world::tileset_rel(package));
+        let (from_file, path, meta) = match std::fs::metadata(&file) {
+            Ok(meta) => (true, file, meta),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let path = package_file(&self.project, package)?;
+                let meta = std::fs::metadata(&path).map_err(io_at(&path))?;
+                (false, path, meta)
+            }
+            Err(e) => return Err(io_at(&file)(e)),
+        };
+        let stamp = (meta.len(), meta.modified().ok());
+        if let Some(cached) = self.tilesets.get(&package)
+            && cached.from_file == from_file
+            && cached.stamp == stamp
+        {
+            return Ok(Arc::clone(&cached.tileset));
+        }
+        let tileset = if from_file {
+            match crate::world::read_tileset_file(&self.project, package)? {
+                Some(tileset) => tileset,
+                // Removed right after the stat: the package answers.
+                None => return self.tileset(package),
+            }
+        } else {
+            crate::world::textures_only(package, &read_package_file(&path, package)?)
+        };
+        let tileset = Arc::new(tileset);
+        self.tilesets.insert(
+            package,
+            CachedTileset {
+                from_file,
+                stamp,
+                tileset: Arc::clone(&tileset),
+            },
+        );
+        Ok(tileset)
     }
 
     /// Refuses every write (edits, appends, new headers, the header patch, undo, redo, save)

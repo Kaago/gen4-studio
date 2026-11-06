@@ -7,15 +7,17 @@
 //! `doc.rs` holds the document as it is on disk (serde, canonical key order, unknown keys
 //! refused) and the synthetic fixtures; `grid.rs` the token grammar of its rows and the schema
 //! check that reads it into cells ([`WorldGrid::parse`]); `tileset.rs` the tileset file
-//! `data/tilesets/NNNN.json` of a map texture package and the synthetic test tileset;
-//! `mesh.rs` the mesher from layers, heights, ramps and footprints to a face list and the
-//! budget estimate; `keep.rs` the world object kept when the map file is written from its
-//! member.
+//! `data/tilesets/NNNN.json` of a map texture package, its derivation from the package and the
+//! vanilla permissions, and the synthetic test tileset; `places.rs` the map texture packages a
+//! map is shown with and the maps of every package; `mesh.rs` the mesher from layers, heights,
+//! ramps and footprints to a face list and the budget estimate; `keep.rs` the world object
+//! kept when the map file is written from its member.
 
 pub mod doc;
 pub mod grid;
 pub mod keep;
 pub mod mesh;
+pub mod places;
 pub mod tileset;
 
 pub use doc::{
@@ -26,7 +28,15 @@ pub use grid::{
     GridLayer, Ramp, TileRef, WorldError, WorldGrid, override_token, parse_height, parse_override,
     parse_ramp, parse_tile, ramp_token, set_token, tile_token,
 };
+pub use places::{maps_of_packages, packs_of_map};
 pub use tileset::{
-    HeightBehavior, TILESET_VERSION, TILESETS_DIR, TileJson, TileOrigin, TileRole, Tileset,
-    read_tileset_file, tile_outside, tileset_problems, tileset_rel,
+    DEFAULT_RULE, Deriver, HeightBehavior, TILESET_VERSION, TILESETS_DIR, TileJson, TileOrigin,
+    TileRole, Tileset, TilesetSaveReport, UNIQUE_SHARE, VoteRule, derive_tileset,
+    read_tileset_file, save_tileset, textures_only, tile_outside, tileset_problems, tileset_rel,
+    tileset_texture,
 };
+
+/// Why painting is refused outside a text project (`world_create`, `world_edit`,
+/// `tileset_save` in the DSPRE layout).
+pub const WORLD_NEEDS_TEXT_PROJECT: &str =
+    "Boden malen gibt es im Textprojekt (Technik › Textprojekt).";

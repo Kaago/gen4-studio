@@ -245,4 +245,22 @@ Mit K1 0,6 und der Zuordnung über Texturnamen: Platin DE 74 Pakete, 3 130 Kache
 
 ## 12. Gegenprobe im Kernel
 
-Trägt Task 5 nach (`vanilla_tilesets_have_one_ground_tile_per_texture`, `vanilla_vote_shares_match_task0`).
+Nachgetragen von Task 5 (`vanilla_tilesets_have_one_ground_tile_per_texture`, `vanilla_vote_shares_match_task0`,
+Release-Build, je Testkopie, 2026-11-06). Der Kernel ordnet die Karten über Header, Gebietsdaten und Matrizen zu
+(eine Karte kann zu mehreren Paketen gehören), nicht über Texturnamen wie Abschnitt 1; Regel K1, `UNIQUE_SHARE` 0,6,
+Kollision überall 0.
+
+| Größe | Platin DE | HeartGold DE | HeartGold US |
+|---|---|---|---|
+| Pakete | 74 | 106 | 106 |
+| Kacheln (= Texturen) | 3 130 | 3 659 | 3 659 |
+| entschieden (`vanilla`) | 1 765 | 2 612 | 2 612 |
+| unklar | 1 365 | 1 047 | 1 047 |
+| Pakete mit Karte | 71 | 98 | 98 |
+| Texturen mit Karte / ohne Karte | 1 837 / 1 293 | 3 238 / 421 | 3 238 / 421 |
+| Anteil `votes(k*) / Σ votes` min / Median / p90 / max | 0,392 / 0,951 / 0,998 / 1 | 0,309 / 0,918 / 0,998 / 1 | 0,309 / 0,918 / 0,998 / 1 |
+| Ableitung aller Pakete (`Deriver::new` und `derive`), ms | 6 470 | 7 751 | 5 988 |
+
+Gegen Abschnitt 11: mehr Texturen haben eine Karte (1 837 statt 1 669, 3 238 statt 2 861), darum mehr entschiedene
+(1 765 statt 1 619, 2 612 statt 2 420) und eine etwas breitere Verteilung der Anteile (Median 0,951 statt 0,968 und
+0,918 statt 0,966). Die Kontrollzahlen 74 / 3 130 und 106 / 3 659 treffen.
