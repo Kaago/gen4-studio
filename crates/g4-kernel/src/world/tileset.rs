@@ -722,8 +722,9 @@ fn read_package(project: &Project, package: u16) -> Result<Nsbtx, KernelError> {
 }
 
 /// RGBA of `texture` with its tile's palette (none: palette 0); `None` when the package or the
-/// texture is missing (synthetic tileset), when the tile names a palette the package lacks
-/// or when the texture's format has no decoder (4 × 4 compressed, format 5).
+/// texture is missing or the package does not read (synthetic tileset), when the tile names a
+/// palette the package lacks, when the package has no palette for a paletted texture or when
+/// the texture's format has no decoder (4 × 4 compressed, format 5).
 pub fn tileset_texture(
     project: &Project,
     tileset: &Tileset,
@@ -737,7 +738,12 @@ pub fn tileset_texture(
         Err(KernelError::Refused(_)) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let btx = read_package_file(&path, tileset.package)?;
+    let btx = match read_package_file(&path, tileset.package) {
+        Ok(btx) => btx,
+        // A package that does not read has no texture (the synthetic project's stub).
+        Err(KernelError::Refused(_)) => return Ok(None),
+        Err(e) => return Err(e),
+    };
     let Some(index) = btx.textures.iter().position(|t| t.name == texture) else {
         return Ok(None);
     };
@@ -750,7 +756,9 @@ pub fn tileset_texture(
     };
     match btx.decode(index, palette) {
         Ok(rgba) => Ok(Some(rgba)),
-        Err(FormatError::Unsupported { .. }) => Ok(None),
+        // No decoder for the format (4 × 4 compressed), or a paletted texture in a package
+        // without palettes.
+        Err(FormatError::Unsupported { .. } | FormatError::OutOfRange { .. }) => Ok(None),
         Err(e) => Err(e.into()),
     }
 }
@@ -1478,6 +1486,47 @@ mod tests {
         let mut far = t.clone();
         far.package = 9;
         assert_eq!(texture(&far, "t0"), None);
+    }
+
+    #[test]
+    fn the_synthetic_tileset_on_the_synthetic_project_has_no_texture() {
+        // Package 0 of the synthetic project is a stub that does not read.
+        let fx = TextFixture::exported();
+        fx.write(
+            "data/tilesets/0000.json",
+            &to_canonical(&Tileset::synthetic()),
+        );
+        let project = fx.project();
+        assert_eq!(
+            tileset_texture(&project, &Tileset::synthetic(), "syn_boden").unwrap(),
+            None
+        );
+        // The file answers without reading the package (Tasks 6, 7, 9 rely on it).
+        let mut store = store_of(&fx);
+        assert_eq!(*store.tileset(0).unwrap(), Tileset::synthetic());
+    }
+
+    #[test]
+    fn a_paletted_texture_without_palettes_has_no_texture() {
+        let fx = TextFixture::with(|project| {
+            let texels = [0x11u8; 128];
+            let bytes = renamed(btx0(&[(16, 16, 3, false, &texels)], &[]), "tex0", "t0");
+            std::fs::write(
+                project
+                    .root
+                    .join("files/fielddata/areadata/area_map_tex/map_tex_set.narc"),
+                Narc {
+                    members: vec![bytes],
+                }
+                .write(),
+            )
+            .unwrap();
+        });
+        let project = fx.project();
+        let btx = read_package(&project, 0).unwrap();
+        let t = textures_only(0, &btx);
+        assert_eq!(t.tiles[0].palette, None);
+        assert_eq!(tileset_texture(&project, &t, "t0").unwrap(), None);
     }
 
     #[test]

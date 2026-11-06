@@ -56,17 +56,6 @@ fn shown_maps(
         if usize::from(matrix) >= matrices {
             continue;
         }
-        let pack = match packs.get(&area) {
-            Some(pack) => *pack,
-            None => {
-                let pack = store.map_tileset_index(area)?;
-                packs.insert(area, pack);
-                pack
-            }
-        };
-        let Some(pack) = pack else {
-            continue;
-        };
         let m = store.matrix(matrix)?;
         let cells = m.maps.iter().enumerate().filter(|&(i, &cell)| {
             cell != MATRIX_EMPTY
@@ -77,7 +66,21 @@ fn shown_maps(
                     .is_none_or(|h| h.get(i).is_some_and(|&id| usize::from(id) == header))
         });
         let found: Vec<u16> = cells.map(|(_, &cell)| cell).collect();
-        if !found.is_empty() {
+        if found.is_empty() {
+            continue;
+        }
+        // The area data only of a header that shows something (as `map_packs`): a header
+        // that shows nothing never reads its area data, so a member that does not read
+        // there fails nothing.
+        let pack = match packs.get(&area) {
+            Some(pack) => *pack,
+            None => {
+                let pack = store.map_tileset_index(area)?;
+                packs.insert(area, pack);
+                pack
+            }
+        };
+        if let Some(pack) = pack {
             shown.entry(pack).or_default().extend(found);
         }
     }
@@ -176,5 +179,36 @@ mod tests {
                 .collect();
             assert_eq!(packs_of_map(&mut store, map).unwrap(), packs, "map {map}");
         }
+    }
+
+    #[test]
+    fn a_header_that_shows_nothing_does_not_read_its_area_data() {
+        // Header 1 owns no cell; its area data 1 does not read.
+        let (synth, _) = store_with(Some(Matrix {
+            name: "m".into(),
+            width: 2,
+            height: 1,
+            headers: Some(vec![0, 0]),
+            altitudes: None,
+            maps: vec![0, 1],
+        }));
+        let narc = Narc {
+            members: vec![vec![0; 8], vec![1, 2, 3]],
+        };
+        std::fs::write(
+            synth
+                .dir
+                .path()
+                .join("files/fielddata/areadata/area_data.narc"),
+            narc.write(),
+        )
+        .unwrap();
+        let project = Project::open(synth.dir.path()).unwrap();
+        let mut store = Store::new(Arc::new(project));
+        assert_eq!(
+            maps_of_packages(&mut store).unwrap(),
+            BTreeMap::from([(0, vec![0, 1])])
+        );
+        assert_eq!(packs_of_map(&mut store, 1).unwrap(), [0]);
     }
 }
