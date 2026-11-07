@@ -239,6 +239,7 @@ pub const COMMANDS: &[&str] = &[
     "set_map_terrain",
     "get_map_budget",
     "bake_test",
+    "world_layers",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1281,6 +1282,11 @@ pub fn dispatch(
                 bake_test_impl(state, a.map, a.block, out_dir)
             }
         ),
+        "world_layers" => run!(
+            json, "world_layers", args,
+            { req: g4_kernel::world::WorldLayersRequest },
+            |a| world_layers_impl(state, a.req)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1772,6 +1778,11 @@ mod tests {
             ("get_map_budget", json!({ "index": 0 })),
             // Pack 0 of the synthetic project is no NSBTX: refused before anything is written.
             ("bake_test", json!({ "map": 0 })),
+            // Outside a text project: refused before anything is written.
+            (
+                "world_layers",
+                json!({ "req": { "map": 0, "op": { "add": { "name": "Brücke" } } } }),
+            ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
