@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FloatingToolbar, isLowView, shownAnchor, toolbarMinHeight } from "../ui/frame/FloatingToolbar";
 import { RecipeBar } from "../ui/frame/RecipeBar";
 import { useShell } from "../ui/frame/ShellContext";
@@ -8,7 +8,10 @@ import type { RecipeEntry } from "./recipes";
 import { SceneBar } from "./SceneBar";
 import type { SceneBarProps } from "./SceneBar";
 import styles from "./SceneOverlays.module.css";
-import { TOOLS, eventToolsBlocked } from "./tools";
+import type { PaintSub } from "../world/paint/ops";
+import { usePaint } from "./paint/PaintContext";
+import { PAINT_TOOLS } from "./paintTools";
+import { eventToolsBlocked, toolsFor } from "./tools";
 import { useWorkbench } from "./WorkbenchContext";
 
 /**
@@ -40,6 +43,11 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
   // The four event tools wait for a shown place and an event file that may be written.
   const eventsBlocked = eventToolsBlocked(eventLock, eventFileId);
   const anchor = shownAnchor(state.toolbar, low);
+  // On a world map of the text project „Gelände malen“ paints tiles, heights and ramps: its sub-tools follow the tools while it is active.
+  const { state: paintState, set: setPaint, target } = usePaint();
+  const tools = toolsFor(target !== null);
+  const sub = tool === "paint" && target !== null ? paintState.sub : null;
+  const paint = useMemo(() => (sub === null ? null : { tools: PAINT_TOOLS, sub, onSub: (s: PaintSub) => setPaint({ sub: s }) }), [sub, setPaint]);
   // „Raum anlegen“ puts the door outside into the selected area or room.
   const onRecipe = useCallback(
     (id: RecipeEntry["id"]) => {
@@ -55,7 +63,7 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
         <RecipeBar entries={RECIPE_BAR} onRecipe={onRecipe} density={density} anchor={anchor} />
       ) : (
         <FloatingToolbar
-          tools={TOOLS}
+          tools={tools}
           tool={tool}
           onTool={onTool}
           eventsBlocked={eventsBlocked}
@@ -64,6 +72,7 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
           chosen={state.toolbar}
           onAnchor={setToolbar}
           area={area}
+          paint={paint}
         />
       )}
     </div>

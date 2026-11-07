@@ -2,6 +2,8 @@ import { Fragment, memo, useId, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { isEventTool } from "../../workbench/tools";
 import type { ToolSpec } from "../../workbench/tools";
+import type { PaintToolSpec } from "../../workbench/paintTools";
+import type { PaintSub } from "../../world/paint/ops";
 import { DRAG_SLOP, Icon, Kbd, Menu, Tooltip, useRovingList } from "../primitives";
 import type { Density } from "../tokens/theme";
 import type { Tool, ToolbarAnchor } from "./shellState";
@@ -52,15 +54,21 @@ export interface FloatingToolbarProps {
   onAnchor: (anchor: ToolbarAnchor) => void;
   /** The view the toolbar floats in, measured when a drag of the grip ends; without it a drag moves nothing. */
   area?: () => DOMRect | null;
+  /**
+   * The sub-tools of „Gelände malen“ while it paints a world map, as a second group after the tools (exactly the active one pressed);
+   * null or missing: none (another tool, a binary map).
+   */
+  paint?: { tools: readonly PaintToolSpec[]; sub: PaintSub; onSub: (sub: PaintSub) => void } | null;
 }
 
 /**
  * The tools of the 3D view as a bar floating over it: one key per tool with symbol and letter (the name is the accessible name and the
  * tooltip, the status line says it too), exactly one pressed, the groups apart by a line. A grip in front moves the bar to the nearest
- * anchor when dragged; the caret next to it chooses the anchor from a menu (the keyboard's way). Base UI opens a menu on the press of its
+ * anchor when dragged; the caret next to it chooses the anchor from a menu (the keyboard's way). While „Gelände malen“ paints a world map
+ * its sub-tools follow as a second group (`paint`). Base UI opens a menu on the press of its
  * trigger, so the grip cannot be the trigger and a drag handle at once.
  */
-export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, anchor, chosen, onAnchor, area }: FloatingToolbarProps) {
+export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, anchor, chosen, onAnchor, area, paint = null }: FloatingToolbarProps) {
   const bar = useRef<HTMLDivElement>(null);
   const vertical = anchor === "left";
   useRovingList(bar, { orientation: vertical ? "vertical" : "horizontal" });
@@ -167,6 +175,44 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
           </Fragment>
         );
       })}
+      {paint && (
+        <>
+          <span role="separator" aria-orientation={vertical ? "horizontal" : "vertical"} className={styles.separator} />
+          <div role="group" aria-label="Unterwerkzeuge" data-paint-tools="" className={styles.group}>
+            {paint.tools.map((t) => (
+              <Tooltip
+                key={t.id}
+                content={
+                  <span className={styles.tip}>
+                    <span className={styles.tipHead}>
+                      {t.label} <Kbd keys={t.key} />
+                    </span>
+                    <span className={styles.tipHint}>{t.hint}</span>
+                  </span>
+                }
+              >
+                <button
+                  type="button"
+                  className={styles.tool}
+                  data-roving=""
+                  data-paint-tool={t.id}
+                  // The group comes and goes after the roving list set its tab stop: it joins as a stop reached by the arrows.
+                  tabIndex={-1}
+                  aria-label={t.label}
+                  aria-pressed={paint.sub === t.id}
+                  aria-keyshortcuts={t.key}
+                  onClick={() => paint.onSub(t.id)}
+                >
+                  <Icon name={t.icon} weight={paint.sub === t.id ? "fill" : "regular"} />
+                  <span className={styles.key} aria-hidden="true">
+                    {t.key}
+                  </span>
+                </button>
+              </Tooltip>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 });

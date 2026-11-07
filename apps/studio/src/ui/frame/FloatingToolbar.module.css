@@ -87,6 +87,18 @@
   height: var(--g4-dichte-werkzeug);
 }
 
+/* The sub-tools of „Gelände malen“ on a world map: laid out like the tools, in the bar's direction. */
+.group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+.bar[aria-orientation="horizontal"] .group {
+  flex-direction: row;
+}
+
 /* A square key per tool: the symbol in the middle, the letter in the corner. */
 .tool {
   position: relative;

@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellProvider } from "../ui/frame/ShellContext";
+import { PaintContext } from "./paint/PaintContext";
+import type { PaintModel } from "./paint/PaintContext";
 import { SceneOverlays } from "./SceneOverlays";
 import { NO_WORLD, WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData } from "./WorkbenchContext";
@@ -36,14 +38,20 @@ describe("SceneOverlays", () => {
     vi.restoreAllMocks();
   });
 
-  const show = (over: Partial<WorkbenchData> = {}) => {
+  const show = (over: Partial<WorkbenchData> = {}, paint?: PaintModel) => {
     const data = { tool: "select", onTool, eventFileId: 3, eventLock: null, selected: 7, onOpenWizard, ...over } as unknown as WorkbenchData;
     const layers = { showPermissions: true, showHeights: false, showEvents: false, onShowPermissions, onShowHeights: () => {}, onShowEvents };
     act(() =>
       root.render(
         <ShellProvider>
           <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null, world: NO_WORLD }}>
-            <SceneOverlays layers={layers} />
+            {paint ? (
+              <PaintContext.Provider value={paint}>
+                <SceneOverlays layers={layers} />
+              </PaintContext.Provider>
+            ) : (
+              <SceneOverlays layers={layers} />
+            )}
           </WorkbenchProviders>
         </ShellProvider>,
       ),
@@ -75,6 +83,21 @@ describe("SceneOverlays", () => {
     expect(onTool).toHaveBeenCalledWith("figure");
     act(() => layerBar().querySelector<HTMLButtonElement>('button[aria-label="Ereignisse"]')!.click());
     expect(onShowEvents).toHaveBeenCalledWith(true);
+  });
+
+  it("shows_the_paint_sub_tools_while_painting_a_world_map", () => {
+    const set = vi.fn();
+    const model = (target: number | null): PaintModel => ({ state: { sub: "rect", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set, target });
+    show({ tool: "paint" }, model(120));
+    const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
+    expect(group.querySelector('[data-paint-tool="rect"]')!.getAttribute("aria-pressed")).toBe("true");
+    act(() => group.querySelector<HTMLButtonElement>('[data-paint-tool="erase"]')!.click());
+    expect(set).toHaveBeenCalledWith({ sub: "erase" });
+    // Another tool, or a binary map: no sub-tools.
+    show({ tool: "select" }, model(120));
+    expect(container.querySelector("[data-paint-tools]")).toBeNull();
+    show({ tool: "paint" }, model(null));
+    expect(container.querySelector("[data-paint-tools]")).toBeNull();
   });
 
   it("takes_the_anchor_from_the_shell_and_writes_it_back", () => {

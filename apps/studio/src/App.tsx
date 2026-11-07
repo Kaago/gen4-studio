@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Workbench from "./workbench/Workbench";
+import type { PaintModel } from "./workbench/paint/PaintContext";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
 import { DataStore, useDataLists } from "./data/dataStore";
 import type { DataArea } from "./data/dataModel";
@@ -788,6 +789,8 @@ function AppBody() {
   // panel shows, it is told again; that is listened for from the toast on (the dock may not exist before), once.
   const toolsToasted = useRef(false);
   const toolsReset = useRef<{ dispose: () => void } | null>(null);
+  // The paint state of „Gelände malen“ lives in the workbench (`PaintProvider`); the shortcuts read it through this ref.
+  const paintRef = useRef<PaintModel | null>(null);
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
@@ -818,6 +821,7 @@ function AppBody() {
     },
     placing: shell.pendingTrainer !== null,
     tool: shell.tool,
+    paint: () => paintRef.current,
     // The last use of Escape: a maximized group in the dock of the shown area gives way.
     onEscape: () => {
       const api = isDeckArea(area) ? docks[area].current : null;
@@ -1607,7 +1611,7 @@ function AppBody() {
   const app = (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
-        <Workbench data={data} live={live} liveMode={liveMode}>
+        <Workbench data={data} live={live} liveMode={liveMode} paint={paintRef}>
           {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
           <TextAreaHost onShown={setTextShown}>
             <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>

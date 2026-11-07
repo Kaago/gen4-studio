@@ -3,7 +3,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PAINT_TOOLS } from "../../workbench/paintTools";
 import { TOOLS } from "../../workbench/tools";
+import type { PaintSub } from "../../world/paint/ops";
 import { pressKey } from "../primitives/testUtils";
 import type { Density } from "../tokens/theme";
 import { FloatingToolbar, anchorAt, isLowView, shownAnchor, toolbarMinHeight } from "./FloatingToolbar";
@@ -32,7 +34,8 @@ describe("FloatingToolbar", () => {
     container.remove();
   });
 
-  const show = (opts: { tool?: Tool; eventsBlocked?: string | null; density?: Density; anchor?: ToolbarAnchor; chosen?: ToolbarAnchor } = {}) =>
+  const onSub = vi.fn();
+  const show = (opts: { tool?: Tool; eventsBlocked?: string | null; density?: Density; anchor?: ToolbarAnchor; chosen?: ToolbarAnchor; sub?: PaintSub | null } = {}) =>
     act(() =>
       root.render(
         <FloatingToolbar
@@ -45,6 +48,7 @@ describe("FloatingToolbar", () => {
           chosen={opts.chosen ?? opts.anchor ?? "left"}
           onAnchor={onAnchor}
           area={area}
+          paint={opts.sub ? { tools: PAINT_TOOLS, sub: opts.sub, onSub } : null}
         />,
       ),
     );
@@ -68,6 +72,29 @@ describe("FloatingToolbar", () => {
     expect(bar().textContent).not.toContain("Gelände malen");
     expect(tool("Gelände malen").getAttribute("aria-keyshortcuts")).toBe("B");
     expect(tool("Gelände malen").getAttribute("data-tool")).toBe("paint");
+  });
+
+  it("paint_tools_show_only_for_a_world_map", () => {
+    // A binary map (or another tool): no second group.
+    show({ tool: "paint" });
+    expect(container.querySelector("[data-paint-tools]")).toBeNull();
+    show({ tool: "paint", sub: "fill" });
+    const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
+    expect(group.getAttribute("role")).toBe("group");
+    expect(group.getAttribute("aria-label")).toBe("Unterwerkzeuge");
+    const subs = [...group.querySelectorAll<HTMLButtonElement>("button[data-paint-tool]")];
+    expect(subs.map((b) => b.getAttribute("aria-label"))).toEqual(["Pinsel", "Rechteck", "Füllen", "Radierer", "Pipette", "Höhe", "Rampe"]);
+    expect(subs.map((b) => b.textContent)).toEqual(["B", "P", "G", "E", "I", "H", "R"]);
+    // Exactly the active sub-tool is pressed; the main tool stays pressed too.
+    expect(subs.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false", "true", "false", "false", "false", "false"]);
+    expect(tool("Gelände malen").getAttribute("aria-pressed")).toBe("true");
+    expect(subs[6]!.getAttribute("aria-keyshortcuts")).toBe("R");
+    // The group follows the main tools, after a separator, inside the one roving list of the bar.
+    expect(group.previousElementSibling?.getAttribute("role")).toBe("separator");
+    expect(subs.every((b) => b.hasAttribute("data-roving"))).toBe(true);
+    act(() => subs[5]!.click());
+    expect(onSub).toHaveBeenCalledWith("height");
+    expect(onTool).not.toHaveBeenCalled();
   });
 
   it("switches_the_tool_on_a_click", () => {
