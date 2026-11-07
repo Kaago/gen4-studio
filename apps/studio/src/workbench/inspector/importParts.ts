@@ -11,13 +11,14 @@ export const PART_NAME: Record<MapPart, string> = {
   bdhc: "BDHC (Laufhöhen)",
   bgs: "Hintergrundklang",
   whole: "Ganze Karte",
+  textures: "Texturen",
 };
 
 /**
  * The German sentence of every code the part checks give (`g4_kernel::map_import::PartCode`; the Rust test
  * `commands::map_import::tests::every_part_code_has_its_german_sentence` holds this list against `PartCode::ALL`): an error or a warning
  * with its way out, a hint as a note. In a sentence `{n}` is argument n as the kernel gives it, `{n:num}` a number in German digits
- * („65.000“), `{n:family}` a game family.
+ * („65.000“), `{n:family}` a game family, `{n:dec}` a decimal number with a German comma („7,6“), `{n:ignored}` the parts of a model left out (tokens joined by `,`, each as a German word).
  */
 export const PART_TEXTS: Readonly<Record<string, string>> = {
   "model.invalid": "Die Datei ist kein gültiges NSBMD-Modell ({0}). Wähle ein Kartenmodell im NSBMD-Format.",
@@ -50,20 +51,80 @@ export const PART_TEXTS: Readonly<Record<string, string>> = {
   "whole.buildings-tail": "{0:num} Byte nach den Gebäuden bleiben erhalten.",
   "part.duplicate": "Für diesen Teil sind mehrere Dateien gewählt. Wähle je Teil nur eine Datei.",
   "bdhc.structure": "Das Terrain ist beschädigt ({0}). Wähle eine unbeschädigte .bdhc-Datei.",
+  "model.source-unreadable": "Die Datei ist kein lesbares {0}-Modell ({1}). Exportiere das Modell neu als OBJ oder glTF.",
+  "model.file-missing": "Die Datei {0}, auf die das Modell verweist, fehlt. Lege sie neben das Modell oder exportiere es neu.",
+  "model.file-outside": "Das Modell verweist auf {0} außerhalb seines Ordners. Lege Material und Texturen in den Ordner des Modells.",
+  "model.no-geometry": "Das Modell enthält keine Flächen. Wähle ein Modell mit Flächen oder eine größere Einheit.",
+  "model.material-untextured": "Das Material „{0}“ hat keine Textur, und das Gebiets-Paket hat keine Textur dieses Namens. Gib dem Material eine PNG-Textur.",
+  "model.uv-missing": "Flächen mit dem Material „{0}“ haben keine Texturkoordinaten. Exportiere das Modell mit UV.",
+  "model.out-of-range": "Eine Ecke liegt bei ({0}, {1}, {2}), außerhalb von {3} bis {4} Einheiten. Verkleinere das Modell oder wähle eine kleinere Einheit.",
+  "model.uv-range": "Die Textur {0} läuft auf einer Fläche über {2:num} Texel in {1}; das Spiel trägt höchstens 2.047. Teile die Fläche oder wiederhole die Textur seltener.",
+  "model.texture-count": "Das Modell nutzt {0:num} Texturen, ein Kartenmodell trägt höchstens {1:num}. Fasse Materialien zusammen.",
+  "model.converted": "{0}-Modell umgewandelt: {1:num} Flächen, {2:num} Vierecke, {3:num} Dreiecke, {4:num} Streifen.",
+  "model.faces-dropped": "{0:num} Flächen fallen weg: nach dem Runden auf ganze Einheiten haben sie keine Fläche mehr.",
+  "model.parts-ignored": "Nicht übernommen: {0:ignored}.",
+  "part.no-area": "Kein Header zeigt die Karte {0}; ohne Gebiet gibt es kein Texturpaket und kein Licht. Setze die Karte zuerst in eine Matrix mit Header.",
+  "texture.side": "Die Textur {0} ist {1} × {2} Pixel groß; jede Seite muss eine Zweierpotenz von 8 bis 1.024 sein. Skaliere das Bild.",
+  "texture.name": "„{0}“ taugt nicht als Texturname (höchstens 16 Zeichen, ASCII ohne Leerzeichen). Benenne die Datei um.",
+  "texture.taken": "Der Name {1} ist im Gebiets-Paket schon vergeben. Benenne die Datei um; Ersetzen gibt es nicht.",
+  "texture.pack-full": "Das Gebiets-Paket ist voll ({0}: {1:num}, höchstens {2:num}). Nimm weniger oder kleinere Texturen.",
+  "texture.unreadable": "Das Bild {0} lässt sich nicht lesen ({1}). Wähle ein PNG.",
+  "texture.new": "Neue Textur {0}: {1} × {2}, {3} Farben, mittlerer Farbfehler {4:dec}.",
+  "texture.reused": "Die Textur {0} steht schon im Gebiets-Paket und wird benutzt, nicht neu angehängt.",
+  "texture.vram-high": "Gebiet {0}: die Texturen belegen {1:num} B VRAM, mehr als das größte Vanilla-Gebiet ({2:num} B). Prüfe die Karte im Spiel.",
 };
 
 const FAMILY_WORDS: Readonly<Record<string, string>> = { Pt: "Platin", Hgss: "HeartGold/SoulSilver", Dp: "Diamant/Perl" };
+
+/** The German word of each token of `model.parts-ignored` (an unknown token stays as it is). */
+const IGNORED_WORDS: Readonly<Record<string, string>> = {
+  lines: "Linien",
+  points: "Punkte",
+  animations: "Animationen",
+  skins: "Skelette",
+  cameras: "Kameras",
+  lights: "Lichter",
+  "vertex-colours": "Eckenfarben",
+  "texture-options": "Texturoptionen",
+};
 
 /** What a part check says, as the dialog shows it: the German sentence of its code; the kernel's (English) sentence for a code it does not know. */
 export function partText({ code, args, message }: PartMessage): string {
   const text = PART_TEXTS[code];
   if (text === undefined) return message;
-  return text.replace(/\{(\d+)(?::(num|family))?\}/g, (_, n: string, format?: string) => {
+  return text.replace(/\{(\d+)(?::(num|family|dec|ignored))?\}/g, (_, n: string, format?: string) => {
     const value = args[Number(n)] ?? "";
     if (format === "num" && /^\d+$/.test(value)) return Number(value).toLocaleString("de-DE");
     if (format === "family") return FAMILY_WORDS[value] ?? value;
+    if (format === "dec") return value.replace(".", ",");
+    if (format === "ignored") return value.split(",").map((token) => IGNORED_WORDS[token] ?? token).join(", ");
     return value;
   });
+}
+
+const FORMAT_WORDS: Readonly<Record<string, string>> = { obj: "OBJ", gltf: "glTF" };
+
+const de = (n: number) => n.toLocaleString("de-DE");
+
+/**
+ * The lines under a converted part (model or textures): „OBJ · 6 Vierecke · 0 Dreiecke · 2 Streifen“ for a model, one per texture
+ * „g4_imp_cube · 16 × 16 · 16 Farben · neu“ (a texture of the pack „g4_imp_cube · 16 × 16 · im Paket“), then
+ * „VRAM des Gebiets 23.544 B · Vanilla höchstens 110.640 B“. Nothing for a part without a preview.
+ */
+export function previewLines(r: PartReport): string[] {
+  const p = r.preview;
+  if (p === undefined) return [];
+  const lines: string[] = [];
+  if (p.model !== null) {
+    const { format, stats, strips } = p.model;
+    lines.push(`${FORMAT_WORDS[format] ?? format} · ${de(stats.quads)} Vierecke · ${de(stats.triangles)} Dreiecke · ${de(strips)} Streifen`);
+  }
+  for (const t of p.textures) {
+    const size = `${t.width} × ${t.height}`;
+    lines.push(t.new ? `${t.name} · ${size} · ${t.colors} Farben · neu` : `${t.name} · ${size} · im Paket`);
+  }
+  lines.push(`VRAM des Gebiets ${de(p.vram_bytes)} B · Vanilla höchstens ${de(p.vram_limit)} B`);
+  return lines;
 }
 
 /** Whether the report is a whole map file of the other game family (only then can its buildings be taken over). */

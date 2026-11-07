@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) [phase-6-1-gate.md](phase-6-1-gate.md) (Writer: Modelle und Texturen), [phase-6-2-gate.md](phase-6-2-gate.md) (BDHC und Gelände) und [phase-6-3a-gate.md](phase-6-3a-gate.md) (Weltformat und Vorschau) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) [phase-6-1-gate.md](phase-6-1-gate.md) (Writer: Modelle und Texturen), [phase-6-2-gate.md](phase-6-2-gate.md) (BDHC und Gelände) und [phase-6-3a-gate.md](phase-6-3a-gate.md) (Weltformat und Vorschau) sowie [phase-6-5a-gate.md](phase-6-5a-gate.md) (PNG und Modelle) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -2108,3 +2108,84 @@ Erwartet: Platin DE 74 Pakete, 3 130 Kacheln (1 765 vanilla, 1 365 unklar), Hear
 3. `mcp.sh call g4_call '{"command":"world_edit","args":{"req":{"map":0,"changes":[{"cells":[[4,4],[5,4],[4,5],[5,5]],"height":2},{"cells":[[0,0],[1,0],[2,0]],"tile":"0001"}]}}}'` → Flächen > 1 (11), „Welt geändert: Karte 0000 (7 Zellen)“.
 4. ⌘Z in der App (echte Taste) → Flächen 1, `call.sh world_get '{"map":0}'` byte-gleich mit dem Stand nach 2.; ⇧⌘Z → wieder 11. ⌘Z zweimal → beide Attribute weg, GLB.
 5. Hell und Dunkel; Bilder über das Browser-Werkzeug beschreiben (Ort, Zahlen), Notiz nach `target/agent/gate-<datum>/6-3a/browser.md`. Danach die Test-Umgebung über ihre PID beenden, `lsof -iTCP:1460 -iTCP:1461 -sTCP:LISTEN` leer.
+
+## Phase 6.5a ([phase-6-5a-gate.md](phase-6-5a-gate.md))
+
+6.5a bringt den Import von PNG und Modellen: `model_import` im Kernel (OBJ/MTL über `tobj`, glTF/GLB über `gltf`, neutrales Netz → Flächenliste des Bäckers, Texturplanung für das Kartenpaket, `g4k import-samples`), Dreiecke im Bäcker, in `map_import` die Teile „Modell“ (OBJ/glTF) und „Texturen“ (PNG) mit Vorschau und Import als ein Undo-Schritt, im Dialog „Teile importieren…“ die Zeile „Umwandeln“, in `g4emu` den Schritt `make-import-samples` und die Szenarien `pt-import`/`hg-import`, [docs/formats/model_import.md](formats/model_import.md). Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien** (unter `$G4_ROMS_DIR/_testkopien`, je `_DSPRE_contents`, per `cp -cR` bzw. `cp -c`): `6-5a-pt`, `6-5a-hgde`, `6-5a-hgus` für die gated Tests (ohne `.nds`, nur gelesen; geschrieben wird nur auf `vanilla_copy()`); `6-5a-szen-pt2`, `6-5a-szen-hg` mit `.nds` daneben für die Szenarien (nach einem Lauf gespeichert und gebaut: ein neuer Lauf braucht `6-5a-szen-pt3`, `6-5a-szen-hg2`); `6-5a-web` (Platin DE) mit `.nds` für den Browser-Teil, vorher `target/debug/g4k import-samples <Kopie>/import`.
+
+**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA` absolut auf `tools/apicula/bin/apicula` des Haupt-Checkouts, Test-Umgebung auf eigenen Ports `G4_VITE_PORT=1500 G4_BRIDGE_PORT=1501` (andere Ports gehören anderen Sitzungen; `call.sh` liest den Port aus `target/agent/bridge.port`). Lange Läufe im Hintergrund mit Log unter `target/agent/6-5a/<name>.log`, `uptime` davor; die Bilder unter `target/agent/gate-<datum>/6-5a/`. Ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+
+**Wo was ist:** Kartenzelle wählen: im Baum den Raum (Platin: Header 415 `T01R0202` „Zweiblattdorf › Haus 2, 1. Stock“, Karte 187), dann in „In dieser Szene“ die Zeile „Karte 0187“ oder im Kopf der Schau den Pfad „Karte 0187 Zelle 0, 0“. Der Inspector-Kopf der Karte hat die Taste „Aktionen“ (`aria-label="Aktionen"`) mit „Teile importieren…“. Der Dialog trägt `[data-import-dialog="<Karte>"]`, Quelle „Datei“ | „Karte im Projekt“ (`aria-pressed`), das Feld „Pfade, eine je Zeile“ (`textarea`, Übernahme beim Verlassen, Pfade **absolut**, ein relativer Pfad gibt „Pfad nicht lesbar“; „Dateien wählen…“ gibt es nur in Tauri). Die Zeile „Umwandeln“ ist `[data-import-convert]` mit „Farben je Textur“ (16 | 4) und, nur bei einem Modell, „Einheit“ (16 = eine Kachel). Die Prüfliste hat je Teil eine Zeile `[data-check="model"]` bzw. `[data-check="textures"]` mit `[data-state]` (der Plan nennt sie `[data-part="model"]`; das Attribut der Prüfliste heißt `data-check`), darin die Vorschau `[data-import-preview="<teil>"]`, mit Kästchen (gesperrt bei Fehler), Meldungen und Vorschau („OBJ · 6 Vierecke · 0 Dreiecke · 0 Streifen“, „<Textur> · 16 × 16 · 16 Farben · neu“, „VRAM des Gebiets … B · Vanilla höchstens … B“) und beim Modell den Budgetbalken „Modell … von 61.440 B“ mit `[data-budget-state=calm|tight|full]`. Die VRAM-Zahl im Dialog ist die Messung des Bäckers, die im Inspector-Budget die Schätzung aus 6.2 (geteilte Texel doppelt): sie weichen voneinander ab.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent | läuft in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; die neuen Tests laufen in „cargo test (no ROM data)“ und „gated tests (cargo test)“ ohne Änderung am Skript mit |
+| (1) `cargo deny`, fmt, clippy, Tests ohne ROM-Daten, `studio`, Frontend, Stil, Tokens, ROM-Daten, `g4emu` | Agent | Befehle unten |
+| (1) gated `model_import`, `bake` | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`, mit `G4_APICULA`; die Zeilen `import-room`, `png40-room`, `oversize-room`, `pdsms-room` und `bake-room` in die Zahlentabelle |
+| (2) Unit-Punkte | Agent | `a_64x64_png_with_40_colours_becomes_a_16_colour_texture_within_one_step` (`model_import::textures`), `import_writes_model_and_pack_as_one_undo_step`, `the_plane_glb_and_gltf_give_the_same_model`, `the_oversize_obj_is_refused_with_the_number`, `the_pdsms_style_obj_imports` (`map_import::tests`), `apicula_reads_the_imported_cube_and_plane` (`tests/model_import.rs`, nur mit `G4_APICULA`) |
+| (3) Szenarien `pt-import`, `hg-import` | Agent + Blick | `g4emu scenario` kopflos über `studio mcp`, Befehle unten; je zwei Bilder `zimmer`, `unten` |
+| (4) Browser | Agent | Test-Umgebung auf 1500/1501, Ablauf unten; sechs Bilder über Chrome headless |
+| (5) Blick auf die Bilder, eigene Blender- und PDSMS-Dateien, `docs/formats/model_import.md` | Hand | siehe Gate-Datei, Abschnitt „(5)“ |
+
+**Automatik (1)**, aus der Wurzel des Worktrees (`W=/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-5a`, `K=$G4_ROMS_DIR/_testkopien`; `P` nacheinander `$K/6-5a-pt_DSPRE_contents`, `$K/6-5a-hgde_DSPRE_contents`, `$K/6-5a-hgus_DSPRE_contents`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+export G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+cargo deny --locked check licenses advisories
+cargo fmt --all --check
+cargo clippy --workspace --all-features --all-targets -- -D warnings
+env -u G4_TEST_PROJECT cargo test -p g4-formats -p g4-kernel --all-features
+cargo test -p studio
+(cd apps/studio && pnpm test && pnpm build)
+bash scripts/check-styles.sh; bash scripts/check-tokens.sh; bash scripts/check-no-rom-data.sh
+(cd scripts/g4emu && uv run pytest -m "not integration" -q)
+G4_TEST_PROJECT=$P cargo test --release --workspace --all-features --test model_import -- --nocapture --test-threads 1
+G4_TEST_PROJECT=$P cargo test --release --workspace --all-features --test bake -- --nocapture --test-threads 1
+```
+
+Erwartet: `cargo deny` „advisories ok, licenses ok“ mit den neuen Crates `tobj` 4.0.5 (MIT), `gltf`/`gltf-json`/`gltf-derive` 1.4.1, `lazy_static` 1.5.1 (MIT OR Apache-2.0), `inflections` 1.1.1 (MIT); `model_import` 5/5 mit `import-room CPUD cube map=187 size=672 share=0.011 quads=6 plane map=186 size=472 quads=1 tris=0 pack=20 appended=g4_imp_cube,g4_imp_plane vram=21744 warn=-` bzw. `IPKD`/`IPKE cube map=217 … plane map=216 … pack=25 … vram=23632 warn=-`, `png40-room … hits=8/40 max_step=3 mean=12.8203125`, `oversize-room … size=164272 limit=61440`, `pdsms-room … size=3164 quads=64 new=2`, `import-room-apicula … faces=6 corners=20` und `faces=1 corners=4`; `bake` 8/8 mit den `bake-room`-Zeilen von 6.1. Der Gate-Test des PNG druckt `png40 hits=8/40 pixels=816/4096 max_step=3 mean=12.8203125 exact=0/40` (mit `--nocapture`).
+
+**Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`O=$W/target/agent/gate-$(date +%F)/6-5a`), nacheinander, je eine frische Kopie mit `.nds` (`6-5a-szen-pt2`/`6-5a-szen-hg` und die Logs `t10-{pt,hg}.log` sind vom Lauf in Task 10 belegt; die nächsten Namen sind `6-5a-szen-pt3`/`6-5a-szen-hg2`, ein weiterer Lauf zählt weiter):
+
+```sh
+export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k \
+  G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+mkdir -p $O/pt-import $O/hg-import
+K=$G4_ROMS_DIR/_testkopien
+cp -cR "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$K/6-5a-szen-pt3_DSPRE_contents"
+cp -c "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds" "$K/6-5a-szen-pt3.nds"
+cp -cR "$G4_ROMS_DIR/Pokemon - Goldene Edition HeartGold (Germany)_DSPRE_contents" "$K/6-5a-szen-hg2_DSPRE_contents"
+cp -c "$G4_ROMS_DIR/Pokemon - Goldene Edition HeartGold (Germany).nds" "$K/6-5a-szen-hg2.nds"
+uv run g4emu scenario ../agent/scenarios/pt-import.yaml --project "$K/6-5a-szen-pt3_DSPRE_contents" \
+  --out $O/pt-import > $W/target/agent/6-5a/szen-pt3.log 2>&1; echo "exit $?" >> $W/target/agent/6-5a/szen-pt3.log
+uv run g4emu scenario ../agent/scenarios/hg-import.yaml --project "$K/6-5a-szen-hg2_DSPRE_contents" \
+  --out $O/hg-import > $W/target/agent/6-5a/szen-hg2.log 2>&1; echo "exit $?" >> $W/target/agent/6-5a/szen-hg2.log
+```
+
+Erwartet: Rückgabe 0, `"ok": true`; „prepare: make-import-samples … (14 Dateien)“; zwei erfüllte Erwartungen `model.too-big` / `61440` und die erwartete Ablehnung „import refused: model: the baked model is 164272 bytes; the game holds at most 61440“; Würfel auf Karte 187 (HG 217), Ebene auf 186 (HG 216), Paket 20 (HG 25); „2 expectation(s) met“; Header 415 → 414 bzw. 64 → 63. Im Bild `zimmer` fehlen Boden und Wände des Zimmers (das Modell ist ersetzt), Würfel und Ebene liegen um die Kartenmitte (16, 16) und damit außerhalb der Kamera (Abweichung 7 der Gate-Datei).
+
+**Browser (4)**, Test-Umgebung (`R=$G4_ROMS_DIR`), aus der Wurzel des Worktrees (`cd $W`; alle relativen Pfade unten gelten von dort):
+
+```sh
+cd $W
+cp -cR "$R/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$R/_testkopien/6-5a-web_DSPRE_contents"
+cp -c "$R/Pokemon - Platin-Edition (Germany).nds" "$R/_testkopien/6-5a-web.nds"
+cargo build --workspace --all-features
+target/debug/g4k import-samples "$R/_testkopien/6-5a-web_DSPRE_contents/import"
+G4_ROMS_DIR=$R G4_VITE_PORT=1500 G4_BRIDGE_PORT=1501 bash scripts/agent/studio-web.sh > target/agent/6-5a/studio-web.log 2>&1 &
+```
+
+Abwarten, bis das Log „Brücke läuft auf 127.0.0.1:1501“ meldet; Seite `http://127.0.0.1:1500/?project=$R/_testkopien/6-5a-web_DSPRE_contents`, 1440 × 900, Bauen. Ablauf (`D=$R/_testkopien/6-5a-web_DSPRE_contents/import`):
+
+1. `scripts/agent/call.sh list_headers` → Header 415 `T01R0202` (Matrix 129, Area-Data 20); im Baum „Zweiblattdorf › Haus 2, 1. Stock“, Karte 0187 wählen (Zelle 0, 0), Inspector-Kopf › „Aktionen“ › „Teile importieren…“, Quelle „Datei“.
+2. Pfad `$D/g4_imp_big.obj` → „Modell · 0 Bytes · g4_imp_big.obj“, „Das Modell ist 164.272 Byte groß, erlaubt sind 61.440. Wähle ein kleineres Modell.“, Kästchen gesperrt.
+3. Pfad `$D/g4_imp_cube.obj` → „OBJ-Modell umgewandelt: 6 Flächen, 6 Vierecke, 0 Dreiecke, 0 Streifen.“, „g4_imp_cube · 16 × 16 · 16 Farben · neu“, „VRAM des Gebiets 21.584 B“, „Modell 672 von 61.440 B“ (`calm`); „4“ → „4 Farben“, 21.496 B; zurück auf „16“.
+4. „1 Teil übernehmen“ → „1 Teil übernommen“; Szene ohne Zimmerboden, kleiner Würfel in der Kartenmitte; `call.sh history '{}'` → `undo ["map 0187: model imported"]`; `call.sh get_map_budget '{"index":187}'` → Modell 672, 46 Texturen.
+5. ⌘Z als echte Taste → Vanilla-Zimmer; `history` → `undo []`; `get_map_budget 187` → Modell 2 572, 45 Texturen, VRAM 21 760 (wie vorher).
+6. Pfad `$D/g4_imp_40.png` → „Texturen · 2.132 Bytes“, „Neue Textur g4_imp_40: 64 × 64, 16 Farben, mittlerer Farbfehler 12,8.“, „Umwandeln“ ohne „Einheit“; „Abbrechen“.
+
+**Bilder (4)** `blick-import-{fehler,wuerfel,png}-{hell,dunkel}.png` mit Chrome headless über CDP (das Browser-Fenster der Desktop-App liefert Bilder nur an den Agenten): `node $W/target/agent/6-5a/t11-blick.mjs $W/target/agent/gate-$(date +%F)/6-5a <Profilordner im Scratchpad>` bei laufender Test-Umgebung. Das Skript liegt nur unter `target/agent/` (nicht im Repo, nicht eingecheckt); nachzubauen als Node-Skript ohne Pakete, das Chrome headless mit `--remote-debugging-pipe` und `--window-size=1440,900` startet, über CDP (`Runtime.evaluate`, `Input.dispatchMouseEvent`/`dispatchKeyEvent`/`insertText`) die Seite der Test-Umgebung für `6-5a-web` fährt und je Zustand `Page.captureScreenshot` nach `<Ausgabe>/blick-import-<zustand>-<hell|dunkel>.png` schreibt. Es setzt `g4.theme` (`hell`, `dunkel`) und `prefers-color-scheme`, lädt neu und fährt die Schritte 1 bis 3 und 6 mit echten Maus- und Tastenereignissen ab (Zustände: Fehler, Würfel mit 16 Farben vor „übernehmen“, PNG). Danach die Test-Umgebung über ihre PIDs beenden (`lsof -iTCP:1500 -iTCP:1501 -sTCP:LISTEN` leer).

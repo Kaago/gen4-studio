@@ -45,6 +45,9 @@ enum Command {
     /// Print what a .nds ROM is (title, game code, family, language, SHA-1, support) as JSON.
     /// Reads the file only.
     InspectRom { rom: PathBuf },
+    /// Write the synthetic import samples (OBJ, glTF, PNG; 14 files, no game data) into `dir`
+    /// (created) and print one path per line.
+    ImportSamples { dir: PathBuf },
     /// Create a project from a .nds ROM: extract it into `dest` (missing or empty) and write
     /// the base mark `.g4/base.json`. Prints the root and the phases with their milliseconds.
     Create {
@@ -386,6 +389,12 @@ fn run(cli: Cli) -> Result<(), Failure> {
             let json = serde_json::to_string_pretty(&info)
                 .map_err(|e| Failure::Message(format!("inspect-rom: {e}")))?;
             println!("{json}");
+            Ok(())
+        }
+        Command::ImportSamples { dir } => {
+            for path in g4_kernel::model_import::samples::write_samples(&dir)? {
+                println!("{}", path.display());
+            }
             Ok(())
         }
         Command::Create {

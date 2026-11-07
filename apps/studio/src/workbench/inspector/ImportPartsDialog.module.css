@@ -21,6 +21,44 @@
   gap: var(--g4-raum-2);
 }
 
+/* „Umwandeln“: the options for models and images under the source. */
+.convert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.convertTitle {
+  font: var(--g4-font-text-s-betont);
+  color: var(--g4-text-primaer);
+}
+
+.convertOptions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--g4-raum-12);
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.optionLabel {
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-sekundaer);
+}
+
+/* The figures of a converted part under its sentences, and its model budget. */
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  margin-top: var(--g4-raum-4);
+}
+
 .reason {
   margin: 0;
   font: var(--g4-font-text-s);

@@ -158,7 +158,7 @@ pub fn append_textures(
     let before = current_pack(store.project(), pack)?.ok_or_else(|| {
         KernelError::Refused(format!("map texture pack {pack:04} is not in the archive"))
     })?;
-    let btx = appended(Btx0::read(&before)?, textures)?;
+    let btx = appended(Btx0::read(&before)?, textures)?.map_err(refusal)?;
     let after = nsbtx::write(&btx)?;
     let mut messages = Vec::new();
     let limit = vanilla_vram_max(store.project().family);
@@ -212,7 +212,20 @@ pub(crate) fn appended_pack(
     before: &[u8],
     textures: &[NewTexture],
 ) -> Result<Vec<u8>, KernelError> {
-    Ok(nsbtx::write(&appended(Btx0::read(before)?, textures)?)?)
+    appended_pack_or_refusal(before, textures)?.map_err(refusal)
+}
+
+/// The pack `before` with `textures` appended, or the refusal as a message (texture.side,
+/// .name, .taken, .pack-full); the outer error is a pack that cannot be read (or a texture the
+/// caller built wrongly: a format other than 2 and 3, a wrong texel or colour count).
+pub(crate) fn appended_pack_or_refusal(
+    before: &[u8],
+    textures: &[NewTexture],
+) -> Result<Result<Vec<u8>, BakeMessage>, KernelError> {
+    match appended(Btx0::read(before)?, textures)? {
+        Ok(pack) => Ok(Ok(nsbtx::write(&pack)?)),
+        Err(m) => Ok(Err(m)),
+    }
 }
 
 /// Member `pack` of the map texture archive as it is now: its file, or the member of the
@@ -234,14 +247,13 @@ fn current_pack(project: &Project, pack: u16) -> Result<Option<Vec<u8>>, KernelE
         .nth(usize::from(pack)))
 }
 
-/// A refusal of appending: `<code>: <message>`.
-fn refuse(code: BakeCode, args: &[&dyn std::fmt::Display], message: String) -> KernelError {
-    let m = BakeMessage::error(code, args, message);
+/// A refusal of appending as the error of [`append_textures`]: `<code>: <message>`.
+fn refusal(m: BakeMessage) -> KernelError {
     KernelError::Refused(format!("{}: {}", m.code.as_str(), m.message))
 }
 
-fn pack_full(what: &str, value: usize, max: usize) -> KernelError {
-    refuse(
+fn pack_full(what: &str, value: usize, max: usize) -> BakeMessage {
+    BakeMessage::error(
         BakeCode::PackFull,
         &[&what, &value, &max],
         format!("the map texture pack is full: {what} {value}, at most {max}"),
@@ -249,15 +261,19 @@ fn pack_full(what: &str, value: usize, max: usize) -> KernelError {
 }
 
 /// `pack` with `textures` pushed, or the first refusal: per texture its sides, its names,
-/// whether they are taken; then the entries, the offsets and the banks.
-fn appended(mut pack: Btx0, textures: &[NewTexture]) -> Result<Btx0, KernelError> {
+/// whether they are taken; then the entries, the offsets and the banks. The outer error is a
+/// texture the caller built wrongly.
+fn appended(
+    mut pack: Btx0,
+    textures: &[NewTexture],
+) -> Result<Result<Btx0, BakeMessage>, KernelError> {
     let in_pack: HashSet<Name> = pack.textures.iter().map(|e| e.name).collect();
     let palettes_in_pack: HashSet<Name> = pack.palettes.iter().map(|e| e.name).collect();
     let (mut names, mut palettes) = (HashSet::new(), HashSet::new());
     for t in textures {
         for side in [t.width, t.height] {
             if !(side.is_power_of_two() && (8..=1024).contains(&side)) {
-                return Err(refuse(
+                return Ok(Err(BakeMessage::error(
                     BakeCode::TextureSide,
                     &[&t.name, &t.width, &t.height],
                     format!(
@@ -265,11 +281,17 @@ fn appended(mut pack: Btx0, textures: &[NewTexture]) -> Result<Btx0, KernelError
                          from 8 to 1024",
                         t.name, t.width, t.height
                     ),
-                ));
+                )));
             }
         }
-        let name = nitro_name(&t.name)?;
-        let palette = nitro_name(&t.palette)?;
+        let name = match nitro_name(&t.name) {
+            Ok(name) => name,
+            Err(m) => return Ok(Err(m)),
+        };
+        let palette = match nitro_name(&t.palette) {
+            Ok(name) => name,
+            Err(m) => return Ok(Err(m)),
+        };
         for (text, name, have, asked, what) in [
             (&t.name, name, &in_pack, &mut names, "texture"),
             (
@@ -287,45 +309,46 @@ fn appended(mut pack: Btx0, textures: &[NewTexture]) -> Result<Btx0, KernelError
             } else {
                 continue;
             };
-            return Err(refuse(
+            return Ok(Err(BakeMessage::error(
                 BakeCode::TextureTaken,
                 &[&what, text],
                 format!("the {what} name {text:?} {place}"),
-            ));
+            )));
         }
     }
     let entries = pack.textures.len().max(pack.palettes.len()) + textures.len();
     if entries > MAX_ENTRIES {
-        return Err(pack_full("entries", entries, MAX_ENTRIES));
+        return Ok(Err(pack_full("entries", entries, MAX_ENTRIES)));
     }
     for t in textures {
-        pack.push(t).map_err(|e| match e {
-            FormatError::OutOfRange { what, value, max }
+        match pack.push(t) {
+            Ok(()) => {}
+            Err(FormatError::OutOfRange { what, value, max })
                 if what == "texel offset" || what == "palette offset" =>
             {
-                pack_full(what, value, max)
+                return Ok(Err(pack_full(what, value, max)));
             }
-            e => KernelError::Format(e),
-        })?;
+            Err(e) => return Err(KernelError::Format(e)),
+        }
     }
     let texture_data = pack.texels.len() + pack.compressed.len() + pack.compressed_index.len();
     if texture_data > TEXEL_BANK {
-        return Err(pack_full("texture bytes", texture_data, TEXEL_BANK));
+        return Ok(Err(pack_full("texture bytes", texture_data, TEXEL_BANK)));
     }
     if pack.palette_data.len() > PALETTE_BANK {
-        return Err(pack_full(
+        return Ok(Err(pack_full(
             "palette bytes",
             pack.palette_data.len(),
             PALETTE_BANK,
-        ));
+        )));
     }
-    Ok(pack)
+    Ok(Ok(pack))
 }
 
 /// `text` as a Nitro name, or `texture.name`.
-fn nitro_name(text: &str) -> Result<Name, KernelError> {
+fn nitro_name(text: &str) -> Result<Name, BakeMessage> {
     nitro_dict::name(text).map_err(|e| {
-        refuse(
+        BakeMessage::error(
             BakeCode::TextureName,
             &[&text],
             format!("{text:?} cannot be a name in the pack: {e}"),
@@ -567,6 +590,44 @@ mod tests {
         assert_eq!(code_of(err), "texture.pack-full");
         assert_eq!(f.pack(), palettes);
         assert!(f.store.history().0.is_empty());
+    }
+
+    #[test]
+    fn appended_pack_or_refusal_gives_the_message() {
+        let before = map_pack();
+        // A name already in the pack: the refusal as a message, with its args.
+        let m = appended_pack_or_refusal(&before, &[tex("gras", 16, 3)])
+            .unwrap()
+            .unwrap_err();
+        assert_eq!((m.code, m.level), (BakeCode::TextureTaken, Level::Error));
+        assert_eq!(m.args, ["texture", "gras"]);
+        let m = appended_pack_or_refusal(&before, &[tex_wh("seite", 24, 16, 3)])
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(
+            (m.code, m.args.as_slice()),
+            (
+                BakeCode::TextureSide,
+                &["seite".to_string(), "24".into(), "16".into()][..]
+            )
+        );
+        // Accepted: the same bytes as `appended_pack`.
+        let new = [tex("neu", 16, 3)];
+        let after = appended_pack_or_refusal(&before, &new).unwrap().unwrap();
+        assert_eq!(after, appended_pack(&before, &new).unwrap());
+        let names: Vec<String> = Nsbtx::read(&after)
+            .unwrap()
+            .textures
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        assert_eq!(names, ["gras", "weg", "neu"]);
+        // A pack that cannot be read is the outer error; `appended_pack` keeps `<code>: …`.
+        assert!(appended_pack_or_refusal(b"nope", &new).is_err());
+        let Err(KernelError::Refused(text)) = appended_pack(&before, &[tex("gras", 16, 3)]) else {
+            panic!("refused");
+        };
+        assert!(text.starts_with("texture.taken: "), "{text}");
     }
 
     /// HeartGold/SoulSilver keep 4-byte dummies among the building texture members: they

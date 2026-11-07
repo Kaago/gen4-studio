@@ -269,6 +269,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
               onImported={onMapImported}
               checks={checks}
               goTo={goTo}
+              tinker={tinker}
             />
             <ExportPartDialog map={map} open={partsDialog === "export"} onClose={() => setPartsDialog(null)} />
           </>

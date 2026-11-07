@@ -1,0 +1,67 @@
+# HeartGold DE, gate 6.5a extra point "visible in g4emu": synthetic models imported into the player's
+# room and the room downstairs and played in the game. Headless over MCP (`studio mcp`, one session);
+# `inspect_map_import` and `import_map_parts` with `options` are no curated tools, so they go through
+# g4_call (--expert). The HeartGold twin of pt-import.yaml.
+#
+# prepare writes the synthetic samples (`g4k import-samples import`: g4_imp_cube.obj, g4_imp_plane.glb,
+# g4_imp_big.obj, PNGs) into import/ of the copy. The room is map 217 (header 64), the room
+# downstairs map 216 (header 63); both use the same area data and so map texture pack 25.
+# First the counter case: the oversize OBJ bakes to more than 61440 bytes, so the preview reports
+# model.too-big (args[1] "61440") and the import is refused. Then the cube (orange-blue checker,
+# unit 16, 16 colours) replaces the model of map 217 and the plane (green stripes, glTF) the model
+# of map 216. The importer does not move a model: its origin is the centre of the map, tile
+# (16, 16), and the cube (one tile) and the plane (4 x 4 tiles) lie there. The rooms are drawn
+# near the top left of their maps and the camera follows the player at (3, 4) and (3, 3), so
+# both lie out of view (2026-11-06): zimmer.png and unten.png show a black floor (the room
+# model is gone) with only the furniture (buildings, unchanged). The import is proved by
+# `check:`; `unit` and the position stay as they are on purpose. Collision and BDHC are unchanged.
+# export_map_part writes both models straight into build/ (the path policy makes build/ but no
+# folder below it); `check:` compares them with the models of maps 217 and 216 in out.nds
+# (`${sha1-of:…}`).
+#
+# Play: continue in the room (64), shot zimmer (the room); down the stairs (one step west, one
+# south) to 63, shot unten (the room below). Colours are not compared: g4emu swaps red and blue until
+# the fix of 6.2. The images stay under --out, never in the repo.
+#
+# Names an edit binds (third element) come from the tool's answer (structuredContent.result):
+# cube, plane (import_map_parts: the changed assets, the map and its map texture pack).
+# Example from a worktree (from scripts/g4emu; a fresh copy with its .nds beside it, see
+# docs/agent-gate.md, "Szenarien über MCP"; after a run use a new copy):
+#   W=<worktree>; export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+#   export G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k
+#   uv run g4emu scenario ../agent/scenarios/hg-import.yaml \
+#     --project "$G4_ROMS_DIR/_testkopien/6-5a-szen-hg_DSPRE_contents" \
+#     --out "$W/target/agent/gate-$(date +%F)/6-5a/hg-import"
+game: IPKD
+mcp: [--expert]
+prepare:
+  - [make-import-samples, {path: import}]
+edits:
+  - - g4_call
+    - {command: inspect_map_import, args: {map: 217, source: {files: [import/g4_imp_big.obj]}}}
+    - expect:
+        - {path: "0.state.code", equals: model.too-big}
+        - {path: "0.state.args.1", equals: "61440"}
+  - - g4_call
+    - {command: import_map_parts, args: {map: 217, source: {files: [import/g4_imp_big.obj]}, parts: [model]}}
+    - expect: [{error: "61440"}]
+  - [g4_call, {command: import_map_parts, args: {map: 217, source: {files: [import/g4_imp_cube.obj]}, parts: [model], options: {unit: 16, colors: 16}}}, cube]
+  - [g4_call, {command: import_map_parts, args: {map: 216, source: {files: [import/g4_imp_plane.glb]}, parts: [model]}}, plane]
+  - [g4_call, {command: export_map_part, args: {map: 217, part: model, path: build/cube-0217.nsbmd}}]
+  - [g4_call, {command: export_map_part, args: {map: 216, part: model, path: build/plane-0216.nsbmd}}]
+  - [save, {}]
+build: build/out.nds
+check:
+  - [g4k, check-data, build/out.nds,
+     --expect, "map:217:model_sha1=${sha1-of:build/cube-0217.nsbmd}",
+     --expect, "map:216:model_sha1=${sha1-of:build/plane-0216.nsbmd}"]
+play:
+  - continue
+  - expect-map 64
+  - wait 60
+  - shot zimmer
+  - walk left 1
+  - walk down 1
+  - expect-map 63
+  - wait 150
+  - shot unten

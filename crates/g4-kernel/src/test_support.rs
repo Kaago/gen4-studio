@@ -675,6 +675,38 @@ pub fn text_archives_bytes(archives: &[&[&str]]) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// A `side` × `side` 16-colour texture with palette `palette_name(name)`.
+fn texture16(name: &str, side: u32) -> g4_formats::nsbtx::NewTexture {
+    g4_formats::nsbtx::NewTexture {
+        name: name.to_string(),
+        palette: g4_formats::texconv::palette_name(name),
+        width: side,
+        height: side,
+        format: 3,
+        color0: false,
+        texels: vec![0x5A; (side * side / 2) as usize],
+        colors: (0..16).map(|c| c * 0x421).collect(),
+    }
+}
+
+/// Map and building texture pack 0 as real BTX0 (two 16 × 16 textures `t0`, `t1`), as 6.1's
+/// tests prepare them: map texture pack 0 holds `t0` and `t1` (16 colours, palettes `t0_pl`,
+/// `t1_pl`), building texture pack 0 one 32 × 32 texture `haus`. Area data 0 shows both.
+pub fn write_texture_packs(project: &crate::project::Project) {
+    use crate::project::AssetKind;
+    use g4_formats::nsbtx;
+    project.ensure_unpacked(AssetKind::MapTexture).unwrap();
+    project.ensure_unpacked(AssetKind::BuildingTexture).unwrap();
+    let map = nsbtx::build(&[texture16("t0", 16), texture16("t1", 16)]).unwrap();
+    let buildings = nsbtx::build(&[texture16("haus", 32)]).unwrap();
+    std::fs::write(project.member_path(AssetKind::MapTexture, 0), map).unwrap();
+    std::fs::write(
+        project.member_path(AssetKind::BuildingTexture, 0),
+        buildings,
+    )
+    .unwrap();
+}
+
 /// A minimal valid Platinum map file; `seed` fills the 6-byte model block.
 pub fn synthetic_map_bytes(seed: u8) -> Vec<u8> {
     let mut v = Vec::new();

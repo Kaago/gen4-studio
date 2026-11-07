@@ -27,6 +27,14 @@ describe("ExportPartDialog", () => {
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]")!;
   const button = (text: string) => [...dialog().querySelectorAll("button")].find((b) => b.textContent === text) as HTMLButtonElement;
 
+  it("offers_exactly_the_six_parts_of_the_map_file_not_the_textures", async () => {
+    await act(async () => root.render(<ExportPartDialog map={5} open onClose={() => {}} />));
+    const group = dialog().querySelector("[aria-label='Teil']")!;
+    const labels = [...group.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).toEqual(["Modell", "Kollision", "Gebäude", "BDHC (Laufhöhen)", "Hintergrundklang", "Ganze Karte"]);
+    expect(dialog().textContent).not.toContain("Texturen");
+  });
+
   it("writes_the_chosen_part_to_the_typed_path", async () => {
     await act(async () => root.render(<ExportPartDialog map={5} open onClose={() => {}} />));
     expect(button("Exportieren").disabled).toBe(true);
