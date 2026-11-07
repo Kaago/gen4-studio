@@ -29,8 +29,8 @@ const bake = (over: Partial<WorldBakeReport> = {}): WorldBakeReport => ({
   model_kept: false,
   textures: [],
   vram_bytes: 0,
-  bdhc_bytes: 334,
-  bdhc_payload: 318,
+  bdhc_bytes: 350,
+  bdhc_payload: 334,
   plates: 4,
   blocked: 0,
   verbatim_model: true,
@@ -101,6 +101,9 @@ describe("WorldSourceSection", () => {
     await show(true, true, 1);
     expect(section()?.getAttribute("data-world-source")).toBe("world");
     expect(section()?.textContent).toContain("Übernommen. 12 Kacheln weichen von der Höhe ab.");
+    // ⌘Z: binary again, the notice goes with the world.
+    await show(false, true, 2);
+    expect(section()?.querySelector("[role=status]")).toBeNull();
 
     // No deviation: just „Übernommen.“; one: the singular.
     vi.mocked(worldAdopt).mockResolvedValue(adopted(0));

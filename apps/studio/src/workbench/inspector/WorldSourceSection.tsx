@@ -20,7 +20,7 @@ export function adoptedText(report: WorldAdoptReport): string {
 /** The bake as read: the report, or the command's refusal (a world whose rows do not read). */
 type BakeRead = { map: number; revision: number; bake: WorldBakeReport | null; error: string | null };
 
-/** The bake line of a world map: sizes when the baker took it, else the sentence of its first error. */
+/** The bake line of a world map: model and terrain sizes (the BDHC payload, as „Budget“ and the check `world.budget` count it) when the baker took it, else the sentence of its first error. */
 function BakeLine({ read }: { read: BakeRead | undefined }) {
   if (read === undefined) return <p className={styles.note}>Wird gelesen …</p>;
   if (read.error !== null) {
@@ -42,7 +42,7 @@ function BakeLine({ read }: { read: BakeRead | undefined }) {
   }
   return (
     <p className={styles.text} data-world-bake="ok">
-      Gebacken · Modell {number(bake.model_bytes)} B · Terrain {number(bake.bdhc_bytes)} B
+      Gebacken · Modell {number(bake.model_bytes)} B · Terrain {number(bake.bdhc_payload)} B
     </p>
   );
 }
@@ -88,6 +88,11 @@ export function WorldSourceSection({
       current = false;
     };
   }, [map, world, revision]);
+
+  // The notice belongs to the world it made: an undo (or any way back to binary) takes it along.
+  useEffect(() => {
+    if (!world) setAdopted(null);
+  }, [world]);
 
   async function run(op: () => Promise<unknown>) {
     if (working) return;
