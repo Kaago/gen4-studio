@@ -19,7 +19,8 @@ export type RecipeId =
   | "talk_advances"
   | "figure_appears"
   | "scene_on_enter"
-  | "reward_once";
+  | "reward_once"
+  | "new_painted_map";
 
 /** The title of each recipe (the kernel's `RecipeId::title`), in the order of `RecipeId::all()`; what `recipeList` names without asking. */
 export const RECIPE_TITLES: Readonly<Record<RecipeId, string>> = {
@@ -35,6 +36,7 @@ export const RECIPE_TITLES: Readonly<Record<RecipeId, string>> = {
   figure_appears: "Figur erscheint/verschwindet ab Schritt",
   scene_on_enter: "Szene beim Betreten",
   reward_once: "Belohnung einmalig",
+  new_painted_map: "Neue Karte malen",
 };
 
 /** A recipe as `recipeList` names it: `irreversible` when applying it always does something undo does not take back. */
@@ -78,6 +80,8 @@ export interface DraftDto {
   messages: { archive: number | null; text: string }[];
   notes: string[];
   irreversible: string[];
+  /** A painted map (`new_painted_map`): its tileset, the tile and height of every ground cell and the header it copies (null: none). */
+  painted?: { tileset: number; fill_tile: string; height: number; header: number | null };
 }
 
 /** A recipe that makes sense next, as a button: `reason` says when a locked one comes („Kommt mit 3d.9“, „Kommt später“). */

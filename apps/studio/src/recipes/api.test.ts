@@ -71,6 +71,7 @@ describe("recipes/api", () => {
       figure_appears: true,
       scene_on_enter: true,
       reward_once: true,
+      new_painted_map: true,
     } satisfies Record<RecipeId, true>;
     expect(Object.keys(every)).toEqual(Object.keys(RECIPE_TITLES));
     // The kernel's `RecipeId::title`, in the order of `all()`.
@@ -87,6 +88,7 @@ describe("recipes/api", () => {
       "Figur erscheint/verschwindet ab Schritt",
       "Szene beim Betreten",
       "Belohnung einmalig",
+      "Neue Karte malen",
     ]);
   });
 
