@@ -90,6 +90,13 @@ fn side_is_member_changed_after_an_outside_write() {
     std::fs::write(&path, &member).unwrap();
     assert_eq!(side(&fx, 0), Some(WorldSide::SourceChanged));
     assert_eq!(side(&fx, 1), Some(WorldSide::InStep));
+    // With the input as recorded, a missing member is baked again too (build_state.md).
+    let path_1 = fx.project().member_path(AssetKind::Map, 1);
+    let member_1 = std::fs::read(&path_1).unwrap();
+    std::fs::remove_file(&path_1).unwrap();
+    assert_eq!(side(&fx, 1), Some(WorldSide::SourceChanged));
+    std::fs::write(&path_1, &member_1).unwrap();
+    assert_eq!(side(&fx, 1), Some(WorldSide::InStep));
     std::fs::remove_file(state_path(fx.root())).unwrap();
     assert_eq!(side(&fx, 1), Some(WorldSide::Unrecorded));
 }

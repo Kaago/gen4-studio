@@ -217,6 +217,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "block_edges takes the 1 024 cells of a map")]
+    fn block_edges_on_a_short_slice_is_a_caller_bug() {
+        let mut cells = vec![cell(0, 0); 10];
+        block_edges(&HeightGrid::flat(0), &mut cells);
+    }
+
+    #[test]
     fn block_edges_matches_derive_permissions() {
         let input = crate::terrain::scenario_input();
         let grid = crate::terrain::parse_grid(&input.grid).unwrap();

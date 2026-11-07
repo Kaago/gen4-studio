@@ -86,8 +86,9 @@ Die Schritte 2 und 3 sind seit 6.3b eine eigene Funktion, `terrain::block_edges(
 `derive_permissions` ist Muster plus `block_edges`, und das Backen einer Welt-Karte
 ([world_map.md](world_map.md) „Permissions“) nimmt dieselbe Kantenregel auf die Zellen aus den
 Kacheln des Tilesets (oberste Ebene mit Kachel, leere Zelle `kind 0` / `collision 0x80`, dann die
-Fußabdrücke), danach die Handwerte. `block_edges` setzt nur Bit 7 und lässt die Geräusch-Bits;
-ein Index jenseits der Zellen wird übergangen statt zu paniken.
+Fußabdrücke), danach die Handwerte. `block_edges` setzt nur Bit 7 und lässt die Geräusch-Bits.
+Es nimmt genau die 1 024 Zellen einer Karte; eine kürzere Liste ist ein Fehler des Aufrufers (eine
+Debug-Assertion schlägt an), ein Release-Build übergeht die fehlenden Zellen.
 
 ## Zeilenformat
 

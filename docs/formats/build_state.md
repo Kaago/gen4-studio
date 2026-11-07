@@ -145,7 +145,8 @@ Gegen den Datensatz steht eine Welt-Karte so (`world::record::world_side`):
 | Eingabe | Member | Seite |
 |---|---|---|
 | wie aufgezeichnet | wie aufgezeichnet | `InStep` (nichts zu tun) |
-| geändert | wie aufgezeichnet, oder **fehlt** | `SourceChanged` (backen) |
+| geändert | wie aufgezeichnet | `SourceChanged` (backen) |
+| beliebig (wie aufgezeichnet oder geändert) | **fehlt** | `SourceChanged` (backen; ein fehlender Member ist nie ein Konflikt) |
 | wie aufgezeichnet | geändert | `MemberChanged` (`world.member-changed`) |
 | geändert | geändert | `Both` (`world.member-changed`) |
 | – (kein Datensatz) | – | `Unrecorded`: die Welt gilt, backen |
