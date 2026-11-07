@@ -95,7 +95,7 @@ pub(super) fn apply_keys(
                 bake_world_unit(project, unit, mode, &mut written, &mut failed)?
             }
             (UnitSide::Dspre, Of::Asset(_)) if unit.world => {
-                take_member_as_binary(project, world_map_of(unit))?;
+                take_member_as_binary(project, world_map_of(unit)?)?;
                 written.extend(unit.sources.iter().cloned());
                 true
             }
@@ -211,12 +211,18 @@ pub(super) fn apply_keys(
     })
 }
 
-/// The map of a world map's unit.
-fn world_map_of(unit: &SyncUnit) -> u16 {
+/// The map of a world map's unit; a unit without a map asset is refused (never map 0).
+fn world_map_of(unit: &SyncUnit) -> Result<u16, KernelError> {
     unit.assets
         .iter()
         .find(|a| a.kind == AssetKind::Map)
-        .map_or(0, |a| a.index)
+        .map(|a| a.index)
+        .ok_or_else(|| {
+            KernelError::Refused(format!(
+                "{}: Die Einheit einer Welt-Karte nennt keine Karte.",
+                unit.label
+            ))
+        })
 }
 
 /// Bakes the world map of `unit` (from the files: its world changed, or it has no record or no
@@ -229,7 +235,7 @@ fn bake_world_unit(
     written: &mut Vec<PathBuf>,
     failed: &mut Vec<(String, KernelError)>,
 ) -> Result<bool, KernelError> {
-    let map = world_map_of(unit);
+    let map = world_map_of(unit)?;
     let build = bake_world_maps(project, &BakeScope::Maps(vec![map]), mode)?;
     let errors: Vec<_> = build
         .problems
@@ -661,4 +667,36 @@ pub(super) fn record_all(
         });
     })?;
     Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn world_unit(assets: Vec<AssetId>) -> SyncUnit {
+        SyncUnit {
+            key: "maps/0003".to_owned(),
+            label: "Karte 0003".to_owned(),
+            side: UnitSide::Files,
+            assets,
+            sources: Vec::new(),
+            members: Vec::new(),
+            problems: Vec::new(),
+            world: true,
+        }
+    }
+
+    #[test]
+    fn world_map_of_names_the_map_asset_or_refuses() {
+        let map = AssetId {
+            kind: AssetKind::Map,
+            index: 3,
+        };
+        assert_eq!(world_map_of(&world_unit(vec![map])).unwrap(), 3);
+        // A world unit without a map asset never falls back to map 0.
+        assert!(matches!(
+            world_map_of(&world_unit(Vec::new())),
+            Err(KernelError::Refused(_))
+        ));
+    }
 }
