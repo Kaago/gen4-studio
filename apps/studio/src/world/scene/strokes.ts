@@ -58,7 +58,7 @@ const fallbackLook = (sub: PaintSub, lower: boolean): PreviewLook => (sub === "e
 /**
  * Pointer strokes on the canvas while `refs.callbacks.current.paint.sub` is set: cells of the target map only, each once,
  * gaps filled by `lineCells`; `rect` reports its two corners' cells (`rectCells`), `fill` and `pick` the clicked cell;
- * right button picks; pointercancel drops the stroke. Draws the preview while the pointer moves.
+ * right button picks; pointercancel (and a lost pointer capture) drops the stroke. Draws the preview while the pointer moves.
  *
  * The pointer goes down in the capture phase, before the camera controls see it: the left button is then taken from them
  * (`setPaintPointer`), with ⌥ held it turns or pans the camera instead of painting. A stroke keeps the pointer (pointer capture) and
@@ -181,11 +181,15 @@ export function attachStrokes(h: SceneHost, picker: Picker, refs: SceneRefs): ()
   canvas.addEventListener("pointermove", onMove);
   canvas.addEventListener("pointerup", onUp);
   canvas.addEventListener("pointercancel", onCancel);
+  // Losing the pointer otherwise (another element took it, the window lost it) ends the stroke like a cancel; after a release the
+  // stroke is already gone.
+  canvas.addEventListener("lostpointercapture", onCancel);
   return () => {
     canvas.removeEventListener("pointerdown", onDown, true);
     canvas.removeEventListener("pointermove", onMove);
     canvas.removeEventListener("pointerup", onUp);
     canvas.removeEventListener("pointercancel", onCancel);
+    canvas.removeEventListener("lostpointercapture", onCancel);
     if (drawing) clearStrokePreview(h);
     drawing = null;
   };

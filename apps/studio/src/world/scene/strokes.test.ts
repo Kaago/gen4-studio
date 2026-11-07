@@ -70,6 +70,7 @@ function setup(sub: PaintSub | null = "brush", target: number | null = 5) {
     move: (x: number, y: number) => canvas.emit("pointermove", ev(x, y)),
     up: (x: number, y: number) => canvas.emit("pointerup", ev(x, y)),
     cancel: () => canvas.emit("pointercancel", ev(0, 0)),
+    lose: () => canvas.emit("lostpointercapture", ev(0, 0)),
     stroke: () => vi.mocked(paint.onStroke).mock.calls.map(([s]) => s),
   };
 }
@@ -180,6 +181,20 @@ describe("attachStrokes", () => {
     t.up(6, 2);
     expect(t.paint.onStroke).not.toHaveBeenCalled();
     expect(t.h.paintPreview.children).toHaveLength(0);
+  });
+
+  it("lost_capture_drops_the_stroke_and_the_preview", () => {
+    const t = setup();
+    t.down(2, 2);
+    t.move(6, 2);
+    t.lose();
+    t.up(6, 2);
+    expect(t.paint.onStroke).not.toHaveBeenCalled();
+    expect(t.h.paintPreview.children).toHaveLength(0);
+    // The next press starts a new stroke.
+    t.down(1, 1);
+    t.up(1, 1);
+    expect(t.stroke()).toHaveLength(1);
   });
 
   it("left_button_does_not_orbit_while_painting", () => {

@@ -77,7 +77,9 @@ export function usePaintSession(
   const [world, setWorld] = useState<WorldGetDto | null>(null);
   const [tileset, setTileset] = useState<TilesetDto | null>(null);
   const [pending, setPending] = useState(0);
-  const [queue] = useState<StrokeQueue>(() => createStrokeQueue(worldEdit, setPending));
+  // `pending` counts a stroke until the session is done with it (world read again, refresh asked for, preview cleared), not only until
+  // `world_edit` answers: the browser gate waits for 0.
+  const [queue] = useState<StrokeQueue>(() => createStrokeQueue(worldEdit, () => {}));
   // What the callbacks read when they run: the latest props, the world read last and the requests on their way.
   const latest = useRef({ target, refresh, onError, options, state: paint.state, set: paint.set, tileset });
   latest.current = { target, refresh, onError, options, state: paint.state, set: paint.set, tileset };
@@ -159,21 +161,25 @@ export function usePaintSession(
     }
     const req = built.req;
     inFlight.current.push(req);
+    setPending(inFlight.current.length);
+    // A stroke leaves the requests on their way only once the world is read again: until then the world read last lacks it, and the
+    // next stroke still builds on it (applying it again is safe, the changes are absolute values).
     const settled = () => {
       inFlight.current = inFlight.current.filter((r) => r !== req);
+      setPending(inFlight.current.length);
     };
     queue.push(req).then(
       async () => {
-        settled();
         latest.current.refresh(req.map);
         await readWorld(req.map).catch((e) => latest.current.onError(e));
         clear();
+        settled();
       },
       async (e) => {
-        settled();
         clear();
         latest.current.onError(e);
         await readWorld(req.map).catch(() => undefined);
+        settled();
       },
     );
   }, []);

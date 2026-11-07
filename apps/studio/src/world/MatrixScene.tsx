@@ -222,11 +222,11 @@ function MatrixScene({
     h.setPaintPointer(paintSub !== null);
     if (paintSub === null) delete h.canvas.dataset.paintSub;
     else h.canvas.dataset.paintSub = paintSub;
-  }, [paintSub]);
+  }, [paintSub, sceneBuilt]);
   useEffect(() => {
     const h = refs.handle.current;
     if (h) h.canvas.dataset.strokePending = String(pending);
-  }, [pending]);
+  }, [pending, sceneBuilt]);
 
   return (
     <div className={styles.scene} data-draft="" data-draft-count={draftCount}>

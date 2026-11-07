@@ -194,4 +194,38 @@ describe("usePaintSession", () => {
     expect(update({ ...INITIAL_PAINT, sub: "pick" })).toEqual({ tile: "0041", sub: "brush" });
     expect(update({ ...INITIAL_PAINT, sub: "height" })).toEqual({ tile: "0041" });
   });
+
+  it("a_second_plus_after_the_answer_builds_on_it", async () => {
+    await show();
+    // After the answer the world is read again, slowly: until then the answered stroke still counts.
+    let release: (d: WorldGetDto) => void = () => {};
+    api.worldGet.mockImplementation(() => new Promise<WorldGetDto>((ok) => (release = ok)));
+    act(() => session?.onStroke(stroke({ sub: "height", cells: [[0, 0]] })));
+    await tick();
+    expect(api.worldEdit.mock.calls[0][0].changes).toEqual([{ cells: [[0, 0]], height: 1 }]);
+    act(() => session?.onStroke(stroke({ sub: "height", cells: [[0, 0]], preview: 2 })));
+    await tick();
+    expect(api.worldEdit.mock.calls[1][0].changes).toEqual([{ cells: [[0, 0]], height: 2 }]);
+    const raised = world();
+    raised.layers[0].heights = Array.from({ length: 32 }, (_, z) => row(Array.from({ length: 32 }, (_, x) => (x === 0 && z === 0 ? "2" : "0"))));
+    await act(async () => release(dto(raised)));
+    await tick();
+  });
+
+  it("pending_counts_until_the_world_is_read_again", async () => {
+    await show();
+    let release: (d: WorldGetDto) => void = () => {};
+    api.worldGet.mockImplementation(() => new Promise<WorldGetDto>((ok) => (release = ok)));
+    act(() => session?.onStroke(stroke({ preview: 9 })));
+    await tick();
+    // worldEdit has answered, the world is still being read: the stroke is not done yet.
+    expect(api.worldEdit).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledWith(MAP);
+    expect(session?.pending).toBe(1);
+    expect(preview.clearStrokePreview).not.toHaveBeenCalledWith(host, 9);
+    await act(async () => release(dto(world())));
+    await tick();
+    expect(preview.clearStrokePreview).toHaveBeenCalledWith(host, 9);
+    expect(session?.pending).toBe(0);
+  });
 });
