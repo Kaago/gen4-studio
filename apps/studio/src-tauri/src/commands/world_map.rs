@@ -713,6 +713,36 @@ mod tests {
     }
 
     #[test]
+    fn an_adopted_map_has_the_heights_of_its_baked_terrain() {
+        // Form 1 leaves the ground layer all `.`: get_map takes the heights of the baked BDHC,
+        // the same ones get_map_heights answers, not `null` everywhere.
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0, "height": 1 } }),
+        );
+        call(&state, &policy, "save", json!({}));
+        call(&state, &policy, "world_to_binary", json!({ "map": 0 }));
+        call(&state, &policy, "save", json!({}));
+        call(
+            &state,
+            &policy,
+            "world_adopt",
+            json!({ "req": { "map": 0, "tileset": 0 } }),
+        );
+        let map = call(&state, &policy, "get_map", json!({ "index": 0 }));
+        assert_eq!(map["world"], true);
+        let baked = call(&state, &policy, "get_map_heights", json!({ "index": 0 }));
+        assert_eq!(map["heights"], baked["heights"], "{map}");
+        let heights = map["heights"].as_array().unwrap();
+        assert_eq!(heights.len(), 1024);
+        assert_eq!(heights.iter().filter(|h| **h == json!(8.0)).count(), 1024);
+    }
+
+    #[test]
     fn world_adopt_over_dispatch() {
         let fx = g4_kernel::test_support::world_ready();
         let (state, policy) = open_as_is(&fx);
