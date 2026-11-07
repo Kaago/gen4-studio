@@ -155,7 +155,8 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
 }
 
 /// The steps of [`prepare`] with their entry changes left in `pending`: `textproject` and
-/// `world` first (text projects only), then `steps`. A skipped `textproject` has not seeded
+/// `world` first (text projects only; `world` only when `textproject` did not fail, so it
+/// never bakes over members a failed `textproject` left behind), then `steps`. A skipped `textproject` has not seeded
 /// the quirks file; when rotom's compile state lost them since (deleted or reset), they are
 /// seeded here, before `rotom`. As in [`step::run_steps`], a [`KernelError::Compile`] lets the later steps
 /// run and comes back with all their problems.
@@ -169,16 +170,17 @@ fn prepare_steps(
     let mut rows = Vec::new();
     let mut problems = Vec::new();
     if textproject::is_text_project(&project.root) {
-        match step::run_steps_into(project, &[text_project, world], pending) {
+        match step::run_steps_into(project, &[text_project], pending) {
             Ok(own) => {
-                if own
-                    .iter()
-                    .filter(|r| r.id == textproject::step::STEP_ID)
-                    .all(|r| r.status == StepStatus::Skipped)
-                {
+                if own.iter().all(|r| r.status == StepStatus::Skipped) {
                     textproject::step::reseed_quirks(project)?;
                 }
                 rows.extend(own);
+                match step::run_steps_into(project, &[world], pending) {
+                    Ok(own) => rows.extend(own),
+                    Err(KernelError::Compile(found)) => problems.extend(found),
+                    Err(e) => return Err(e),
+                }
             }
             Err(KernelError::Compile(found)) => problems.extend(found),
             Err(e) => return Err(e),

@@ -360,3 +360,77 @@ fn save_records_the_world() {
         "{problems:#?}"
     );
 }
+
+const MOVE_1_JSON: &str = "data/moves/0001.json";
+const MOVE_1_MEMBER: &str = "unpacked/moveData/0001";
+
+/// DSPRE changed member 0, and the JSON of move 1 changed (power 99).
+fn dspre_member_and_an_edited_move(fx: &TextFixture) -> Vec<u8> {
+    let mut outside = member(fx, 0);
+    outside[0x10] ^= 0x01;
+    write_member(fx, 0, &outside);
+    let mut v: serde_json::Value = serde_json::from_slice(&fx.read(MOVE_1_JSON)).unwrap();
+    v["data"]["power"] = 99.into();
+    fx.write(MOVE_1_JSON, &to_canonical(&v));
+    outside
+}
+
+#[test]
+fn the_import_refuses_a_world_member_changed_outside_before_writing() {
+    let fx = world_built();
+    let outside = dspre_member_and_an_edited_move(&fx);
+    let move_1 = fx.read(MOVE_1_MEMBER);
+    let refused = crate::textproject::import(&fx.project(), Some(&fx.base()));
+    let problems = match refused {
+        Err(KernelError::Compile(problems)) => problems,
+        other => panic!("{other:?}"),
+    };
+    assert!(
+        problems.iter().any(|p| p.severity == Severity::Error
+            && p.file == std::path::Path::new("data/maps/0000.json")
+            && p.message.starts_with("world.member-changed: Karte 0000:")),
+        "{problems:#?}"
+    );
+    // Nothing written.
+    assert_eq!(member(&fx, 0), outside);
+    assert_eq!(fx.read(MOVE_1_MEMBER), move_1);
+}
+
+#[test]
+fn the_import_with_force_bakes_over_a_world_member_changed_outside() {
+    let fx = world_built();
+    dspre_member_and_an_edited_move(&fx);
+    let move_1 = fx.read(MOVE_1_MEMBER);
+    let opts = crate::textproject::ImportOptions { force: true };
+    let report = crate::textproject::import_with(&fx.project(), Some(&fx.base()), &opts).unwrap();
+    assert!(
+        report
+            .problems
+            .iter()
+            .all(|p| p.severity != Severity::Error),
+        "{:#?}",
+        report.problems
+    );
+    assert_ne!(fx.read(MOVE_1_MEMBER), move_1);
+    assert_eq!(member(&fx, 0), bake_of(&fx, 0));
+    let mut store = Store::new(Arc::new(fx.project()));
+    assert_eq!(world_side(&mut store, 0).unwrap(), Some(WorldSide::InStep));
+}
+
+#[test]
+fn a_failing_textproject_step_leaves_world_members_alone() {
+    let fx = world_built();
+    write_world(&fx, 1, &painted(&fx, 1));
+    let member_1 = member(&fx, 1);
+    let record = BuildState::load(fx.root()).world;
+    fx.write(MOVE_1_JSON, b"{ not json");
+    let problems = compile_problems(prepare(&fx.project()));
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.file == std::path::Path::new(MOVE_1_JSON)),
+        "{problems:#?}"
+    );
+    assert_eq!(member(&fx, 1), member_1);
+    assert_eq!(BuildState::load(fx.root()).world, record);
+}

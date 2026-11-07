@@ -24,7 +24,7 @@ use crate::project::{AssetKind, Location, Project};
 use crate::scripts;
 use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
-use crate::world::build::{BakeMode, BakeScope, bake_world_maps};
+use crate::world::build::{BakeMode, BakeScope, bake_world_maps, member_changed_problems};
 
 use super::MANIFEST_FILE;
 use super::arts::{
@@ -115,8 +115,11 @@ pub(crate) struct ImportPlan {
     /// maybe on another Git branch.
     pub removals: Vec<PathBuf>,
     /// The world maps the import checked (their JSON and verbatim parts) but wrote no member
-    /// for: the build step `world` bakes them.
+    /// for: [`apply_import`] bakes them after the members, the build step `world` otherwise.
     pub world_maps: Vec<u16>,
+    /// [`apply_import`] bakes `world_maps` over a member changed outside (`--force`:
+    /// [`BakeMode::Rebake`]) instead of refusing it ([`BakeMode::Import`]).
+    pub world_rebake: bool,
 }
 
 /// Members on disk without their JSON (or without their part in it, or a binary member with
@@ -284,7 +287,13 @@ pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport,
 /// (before reading the text project) members that are newer than their JSON: kept by the
 /// build step as `textproject.member-newer`, changed since its last sync point, or changed
 /// together with their JSON. Every file is read and checked first; one error and the import
-/// is `Err(Compile(problems))` with nothing written. Parts
+/// is `Err(Compile(problems))` with nothing written. A world map whose member changed outside
+/// the Studio since its record is such an error (`world.member-changed`, decided before any
+/// write); with `opts.force` its member is baked anew over it. The bake itself runs after the
+/// members (it reads the packages, area data, matrices and headers the import writes): a bake
+/// the baker refuses (`world.bake`, e.g. a model over the budget) is known only then, so it
+/// comes back after the other members were written, as a problem of the report, and the
+/// world map keeps its member; the build that follows the import then fails with it. Parts
 /// stored as `base_sha1` come from the current member when it has them, else from the base
 /// layer, made from `base` when there is none. Afterwards the build's `prepare` runs its
 /// steps (`textproject` finds the members in sync), compiles the scripts and encodes the
@@ -312,7 +321,12 @@ pub fn import_with(
     // read again later with other bytes is a conflict and gets no record).
     let journal = Journal::start();
     let lazy = LazyBase::new(project, base, true);
-    let plan = plan_import(project, &lazy, None)?;
+    let mut plan = plan_import(project, &lazy, None)?;
+    plan.world_rebake = opts.force;
+    if !opts.force {
+        plan.problems
+            .extend(member_changed_problems(project, &plan.world_maps)?);
+    }
     if plan.has_errors() {
         return Err(KernelError::Compile(plan.problems));
     }
@@ -1743,7 +1757,11 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
         let world = bake_world_maps(
             project,
             &BakeScope::Maps(plan.world_maps.clone()),
-            BakeMode::Import,
+            if plan.world_rebake {
+                BakeMode::Rebake
+            } else {
+                BakeMode::Import
+            },
         )?;
         out.members += u32::try_from(world.baked.len()).unwrap_or(u32::MAX);
         out.paths.extend(

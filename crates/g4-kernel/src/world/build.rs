@@ -99,6 +99,45 @@ pub(crate) fn world_maps(project: &Project) -> Result<Vec<u16>, KernelError> {
     Ok(maps)
 }
 
+/// The `world.member-changed` errors of `maps` (those that are world maps without
+/// tombstone): each whose member changed outside the Studio since its record (MemberChanged or
+/// Both), decided without writing anything; the import asks before it writes.
+pub(crate) fn member_changed_problems(
+    project: &Project,
+    maps: &[u16],
+) -> Result<Vec<Problem>, KernelError> {
+    let listed = world_maps(project)?;
+    let maps: Vec<u16> = maps
+        .iter()
+        .copied()
+        .filter(|m| listed.contains(m))
+        .collect();
+    let mut problems = Vec::new();
+    if maps.is_empty() {
+        return Ok(problems);
+    }
+    let mut store = Store::new(Arc::new(Project::open(&project.root)?));
+    for map in maps {
+        match side_and_input(&mut store, map) {
+            Ok(Some((WorldSide::MemberChanged | WorldSide::Both, _))) => {
+                problems.push(member_changed(map));
+            }
+            Ok(_) | Err(KernelError::Compile(_)) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(problems)
+}
+
+/// The `world.member-changed` error of `map`, at its JSON.
+fn member_changed(map: u16) -> Problem {
+    problem(
+        &map_json_rel(map),
+        WORLD_MEMBER_CHANGED_CODE,
+        member_changed_text(map),
+    )
+}
+
 /// Opens a store on `project`, decides every world map of `scope` by [`world_side`]
 /// (Step/Import: MemberChanged or Both → `world.member-changed` error for that map, nothing
 /// written for any map; Rebake: bakes over), bakes the others whose side is not InStep, writes
@@ -145,11 +184,7 @@ pub fn bake_world_maps(
                 continue;
             }
             (WorldSide::MemberChanged | WorldSide::Both, BakeMode::Step | BakeMode::Import) => {
-                out.problems.push(problem(
-                    &rel,
-                    WORLD_MEMBER_CHANGED_CODE,
-                    member_changed_text(map),
-                ));
+                out.problems.push(member_changed(map));
                 continue;
             }
             _ => {}
