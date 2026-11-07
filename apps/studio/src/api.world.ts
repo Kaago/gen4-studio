@@ -43,13 +43,20 @@ export interface WorldLayerJson {
   ramps?: string[];
 }
 
-/** The world document of a map (`data/maps/NNNN.json`, `world`). */
+/** A binary part of a text project file: hex bytes, a vanilla member by its SHA-1, or a side file next to the JSON. */
+export type PartJson = { hex: string } | { base_sha1: string } | { file: string };
+
+/**
+ * The world document of a map (`data/maps/NNNN.json`, `world`, schema 2). `freeform[].nsbmd` is the verbatim model of Form 1 as a part,
+ * `terrain.bdhc` the verbatim BDHC (left out once the ground's heights or ramps change).
+ */
 export interface WorldJson {
   version: number;
   tileset: number;
   layers: WorldLayerJson[];
   pieces?: { tile: number; at: [number, number]; rotate: number }[];
-  freeform?: { glb?: string; nsbmd?: string; at: [number, number, number] }[];
+  freeform?: { glb?: string; nsbmd?: PartJson; at: [number, number, number] }[];
+  terrain?: { bdhc: PartJson };
   permissions: { derive: boolean; override?: string[] };
 }
 

@@ -235,9 +235,10 @@ fn locked_world_refusal(reason: &str) -> String {
     world_refusal(&map)
 }
 
-/// [`locked_world_refusal`] for map `map` („Karte 0123 ist eine Welt-Karte, …“): a world on a
-/// map whose member does not read is refused before it is made
-/// ([`super::edit::world_create`]), as writing it would be.
+/// [`locked_world_refusal`] for map `map` („Karte 0123 ist eine Welt-Karte, …“): a stroke on a
+/// world map whose member does not read is refused ([`super::edit::world_edit`]), as writing it
+/// would be. A binary map that is to become a world map has its own text
+/// ([`super::edit::binary_map_refusal`]: `world_create`, `world_adopt`).
 pub(crate) fn locked_map_refusal(map: u16) -> String {
     world_refusal(&format!("Karte {map:04}"))
 }

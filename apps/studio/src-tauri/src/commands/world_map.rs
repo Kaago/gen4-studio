@@ -149,7 +149,13 @@ pub fn world_get_impl(state: &AppState, map: u16) -> Result<WorldGetDto, CmdErro
     let (faces, _) = faces_of(store, &world)?;
     let textures = mesh_textures(&faces).len();
     let estimate = estimate_model_bytes(faces.len(), textures);
-    let bake = store.world_bake_report(map)?;
+    // A world whose rows do not parse has no bake (the check names its problems); the answer
+    // keeps the world, as for its faces. `world_bake` refuses with the text.
+    let bake = match store.world_bake_report(map) {
+        Ok(bake) => bake,
+        Err(g4_kernel::error::KernelError::Refused(_)) => None,
+        Err(e) => return Err(e.into()),
+    };
     Ok(WorldGetDto {
         map,
         world: Some(world),
@@ -180,7 +186,8 @@ pub fn world_to_binary_impl(state: &AppState, map: u16) -> Result<WorldReport, C
 }
 
 /// The bake of world map `map` as the store holds it (nothing changed); `None` without world
-/// or outside a text project.
+/// or outside a text project. A world whose rows do not parse is refused with the first
+/// problem (`world.schema: …`), where `world_get` answers `bake: None`.
 pub fn world_bake_impl(state: &AppState, map: u16) -> Result<Option<WorldBakeReport>, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
@@ -871,6 +878,45 @@ mod tests {
             Value::Null
         );
         assert!(labels(&state).is_empty());
+    }
+
+    /// A hand-edited world with a short row: `world_get` keeps the world without faces and
+    /// bake, `world_bake` refuses with the first problem.
+    #[test]
+    fn a_world_with_a_short_row_has_no_bake() {
+        let fx = g4_kernel::test_support::world_ready();
+        {
+            let (state, policy) = open_as_is(&fx);
+            call(
+                &state,
+                &policy,
+                "world_create",
+                json!({ "req": { "map": 0, "tileset": 0 } }),
+            );
+            call(&state, &policy, "save", json!({}));
+        }
+        let path = fx.root().join("data/maps/0000.json");
+        let mut file: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let row = &mut file["world"]["layers"][0]["tiles"][0];
+        let short = row
+            .as_str()
+            .unwrap()
+            .split(' ')
+            .take(31)
+            .collect::<Vec<_>>();
+        *row = json!(short.join(" "));
+        std::fs::write(&path, serde_json::to_vec_pretty(&file).unwrap()).unwrap();
+
+        let (state, policy) = open_as_is(&fx);
+        let got = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        assert_eq!(got["world"]["tileset"], 0, "{got}");
+        assert_eq!(
+            (&got["faces"], &got["bake"]),
+            (&json!(0), &Value::Null),
+            "{got}"
+        );
+        let text = refused(&state, &policy, "world_bake", json!({ "map": 0 }));
+        assert!(text.starts_with("world.schema: "), "{text}");
     }
 
     /// DSPRE changes a world map's member: `external_sync` names the conflict with
