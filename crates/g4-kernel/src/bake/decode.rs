@@ -4,7 +4,8 @@
 //! It mirrors `encode` and knows nothing past it: the render commands `MAT` (0x04) and `SHP`
 //! (0x05) pair a shape with its material, the shape's display list holds `BEGIN_VTXS` groups of
 //! quads or quad strips with `TEXCOORD`, `NORMAL`, `COLOR`, `VTX_10`, `VTX_16` and `END_VTXS`
-//! (and the `NOP` padding of the last command group). A strip of `2n + 2` corners is `n` quads:
+//! (and the `NOP` padding of the last command group), and `BEGIN_VTXS` triangles: every three
+//! corners `a, b, c` are the quad `a, b, c, c`. A strip of `2n + 2` corners is `n` quads:
 //! quad `k` has the corners `v[2k], v[2k + 1], v[2k + 3], v[2k + 2]`, the order `encode` sends
 //! them in (`c0, c1, c3, c2`, then `c3, c2` of every next face). A quad with `c3 == c2` (the
 //! triangle-shaped face) reads like any other.
@@ -32,7 +33,7 @@ const SBC_MAT: u8 = 0x04;
 const SBC_SHP: u8 = 0x05;
 
 /// The quads of a model `bake` wrote, in world units and texels (strips expanded, display-list order): the
-/// inverse of `encode` for its subset (BEGIN quads / quad strip, TEXCOORD, NORMAL, COLOR, VTX_10, VTX_16, END);
+/// inverse of `encode` for its subset (BEGIN triangles / quads / quad strip, TEXCOORD, NORMAL, COLOR, VTX_10, VTX_16, END);
 /// any other command is `FormatError::Unsupported`.
 pub fn decode_quads(nsbmd: &[u8]) -> Result<Vec<BakedQuad>, FormatError> {
     let file = Nsbmd::read(nsbmd)?;
@@ -141,9 +142,10 @@ fn shape_quads(
     }
 }
 
-/// The primitive types the baker writes.
+/// The primitive types the baker writes (triangles: a face with `c3 == c2`, after 6.5a).
 fn prim(value: u32) -> Result<Prim, FormatError> {
     match value {
+        0 => Ok(Prim::Triangles),
         1 => Ok(Prim::Quads),
         3 => Ok(Prim::QuadStrip),
         _ => Err(FormatError::Unsupported {
@@ -181,8 +183,17 @@ fn close(g: Group, material: &str, out: &mut Vec<BakedQuad>) -> Result<(), Forma
                 out.push(quad([&v[at], &v[at + 1], &v[at + 3], &v[at + 2]]));
             }
         }
+        Prim::Triangles => {
+            if !v.len().is_multiple_of(3) {
+                return Err(FormatError::Unsupported {
+                    what: "a triangles group with a corner count not divisible by 3",
+                });
+            }
+            let (triangles, _) = v.as_chunks::<3>();
+            out.extend(triangles.iter().map(|[a, b, c]| quad([a, b, c, c])));
+        }
         // `prim` lets no other type through.
-        Prim::Triangles | Prim::TriangleStrip => {
+        Prim::TriangleStrip => {
             return Err(FormatError::Unsupported {
                 what: "a primitive type outside the baker's subset",
             });
@@ -386,14 +397,85 @@ mod tests {
             Err(FormatError::Unsupported { .. })
         ));
 
-        // Triangles are not written by the baker (yet).
+        // A triangle strip is not written by the baker.
         let bytes = edited(|cmds| {
             let at = cmds.iter().position(|c| c.op == op::BEGIN_VTXS).unwrap();
-            cmds[at] = GpuCmd::begin(Prim::Triangles);
+            cmds[at] = GpuCmd::begin(Prim::TriangleStrip);
         });
         assert!(matches!(
             decode_quads(&bytes),
             Err(FormatError::Unsupported { .. })
         ));
+    }
+
+    #[test]
+    fn decode_reads_triangles_as_quads_with_c3_equal_c2() {
+        // `BEGIN_VTXS` triangles (6.5a sends a face with c3 == c2 so): every three corners
+        // are one quad whose fourth corner repeats the third.
+        let corners = [
+            [0, 0, 0],
+            [0, 0, 16],
+            [16, 0, 16],
+            [16, 0, 0],
+            [16, 0, 16],
+            [32, 0, 16],
+        ];
+        let bytes = edited(|cmds| {
+            *cmds = vec![GpuCmd::begin(Prim::Triangles)];
+            for [x, y, z] in corners {
+                cmds.push(GpuCmd::texcoord([x * 16, z * 16]));
+                cmds.push(GpuCmd::vtx_10([x, y, z]));
+            }
+            cmds.push(GpuCmd::end());
+        });
+        let quads = decode_quads(&bytes).unwrap();
+        let got: Vec<_> = quads.iter().map(|q| (q.corners, q.uv)).collect();
+        let uv = |[x, _, z]: [i32; 3]| [x, z];
+        let want: Vec<_> = corners
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|[a, b, c]| ([*a, *b, *c, *c], [uv(*a), uv(*b), uv(*c), uv(*c)]))
+            .collect();
+        assert_eq!(got, want);
+        assert!(quads.iter().all(|q| q.material == "t0"));
+
+        // A triangle group whose corner count is no multiple of three is refused.
+        let bytes = edited(|cmds| {
+            *cmds = vec![GpuCmd::begin(Prim::Triangles)];
+            for v in &corners[..4] {
+                cmds.push(GpuCmd::vtx_10(*v));
+            }
+            cmds.push(GpuCmd::end());
+        });
+        assert!(matches!(
+            decode_quads(&bytes),
+            Err(FormatError::Unsupported { .. })
+        ));
+    }
+
+    #[test]
+    fn decode_reads_a_quad_with_c3_equal_c2_inside_a_strip() {
+        // One texture: a quad, a triangle-shaped quad continuing it, a face continuing the
+        // triangle's last edge (c3, c2 meet in one corner): one strip of three.
+        let pack = pack();
+        let face = |corners: [[i32; 3]; 4]| Face {
+            corners,
+            uv: corners.map(|[x, _, z]| [x, z]),
+            texture: "t0".to_string(),
+            layer: 0,
+        };
+        let faces = [
+            face([[0, 0, 0], [0, 0, 16], [16, 0, 16], [16, 0, 0]]),
+            face([[16, 0, 0], [16, 0, 16], [32, 0, 16], [32, 0, 16]]),
+            face([[32, 0, 16], [32, 0, 16], [48, 0, 16], [48, 0, 0]]),
+        ];
+        let r = bake(&faces, &input(&pack));
+        assert_eq!(r.refusal(), None);
+        assert_eq!((r.strips, r.single_quads), (1, 0));
+        let quads = decode_quads(&r.nsbmd).unwrap();
+        let got: Vec<_> = quads.iter().map(|q| (q.corners, q.uv)).collect();
+        let want: Vec<_> = faces.iter().map(|f| (f.corners, f.uv)).collect();
+        assert_eq!(got, want);
     }
 }
