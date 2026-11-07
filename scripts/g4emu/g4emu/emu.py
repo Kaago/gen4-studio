@@ -24,6 +24,16 @@ CORE_OPTIONS = {
 }
 
 
+def clock_options(hour: int, minute: int) -> dict[str, str]:
+    """The melonDS DS options for an absolute start time at `hour`:`minute`."""
+    return {
+        "melonds_start_time_mode": "absolute",
+        "melonds_start_time_absolute_hour": str(hour),
+        "melonds_start_time_absolute_minute": str(minute),
+        "melonds_start_time_absolute_second": "0",
+    }
+
+
 class EmuError(Exception):
     """Emulator, ROM, core or save problem (exit code 1)."""
 
@@ -47,6 +57,7 @@ class Emu(Protocol):
     def save_state(self, path: Path) -> None: ...
     def load_state(self, path: Path) -> None: ...
     def write_save(self, path: Path) -> None: ...
+    def set_clock(self, hour: int, minute: int) -> None: ...
 
 
 def game_code(rom: Path) -> str:
@@ -70,13 +81,14 @@ def frame_to_image(data: bytes | memoryview, width: int, height: int) -> Image.I
 
 
 class _LibretroEmu:
-    def __init__(self, session, video, pad, touch) -> None:
+    def __init__(self, session, video, pad, touch, options) -> None:
         from libretro.api.memory import RETRO_MEMORY_SAVE_RAM, RETRO_MEMORY_SYSTEM_RAM
 
         self._session = session
         self._video = video
         self._pad = pad  # mutable dict shared with the input generator
         self._touch = touch
+        self._options = options  # the DictOptionDriver of the session (`set_clock` writes into it)
         self._save_ram_id = RETRO_MEMORY_SAVE_RAM
         self._system_ram_id = RETRO_MEMORY_SYSTEM_RAM
         self.frame = 0
@@ -140,6 +152,17 @@ class _LibretroEmu:
             raise EmuError("Der Kern liefert keinen Cartridge-Speicher")
         Path(path).write_bytes(bytes(mem))
 
+    def set_clock(self, hour: int, minute: int) -> None:
+        """melonDS DS reads its start time only when the console starts: set the absolute start
+        time (2004-01-01, the core's default date) and reset; the cartridge memory is kept."""
+        mem = self._session.core.get_memory(self._save_ram_id)
+        kept = bytes(mem) if mem is not None else None
+        self._options.variables.update(clock_options(hour, minute))
+        self._session.core.reset()
+        mem = self._session.core.get_memory(self._save_ram_id)
+        if kept is not None and mem is not None and len(mem) == len(kept):
+            mem[:] = kept
+
 
 @contextmanager
 def open_emu(core: Path, rom: Path, save: Path | None, workdir: Path) -> Iterator[Emu]:
@@ -170,19 +193,20 @@ def open_emu(core: Path, rom: Path, save: Path | None, workdir: Path) -> Iterato
             yield PortState(joypad=pad["state"], pointer=pointer)
 
     video = ArrayVideoDriver()
+    options = DictOptionDriver(variables=dict(CORE_OPTIONS))
     session = Session(
         str(core),
         str(rom),
         input=IterableInputDriver(poll),
         video=video,
-        options=DictOptionDriver(variables=dict(CORE_OPTIONS)),
+        options=options,
         log=None,
         path=ExplicitPathDriver(
             corepath=str(core), system=str(system), save=str(saves), assets=str(system)
         ),
     )
     with session:
-        emu = _LibretroEmu(session, video, pad, touch)
+        emu = _LibretroEmu(session, video, pad, touch, options)
         if save is not None:
             emu.load_save(save)
         yield emu

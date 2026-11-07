@@ -54,3 +54,14 @@ def test_screenshot_without_image_after_frames_is_an_error(tmp_path):
     with pytest.raises(EmuError, match="Noch kein Bild"):
         emu.screenshot(tmp_path / "a.png")
     assert not (tmp_path / "a.png").exists()
+
+
+def test_clock_options_set_an_absolute_start_time():
+    from g4emu.emu import clock_options
+
+    assert clock_options(23, 5) == {
+        "melonds_start_time_mode": "absolute",
+        "melonds_start_time_absolute_hour": "23",
+        "melonds_start_time_absolute_minute": "5",
+        "melonds_start_time_absolute_second": "0",
+    }
