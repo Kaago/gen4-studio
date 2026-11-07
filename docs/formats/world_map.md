@@ -355,6 +355,13 @@ Permissions-Overlay und GLB der Szene der Welt ohne Sonderweg.
   Speichern der übrigen nicht auf. Geschrieben werden die JSON ohne abgeleitete Teile und der
   Member; beide zeichnet das Speichern auf (der Datensatz `world` nur bei einem Backen ohne
   Fehler, sonst verliert die Karte ihren Datensatz, [build_state.md](build_state.md)).
+  **Lehnt der Bäcker beim Speichern ab** (Budget, fehlende Textur), schreibt das Speichern den
+  Member trotzdem, und zwar mit dem **letzten Modell** und der **neuen** BDHC und den neuen
+  Permissions der Welt (das Map-Asset, wie es nach „Abgelehntes Modell“ ist). Dieser Member ist in
+  sich nicht stimmig: Modell und Terrain gehören zu verschiedenen Ständen der Welt. Der Datensatz
+  `world` der Karte entfällt, der Check meldet `world.bake`, und der Build-Schritt `world` lehnt
+  die Karte ab, bis die Welt wieder backt; DSPRE dagegen öffnet den Member, wie er liegt, also mit
+  altem Modell über neuem Terrain.
 - **Stale-Prüfung beim Speichern:** für das Map-Asset einer Welt-Karte vergleicht sie nur Gebäude,
   Rest und BGS mit dem Stand, den der Store zuletzt sah, nicht die Bytes (`same_base`); die Welt
   selbst prüft das WorldMap-Asset. Grund: das Lesen backt, und das Backen folgt auch Tileset,
