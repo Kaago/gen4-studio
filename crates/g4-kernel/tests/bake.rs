@@ -13,13 +13,15 @@ use std::time::Instant;
 use g4_formats::nsbtx::{self, Btx0, NewTexture, Nsbtx, rgb};
 use g4_formats::texconv::{convert, palette_name};
 use g4_kernel::bake::{
-    AreaStyle, BakeInput, BakeTestOptions, Face, Level, PackTexture, bake, bake_test,
-    bake_textures, sample_images, test_surface,
+    AreaStyle, BakeInput, BakeTestOptions, Level, PackTexture, bake, bake_test, bake_textures,
+    sample_images, test_surface,
 };
 use g4_kernel::export::nsbmd_to_glb;
 use g4_kernel::map_import::map_areas;
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::{AssetId, Store};
+
+use common::glb::{glb_chunks, glb_set, input_set};
 
 fn map_id(index: u16) -> AssetId {
     AssetId {
@@ -345,75 +347,6 @@ fn oracle_pack() -> Vec<PackTexture> {
             height: 16,
         })
         .collect()
-}
-
-/// One accessor of a GLB as f32 tuples of `n` components.
-fn accessor(json: &serde_json::Value, bin: &[u8], index: usize, n: usize) -> Vec<Vec<f32>> {
-    let acc = &json["accessors"][index];
-    assert_eq!(acc["componentType"], 5126, "accessor {index}: {acc}");
-    let count = acc["count"].as_u64().unwrap() as usize;
-    let view = &json["bufferViews"][acc["bufferView"].as_u64().unwrap() as usize];
-    let base = view["byteOffset"].as_u64().unwrap_or(0) as usize
-        + acc["byteOffset"].as_u64().unwrap_or(0) as usize;
-    let stride = view["byteStride"].as_u64().map_or(4 * n, |s| s as usize);
-    (0..count)
-        .map(|i| {
-            (0..n)
-                .map(|k| {
-                    let at = base + i * stride + 4 * k;
-                    f32::from_le_bytes(bin[at..at + 4].try_into().unwrap())
-                })
-                .collect()
-        })
-        .collect()
-}
-
-/// The JSON and BIN chunk of a GLB.
-fn glb_chunks(glb: &[u8]) -> (serde_json::Value, Vec<u8>) {
-    assert_eq!(&glb[0..4], b"glTF");
-    let u32_at = |at: usize| u32::from_le_bytes(glb[at..at + 4].try_into().unwrap()) as usize;
-    assert_eq!(u32_at(8), glb.len());
-    let (json_len, json_type) = (u32_at(12), &glb[16..20]);
-    assert_eq!(json_type, b"JSON");
-    let json: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
-    let bin_at = 20 + json_len;
-    let (bin_len, bin_type) = (u32_at(bin_at), &glb[bin_at + 4..bin_at + 8]);
-    assert_eq!(bin_type, b"BIN\0");
-    (json, glb[bin_at + 8..bin_at + 8 + bin_len].to_vec())
-}
-
-/// (corner, uv in 1/16 texel) of every corner.
-type CornerSet = BTreeSet<([i32; 3], [i32; 2])>;
-
-fn input_set(faces: &[Face]) -> CornerSet {
-    faces
-        .iter()
-        .flat_map(|f| {
-            f.corners
-                .iter()
-                .zip(&f.uv)
-                .map(|(c, uv)| (*c, [uv[0] * 16, uv[1] * 16]))
-        })
-        .collect()
-}
-
-fn glb_set(json: &serde_json::Value, bin: &[u8]) -> CornerSet {
-    let mut set = CornerSet::new();
-    for mesh in json["meshes"].as_array().unwrap() {
-        for prim in mesh["primitives"].as_array().unwrap() {
-            let attrs = &prim["attributes"];
-            let pos = accessor(json, bin, attrs["POSITION"].as_u64().unwrap() as usize, 3);
-            let uv = accessor(json, bin, attrs["TEXCOORD_0"].as_u64().unwrap() as usize, 2);
-            assert_eq!(pos.len(), uv.len());
-            for (p, t) in pos.iter().zip(&uv) {
-                let c = [p[0], p[1], p[2]].map(|v| v.round() as i32);
-                // u · 16 texels (width 16), in 1/16 texel.
-                let st = [t[0], t[1]].map(|v| (v * 16.0 * 16.0).round() as i32);
-                set.insert((c, st));
-            }
-        }
-    }
-    set
 }
 
 #[test]

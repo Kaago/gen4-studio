@@ -2397,7 +2397,7 @@ fn locked(value: &serde_json::Value, at: &str, out: &mut Vec<(String, String)>) 
 /// A check of the deletion independent of `owned_paths`: every archive with an entity holds
 /// no member any more, and as many text and script members went as there are text JSON and
 /// script sources.
-fn deletion_was_complete(project: &Project, deleted: &[PathBuf], kept: Option<&PathBuf>) {
+fn deletion_was_complete(project: &Project, deleted: &[PathBuf]) {
     use AssetKind::*;
     for kind in [
         Map,
@@ -2429,7 +2429,6 @@ fn deletion_was_complete(project: &Project, deleted: &[PathBuf], kept: Option<&P
                 let name = e.file_name();
                 name.to_str()
                     .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-                    && kept != Some(&e.path())
             })
             .count();
         assert_eq!(left, 0, "{kind:?}: members left in {}", dir.display());
@@ -2565,9 +2564,11 @@ fn textproject_round_trip_with_tombstone() {
     round_trip(true, false);
 }
 
-/// The round trip with a world on a map ([`world_on_first_map`]): the import makes no member
-/// for the world map (its member stays as it was), the ROM builds byte-equal and the import
-/// leaves the map JSON as saved.
+/// The round trip with a world on a map ([`world_on_first_map`]): the world map's member goes
+/// with the others and the import bakes it again: it is the bake of the saved world (what a
+/// fresh store's `Store::map` gives) and every other file is byte-equal to the copy before;
+/// the import leaves the map JSON as saved. The ROM builds (not the base ROM: the map is
+/// painted).
 #[test]
 fn textproject_round_trip_with_world() {
     round_trip(false, true);
@@ -2601,22 +2602,13 @@ fn round_trip(tombstone: bool, with_world: bool) {
     hashes(&copy, "arm9/arm9.bin", &mut before);
     hashes(&copy, mapname_rel.to_str().unwrap(), &mut before);
 
-    // Every member the text project owns goes; the header table and the internal names are
-    // zeroed. A world map's member stays: the import makes none (the build step `world` bakes
-    // it, Task 5), and until the store bakes it it is the member the world was made on.
+    // Every member the text project owns goes, a world map's too (the import bakes it); the
+    // header table and the internal names are zeroed.
     let owned = g4_kernel::textproject::base_layer::owned_paths(&project).unwrap();
     let dynamic = project.unpacked_dir(AssetKind::DynamicHeaders);
-    let world_member = world.as_ref().map(|(map, _)| {
-        project
-            .unpacked_dir(AssetKind::Map)
-            .join(format!("{map:04}"))
-    });
     let mut deleted = Vec::new();
     for rel in &owned {
         let path = copy.join(rel);
-        if world_member.as_ref() == Some(&path) {
-            continue;
-        }
         if path == mapname || path.starts_with(&dynamic) {
             let len = std::fs::metadata(&path).unwrap().len() as usize;
             std::fs::write(&path, vec![0u8; len]).unwrap();
@@ -2625,7 +2617,7 @@ fn round_trip(tombstone: bool, with_world: bool) {
             deleted.push(path);
         }
     }
-    deletion_was_complete(&project, &deleted, world_member.as_ref());
+    deletion_was_complete(&project, &deleted);
     use g4_kernel::project::Location;
     match project.member_location(AssetKind::HeaderTable, 0).unwrap() {
         Location::Slice { path, offset, len } => {
@@ -2664,14 +2656,27 @@ fn round_trip(tombstone: bool, with_world: bool) {
         &differs[..differs.len().min(10)]
     );
 
+    if let Some((map, _)) = &world {
+        let mut store = Store::new(Arc::new(Project::open(&copy).unwrap()));
+        let family = store.project().family;
+        let baked = store.map(*map).unwrap().write(family);
+        let member = std::fs::read(project.member_path(AssetKind::Map, *map)).unwrap();
+        assert!(
+            member == baked,
+            "the world map's member is not the bake of its world"
+        );
+    }
+
     let started = std::time::Instant::now();
     let sha1 = built_sha1(&copy, &tmp.path().join("out.nds"));
     let build_ms = ms(started);
-    assert_eq!(
-        sha1,
-        base.sha1(),
-        "the rebuilt ROM differs from the base ROM"
-    );
+    if world.is_none() {
+        assert_eq!(
+            sha1,
+            base.sha1(),
+            "the rebuilt ROM differs from the base ROM"
+        );
+    }
     if let Some((path, bytes)) = &tombstoned {
         assert_eq!(&std::fs::read(path).unwrap(), bytes, "the envelope stays");
     }
