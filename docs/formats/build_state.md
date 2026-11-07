@@ -162,7 +162,12 @@ Geschrieben wird `world` von:
   dann ohne Datensatz,
 - dem **Import** (die Welt-Karten, die er backte),
 - der **Wahl** in einem Welt-Konflikt: „Neu backen“ zeichnet neu auf, „Als binäre Karte
-  übernehmen“ löscht den Datensatz.
+  übernehmen“ löscht den Datensatz,
+- jedem Schreiben eines Karten-Members aus einer JSON, die **keine** Welt-Karte ist (Build-Schritt
+  `textproject`, Import, Übernahme im Abgleich; alle über `apply_import`): es löscht den Datensatz
+  dieser Karte. Sonst hielte ein Git-Wechsel über einen Zweig, auf dem die Karte binär ist, den
+  dort geschriebenen Member für außen geändert, sobald die Welt byte-gleich zurückkehrt; so gilt
+  sie dann ohne Datensatz und wird gebacken.
 
 Wie `texts` und `sync` ist `world` kein Cache: „Neu bauen (ohne Cache)“ behält ihn, damit sich
 „Welt geändert“ weiter von „Member außen geändert“ trennen lässt. Fehlt er (gelöschte oder

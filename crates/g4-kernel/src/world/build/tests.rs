@@ -434,3 +434,41 @@ fn a_failing_textproject_step_leaves_world_members_alone() {
     assert_eq!(member(&fx, 1), member_1);
     assert_eq!(BuildState::load(fx.root()).world, record);
 }
+
+/// A Git branch switch: map 0 is a world map on branch A (recorded), binary on branch B (the
+/// step `textproject` writes its binary member), and a world again, byte for byte, back on A.
+/// The binary write ended the record, so the member the step wrote is no outside change: the
+/// map bakes without `world.member-changed`.
+#[test]
+fn a_branch_switch_through_a_binary_map_is_no_member_change() {
+    let fx = world_built();
+    let p = fx.project();
+    let rel = json_rel(0);
+    let world_a = fx.read(&rel);
+    let state_a = std::fs::read(state_path(fx.root())).unwrap();
+    // Branch B: map 0 binary, one permission cell other than the baked member's.
+    take_member_as_binary(&p, 0).unwrap();
+    let mut binary: serde_json::Value = serde_json::from_slice(&fx.read(&rel)).unwrap();
+    let row = binary["permissions"][0].as_str().unwrap().to_owned();
+    binary["permissions"][0] = set_token(&row, 0, "0180").unwrap().into();
+    // `.g4/` is no part of the branch: the record of branch A stays.
+    std::fs::write(state_path(fx.root()), &state_a).unwrap();
+    assert!(BuildState::load(fx.root()).world.contains_key(&0));
+    fx.write(&rel, &serde_json::to_vec_pretty(&binary).unwrap());
+    let member_a = member(&fx, 0);
+    prepare(&p).unwrap();
+    assert_ne!(member(&fx, 0), member_a, "the step wrote the binary member");
+
+    // Back on branch A.
+    fx.write(&rel, &world_a);
+    let mut store = Store::new(Arc::new(fx.project()));
+    let side = world_side(&mut store, 0).unwrap();
+    assert!(
+        !matches!(side, Some(WorldSide::MemberChanged | WorldSide::Both)),
+        "{side:?}"
+    );
+    prepare(&p).unwrap();
+    assert_eq!(member(&fx, 0), member_a);
+    let mut store = Store::new(Arc::new(fx.project()));
+    assert_eq!(world_side(&mut store, 0).unwrap(), Some(WorldSide::InStep));
+}

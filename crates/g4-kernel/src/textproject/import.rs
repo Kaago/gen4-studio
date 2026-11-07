@@ -26,6 +26,7 @@ use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
 use crate::world::build::{BakeMode, BakeScope, bake_world_maps, member_changed_problems};
 use crate::world::check::WORLD_BAKE_CODE;
+use crate::world::record::forget_world;
 
 use super::MANIFEST_FILE;
 use super::arts::{
@@ -1697,12 +1698,31 @@ pub(crate) struct Applied {
     pub problems: Vec<Problem>,
 }
 
+/// The maps whose member `plan` writes (members of a JSON that is no world map: world maps
+/// are baked, never written from their file).
+fn binary_map_writes(project: &Project, plan: &ImportPlan) -> Vec<u16> {
+    if !project.has_archive(AssetKind::Map) {
+        return Vec::new();
+    }
+    let dir = Path::new("unpacked").join(project.archives.unpacked_name(AssetKind::Map));
+    plan.writes
+        .iter()
+        .filter(|w| w.path.parent() == Some(dir.as_path()))
+        .filter_map(|w| {
+            let name = w.path.file_name()?.to_str()?;
+            (name.len() == 4 && name.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| name.parse().ok())
+                .flatten()
+        })
+        .collect()
+}
+
 /// Writes what `plan` found: the blobs, the members of each art (its archive unpacked
 /// first), then removes the members of [`ImportPlan::removals`], the header table last, then
 /// bakes the world maps of [`ImportPlan::world_maps`] over what was just written
 /// ([`bake_world_maps`] in [`BakeMode::Import`]), then the quirks into the compile state
 /// (adopted projects only). `paths` names the removed
-/// members too.
+/// members too. A map member it writes ends that map's world record ([`forget_world`]).
 pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Applied, KernelError> {
     let mut out = Applied::default();
     for w in &plan.raw {
@@ -1745,6 +1765,13 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
             out.paths.push(w.path.clone());
             out.members += 1;
         }
+    }
+    // A map member written from a JSON that is no world map (a branch made a world map
+    // binary, DSPRE's map taken over) is no world's output: the map's world record goes, so
+    // a world back in that JSON later bakes without `world.member-changed`.
+    let binary_maps = binary_map_writes(project, plan);
+    if !binary_maps.is_empty() {
+        forget_world(project, &binary_maps)?;
     }
     for rel in &plan.removals {
         let path = project.root.join(rel);
