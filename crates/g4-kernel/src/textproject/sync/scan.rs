@@ -13,8 +13,9 @@ use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
 use crate::start::read_base_mark;
-use crate::store::HEADER_TABLE;
+use crate::store::{HEADER_TABLE, Store};
 use crate::text::{Problem, Severity, TextArchiveDoc, TextSide, TextSync, json_matches_member};
+use crate::world::{WorldSide, world_side};
 
 use super::super::MANIFEST_FILE;
 use super::super::arts::{ARTS, Art, Members, surplus_problem};
@@ -192,6 +193,8 @@ pub(super) fn scan(
         layer: OnceCell::new(),
         owned: OnceCell::new(),
         rerecord: Vec::new(),
+        store: None,
+        worlds: HashSet::new(),
     };
     let symbols: OnceCell<Option<Symbols>> = OnceCell::new();
     let total = count(files.len() + units.len());
@@ -223,6 +226,7 @@ pub(super) fn scan(
             }
         }
         let symbols = symbols.get_or_init(|| Symbols::load(&project.root).ok());
+        let world = judge.worlds.contains(&unit.key);
         report.units.push(SyncUnit {
             label: label(
                 &unit,
@@ -235,6 +239,7 @@ pub(super) fn scan(
             sources: unit.sources,
             members: unit.members,
             problems,
+            world,
         });
     }
     progress(SyncProgress { done: total, total });
@@ -254,6 +259,7 @@ fn manifest_unit(problems: Vec<Problem>) -> SyncUnit {
         sources: vec![file],
         members: Vec::new(),
         problems,
+        world: false,
     }
 }
 
@@ -283,6 +289,10 @@ struct Judge<'a> {
     owned: OnceCell<Option<BTreeSet<PathBuf>>>,
     /// Text archives in step whose record is to be taken anew.
     rerecord: Vec<u16>,
+    /// A store on the project, opened on the first world map judged.
+    store: Option<Store>,
+    /// The keys of the units judged as world maps ([`Judge::world`]).
+    worlds: HashSet<String>,
 }
 
 type Judged = (UnitSide, Vec<Problem>);
@@ -607,6 +617,9 @@ impl Judge<'_> {
             }
             return Ok(Some((UnitSide::Broken, vec![found])));
         }
+        if let Some(judged) = self.world(unit, only_global)? {
+            return Ok(judged);
+        }
         let has_member = unit.members.iter().any(|m| self.exists(m));
         if is_binary(id.kind) {
             // Without its file the member is the base's: no file is no deletion.
@@ -641,6 +654,49 @@ impl Judge<'_> {
             Err(KernelError::Compile(problems)) => Ok(Some((UnitSide::Broken, problems))),
             Err(e) => Err(e),
         }
+    }
+
+    /// A map unit whose JSON is a world map: its member is the bake's output, so the unit is
+    /// judged by the world record ([`world_side`]), never by JSON against member. In step →
+    /// in sync; a changed world (or no record, or no member) → the files' side (the takeover
+    /// bakes); a member changed outside the Studio → always a conflict. `None` for any other
+    /// unit (judged as an entity); `Some(None)` when the registers do not read and the unit was
+    /// judged only for them.
+    fn world(
+        &mut self,
+        unit: &Unit,
+        only_global: bool,
+    ) -> Result<Option<Option<Judged>>, KernelError> {
+        let Some(map) = unit
+            .assets
+            .iter()
+            .find(|a| a.kind == AssetKind::Map)
+            .map(|a| a.index)
+        else {
+            return Ok(None);
+        };
+        if self.store.is_none() {
+            self.store = Some(Store::new(std::sync::Arc::new(Project::open(
+                &self.project.root,
+            )?)));
+        }
+        let store = self.store.as_mut().expect("opened");
+        let side = match world_side(store, map) {
+            Ok(Some(side)) => side,
+            Ok(None) => return Ok(None),
+            Err(KernelError::Compile(_)) if only_global => return Ok(Some(None)),
+            Err(KernelError::Compile(problems)) => {
+                return Ok(Some(Some((UnitSide::Broken, problems))));
+            }
+            Err(e) => return Err(e),
+        };
+        self.worlds.insert(unit.key.clone());
+        let side = match side {
+            WorldSide::InStep => UnitSide::InSync,
+            WorldSide::SourceChanged | WorldSide::Unrecorded => UnitSide::Files,
+            WorldSide::MemberChanged | WorldSide::Both => UnitSide::Conflict,
+        };
+        Ok(Some(Some((side, Vec::new()))))
     }
 
     fn text(&mut self, unit: &Unit, n: u16) -> Result<Judged, KernelError> {

@@ -75,6 +75,7 @@ use commands::{
 use commands::{project_preview_get, project_preview_set};
 use commands::{recipe_apply, recipe_list, recipe_plan};
 use commands::{text_check, text_export};
+use commands::{tileset_edit, world_adopt, world_bake, world_to_binary};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{QuitAction, quit_action};
 use std::sync::Arc;
@@ -291,7 +292,11 @@ pub fn run() {
             get_map_heights,
             set_map_terrain,
             get_map_budget,
-            bake_test
+            bake_test,
+            world_adopt,
+            world_to_binary,
+            world_bake,
+            tileset_edit
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

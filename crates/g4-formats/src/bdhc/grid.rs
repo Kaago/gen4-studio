@@ -74,6 +74,9 @@ pub const MAX_STEP: i8 = 62;
 /// Upper bound of [`Bdhc::payload_len`] for [`from_grid`] and
 /// [`from_planes`]: 23 304 + 12 · 1 024 (B §2.6), below the game's 0x9000.
 pub const MAX_PAYLOAD_FROM_GRID: usize = 35_592;
+/// The revision of the generator's bytes: raised whenever [`from_grid`] writes other bytes for
+/// the same grid (the build step `world` salts its input hash with it).
+pub const GENERATOR_REV: u32 = 1;
 
 impl Ramp {
     /// Direction and steps of the rise, `None` for a level cell.

@@ -19,16 +19,28 @@ pub struct CellOverride {
 }
 
 /// The 1 024 permission cells (index `y * 32 + x`) of `grid` painted with `kinds`: each cell is
-/// the rule of its pattern ([`kind_rule`]); then every edge between two neighbours inside the
-/// map (each pair once) whose edge heights ([`HeightGrid::edge_units`]) differ by at least
-/// `free_below` units blocks the cell with the higher edge (`| 0x80`, sound bits kept). The
-/// map border is no edge: the neighbour map does not know the derivation.
+/// the rule of its pattern ([`kind_rule`]), then the height edges ([`block_edges`]).
 pub fn derive_permissions(
     grid: &HeightGrid,
     kinds: &[TerrainKind; 1024],
     family: Family,
 ) -> Vec<Cell> {
     let mut cells: Vec<Cell> = kinds.iter().map(|&k| kind_rule(family, k).cell()).collect();
+    block_edges(grid, &mut cells);
+    cells
+}
+
+/// Blocks (`| 0x80`, sound bits kept) the cell with the higher edge of every pair of neighbours
+/// inside the map (each pair once) whose edge heights ([`HeightGrid::edge_units`]) differ by at
+/// least `edge_rule().free_below` units. The map border is no edge: the neighbour map does not
+/// know the derivation. `cells` holds the 1 024 cells, index `y * 32 + x`; a shorter slice is a
+/// caller bug (a debug assertion; in release the cells past its end are skipped).
+pub fn block_edges(grid: &HeightGrid, cells: &mut [Cell]) {
+    debug_assert_eq!(
+        cells.len(),
+        CELLS,
+        "block_edges takes the 1 024 cells of a map"
+    );
     let free_below = edge_rule().free_below;
     for i in 0..CELLS {
         for (side, j) in neighbours(i) {
@@ -36,11 +48,12 @@ pub fn derive_permissions(
             let other = grid.edge_units(j, side.opposite());
             if (own - other).abs() >= free_below {
                 let upper = if own > other { i } else { j };
-                cells[upper].collision |= BLOCKED;
+                if let Some(cell) = cells.get_mut(upper) {
+                    cell.collision |= BLOCKED;
+                }
             }
         }
     }
-    cells
 }
 
 /// Puts the hand values over `cells` (index `y * 32 + x`), later ones over earlier ones. A
@@ -201,6 +214,48 @@ mod tests {
         g.height[at(5, 5)] = 2;
         let cells = derive_permissions(&g, &GROUND, Family::Hgss);
         assert_eq!(cells[at(5, 5)].collision, 0x80);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "block_edges takes the 1 024 cells of a map")]
+    fn block_edges_on_a_short_slice_is_a_caller_bug() {
+        let mut cells = vec![cell(0, 0); 10];
+        block_edges(&HeightGrid::flat(0), &mut cells);
+    }
+
+    #[test]
+    fn block_edges_matches_derive_permissions() {
+        let input = crate::terrain::scenario_input();
+        let grid = crate::terrain::parse_grid(&input.grid).unwrap();
+        let kinds = crate::terrain::parse_kinds(&input.kinds).unwrap();
+        for family in [Family::Pt, Family::Hgss] {
+            let mut cells: Vec<Cell> = kinds.iter().map(|&k| kind_rule(family, k).cell()).collect();
+            let by_kind = blocked(&cells).len();
+            block_edges(&grid, &mut cells);
+            assert!(
+                blocked(&cells).len() > by_kind,
+                "the scenario has height edges"
+            );
+            assert_eq!(
+                cells,
+                derive_permissions(&grid, &kinds, family),
+                "{family:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn block_edges_keeps_sound_bits() {
+        let mut g = HeightGrid::flat(0);
+        g.height[at(5, 5)] = 2;
+        let mut cells = vec![cell(0, 0); CELLS];
+        cells[at(5, 5)] = cell(0x10, 0x05);
+        cells[at(4, 5)] = cell(0, 0x05);
+        block_edges(&g, &mut cells);
+        assert_eq!(cells[at(5, 5)], cell(0x10, 0x85));
+        assert_eq!(cells[at(4, 5)], cell(0, 0x05), "the lower cell stays free");
+        assert_eq!(blocked(&cells), [(5, 5)]);
     }
 
     #[test]

@@ -157,7 +157,7 @@ fn export_writes_manifest_entities_registries_and_quirks() {
 
     let manifest = fx.json("g4-project.json");
     assert_eq!(manifest["format"], "g4-project");
-    assert_eq!(manifest["schemaVersion"], 3);
+    assert_eq!(manifest["schemaVersion"], 4);
     assert_eq!(manifest["game"]["code"], "CPUE");
     assert_eq!(manifest["game"]["family"], "pt");
 
@@ -242,7 +242,7 @@ fn export_writes_manifest_entities_registries_and_quirks() {
     assert_eq!(
         manifest["schemas"],
         serde_json::json!({
-            "flags": 1, "maps.world": 1, "stories": 1, "tilesets": 1, "vars": 1
+            "flags": 1, "maps.world": 2, "stories": 1, "tilesets": 1, "vars": 1
         })
     );
     assert!(
@@ -949,7 +949,11 @@ fn the_step_runs_only_with_a_manifest() {
     fx.export();
     let rows = run_source_and_pack_steps(&fx.p()).unwrap();
     let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
-    assert_eq!(ids[..3], ["textproject", "rotom", "chatot"], "{ids:?}");
+    assert_eq!(
+        ids[..4],
+        ["textproject", "world", "rotom", "chatot"],
+        "{ids:?}"
+    );
 }
 
 #[test]
@@ -1118,7 +1122,7 @@ fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
     let fx = built();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 3",
+        "\"schemaVersion\": 4",
         "\"schemaVersion\": 0",
     );
     let before = fx.mtimes();
@@ -1777,8 +1781,8 @@ fn a_changed_manifest_leaves_the_judgement_to_the_step() {
     tick();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 3",
-        "\"schemaVersion\":  3",
+        "\"schemaVersion\": 4",
+        "\"schemaVersion\":  4",
     );
     fx.dspre_power(57);
     let problems = compile_problems(build::prepare(&fx.p()));
@@ -2421,7 +2425,8 @@ fn deletion_was_complete(project: &Project, deleted: &[PathBuf]) {
         let left = std::fs::read_dir(&dir)
             .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
             .filter(|e| {
-                let name = e.as_ref().unwrap().file_name();
+                let e = e.as_ref().unwrap();
+                let name = e.file_name();
                 name.to_str()
                     .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
             })
@@ -2559,8 +2564,11 @@ fn textproject_round_trip_with_tombstone() {
     round_trip(true, false);
 }
 
-/// The round trip with a world on a map ([`world_on_first_map`]): the world does not reach the
-/// member, the ROM builds byte-equal and the import leaves the map JSON as saved.
+/// The round trip with a world on a map ([`world_on_first_map`]): the world map's member goes
+/// with the others and the import bakes it again: it is the bake of the saved world (what a
+/// fresh store's `Store::map` gives) and every other file is byte-equal to the copy before;
+/// the import leaves the map JSON as saved. The ROM builds (not the base ROM: the map is
+/// painted).
 #[test]
 fn textproject_round_trip_with_world() {
     round_trip(false, true);
@@ -2594,8 +2602,8 @@ fn round_trip(tombstone: bool, with_world: bool) {
     hashes(&copy, "arm9/arm9.bin", &mut before);
     hashes(&copy, mapname_rel.to_str().unwrap(), &mut before);
 
-    // Every member the text project owns goes; the header table and the internal names are
-    // zeroed.
+    // Every member the text project owns goes, a world map's too (the import bakes it); the
+    // header table and the internal names are zeroed.
     let owned = g4_kernel::textproject::base_layer::owned_paths(&project).unwrap();
     let dynamic = project.unpacked_dir(AssetKind::DynamicHeaders);
     let mut deleted = Vec::new();
@@ -2648,14 +2656,27 @@ fn round_trip(tombstone: bool, with_world: bool) {
         &differs[..differs.len().min(10)]
     );
 
+    if let Some((map, _)) = &world {
+        let mut store = Store::new(Arc::new(Project::open(&copy).unwrap()));
+        let family = store.project().family;
+        let baked = store.map(*map).unwrap().write(family);
+        let member = std::fs::read(project.member_path(AssetKind::Map, *map)).unwrap();
+        assert!(
+            member == baked,
+            "the world map's member is not the bake of its world"
+        );
+    }
+
     let started = std::time::Instant::now();
     let sha1 = built_sha1(&copy, &tmp.path().join("out.nds"));
     let build_ms = ms(started);
-    assert_eq!(
-        sha1,
-        base.sha1(),
-        "the rebuilt ROM differs from the base ROM"
-    );
+    if world.is_none() {
+        assert_eq!(
+            sha1,
+            base.sha1(),
+            "the rebuilt ROM differs from the base ROM"
+        );
+    }
     if let Some((path, bytes)) = &tombstoned {
         assert_eq!(&std::fs::read(path).unwrap(), bytes, "the envelope stays");
     }

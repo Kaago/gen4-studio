@@ -691,7 +691,7 @@ fn open_refuses_a_folder_that_is_no_text_project_of_the_current_schema() {
     let fx = TextFixture::exported();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 3",
+        "\"schemaVersion\": 4",
         "\"schemaVersion\": 99",
     );
     assert!(refusal(&fx).contains("neueren Fassung"));
@@ -1194,61 +1194,108 @@ fn the_sync_takeover_keeps_the_envelope_on_disk() {
 }
 
 #[test]
-fn writing_a_map_keeps_its_world() {
+fn writing_a_world_map_writes_no_derived_keys() {
+    use crate::textproject::Part;
     use crate::world::doc::fixtures::busy_world;
-    use crate::world::keep::{with_world, world_field};
+    use crate::world::doc::{FreeformJson, TerrainJson};
+    use crate::world::keep::world_field;
+    use g4_formats::map::MapFile;
     const MAP: &str = "data/maps/0000.json";
+    const MODEL: &str = "data/maps/0000.nsbmd";
+    const TERRAIN: &str = "data/maps/0000.bdhc";
     let fx = TextFixture::exported();
-    let world = busy_world();
-    let file = with_world(fx.read(MAP), Some(&world)).unwrap();
-    fx.write(MAP, &file);
     let p = fx.project();
+    let keys = |fx: &TextFixture| -> Vec<String> {
+        json(fx, MAP).as_object().unwrap().keys().cloned().collect()
+    };
+    // A map whose model and terrain are side files (over 64 bytes, not the base's).
+    let mut m = MapFile::read(&member(&fx, AssetKind::Map, 0), p.family).unwrap();
+    m.model = (0..100).collect();
+    m.bdhc = vec![0xBD; 80];
+    let bytes = m.write(p.family);
     let mut source = EntitySource::open(&p).unwrap();
-    // The world flows into no member: the map reads as its member.
-    let map = source.read(&p, id(AssetKind::Map, 0)).unwrap().unwrap();
-    assert_eq!(map, member(&fx, AssetKind::Map, 0));
+    let write = |source: &mut EntitySource, given: &[(AssetId, Vec<u8>)]| {
+        source.write(&p, given, &|_| None, &|_, _| false).unwrap()
+    };
+    write(&mut source, &[(id(AssetKind::Map, 0), bytes.clone())]);
+    assert_eq!(fx.read(MODEL), m.model);
+    assert_eq!(fx.read(TERRAIN), m.bdhc);
 
-    // A painted permission: cell (0, 0) gets another collision byte.
-    let mut painted = map.clone();
-    painted[17] ^= 0x80;
+    // A world without verbatim parts: the three keys and both side files go.
+    let world = busy_world();
+    let given = |world: &crate::world::WorldJson| {
+        vec![
+            (id(AssetKind::Map, 0), bytes.clone()),
+            (
+                id(AssetKind::WorldMap, 0),
+                crate::textproject::canon::to_canonical(&Some(world.clone())),
+            ),
+        ]
+    };
+    let out = write(&mut source, &given(&world));
+    assert_eq!(out.sources, paths(&[TERRAIN, MAP, MODEL]));
+    assert_eq!(keys(&fx), ["source", "world", "buildings"]);
+    assert!(!fx.root().join(MODEL).exists() && !fx.root().join(TERRAIN).exists());
+    assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(world.clone()));
+    // Writing the map alone keeps the world and writes nothing.
     let before = tree(&fx);
-    let out = source
-        .write(
-            &p,
-            &[(id(AssetKind::Map, 0), painted.clone())],
-            &|_| None,
-            &|_, _| false,
-        )
-        .unwrap();
-    assert_eq!(out.sources, paths(&[MAP]));
-    assert_eq!(changed(&before, &tree(&fx)), paths(&[MAP]));
+    let out = write(&mut source, &[(id(AssetKind::Map, 0), bytes.clone())]);
+    assert!(out.sources.is_empty(), "{out:?}");
+    assert_eq!(changed(&before, &tree(&fx)), Vec::<PathBuf>::new());
+
+    // Verbatim model and terrain: the parts go into the world, the side files stay.
+    let mut verbatim = busy_world();
+    let hex = || Part::Hex { hex: "00".into() };
+    verbatim.freeform.push(FreeformJson {
+        glb: None,
+        nsbmd: Some(hex()),
+        at: [0, 0, 0],
+    });
+    verbatim.terrain = Some(TerrainJson { bdhc: hex() });
+    write(&mut source, &given(&verbatim));
+    assert_eq!(keys(&fx), ["source", "world", "buildings"]);
     let now = json(&fx, MAP);
-    assert_eq!(now["source"], "world");
-    let was: Value = serde_json::from_slice(&file).unwrap();
-    assert_ne!(now["permissions"], was["permissions"]);
-    assert_eq!(now["world"], was["world"]);
-    assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(world));
-    // Only the permission line changed, byte for byte.
-    let (old, new) = (String::from_utf8(file).unwrap(), fx.text(MAP));
-    let differ: Vec<(&str, &str)> = old
-        .lines()
-        .zip(new.lines())
-        .filter(|(a, b)| a != b)
-        .collect();
-    assert_eq!(old.lines().count(), new.lines().count());
-    assert_eq!(differ.len(), 1, "{differ:#?}");
-    // The first row of `permissions`, 32 cells.
-    let row = differ[0].1.trim().trim_matches(|c| c == '"' || c == ',');
-    assert_eq!(row.split(' ').count(), 32, "{differ:?}");
-    // (The map's `permissions`, a list; the world's is an object.)
-    let rows = new.find("\n  \"permissions\": [\n").unwrap() + 20;
-    assert_eq!(new.find(differ[0].1), Some(rows));
-    // The file reads back as the painted member.
+    assert_eq!(
+        now["world"]["freeform"][0]["nsbmd"],
+        serde_json::json!({"file": "0000.nsbmd"})
+    );
+    assert_eq!(
+        now["world"]["terrain"],
+        serde_json::json!({"bdhc": {"file": "0000.bdhc"}})
+    );
+    assert_eq!(fx.read(MODEL), m.model);
+    assert_eq!(fx.read(TERRAIN), m.bdhc);
+    let file = fx.read(MAP);
+    write(&mut source, &given(&verbatim));
+    assert_eq!(fx.read(MAP), file);
+
+    // The world map's source: the verbatim parts resolved, the member on disk as it is.
     let mut source = EntitySource::open(&p).unwrap();
+    let read = source.read_world_map(&p, 0).unwrap().unwrap();
+    assert_eq!(read.verbatim.model.as_deref(), Some(m.model.as_slice()));
+    assert_eq!(read.verbatim.bdhc.as_deref(), Some(m.bdhc.as_slice()));
+    assert_eq!(read.base.buildings, m.buildings);
     assert_eq!(
         source.read(&p, id(AssetKind::Map, 0)).unwrap().unwrap(),
-        painted
+        member(&fx, AssetKind::Map, 0)
     );
+    assert!(source.read_world_map(&p, 1).unwrap().is_none());
+    // A world map with a derived key does not read, with its line.
+    let mut v = json(&fx, MAP);
+    v["model"] = serde_json::json!({"hex": "00"});
+    fx.write(MAP, &crate::textproject::canon::to_canonical(&v));
+    match source.read_world_map(&p, 0) {
+        Err(KernelError::Compile(problems)) => {
+            assert!(
+                problems[0]
+                    .message
+                    .starts_with("textproject.map-source: model: "),
+                "{problems:?}"
+            );
+            assert!(problems[0].line > 1, "{problems:?}");
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]
@@ -1287,7 +1334,7 @@ fn saving_a_locked_world_map_leaves_its_file() {
 #[test]
 fn the_map_unit_holds_map_and_world() {
     use crate::world::doc::fixtures::one_tile_world;
-    use crate::world::keep::with_world;
+    use crate::world::keep::world_parts;
     const MAP: &str = "data/maps/0000.json";
     let fx = TextFixture::exported();
     let p = fx.project();
@@ -1324,7 +1371,10 @@ fn the_map_unit_holds_map_and_world() {
         b"null\n"
     );
     let painted = one_tile_world();
-    fx.write(MAP, &with_world(fx.read(MAP), Some(&painted)).unwrap());
+    fx.write(
+        MAP,
+        &world_parts(fx.read(MAP), &painted, &mut Vec::new()).unwrap(),
+    );
     let mut source = EntitySource::open(&p).unwrap();
     assert_eq!(
         source

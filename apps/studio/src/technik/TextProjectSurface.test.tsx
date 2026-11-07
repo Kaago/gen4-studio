@@ -215,6 +215,24 @@ describe("TextProjectSurface", () => {
     expect(row("moves/0001")?.querySelector("[role=alert]")?.textContent).toBe("Für diese Einheit gibt es keinen Konflikt mehr.");
   });
 
+  it("world_conflict_offers_rebake_and_binary", async () => {
+    const onResolved = vi.fn();
+    const world = conflict({ key: "maps/0000", label: "Karte 0000", assets: [{ kind: "Map", index: 0 }], world: true });
+    vi.mocked(resolveExternalConflict).mockResolvedValue([{ kind: "Map", index: 0 }]);
+    await render(textWith({ sync: syncWith({ last: outcome({ conflicts: [world] }) }), onResolved }));
+    await click(button("Karte 0000", row("maps/0000")!));
+    const body = row("maps/0000")!;
+    expect(body.textContent).toContain("Diese Welt-Karte wurde außerhalb des Studios geändert.");
+    expect(button("Studio-Fassung behalten", body)).toBeUndefined();
+    expect(button("DSPRE-Fassung übernehmen", body)).toBeUndefined();
+    expect(button("Neu backen", body)?.getAttribute("data-kind")).toBe("secondary");
+    await click(button("Neu backen", body));
+    expect(resolveExternalConflict).toHaveBeenCalledExactlyOnceWith("maps/0000", "studio");
+    expect(onResolved).toHaveBeenCalledExactlyOnceWith([{ kind: "Map", index: 0 }]);
+    await click(button("Als binäre Karte übernehmen", body));
+    expect(resolveExternalConflict).toHaveBeenLastCalledWith("maps/0000", "dspre");
+  });
+
   it("an_unsaved_conflicts_diff_names_its_studio_column_unsaved", async () => {
     // UI test 4.3b U3: the backend's Studio side of an unsaved unit is the unsaved value; the column says so.
     vi.mocked(conflictDiff).mockResolvedValue({ lines: [{ path: "personal.attack", studio: "57", dspre: "60" }], more: 0, unsaved: true });

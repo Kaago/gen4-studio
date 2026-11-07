@@ -187,7 +187,7 @@ describe("useExternalSync", () => {
     await first.answer();
     expect(externalSync).toHaveBeenCalledTimes(2);
     expect(answered).toBeUndefined();
-    const mine = outcome({ conflicts: [{ key: "moves/0001", label: "Attacke 0001", assets: [], unsaved: false, other: "dspre" }] });
+    const mine = outcome({ conflicts: [{ key: "moves/0001", label: "Attacke 0001", assets: [], unsaved: false, other: "dspre", world: false }] });
     await second.answer(mine);
     expect(answered).toBe(mine);
     // A failing run answers null; its error is kept.

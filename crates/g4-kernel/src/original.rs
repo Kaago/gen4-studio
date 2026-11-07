@@ -476,6 +476,20 @@ fn refuse_unavailable(
     }
 }
 
+/// A world map has no original to go back to: its map is the bake of its world
+/// ([`crate::world::edit::WORLD_HAS_NO_ORIGINAL`], „erst „Als binäre Karte übernehmen““).
+fn refuse_world(store: &mut Store, target: &ResetTarget) -> Result<(), KernelError> {
+    if let ResetTarget::Map { index } = *target
+        // A map that does not read is the reset's own error further on.
+        && store.is_world_map(index).unwrap_or(false)
+    {
+        return Err(KernelError::Refused(
+            crate::world::edit::WORLD_HAS_NO_ORIGINAL.to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// Member `index` of `kind` in the base; a missing one is [`NO_ORIGINAL`].
 fn base_member(
     original: &dyn Original,
@@ -974,6 +988,7 @@ pub fn plan_reset(
     if let ResetTarget::Header { id } = *target {
         return plan_header(store, original, target, id);
     }
+    refuse_world(store, target)?;
     refuse_unavailable(target, original, store.project())?;
     if target.writes_files() {
         return plan_files(store, original, target);
@@ -1030,6 +1045,7 @@ pub fn reset(
     if fields.is_some() {
         return Err(KernelError::Refused(FIELDS_ONLY_FOR_HEADERS.to_owned()));
     }
+    refuse_world(store, target)?;
     refuse_unavailable(target, original, store.project())?;
     if target.writes_files() {
         return reset_files(store, original, target, started);

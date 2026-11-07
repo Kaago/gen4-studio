@@ -3,7 +3,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MATRIX_EMPTY, duplicateMap, getMapBudget, getMatrix, setMatrixCell } from "../../api";
+import { MATRIX_EMPTY, duplicateMap, getMap, getMapBudget, getMatrix, setMatrixCell, worldBake } from "../../api";
+import type { MapDto } from "../../api";
+import { EntityIdCache, TextProjectProvider } from "../../textproject/TextProjectContext";
 import type { AssetId, HeaderSummary, MatrixDto } from "../../api";
 import { typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
@@ -14,7 +16,7 @@ import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, closeMenu, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 import { deleteSpy, withDelete } from "../../delete/deleteTesting";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []), getMapBudget: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []), getMapBudget: vi.fn(), getMap: vi.fn(), worldBake: vi.fn() }));
 // The world model the editor names areas and world maps from (Bauen); null until a test sets one.
 const shownWorld: { world: World | null } = { world: null };
 vi.mock("../WorkbenchContext", async (importOriginal) => {
@@ -104,6 +106,30 @@ describe("MatrixCellEditor", () => {
     await act(async () => void input(label).blur());
     await flush();
   };
+
+  it("the_source_section_stands_above_the_budget_and_reads_the_world_in_a_text_project", async () => {
+    // Outside a text project every map is binary: nothing is read, adoption is locked.
+    await show();
+    const source = container.querySelector<HTMLElement>("[data-world-source]");
+    expect(source?.getAttribute("data-world-source")).toBe("binary");
+    expect(source?.compareDocumentPosition(container.querySelector("[data-map-budget]")!) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(container.querySelector<HTMLButtonElement>("[data-world-adopt]")?.disabled).toBe(true);
+    expect(getMap).not.toHaveBeenCalled();
+    // In a text project the map's flag decides.
+    vi.mocked(getMap).mockReset().mockResolvedValue({ world: true } as MapDto);
+    vi.mocked(worldBake).mockReset().mockResolvedValue(null);
+    await act(async () =>
+      root.render(
+        <TextProjectProvider active ids={new EntityIdCache()} onRenamed={() => {}}>
+          {withReset(reset, <MatrixCellEditor matrix={3} x={1} y={0} context={context()} depth="bauen" />)}
+        </TextProjectProvider>,
+      ),
+    );
+    await flush();
+    expect(getMap).toHaveBeenCalledExactlyOnceWith(11);
+    expect(container.querySelector("[data-world-source]")?.getAttribute("data-world-source")).toBe("world");
+    expect(worldBake).toHaveBeenCalledWith(11);
+  });
 
   it("a_cell_with_a_map_shows_its_budget", async () => {
     await show();

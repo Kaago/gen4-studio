@@ -57,6 +57,7 @@ ARITY: dict[str, tuple[int, int]] = {
     "expect-var": (2, 2),
     "expect-halted": (0, 0),
     "expect-running": (0, 0),
+    "clock": (1, 1),
 }
 FLAG_STEPS = frozenset({"flag", "set-flag", "expect-flag"})
 VAR_STEPS = frozenset({"var", "set-var", "expect-var"})
@@ -108,6 +109,8 @@ def parse_steps(tokens: list[str]) -> list[Step]:
             _flag_args(step)
         if name == "expect-height":
             _expect_height_args(step)
+        if name == "clock":
+            _clock_args(step)
         steps.append(step)
     return steps
 
@@ -123,6 +126,14 @@ def _walk_until_blocked_args(step: Step) -> tuple[str, int]:
     if tiles < 1:
         raise ValueError("walk-until-blocked: N muss mindestens 1 sein")
     return direction, tiles
+
+
+def _clock_args(step: Step) -> tuple[int, int]:
+    """Hour and minute of `clock HH:MM` (0:00 to 23:59, two minute digits)."""
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", step.args[0])
+    if m is None or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+        raise ValueError(f"clock: '{step.args[0]}' ist keine Uhrzeit HH:MM (0:00 bis 23:59)")
+    return int(m.group(1)), int(m.group(2))
 
 
 def _real(text: str, what: str) -> float:
@@ -665,6 +676,16 @@ def _stub_state(
     return {"halted": server.halted}
 
 
+def _clock(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """Sets the console clock (melonDS DS core option, absolute start time) and restarts the
+    console, which reads it only at start; the cartridge memory stays. Then `continue` again."""
+    hour, minute = _clock_args(step)
+    emu.set_clock(hour, minute)
+    return {"hour": hour, "minute": minute}
+
+
 Handler = Callable[..., dict]
 HANDLERS: dict[str, Handler] = {
     "expect-battle": _expect_battle,
@@ -696,6 +717,7 @@ HANDLERS: dict[str, Handler] = {
     "expect-var": _var,
     "expect-halted": _stub_state,
     "expect-running": _stub_state,
+    "clock": _clock,
 }
 
 

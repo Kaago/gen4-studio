@@ -1,4 +1,4 @@
-schemaVersion 3
+schemaVersion 4
 symbolTables 6f38b9f6c8379b86
 *.deleted?
 species.id →SPECIES
@@ -496,16 +496,19 @@ maps.world?.layers[].name
 maps.world?.layers[].role
 maps.world?.layers[].tiles[]
 maps.world?.layers[].heights[]
+maps.world?.freeform?[].nsbmd.hex
+maps.world?.freeform?[].at[]
+maps.world?.terrain?.bdhc.hex
 maps.world?.permissions.derive
-maps.permissions[]
+maps.permissions?[]
 maps.buildings[].model_id
 maps.buildings[].position[]
 maps.buildings[].rotation[]
 maps.buildings[].scale[]
 maps.buildings[].dummy?
 maps.buildings_tail?
-maps.model.hex
-maps.bdhc.hex
+maps.model?.hex
+maps.bdhc?.hex
 maps.bgs?.hex
 maps <member>
 headers[pt].id →MAP

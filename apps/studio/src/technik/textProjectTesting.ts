@@ -12,6 +12,7 @@ export const conflict = (over: Partial<ConflictEntry> = {}): ConflictEntry => ({
   assets: [{ kind: "Move", index: 1 }],
   unsaved: false,
   other: "dspre",
+  world: false,
   ...over,
 });
 

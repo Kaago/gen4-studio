@@ -10,8 +10,8 @@
 //! (steps of [`STEP_UNITS`](super::doc::STEP_UNITS)). A ramp is `.` or a direction `n`, `e`,
 //! `s`, `w` (uphill) with 1 or 2 steps. An override is `.` or `kkcc` like the permissions.
 //!
-//! The height and ramp cells are lexed by [`lex_height`] and [`lex_ramp`], which 6.2's rows of
-//! `set_map_terrain` (`terrain::parse_grid`) read too: one grammar, `+5` and `e01` included;
+//! The height and ramp cells are lexed by [`lex_height`] and [`lex_ramp`] (`terrain`'s, which
+//! 6.2's rows of `set_map_terrain` read too): one grammar, `+5` and `e01` included;
 //! written are the canonical forms (`5`, `e1`). The ramp is 6.2's `bdhc::Ramp` in the same sense
 //! (uphill, height at the lower edge); [`Ramp`] converts to and from it without loss.
 
@@ -21,9 +21,9 @@ use g4_formats::bdhc::{self, HeightGrid};
 use g4_formats::map::{Cell, MAP_SIZE};
 
 use super::doc::{HEIGHT_MAX, HEIGHT_MIN, LayerRole, PieceJson, WORLD_VERSION, WorldJson};
+use crate::terrain::EMPTY;
+pub use crate::terrain::{lex_height, lex_ramp};
 
-/// The token of an empty cell (no tile, no ramp, no override).
-const EMPTY: &str = ".";
 /// Cells of one layer.
 const CELLS: usize = MAP_SIZE * MAP_SIZE;
 /// The turns a piece may have, in degrees.
@@ -243,12 +243,28 @@ impl WorldGrid {
                 );
             }
         }
+        let mut verbatim = 0;
         for (i, model) in world.freeform.iter().enumerate() {
             if model.glb.is_some() == model.nsbmd.is_some() {
                 errors.push(
                     format!("world.freeform[{i}]"),
                     "braucht genau eines von `glb` und `nsbmd`.",
                 );
+            }
+            if model.nsbmd.is_some() {
+                verbatim += 1;
+                if verbatim > 1 {
+                    errors.push(
+                        format!("world.freeform[{i}]"),
+                        "Höchstens ein Verbatim-Modell (`nsbmd`) in `freeform`.",
+                    );
+                }
+                if model.at != [0, 0, 0] {
+                    errors.push(
+                        format!("world.freeform[{i}].at"),
+                        "Ein Verbatim-Modell liegt an [0, 0, 0].",
+                    );
+                }
             }
         }
         match (errors.0.is_empty(), heights, ramps, overrides) {
@@ -414,36 +430,6 @@ pub fn tile_token(t: Option<TileRef>) -> String {
     token
 }
 
-/// The ramp of a row cell in the grammar of both row formats (the world document and 6.2's
-/// rows of `set_map_terrain`): `.` or a direction letter `n`, `e`, `s`, `w` followed by the
-/// steps as digits (`e1`, `e01`), lowercase only. The steps are not bounded here: each reader
-/// checks their range with its own sentence.
-pub fn lex_ramp(token: &str) -> Option<bdhc::Ramp> {
-    if token == EMPTY {
-        return Some(bdhc::Ramp::None);
-    }
-    let mut chars = token.chars();
-    let letter = chars.next()?;
-    let digits = chars.as_str();
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let steps: u8 = digits.parse().ok()?;
-    match letter {
-        'n' => Some(bdhc::Ramp::North(steps)),
-        'e' => Some(bdhc::Ramp::East(steps)),
-        's' => Some(bdhc::Ramp::South(steps)),
-        'w' => Some(bdhc::Ramp::West(steps)),
-        _ => None,
-    }
-}
-
-/// The height of a row cell in the grammar of both row formats: a whole number with an
-/// optional sign (`-3`, `+5`, `05`). Not bounded here: each reader checks the range.
-pub fn lex_height(token: &str) -> Option<i64> {
-    token.parse().ok()
-}
-
 /// The ramp of a token ([`lex_ramp`]): `.` or `n`, `e`, `s`, `w` with 1 or 2 steps.
 pub fn parse_ramp(token: &str) -> Result<Ramp, String> {
     let bad =
@@ -456,16 +442,10 @@ pub fn parse_ramp(token: &str) -> Result<Ramp, String> {
     }
 }
 
-/// The token of a ramp: `.`, `n1`, `w2`.
+/// The token of a ramp: `.`, `n1`, `w2` (`terrain::ramp_token`, one grammar for both row
+/// formats).
 pub fn ramp_token(r: Ramp) -> String {
-    let (direction, steps) = match r {
-        Ramp::None => return EMPTY.to_owned(),
-        Ramp::North(s) => ('n', s),
-        Ramp::East(s) => ('e', s),
-        Ramp::South(s) => ('s', s),
-        Ramp::West(s) => ('w', s),
-    };
-    format!("{direction}{steps}")
+    crate::terrain::ramp_token(r.into())
 }
 
 /// The height step of a token ([`lex_height`]): a whole number from −16 to 62.
@@ -551,15 +531,23 @@ mod tests {
 
     fn world(layers: Vec<LayerJson>) -> WorldJson {
         WorldJson {
-            version: 1,
+            version: 2,
             tileset: 0,
             layers,
             pieces: Vec::new(),
             freeform: Vec::new(),
+            terrain: None,
             permissions: PermissionsJson {
                 derive: true,
                 overrides: None,
             },
+        }
+    }
+
+    /// A small verbatim model part.
+    fn hex_part() -> crate::textproject::Part {
+        crate::textproject::Part::Hex {
+            hex: "00".to_owned(),
         }
     }
 
@@ -734,7 +722,7 @@ mod tests {
     #[test]
     fn parse_reports_every_error_with_its_path() {
         let mut w = world(vec![ground()]);
-        w.version = 2;
+        w.version = 3;
         let g = &mut w.layers[0];
         g.tiles[4] = vec!["0000"; 31].join(" ");
         g.tiles[5] = set_token(&row("0000"), 7, "00g2").unwrap();
@@ -779,7 +767,7 @@ mod tests {
         w.freeform = vec![
             FreeformJson {
                 glb: Some("a.glb".to_owned()),
-                nsbmd: Some("a.nsbmd".to_owned()),
+                nsbmd: Some(hex_part()),
                 at: [0, 0, 0],
             },
             FreeformJson {
@@ -798,7 +786,7 @@ mod tests {
         let expected: Vec<(String, String)> = [
             (
                 "world.version",
-                "Version 2 kennt diese Fassung nicht (1).".to_owned(),
+                "Version 3 kennt diese Fassung nicht (2).".to_owned(),
             ),
             ("world.layers[0].tiles[4]", "31 Zellen statt 32.".to_owned()),
             (
@@ -860,6 +848,58 @@ mod tests {
         .collect();
         assert_eq!(errors_of(&w), expected);
         assert_eq!(errors_of(&w).len(), 15);
+    }
+
+    #[test]
+    fn version_one_is_refused() {
+        let mut w = world(vec![ground()]);
+        assert!(WorldGrid::parse(&w).is_ok());
+        w.version = 1;
+        assert_eq!(
+            errors_of(&w),
+            vec![(
+                "world.version".to_owned(),
+                "Version 1 kennt diese Fassung nicht (2).".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn at_most_one_verbatim_model_at_the_origin() {
+        let verbatim = |at: [i32; 3]| FreeformJson {
+            glb: None,
+            nsbmd: Some(hex_part()),
+            at,
+        };
+        let mut w = world(vec![ground()]);
+        w.freeform = vec![verbatim([0, 0, 0])];
+        assert!(WorldGrid::parse(&w).is_ok());
+        w.freeform = vec![verbatim([0, 0, 0]), verbatim([0, 0, 0])];
+        assert_eq!(
+            errors_of(&w),
+            vec![(
+                "world.freeform[1]".to_owned(),
+                "Höchstens ein Verbatim-Modell (`nsbmd`) in `freeform`.".to_owned()
+            )]
+        );
+        w.freeform = vec![verbatim([0, 8, 0])];
+        assert_eq!(
+            errors_of(&w),
+            vec![(
+                "world.freeform[0].at".to_owned(),
+                "Ein Verbatim-Modell liegt an [0, 0, 0].".to_owned()
+            )]
+        );
+        // A glTF model may lie anywhere and beside a verbatim one (the bake refuses it).
+        w.freeform = vec![
+            verbatim([0, 0, 0]),
+            FreeformJson {
+                glb: Some("a.glb".to_owned()),
+                nsbmd: None,
+                at: [16, 0, 16],
+            },
+        ];
+        assert!(WorldGrid::parse(&w).is_ok());
     }
 
     #[test]
@@ -957,7 +997,7 @@ mod tests {
         assert_eq!(
             error_cell(&e(
                 "world.version",
-                "Version 2 kennt diese Fassung nicht (1)."
+                "Version 3 kennt diese Fassung nicht (2)."
             )),
             None
         );

@@ -8,13 +8,17 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use g4_formats::game::Family;
+use g4_formats::map::MapFile;
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::diff::json::walk;
 use crate::error::KernelError;
-use crate::project::{AssetId, Project};
+use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
 use crate::start::read_base_mark;
 use crate::store::Store;
@@ -146,7 +150,28 @@ pub(super) fn conflict_diff(
         && changed_since_record(project, &unit.sources)?.is_some()
         && changed_since_record(project, &unit.members)?.is_none();
     let mut out = Lines::default();
+    let world = world_store(project, &unit)?;
     match &unit.of {
+        Of::Asset(_) if world.is_some() => {
+            let (mut store, map) = world.expect("a world map");
+            let id = AssetId {
+                kind: AssetKind::Map,
+                index: map,
+            };
+            let family = project.family;
+            let bake = store.map(map)?.write(family);
+            let studio = if unsaved.contains(&id) {
+                held(id)
+            } else {
+                Some(bake.clone())
+            };
+            let other = if files_side {
+                Some(bake)
+            } else {
+                read_optional(&project.member_path(AssetKind::Map, map))?
+            };
+            world_map(&mut out, family, studio.as_deref(), other.as_deref());
+        }
         Of::Asset(id) if is_binary(id.kind) => {
             let (saved, dspre) = EntitySource::open(project)?.binary_sides(project, *id)?;
             let (studio, other) = match (unsaved.contains(id), files_side) {
@@ -184,6 +209,89 @@ pub(super) fn conflict_diff(
         more: out.more,
         unsaved: !unsaved.is_empty(),
     })
+}
+
+/// A store on `project` and the map of `unit` when the unit is a world map's (its JSON reads as
+/// one): its Studio's side is the bake, not the JSON. `None` for any other unit, and for a
+/// world map whose JSON does not read (shown as an entity).
+fn world_store(project: &Project, unit: &Unit) -> Result<Option<(Store, u16)>, KernelError> {
+    let Some(map) = unit
+        .assets
+        .iter()
+        .find(|a| a.kind == AssetKind::Map)
+        .map(|a| a.index)
+    else {
+        return Ok(None);
+    };
+    let mut store = Store::new(Arc::new(Project::open(&project.root)?));
+    match store.world_map_source(map) {
+        Ok(Some(_)) => Ok(Some((store, map))),
+        Ok(None) | Err(KernelError::Compile(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// A world map: the fields of its bake (`studio`) against the member (`dspre`): permissions per
+/// cell, buildings by field, model, terrain and BGS by size (and xxh3 when only the bytes
+/// differ). A side that does not read as a map shows size and xxh3 only.
+fn world_map(out: &mut Lines, family: Family, studio: Option<&[u8]>, dspre: Option<&[u8]>) {
+    let read = |b: Option<&[u8]>| b.map(|b| MapFile::read(b, family).ok());
+    let (a, b) = match (read(studio), read(dspre)) {
+        (Some(Some(a)), Some(Some(b))) => (a, b),
+        _ => return bytes(out, "", studio, dspre),
+    };
+    let cells = |m: &MapFile| {
+        Value::Array(
+            m.permissions
+                .iter()
+                .map(|c| json!({ "kind": c.kind, "collision": c.collision }))
+                .collect(),
+        )
+    };
+    values(out, "", "permissions", Some(&cells(&a)), Some(&cells(&b)));
+    let buildings = |m: &MapFile| {
+        Value::Array(
+            m.buildings
+                .iter()
+                .map(|b| {
+                    json!({
+                        "model_id": b.model_id,
+                        "position": b.position,
+                        "rotation": b.rotation,
+                        "scale": b.scale,
+                    })
+                })
+                .collect(),
+        )
+    };
+    values(
+        out,
+        "",
+        "buildings",
+        Some(&buildings(&a)),
+        Some(&buildings(&b)),
+    );
+    sized(out, "model", Some(&a.model), Some(&b.model));
+    sized(out, "bdhc", Some(&a.bdhc), Some(&b.bdhc));
+    sized(out, "bgs", a.bgs.as_deref(), b.bgs.as_deref());
+}
+
+/// One line for part `path` when its bytes differ: the sizes, with the xxh3 when they are equal.
+fn sized(out: &mut Lines, path: &str, studio: Option<&[u8]>, dspre: Option<&[u8]>) {
+    if studio == dspre {
+        return;
+    }
+    let same_size = studio.map(<[u8]>::len) == dspre.map(<[u8]>::len);
+    let shown = |b: Option<&[u8]>| match b {
+        None => ABSENT.to_owned(),
+        Some(b) if same_size => format!(
+            "{} Byte · xxh3 {:016x}",
+            b.len(),
+            xxhash_rust::xxh3::xxh3_64(b)
+        ),
+        Some(b) => format!("{} Byte", b.len()),
+    };
+    out.push(path.to_owned(), shown(studio), shown(dspre));
 }
 
 /// The files of `unit`'s source on disk (those that are there).

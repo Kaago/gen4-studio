@@ -9,11 +9,12 @@ use crate::build::fingerprint::{Fp, capture_hashed, hash, is_racy, now_ns, same_
 use crate::build::state::{BuildState, SyncRecord};
 use crate::error::{KernelError, io_at};
 use crate::fsutil::{Journal, Notes};
-use crate::project::{AssetId, Project};
+use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
 use crate::start::read_base_mark;
 use crate::store::HEADER_TABLE;
 use crate::text::{Severity, TextKeep, record_text_sync, resolve_conflict};
+use crate::world::build::{BakeMode, BakeScope, bake_world_maps, take_member_as_binary};
 
 use super::super::base_layer::{BaseLayer, RAW_DIR, place_raw};
 use super::super::canon::write_if_changed;
@@ -45,7 +46,7 @@ pub(super) fn apply(
     scan: &ScanReport,
     held: &dyn Fn(&SyncUnit) -> bool,
 ) -> Result<ApplyReport, KernelError> {
-    apply_keys(project, scan, held).map(|applied| applied.report)
+    apply_keys(project, scan, held, BakeMode::Import).map(|applied| applied.report)
 }
 
 /// What [`apply_keys`] did: the report, the keys of every unit taken over (also those
@@ -57,11 +58,15 @@ pub(super) struct Applied {
     pub failed: Vec<(String, KernelError)>,
 }
 
-/// [`apply`], with the keys taken over and the reasons of the units that could not be.
+/// [`apply`], with the keys taken over and the reasons of the units that could not be. A world
+/// map's unit from the files is baked in `mode` ([`bake_world_maps`]); one from DSPRE (a
+/// choice only, the scan never finds it one-sided) is taken as a binary map
+/// ([`take_member_as_binary`]).
 pub(super) fn apply_keys(
     project: &Project,
     scan: &ScanReport,
     held: &dyn Fn(&SyncUnit) -> bool,
+    mode: BakeMode,
 ) -> Result<Applied, KernelError> {
     let start = Instant::now();
     let watch = Watch::new(project)?;
@@ -86,6 +91,14 @@ pub(super) fn apply_keys(
             continue;
         }
         let done = match (unit.side, of_unit(&unit.key, &unit.assets)) {
+            (UnitSide::Files, Of::Asset(_)) if unit.world => {
+                bake_world_unit(project, unit, mode, &mut written, &mut failed)?
+            }
+            (UnitSide::Dspre, Of::Asset(_)) if unit.world => {
+                take_member_as_binary(project, world_map_of(unit)?)?;
+                written.extend(unit.sources.iter().cloned());
+                true
+            }
             (UnitSide::Dspre, Of::Asset(_)) => {
                 from_dspre.extend(unit.assets.iter().copied());
                 true
@@ -196,6 +209,47 @@ pub(super) fn apply_keys(
         taken: taken.iter().map(|u| u.key.clone()).collect(),
         failed,
     })
+}
+
+/// The map of a world map's unit; a unit without a map asset is refused (never map 0).
+fn world_map_of(unit: &SyncUnit) -> Result<u16, KernelError> {
+    unit.assets
+        .iter()
+        .find(|a| a.kind == AssetKind::Map)
+        .map(|a| a.index)
+        .ok_or_else(|| {
+            KernelError::Refused(format!(
+                "{}: Die Einheit einer Welt-Karte nennt keine Karte.",
+                unit.label
+            ))
+        })
+}
+
+/// Bakes the world map of `unit` (from the files: its world changed, or it has no record or no
+/// member) into its member in `mode`; `false` with the bake's errors in `failed` when it is
+/// refused (nothing written).
+fn bake_world_unit(
+    project: &Project,
+    unit: &SyncUnit,
+    mode: BakeMode,
+    written: &mut Vec<PathBuf>,
+    failed: &mut Vec<(String, KernelError)>,
+) -> Result<bool, KernelError> {
+    let map = world_map_of(unit)?;
+    let build = bake_world_maps(project, &BakeScope::Maps(vec![map]), mode)?;
+    let errors: Vec<_> = build
+        .problems
+        .into_iter()
+        .filter(|p| p.severity == Severity::Error)
+        .collect();
+    if !errors.is_empty() {
+        failed.push((unit.key.clone(), KernelError::Compile(errors)));
+        return Ok(false);
+    }
+    if !build.baked.is_empty() {
+        written.extend(unit.members.iter().cloned());
+    }
+    Ok(true)
 }
 
 /// Whether a file of `unit` is no longer what the scan saw (written since, by DSPRE or by
@@ -613,4 +667,36 @@ pub(super) fn record_all(
         });
     })?;
     Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn world_unit(assets: Vec<AssetId>) -> SyncUnit {
+        SyncUnit {
+            key: "maps/0003".to_owned(),
+            label: "Karte 0003".to_owned(),
+            side: UnitSide::Files,
+            assets,
+            sources: Vec::new(),
+            members: Vec::new(),
+            problems: Vec::new(),
+            world: true,
+        }
+    }
+
+    #[test]
+    fn world_map_of_names_the_map_asset_or_refuses() {
+        let map = AssetId {
+            kind: AssetKind::Map,
+            index: 3,
+        };
+        assert_eq!(world_map_of(&world_unit(vec![map])).unwrap(), 3);
+        // A world unit without a map asset never falls back to map 0.
+        assert!(matches!(
+            world_map_of(&world_unit(Vec::new())),
+            Err(KernelError::Refused(_))
+        ));
+    }
 }
