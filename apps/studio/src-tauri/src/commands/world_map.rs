@@ -740,6 +740,28 @@ mod tests {
         let heights = map["heights"].as_array().unwrap();
         assert_eq!(heights.len(), 1024);
         assert_eq!(heights.iter().filter(|h| **h == json!(8.0)).count(), 1024);
+        // A painted tile keeps the verbatim terrain: the heights stay those of the baked BDHC.
+        let edited = call(
+            &state,
+            &policy,
+            "world_edit",
+            json!({ "req": { "map": 0, "changes": [{ "cells": [[3, 4]], "tile": "0000" }] } }),
+        );
+        assert!(edited["change"].is_number(), "{edited}");
+        let world = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        assert!(world["world"]["terrain"].is_object(), "{world}");
+        let map = call(&state, &policy, "get_map", json!({ "index": 0 }));
+        let baked = call(&state, &policy, "get_map_heights", json!({ "index": 0 }));
+        assert_eq!(map["heights"], baked["heights"], "{map}");
+        assert_eq!(
+            map["heights"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|h| **h == json!(8.0))
+                .count(),
+            1024
+        );
     }
 
     #[test]

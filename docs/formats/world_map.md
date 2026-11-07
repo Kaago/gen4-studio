@@ -115,9 +115,11 @@ Richtungen (`From`), `WorldGrid::height_grid` gibt das Höhenraster von 6.2.
 **Laufhöhe in der App.** `get_map` (`MapDto.heights`) gibt für eine Welt-Karte die Höhe der
 Kachelmitte aus dem Weltdokument (`HeightGrid::center_units`: `8 h`, auf einer Rampe `8 h + 4 s`),
 `null` wo die Bodenebene leer ist (`.`); Overlay, Marker und Picking stehen damit auf dem gemalten
-Boden. Eine Welt, die sich nicht lesen lässt, behält die Höhen des Map-Assets. Eine Bodenebene
-ganz ohne Kachel (eine übernommene Karte, Form 1, Bodenebene ganz `.`) malt keinen Boden: dann
-gibt `get_map` die Höhen der gebackenen BDHC, dieselben wie `get_map_heights`.
+Boden. Eine Welt, die sich nicht lesen lässt, behält die Höhen des Map-Assets. Eine Welt mit
+Verbatim-Terrain (`world.terrain`, eine übernommene Karte, Form 1) läuft auf dieser BDHC: dann gibt
+`get_map` die Höhen der gebackenen BDHC, dieselben wie `get_map_heights`, auch nach gemalten Kacheln
+(sie lassen `world.terrain` stehen); erst `height` oder `ramp` beendet das Verbatim-Terrain, ab dann
+gilt das Weltdokument (`null` auf `.`).
 `get_map_heights` (6.2) liest die BDHC des Map-Assets, also seit 6.3b die gebackene: sie folgt der
 Welt (bei Verbatim-Terrain die übernommene BDHC).
 
