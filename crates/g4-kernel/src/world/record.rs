@@ -69,10 +69,14 @@ pub fn input_hash(store: &mut Store, map: u16) -> Result<Option<String>, KernelE
     };
     let package = source.world.tileset;
     // The side files of the pieces need the tileset; without pieces none is read. A tileset that
-    // does not read fails the bake, whose input its file bytes already are.
+    // does not parse fails the bake, whose input its file bytes already are; I/O fails the hash.
     let tileset = match source.world.pieces.is_empty() {
         true => None,
-        false => store.tileset(package).ok(),
+        false => match store.tileset(package) {
+            Ok(tileset) => Some(tileset),
+            Err(e @ (KernelError::Io(_) | KernelError::IoAt { .. })) => return Err(e),
+            Err(_) => None,
+        },
     };
     let sides = side_file_rels(map, &source.world, tileset.as_deref());
     let project = store.project();

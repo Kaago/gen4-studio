@@ -20,7 +20,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::json;
 
-use super::bake::{WorldBakeMessage, baker_text, world_pack_textures};
+use super::bake::{WorldBakeMessage, bake_pack, baker_text};
 use super::doc::WorldJson;
 use super::grid::WorldGrid;
 use super::mesh::{MeshFace, PIECE_LAYER, PieceModels, mesh_textures, mesh_with};
@@ -398,35 +398,47 @@ pub fn load_side_models(
     load_side_models_at(&project.root, map, world, tileset, textures)
 }
 
-/// The side files of `world` (map `map`) below `root`, read with [`side_faces`] against
-/// `textures`: each `freeform[i].glb` from `data/maps/` (layer FREEFORM_LAYER, moved by `at`),
-/// then once per piece tile of `tileset` that `world.pieces` places and that has a `model`, from
-/// `data/tilesets/PPPP.<model>.glb` (layer PIECE_LAYER, model space). A name that is no side file
-/// of the map (or of the package) is not read: `world.side-file` with the reason.
-pub(crate) fn load_side_models_at(
-    root: &Path,
-    map: u16,
-    world: &WorldJson,
-    tileset: &Tileset,
-    textures: &[PackTexture],
-) -> SideModels {
-    let mut side = SideModels::default();
-    for entry in &world.freeform {
-        let Some(file) = &entry.glb else { continue };
-        let read = if side_name_of(file, map).is_some() {
-            side_faces(&root.join(freeform_rel(file)), textures, FREEFORM_LAYER)
-                .map(|faces| faces.into_iter().map(|f| moved(f, entry.at)).collect())
-        } else {
-            Err(unreadable(
-                &format!("data/maps/{file}"),
-                &format!("kein Beifile-Name der Karte {map:04}"),
-            ))
-        };
-        if let Err(m) = &read {
-            side.messages.push(m.clone());
-        }
-        side.freeform.push(read);
-    }
+/// What one side file is for: a free-form entry (moved by `at`) or the model of a piece tile.
+#[derive(Debug, Clone, Copy)]
+enum SideKind {
+    Freeform { at: [i32; 3] },
+    Piece { tile: u16 },
+}
+
+/// One side file a world reads: its path relative to the root, the path its messages show, what
+/// it is for, and the reason it is not read when its name is no side file name.
+#[derive(Debug, Clone)]
+struct SideRead {
+    rel: PathBuf,
+    shown: String,
+    kind: SideKind,
+    refused: Option<String>,
+}
+
+/// The side files of `world` (map `map`) in the order they are read: each `freeform[i].glb`
+/// (`data/maps/`), then once per piece tile of `tileset` that `world.pieces` places and that has
+/// a `model` (`data/tilesets/PPPP.<model>.glb`; none without `tileset`). A name that is no side
+/// file name of the map (or of the package) is planned with the reason it is not read. The one
+/// list both [`load_side_models_at`] and [`side_file_rels`] (the input hash) follow.
+fn side_plan(map: u16, world: &WorldJson, tileset: Option<&Tileset>) -> Vec<SideRead> {
+    let mut plan: Vec<SideRead> = world
+        .freeform
+        .iter()
+        .filter_map(|entry| {
+            let file = entry.glb.as_deref()?;
+            Some(SideRead {
+                rel: freeform_rel(file),
+                shown: format!("data/maps/{file}"),
+                kind: SideKind::Freeform { at: entry.at },
+                refused: side_name_of(file, map)
+                    .is_none()
+                    .then(|| format!("kein Beifile-Name der Karte {map:04}")),
+            })
+        })
+        .collect();
+    let Some(tileset) = tileset else {
+        return plan;
+    };
     let package = world.tileset;
     let mut seen = BTreeSet::new();
     for piece in &world.pieces {
@@ -441,59 +453,69 @@ pub(crate) fn load_side_models_at(
             continue;
         };
         let rel = piece_rel(package, name);
-        let read = if side_parts(&format!("{package:04}.{name}.glb")).is_some() {
-            side_faces(&root.join(&rel), textures, PIECE_LAYER)
-        } else {
-            Err(unreadable(
-                &crate::relpath::slash(&rel),
-                &format!("kein Beifile-Name des Pakets {package:04}"),
-            ))
+        plan.push(SideRead {
+            shown: crate::relpath::slash(&rel),
+            rel,
+            kind: SideKind::Piece { tile: piece.tile },
+            refused: side_parts(&format!("{package:04}.{name}.glb"))
+                .is_none()
+                .then(|| format!("kein Beifile-Name des Pakets {package:04}")),
+        });
+    }
+    plan
+}
+
+/// The side files of `world` (map `map`) below `root` ([`side_plan`]), read with [`side_faces`]
+/// against `textures`: free-form models on layer FREEFORM_LAYER, moved by `at`; piece models on
+/// layer PIECE_LAYER in model space. A planned name that is no side file name is not read:
+/// `world.side-file` with the reason.
+pub(crate) fn load_side_models_at(
+    root: &Path,
+    map: u16,
+    world: &WorldJson,
+    tileset: &Tileset,
+    textures: &[PackTexture],
+) -> SideModels {
+    let mut side = SideModels::default();
+    for read in side_plan(map, world, Some(tileset)) {
+        let layer = match read.kind {
+            SideKind::Freeform { .. } => FREEFORM_LAYER,
+            SideKind::Piece { .. } => PIECE_LAYER,
         };
-        match read {
-            Ok(faces) => {
-                side.pieces.by_tile.insert(piece.tile, faces);
+        let faces = match &read.refused {
+            Some(reason) => Err(unreadable(&read.shown, reason)),
+            None => side_faces(&root.join(&read.rel), textures, layer),
+        };
+        if let Err(m) = &faces {
+            side.messages.push(m.clone());
+        }
+        match read.kind {
+            SideKind::Freeform { at } => side
+                .freeform
+                .push(faces.map(|faces| faces.into_iter().map(|f| moved(f, at)).collect())),
+            SideKind::Piece { tile } => {
+                if let Ok(faces) = faces {
+                    side.pieces.by_tile.insert(tile, faces);
+                }
             }
-            Err(m) => side.messages.push(m),
         }
     }
     side
 }
 
 /// The side files [`load_side_models_at`] reads for `world` (map `map`), relative to the root, in
-/// its order: the free-form models, then the models of the piece tiles of `tileset` the world
-/// places (each once, none without `tileset`); names that are no side file of the map or package
-/// are left out.
+/// its order ([`side_plan`], none of a piece without `tileset`); names that are no side file name
+/// are left out (they are not read).
 pub(crate) fn side_file_rels(
     map: u16,
     world: &WorldJson,
     tileset: Option<&Tileset>,
 ) -> Vec<PathBuf> {
-    let mut rels: Vec<PathBuf> = world
-        .freeform
-        .iter()
-        .filter_map(|f| f.glb.as_deref())
-        .filter(|file| side_name_of(file, map).is_some())
-        .map(freeform_rel)
-        .collect();
-    let Some(tileset) = tileset else {
-        return rels;
-    };
-    let package = world.tileset;
-    let mut seen = BTreeSet::new();
-    for piece in &world.pieces {
-        if !seen.insert(piece.tile) {
-            continue;
-        }
-        if let Some(name) = tileset
-            .tile(piece.tile)
-            .filter(|t| t.role == TileRole::Piece)
-            .and_then(|t| t.model.as_deref())
-            .filter(|name| side_parts(&format!("{package:04}.{name}.glb")).is_some())
-        {
-            rels.push(piece_rel(package, name));
-        }
-    }
-    rels
+    side_plan(map, world, tileset)
+        .into_iter()
+        .filter(|read| read.refused.is_none())
+        .map(|read| read.rel)
+        .collect()
 }
 
 /// `face` moved by `at` world units.
@@ -528,10 +550,7 @@ pub fn world_faces(store: &mut Store, map: u16) -> Result<Option<WorldFaces>, Ke
         return Ok(None);
     };
     let tileset = store.tileset(world.tileset)?;
-    let pack = match store.project().map_tileset_member(world.tileset)? {
-        Some(bytes) => world_pack_textures(&bytes, &tileset).unwrap_or_default(),
-        None => Vec::new(),
-    };
+    let (_, pack) = bake_pack(store, world.tileset, &tileset, None)?;
     let side = load_side_models(store.project(), map, &world, &tileset, &pack);
     let mut faces = match WorldGrid::parse(&world) {
         Ok(grid) => mesh_with(&grid, &tileset, &side.pieces),

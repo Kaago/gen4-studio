@@ -458,6 +458,28 @@ pub fn world_pack_textures(
         .collect())
 }
 
+/// The bytes of package `package` (`pack` when given, else its member) and the textures the world
+/// bake binds from them ([`world_pack_textures`] with `tileset`): the bake and the scene bind the
+/// same. A package that is missing or does not read gives no bytes and no textures.
+pub(crate) fn bake_pack(
+    store: &Store,
+    package: u16,
+    tileset: &Tileset,
+    pack: Option<&[u8]>,
+) -> Result<(Option<Vec<u8>>, Vec<PackTexture>), KernelError> {
+    let member = match pack {
+        Some(bytes) => Some(bytes.to_vec()),
+        None => store.project().map_tileset_member(package)?,
+    };
+    Ok(match member {
+        Some(bytes) => match world_pack_textures(&bytes, tileset) {
+            Ok(textures) => (Some(bytes), textures),
+            Err(_) => (None, Vec::new()),
+        },
+        None => (None, Vec::new()),
+    })
+}
+
 /// Bakes `world` for map `map` with the store: `Store::tileset(world.tileset)`,
 /// [`world_pack_textures`] of that package's member, the side files bound to those textures
 /// ([`load_side_models`]), style and VRAM of the first of `map_areas(store, map)`. `Err`
@@ -496,17 +518,7 @@ pub(crate) fn bake_world_with(
     })?;
     let tileset = store.tileset(world.tileset)?;
     let family = store.project().family;
-    let member = match pack {
-        Some(bytes) => Some(bytes.to_vec()),
-        None => store.project().map_tileset_member(world.tileset)?,
-    };
-    let (pack, textures) = match member {
-        Some(bytes) => match world_pack_textures(&bytes, &tileset) {
-            Ok(textures) => (Some(bytes), textures),
-            Err(_) => (None, Vec::new()),
-        },
-        None => (None, Vec::new()),
-    };
+    let (pack, textures) = bake_pack(store, world.tileset, &tileset, pack)?;
     let loaded;
     let side = match side {
         Some(side) => side,
