@@ -1883,7 +1883,8 @@ mod tests {
                 "talk_advances",
                 "figure_appears",
                 "scene_on_enter",
-                "reward_once"
+                "reward_once",
+                "new_painted_map"
             ]
         );
         let args = json!({ "recipe": "extend_area", "input": {

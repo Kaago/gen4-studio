@@ -1459,8 +1459,8 @@ static TOOLS: &[ToolDef] = &[
                       new members, created first; they stay after undo), change, changed \
                       (every asset to load again) and next (the recipes that make sense now, \
                       available or with a reason). create_area/create_room with \
-                      header.allow_patch, empty_region and new_trainer_here cannot be undone \
-                      completely (new members stay), nor figure_appears/scene_on_enter when the \
+                      header.allow_patch, empty_region, new_trainer_here and new_painted_map \
+                      cannot be undone completely (new members stay), nor figure_appears/scene_on_enter when the \
                       place needs a level script file of its own (it shares its file with \
                       another header or has none); headless they need --allow-irreversible, \
                       without it the call answers needs_confirmation. Not in g4_batch.",
@@ -2166,7 +2166,9 @@ fn recipe_args() -> Value {
                  {header, local_id}, from_step, text, step_name?}; figure_appears {story, \
                  figure: {header, local_id}, step, appears, flag, step_name?}; scene_on_enter \
                  {story, header, step, text, step_name?}; reward_once {story, figure: {header, \
-                 local_id}, from_step, item, text, flag, step_name?} (details in g4://docs/mcp)"
+                 local_id}, from_step, item, text, flag, step_name?}; for new_painted_map (text \
+                 project) {matrix?, x, y, name, tileset?, fill_tile?, height?, header?, \
+                 source_map?} (details in g4://docs/mcp)"
             ),
         }),
         &["recipe"],
@@ -2868,7 +2870,7 @@ mod tests {
             let input = schema["properties"]["input"]["description"]
                 .as_str()
                 .unwrap();
-            assert_eq!(ids.len(), 12);
+            assert_eq!(ids.len(), 13);
             for id in &ids {
                 assert!(input.contains(id.as_str().unwrap()), "{name} {id}: {input}");
             }

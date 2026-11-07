@@ -18,6 +18,10 @@
 //! share, `story_wrap` the hull script a talk or a reward puts in front of a figure and the
 //! taking back of a story recipe's writes, `level_script` the level script of a place they
 //! change.
+//!
+//! Painting (6.4a): [`new_painted_map`] („Neue Karte malen“) puts a painted world map into a
+//! cell of a matrix, its member copied without buildings first, then matrix and world as one
+//! step (the world baked in the same step); always irreversible („Karte anlegen“).
 
 pub mod area;
 pub mod connect_doors;
@@ -28,6 +32,7 @@ pub mod extend;
 pub mod figure_appears;
 pub(crate) mod level_script;
 pub mod new_figure;
+pub mod new_painted_map;
 pub mod new_story;
 pub mod new_trainer_here;
 pub mod reward_once;
@@ -43,8 +48,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 pub use types::{
-    CreatedObject, Draft, DraftCell, DraftEvent, DraftEventKind, DraftMessage, DraftTarget,
-    DraftTile, NextStep, Outcome, OutcomeDto, RecipeCall, RecipeId, next_steps,
+    CreatedObject, Draft, DraftCell, DraftEvent, DraftEventKind, DraftMessage, DraftPainted,
+    DraftTarget, DraftTile, NextStep, Outcome, OutcomeDto, RecipeCall, RecipeId, next_steps,
 };
 
 use crate::error::KernelError;
@@ -56,7 +61,7 @@ pub struct RecipeInfo {
     pub id: RecipeId,
     pub title: &'static str,
     /// Applying it always does something undo does not take back, whatever the input
-    /// (`empty_region`, `new_trainer_here`); for the others [`is_irreversible`] decides from
+    /// (`empty_region`, `new_trainer_here`, `new_painted_map`); for the others [`is_irreversible`] decides from
     /// the input.
     pub irreversible: bool,
 }
@@ -68,7 +73,10 @@ pub fn list() -> Vec<RecipeInfo> {
         .map(|&id| RecipeInfo {
             id,
             title: id.title(),
-            irreversible: matches!(id, RecipeId::EmptyRegion | RecipeId::NewTrainerHere),
+            irreversible: matches!(
+                id,
+                RecipeId::EmptyRegion | RecipeId::NewTrainerHere | RecipeId::NewPaintedMap
+            ),
         })
         .collect()
 }
@@ -86,7 +94,8 @@ fn input<T: DeserializeOwned>(call: &RecipeCall) -> Result<T, KernelError> {
 /// Whether applying `call` does something undo does not take back (the access check of
 /// `recipe_apply`): „Header-Patch einspielen“ for an area or room whose header may apply the
 /// patch (`header.allow_patch`), „Welt leeren“ always, „Trainer anlegen“ always for a new
-/// trainer (it is created behind an undo barrier), else `None` (a new figure is one undo step,
+/// trainer (it is created behind an undo barrier), „Karte anlegen“ always for a painted map
+/// (its member is copied before the undo step), else `None` (a new figure is one undo step,
 /// so is a door pair). Input the recipe cannot read is refused.
 ///
 /// A visibility or a scene answers [`LEVEL_SCRIPT_FILE`] whatever the project: they create a
@@ -138,6 +147,11 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
             input::<scene_on_enter::SceneOnEnterInput>(call)?;
             Some(LEVEL_SCRIPT_FILE)
         }
+        // The new map is created before the undo step.
+        RecipeId::NewPaintedMap => {
+            input::<new_painted_map::NewPaintedMapInput>(call)?;
+            Some("Karte anlegen")
+        }
     })
 }
 
@@ -175,6 +189,7 @@ pub fn plan(store: &mut Store, call: &RecipeCall) -> Result<Draft, KernelError> 
         RecipeId::FigureAppears => figure_appears::plan(store, &input(call)?),
         RecipeId::SceneOnEnter => scene_on_enter::plan(store, &input(call)?),
         RecipeId::RewardOnce => reward_once::plan(store, &input(call)?),
+        RecipeId::NewPaintedMap => new_painted_map::plan(store, &input(call)?),
     }
 }
 
@@ -193,5 +208,33 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
         RecipeId::FigureAppears => figure_appears::apply(store, &input(call)?)?.into_dto(),
         RecipeId::SceneOnEnter => scene_on_enter::apply(store, &input(call)?)?.into_dto(),
         RecipeId::RewardOnce => reward_once::apply(store, &input(call)?)?.into_dto(),
+        RecipeId::NewPaintedMap => new_painted_map::apply(store, &input(call)?)?.into_dto(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_painted_map_is_always_irreversible() {
+        let info = list()
+            .into_iter()
+            .find(|r| r.id == RecipeId::NewPaintedMap)
+            .expect("new_painted_map is listed");
+        assert_eq!((info.title, info.irreversible), ("Neue Karte malen", true));
+        assert_eq!(RecipeId::all().last(), Some(&RecipeId::NewPaintedMap));
+        let call: RecipeCall = serde_json::from_value(serde_json::json!({
+            "recipe": "new_painted_map",
+            "input": {"x": 1, "y": 0, "name": "Waldweg"},
+        }))
+        .unwrap();
+        assert_eq!(is_irreversible(&call).unwrap(), Some("Karte anlegen"));
+        let other: RecipeCall = serde_json::from_value(serde_json::json!({
+            "recipe": "new_painted_map",
+            "input": {"x": 1, "y": 0, "name": "Waldweg", "colour": 3},
+        }))
+        .unwrap();
+        assert!(is_irreversible(&other).is_err());
     }
 }
