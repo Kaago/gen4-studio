@@ -10,9 +10,9 @@
 
 **Spec:** [2026-11-05-phase-6-kartenerstellung-design.md](../specs/2026-11-05-phase-6-kartenerstellung-design.md) §1 (harte Grenzen), §3.1, §3.2, §3.6, §4 Zeile 6.4a und „Phasen-Gate 6“ (wörtlich unten), §5, §6, §7, §8; [entscheidungen.md](../../research/2026-11-05-phase-6/entscheidungen.md) (Block „Malen, Weltformat, Import, Tiled“: Malmodell, Draufsicht und Vorschau, Tiled, Store, Nur im Textprojekt, Oberfläche, Malen über Kartengrenzen; „Phasenschnitt“ Zeile 6.4a; „Nicht in Phase 6“ wörtlich); [Gutachten C](../../research/2026-11-05-phase-6/gutachten-c-malen-import.md) §3.5 (Draufsicht, optimistisches Zeichnen), §4.2–4.3 (Tiled als Vorbild, Kürzel), §7 (Oberfläche, MCP, Design-System, Wiederverwendung); Vorgänger-Pläne [6.3a](2026-11-05-phase-6-3a-weltformat.md) (Weltformat, `world_edit`, Szene) und [6.3b](2026-11-06-phase-6-3b-backen-build.md) (Form, Backen, Interfaces).
 
-Stand 07.11.2026: Basis ist `main` **nach** dem Merge von 6.3b und 6.5a (Commit trägt der Umsetzer hier ein: `<BASIS>`). Arbeit im Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-4a`, Branch `phase-6-4a-malen` (`git worktree add .claude/worktrees/phase-6-4a -b phase-6-4a-malen <BASIS>`). Kernel `crates/g4-kernel/src`, Tauri `apps/studio/src-tauri/src`, Frontend `apps/studio/src`, Emulator `scripts/g4emu`.
+Stand 07.11.2026: Basis ist `main` **nach** dem Merge von 6.3b und 6.5a (Commit trägt der Umsetzer hier ein: `7f01683b`; Teil 1 auf main vor 6.3b, siehe Voraussetzungen). Arbeit im Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-4a`, Branch `phase-6-4a-malen` (`git worktree add .claude/worktrees/phase-6-4a -b phase-6-4a-malen <BASIS>`). Kernel `crates/g4-kernel/src`, Tauri `apps/studio/src-tauri/src`, Frontend `apps/studio/src`, Emulator `scripts/g4emu`.
 
-## Voraussetzungen (auf `<BASIS>`, vor Task 1 mit `grep` prüfen)
+## Voraussetzungen (auf `7f01683b`, vor Task 1 mit `grep` prüfen)
 
 Spalte „Stand“: **main** = beim Schreiben auf main `e4f248b9` gelesen; **6.3b** = aus den Interfaces-Blöcken des 6.3b-Plans (beim Schreiben im Worktree `phase-6-3b`, Tasks 1–3 von 13 fertig), auf `<BASIS>` zuerst bestätigen.
 
@@ -37,6 +37,18 @@ Spalte „Stand“: **main** = beim Schreiben auf main `e4f248b9` gelesen; **6.3
 | `preview::standard_map` (Startstadt: Header `T01`/`T20` in Matrix 0, erste Zelle) | `preview.rs:327` | main | 10 |
 
 Fehlt eine Zeile oder weicht sie ab (vor allem die mit Stand 6.3b), zuerst die Abweichung in diese Tabelle schreiben und den betroffenen Task anpassen, dann beginnen.
+
+Teil 1 (Tasks 2–6) auf 7f01683b; Teil 2 nach dem Merge von main mit 6.3b.
+
+**Geprüft auf `7f01683b` (07.11.2026, grep), Abweichungen der main-Zeilen:**
+
+- `world::doc::fixtures::gate_world` fehlt auf main (kommt mit 6.3b, wie in der Zeile vermerkt); `one_tile_world`, `checkerboard_world`, `busy_world` sind da. `WorldJson::blank(tileset, fill: TileRef, height: i8)` nimmt eine `TileRef`, keinen Token (Task 1 parst `fill_tile` vorher).
+- `world.rs` re-exportiert aus `edit` nur `WORLD_NEEDS_TEXT_PROJECT`; Befehle greifen über `world::edit::…` zu. `headers_of_map` steht in `world/places.rs`, ist aber nicht re-exportiert (`world::places::headers_of_map`); re-exportiert sind `maps_of_packages`, `packs_of_map`.
+- `test_support::world_ready()` gibt es auf main nicht (6.3b). Teil 1 nutzt die vorhandenen Fixtures: Kernel `world/edit.rs` `fixture()` auf `TextFixture::exported()`, Befehle `commands/world_map.rs` mit `TextFixture::exported()` + `world_create` (wie `world_commands_over_dispatch`).
+- `SceneHost.setTopDown(on, focus: CellRect, matrix: MatrixDto)` hat Fokus und Matrix als Parameter (nicht nur `on`); `SceneHost.topDown` ist ein Getter.
+- `WorldReport` auf main: `{map, tileset, cells, change}` ohne `bake` (kommt mit 6.3b); Task 4 führt `bake` im TS-Typ als optional (`bake?: WorldBakeReport | null`) erst in Teil 2, in Teil 1 ohne das Feld.
+- Werkzeug-Kürzel auf main: V Auswählen, B Gelände malen, F Figur, T Tür, A Auslöser, S Schild, G Gebäude (wie erwartet; B und G sind im Malmodus die Unterwerkzeuge Pinsel und Füllen).
+- Alles Übrige der main-Zeilen (Edit-Typen und Konstanten, `grid`, `tileset`, `Store`/`Tx`-Methoden, `recipes`, `next_steps` mit „Kommt mit Phase 6“, Katalog 87 mit `30..=90`, `access.rs`/`dispatch.rs` mit `world_*`/`tileset_*`, Szene, Werkbank, `preview::standard_map`) wie erwartet.
 
 ## Parallele Teilphase 6.5b und Anhängepunkte
 
@@ -508,3 +520,4 @@ Texte: Titel „Neue Karte malen“, Felder „Name“ (Pflicht), „Boden“ (P
 - **Bake-Zeit unter Last:** reißt der Zeittest nur unter Last, allein wiederholen; reißt er allein, bekommt `world_edit` keinen eigenen Weg, sondern die Vorschau bleibt bis zur Antwort und der Befund geht an 6.3b („Laden backt“, Zwischenspeicher je `input_hash`).
 - **Format-5-Texturen:** wenn `palette … placeholder > 0` auf einem Vanilla-Paket, eigener Posten nach 6.4b.
 - **Parallele Merges:** Konflikte an den Anhängepunkten gesammelt lösen; `.fig` von main behalten; nach dem Merge von 6.5b den Katalog-Zähltest neu zählen.
+- **Teil 1 vor 6.3b (Entscheidung der Umsetzung):** Tasks 2–6 laufen auf `7f01683b` ohne 6.3b. In Task 3 bleiben der Test `painted_map_recipe_over_dispatch` und die Katalogtexte zu `new_painted_map` (`recipe_args`, `recipe_apply`) für Teil 2 offen, weil sie Task 1 brauchen; der Zeittest `world-stroke-bridge` misst in Teil 1 `world_edit` ohne Bake und wird nach dem Merge mit Bake wiederholt. In Task 4 kommt `WorldReport.bake` (TS) erst in Teil 2. Wo Task 6 Bake oder Budget berührt, folgt das in Task 7.
