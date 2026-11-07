@@ -184,7 +184,7 @@ pub(crate) fn part_in_at(
 
 /// Whether `name` is a plain file name in the entity's folder: not empty, no path
 /// separator, not hidden (no `.` or `..` either).
-fn check_file_name(name: &str) -> Result<(), String> {
+pub(crate) fn check_file_name(name: &str) -> Result<(), String> {
     if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\', ':']) {
         return Err(format!(
             "`{name}` ist kein Dateiname im Ordner der Entität."

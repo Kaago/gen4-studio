@@ -452,7 +452,7 @@ const DERIVED_KEYS: [&str; 3] = ["permissions", "model", "bdhc"];
 /// "world"` loses `permissions`, `model` and `bdhc` (they are the bake's output now), its
 /// `world.version` 1 becomes 2, and a `world.freeform[].nsbmd` file name (the 6.3a form, which
 /// nothing read) becomes the part `{"file": <name>}`. A side file only a removed part named
-/// is removed. Binary maps and every other file stay as they are. The manifest version is set
+/// is removed (only a plain file name in `data/maps`, never a path). Binary maps and every other file stay as they are. The manifest version is set
 /// by the chain.
 fn v3_to_v4(tree: &mut Tree) -> Result<(), String> {
     let manifest = tree
@@ -501,7 +501,10 @@ fn v3_to_v4(tree: &mut Tree) -> Result<(), String> {
             .filter_map(|key| object.shift_remove(*key))
             .collect();
         for part in &gone {
+            // A name that is no plain file name in the entity's folder (`../`, an absolute
+            // path) is never removed: it would reach outside `data/maps`.
             if let Some(file) = part.get("file").and_then(Value::as_str)
+                && super::part::check_file_name(file).is_ok()
                 && !names_file(value, file)
             {
                 removed.push(maps.join(file));
@@ -757,6 +760,48 @@ mod tests {
         let file = &after["data/maps/0003.json"];
         let world = crate::world::keep::world_field(file).unwrap().unwrap();
         assert_eq!(world.version, crate::world::WORLD_VERSION);
+    }
+
+    #[test]
+    fn v3_to_v4_removes_no_file_outside_the_maps_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let absolute = outside.path().join("absolute.nsbmd");
+        std::fs::write(&absolute, b"keep me").unwrap();
+        std::fs::write(dir.path().join("sibling.bin"), b"keep me too").unwrap();
+        let v3 = V2
+            .replace("\"schemaVersion\": 2", "\"schemaVersion\": 3")
+            .replace(
+                "    \"flags\": 1,\n",
+                "    \"flags\": 1,\n    \"maps.world\": 1,\n",
+            );
+        write(&root, MANIFEST_FILE, v3.as_bytes());
+        // A hand-edited 6.3a world map whose derived parts name files outside `data/maps`.
+        let world_map = serde_json::json!({
+            "source": "world",
+            "world": {"version": 1, "tileset": 0, "layers": [], "permissions": {"derive": true}},
+            "permissions": {"file": "../../../sibling.bin"},
+            "buildings": [],
+            "model": {"file": absolute.to_str().unwrap()},
+            "bdhc": {"file": "../0003.bdhc"}
+        });
+        write(&root, "data/maps/0003.json", &to_canonical(&world_map));
+        write(&root, "data/0003.bdhc", b"bdhc");
+
+        let report = migrate(&root).unwrap();
+        assert_eq!((report.from, report.to), (3, 4));
+        assert_eq!(std::fs::read(&absolute).unwrap(), b"keep me");
+        assert_eq!(
+            std::fs::read(dir.path().join("sibling.bin")).unwrap(),
+            b"keep me too"
+        );
+        assert_eq!(std::fs::read(root.join("data/0003.bdhc")).unwrap(), b"bdhc");
+        assert_eq!(
+            report.changed,
+            paths(&["data/maps/0003.json", MANIFEST_FILE])
+        );
     }
 
     fn paths(list: &[&str]) -> Vec<PathBuf> {
