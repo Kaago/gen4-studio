@@ -35,8 +35,10 @@ BASE_KEY = "$base"  # in an edit's arguments: {"$base": "${hdr.Pt}", "field": va
 _PATH_PART = re.compile(r"([^.\[\]=]*)((?:\[[^\[\]=]+=[^\[\]]*\])*)")
 _PATH_FILTER = re.compile(r"\[([^\[\]=]+)=([^\[\]]*)\]")
 _SHOWN_MAX = 300  # characters of a found value in a message
-# the steps of `prepare:` (files made before the edits) and the arguments each takes; `path` is required
-_PREPARE_STEPS = {"make-oversize-nsbmd": ("path", "bytes")}
+# the steps of `prepare:` (files made before the edits) and the arguments each takes; `path` is required.
+# make-oversize-nsbmd: one model file over the size limit; make-import-samples: the folder of synthetic
+# import samples (`g4k import-samples <ordner>`: cube, plane, oversize OBJ, PNGs)
+_PREPARE_STEPS = {"make-oversize-nsbmd": ("path", "bytes"), "make-import-samples": ("path",)}
 
 
 @dataclass
@@ -374,7 +376,9 @@ def _load_prepare(path: Path, prepare: Any, env: dict[str, str], bound: frozense
         if not (isinstance(args.get("path"), str) and args["path"].strip()):
             raise ValueError(f"{path}: prepare {kind}: path fehlt oder ist kein Text: {args.get('path')!r}")
         size = args.get("bytes", fixtures.MODEL_MAX_BYTES + 1)
-        if isinstance(size, bool) or not isinstance(size, int) or size <= fixtures.MODEL_MAX_BYTES:
+        if kind == "make-oversize-nsbmd" and (
+            isinstance(size, bool) or not isinstance(size, int) or size <= fixtures.MODEL_MAX_BYTES
+        ):
             raise ValueError(
                 f"{path}: prepare {kind}: bytes muss eine Zahl über {fixtures.MODEL_MAX_BYTES} sein: {args['bytes']!r}"
             )
@@ -551,6 +555,11 @@ def g4k_command(repo: Path) -> list[str]:
     return _cargo_binary(repo, "G4K_BIN", ["--workspace", "--all-features", "--bin", "g4k"], "g4k")
 
 
+def import_samples_command(g4k: list[str], target: Path) -> list[str]:
+    """The command that writes the synthetic import samples into the folder `target`."""
+    return [*g4k, "import-samples", str(target)]
+
+
 def _play(rom: Path, save: Path | None, out: Path, steps: list[str], core: Path | None) -> tuple[int, list[dict]]:
     """Run `g4emu run` in a child process (without `--save` when `save` is None); returns its exit
     code and the parsed step lines, which are kept in `<out>/play.jsonl` as well."""
@@ -674,13 +683,16 @@ def _refusal_missed(command: str, line: dict, needle: str) -> str | None:
     return None
 
 
-def _prepare(project: Path, step: list) -> str | None:
-    """Makes the file a `prepare` step names (relative to the project copy, or absolute inside it); the
-    message of what is wrong, None when it is made. Nothing is written outside the project copy."""
+def _prepare(project: Path, step: list, g4k: list[str]) -> str | None:
+    """Makes the file (or for make-import-samples the folder) a `prepare` step names (relative to the
+    project copy, or absolute inside it), the latter with the g4k command line `g4k`; the message of
+    what is wrong, None when it is made. Nothing is written outside the project copy."""
     kind, args = step
     target = (project / args["path"]).resolve()  # an absolute path stays as it is; links are followed
     if project not in target.parents:
         return f"prepare {kind}: {args['path']} muss im Projektordner liegen ({project})"
+    if kind == "make-import-samples":
+        return _prepare_import_samples(target, g4k)
     if target.is_dir():
         return f"prepare {kind}: {target} ist ein Ordner"
     try:
@@ -688,6 +700,27 @@ def _prepare(project: Path, step: list) -> str | None:
     except OSError as e:
         return f"prepare {kind}: {target} nicht schreibbar: {e.strerror or e}"
     print(f"prepare: {kind} {target} ({size} Byte)", file=sys.stderr)
+    return None
+
+
+def _prepare_import_samples(target: Path, g4k: list[str]) -> str | None:
+    """Makes the folder `target` and writes the import samples into it with `g4k import-samples`."""
+    kind = "make-import-samples"
+    if target.exists() and not target.is_dir():
+        return f"prepare {kind}: {target} ist kein Ordner"
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return f"prepare {kind}: {target} nicht anlegbar: {e.strerror or e}"
+    command = import_samples_command(g4k, target)
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except OSError as e:
+        return f"prepare {kind}: g4k nicht startbar: {e}"
+    if result.returncode != 0:
+        return f"prepare {kind}: {' '.join(command)} fehlgeschlagen (Exit {result.returncode}): {result.stdout.strip()}"
+    written = sum(1 for line in result.stdout.splitlines() if line.strip())
+    print(f"prepare: {kind} {target} ({written} Dateien)", file=sys.stderr)
     return None
 
 
@@ -724,8 +757,14 @@ def run_scenario(
     for stale in [out / "results.json", out / "bridge.jsonl", out / "mcp.jsonl", out / "mcp-stderr.log",
                   *out.glob("edits*.json")]:
         stale.unlink(missing_ok=True)
+    g4k: list[str] = []
+    if any(kind == "make-import-samples" for kind, _ in scenario.prepare):
+        try:
+            g4k = g4k_command(repo)
+        except RuntimeError as e:
+            return _fail(scenario, str(e))
     for step in scenario.prepare:
-        failure = _prepare(project, step)
+        failure = _prepare(project, step, g4k)
         if failure is not None:
             return _fail(scenario, failure)
     results: dict[str, Any] = {}

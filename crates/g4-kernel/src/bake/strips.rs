@@ -1,4 +1,5 @@
-//! Runs of faces: quad strips over runs of texture, layer and normal, single quads for the rest.
+//! Runs of faces: quad strips over runs of texture, layer and normal, single quads for the
+//! other quads, triangles (`Face::is_triangle`) in a run of their own, never in a strip.
 //!
 //! A face `g` continues a face `f` when `g.c0 == f.c3` and `g.c1 == f.c2` (position and uv),
 //! both have the same layer and the same normal (the caller passes the faces of one texture).
@@ -10,10 +11,21 @@ use std::collections::HashMap;
 
 use super::Face;
 
-/// Faces sent together: a quad strip in chain order (`strip`) or single quads.
+/// How the faces of a run are sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RunKind {
+    /// One quad strip in chain order.
+    Strip,
+    /// Single quads.
+    Quads,
+    /// Triangles.
+    Triangles,
+}
+
+/// Faces sent together.
 pub(crate) struct Run {
     pub faces: Vec<usize>,
-    pub strip: bool,
+    pub kind: RunKind,
 }
 
 /// The unit normal of `face` in 1/512: `(c1 − c0) × (c2 − c0)`, at length 0
@@ -46,8 +58,10 @@ type Corner = ([i32; 3], [i32; 2]);
 type Edge = (u8, [i32; 3], Corner, Corner);
 
 /// The runs of the faces `of_texture` (indices into `faces`, in input order): strips first,
-/// then one run of every single quad.
+/// then one run of every single quad, then one run of every triangle (in input order).
 pub(crate) fn runs(faces: &[Face], of_texture: &[usize]) -> Vec<Run> {
+    let (triangles, of_texture): (Vec<usize>, Vec<usize>) =
+        of_texture.iter().partition(|&&i| faces[i].is_triangle());
     let n = of_texture.len();
     let normals: Vec<[i32; 3]> = of_texture.iter().map(|&i| normal(&faces[i])).collect();
     let edge = |p: usize, a: usize, b: usize| -> Edge {
@@ -102,7 +116,7 @@ pub(crate) fn runs(faces: &[Face], of_texture: &[usize]) -> Vec<Run> {
         if chain.len() >= 2 {
             strips.push(Run {
                 faces: chain,
-                strip: true,
+                kind: RunKind::Strip,
             });
         } else {
             singles.extend(chain);
@@ -111,7 +125,13 @@ pub(crate) fn runs(faces: &[Face], of_texture: &[usize]) -> Vec<Run> {
     if !singles.is_empty() {
         strips.push(Run {
             faces: singles,
-            strip: false,
+            kind: RunKind::Quads,
+        });
+    }
+    if !triangles.is_empty() {
+        strips.push(Run {
+            faces: triangles,
+            kind: RunKind::Triangles,
         });
     }
     strips

@@ -88,10 +88,10 @@ export async function openPath(opts: { directory: boolean; title?: string; filte
   return new Promise((resolve) => enqueue({ kind: "path", title, initial: lastPath(), resolve }));
 }
 
-/** Several files to open (only inside Tauri, where the system dialog allows a multiple choice); null when cancelled. In a browser paths are typed into the page instead. */
-export async function openFiles(opts: { title?: string }): Promise<string[] | null> {
+/** Several files to open (only inside Tauri, where the system dialog allows a multiple choice); null when cancelled. In a browser paths are typed into the page instead. `filters` narrow the system dialog. */
+export async function openFiles(opts: { title?: string; filters?: FileFilter[] }): Promise<string[] | null> {
   if (!inTauri()) return null;
-  const chosen = await tauriOpen({ directory: false, multiple: true, title: opts.title });
+  const chosen = await tauriOpen({ directory: false, multiple: true, title: opts.title, ...(opts.filters ? { filters: opts.filters } : {}) });
   if (chosen === null) return null;
   return Array.isArray(chosen) ? chosen : [chosen];
 }

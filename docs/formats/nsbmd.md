@@ -338,7 +338,7 @@ die NSBMD-Bytes und ein Bericht mit Prüfcodes kommen heraus. Er schreibt nur di
 
   | Stil | `dif_amb` | `poly_attr` | Shape-Flag | Display List |
   |------|-----------|-------------|------------|--------------|
-  | außen | `0x7FFFE739` | `0x001F8081` (Licht 0, Vorderseite, Nebel, Alpha 31) | `0x5` | `NORMAL` vor dem ersten Eck eines Strips oder Einzel-Quads, wenn sie sich ändert |
+  | außen | `0x7FFFE739` | `0x001F8081` (Licht 0, Vorderseite, Nebel, Alpha 31) | `0x5` | `NORMAL` vor dem ersten Eck eines Strips, Einzel-Quads oder Dreiecks, wenn sie sich ändert |
   | innen | `0x7FFF8000` | `0x001F0080` (kein Licht, Vorderseite, Alpha 31) | `0x6` | `COLOR 0x7FFF` als erster Befehl des Shapes, kein `NORMAL` |
 
   Normale: `(c1 − c0) × (c2 − c0)`, bei Länge 0 `(c2 − c0) × (c3 − c0)`, sonst `(0, 1, 0)`;
@@ -351,12 +351,20 @@ die NSBMD-Bytes und ein Bericht mit Prüfcodes kommen heraus. Er schreibt nur di
   f1.c2, …`, `END_VTXS`), alle übrigen Flächen eines Shapes Quads in einer Gruppe am Ende
   (`BEGIN_VTXS 1`, Ecken `c0..c3`, `END_VTXS`). Die Vorderseite ist `(c1 − c0) × (c2 − c0)`
   wie bei allen waagerechten Vanilla-Quads (A §2.7).
+- **Dreiecke:** eine Fläche, deren `c3` gleich `c2` ist (Position **und** UV,
+  `Face::is_triangle`), ist ein Dreieck. Dreiecke kommen nie in einen Strip; je Shape gehen
+  sie in Eingabereihenfolge in eine eigene Gruppe am Ende, nach Strips und Quads
+  (`BEGIN_VTXS 0`, Ecken `c0, c1, c2`, `END_VTXS`), `NORMAL` und `TEXCOORD` nach denselben
+  Regeln wie bei Einzel-Quads; der Bericht zählt sie in `triangles`. Eine Fläche mit gleicher
+  Position, aber anderer UV in `c3` bleibt ein Viereck. Damit ist die Entscheidung von 6.1,
+  der Bäcker brauche keine Dreiecke, für Importe aufgehoben
+  (`docs/superpowers/plans/2026-11-06-phase-6-5a-import.md`, Task 1).
 - **`TEXCOORD`:** nur, wenn (s, t) sich gegenüber dem zuletzt in diesem Shape gesendeten
-  ändert; Wert `(uv − Verschiebung) · 16` (1.11.4). Die Verschiebung gilt je Strip und je
-  Einzel-Quad und je Achse: 0, solange die erste Fläche in −2 048..=2 047 Texel passt, sonst
-  das größte Vielfache der Texturbreite bzw. -höhe bis zum kleinsten UV der Fläche (passt sie
-  damit nicht, eine Texturseite mehr; so passt jede Fläche mit einer Spanne bis 2 047
-  Texel). Mit Wiederholen S/T ändert das Bild sich nicht. Ein Strip wird vor der Fläche
+  ändert; Wert `(uv − Verschiebung) · 16` (1.11.4). Die Verschiebung gilt je Strip, je
+  Einzel-Quad, je Dreieck und je Achse: 0, solange die erste Fläche in −2 048..=2 047 Texel
+  passt, sonst das größte Vielfache der Texturbreite bzw. -höhe bis zum kleinsten UV der
+  Fläche (passt sie damit nicht, eine Texturseite mehr; so passt jede Fläche mit einer Spanne
+  bis 2 047 Texel). Mit Wiederholen S/T ändert das Bild sich nicht. Ein Strip wird vor der Fläche
   geteilt, deren neue Ecken (`c3`, `c2`) unter seiner Verschiebung nicht mehr passen; das
   Teilstück bleibt ein Strip (auch mit einer Fläche) und zählt im Bericht als eigener Strip.
   `bake.face-uv-range` ist eine Fläche, deren UV weder unverschoben noch unter einer der

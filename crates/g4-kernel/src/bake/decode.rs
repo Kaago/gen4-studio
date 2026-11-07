@@ -142,7 +142,7 @@ fn shape_quads(
     }
 }
 
-/// The primitive types the baker writes (triangles: a face with `c3 == c2`, after 6.5a).
+/// The primitive types the baker writes (triangles: a face with `c3 == c2`, since 6.5a).
 fn prim(value: u32) -> Result<Prim, FormatError> {
     match value {
         0 => Ok(Prim::Triangles),
@@ -455,9 +455,11 @@ mod tests {
     }
 
     #[test]
-    fn decode_reads_a_quad_with_c3_equal_c2_inside_a_strip() {
-        // One texture: a quad, a triangle-shaped quad continuing it, a face continuing the
-        // triangle's last edge (c3, c2 meet in one corner): one strip of three.
+    fn decode_reads_a_triangle_between_two_quads() {
+        // One texture: a quad, a face with c3 == c2 (position and uv) continuing it, a face
+        // continuing that face's last edge. Since 6.5a the middle face is a triangle
+        // (`Face::is_triangle`), sent in a triangles group of its own and never in a strip, so
+        // the two quads no longer chain: two single quads, then the triangle.
         let pack = pack();
         let face = |corners: [[i32; 3]; 4]| Face {
             corners,
@@ -472,10 +474,14 @@ mod tests {
         ];
         let r = bake(&faces, &input(&pack));
         assert_eq!(r.refusal(), None);
-        assert_eq!((r.strips, r.single_quads), (1, 0));
+        assert!(faces[1].is_triangle());
+        assert_eq!((r.strips, r.single_quads, r.triangles), (0, 2, 1));
         let quads = decode_quads(&r.nsbmd).unwrap();
         let got: Vec<_> = quads.iter().map(|q| (q.corners, q.uv)).collect();
-        let want: Vec<_> = faces.iter().map(|f| (f.corners, f.uv)).collect();
+        let want: Vec<_> = [&faces[0], &faces[2], &faces[1]]
+            .iter()
+            .map(|f| (f.corners, f.uv))
+            .collect();
         assert_eq!(got, want);
     }
 }

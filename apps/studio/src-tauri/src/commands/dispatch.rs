@@ -16,6 +16,7 @@ use crate::state::AppState;
 use g4_kernel::checks::{FixId, Subject};
 use g4_kernel::data::battle_sprites::Side;
 use g4_kernel::map_import::{Part, Source};
+use g4_kernel::model_import::ImportOptions;
 use g4_kernel::original::ResetTarget;
 use g4_kernel::preview::PreviewSlot;
 use g4_kernel::project::AssetKind;
@@ -701,18 +702,31 @@ pub fn dispatch(
         ),
         "inspect_map_import" => run!(
             json, "inspect_map_import", args,
-            { map: u16, source: Source },
+            { map: u16, source: Source, options: Option<ImportOptions> },
             |a| {
                 let source = confine_source(policy, a.source)?;
-                inspect_map_import_impl(state, a.map, &source)
+                inspect_map_import_impl(state, a.map, &source, &a.options.unwrap_or_default())
             }
         ),
         "import_map_parts" => run!(
             json, "import_map_parts", args,
-            { map: u16, source: Source, parts: Vec<Part>, keep_buildings: Option<bool> },
+            {
+                map: u16,
+                source: Source,
+                parts: Vec<Part>,
+                keep_buildings: Option<bool>,
+                options: Option<ImportOptions>,
+            },
             |a| {
                 let source = confine_source(policy, a.source)?;
-                import_map_parts_impl(state, a.map, &source, &a.parts, a.keep_buildings.unwrap_or(false))
+                import_map_parts_impl(
+                    state,
+                    a.map,
+                    &source,
+                    &a.parts,
+                    a.keep_buildings.unwrap_or(false),
+                    &a.options.unwrap_or_default(),
+                )
             }
         ),
         "export_map_part" => run!(
@@ -1298,9 +1312,10 @@ mod tests {
     use crate::commands::policy::UserPolicy;
     use crate::commands::{
         dirty_impl, get_header_impl, get_matrix_impl, history_impl, list_headers_impl,
-        open_project_impl, open_synthetic,
+        open_project_impl, open_synthetic, open_synthetic_for_models,
     };
     use crate::state::AppState;
+    use g4_kernel::model_import::samples::CUBE_OBJ;
     use serde_json::{Value, json};
     use std::collections::BTreeSet;
 
@@ -1532,11 +1547,12 @@ mod tests {
             ("split_encounter_file", json!({ "header": 0 })),
             (
                 "inspect_map_import",
-                json!({ "map": 0, "source": { "files": [per_in] } }),
+                json!({ "map": 0, "source": { "files": [per_in] }, "options": { "unit": 16, "colors": 16 } }),
             ),
             (
                 "import_map_parts",
-                json!({ "map": 0, "source": { "map": 2 }, "parts": ["permissions"], "keepBuildings": false }),
+                json!({ "map": 0, "source": { "map": 2 }, "parts": ["permissions"], "keepBuildings": false,
+                        "options": { "unit": 16, "colors": 16 } }),
             ),
             (
                 "export_map_part",
@@ -2505,10 +2521,17 @@ mod tests {
         let outside = elsewhere.path().join("a.per");
         std::fs::write(&outside, [0u8; 2048]).unwrap();
         let outside = outside.to_str().unwrap();
+        let outside_obj = elsewhere.path().join("a.obj");
+        std::fs::write(&outside_obj, b"v 0 0 0\n").unwrap();
+        let outside_obj = outside_obj.to_str().unwrap();
         for (name, args) in [
             (
                 "inspect_map_import",
                 json!({ "map": 0, "source": { "files": [outside] } }),
+            ),
+            (
+                "inspect_map_import",
+                json!({ "map": 0, "source": { "files": [outside_obj] }, "options": { "unit": 16 } }),
             ),
             (
                 "import_map_parts",
@@ -2653,6 +2676,17 @@ mod tests {
             json!({ "map": 0, "source": { "files": [stray] } }),
             "Pfad liegt außerhalb",
         );
+        // A model or an image outside is refused like any part file.
+        for name in ["a.obj", "a.png"] {
+            let stray = elsewhere.path().join(name);
+            std::fs::write(&stray, b"v 0 0 0\n").unwrap();
+            refused(
+                "inspect_map_import",
+                json!({ "map": 0, "source": { "files": [stray.to_str().unwrap()] },
+                        "options": { "unit": 16, "colors": 4 } }),
+                "Pfad liegt außerhalb",
+            );
+        }
         refused(
             "export_map_part",
             json!({ "map": 0, "part": "permissions", "path": "out.per" }),
@@ -2671,6 +2705,63 @@ mod tests {
             json!({ "emulator": "", "rom": "build/out.per" }),
             "Kein Emulator freigegeben",
         );
+    }
+
+    #[test]
+    fn inspect_over_the_bridge_converts_an_obj() {
+        let (fixture, state) = open_synthetic_for_models();
+        let policy = policy_over(&fixture);
+        let obj = fixture.dir.path().join("import").join(CUBE_OBJ);
+        let report = json_of(call(
+            &state,
+            &policy,
+            "inspect_map_import",
+            json!({ "map": 0, "source": { "files": [obj.to_str().unwrap()] },
+                    "options": { "unit": 16, "colors": 16 } }),
+        ));
+        assert_eq!(report[0]["part"], "model");
+        assert_eq!(report[0]["state"], json!({ "kind": "ok" }));
+        let preview = &report[0]["preview"];
+        assert_eq!(preview["model"]["stats"]["quads"], 6);
+        assert_eq!(preview["model"]["format"], "obj");
+        assert_eq!(preview["model"]["budget"]["max"], 0xF000);
+        assert_eq!(preview["model"]["budget"]["state"], "calm");
+        assert_eq!(preview["textures"][0]["name"], "g4_imp_cube");
+        assert_eq!(preview["textures"][0]["new"], true);
+        assert_eq!(preview["style"], "outdoor");
+        // Without options the defaults apply (16 colours).
+        let report = json_of(call(
+            &state,
+            &policy,
+            "inspect_map_import",
+            json!({ "map": 0, "source": { "files": [obj.to_str().unwrap()] } }),
+        ));
+        assert_eq!(report[0]["preview"]["textures"][0]["colors"], 16);
+    }
+
+    #[test]
+    fn options_out_of_range_over_the_bridge() {
+        let (fixture, state) = open_synthetic_for_models();
+        let policy = policy_over(&fixture);
+        let obj = fixture.dir.path().join("import").join(CUBE_OBJ);
+        let obj = obj.to_str().unwrap();
+        for (name, args) in [
+            (
+                "inspect_map_import",
+                json!({ "map": 0, "source": { "files": [obj] }, "options": { "unit": 0 } }),
+            ),
+            (
+                "import_map_parts",
+                json!({ "map": 0, "source": { "files": [obj] }, "parts": ["model"],
+                        "options": { "colors": 8 } }),
+            ),
+        ] {
+            match dispatch(&state, &policy, name, args) {
+                Err(DispatchError::Cmd(e)) => assert_eq!(e.code, "error", "{name}: {e:?}"),
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+        assert!(dirty_impl(&state).unwrap().is_empty());
     }
 
     #[test]

@@ -4,12 +4,14 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { importMapParts, inspectMapImport } from "../../api";
-import type { CheckProblemDto, PartReport } from "../../api";
+import type { CheckProblemDto, ImportPreview, PartReport } from "../../api";
 import { fakeChecks, finding } from "../../checks/checksTesting";
 import type { ChecksApi } from "../../checks/useChecks";
 import { typeInto } from "../../ui/primitives/testUtils";
+import { openFiles } from "../../platform/dialogs";
 import { ImportPartsDialog } from "./ImportPartsDialog";
 
+vi.mock("../../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../platform/dialogs")>()), openFiles: vi.fn() }));
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), inspectMapImport: vi.fn(), importMapParts: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -145,6 +147,158 @@ describe("ImportPartsDialog", () => {
     await act(async () => void area.blur());
     await flush();
     expect(inspectMapImport).toHaveBeenLastCalledWith(5, { files: ["/a/m.nsbmd", "/a/m.per"] });
+  });
+
+  describe("converted models and images", () => {
+    const preview: ImportPreview = {
+      pack: 0,
+      area: 0,
+      style: "outdoor",
+      vram_bytes: 23544,
+      vram_limit: 110640,
+      textures: [{ name: "g4_imp_cube", file: "/p/g4_imp_cube.png", width: 16, height: 16, colors: 16, new: true, mean_error: 7.6 }],
+      model: { format: "obj", stats: { polygons: 6, quads: 6, triangles: 0, dropped: 0 }, strips: 2, single_quads: 0, budget: { used: 21740, max: 61440, state: "calm" } },
+      files: ["/p/a.obj"],
+    };
+    const cube: PartReport = {
+      part: "model",
+      file: "/p/a.obj",
+      size: 21740,
+      state: { kind: "ok" },
+      notes: [{ code: "model.converted", args: ["OBJ", "6", "6", "0", "2", "0"], message: "OBJ model converted" }],
+      preview,
+    };
+    const units = () => dialog().querySelector<HTMLInputElement>("input[aria-label='Einheit']");
+    const colours = () => dialog().querySelector<HTMLElement>("[aria-label='Farben je Textur']");
+    async function showFiles(paths: string, tinker = false) {
+      await act(async () => root.render(<ImportPartsDialog map={5} open onClose={onClose} mapCount={600} onImported={onImported} tinker={tinker} />));
+      await act(async () => button("Datei")!.click());
+      const area = dialog().querySelector<HTMLTextAreaElement>("textarea")!;
+      await act(async () => void area.focus());
+      typeInto(area, paths);
+      await act(async () => void area.blur());
+      await flush();
+    }
+
+    it("a_model_file_shows_the_options_and_the_preview", async () => {
+      vi.mocked(inspectMapImport).mockResolvedValue([cube]);
+      await showFiles("/p/a.obj");
+      expect(inspectMapImport).toHaveBeenLastCalledWith(5, { files: ["/p/a.obj"] }, { unit: 16, colors: 16 });
+      const convert = dialog().querySelector<HTMLElement>("[data-import-convert]")!;
+      expect(convert.textContent).toContain("Umwandeln");
+      expect(convert.textContent).toContain("Farben je Textur");
+      expect(colours()).not.toBeNull();
+      expect(units()!.value).toBe("16");
+      expect(convert.textContent).toContain("Welteinheiten je Modelleinheit; 16 = eine Kachel");
+      const list = dialog().querySelector("[role=list][aria-label='Teile']")!;
+      expect(list.textContent).toContain("OBJ · 6 Vierecke · 0 Dreiecke · 2 Streifen");
+      expect(list.textContent).toContain("g4_imp_cube · 16 × 16 · 16 Farben · neu");
+      expect(list.textContent).toContain("VRAM des Gebiets 23.544 B · Vanilla höchstens 110.640 B");
+      const budget = list.querySelector<HTMLElement>("[data-budget-state]")!;
+      expect(budget.dataset.budgetState).toBe("calm");
+      expect(budget.textContent).toContain("Modell");
+      expect(budget.querySelector("[role=meter]")!.getAttribute("aria-valuetext")).toBe("21.740 von 61.440 B");
+      expect(budget.querySelector("[data-tech]")).toBeNull();
+      expect(box("Modell").getAttribute("aria-checked")).toBe("true");
+      expect(button("1 Teil übernehmen")).toBeDefined();
+    });
+
+    it("shows_the_limit_in_hex_when_tinkering", async () => {
+      vi.mocked(inspectMapImport).mockResolvedValue([cube]);
+      await showFiles("/p/a.obj", true);
+      expect(dialog().querySelector("[data-budget-state] [data-tech]")!.textContent).toBe("0xF000");
+    });
+
+    it("changing_colours_inspects_again_with_options", async () => {
+      vi.mocked(inspectMapImport).mockResolvedValue([cube]);
+      await showFiles("/p/a.obj");
+      expect(inspectMapImport).toHaveBeenCalledTimes(1);
+      const four = [...colours()!.querySelectorAll("button")].find((b) => b.textContent === "4")!;
+      await act(async () => four.click());
+      await flush();
+      expect(inspectMapImport).toHaveBeenCalledTimes(2);
+      expect(inspectMapImport).toHaveBeenLastCalledWith(5, { files: ["/p/a.obj"] }, { unit: 16, colors: 4 });
+      // A new unit inspects again; one out of range says so and asks nothing.
+      await act(async () => void units()!.focus());
+      typeInto(units()!, "0,5");
+      await act(async () => void units()!.blur());
+      await flush();
+      expect(inspectMapImport).toHaveBeenLastCalledWith(5, { files: ["/p/a.obj"] }, { unit: 0.5, colors: 4 });
+      await act(async () => void units()!.focus());
+      typeInto(units()!, "300");
+      await act(async () => void units()!.blur());
+      await flush();
+      expect(dialog().textContent).toContain("Zwischen 0,0625 und 256.");
+      expect(inspectMapImport).toHaveBeenCalledTimes(3);
+    });
+
+    it("a_png_only_shows_colours_not_unit", async () => {
+      vi.mocked(inspectMapImport).mockResolvedValue([
+        { part: "textures", file: null, size: 512, state: { kind: "ok" }, notes: [], preview: { ...preview, model: null, files: ["/p/gras.png"] } },
+      ]);
+      await showFiles("/p/gras.png");
+      expect(inspectMapImport).toHaveBeenLastCalledWith(5, { files: ["/p/gras.png"] }, { colors: 16 });
+      expect(dialog().textContent).toContain("Umwandeln");
+      expect(colours()).not.toBeNull();
+      expect(units()).toBeNull();
+      expect(dialog().querySelector("[data-budget-state]")).toBeNull();
+      expect(box("Texturen").getAttribute("aria-checked")).toBe("true");
+    });
+
+    it("shows_no_options_for_parts_that_are_not_converted", async () => {
+      await showFiles("/p/a.nsbmd");
+      expect(inspectMapImport).toHaveBeenLastCalledWith(5, { files: ["/p/a.nsbmd"] });
+      expect(dialog().querySelector("[data-import-convert]")).toBeNull();
+    });
+
+    it("an_oversize_model_is_not_selectable_and_says_why", async () => {
+      vi.mocked(inspectMapImport).mockResolvedValue([
+        {
+          ...cube,
+          size: 139264,
+          state: { kind: "error", code: "model.too-big", args: ["139264", "61440"], message: "model is 139264 bytes" },
+          preview: { ...preview, model: { ...preview.model!, budget: { used: 139264, max: 61440, state: "full" } } },
+        },
+      ]);
+      await showFiles("/p/a.obj");
+      const list = dialog().querySelector("[role=list][aria-label='Teile']")!;
+      expect(list.textContent).toContain("Das Modell ist 139.264 Byte groß, erlaubt sind 61.440. Wähle ein kleineres Modell.");
+      expect(box("Modell").getAttribute("aria-disabled") === "true" || box("Modell").hasAttribute("data-disabled")).toBe(true);
+      expect(box("Modell").getAttribute("aria-checked")).toBe("false");
+      expect(list.querySelector<HTMLElement>("[data-budget-state]")!.dataset.budgetState).toBe("full");
+      expect(button("0 Teile übernehmen")!.disabled).toBe(true);
+    });
+
+    it("the_system_dialog_offers_parts_and_models", async () => {
+      const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+      w.__TAURI_INTERNALS__ = {};
+      try {
+        vi.mocked(openFiles).mockResolvedValue(["/p/a.obj"]);
+        vi.mocked(inspectMapImport).mockResolvedValue([cube]);
+        await act(async () => root.render(<ImportPartsDialog map={5} open onClose={onClose} mapCount={600} onImported={onImported} />));
+        await act(async () => button("Datei")!.click());
+        await act(async () => button("Dateien wählen…")!.click());
+        await flush();
+        expect(openFiles).toHaveBeenCalledWith({
+          title: "Teile oder Modelle wählen",
+          filters: [{ name: "Kartenteile und Modelle", extensions: ["nsbmd", "bmd", "per", "mp", "bld", "bdhc", "bgs", "bin", "obj", "gltf", "glb", "png"] }],
+        });
+        expect(inspectMapImport).toHaveBeenLastCalledWith(5, { files: ["/p/a.obj"] }, { unit: 16, colors: 16 });
+      } finally {
+        delete w.__TAURI_INTERNALS__;
+      }
+    });
+
+    it("import_passes_the_options", async () => {
+      vi.mocked(inspectMapImport).mockResolvedValue([cube]);
+      await showFiles("/p/a.obj");
+      const four = [...colours()!.querySelectorAll("button")].find((b) => b.textContent === "4")!;
+      await act(async () => four.click());
+      await flush();
+      await act(async () => button("1 Teil übernehmen")!.click());
+      await flush();
+      expect(importMapParts).toHaveBeenCalledWith(5, { files: ["/p/a.obj"] }, ["model"], false, { unit: 16, colors: 4 });
+    });
   });
 
   it("shows_a_refused_import_and_reports_no_change", async () => {

@@ -34,6 +34,24 @@ describe("map import commands", () => {
     expect(invoke).toHaveBeenLastCalledWith("export_map_part", { map: 6, part: "bdhc", path: "/p/0006.bdhc" });
   });
 
+  it("passes the conversion options only when they are given", async () => {
+    await inspectMapImport(187, { files: ["/p/a.obj"] }, { unit: 16, colors: 4 });
+    expect(invoke).toHaveBeenLastCalledWith("inspect_map_import", { map: 187, source: { files: ["/p/a.obj"] }, options: { unit: 16, colors: 4 } });
+    await inspectMapImport(187, { files: ["/p/a.obj"] });
+    expect(invoke).toHaveBeenLastCalledWith("inspect_map_import", { map: 187, source: { files: ["/p/a.obj"] } });
+    expect(invoke.mock.lastCall?.[1]).not.toHaveProperty("options");
+    await importMapParts(187, { files: ["/p/a.obj", "/p/b.png"] }, ["model", "textures"], false, { colors: 16 });
+    expect(invoke).toHaveBeenLastCalledWith("import_map_parts", {
+      map: 187,
+      source: { files: ["/p/a.obj", "/p/b.png"] },
+      parts: ["model", "textures"],
+      keepBuildings: false,
+      options: { colors: 16 },
+    });
+    await importMapParts(187, { files: ["/p/a.obj"] }, ["model"]);
+    expect(invoke.mock.lastCall?.[1]).not.toHaveProperty("options");
+  });
+
   it("passes the reports and changed assets through", async () => {
     const report = [{ part: "model", file: "/p/a.nsbmd", size: 1024, state: { kind: "warning", code: "model.unaligned", args: ["1022"], message: "model length 1022 is not a multiple of 4" }, notes: [] }];
     invoke.mockResolvedValueOnce(report);

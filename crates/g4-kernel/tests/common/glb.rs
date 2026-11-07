@@ -1,6 +1,7 @@
-//! Readers of the GLB apicula writes, shared by the oracle tests of the baker (`tests/bake.rs`)
-//! and of the world bake (`tests/world_bake.rs`): the chunks, the accessors and the set of
-//! (corner, uv) pairs compared against the baker's input.
+//! Readers of the GLB apicula writes, shared by the oracle tests of the baker (`tests/bake.rs`),
+//! of the model import (`tests/model_import.rs`) and of the world bake (`tests/world_bake.rs`):
+//! the chunks, the accessors and the set of (corner, uv) pairs compared against the baker's
+//! input (6.1, 6.3b, 6.5a, 6.5b).
 #![allow(dead_code)]
 
 use std::collections::BTreeSet;
@@ -58,12 +59,25 @@ pub fn input_set(faces: &[Face]) -> CornerSet {
         .collect()
 }
 
-/// The (corner, uv) pairs of a GLB whose textures are all 16 × 16 texels.
+/// The corners of every primitive of the GLB, positions rounded to world units, uvs read as
+/// of a texture 16 texels wide and high, in 1/16 texel.
 pub fn glb_set(json: &serde_json::Value, bin: &[u8]) -> CornerSet {
-    glb_corners(json, bin)
-        .into_iter()
-        .map(|(c, _, t)| (c, uv_of(t, (16, 16))))
-        .collect()
+    let mut set = CornerSet::new();
+    for mesh in json["meshes"].as_array().unwrap() {
+        for prim in mesh["primitives"].as_array().unwrap() {
+            let attrs = &prim["attributes"];
+            let pos = accessor(json, bin, attrs["POSITION"].as_u64().unwrap() as usize, 3);
+            let uv = accessor(json, bin, attrs["TEXCOORD_0"].as_u64().unwrap() as usize, 2);
+            assert_eq!(pos.len(), uv.len());
+            for (p, t) in pos.iter().zip(&uv) {
+                let c = [p[0], p[1], p[2]].map(|v| v.round() as i32);
+                // u · 16 texels (width 16), in 1/16 texel.
+                let st = [t[0], t[1]].map(|v| (v * 16.0 * 16.0).round() as i32);
+                set.insert((c, st));
+            }
+        }
+    }
+    set
 }
 
 /// (corner, texture, uv in 1/16 texel modulo the texture's size) of every corner: the baker

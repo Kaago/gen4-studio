@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { open as tauriOpen, save as tauriSave, ask as tauriAsk } from "@tauri-apps/plugin-dialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ask, openPath, projectFromUrl, savePath } from "./dialogs";
+import { ask, openFiles, openPath, projectFromUrl, savePath } from "./dialogs";
 import { WebDialogHost } from "./WebDialogHost";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }));
@@ -234,6 +234,16 @@ describe("dialogs inside Tauri", () => {
     vi.mocked(tauriOpen).mockResolvedValue("/roms/pt.nds");
     await expect(openPath({ directory: false, title: "ROM-Datei wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] })).resolves.toBe("/roms/pt.nds");
     expect(tauriOpen).toHaveBeenCalledWith({ directory: false, multiple: false, title: "ROM-Datei wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] });
+  });
+
+  it("forwards the filters of openFiles and wraps a single pick", async () => {
+    vi.mocked(tauriOpen).mockResolvedValueOnce(["/p/a.obj", "/p/b.png"]).mockResolvedValueOnce("/p/a.per").mockResolvedValueOnce(null);
+    const filters = [{ name: "Kartenteile und Modelle", extensions: ["obj", "png"] }];
+    await expect(openFiles({ title: "Teile oder Modelle wählen", filters })).resolves.toEqual(["/p/a.obj", "/p/b.png"]);
+    expect(tauriOpen).toHaveBeenLastCalledWith({ directory: false, multiple: true, title: "Teile oder Modelle wählen", filters });
+    await expect(openFiles({ title: "Teile wählen" })).resolves.toEqual(["/p/a.per"]);
+    expect(tauriOpen).toHaveBeenLastCalledWith({ directory: false, multiple: true, title: "Teile wählen" });
+    await expect(openFiles({})).resolves.toBeNull();
   });
 
   it("keeps the .nds filter for a ROM and none for other save paths", async () => {
