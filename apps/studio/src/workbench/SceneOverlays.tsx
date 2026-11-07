@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FloatingToolbar, isLowView, shownAnchor, toolbarMinHeight } from "../ui/frame/FloatingToolbar";
 import { RecipeBar } from "../ui/frame/RecipeBar";
 import { useShell } from "../ui/frame/ShellContext";
@@ -48,6 +48,12 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
   const tools = toolsFor(target !== null);
   const sub = tool === "paint" && target !== null ? paintState.sub : null;
   const paint = useMemo(() => (sub === null ? null : { tools: PAINT_TOOLS, sub, onSub: (s: PaintSub) => setPaint({ sub: s }) }), [sub, setPaint]);
+  // Height and ramp paint steps: choosing one shows the layer „Höhen“ (the rule of the layer bar hides „Gelände“ then); leaving them
+  // keeps the layer as it is.
+  const { onShowHeights } = layers;
+  useEffect(() => {
+    if (sub === "height" || sub === "ramp") onShowHeights(true);
+  }, [sub, onShowHeights]);
   // „Raum anlegen“ puts the door outside into the selected area or room.
   const onRecipe = useCallback(
     (id: RecipeEntry["id"]) => {

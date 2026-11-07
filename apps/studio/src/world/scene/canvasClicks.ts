@@ -11,7 +11,8 @@ import type { SceneRefs } from "./types";
  * else the matrix cell of the loaded map under it, and on empty ground does nothing (it never paints); `paint` selects a
  * marker or building the same way (never a cell) and else sets collision on the tile under the cursor; the adding tools
  * (figure, door, trigger, sign, building) report the tile under it and select nothing.
- * Dragging still orbits. Starts listening on the canvas; the returned function stops it.
+ * Dragging still orbits. While a paint sub-tool paints a world map (`paint.sub` set) the canvas belongs to `strokes.ts` and clicks do
+ * nothing here; painting a binary map stays the collision click. Starts listening on the canvas; the returned function stops it.
  */
 export function attachCanvasClicks(h: SceneHost, picker: Picker, refs: SceneRefs): () => void {
   const canvas = h.canvas;
@@ -64,6 +65,7 @@ export function attachCanvasClicks(h: SceneHost, picker: Picker, refs: SceneRefs
     down = null;
     if (!start || e.button !== 0 || !isClick(start, { x: e.clientX, y: e.clientY })) return;
     const cb = refs.callbacks.current;
+    if (cb.paint.sub !== null) return;
     if (cb.tool === "select") {
       if (select(e)) return;
       const picked = picker.pickTile(e.clientX, e.clientY);

@@ -125,7 +125,7 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       if (paintTarget && inWorld && !inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat) {
         const action = paintKey(e.key);
         if (action !== null) {
-          if (latest.current.toolsShown()) painting.set(paintPatch(painting.state, action));
+          if (latest.current.toolsShown()) painting.set((state) => paintPatch(state, action));
           else latest.current.onToolsHidden();
           return;
         }

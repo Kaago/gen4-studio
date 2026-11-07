@@ -14,6 +14,7 @@ import { disposeTree } from "../sceneUtil";
 import { focusHeight, topDownFrame } from "./camera";
 import { setDraft } from "./draft";
 import { snapshot } from "./snapshot";
+import { disposeStrokePreviews } from "./strokePreview";
 import type { Loaded } from "./types";
 
 /** The top-down camera stands this far above the height it looks at; its depth range reaches far below that height. */
@@ -85,6 +86,10 @@ export class SceneHost {
   private frame: THREE.Mesh | null = null;
   /** The draft layer: what an open wizard plans, dashed and half transparent (see `setDraft`); the loaders never touch it. */
   readonly draft = new THREE.Group();
+  /** The plates and frame of the paint strokes on their way (see `strokePreview`); the loaders never touch it. */
+  readonly paintPreview = new THREE.Group();
+  /** A paint sub-tool is active: the left button paints instead of turning or panning the camera (see `setPaintPointer`). */
+  private paintPointer = false;
   /** How many cells, tiles and markers the draft layer draws. */
   draftCount = 0;
   /** Map id to the faces of its world mesh, for every shown map that is a world map (see `noteWorldMesh`). */
@@ -114,6 +119,7 @@ export class SceneHost {
     this.scene.add(this.content);
     this.scene.add(this.cellFrame);
     this.scene.add(this.draft);
+    this.scene.add(this.paintPreview);
 
     const resize = () => {
       const w = Math.max(el.clientWidth, 1);
@@ -206,14 +212,34 @@ export class SceneHost {
     this.controls.dispose();
     this.camera = camera;
     this.controls = new OrbitControls(camera, this.renderer.domElement);
-    const slanted = camera === this.slanted;
-    this.controls.enableRotate = slanted;
-    // From above the left button (and one finger) pans, the view never turns; the slanted view keeps the controls' defaults.
-    if (!slanted) {
-      this.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
-      this.controls.touches.ONE = THREE.TOUCH.PAN;
-    }
+    this.controls.enableRotate = camera === this.slanted;
+    this.applyPointer();
     this.controls.addEventListener("change", this.render);
+  }
+
+  /**
+   * While a paint sub-tool is active (`on`) the left button paints: the controls give it no action, the middle button pans and the right
+   * one does nothing (it picks a tile, no context menu). Off: the mapping of the camera again (slanted: the controls' defaults; from
+   * above the left button and one finger pan, the view never turns). A camera switch keeps the choice.
+   */
+  setPaintPointer(on: boolean): void {
+    this.paintPointer = on;
+    this.applyPointer();
+  }
+
+  /** Whether the left button paints (see `setPaintPointer`). */
+  get paintsWithPointer(): boolean {
+    return this.paintPointer;
+  }
+
+  private applyPointer() {
+    const slanted = this.camera === this.slanted;
+    const buttons = this.controls.mouseButtons;
+    const free = slanted ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+    buttons.LEFT = this.paintPointer ? null : free;
+    buttons.MIDDLE = this.paintPointer ? THREE.MOUSE.PAN : THREE.MOUSE.DOLLY;
+    buttons.RIGHT = this.paintPointer ? null : THREE.MOUSE.PAN;
+    this.controls.touches.ONE = this.paintPointer ? null : slanted ? THREE.TOUCH.ROTATE : THREE.TOUCH.PAN;
   }
 
   /** Sets the colour the scene is cleared with (the theme's world surface). It does not render, and touches neither models nor content. */
@@ -268,6 +294,7 @@ export class SceneHost {
     this.disposed = true;
     this.setCellFrame(null);
     setDraft(this, null, null);
+    disposeStrokePreviews(this);
     if (this.markers) disposeMarkers(this.markers);
     this.buildings?.dispose();
     this.observer.disconnect();

@@ -1650,7 +1650,7 @@ function AppBody() {
                 pane={pane}
                 status={
                   <StatusLine
-                    left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
+                    left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} hover={pins.hover} depth={depth} /> : area === "texte" ? <TextHints /> : null}
                     middle={
                       showsWizard || startOpen ? (
                         <WizardStep />

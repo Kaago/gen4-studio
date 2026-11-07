@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { JSX, MutableRefObject, ReactNode } from "react";
 import { getMap } from "../../api";
+import type { WorldGetDto } from "../../api.world";
 import { useTextProject } from "../../textproject/TextProjectContext";
 import type { PaintOptions, PaintSub } from "../../world/paint/ops";
 import { useMatrixSelection, useWorkbench } from "../WorkbenchContext";
@@ -10,11 +11,18 @@ export interface PaintState extends PaintOptions {
   sub: PaintSub;
 }
 
+/** A change of the paint state: the fields to set, or a function of the current state giving them (never a stale snapshot). */
+export type PaintPatch = Partial<PaintState> | ((state: PaintState) => Partial<PaintState>);
+
 export interface PaintModel {
   state: PaintState;
-  set(patch: Partial<PaintState>): void;
+  set(patch: PaintPatch): void;
   /** the selected cell's map when it is a world map of the text project */
   target: number | null;
+  /** The world of `target` as the paint session read it last (null: none yet); Tüfteln's status line names its tokens. */
+  world?: WorldGetDto | null;
+  /** The scene's paint session hands its world here (see `world`). */
+  publishWorld?: (world: WorldGetDto | null) => void;
 }
 
 /** The brush with the first tile of a package on the ground layer, a ramp of one step uphill to the east. The palette picks a real tile. */
@@ -49,7 +57,7 @@ function useSelectedMap(): number | null {
  */
 export function PaintProvider({ children, bridge }: { children: ReactNode; bridge?: MutableRefObject<PaintModel | null> }): JSX.Element {
   const [state, setState] = useState<PaintState>(INITIAL_PAINT);
-  const set = useCallback((patch: Partial<PaintState>) => setState((s) => ({ ...s, ...patch })), []);
+  const set = useCallback((patch: PaintPatch) => setState((s) => ({ ...s, ...(typeof patch === "function" ? patch(s) : patch) })), []);
   const textProject = useTextProject().active;
   const map = useSelectedMap();
   const { bus } = useWorkbench();
@@ -75,7 +83,9 @@ export function PaintProvider({ children, bridge }: { children: ReactNode; bridg
     };
   }, [asked, bus]);
   const target = asked !== null && world?.map === asked && world.world ? asked : null;
-  const model = useMemo<PaintModel>(() => ({ state, set, target }), [state, set, target]);
+  const [published, publishWorld] = useState<WorldGetDto | null>(null);
+  const shownWorld = published !== null && published.map === target ? published : null;
+  const model = useMemo<PaintModel>(() => ({ state, set, target, world: shownWorld, publishWorld }), [state, set, target, shownWorld]);
   useLayoutEffect(() => {
     if (!bridge) return;
     bridge.current = model;

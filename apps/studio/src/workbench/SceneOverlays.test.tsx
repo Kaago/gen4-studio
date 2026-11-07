@@ -23,6 +23,7 @@ describe("SceneOverlays", () => {
   let root: Root;
   const onTool = vi.fn();
   const onShowPermissions = vi.fn();
+  const onShowHeights = vi.fn();
   const onShowEvents = vi.fn();
   const onOpenWizard = vi.fn();
   beforeEach(() => {
@@ -30,7 +31,7 @@ describe("SceneOverlays", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    for (const f of [onTool, onShowPermissions, onShowEvents, onOpenWizard]) f.mockReset();
+    for (const f of [onTool, onShowPermissions, onShowHeights, onShowEvents, onOpenWizard]) f.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -40,7 +41,7 @@ describe("SceneOverlays", () => {
 
   const show = (over: Partial<WorkbenchData> = {}, paint?: PaintModel) => {
     const data = { tool: "select", onTool, eventFileId: 3, eventLock: null, selected: 7, onOpenWizard, ...over } as unknown as WorkbenchData;
-    const layers = { showPermissions: true, showHeights: false, showEvents: false, onShowPermissions, onShowHeights: () => {}, onShowEvents };
+    const layers = { showPermissions: true, showHeights: false, showEvents: false, onShowPermissions, onShowHeights, onShowEvents };
     act(() =>
       root.render(
         <ShellProvider>
@@ -98,6 +99,17 @@ describe("SceneOverlays", () => {
     expect(container.querySelector("[data-paint-tools]")).toBeNull();
     show({ tool: "paint" }, model(null));
     expect(container.querySelector("[data-paint-tools]")).toBeNull();
+  });
+
+  it("height_and_ramp_show_the_height_layer", () => {
+    const model = (sub: PaintModel["state"]["sub"]): PaintModel => ({ state: { sub, layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 });
+    show({ tool: "paint" }, model("brush"));
+    expect(onShowHeights).not.toHaveBeenCalled();
+    show({ tool: "paint" }, model("height"));
+    expect(onShowHeights).toHaveBeenCalledWith(true);
+    onShowHeights.mockReset();
+    show({ tool: "paint" }, model("ramp"));
+    expect(onShowHeights).toHaveBeenCalledWith(true);
   });
 
   it("takes_the_anchor_from_the_shell_and_writes_it_back", () => {

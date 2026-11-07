@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorModel } from "../workbench/Inspector";
 import type { AreaId, Tool } from "../ui/frame/shellState";
-import type { PaintModel, PaintState } from "../workbench/paint/PaintContext";
+import type { PaintModel, PaintPatch, PaintState } from "../workbench/paint/PaintContext";
 import { useShortcuts } from "./useShortcuts";
 
 vi.mock("../api", () => ({ undo: vi.fn(), redo: vi.fn() }));
@@ -461,12 +461,24 @@ describe("useShortcuts", () => {
     const painting = (target: number | null, state: Partial<PaintState> = {}) => {
       const model: PaintModel = {
         state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, ...state },
-        set: vi.fn((patch: Partial<PaintState>) => void (model.state = { ...model.state, ...patch })),
+        set: vi.fn((patch: PaintPatch) => void (model.state = { ...model.state, ...(typeof patch === "function" ? patch(model.state) : patch) })),
         target,
       };
       handlers.paint = () => model;
       return model;
     };
+
+    it("two_fast_turns_build_on_each_other", async () => {
+      // The shortcut hands `set` an updater: two keys before a render both see the state the first one left.
+      mountWith(none);
+      handlers.tool = "paint";
+      const model = painting(120);
+      const stale = model.state;
+      handlers.paint = () => ({ ...model, state: stale });
+      await press({ key: "z" });
+      await press({ key: "z" });
+      expect(model.state.tile).toBe("0041r2");
+    });
 
     it("g_fills_while_painting_a_world_map_and_builds_otherwise", async () => {
       mountWith(none);
