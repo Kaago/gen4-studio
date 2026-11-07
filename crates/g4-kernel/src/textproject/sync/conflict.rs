@@ -10,6 +10,12 @@
 //! | both sides, or DSPRE's side with an unsaved value (`other = dspre`) | the member from the source; unsaved values stay unsaved and untouched (when the source changed on disk too, the next save of them is `Stale`); clean loaded assets whose source changed are loaded anew | the source from the member; every loaded asset is loaded anew, unsaved values go |
 //! | the source with an unsaved value (`other = files`) | the member from the changed source, which becomes the store's base ([`Store::accept_disk_as_base`]): the next save overwrites it | the member from the changed source; the assets are loaded anew, unsaved values go |
 //!
+//! A world map's unit (`world`) is judged by its world record: a member changed outside the
+//! Studio is always a conflict (`other = dspre`), whose Studio's version is „Neu backen“ (the
+//! member baked from the world, recorded anew) and whose other is „Als binäre Karte
+//! übernehmen“ (the JSON from the member as a binary map, the world and its record gone,
+//! [`take_member_as_binary`](crate::world::build::take_member_as_binary)).
+//!
 //! A script whose source stays is made stale in rotom's compile state, so the next build
 //! compiles it over DSPRE's member. Every choice records the unit, so the next scan finds
 //! nothing in it. A unit that cannot be taken over is refused with the reason (rotom does not
@@ -24,6 +30,7 @@ use crate::project::{AssetId, Project};
 use crate::scripts;
 use crate::store::Store;
 use crate::text::Problem;
+use crate::world::BakeMode;
 
 use super::watch::{Of, of_unit};
 use super::{ScanReport, SyncUnit, UnitSide, apply, apply_one_sided, locked, scan};
@@ -63,6 +70,9 @@ pub struct ConflictEntry {
     pub assets: Vec<AssetId>,
     pub unsaved: bool,
     pub other: Other,
+    /// A world map's member changed outside the Studio: „Neu backen“ ([`Keep::Studio`]) or
+    /// „Als binäre Karte übernehmen“ ([`Keep::Dspre`]).
+    pub world: bool,
 }
 
 /// A unit whose source does not read, with why.
@@ -149,6 +159,7 @@ pub fn sync_store(store: &mut Store, scan: ScanReport) -> Result<SyncOutcome, Ke
                 assets: unit.assets.clone(),
                 unsaved,
                 other: other_of(unit),
+                world: unit.world && unit.side == UnitSide::Conflict,
             });
         } else if unit.side == UnitSide::Broken {
             outcome.broken.push(BrokenEntry {
@@ -269,8 +280,9 @@ fn choose(
     for u in report.units.iter_mut().filter(|u| u.key == key) {
         u.side = from;
     }
+    // A world map's member from the world wins over one changed outside („Neu backen“).
     let applied = locked(&project.root, || {
-        apply::apply_keys(project, &report, &|u| u.key != key)
+        apply::apply_keys(project, &report, &|u| u.key != key, BakeMode::Rebake)
     })?;
     if !applied.taken.iter().any(|k| k == key) {
         let why = applied.failed.into_iter().find(|(k, _)| k == key);

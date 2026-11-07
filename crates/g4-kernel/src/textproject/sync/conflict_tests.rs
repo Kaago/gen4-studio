@@ -643,3 +643,350 @@ fn conflict_diff_of_an_unsaved_unit_with_a_changed_json_shows_the_file() {
         diff
     );
 }
+
+// Phase 6.3b, Task 6: a world map's member is the bake's output; the sync judges it by its
+// world record (`world_side`), so a member DSPRE changed is always a conflict (`world: true`)
+// with „Neu backen“ (`Keep::Studio`) and „Als binäre Karte übernehmen“ (`Keep::Dspre`).
+
+mod world {
+    use super::*;
+    use crate::build::state::BuildState;
+    use crate::test_support::world_built;
+    use crate::world::edit::{WorldEditRequest, world_edit};
+    use crate::world::grid::set_token;
+    use crate::world::keep::{world_field, world_parts};
+    use crate::world::{WorldJson, WorldSide, world_side};
+    use g4_formats::game::Family;
+
+    const MAP_0_JSON: &str = "data/maps/0000.json";
+    const MAP_0: AssetId = AssetId {
+        kind: AssetKind::Map,
+        index: 0,
+    };
+
+    /// `world_built()` (maps 0 and 1 world maps, saved and built) recorded for the sync as a
+    /// whole, the record's scan time settled.
+    fn world_recorded() -> TextFixture {
+        let fx = world_built();
+        assert!(record_all(&fx.project()).unwrap() > 0);
+        super::super::tests::settle(&fx);
+        fx
+    }
+
+    fn member(fx: &TextFixture) -> Vec<u8> {
+        std::fs::read(fx.project().member_path(AssetKind::Map, 0)).unwrap()
+    }
+
+    /// DSPRE changes the kind of cell 0 in map 0's member; the bytes it wrote.
+    fn dspre_member(fx: &TextFixture) -> Vec<u8> {
+        let mut outside = member(fx);
+        outside[0x10] ^= 0x01;
+        std::fs::write(fx.project().member_path(AssetKind::Map, 0), &outside).unwrap();
+        outside
+    }
+
+    /// The member a fresh store bakes for map 0 from the files on disk.
+    fn bake_of(fx: &TextFixture) -> Vec<u8> {
+        Store::new(Arc::new(fx.project()))
+            .map(0)
+            .unwrap()
+            .write(Family::Pt)
+    }
+
+    fn side(fx: &TextFixture) -> Option<WorldSide> {
+        world_side(&mut store(fx), 0).unwrap()
+    }
+
+    fn json_of(fx: &TextFixture) -> serde_json::Value {
+        serde_json::from_slice(&fx.read(MAP_0_JSON)).unwrap()
+    }
+
+    fn unit(report: &ScanReport) -> &SyncUnit {
+        report
+            .units
+            .iter()
+            .find(|u| u.key == MAP_0_JSON)
+            .unwrap_or_else(|| panic!("no unit {MAP_0_JSON}: {:?}", report.units))
+    }
+
+    #[test]
+    fn a_member_changed_by_dspre_is_a_world_conflict() {
+        let fx = world_recorded();
+        assert!(changed(&scan_of(&fx)).is_empty(), "the fixture is in step");
+        let outside = dspre_member(&fx);
+        let report = scan_of(&fx);
+        let u = unit(&report);
+        assert_eq!(u.side, UnitSide::Conflict, "{u:?}");
+        assert!(u.world, "{u:?}");
+        // Never taken over one-sided: neither JSON nor member is written.
+        let before = tree(&fx);
+        let applied = apply_one_sided(&fx.project(), &report, &|_| false).unwrap();
+        assert!(
+            applied.dspre.is_empty() && applied.files.is_empty(),
+            "{applied:?}"
+        );
+        assert_eq!(tree(&fx), before);
+        assert_eq!(member(&fx), outside);
+
+        let mut st = store(&fx);
+        let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+        assert!(
+            outcome.adopted.is_empty() && outcome.applied.is_empty(),
+            "{outcome:?}"
+        );
+        assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+        let c = &outcome.conflicts[0];
+        assert_eq!(c.key, MAP_0_JSON);
+        assert!(c.world, "{c:?}");
+        assert!(!c.unsaved);
+        assert_eq!(c.other, Other::Dspre);
+        // A conflict that is not a world map's stays `world: false`.
+        move_conflict(&fx);
+        let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+        let moved = outcome
+            .conflicts
+            .iter()
+            .find(|c| c.key == MOVE_1_JSON)
+            .unwrap_or_else(|| panic!("{outcome:?}"));
+        assert!(!moved.world);
+    }
+
+    #[test]
+    fn rebake_overwrites_the_member_and_records_it() {
+        let fx = world_recorded();
+        let baked = member(&fx);
+        dspre_member(&fx);
+        assert_eq!(side(&fx), Some(WorldSide::MemberChanged));
+        let mut st = store(&fx);
+        sync_store(&mut st, scan_of(&fx)).unwrap();
+        resolve(&mut st, MAP_0_JSON, Keep::Studio).unwrap();
+        assert_eq!(member(&fx), baked);
+        assert_eq!(member(&fx), bake_of(&fx));
+        assert_eq!(side(&fx), Some(WorldSide::InStep));
+        assert!(
+            changed(&scan_of(&fx)).is_empty(),
+            "{:?}",
+            scan_of(&fx).units
+        );
+        // The world stays the source.
+        assert_eq!(json_of(&fx)["source"], "world");
+        // Settled: no conflict left.
+        assert!(matches!(
+            resolve(&mut st, MAP_0_JSON, Keep::Studio),
+            Err(KernelError::Refused(why)) if why == NO_CONFLICT
+        ));
+    }
+
+    #[test]
+    fn take_as_binary_drops_the_world_and_keeps_dspre_bytes() {
+        let fx = world_recorded();
+        let outside = dspre_member(&fx);
+        let mut st = store(&fx);
+        assert!(st.world(0).unwrap().is_some());
+        st.map(0).unwrap();
+        sync_store(&mut st, scan_of(&fx)).unwrap();
+        let reloaded = resolve(&mut st, MAP_0_JSON, Keep::Dspre).unwrap();
+        assert!(reloaded.contains(&MAP_0), "{reloaded:?}");
+        // The member stays byte for byte; the JSON is a binary map with the member's parts.
+        assert_eq!(member(&fx), outside);
+        let json = json_of(&fx);
+        assert_eq!(json["source"], "binary", "{json}");
+        assert!(json.get("world").is_none(), "{json}");
+        for key in ["permissions", "model", "bdhc", "buildings"] {
+            assert!(json.get(key).is_some(), "{key}: {json}");
+        }
+        assert!(!BuildState::load(fx.root()).world.contains_key(&0));
+        assert!(BuildState::load(fx.root()).world.contains_key(&1));
+        assert_eq!(side(&fx), None, "no world map any more");
+        // The store follows: no world, the map is DSPRE's member.
+        assert!(st.world(0).unwrap().is_none());
+        assert_eq!(st.map(0).unwrap().write(Family::Pt), outside);
+        let mut fresh = store(&fx);
+        assert_eq!(fresh.map(0).unwrap().write(Family::Pt), outside);
+        // Recorded: the next scan finds nothing, the build keeps the member.
+        assert!(
+            changed(&scan_of(&fx)).is_empty(),
+            "{:?}",
+            scan_of(&fx).units
+        );
+        crate::build::prepare(&fx.project()).unwrap();
+        assert_eq!(member(&fx), outside);
+    }
+
+    #[test]
+    fn take_member_as_binary_directly() {
+        let fx = world_recorded();
+        let outside = dspre_member(&fx);
+        crate::world::build::take_member_as_binary(&fx.project(), 0).unwrap();
+        assert_eq!(member(&fx), outside);
+        assert_eq!(json_of(&fx)["source"], "binary");
+        assert!(!BuildState::load(fx.root()).world.contains_key(&0));
+        assert!(
+            changed(&scan_of(&fx)).is_empty(),
+            "{:?}",
+            scan_of(&fx).units
+        );
+        // A map that is no world map is refused.
+        assert!(matches!(
+            crate::world::build::take_member_as_binary(&fx.project(), 0),
+            Err(KernelError::Refused(_))
+        ));
+    }
+
+    #[test]
+    fn a_git_change_of_the_world_rebakes_one_sided() {
+        let fx = world_recorded();
+        // Git changes the world: tile 1 (grass) at (5, 5).
+        let file = fx.read(MAP_0_JSON);
+        let mut world: WorldJson = world_field(&file).unwrap().unwrap();
+        world.layers[0].tiles[5] = set_token(&world.layers[0].tiles[5], 5, "0001").unwrap();
+        fx.write(
+            MAP_0_JSON,
+            &world_parts(file, &world, &mut Vec::new()).unwrap(),
+        );
+        assert_eq!(side(&fx), Some(WorldSide::SourceChanged));
+        let report = scan_of(&fx);
+        let u = unit(&report);
+        assert_eq!(u.side, UnitSide::Files, "{u:?}");
+        assert!(u.world);
+        let mut st = store(&fx);
+        let outcome = sync_store(&mut st, report).unwrap();
+        assert!(outcome.conflicts.is_empty(), "{outcome:?}");
+        assert_eq!(
+            outcome
+                .applied
+                .iter()
+                .map(|e| e.key.as_str())
+                .collect::<Vec<_>>(),
+            [MAP_0_JSON]
+        );
+        assert_eq!(member(&fx), bake_of(&fx));
+        let map = g4_formats::map::MapFile::read(&member(&fx), Family::Pt).unwrap();
+        assert_eq!(map.permissions[5 * 32 + 5].kind, 0x02);
+        assert_eq!(side(&fx), Some(WorldSide::InStep));
+        assert!(
+            changed(&scan_of(&fx)).is_empty(),
+            "{:?}",
+            scan_of(&fx).units
+        );
+    }
+
+    #[test]
+    fn dspre_change_with_an_unsaved_stroke_is_a_conflict() {
+        let fx = world_recorded();
+        let mut st = store(&fx);
+        let req: WorldEditRequest = serde_json::from_value(serde_json::json!(
+            {"map": 0, "changes": [{"cells": [[3, 3], [4, 3]], "tile": "0001"}]}
+        ))
+        .unwrap();
+        world_edit(&mut st, &req).unwrap();
+        assert!(st.is_dirty(MAP_0));
+        let stroke = st.map(0).unwrap().write(Family::Pt);
+        let outside = dspre_member(&fx);
+        let json = fx.read(MAP_0_JSON);
+
+        let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+        assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+        let c = &outcome.conflicts[0];
+        assert!(c.world && c.unsaved, "{c:?}");
+        assert_eq!(c.other, Other::Dspre);
+        assert!(outcome.reloaded.is_empty(), "{outcome:?}");
+        // Neither side is lost: DSPRE's member and the JSON on disk, the stroke in the store.
+        assert_eq!(member(&fx), outside);
+        assert_eq!(fx.read(MAP_0_JSON), json);
+        assert!(st.is_dirty(MAP_0));
+        assert_eq!(st.map(0).unwrap().write(Family::Pt), stroke);
+        // The save does not write over DSPRE's member.
+        match st.save() {
+            Err(KernelError::Stale(_)) => {}
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(member(&fx), outside);
+        assert_eq!(fx.read(MAP_0_JSON), json);
+        // The diff shows the stroke's bake against DSPRE's member.
+        let diff = conflict_diff_in(&st, MAP_0_JSON).unwrap();
+        assert!(diff.unsaved);
+        assert!(
+            diff.lines.iter().any(|l| l.path.starts_with("permissions")),
+            "{:?}",
+            diff.lines
+        );
+        // „Neu backen“: the member from the world on disk; the stroke stays unsaved and saves.
+        resolve(&mut st, MAP_0_JSON, Keep::Studio).unwrap();
+        assert!(st.is_dirty(MAP_0));
+        st.save().unwrap();
+        assert_eq!(member(&fx), stroke);
+        assert!(
+            changed(&scan_of(&fx)).is_empty(),
+            "{:?}",
+            scan_of(&fx).units
+        );
+    }
+
+    #[test]
+    fn the_build_refuses_open_world_conflicts() {
+        let fx = world_recorded();
+        let outside = dspre_member(&fx);
+        let mut st = store(&fx);
+        let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+        assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+        let problems = match crate::build::prepare(&fx.project()) {
+            Err(KernelError::Compile(problems)) => problems,
+            other => panic!("{other:?}"),
+        };
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.message.starts_with("world.member-changed:")
+                    && p.file == Path::new(MAP_0_JSON)),
+            "{problems:#?}"
+        );
+        assert_eq!(member(&fx), outside);
+        // Still a conflict afterwards.
+        let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+        assert!(outcome.conflicts.iter().any(|c| c.world), "{outcome:?}");
+    }
+
+    #[test]
+    fn conflict_diff_of_a_world_map_shows_the_member_against_the_bake() {
+        let fx = world_recorded();
+        let baked = g4_formats::map::MapFile::read(&member(&fx), Family::Pt).unwrap();
+        let mut outside = baked.clone();
+        outside.permissions[0].kind ^= 0x01;
+        outside.model.extend_from_slice(&[0; 4]);
+        std::fs::write(
+            fx.project().member_path(AssetKind::Map, 0),
+            outside.write(Family::Pt),
+        )
+        .unwrap();
+        let before = tree(&fx);
+        let diff = conflict_diff(&fx.project(), MAP_0_JSON).unwrap();
+        assert!(!diff.unsaved);
+        let k0 = baked.permissions[0].kind;
+        assert!(
+            diff.lines.contains(&line(
+                "permissions[0].kind",
+                &k0.to_string(),
+                &(k0 ^ 0x01).to_string()
+            )),
+            "{:?}",
+            diff.lines
+        );
+        let size = baked.model.len();
+        assert!(
+            diff.lines.contains(&line(
+                "model",
+                &format!("{size} Byte"),
+                &format!("{} Byte", size + 4)
+            )),
+            "{:?}",
+            diff.lines
+        );
+        assert!(
+            !diff.lines.iter().any(|l| l.path.starts_with("bdhc")),
+            "{:?}",
+            diff.lines
+        );
+        assert_eq!(tree(&fx), before, "nothing written");
+    }
+}

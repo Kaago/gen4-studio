@@ -15,23 +15,25 @@ use serde::Serialize;
 
 use super::bake::{Verbatim, bake_world};
 use super::check::{WORLD_BAKE_CODE, WORLD_MEMBER_CHANGED_CODE};
+use super::doc::WorldJson;
 use super::keep::world_field;
 use super::record::{
-    WorldSide, map_json_rel, member_hash, record_world, side_and_input, world_salt,
+    WorldSide, forget_world, map_json_rel, member_hash, record_world, side_and_input, world_salt,
 };
 use super::tileset::TILESETS_DIR;
 use crate::bake::Level;
 use crate::build::state::WorldRecord;
 use crate::build::step::{Dirty, Step, StepRun};
 use crate::dynamic_headers;
-use crate::error::KernelError;
+use crate::error::{KernelError, io_at};
 use crate::fsutil::Journal;
-use crate::project::{AssetKind, Project};
+use crate::project::{AssetId, AssetKind, Project};
 use crate::store::Store;
 use crate::text::{Problem, Severity};
 use crate::textproject::Art;
 use crate::textproject::arts::numbered;
-use crate::textproject::canon::{problem, write_if_changed};
+use crate::textproject::canon::{problem, to_canonical, write_if_changed};
+use crate::textproject::source::{EntitySource, deleted_on_disk};
 use crate::textproject::sync;
 use crate::textproject::tombstone::DELETED_KEY;
 
@@ -250,6 +252,49 @@ pub fn bake_world_maps(
     written?;
     recorded?;
     Ok(out)
+}
+
+/// „Als binäre Karte übernehmen“: the map JSON written from the member as `source: "binary"`
+/// (world dropped, `EntitySource::write` with WorldMap `None`), the world record of `map`
+/// removed, the unit recorded for the sync.
+///
+/// Refused when `map` is no world map (any more) or has no member. The member is read once and
+/// recorded only while it still holds those bytes (a write of DSPRE meanwhile stays a change).
+pub fn take_member_as_binary(project: &Project, map: u16) -> Result<(), KernelError> {
+    if !world_maps(project)?.contains(&map) {
+        return Err(KernelError::Refused(format!(
+            "Karte {map:04} ist keine Welt-Karte."
+        )));
+    }
+    let path = project.member_path(AssetKind::Map, map);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(KernelError::Refused(format!(
+                "Karte {map:04} hat keinen Member, den sie übernehmen könnte."
+            )));
+        }
+        Err(e) => return Err(io_at(&path)(e)),
+    };
+    let ids = [AssetKind::Map, AssetKind::WorldMap].map(|kind| AssetId { kind, index: map });
+    let writes = [
+        (ids[0], bytes.clone()),
+        (ids[1], to_canonical(&None::<WorldJson>)),
+    ];
+    let journal = Journal::start();
+    let wrote = EntitySource::open(project).and_then(|mut source| {
+        source.write(project, &writes, &|_| None, &deleted_on_disk(&project.root))
+    });
+    let journal = journal.finish();
+    wrote?;
+    forget_world(project, &[map])?;
+    let mut known = sync::noted(project, &journal);
+    known.push((
+        relative(project, &path),
+        sync::Known::Bytes(xxhash_rust::xxh3::xxh3_64(&bytes)),
+    ));
+    sync::before_record("world");
+    sync::record_known(project, &known)
 }
 
 /// `path` relative to the project root (as it is when it lies outside).

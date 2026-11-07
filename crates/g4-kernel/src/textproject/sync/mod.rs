@@ -25,7 +25,10 @@
 //! at all is from DSPRE (an appended member), one with a source but no member from the files.
 //! Texts follow [`TextSync`](crate::text::TextSync) and their records in `texts`; scripts are
 //! in step where rotom's compile state names the source's and the member's hashes, and a
-//! member DSPRE changed is decompiled (broken when rotom cannot).
+//! member DSPRE changed is decompiled (broken when rotom cannot). A world map's member is the
+//! bake's output: its unit (`world`) follows the world record
+//! ([`world_side`](crate::world::world_side)): in step → `InSync`, a changed world (or no
+//! record) → `Files` (the takeover bakes it), a member changed outside → always `Conflict`.
 //!
 //! [`apply_one_sided`] takes the one-sided units over: from DSPRE the JSON (through
 //! [`EntitySource`](super::source::EntitySource)), the text JSON, the script source or the
@@ -100,6 +103,9 @@ pub struct SyncUnit {
     #[serde(serialize_with = "crate::relpath::ser_vec")]
     pub members: Vec<PathBuf>,
     pub problems: Vec<Problem>,
+    /// A world map's unit, judged by its world record ([`crate::world::world_side`]) instead
+    /// of JSON against member: the member is the bake's output.
+    pub world: bool,
 }
 
 /// What [`scan`] found: the units by key, how many files it took the `stat` of and how many it
