@@ -1,0 +1,686 @@
+//! Free-form models of a world (phase 6.5b), the pure part: the canonical side file of a model
+//! and the rules for the names of side files.
+//!
+//! A free-form model of a world map is a side file `data/maps/NNNN.<name>.glb` (`NNNN` the map,
+//! `<name>` from `[a-z0-9_-]{1,32}`); the geometry of a piece is `data/tilesets/PPPP.<name>.glb`.
+//! Every side file is the canonical GLB [`side_glb`] writes from the baker's faces: one primitive
+//! per texture, one material per texture without an image, named after the pack texture; positions
+//! in tiles (world units / [`FREEFORM_UNIT`]), uvs as fractions of the texture (t downwards as in
+//! `model_import`), no node transform. [`side_faces`] reads it back through `read_model` and
+//! `to_faces`, bound only to the pack's textures: the faces come back as written (up to corners at
+//! the position of the one before, which a quad with no area there loses), and a side file written
+//! from what was read is the same bytes.
+
+use std::path::{Component, Path, PathBuf};
+
+use serde_json::json;
+
+use super::bake::{WorldBakeMessage, baker_text};
+use super::tileset::TILESETS_DIR;
+use crate::bake::{BakeCode, Face, PackTexture};
+use crate::error::KernelError;
+use crate::export::write_glb;
+use crate::map_import::PartCode;
+use crate::model_import::mesh::{Binding, to_faces};
+use crate::model_import::read_model;
+use crate::textproject::arts::Art;
+
+/// World units per glTF unit in a side file (one glTF unit is one tile).
+pub const FREEFORM_UNIT: f32 = 16.0;
+/// World units per unit of a GLB apicula writes.
+pub const APICULA_UNIT: f32 = 1.0;
+/// The layer of the faces of free-form models.
+pub const FREEFORM_LAYER: u8 = 254;
+/// A side file that is missing or does not read.
+pub const SIDE_FILE_CODE: &str = "world.side-file";
+/// The most characters of `<name>` in a side file name.
+pub const SIDE_NAME_MAX: usize = 32;
+
+/// The name when nothing of the stem is left.
+const SIDE_NAME_EMPTY: &str = "freiform";
+/// The generator a side file names.
+const GENERATOR: &str = "gen4-studio";
+/// glTF component types and primitive mode.
+const FLOAT: u32 = 5126;
+const UNSIGNED_INT: u32 = 5125;
+const TRIANGLES: u32 = 4;
+
+/// `stem` cleaned for a side file name (lower case, a–z 0–9 `_` `-` kept, every other char `_`, cut to
+/// SIDE_NAME_MAX, empty → "freiform"), `_2`, `_3` … while it is in `taken`.
+pub fn side_name(stem: &str, taken: &[String]) -> String {
+    let clean: String = stem
+        .chars()
+        .map(|c| match c.to_ascii_lowercase() {
+            c @ ('a'..='z' | '0'..='9' | '_' | '-') => c,
+            _ => '_',
+        })
+        .take(SIDE_NAME_MAX)
+        .collect();
+    let base = if clean.is_empty() {
+        SIDE_NAME_EMPTY.to_owned()
+    } else {
+        clean
+    };
+    let free = |name: &String| !taken.contains(name);
+    if free(&base) {
+        return base;
+    }
+    (2usize..)
+        .map(|n| {
+            let suffix = format!("_{n}");
+            // ASCII only: every char is one byte.
+            let keep = base.len().min(SIDE_NAME_MAX.saturating_sub(suffix.len()));
+            format!("{}{suffix}", &base[..keep])
+        })
+        .find(free)
+        .unwrap_or(base)
+}
+
+/// The file name of free-form model `name` of map `map`: `0123.haus.glb`.
+pub fn freeform_file(map: u16, name: &str) -> String {
+    format!("{map:04}.{name}.glb")
+}
+
+/// The path of the free-form side file `file` in the text project: `data/maps/<file>`.
+pub fn freeform_rel(file: &str) -> PathBuf {
+    Art::Maps.dir().join(file)
+}
+
+/// The path of the model side file `name` of package `package`: `data/tilesets/0006.<name>.glb`.
+pub fn piece_rel(package: u16, name: &str) -> PathBuf {
+    Path::new(TILESETS_DIR).join(format!("{package:04}.{name}.glb"))
+}
+
+/// The `<name>` of `file` when it is a side file of `stem` (`NNNN.<name>.glb` with the rule), else None.
+pub fn side_name_of(file: &str, stem: u16) -> Option<&str> {
+    side_parts(file)
+        .filter(|(number, _)| *number == stem)
+        .map(|(_, name)| name)
+}
+
+/// The number and `<name>` of a side file name `NNNN.<name>.glb` (the number as `{:04}` writes
+/// it, the name by the rule), whatever the number; else None.
+pub(crate) fn side_parts(file: &str) -> Option<(u16, &str)> {
+    let (number, rest) = file.split_once('.')?;
+    let name = rest.strip_suffix(".glb")?;
+    let n: u16 = number.parse().ok()?;
+    let canonical = number.bytes().all(|b| b.is_ascii_digit()) && format!("{n:04}") == number;
+    let good = (1..=SIDE_NAME_MAX).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'));
+    (canonical && good).then_some((n, name))
+}
+
+/// A corner as written: position in world units, uv in texels.
+type Corner = ([i32; 3], [i32; 2]);
+
+/// The vertices and triangles of one texture's primitive: quads first, then lone triangles.
+#[derive(Default)]
+struct Primitive {
+    quads: Vec<[Corner; 4]>,
+    triangles: Vec<[Corner; 3]>,
+}
+
+/// The side file of `faces` (rules „Form des Beifiles“), positions divided by `unit`; a face whose texture
+/// is not in `textures` is KernelError::Refused (the caller binds first).
+///
+/// A face is its corners without one at the position of the corner before it (a triangle repeats
+/// corner 2; a wall beside a ramp has two corners at one place); a face of 4 such corners is a
+/// quad, written as the triangles `3 0 1` and `3 1 2` (which `to_faces` pairs back into the quad
+/// with its corners in order), a face of 3 one triangle; triangles without area are left out. Per
+/// texture (in the order of the faces) one primitive, its quads before its lone triangles so that
+/// no lone triangle takes half of a quad when the file is read.
+pub fn side_glb(
+    faces: &[Face],
+    textures: &[PackTexture],
+    unit: f32,
+) -> Result<Vec<u8>, KernelError> {
+    let mut order: Vec<(&PackTexture, Primitive)> = Vec::new();
+    for (i, face) in faces.iter().enumerate() {
+        let Some(texture) = textures.iter().find(|t| t.name == face.texture) else {
+            return Err(KernelError::Refused(format!(
+                "Fläche {i} nutzt die Textur „{}“, die das Kartentextur-Paket nicht hat.",
+                face.texture
+            )));
+        };
+        let at = match order.iter().position(|(t, _)| t.name == texture.name) {
+            Some(at) => at,
+            None => {
+                order.push((texture, Primitive::default()));
+                order.len() - 1
+            }
+        };
+        let primitive = &mut order[at].1;
+        let corners = distinct_corners(face);
+        match corners[..] {
+            [a, b, c, d] => {
+                let halves = [[d, a, b], [d, b, c]];
+                match (has_area(&halves[0]), has_area(&halves[1])) {
+                    (true, true) => primitive.quads.push([a, b, c, d]),
+                    (true, false) => primitive.triangles.push(halves[0]),
+                    (false, true) => primitive.triangles.push(halves[1]),
+                    (false, false) => {}
+                }
+            }
+            [a, b, c] if has_area(&[a, b, c]) => primitive.triangles.push([a, b, c]),
+            _ => {}
+        }
+    }
+
+    let mut bin: Vec<u8> = Vec::new();
+    let mut views = Vec::new();
+    let mut accessors = Vec::new();
+    let mut primitives = Vec::new();
+    let mut materials = Vec::new();
+    for (texture, primitive) in &order {
+        let mut corners: Vec<Corner> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        for quad in &primitive.quads {
+            let base = corners.len() as u32;
+            corners.extend_from_slice(quad);
+            indices.extend([3, 0, 1, 3, 1, 2].map(|k| base + k));
+        }
+        for triangle in &primitive.triangles {
+            let base = corners.len() as u32;
+            corners.extend_from_slice(triangle);
+            indices.extend([0, 1, 2].map(|k| base + k));
+        }
+        if corners.is_empty() {
+            continue;
+        }
+        let size = [f32::from(texture.width), f32::from(texture.height)];
+        let positions: Vec<[f32; 3]> = corners
+            .iter()
+            .map(|c| c.0.map(|v| v as f32 / unit))
+            .collect();
+        let uvs: Vec<[f32; 2]> = corners
+            .iter()
+            .map(|c| [c.1[0] as f32 / size[0], c.1[1] as f32 / size[1]])
+            .collect();
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in &positions {
+            for k in 0..3 {
+                min[k] = min[k].min(p[k]);
+                max[k] = max[k].max(p[k]);
+            }
+        }
+        let mut view = |bytes: Vec<u8>, target: u32| {
+            views.push(json!({
+                "buffer": 0,
+                "byteOffset": bin.len(),
+                "byteLength": bytes.len(),
+                "target": target,
+            }));
+            bin.extend_from_slice(&bytes);
+            views.len() - 1
+        };
+        let floats = |values: &mut dyn Iterator<Item = f32>| -> Vec<u8> {
+            values.flat_map(f32::to_le_bytes).collect()
+        };
+        let position_view = view(floats(&mut positions.iter().flatten().copied()), 34962);
+        let uv_view = view(floats(&mut uvs.iter().flatten().copied()), 34962);
+        let index_view = view(
+            indices.iter().flat_map(|i| i.to_le_bytes()).collect(),
+            34963,
+        );
+        accessors.push(json!({
+            "bufferView": position_view,
+            "componentType": FLOAT,
+            "count": positions.len(),
+            "type": "VEC3",
+            "min": min,
+            "max": max,
+        }));
+        accessors.push(json!({
+            "bufferView": uv_view,
+            "componentType": FLOAT,
+            "count": uvs.len(),
+            "type": "VEC2",
+        }));
+        accessors.push(json!({
+            "bufferView": index_view,
+            "componentType": UNSIGNED_INT,
+            "count": indices.len(),
+            "type": "SCALAR",
+        }));
+        let first = accessors.len() - 3;
+        primitives.push(json!({
+            "attributes": {"POSITION": first, "TEXCOORD_0": first + 1},
+            "indices": first + 2,
+            "material": materials.len(),
+            "mode": TRIANGLES,
+        }));
+        materials.push(json!({"name": texture.name}));
+    }
+
+    let mut document = json!({
+        "asset": {"version": "2.0", "generator": GENERATOR},
+        "scene": 0,
+        "scenes": [{}],
+    });
+    if !primitives.is_empty() {
+        document["scenes"] = json!([{"nodes": [0]}]);
+        document["nodes"] = json!([{"mesh": 0}]);
+        document["meshes"] = json!([{"primitives": primitives}]);
+        document["materials"] = materials.into();
+        document["accessors"] = accessors.into();
+        document["bufferViews"] = views.into();
+        document["buffers"] = json!([{"byteLength": bin.len()}]);
+    }
+    Ok(write_glb(&document, &bin))
+}
+
+/// The corners of `face` without a corner at the position of the one before it (cyclically).
+fn distinct_corners(face: &Face) -> Vec<Corner> {
+    let mut corners: Vec<Corner> = Vec::with_capacity(4);
+    for k in 0..4 {
+        if corners.last().is_none_or(|c| c.0 != face.corners[k]) {
+            corners.push((face.corners[k], face.uv[k]));
+        }
+    }
+    if corners.len() > 1 && corners.first().map(|c| c.0) == corners.last().map(|c| c.0) {
+        corners.pop();
+    }
+    corners
+}
+
+/// Whether the triangle has an area in whole world units.
+fn has_area(t: &[Corner; 3]) -> bool {
+    let p = t.map(|c| c.0.map(i64::from));
+    let a = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
+    let b = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
+    a[1] * b[2] - a[2] * b[1] != 0
+        || a[2] * b[0] - a[0] * b[2] != 0
+        || a[0] * b[1] - a[1] * b[0] != 0
+}
+
+/// The faces of a side file read from `path`, bound only to `textures` by material name, scaled by
+/// FREEFORM_UNIT, layer `layer`; `world.side-file` (missing, unreadable, no geometry) or
+/// `bake.texture-missing` (first material without a pack texture) as the message.
+///
+/// `world.side-file` names the file from its folder `data` on (`data/maps/0123.haus.glb`): args
+/// `[path]` when it is missing („Das Beifile … fehlt.“), `[path, reason]` when it does not read
+/// (the reader's sentence as the reason).
+pub fn side_faces(
+    path: &Path,
+    textures: &[PackTexture],
+    layer: u8,
+) -> Result<Vec<Face>, WorldBakeMessage> {
+    let shown = shown_path(path);
+    if matches!(path.try_exists(), Ok(false)) {
+        return Err(WorldBakeMessage::error(
+            SIDE_FILE_CODE,
+            vec![shown.clone()],
+            format!("Das Beifile {shown} fehlt."),
+        ));
+    }
+    let unreadable = |reason: &str| {
+        WorldBakeMessage::error(
+            SIDE_FILE_CODE,
+            vec![shown.clone(), reason.to_owned()],
+            format!("Das Beifile {shown} lässt sich nicht lesen ({reason})."),
+        )
+    };
+    let (mesh, _notes) = read_model(path).map_err(|m| unreadable(&m.message))?;
+    let bindings: Vec<Option<Binding>> = mesh
+        .materials
+        .iter()
+        .map(|m| {
+            textures.iter().find(|t| t.name == m.name).map(|t| Binding {
+                texture: t.name.clone(),
+                width: t.width,
+                height: t.height,
+            })
+        })
+        .collect();
+    let converted = to_faces(&mesh, FREEFORM_UNIT, &bindings).map_err(|m| {
+        if m.code == PartCode::ModelMaterialUntextured {
+            let args = vec![m.args.first().cloned().unwrap_or_default()];
+            let message = baker_text(BakeCode::TextureMissing, &args).unwrap_or(m.message);
+            WorldBakeMessage::error(BakeCode::TextureMissing.as_str(), args, message)
+        } else {
+            unreadable(&m.message)
+        }
+    })?;
+    Ok(converted
+        .faces
+        .into_iter()
+        .map(|face| Face { layer, ..face })
+        .collect())
+}
+
+/// `path` from its last folder `data` on, with `/` (`data/maps/0123.haus.glb`); the whole path
+/// without such a folder.
+fn shown_path(path: &Path) -> String {
+    let parts: Vec<String> = path
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    match parts.iter().rposition(|p| p == "data") {
+        Some(at) => parts[at..].join("/"),
+        None => path.display().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::bake::Level;
+    use crate::world::bake::synthetic_pack_textures;
+    use crate::world::doc::WorldJson;
+    use crate::world::doc::fixtures::{checkerboard_world, one_tile_world};
+    use crate::world::grid::{Ramp, WorldGrid, ramp_token};
+    use crate::world::mesh::mesh;
+    use crate::world::tileset::Tileset;
+
+    const N: usize = 32;
+
+    /// The mesher's faces of `world` on the synthetic tileset.
+    fn faces_of(world: &WorldJson) -> Vec<Face> {
+        let grid = WorldGrid::parse(world).expect("the world parses");
+        mesh(&grid, &Tileset::synthetic())
+            .into_iter()
+            .map(Face::from)
+            .collect()
+    }
+
+    /// `bytes` written as `data/maps/<file>` under `dir`.
+    fn put(dir: &Path, file: &str, bytes: &[u8]) -> PathBuf {
+        let path = dir.join(freeform_rel(file));
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("folder");
+        std::fs::write(&path, bytes).expect("written");
+        path
+    }
+
+    /// The side file of `faces` read back on the synthetic pack.
+    fn round_trip(faces: &[Face]) -> Vec<Face> {
+        let pack = synthetic_pack_textures();
+        let dir = tempfile::tempdir().expect("temp dir");
+        let glb = side_glb(faces, &pack, FREEFORM_UNIT).expect("side file");
+        let path = put(dir.path(), "0003.haus.glb", &glb);
+        side_faces(&path, &pack, FREEFORM_LAYER).expect("read back")
+    }
+
+    /// A face as polygon: texture, layer, corners (position, uv) without a corner at the
+    /// position of the one before it (a triangle repeats corner 2), turned to start at the
+    /// smallest corner.
+    type Polygon = (String, u8, Vec<([i32; 3], [i32; 2])>);
+
+    fn polygon(f: &Face) -> Polygon {
+        let mut corners: Vec<([i32; 3], [i32; 2])> = Vec::new();
+        for k in 0..4 {
+            if corners.last().is_none_or(|c| c.0 != f.corners[k]) {
+                corners.push((f.corners[k], f.uv[k]));
+            }
+        }
+        if corners.len() > 1 && corners.first().map(|c| c.0) == corners.last().map(|c| c.0) {
+            corners.pop();
+        }
+        let start = (0..corners.len()).min_by_key(|&k| corners[k]).unwrap_or(0);
+        corners.rotate_left(start);
+        (f.texture.clone(), f.layer, corners)
+    }
+
+    /// The faces as a sorted list of polygons (a multiset), every layer set to `layer`.
+    fn polygons(faces: &[Face], layer: u8) -> Vec<Polygon> {
+        let mut out: Vec<Polygon> = faces
+            .iter()
+            .map(|f| {
+                let mut p = polygon(f);
+                p.1 = layer;
+                p
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// The JSON chunk of a GLB.
+    fn json_of(glb: &[u8]) -> serde_json::Value {
+        let len = u32::from_le_bytes(glb[12..16].try_into().expect("4 bytes")) as usize;
+        serde_json::from_slice(&glb[20..20 + len]).expect("JSON chunk")
+    }
+
+    #[test]
+    fn side_glb_round_trips_the_faces() {
+        for world in [one_tile_world(), checkerboard_world()] {
+            let faces = faces_of(&world);
+            assert!(!faces.is_empty());
+            let back = round_trip(&faces);
+            assert!(back.iter().all(|f| f.layer == FREEFORM_LAYER));
+            assert_eq!(back.len(), faces.len());
+            assert_eq!(
+                polygons(&back, FREEFORM_LAYER),
+                polygons(&faces, FREEFORM_LAYER)
+            );
+        }
+    }
+
+    #[test]
+    fn a_triangle_stays_one_triangle() {
+        let triangle = Face {
+            corners: [[0, 0, 0], [16, 0, 0], [16, 8, -16], [16, 8, -16]],
+            uv: [[0, 0], [16, 0], [16, 16], [16, 16]],
+            texture: "syn_boden".to_owned(),
+            layer: 0,
+        };
+        let back = round_trip(std::slice::from_ref(&triangle));
+        assert_eq!(back.len(), 1);
+        assert!(back[0].is_triangle());
+        assert_eq!(polygons(&back, 0), polygons(&[triangle], 0));
+    }
+
+    #[test]
+    fn the_side_file_is_a_fixed_point() {
+        let pack = synthetic_pack_textures();
+        let faces = faces_of(&checkerboard_world());
+        let first = side_glb(&faces, &pack, FREEFORM_UNIT).expect("side file");
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = put(dir.path(), "0003.haus.glb", &first);
+        let back = side_faces(&path, &pack, FREEFORM_LAYER).expect("read back");
+        let second = side_glb(&back, &pack, FREEFORM_UNIT).expect("side file");
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn side_glb_has_no_images_and_names_materials_after_textures() {
+        let pack = synthetic_pack_textures();
+        let faces = faces_of(&checkerboard_world());
+        let json = json_of(&side_glb(&faces, &pack, FREEFORM_UNIT).expect("side file"));
+        assert!(json.get("images").is_none(), "{json}");
+        assert!(json.get("textures").is_none(), "{json}");
+        assert_eq!(json["asset"]["generator"], "gen4-studio");
+        assert_eq!(json["asset"]["version"], "2.0");
+        let names: Vec<&str> = json["materials"]
+            .as_array()
+            .expect("materials")
+            .iter()
+            .map(|m| m["name"].as_str().expect("a name"))
+            .collect();
+        assert_eq!(names, ["syn_boden", "syn_gras"]);
+        let primitives = json["meshes"][0]["primitives"]
+            .as_array()
+            .expect("primitives");
+        assert_eq!(primitives.len(), 2);
+        for p in primitives {
+            let position =
+                &json["accessors"][p["attributes"]["POSITION"].as_u64().unwrap() as usize];
+            assert!(position.get("min").is_some() && position.get("max").is_some());
+            let indices = &json["accessors"][p["indices"].as_u64().unwrap() as usize];
+            assert_eq!(indices["componentType"], 5125);
+        }
+        assert!(json["nodes"][0].get("matrix").is_none());
+        assert!(json["nodes"][0].get("translation").is_none());
+    }
+
+    #[test]
+    fn side_glb_refuses_a_texture_outside_the_pack() {
+        let mut faces = faces_of(&one_tile_world());
+        faces[0].texture = "fremd".to_owned();
+        let e = side_glb(&faces, &synthetic_pack_textures(), FREEFORM_UNIT).unwrap_err();
+        assert!(
+            matches!(&e, KernelError::Refused(t) if t.contains("„fremd“")),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_side_file_with_an_unknown_material_is_texture_missing() {
+        let pack = synthetic_pack_textures();
+        let glb = side_glb(&faces_of(&one_tile_world()), &pack, FREEFORM_UNIT).expect("side");
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = put(dir.path(), "0003.haus.glb", &glb);
+        let without: Vec<PackTexture> =
+            pack.into_iter().filter(|t| t.name != "syn_boden").collect();
+        let m = side_faces(&path, &without, FREEFORM_LAYER).unwrap_err();
+        assert_eq!(m.code, "bake.texture-missing");
+        assert_eq!(m.level, Level::Error);
+        assert_eq!(m.args, ["syn_boden"]);
+        assert_eq!(
+            m.message,
+            "Die Textur „syn_boden“ fehlt im Kartentextur-Paket oder hat dort keine Palette."
+        );
+    }
+
+    #[test]
+    fn a_missing_side_file_is_side_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(freeform_rel("0003.haus.glb"));
+        let m = side_faces(&path, &synthetic_pack_textures(), FREEFORM_LAYER).unwrap_err();
+        assert_eq!(m.code, SIDE_FILE_CODE);
+        assert_eq!(m.level, Level::Error);
+        assert_eq!(m.args, ["data/maps/0003.haus.glb"]);
+        assert_eq!(m.message, "Das Beifile data/maps/0003.haus.glb fehlt.");
+    }
+
+    #[test]
+    fn garbage_is_side_file_unreadable() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = put(dir.path(), "0003.haus.glb", b"kein glTF");
+        let m = side_faces(&path, &synthetic_pack_textures(), FREEFORM_LAYER).unwrap_err();
+        assert_eq!(m.code, SIDE_FILE_CODE);
+        assert_eq!(m.args.len(), 2);
+        assert_eq!(m.args[0], "data/maps/0003.haus.glb");
+        assert!(!m.args[1].is_empty());
+        assert_eq!(
+            m.message,
+            format!(
+                "Das Beifile data/maps/0003.haus.glb lässt sich nicht lesen ({}).",
+                m.args[1]
+            )
+        );
+    }
+
+    #[test]
+    fn side_name_cleans_and_numbers() {
+        assert_eq!(side_name("Haus Groß", &[]), "haus_gro_");
+        assert_eq!(side_name("", &[]), "freiform");
+        assert_eq!(side_name("a-b_9", &[]), "a-b_9");
+        let taken = ["haus".to_owned(), "haus_2".to_owned()];
+        assert_eq!(side_name("Haus", &taken[..1]), "haus_2");
+        assert_eq!(side_name("Haus", &taken), "haus_3");
+        let long = "x".repeat(40);
+        assert_eq!(side_name(&long, &[]), "x".repeat(SIDE_NAME_MAX));
+        // The number fits into the limit.
+        let numbered = side_name(&long, &["x".repeat(SIDE_NAME_MAX)]);
+        assert_eq!(numbered, format!("{}_2", "x".repeat(SIDE_NAME_MAX - 2)));
+        assert_eq!(
+            side_name_of(&freeform_file(3, &numbered), 3),
+            Some(&numbered[..])
+        );
+    }
+
+    #[test]
+    fn side_name_of_accepts_only_the_own_stem() {
+        assert_eq!(side_name_of("0003.haus.glb", 3), Some("haus"));
+        assert_eq!(side_name_of("0003.haus.glb", 4), None);
+        for bad in [
+            "0003.Haus.glb",
+            "0003..glb",
+            "0003.haus.gltf",
+            "0003.a.b.glb",
+            "3.haus.glb",
+            "haus.glb",
+        ] {
+            assert_eq!(side_name_of(bad, 3), None, "{bad}");
+        }
+        assert_eq!(
+            side_name_of(&format!("0003.{}.glb", "a".repeat(33)), 3),
+            None
+        );
+        assert_eq!(freeform_file(123, "haus"), "0123.haus.glb");
+        assert_eq!(
+            freeform_rel("0123.haus.glb"),
+            Path::new("data/maps/0123.haus.glb")
+        );
+        assert_eq!(
+            piece_rel(6, "turm"),
+            Path::new("data/tilesets/0006.turm.glb")
+        );
+        assert_eq!(side_parts("0123.haus.glb"), Some((123, "haus")));
+        assert_eq!(side_parts("123.haus.glb"), None);
+    }
+
+    fn at(x: usize, z: usize) -> usize {
+        z * N + x
+    }
+
+    fn rows(cell: impl Fn(usize, usize) -> String) -> Vec<String> {
+        (0..N)
+            .map(|z| (0..N).map(|x| cell(x, z)).collect::<Vec<_>>().join(" "))
+            .collect()
+    }
+
+    fn a_ramp() -> impl Strategy<Value = Ramp> {
+        prop_oneof![
+            4 => Just(Ramp::None),
+            1 => (1u8..3).prop_map(Ramp::North),
+            1 => (1u8..3).prop_map(Ramp::East),
+            1 => (1u8..3).prop_map(Ramp::South),
+            1 => (1u8..3).prop_map(Ramp::West),
+        ]
+    }
+
+    /// Random grounds without pieces (as the bake's `prop_model_floor_meets_the_bdhc`): tiles
+    /// `.`, `0000` to `0002`, heights −16 to 60, ramps of one or two steps.
+    fn a_ground() -> impl Strategy<Value = WorldJson> {
+        (
+            proptest::collection::vec(
+                prop_oneof![1 => Just(None), 6 => (0u16..3).prop_map(Some)],
+                N * N,
+            ),
+            proptest::collection::vec(-16i8..=60, N * N),
+            proptest::collection::vec(a_ramp(), N * N),
+        )
+            .prop_map(|(tiles, heights, ramps)| {
+                let mut w = one_tile_world();
+                let ground = &mut w.layers[0];
+                ground.tiles = rows(|x, z| match tiles[at(x, z)] {
+                    None => ".".to_owned(),
+                    Some(t) => format!("{t:04x}"),
+                });
+                ground.heights = Some(rows(|x, z| heights[at(x, z)].to_string()));
+                ground.ramps = Some(rows(|x, z| ramp_token(ramps[at(x, z)])));
+                w
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+        #[test]
+        fn prop_side_glb_round_trips(w in a_ground()) {
+            let faces = faces_of(&w);
+            let back = round_trip(&faces);
+            prop_assert_eq!(polygons(&back, FREEFORM_LAYER), polygons(&faces, FREEFORM_LAYER));
+        }
+    }
+}

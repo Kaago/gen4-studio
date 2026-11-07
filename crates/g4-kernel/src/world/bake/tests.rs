@@ -604,7 +604,7 @@ fn verbatim_with_tiles_is_refused_and_keeps_the_model() {
 fn glb_freeform_is_refused_for_now() {
     let mut w = one_tile_world();
     w.freeform.push(FreeformJson {
-        glb: Some("haus.glb".to_owned()),
+        glb: Some("0007.haus.glb".to_owned()),
         nsbmd: None,
         at: [0, 0, 0],
     });

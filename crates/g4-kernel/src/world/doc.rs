@@ -349,7 +349,7 @@ mod tests {
             rotate: 0,
         });
         w.freeform.push(FreeformJson {
-            glb: Some("a.glb".to_owned()),
+            glb: Some("0000.a.glb".to_owned()),
             nsbmd: None,
             at: [0, 0, 0],
         });

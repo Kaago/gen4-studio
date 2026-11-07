@@ -493,7 +493,7 @@ mod tests {
         let mut verbatim = busy_world();
         let old = || Part::Hex { hex: "00".into() };
         verbatim.freeform.push(FreeformJson {
-            glb: Some("a.glb".into()),
+            glb: Some("0000.a.glb".into()),
             nsbmd: None,
             at: [0, 0, 0],
         });

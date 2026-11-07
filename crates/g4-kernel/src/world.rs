@@ -26,6 +26,8 @@
 //! changed into their members ([`build::bake_world_maps`]); `adopt.rs` „Karte als Quelle
 //! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]). `tileset.rs` also edits
 //! the tiles of a tileset file as one step ([`tileset::tileset_edit`]).
+//! `freeform.rs` the canonical side file of a free-form model (6.5b, [`freeform::side_glb`],
+//! [`freeform::side_faces`]) and the rules for side file names.
 
 pub mod adopt;
 pub mod bake;
@@ -33,6 +35,7 @@ pub mod build;
 pub mod check;
 pub mod doc;
 pub mod edit;
+pub mod freeform;
 pub mod grid;
 pub mod keep;
 pub mod mesh;
@@ -69,3 +72,7 @@ pub use tileset::{
 };
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
+pub use freeform::{
+    APICULA_UNIT, FREEFORM_LAYER, FREEFORM_UNIT, SIDE_FILE_CODE, SIDE_NAME_MAX, freeform_file,
+    freeform_rel, piece_rel, side_faces, side_glb, side_name, side_name_of,
+};

@@ -21,6 +21,7 @@ use g4_formats::bdhc::{self, HeightGrid};
 use g4_formats::map::{Cell, MAP_SIZE};
 
 use super::doc::{HEIGHT_MAX, HEIGHT_MIN, LayerRole, PieceJson, WORLD_VERSION, WorldJson};
+use super::freeform::side_parts;
 use crate::terrain::EMPTY;
 pub use crate::terrain::{lex_height, lex_ramp};
 
@@ -31,6 +32,11 @@ const PIECE_TURNS: [u16; 4] = [0, 90, 180, 270];
 
 const GROUND_FIRST: &str = "die erste Ebene ist die einzige Bodenebene (`ground`).";
 const GROUND_ONLY: &str = "nur die Bodenebene trägt Höhen und Rampen.";
+/// The rule for `glb`; the parser knows no map, [`glb_map_errors`] says the map's number.
+const GLB_RULE: &str = "`glb` nennt ein Beifile dieser Karte: `NNNN.<name>.glb` mit a\u{2013}z, \
+                        0\u{2013}9, `_`, `-`.";
+/// Where a free-form model may lie, per axis in world units.
+const FREEFORM_AT: std::ops::RangeInclusive<i32> = -512..=511;
 
 /// A tile of a cell: index `tile` in the tileset, `rotate` quarter turns (0 to 3), `flip`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,6 +257,17 @@ impl WorldGrid {
                     "braucht genau eines von `glb` und `nsbmd`.",
                 );
             }
+            if let Some(glb) = &model.glb
+                && side_parts(glb).is_none()
+            {
+                errors.push(format!("world.freeform[{i}].glb"), GLB_RULE);
+            }
+            if model.nsbmd.is_none() && model.at.iter().any(|v| !FREEFORM_AT.contains(v)) {
+                errors.push(
+                    format!("world.freeform[{i}].at"),
+                    "`at` liegt nicht in \u{2212}512 bis 511.",
+                );
+            }
             if model.nsbmd.is_some() {
                 verbatim += 1;
                 if verbatim > 1 {
@@ -281,6 +298,30 @@ impl WorldGrid {
             _ => Err(errors.0),
         }
     }
+}
+
+/// The free-form models of `world` whose `glb` has the form of a side file but names another map
+/// than `map` (the form itself is [`WorldGrid::parse`]'s), each with its path.
+pub(crate) fn glb_map_errors(world: &WorldJson, map: u16) -> Vec<WorldError> {
+    world
+        .freeform
+        .iter()
+        .enumerate()
+        .filter(|(_, model)| {
+            model
+                .glb
+                .as_deref()
+                .and_then(side_parts)
+                .is_some_and(|(number, _)| number != map)
+        })
+        .map(|(i, _)| WorldError {
+            path: format!("world.freeform[{i}].glb"),
+            message: format!(
+                "`glb` nennt ein Beifile dieser Karte: `{map:04}.<name>.glb` mit a\u{2013}z, \
+                 0\u{2013}9, `_`, `-`."
+            ),
+        })
+        .collect()
 }
 
 impl WorldGrid {
@@ -766,7 +807,7 @@ mod tests {
         ];
         w.freeform = vec![
             FreeformJson {
-                glb: Some("a.glb".to_owned()),
+                glb: Some("0000.a.glb".to_owned()),
                 nsbmd: Some(hex_part()),
                 at: [0, 0, 0],
             },
@@ -776,7 +817,7 @@ mod tests {
                 at: [0, 0, 0],
             },
             FreeformJson {
-                glb: Some("b.glb".to_owned()),
+                glb: Some("0000.b.glb".to_owned()),
                 nsbmd: None,
                 at: [0, 0, 0],
             },
@@ -894,12 +935,62 @@ mod tests {
         w.freeform = vec![
             verbatim([0, 0, 0]),
             FreeformJson {
-                glb: Some("a.glb".to_owned()),
+                glb: Some("0000.a.glb".to_owned()),
                 nsbmd: None,
                 at: [16, 0, 16],
             },
         ];
         assert!(WorldGrid::parse(&w).is_ok());
+    }
+
+    #[test]
+    fn a_glb_name_must_be_a_side_file() {
+        let glb = |name: &str| FreeformJson {
+            glb: Some(name.to_owned()),
+            nsbmd: None,
+            at: [0, 0, 0],
+        };
+        let mut w = world(vec![ground()]);
+        // The parser knows no map: any number of four digits passes.
+        w.freeform = vec![glb("0123.haus.glb"), glb("0007.a-b_9.glb")];
+        assert!(WorldGrid::parse(&w).is_ok());
+        let rule = "`glb` nennt ein Beifile dieser Karte: `NNNN.<name>.glb` mit a\u{2013}z, \
+                    0\u{2013}9, `_`, `-`.";
+        for bad in [
+            "haus.glb",
+            "0123.Haus.glb",
+            "0123..glb",
+            "0123.haus.gltf",
+            "123.haus.glb",
+        ] {
+            w.freeform = vec![glb("0123.haus.glb"), glb(bad)];
+            assert_eq!(
+                errors_of(&w),
+                vec![("world.freeform[1].glb".to_owned(), rule.to_owned())],
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn at_is_bounded() {
+        let glb = |at: [i32; 3]| FreeformJson {
+            glb: Some("0000.haus.glb".to_owned()),
+            nsbmd: None,
+            at,
+        };
+        let mut w = world(vec![ground()]);
+        w.freeform = vec![glb([-512, 511, 0]), glb([511, -512, -512])];
+        assert!(WorldGrid::parse(&w).is_ok());
+        let rule = "`at` liegt nicht in \u{2212}512 bis 511.";
+        for at in [[512, 0, 0], [0, -513, 0], [0, 0, 600]] {
+            w.freeform = vec![glb([0, 0, 0]), glb(at)];
+            assert_eq!(
+                errors_of(&w),
+                vec![("world.freeform[1].at".to_owned(), rule.to_owned())],
+                "{at:?}"
+            );
+        }
     }
 
     #[test]

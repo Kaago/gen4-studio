@@ -584,7 +584,9 @@ fn parse_glb(glb: &[u8]) -> Result<(serde_json::Value, Vec<u8>), KernelError> {
     Ok((json, bin.unwrap_or_default()))
 }
 
-fn write_glb(json: &serde_json::Value, bin: &[u8]) -> Vec<u8> {
+/// A GLB of `json` and the BIN chunk `bin` (the caller keeps its length a multiple of 4), the
+/// JSON padded with spaces.
+pub(crate) fn write_glb(json: &serde_json::Value, bin: &[u8]) -> Vec<u8> {
     let mut json = serde_json::to_vec(json).expect("a JSON value serializes");
     pad4(&mut json, b' ');
     let total = 12 + 8 + json.len() + 8 + bin.len();

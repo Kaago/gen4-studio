@@ -96,7 +96,7 @@ pub struct WorldBakeMessage {
 }
 
 impl WorldBakeMessage {
-    fn error(code: &str, args: Vec<String>, message: String) -> WorldBakeMessage {
+    pub(crate) fn error(code: &str, args: Vec<String>, message: String) -> WorldBakeMessage {
         WorldBakeMessage {
             code: code.to_owned(),
             level: Level::Error,
