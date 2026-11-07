@@ -142,13 +142,32 @@ pub(crate) fn refusal(state: SchemaState) -> Option<String> {
     }
 }
 
-/// The schema state of a manifest's bytes.
+/// The schema state of a manifest's bytes. A current manifest whose `schemas` names a part
+/// schema ([`PART_SCHEMAS`](super::kinds::PART_SCHEMAS), e.g. `maps.world`) with a higher
+/// version than this Studio knows is [`SchemaState::Newer`] too: a newer Studio wrote its
+/// files, so this one only reads them.
 pub(crate) fn state_of(bytes: &[u8]) -> Result<SchemaState, KernelError> {
     let version = version_of(bytes).map_err(|p| KernelError::Compile(vec![p]))?;
     Ok(match version.cmp(&SCHEMA_VERSION) {
+        Ordering::Equal if newer_part_schema(bytes) => SchemaState::Newer(version),
         Ordering::Equal => SchemaState::Current,
         Ordering::Less => SchemaState::Older(version),
         Ordering::Greater => SchemaState::Newer(version),
+    })
+}
+
+/// Whether `schemas` of the manifest `bytes` names a part schema with a version above the
+/// one this Studio knows.
+fn newer_part_schema(bytes: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<Value>(bytes) else {
+        return false;
+    };
+    let schemas = value.get("schemas");
+    super::kinds::PART_SCHEMAS.iter().any(|(key, known)| {
+        schemas
+            .and_then(|s| s.get(*key))
+            .and_then(Value::as_u64)
+            .is_some_and(|v| v > u64::from(*known))
     })
 }
 
@@ -211,9 +230,9 @@ fn family_key(family: Family) -> &'static str {
 mod tests {
     use super::*;
 
-    const V3: &str = r#"{
+    const V4: &str = r#"{
   "format": "g4-project",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "game": {
     "code": "CPUE",
     "family": "pt",
@@ -227,20 +246,20 @@ mod tests {
 
     #[test]
     fn manifest_round_trips_and_refuses_unknown_keys() {
-        let manifest: Manifest = serde_json::from_str(V3).unwrap();
-        assert_eq!(manifest.schema_version, 3);
+        let manifest: Manifest = serde_json::from_str(V4).unwrap();
+        assert_eq!(manifest.schema_version, 4);
         assert_eq!(manifest.game.family, "pt");
         assert_eq!(
             crate::textproject::canon::to_canonical(&manifest),
-            V3.as_bytes()
+            V4.as_bytes()
         );
 
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(MANIFEST_FILE), V3).unwrap();
+        std::fs::write(dir.path().join(MANIFEST_FILE), V4).unwrap();
         assert_eq!(read_manifest(dir.path()).unwrap(), manifest);
 
         // A typo in a key: the schema state cannot be read, the error names the key.
-        let typo = V3.replace("\"schemaVersion\"", "\"schemaVersio\"");
+        let typo = V4.replace("\"schemaVersion\"", "\"schemaVersio\"");
         std::fs::write(dir.path().join(MANIFEST_FILE), &typo).unwrap();
         let problems = match read_manifest(dir.path()).unwrap_err() {
             KernelError::Compile(problems) => problems,
@@ -251,7 +270,7 @@ mod tests {
         assert_eq!(problems[0].file, Path::new(MANIFEST_FILE));
 
         // An unknown key next to a valid version: serde names it with line and column.
-        let extra = V3.replace("\"plugins\"", "\"plugin\"");
+        let extra = V4.replace("\"plugins\"", "\"plugin\"");
         std::fs::write(dir.path().join(MANIFEST_FILE), &extra).unwrap();
         let problems = match read_manifest(dir.path()).unwrap_err() {
             KernelError::Compile(problems) => problems,
@@ -279,7 +298,7 @@ mod tests {
             refused(dir.path()),
             "Kein Textprojekt: g4-project.json fehlt."
         );
-        let older = V3.replace("\"schemaVersion\": 3", "\"schemaVersion\": 1");
+        let older = V4.replace("\"schemaVersion\": 4", "\"schemaVersion\": 1");
         std::fs::write(dir.path().join(MANIFEST_FILE), older).unwrap();
         assert_eq!(
             refused(dir.path()),
@@ -288,12 +307,38 @@ mod tests {
                  `g4k text migrate` ausführen."
             )
         );
-        let newer = V3.replace("\"schemaVersion\": 3", "\"schemaVersion\": 4");
+        let newer = V4.replace("\"schemaVersion\": 4", "\"schemaVersion\": 5");
         std::fs::write(dir.path().join(MANIFEST_FILE), newer).unwrap();
         assert_eq!(
             refused(dir.path()),
-            "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 4)."
+            "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 5)."
         );
+    }
+
+    #[test]
+    fn a_newer_part_schema_reads_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let with = |schemas: &str| V4.replace("\"schemas\": {}", schemas);
+        std::fs::write(
+            dir.path().join(MANIFEST_FILE),
+            with("\"schemas\": {\"maps.world\": 2, \"tilesets\": 9}"),
+        )
+        .unwrap();
+        assert_eq!(schema_state(dir.path()).unwrap(), SchemaState::Current);
+        std::fs::write(
+            dir.path().join(MANIFEST_FILE),
+            with("\"schemas\": {\"maps.world\": 3}"),
+        )
+        .unwrap();
+        assert_eq!(schema_state(dir.path()).unwrap(), SchemaState::Newer(4));
+        match read_manifest(dir.path()).unwrap_err() {
+            KernelError::Refused(text) => assert_eq!(
+                Some(text),
+                refusal(SchemaState::Newer(4)),
+                "the sentence of a newer schema version"
+            ),
+            other => panic!("expected Refused, got {other:?}"),
+        }
     }
 
     #[test]
@@ -369,7 +414,7 @@ mod tests {
             fresh.schemas,
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
-                ("maps.world".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(2)),
                 ("stories".to_owned(), Value::from(1)),
                 ("tilesets".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
@@ -383,7 +428,7 @@ mod tests {
             manifest_for(&project, Some(&old)).schemas,
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
-                ("maps.world".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(2)),
                 ("plugins".to_owned(), serde_json::json!({"version": 3})),
                 ("stories".to_owned(), Value::from(1)),
                 ("tilesets".to_owned(), Value::from(1)),

@@ -3015,7 +3015,7 @@ describe("App wiring", () => {
       await openTextProject();
       vi.mocked(savePath).mockResolvedValue("/out.nds");
       // The sync before the build finds a conflict: nothing is built (no path asked for), the message offers the way out.
-      vi.mocked(externalSync).mockResolvedValueOnce(outcome({ conflicts: [{ key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }], unsaved: false, other: "dspre" }] }));
+      vi.mocked(externalSync).mockResolvedValueOnce(outcome({ conflicts: [{ key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }], unsaved: false, other: "dspre", world: false }] }));
       await click("Bauen");
       await flush();
       expect(externalSync).toHaveBeenCalledTimes(2);
@@ -3038,7 +3038,7 @@ describe("App wiring", () => {
     });
 
     it("the_conflict_warning_follows_the_count_and_goes_when_none_are_left", async () => {
-      const c = (key: string) => ({ key, label: key, assets: [], unsaved: false, other: "dspre" as const });
+      const c = (key: string) => ({ key, label: key, assets: [], unsaved: false, other: "dspre" as const, world: false });
       await openTextProject(outcome({ conflicts: [c("a"), c("b"), c("c")] }));
       const warnings = () => listToasts().filter((t) => t.kind === "warning").map((t) => t.text);
       expect(warnings()).toEqual(["3\u00a0Konflikte zwischen Studio und DSPRE"]);
@@ -3084,7 +3084,7 @@ describe("App wiring", () => {
 
     it("building_with_an_open_conflict_says_so_before_asking_for_the_path_in_one_message", async () => {
       // UI test 4.3b U8: no „Speichern unter“ first, and the refusal takes the place of the open conflict message.
-      const open = outcome({ conflicts: [{ key: "data/moves/0038.json", label: "Attacke 0038", assets: [{ kind: "Move", index: 38 }], unsaved: false, other: "dspre" }] });
+      const open = outcome({ conflicts: [{ key: "data/moves/0038.json", label: "Attacke 0038", assets: [{ kind: "Move", index: 38 }], unsaved: false, other: "dspre", world: false }] });
       await openTextProject(open);
       expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…"))).toHaveLength(1);
       vi.mocked(savePath).mockClear();

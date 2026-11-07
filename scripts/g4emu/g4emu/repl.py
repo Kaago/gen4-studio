@@ -73,6 +73,9 @@ class ServedEmu:
     def write_save(self, path: Path) -> None:
         self.inner.write_save(path)
 
+    def set_clock(self, hour: int, minute: int) -> None:
+        self.inner.set_clock(hour, minute)
+
 
 def _reader(stdin: IO[str], lines: queue.Queue[str | None]) -> None:
     while True:

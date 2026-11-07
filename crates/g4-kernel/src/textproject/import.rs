@@ -24,6 +24,9 @@ use crate::project::{AssetKind, Location, Project};
 use crate::scripts;
 use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
+use crate::world::build::{BakeMode, BakeScope, bake_world_maps, member_changed_problems};
+use crate::world::check::WORLD_BAKE_CODE;
+use crate::world::record::forget_world;
 
 use super::MANIFEST_FILE;
 use super::arts::{
@@ -113,6 +116,12 @@ pub(crate) struct ImportPlan {
     /// `textproject.member-removed` in `problems`). „Nummer freigeben“ deleted their JSON,
     /// maybe on another Git branch.
     pub removals: Vec<PathBuf>,
+    /// The world maps the import checked (their JSON and verbatim parts) but wrote no member
+    /// for: [`apply_import`] bakes them after the members, the build step `world` otherwise.
+    pub world_maps: Vec<u16>,
+    /// [`apply_import`] bakes `world_maps` over a member changed outside (`--force`:
+    /// [`BakeMode::Rebake`]) instead of refusing it ([`BakeMode::Import`]).
+    pub world_rebake: bool,
 }
 
 /// Members on disk without their JSON (or without their part in it, or a binary member with
@@ -280,7 +289,14 @@ pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport,
 /// (before reading the text project) members that are newer than their JSON: kept by the
 /// build step as `textproject.member-newer`, changed since its last sync point, or changed
 /// together with their JSON. Every file is read and checked first; one error and the import
-/// is `Err(Compile(problems))` with nothing written. Parts
+/// is `Err(Compile(problems))` with nothing written. A world map whose member changed outside
+/// the Studio since its record is such an error (`world.member-changed`, decided before any
+/// write); with `opts.force` its member is baked anew over it. The bake itself runs after the
+/// members (it reads the packages, area data, matrices and headers the import writes): a bake
+/// the baker refuses (`world.bake`, e.g. a model over the budget) is known only then, so it
+/// comes back after the other members were written, as a problem of the report, and the
+/// world map keeps its member; the import stays `Ok` and records the sync (the `prepare` it
+/// runs tolerates `world.bake`), a later build fails with it. Parts
 /// stored as `base_sha1` come from the current member when it has them, else from the base
 /// layer, made from `base` when there is none. Afterwards the build's `prepare` runs its
 /// steps (`textproject` finds the members in sync), compiles the scripts and encodes the
@@ -308,14 +324,23 @@ pub fn import_with(
     // read again later with other bytes is a conflict and gets no record).
     let journal = Journal::start();
     let lazy = LazyBase::new(project, base, true);
-    let plan = plan_import(project, &lazy, None)?;
+    let mut plan = plan_import(project, &lazy, None)?;
+    plan.world_rebake = opts.force;
+    if !opts.force {
+        plan.problems
+            .extend(member_changed_problems(project, &plan.world_maps)?);
+    }
     if plan.has_errors() {
         return Err(KernelError::Compile(plan.problems));
     }
     let applied = apply_import(project, &plan)?;
     // Every JSON equals its member now: nothing is newer than its JSON.
     clear_kept(&project.root)?;
-    let prepared = build::prepare(project)?;
+    // A world the baker refuses was refused by the import's own bake already (a problem of
+    // `applied`); the step `world` refuses it again, which does not fail the import.
+    let world_bake = format!("{WORLD_BAKE_CODE}: ");
+    let prepared =
+        build::prepare_tolerating(project, &|p| p.message.starts_with(world_bake.as_str()))?;
     // The build compiled the scripts: rotom's compile state proves which are in step.
     scripts::note_in_step(project)?;
     let journal = journal.finish();
@@ -324,7 +349,7 @@ pub fn import_with(
     let synced = super::sync::record_all_written(project, &mut |_| {}, &journal)?;
     let mut problems = plan.problems;
     // The build step `textproject` plans again and finds the plan's hints once more.
-    for problem in prepared.problems {
+    for problem in applied.problems.into_iter().chain(prepared.problems) {
         if !problems.contains(&problem) {
             problems.push(problem);
         }
@@ -943,7 +968,12 @@ fn plan_entities<E: EntitySchema>(
             // already counts them; they are not read.
             continue;
         }
-        if art == Art::Maps && world_broken(project, &file, base, plan)? {
+        let world = if art == Art::Maps {
+            world_map_of(project, &file, base, plan)?
+        } else {
+            WorldFile::None
+        };
+        if world == WorldFile::Broken {
             // Not imported, like an entity that fails to import.
             next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
             continue;
@@ -959,6 +989,12 @@ fn plan_entities<E: EntitySchema>(
             next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
             continue;
         };
+        if world == WorldFile::World {
+            // Checked and its parts resolved; its member is the world step's to bake.
+            next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
+            plan.world_maps.push(u16::try_from(n).unwrap_or(u16::MAX));
+            continue;
+        }
         let unit = unit_of(&rel_dir, &names, n);
         for (k, part) in parts.into_iter().enumerate() {
             let Some(&kind) = kinds.get(k) else { break };
@@ -1005,26 +1041,44 @@ fn plan_entities<E: EntitySchema>(
     Ok(())
 }
 
-/// Whether the map file `file` is a world map with a `world.schema` error (its errors then in
-/// the plan): such a map is not imported. A file that does not read is `import_entity`'s. A
-/// map texture package the base has counts even when its member is not on disk: the import
-/// restores it. With `only`, that may accept a package whose member this import does not
-/// restore (it is not among the files the import writes).
-fn world_broken(
+/// What a map file is for the import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorldFile {
+    /// A binary map, or a file that does not read (`import_entity`'s to report).
+    None,
+    /// A world map without `world.schema` error.
+    World,
+    /// A world map with a `world.schema` error (in the plan): not imported.
+    Broken,
+}
+
+/// Whether the map file `file` is a world map, and one with a `world.schema` error (its
+/// errors then in the plan): such a map is not imported. A file that does not read is
+/// `import_entity`'s. A map texture package the base has counts even when its member is not
+/// on disk: the import restores it. With `only`, that may accept a package whose member this
+/// import does not restore (it is not among the files the import writes).
+fn world_map_of(
     project: &Project,
     file: &Path,
     base: &dyn BasePart,
     plan: &mut ImportPlan,
-) -> Result<bool, KernelError> {
+) -> Result<WorldFile, KernelError> {
     let Ok(bytes) = std::fs::read(project.root.join(file)) else {
-        return Ok(false);
+        return Ok(WorldFile::None);
     };
+    if !matches!(crate::world::keep::world_field(&bytes), Ok(Some(_))) {
+        return Ok(WorldFile::None);
+    }
     let in_base =
         |package: u16| base.has_member(AssetKind::MapTexture, usize::from(package)) == Some(true);
     let found = crate::world::check::map_schema_problems(project, file, &bytes, &in_base)?;
     let broken = !found.is_empty();
     plan.problems.extend(found);
-    Ok(broken)
+    Ok(if broken {
+        WorldFile::Broken
+    } else {
+        WorldFile::World
+    })
 }
 
 /// Entity `n` of file `file` read, parsed and imported against its current members `cur`;
@@ -1632,19 +1686,43 @@ pub(crate) fn plan_quirks_alone(project: &Project) -> Result<ImportPlan, KernelE
 
 /// What [`apply_import`] wrote: `paths` every file written (relative to the root; rotom's
 /// compile state when the quirks changed it), `raw` the blobs, `members` the members and
-/// header files, `quirks` the compile state entries the quirks changed.
+/// header files (the world maps' baked members among them), `quirks` the compile state entries
+/// the quirks changed, `problems` those of baking the world maps (`world.bake`,
+/// `world.member-changed`; with an error among them no world map was written).
 #[derive(Debug, Default)]
 pub(crate) struct Applied {
     pub paths: Vec<PathBuf>,
     pub raw: u32,
     pub members: u32,
     pub quirks: u32,
+    pub problems: Vec<Problem>,
+}
+
+/// The maps whose member `plan` writes (members of a JSON that is no world map: world maps
+/// are baked, never written from their file).
+fn binary_map_writes(project: &Project, plan: &ImportPlan) -> Vec<u16> {
+    if !project.has_archive(AssetKind::Map) {
+        return Vec::new();
+    }
+    let dir = Path::new("unpacked").join(project.archives.unpacked_name(AssetKind::Map));
+    plan.writes
+        .iter()
+        .filter(|w| w.path.parent() == Some(dir.as_path()))
+        .filter_map(|w| {
+            let name = w.path.file_name()?.to_str()?;
+            (name.len() == 4 && name.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| name.parse().ok())
+                .flatten()
+        })
+        .collect()
 }
 
 /// Writes what `plan` found: the blobs, the members of each art (its archive unpacked
 /// first), then removes the members of [`ImportPlan::removals`], the header table last, then
-/// the quirks into the compile state (adopted projects only). `paths` names the removed
-/// members too.
+/// bakes the world maps of [`ImportPlan::world_maps`] over what was just written
+/// ([`bake_world_maps`] in [`BakeMode::Import`]), then the quirks into the compile state
+/// (adopted projects only). `paths` names the removed
+/// members too. A map member it writes ends that map's world record ([`forget_world`]).
 pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Applied, KernelError> {
     let mut out = Applied::default();
     for w in &plan.raw {
@@ -1688,6 +1766,13 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
             out.members += 1;
         }
     }
+    // A map member written from a JSON that is no world map (a branch made a world map
+    // binary, DSPRE's map taken over) is no world's output: the map's world record goes, so
+    // a world back in that JSON later bakes without `world.member-changed`.
+    let binary_maps = binary_map_writes(project, plan);
+    if !binary_maps.is_empty() {
+        forget_world(project, &binary_maps)?;
+    }
     for rel in &plan.removals {
         let path = project.root.join(rel);
         match std::fs::remove_file(&path) {
@@ -1700,6 +1785,25 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
         let wrote = write_headers(project, headers)?;
         out.members += u32::try_from(wrote.len()).unwrap_or(u32::MAX);
         out.paths.extend(wrote);
+    }
+    if !plan.world_maps.is_empty() {
+        let world = bake_world_maps(
+            project,
+            &BakeScope::Maps(plan.world_maps.clone()),
+            if plan.world_rebake {
+                BakeMode::Rebake
+            } else {
+                BakeMode::Import
+            },
+        )?;
+        out.members += u32::try_from(world.baked.len()).unwrap_or(u32::MAX);
+        out.paths.extend(
+            world
+                .baked
+                .iter()
+                .map(|&map| member_rel(project, AssetKind::Map, usize::from(map))),
+        );
+        out.problems = world.problems;
     }
     if scripts::is_adopted(project) {
         out.quirks = seed_quirks(project, &plan.quirks)?;
@@ -2735,11 +2839,7 @@ mod tests {
         let (_s, p) = exported();
         let world = fixtures::one_tile_world();
         let rel = "data/maps/0000.json";
-        let mut v: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(p.root.join(rel)).unwrap()).unwrap();
-        v["source"] = "world".into();
-        v["world"] = serde_json::to_value(&world).unwrap();
-        write_to(&p, rel, &serde_json::to_vec_pretty(&v).unwrap());
+        write_world_map(&p, rel, &world);
         let dir = p.unpacked_dir(AssetKind::MapTexture);
         let mut removed = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {
@@ -2763,6 +2863,141 @@ mod tests {
                 .all(|p| p.file != Path::new(rel) || p.severity != Severity::Error),
             "{:#?}",
             plan.problems
+        );
+    }
+
+    /// Makes the map file `rel` a world map with `world`, without the derived parts.
+    fn write_world_map(p: &Project, rel: &str, world: &crate::world::WorldJson) {
+        let fresh = std::fs::read(p.root.join(rel)).unwrap();
+        let file = crate::world::keep::world_parts(fresh, world, &mut Vec::new()).unwrap();
+        write_to(p, rel, &file);
+    }
+
+    #[test]
+    fn the_import_leaves_world_maps_to_the_world_step() {
+        use crate::world::doc::fixtures;
+
+        let (_s, p) = exported();
+        let maps = numbered(&p.root.join("data/maps"), "json").unwrap();
+        assert!(maps.len() > 1, "{maps:?}");
+        // Every map with a permission cell changed; map 0 then a world map.
+        for &n in &maps {
+            let rel = format!("data/maps/{n:04}.json");
+            let mut v: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(p.root.join(&rel)).unwrap()).unwrap();
+            let row = v["permissions"][0].as_str().unwrap().to_owned();
+            v["permissions"][0] = set_token_of(&row, "0180").into();
+            write_to(&p, &rel, &serde_json::to_vec_pretty(&v).unwrap());
+        }
+        write_world_map(&p, "data/maps/0000.json", &fixtures::one_tile_world());
+        let member_0 = std::fs::read(p.root.join(member_rel(&p, AssetKind::Map, 0))).unwrap();
+
+        let (plan, _) = plan(&p, None);
+        assert_eq!(plan.world_maps, [0]);
+        let errors: Vec<&Problem> = plan
+            .problems
+            .iter()
+            .filter(|p| p.severity == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "{errors:#?}");
+        let written: BTreeSet<PathBuf> = plan.writes.iter().map(|w| slash(&w.path)).collect();
+        for &n in &maps {
+            let member = slash(&member_rel(&p, AssetKind::Map, n));
+            assert_eq!(written.contains(&member), n != 0, "{n}: {written:?}");
+        }
+        // The world map is baked after the members (6.3b); the synthetic package lacks its
+        // texture, so the bake refuses with `world.bake` and the member stays.
+        let applied = apply_import(&p, &plan).unwrap();
+        assert!(!applied.problems.is_empty());
+        assert!(
+            applied
+                .problems
+                .iter()
+                .all(|p| p.message.starts_with("world.bake: world: ")),
+            "{:#?}",
+            applied.problems
+        );
+        assert_eq!(
+            std::fs::read(p.root.join(member_rel(&p, AssetKind::Map, 0))).unwrap(),
+            member_0
+        );
+
+        // A world map with a derived part is refused with its path and not baked either.
+        let rel = "data/maps/0000.json";
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.root.join(rel)).unwrap()).unwrap();
+        v["model"] = serde_json::json!({"hex": "00"});
+        write_to(&p, rel, &serde_json::to_vec_pretty(&v).unwrap());
+        let (again, _) = super::tests::plan(&p, None);
+        assert!(again.world_maps.is_empty());
+        let refused: Vec<&Problem> = again
+            .problems
+            .iter()
+            .filter(|p| p.file == Path::new(rel))
+            .collect();
+        assert_eq!(refused.len(), 1, "{:#?}", again.problems);
+        assert!(
+            refused[0]
+                .message
+                .starts_with("textproject.map-source: model: Eine Welt-Karte trägt"),
+            "{refused:#?}"
+        );
+    }
+
+    /// A world the baker refuses (over the model budget) does not fail the import: the other
+    /// members are written and recorded, the world map keeps its member, and `world.bake`
+    /// comes back as a problem of the report (the build step `world` finds it again).
+    #[test]
+    fn a_refused_world_bake_keeps_the_import_successful() {
+        use crate::textproject::sync::{UnitSide, scan};
+        use crate::world::doc::fixtures::oversize_world;
+        use crate::world::keep::world_parts;
+
+        let fx = crate::test_support::world_built();
+        let p = fx.project();
+        let member = |n: u16| std::fs::read(p.member_path(AssetKind::Map, n)).unwrap();
+        let member_0 = member(0);
+        let member_2 = member(2);
+        let rel = "data/maps/0000.json";
+        let file = world_parts(fx.read(rel), &oversize_world(), &mut Vec::new()).unwrap();
+        fx.write(rel, &file);
+        // A binary map changed too: its member is written.
+        let rel_2 = "data/maps/0002.json";
+        let mut v: serde_json::Value = serde_json::from_slice(&fx.read(rel_2)).unwrap();
+        let row = v["permissions"][0].as_str().unwrap().to_owned();
+        v["permissions"][0] = set_token_of(&row, "0180").into();
+        fx.write(rel_2, &serde_json::to_vec_pretty(&v).unwrap());
+
+        let report = import_with(&p, Some(&fx.base()), &ImportOptions::default()).unwrap();
+        let errors: Vec<&Problem> = report
+            .problems
+            .iter()
+            .filter(|p| p.severity == Severity::Error)
+            .collect();
+        assert!(!errors.is_empty(), "{:#?}", report.problems);
+        assert!(
+            errors.iter().all(|p| p.file == Path::new(rel)
+                && p.message
+                    .starts_with("world.bake: world: bake.model-too-big: ")),
+            "{errors:#?}"
+        );
+        assert_eq!(member(0), member_0);
+        assert_ne!(member(2), member_2);
+        assert!(report.synced > 0);
+        // The sync recorded what the import wrote: the next scan names only the world map.
+        let scan = scan(&p, &mut |_| {}).unwrap();
+        let open: Vec<&str> = scan
+            .units
+            .iter()
+            .filter(|u| u.side != UnitSide::InSync)
+            .map(|u| u.key.as_str())
+            .collect();
+        assert!(
+            scan.units
+                .iter()
+                .filter(|u| u.side != UnitSide::InSync)
+                .all(|u| u.world && u.sources.iter().any(|s| s == Path::new(rel))),
+            "{open:?}"
         );
     }
 

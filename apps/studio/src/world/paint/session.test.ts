@@ -3,7 +3,7 @@ import type { WorldEditRequest, WorldReport } from "../../api.world";
 import { createStrokeQueue } from "./session";
 
 const req = (map: number): WorldEditRequest => ({ map, changes: [{ cells: [[0, 0]], tile: "0001" }] });
-const report = (map: number): WorldReport => ({ map, tileset: 6, cells: 1, change: map });
+const report = (map: number): WorldReport => ({ map, tileset: 6, cells: 1, change: map, bake: null });
 
 /** A send whose answers the test releases by hand. */
 function manual() {

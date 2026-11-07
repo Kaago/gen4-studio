@@ -88,6 +88,7 @@ describe("ToolHints", () => {
       textures: 0,
       estimate: 0,
       share: 0,
+      bake: null,
     };
     const hover = { kind: "tile", map: 120, x: 3, y: 4, absX: 3, absZ: 4, info: {} as never, units: 16 } as SceneHover;
     const show = (depth: Depth, over: Partial<PaintModel> = {}) => {

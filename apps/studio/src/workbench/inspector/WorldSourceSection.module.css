@@ -1,0 +1,24 @@
+/* The section „Quelle“ of a map cell: where the map comes from, its bake line and the way to the other source. */
+.body {
+  display: grid;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+}
+
+.text {
+  margin: 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}

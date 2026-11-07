@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { MATRIX_EMPTY, duplicateMap, getMap, setMatrixCell } from "../../api";
 import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import { useDelete } from "../../delete/DeleteContext";
 import { useReset } from "../../original/OriginalContext";
+import { useTextProject } from "../../textproject/TextProjectContext";
 import { resetEntry } from "../../original/resetEntry";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
@@ -24,6 +25,7 @@ import { InspectorHead } from "./InspectorHead";
 import { MapBudgetSection } from "./MapBudgetSection";
 import { RawRowSection } from "./RawRowSection";
 import { TechnicalSection } from "./TechnicalSection";
+import { WorldSourceSection } from "./WorldSourceSection";
 
 /** What the cell editor needs from App. */
 export interface MatrixCellContext {
@@ -157,6 +159,31 @@ function OwnerField({
       />
     </>
   );
+}
+
+/**
+ * The section „Quelle“ of the cell's map: in a text project the map is read (`get_map`, its `world` flag) when it or `revision` changes;
+ * outside one every map is binary. Nothing shows until the first answer is there (no binary flash before a world).
+ */
+function MapSource({ map, revision, onChanged, onError }: { map: number; revision: number; onChanged: (map: number) => void | Promise<void>; onError: (e: unknown) => void }) {
+  const textProject = useTextProject().active;
+  const [read, setRead] = useState<{ map: number; world: boolean } | null>(null);
+  const report = useRef(onError);
+  report.current = onError;
+  useEffect(() => {
+    if (!textProject) return;
+    let current = true;
+    getMap(map).then(
+      (dto) => current && setRead({ map, world: dto.world === true }),
+      (e: unknown) => current && report.current(e),
+    );
+    return () => {
+      current = false;
+    };
+  }, [map, revision, textProject]);
+  const world = textProject ? (read?.map === map ? read.world : null) : false;
+  if (world === null) return null;
+  return <WorldSourceSection map={map} world={world} textProject={textProject} revision={revision} onChanged={onChanged} onError={onError} />;
 }
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
@@ -293,6 +320,8 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         <InspectorRow label="Höhe" hint="0 bis 255">
           <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depthAtLeast(depth, "tuefteln")} />
         </InspectorRow>
+        {/* Where the cell's map comes from (binary or world) and the way to the other, from Bauen on. */}
+        {map !== null && depthAtLeast(depth, "bauen") && <MapSource map={map} revision={revision + mapRevision} onChanged={onMapImported} onError={onError} />}
         {/* The game's limits for the cell's map, from Bauen on. */}
         {map !== null && depthAtLeast(depth, "bauen") && <MapBudgetSection map={map} revision={revision + mapRevision} depth={depth} onError={onError} />}
         {depthAtLeast(depth, "tuefteln") && <RawRowSection matrix={matrix} x={x} y={y} />}

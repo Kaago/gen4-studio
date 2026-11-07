@@ -270,6 +270,12 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     // One undo step (appending to the map texture pack and the model import, squashed); the
     // files under `outDir` are build output, confined to `build/`. Only through `g4_call`.
     ("bake_test", Kind::Write),
+    // World maps (6.3b, over `g4_call` only): „Karte als Quelle übernehmen“, „Als binäre Karte
+    // übernehmen“ and a change of tileset tiles are one undo step each; the bake report reads.
+    ("world_adopt", Kind::Write),
+    ("world_to_binary", Kind::Write),
+    ("world_bake", Kind::Read),
+    ("tileset_edit", Kind::Write),
     // Painting (6.4a, over `g4_call` only): adding or removing a layer is one undo step.
     ("world_layers", Kind::Write),
 ];
@@ -1333,6 +1339,16 @@ mod tests {
         }
         // One undo step each.
         for name in ["world_create", "world_edit", "tileset_save", "world_layers"] {
+            assert_eq!(kind(name), Kind::Write, "{name}");
+        }
+    }
+
+    #[test]
+    fn world_bake_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        assert_eq!(kind("world_bake"), Kind::Read);
+        // One undo step each.
+        for name in ["world_adopt", "world_to_binary", "tileset_edit"] {
             assert_eq!(kind(name), Kind::Write, "{name}");
         }
     }

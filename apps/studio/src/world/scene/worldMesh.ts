@@ -162,7 +162,8 @@ export async function worldMeshModel(map: number): Promise<{ model: THREE.Group;
  * The terrain model of `map` for the scene: the world mesh of a world map, else the GLB as before. The initial load trusts the flag
  * (`h.loaded.get(map)?.map.world`, fresh from its own fetch). A refresh (`probe`) does not: undo, redo and agent edits refetch the map
  * and its model at the same time, so it asks for the mesh first and takes it when it has faces, else the GLB. An empty mesh (no world,
- * or one that does not read into cells) always gives way to the GLB.
+ * one that does not read into cells, or one without tiles like a world adopted with Form 1) and a mesh that fails always give way to
+ * the GLB, the baked model.
  *
  * Notes the result on the host (`noteWorldMesh`) only while the map's model generation (`mapModelGen`, bumped by both callers before
  * they call) is the one it started under: a superseded call's model is dropped by its caller, so its mark must not land either.
@@ -175,12 +176,13 @@ export async function mapModel(h: SceneHost, map: number, area: number, { probe 
     if (h.mapModelGen.get(map) === gen) h.noteWorldMesh(map, faces);
   };
   if (probe || h.loaded.get(map)?.map.world === true) {
-    const { model, faces } = await worldMeshModel(map);
-    if (faces > 0) {
-      note(faces);
-      return model;
+    // A mesh that does not read gives way to the GLB (the baked model) like an empty one.
+    const mesh = await worldMeshModel(map).catch(() => null);
+    if (mesh !== null && mesh.faces > 0) {
+      note(mesh.faces);
+      return mesh.model;
     }
-    disposeTree(model);
+    if (mesh !== null) disposeTree(mesh.model);
   }
   const model = await getMapModelGlb(map, area).then(parseGlb);
   note(null);

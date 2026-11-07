@@ -3,18 +3,18 @@
 //! `heights` are integers (steps of 8 units), `ramps` `.` or `n1 n2 e1 e2 s1 s2 w1 w2`
 //! (direction uphill, steps per tile), `kinds` one [`TerrainKind::code`] per cell.
 //!
-//! The cells are lexed by the world format's [`lex_height`] and [`lex_ramp`] (one grammar for
-//! both row formats); the steps of a ramp are bounded by [`HeightGrid::check`] here.
+//! The cells are lexed by [`lex_height`] and [`lex_ramp`], which the world format's grid reads
+//! too (one grammar for both row formats); the steps of a ramp are bounded by
+//! [`HeightGrid::check`] here.
 //!
 //! Refusals are German sentences naming the place ([`KernelError::Refused`]); the shown text
 //! goes to the user as it is.
 
-use g4_formats::bdhc::{GridProblem, MAX_STEP, MIN_STEP, STEP_UNITS};
+use g4_formats::bdhc::{self, GridProblem, MAX_STEP, MIN_STEP, STEP_UNITS};
 use serde::{Deserialize, Serialize};
 
 use super::{CELLS, HeightGrid, SIDE, TerrainKind, edge_rule};
 use crate::error::KernelError;
-use crate::world::grid::{lex_height, lex_ramp, ramp_token};
 
 /// The height grid as rows: `heights[y]` and `ramps[y]` hold the 32 cells of row `y`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,9 +25,54 @@ pub struct GridRows {
 
 /// The ramp cells a `ramps` row may hold, as the refusal lists them.
 const RAMP_CODES: &str = ". n1 n2 e1 e2 s1 s2 w1 w2";
+/// The token of an empty cell in both row formats (no ramp; in the world grid also no tile and
+/// no override).
+pub(crate) const EMPTY: &str = ".";
 
 fn refused(text: String) -> KernelError {
     KernelError::Refused(text)
+}
+
+/// The ramp of a row cell in the grammar of both row formats (the world document and 6.2's
+/// rows of `set_map_terrain`): `.` or a direction letter `n`, `e`, `s`, `w` followed by the
+/// steps as digits (`e1`, `e01`), lowercase only. The steps are not bounded here: each reader
+/// checks their range with its own sentence.
+pub fn lex_ramp(token: &str) -> Option<bdhc::Ramp> {
+    if token == EMPTY {
+        return Some(bdhc::Ramp::None);
+    }
+    let mut chars = token.chars();
+    let letter = chars.next()?;
+    let digits = chars.as_str();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let steps: u8 = digits.parse().ok()?;
+    match letter {
+        'n' => Some(bdhc::Ramp::North(steps)),
+        'e' => Some(bdhc::Ramp::East(steps)),
+        's' => Some(bdhc::Ramp::South(steps)),
+        'w' => Some(bdhc::Ramp::West(steps)),
+        _ => None,
+    }
+}
+
+/// The token of a ramp, the inverse of [`lex_ramp`] in canonical form: `.`, `n1`, `w2`.
+pub fn ramp_token(r: bdhc::Ramp) -> String {
+    let (direction, steps) = match r {
+        bdhc::Ramp::None => return EMPTY.to_owned(),
+        bdhc::Ramp::North(s) => ('n', s),
+        bdhc::Ramp::East(s) => ('e', s),
+        bdhc::Ramp::South(s) => ('s', s),
+        bdhc::Ramp::West(s) => ('w', s),
+    };
+    format!("{direction}{steps}")
+}
+
+/// The height of a row cell in the grammar of both row formats: a whole number with an
+/// optional sign (`-3`, `+5`, `05`). Not bounded here: each reader checks the range.
+pub fn lex_height(token: &str) -> Option<i64> {
+    token.parse().ok()
 }
 
 /// The 32 × 32 cells of `rows`, split at whitespace; refuses another number of rows or cells.
@@ -140,7 +185,7 @@ fn join_rows(cells: impl Iterator<Item = String>) -> Vec<String> {
 pub fn format_grid(grid: &HeightGrid) -> GridRows {
     GridRows {
         heights: join_rows(grid.height.iter().map(|h| h.to_string())),
-        ramps: join_rows(grid.ramp.iter().map(|&r| ramp_token(r.into()))),
+        ramps: join_rows(grid.ramp.iter().map(|&r| ramp_token(r))),
     }
 }
 
@@ -177,6 +222,21 @@ mod tests {
 
     use super::*;
     use crate::terrain::{Direction, Ramp};
+
+    #[test]
+    fn lexers_are_shared_with_the_world_grid() {
+        let east = Some(Ramp::East(1));
+        assert_eq!(crate::terrain::lex_ramp("e01"), east);
+        assert_eq!(crate::world::grid::lex_ramp("e01"), east);
+        assert_eq!(crate::terrain::lex_height("+5"), Some(5));
+        assert_eq!(crate::world::grid::lex_height("+5"), Some(5));
+        for token in [".", "n1", "e2", "s1", "w2"] {
+            let ramp = lex_ramp(token).unwrap();
+            assert_eq!(ramp_token(ramp), token);
+            assert_eq!(crate::world::grid::ramp_token(ramp.into()), token);
+        }
+        assert_eq!(ramp_token(lex_ramp("w02").unwrap()), "w2");
+    }
 
     fn rows_of(cell: &str) -> Vec<String> {
         vec![vec![cell; 32].join(" "); 32]

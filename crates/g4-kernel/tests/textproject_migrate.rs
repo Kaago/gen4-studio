@@ -1,10 +1,11 @@
 //! The schema version of a text project and the migration chain: `schema_state` reads the
 //! version from the manifest (`schemaVersion`, or `schema` in the invented v0), `migrate`
 //! lifts an older project to the current version with a snapshot of the old files. The
-//! fixtures under `tests/fixtures/textproject/` are synthetic: `v0/` is the input, `v3/` the
+//! fixtures under `tests/fixtures/textproject/` are synthetic: `v0/` is the input, `v4/` the
 //! expected result, byte for byte (`v1/` is the same project before 1 → 2, which changes
 //! only the manifest when no flag or variable has an own name; `v2/` before 2 → 3, which
-//! changes only the manifest: `schemas` names `maps.world` and `tilesets`).
+//! changes only the manifest: `schemas` names `maps.world` and `tilesets`; `v3/` before
+//! 3 → 4, which without a world map changes only the manifest: `maps.world` 2).
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -92,25 +93,26 @@ fn schema_state_tells_missing_current_older_and_newer() {
     assert!(!is_text_project(dir.path()));
     assert_eq!(schema_state(dir.path()).unwrap(), SchemaState::Missing);
 
-    assert!(is_text_project(&fixture("v3")));
-    assert_eq!(schema_state(&fixture("v3")).unwrap(), SchemaState::Current);
+    assert!(is_text_project(&fixture("v4")));
+    assert_eq!(schema_state(&fixture("v4")).unwrap(), SchemaState::Current);
+    assert_eq!(schema_state(&fixture("v3")).unwrap(), SchemaState::Older(3));
     assert_eq!(schema_state(&fixture("v2")).unwrap(), SchemaState::Older(2));
     assert_eq!(schema_state(&fixture("v1")).unwrap(), SchemaState::Older(1));
     assert_eq!(schema_state(&fixture("v0")).unwrap(), SchemaState::Older(0));
 
     let (_tmp, root) = v0_project();
     let manifest = root.join(MANIFEST_FILE);
-    let text = std::fs::read_to_string(fixture("v3").join(MANIFEST_FILE)).unwrap();
+    let text = std::fs::read_to_string(fixture("v4").join(MANIFEST_FILE)).unwrap();
     std::fs::write(
         &manifest,
-        text.replace("\"schemaVersion\": 3", "\"schemaVersion\": 4"),
+        text.replace("\"schemaVersion\": 4", "\"schemaVersion\": 5"),
     )
     .unwrap();
-    assert_eq!(schema_state(&root).unwrap(), SchemaState::Newer(4));
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Newer(5));
 }
 
 #[test]
-fn migrate_v0_fixture_matches_expected_v3() {
+fn migrate_v0_fixture_matches_expected_v4() {
     let (_tmp, root) = v0_project();
     let matrix = root.join("data/matrices/0000.json");
     let matrix_mtime = mtime(&matrix);
@@ -128,7 +130,7 @@ fn migrate_v0_fixture_matches_expected_v3() {
         ]
     );
 
-    let expected = fixture("v3");
+    let expected = fixture("v4");
     assert_eq!(files_under(&root), files_under(&expected));
     for rel in files_under(&expected) {
         assert_eq!(
@@ -246,7 +248,7 @@ fn migrate_refuses_a_newer_schema() {
 fn migrate_on_a_current_project_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("project");
-    copy_tree(&fixture("v3"), &root);
+    copy_tree(&fixture("v4"), &root);
     let before: Vec<(String, SystemTime)> = files_under(&root)
         .into_iter()
         .map(|rel| {
@@ -343,8 +345,8 @@ fn migration_1_to_2_changes_only_the_manifest_without_own_names() {
 
     let report = migrate(&root).unwrap();
     assert_eq!((report.from, report.to), (1, SCHEMA_VERSION));
-    // The chain goes on to 3, which changes only the manifest as well.
-    assert_eq!(SCHEMA_VERSION, 3);
+    // The chain goes on to 4, which changes only the manifest as well (no world map).
+    assert_eq!(SCHEMA_VERSION, 4);
     assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
     for (rel, bytes) in before {
         let now = std::fs::read(root.join(&rel)).unwrap();
@@ -353,10 +355,10 @@ fn migration_1_to_2_changes_only_the_manifest_without_own_names() {
                 String::from_utf8(now).unwrap(),
                 String::from_utf8(bytes)
                     .unwrap()
-                    .replace("\"schemaVersion\": 1", "\"schemaVersion\": 3")
+                    .replace("\"schemaVersion\": 1", "\"schemaVersion\": 4")
                     .replace(
                         "\"schemas\": {}",
-                        "\"schemas\": {\n    \"maps.world\": 1,\n    \"tilesets\": 1\n  }"
+                        "\"schemas\": {\n    \"maps.world\": 2,\n    \"tilesets\": 1\n  }"
                     )
             );
         } else {
@@ -453,7 +455,7 @@ fn a_v1_project_is_refused_until_migrated() {
 }
 
 #[test]
-fn migrate_v2_fixture_changes_only_the_manifest_to_v3() {
+fn migrate_v2_fixture_changes_only_the_manifest_to_v4() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("project");
     copy_tree(&fixture("v2"), &root);
@@ -461,9 +463,9 @@ fn migrate_v2_fixture_changes_only_the_manifest_to_v3() {
     let matrix_mtime = mtime(&matrix);
 
     let report = migrate(&root).unwrap();
-    assert_eq!((report.from, report.to), (2, 3));
+    assert_eq!((report.from, report.to), (2, 4));
     assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
-    let expected = fixture("v3");
+    let expected = fixture("v4");
     assert_eq!(files_under(&root), files_under(&expected));
     for rel in files_under(&expected) {
         assert_eq!(

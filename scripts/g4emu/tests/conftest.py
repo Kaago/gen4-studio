@@ -31,6 +31,7 @@ class FakeEmu:
         # One entry per emulated frame: (pressed buttons, touch point).
         self.log: list[tuple[frozenset[str], tuple[int, int] | None]] = []
         self.loaded_state: Path | None = None
+        self.clock: tuple[int, int] | None = None  # (hour, minute) of the last `set_clock`
         # Position model, off until `attach` is called.
         self._game: Game | None = None
         self.loc: Location | None = None  # what the pointer shows; None = pointer invalid
@@ -134,6 +135,9 @@ class FakeEmu:
 
     def write_save(self, path: Path) -> None:
         Path(path).write_bytes(b"fake-save")
+
+    def set_clock(self, hour: int, minute: int) -> None:
+        self.clock = (hour, minute)
 
 
 def put_location(ram: bytearray, game: Game, loc: Location) -> None:

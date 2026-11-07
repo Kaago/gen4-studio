@@ -309,8 +309,10 @@ pub const FILE_KINDS: [FileKind; 1] = [FileKind {
 }];
 
 /// The schemas of parts of an art's files, `<art>.<key>` with their version: the world
-/// document of a map file (`maps.world`, [`crate::world::doc`]).
-pub const PART_SCHEMAS: [(&str, u32); 1] = [("maps.world", 1)];
+/// document of a map file (`maps.world`, [`crate::world::doc`]; version 2 since phase 6.3b,
+/// [`crate::world::WORLD_VERSION`]). A manifest naming a higher version reads only
+/// ([`super::manifest::SchemaState::Newer`]).
+pub const PART_SCHEMAS: [(&str, u32); 1] = [("maps.world", 2)];
 
 /// The file kind of folder `folder` under `data/`.
 pub fn file_kind(folder: &str) -> Option<&'static FileKind> {
@@ -388,7 +390,7 @@ mod tests {
             schemas(&BTreeMap::new()),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
-                ("maps.world".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(2)),
                 ("stories".to_owned(), Value::from(1)),
                 ("tilesets".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
@@ -403,7 +405,7 @@ mod tests {
             schemas(&keep),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
-                ("maps.world".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(2)),
                 ("plugins".to_owned(), serde_json::json!({"version": 2})),
                 ("stories".to_owned(), Value::from(1)),
                 ("tilesets".to_owned(), Value::from(1)),
@@ -430,7 +432,7 @@ mod tests {
             schemas(&keep),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(2)),
-                ("maps.world".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(2)),
                 ("stories".to_owned(), Value::from(1)),
                 ("tilesets".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
@@ -439,11 +441,11 @@ mod tests {
         // A newer version of a file kind or a part schema stays as well.
         let keep = BTreeMap::from([
             ("tilesets".to_owned(), Value::from(3)),
-            ("maps.world".to_owned(), Value::from(2)),
+            ("maps.world".to_owned(), Value::from(3)),
         ]);
         let written = schemas(&keep);
         assert_eq!(written["tilesets"], Value::from(3));
-        assert_eq!(written["maps.world"], Value::from(2));
+        assert_eq!(written["maps.world"], Value::from(3));
         // And the manifest an older Studio writes keeps it.
         let fx = TextFixture::exported();
         let mut manifest = read_manifest(fx.root()).unwrap();
@@ -654,7 +656,12 @@ mod tests {
         );
         assert!(file_kind("flags").is_none());
         assert!(data_kind("tilesets").is_none());
-        assert_eq!(PART_SCHEMAS, [("maps.world", 1)]);
+        assert_eq!(PART_SCHEMAS, [("maps.world", 2)]);
+        assert_eq!(
+            PART_SCHEMAS[0].1,
+            crate::world::WORLD_VERSION,
+            "the part schema is the world document's version"
+        );
         // A part schema names no folder.
         assert!(!is_known_folder("maps.world"));
         // The export's check gives no hint for `data/tilesets/` nor for the manifest's keys.

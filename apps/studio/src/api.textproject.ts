@@ -39,11 +39,13 @@ export interface SyncEntry {
 
 /**
  * A unit changed on both sides since the last record, or one side of a unit the store holds unsaved (`unsaved`). `other`: what changed
- * outside, DSPRE's member („DSPRE-Fassung übernehmen“) or the source file („Geänderte Datei übernehmen“).
+ * outside, DSPRE's member („DSPRE-Fassung übernehmen“) or the source file („Geänderte Datei übernehmen“). `world`: a world map's member
+ * changed outside the Studio; `keep: "studio"` is „Neu backen“, `keep: "dspre"` „Als binäre Karte übernehmen“.
  */
 export interface ConflictEntry extends SyncEntry {
   unsaved: boolean;
   other: "dspre" | "files";
+  world: boolean;
 }
 
 /** A unit whose source does not read: nothing of it was written. */

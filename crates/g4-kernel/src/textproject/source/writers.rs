@@ -10,7 +10,7 @@ use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::split_pair;
 use crate::world::WorldJson;
-use crate::world::keep::{carry_world, with_world, world_field};
+use crate::world::keep::{carry_world_parts, with_world, world_field, world_parts};
 
 use super::super::MANIFEST_FILE;
 use super::super::arts::{Art, file_names, numbered};
@@ -231,10 +231,11 @@ impl EntitySource {
         // A map takes `source` and `world` from its world map asset (given, else as the store
         // holds it) when that differs from the file's world; else it keeps those its file has,
         // as they are written there (the member knows no world, and a hand-written world the
-        // store holds unchanged keeps its bytes).
-        if art == Art::Maps
-            && let Some((_, fresh)) = files.first_mut()
-        {
+        // store holds unchanged keeps its bytes). A world map's file then loses the derived
+        // parts, a verbatim one moving into the world ([`world_parts`]).
+        if art == Art::Maps && !files.is_empty() {
+            let mut side: Vec<(String, Vec<u8>)> = files.drain(1..).collect();
+            let fresh = &mut files[0].1;
             let world_id = AssetId {
                 kind: AssetKind::WorldMap,
                 index,
@@ -252,10 +253,14 @@ impl EntitySource {
                 Some(bytes) if on_disk.as_deref() != Some(bytes.as_slice()) => {
                     let world: Option<WorldJson> = serde_json::from_slice(&bytes)
                         .map_err(|e| KernelError::InvalidProject(format!("{world_id}: {e}")))?;
-                    with_world(std::mem::take(fresh), world.as_ref())?
+                    match world {
+                        Some(world) => world_parts(std::mem::take(fresh), &world, &mut side)?,
+                        None => with_world(std::mem::take(fresh), None)?,
+                    }
                 }
-                _ => carry_world(json.as_deref(), std::mem::take(fresh))?,
+                _ => carry_world_parts(json.as_deref(), std::mem::take(fresh), &mut side)?,
             };
+            files.extend(side);
         }
         if let (Some(field), Some((_, json))) = (keep_eggs, files.first_mut()) {
             let mut entity: SpeciesEntity = serde_json::from_slice(json).map_err(|e| {

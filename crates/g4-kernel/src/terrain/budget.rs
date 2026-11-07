@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::checks::limits::Limits;
 use crate::error::KernelError;
-use crate::project::AssetKind;
+use crate::map_import::map_areas;
 use crate::store::Store;
 
 /// How full a budget is: „Ruhig“, „Knapp“, „Voll“.
@@ -116,35 +116,6 @@ fn bdhc_payload(bytes: &[u8]) -> u64 {
     count(0) * 8 + count(1) * 12 + count(2) * 4 + count(3) * 8 + count(4) * 8 + count(5) * 2
 }
 
-/// The area data of the first header (table order) whose matrix shows `map`, the same rule as
-/// the map part's texture packs: the cell holds `map` and, where the matrix has a header
-/// section, names that header.
-fn area_of_map(store: &mut Store, map: u16) -> Result<Option<u8>, KernelError> {
-    let headers: Vec<(usize, u16, u8)> = store
-        .header_table()?
-        .iter()
-        .enumerate()
-        .map(|(i, h)| (i, h.matrix_id(), h.area_data_id()))
-        .collect();
-    let matrices = store.member_count(AssetKind::Matrix)?;
-    for (header, matrix, area) in headers {
-        if usize::from(matrix) >= matrices {
-            continue;
-        }
-        let m = store.matrix(matrix)?;
-        let shows = m.maps.iter().enumerate().any(|(i, &cell)| {
-            cell == map
-                && m.headers
-                    .as_ref()
-                    .is_none_or(|h| h.get(i).is_some_and(|&id| usize::from(id) == header))
-        });
-        if shows {
-            return Ok(Some(area));
-        }
-    }
-    Ok(None)
-}
-
 /// A texture pack read and parsed; the German reason when it is missing or unreadable.
 fn pack(
     bytes: Result<Option<Vec<u8>>, KernelError>,
@@ -160,7 +131,8 @@ fn pack(
 
 /// The texture budget of `map`'s area, or why there is none.
 fn textures(store: &mut Store, map: u16) -> Result<Result<TextureBudget, String>, KernelError> {
-    let Some(area) = area_of_map(store, map)? else {
+    // The first area in table order, the same rule as the baker's (`bake::bake_context`).
+    let Some(area) = map_areas(store, map)?.first().copied() else {
         return Ok(Err("Kein Header zeigt diese Karte.".to_string()));
     };
     let Some(data) = store.area_data_checked(area)? else {
@@ -348,6 +320,44 @@ mod tests {
         );
         // The synthetic BDHC of map 2 has no header: no payload.
         assert_eq!(b.bdhc.used, 0);
+    }
+
+    #[test]
+    fn budget_area_is_the_first_of_map_areas() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        // Area data 0 selects map pack 0 and building pack 0, area data 1 map pack 2 and
+        // building pack 1; headers 0 and 1 both show map 0 (matrix 0 without header section).
+        write_narc(
+            root,
+            "files/fielddata/areadata/area_map_tex/map_tex_set.narc",
+            vec![map_pack(), map_pack(), building_pack()],
+        );
+        write_narc(
+            root,
+            "files/fielddata/areadata/area_build_model/areabm_texset.narc",
+            vec![building_pack(), map_pack()],
+        );
+        let mut st = Store::new(Arc::new(Project::open(root).unwrap()));
+        assert_eq!(crate::map_import::map_areas(&mut st, 0).unwrap(), [0, 1]);
+        let t = map_budget(&mut st, 0).unwrap().textures.unwrap();
+        assert_eq!((t.area, t.map_pack, t.building_pack), (0, 0, 0));
+
+        // Swapped: header 0 names area data 1, header 1 area data 0. Table order decides, not
+        // the lower area.
+        for (header, area) in [(0, 1), (1, 0)] {
+            st.edit_header(header, "area", |h| {
+                if let crate::store::MapHeader::Pt(h) = h {
+                    h.area_data_id = area;
+                }
+                Ok(())
+            })
+            .unwrap();
+        }
+        assert_eq!(crate::map_import::map_areas(&mut st, 0).unwrap(), [1, 0]);
+        let t = map_budget(&mut st, 0).unwrap().textures.unwrap();
+        assert_eq!((t.area, t.map_pack, t.building_pack), (1, 2, 1));
+        assert_eq!(t.textures, 2, "the building pack sits at map pack 2");
     }
 
     #[test]

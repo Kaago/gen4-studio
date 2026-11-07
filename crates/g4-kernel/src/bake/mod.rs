@@ -21,6 +21,12 @@ pub use textures::{
     bake_context, bake_for_map, pack_textures, pack_vram,
 };
 
+mod decode;
+pub use decode::{BakedQuad, decode_quads};
+/// The revision of the baker's bytes: raised whenever `bake` writes other bytes for the same
+/// faces (the input hash of the build step `world` salts with it).
+pub const BAKE_REV: u32 = 1;
+
 use std::collections::HashSet;
 
 use g4_formats::area_data::AreaData;

@@ -692,3 +692,17 @@ def test_stub_steps_take_no_arguments_and_need_the_repl(fake_emu, cpud, tmp_path
     assert [s.name for s in steps] == [name, "wait"] and steps[0].args == []
     with pytest.raises(StepFailed, match="kein GDB-Stub"):
         run_step(fake_emu, cpud, steps[0], tmp_path)
+
+
+def test_clock_sets_the_core_option(fake_emu, cpud, tmp_path):
+    out = run_step(fake_emu, cpud, Step("clock", ["23:00"]), tmp_path)
+    assert fake_emu.clock == (23, 0)
+    assert out == {"step": "clock", "ok": True, "hour": 23, "minute": 0, "frame": 0}
+    run_step(fake_emu, cpud, Step("clock", ["7:05"]), tmp_path)
+    assert fake_emu.clock == (7, 5)
+
+
+@pytest.mark.parametrize("text", ["24:00", "12:60", "12", "ab:cd", "-1:00", "12:5"])
+def test_clock_refuses_a_time_that_is_none(text):
+    with pytest.raises(ValueError, match="clock"):
+        parse_steps(["clock", text])

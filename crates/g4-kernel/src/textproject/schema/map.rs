@@ -1,16 +1,18 @@
 //! Map manifests: one map file (`land_data`) as its source (`"binary"`, or `"world"` with the
-//! world document `world` of phase 6.3a), the permissions as 32 text lines, the buildings, and
-//! the model, the terrain (BDHC) and on HeartGold/SoulSilver the background-sound block as
-//! parts. A map that does not decode or does not write back byte for byte is
-//! `{"locked", "raw"}`. Until the baker of 6.3b the world flows into no member: a world map
-//! builds from its binary parts like a binary one.
+//! world document `world`), the buildings and on HeartGold/SoulSilver the background-sound
+//! block as a part; a binary map also the permissions as 32 text lines and the model and the
+//! terrain (BDHC) as parts. A world map has no `permissions`, `model` and `bdhc`: they are the
+//! bake's output (phase 6.3b), and its verbatim parts (Form 1) live in the world
+//! (`world.freeform[].nsbmd`, `world.terrain.bdhc`). A map that does not decode or does not
+//! write back byte for byte is `{"locked", "raw"}`.
 
 use g4_formats::game::Family;
 use g4_formats::map::{BUILDING_LEN, Building, Cell, MAP_SIZE, MapFile};
 use serde::{Deserialize, Serialize};
 
 use crate::error::KernelError;
-use crate::world::doc::{MAP_SOURCE_WORLD, WorldJson};
+use crate::world::bake::Verbatim;
+use crate::world::doc::{MAP_SOURCE_WORLD, TerrainJson, WorldJson};
 use crate::world::grid::TileRef;
 use crate::world::keep::{source_without_world, world_without_source};
 
@@ -22,7 +24,7 @@ use super::{
     member_bytes, required,
 };
 
-/// The source of every map manifest in this phase: the map file's own bytes.
+/// The source of a map manifest without world: the map file's own bytes.
 pub(crate) const MAP_SOURCE_BINARY: &str = "binary";
 /// A map manifest whose `source` is not [`MAP_SOURCE_BINARY`].
 pub(crate) use super::super::codes::MAP_SOURCE_CODE;
@@ -36,21 +38,35 @@ pub struct MapEntity(pub Member<MapJson>);
 /// `"world"`; `permissions` is 32 lines of 32 cells `kkcc` (hex of `kind` and `collision`)
 /// separated by one space; `buildings_tail` (hex) the bytes after the last whole building,
 /// only when there are any; `model` (`.nsbmd`), `bdhc` (`.bdhc`) and the HeartGold/SoulSilver
-/// `bgs` (`.bgs`) are parts.
+/// `bgs` (`.bgs`) are parts. A binary map needs `permissions`, `model` and `bdhc`, a world
+/// map has none of them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MapJson {
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world: Option<WorldJson>,
-    pub permissions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<Vec<String>>,
     pub buildings: Vec<BuildingJson>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub buildings_tail: Option<String>,
-    pub model: Part,
-    pub bdhc: Part,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<Part>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bdhc: Option<Part>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bgs: Option<Part>,
+}
+
+/// A world map's source as the world step and the store bake it: the world, the map's own
+/// parts (`base`: buildings, tail, BGS; `permissions`, `model` and `bdhc` empty) and the
+/// verbatim parts the world names, resolved.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct WorldMapSource {
+    pub world: WorldJson,
+    pub base: MapFile,
+    pub verbatim: Verbatim,
 }
 
 /// A building (`g4-formats` `Building`); `dummy` (16 hex digits) only when not all zero.
@@ -66,7 +82,7 @@ pub struct BuildingJson {
 }
 
 /// Part `part` (`model`, `bdhc`, `bgs`, or `map` for a locked map) of map `index`.
-fn map_key(index: u32, part: &'static str) -> PartKey {
+pub(crate) fn map_key(index: u32, part: &'static str) -> PartKey {
     PartKey {
         art: MapEntity::ART,
         index,
@@ -99,8 +115,17 @@ impl EntitySchema for MapEntity {
         )?))
     }
 
+    /// A world map makes no member here (the world step bakes it): its file is checked and
+    /// its verbatim parts resolved ([`world_source`]), and the member on disk is answered as it
+    /// is (`None` without one).
     fn import(&self, index: u32, ctx: &ImportCtx<'_>) -> Result<Vec<Option<Vec<u8>>>, String> {
         let current = member(ctx.current, 0);
+        if let Member::Value(j) = &self.0
+            && is_world_map(j)?
+        {
+            world_source(j, index, current, ctx)?;
+            return Ok(vec![current.map(<[u8]>::to_vec)]);
+        }
         let bytes = member_bytes(&self.0, ROOT, map_key(index, "map"), current, ctx, |j| {
             map_bytes(j, index, current, ctx)
         })?;
@@ -111,11 +136,23 @@ impl EntitySchema for MapEntity {
         MapEntity(Member::Value(sample_map(true)))
     }
 
+    /// A binary map and a world map: the derived parts are optional (a world map has none),
+    /// and so is the world (a binary map has none).
     fn minimal_samples() -> Vec<(String, Self)> {
-        vec![(
-            Self::ART.to_owned(),
-            MapEntity(Member::Value(sample_map(false))),
-        )]
+        [false, true]
+            .into_iter()
+            .map(|world| {
+                let mut j = sample_map(false);
+                if world {
+                    j.source = MAP_SOURCE_WORLD.into();
+                    j.world = Some(WorldJson::blank(0, BLANK_FILL, 0));
+                    j.permissions = None;
+                    j.model = None;
+                    j.bdhc = None;
+                }
+                (Self::ART.to_owned(), MapEntity(Member::Value(j)))
+            })
+            .collect()
     }
 
     fn locked_samples() -> Vec<(String, Self)> {
@@ -123,7 +160,13 @@ impl EntitySchema for MapEntity {
     }
 }
 
-fn map_json(index: u32, m: &MapFile, ctx: &mut ExportCtx<'_>) -> Result<MapJson, KernelError> {
+/// The JSON of map `m` as a binary map: every part from its bytes (`base_sha1` when the base
+/// layer has them, else a side file or hex).
+pub(crate) fn map_json(
+    index: u32,
+    m: &MapFile,
+    ctx: &mut ExportCtx<'_>,
+) -> Result<MapJson, KernelError> {
     let permissions = m
         .permissions
         .chunks(MAP_SIZE)
@@ -148,11 +191,16 @@ fn map_json(index: u32, m: &MapFile, ctx: &mut ExportCtx<'_>) -> Result<MapJson,
     Ok(MapJson {
         source: MAP_SOURCE_BINARY.to_owned(),
         world: None,
-        permissions,
+        permissions: Some(permissions),
         buildings,
         buildings_tail: (!m.buildings_tail.is_empty()).then(|| hex(&m.buildings_tail)),
-        model: entity_part(map_key(index, "model"), "nsbmd", &m.model, ctx)?,
-        bdhc: entity_part(map_key(index, "bdhc"), "bdhc", &m.bdhc, ctx)?,
+        model: Some(entity_part(
+            map_key(index, "model"),
+            "nsbmd",
+            &m.model,
+            ctx,
+        )?),
+        bdhc: Some(entity_part(map_key(index, "bdhc"), "bdhc", &m.bdhc, ctx)?),
         bgs: m
             .bgs
             .as_ref()
@@ -192,26 +240,154 @@ fn read_permissions(lines: &[String]) -> Result<Vec<Cell>, String> {
     Ok(cells)
 }
 
-/// The map file of `j`; `current` (the member on disk) answers `base_sha1` parts first. A
-/// world map (`source: "world"` with `world`) builds from its binary parts like a binary one:
-/// the world flows into no member before 6.3b.
-fn map_bytes(
+/// Whether `j` is a world map (`source: "world"` with `world`), a binary map (`false`), or
+/// neither: `source` and `world` apart or an unknown source (`textproject.map-source`).
+pub(crate) fn is_world_map(j: &MapJson) -> Result<bool, String> {
+    match (j.source.as_str(), &j.world) {
+        (MAP_SOURCE_BINARY, None) => Ok(false),
+        (MAP_SOURCE_WORLD, Some(_)) => Ok(true),
+        (MAP_SOURCE_WORLD, None) => Err(source_without_world()),
+        (MAP_SOURCE_BINARY, Some(_)) => Err(world_without_source()),
+        (other, _) => Err(format!(
+            "{MAP_SOURCE_CODE}: source: Unbekannte Kartenquelle „{other}“."
+        )),
+    }
+}
+
+/// The map file of the binary map `j`; `current` (the member on disk) answers `base_sha1`
+/// parts first. `permissions`, `model` and `bdhc` are required (`textproject.schema`:
+/// „Schlüssel `model` fehlt.“); a world map is refused (its member is the bake's,
+/// [`world_source`]).
+pub(crate) fn map_bytes(
     j: &MapJson,
     index: u32,
     current: Option<&[u8]>,
     ctx: &ImportCtx<'_>,
 ) -> Result<Vec<u8>, String> {
-    match (j.source.as_str(), &j.world) {
-        (MAP_SOURCE_BINARY, None) | (MAP_SOURCE_WORLD, Some(_)) => {}
-        (MAP_SOURCE_WORLD, None) => return Err(source_without_world()),
-        (MAP_SOURCE_BINARY, Some(_)) => return Err(world_without_source()),
-        (other, _) => {
+    if is_world_map(j)? {
+        return Err(format!(
+            "{MAP_SOURCE_CODE}: source: eine Welt-Karte hat kein Member aus der Datei; es \
+             entsteht beim Backen."
+        ));
+    }
+    let required = |name: &str| format!("{SCHEMA_CODE}: {ROOT}: Schlüssel `{name}` fehlt.");
+    let (Some(permissions), Some(model), Some(bdhc)) = (&j.permissions, &j.model, &j.bdhc) else {
+        let missing = [
+            ("permissions", j.permissions.is_none()),
+            ("model", j.model.is_none()),
+            ("bdhc", j.bdhc.is_none()),
+        ]
+        .into_iter()
+        .find(|(_, missing)| *missing)
+        .map_or("model", |(name, _)| name);
+        return Err(required(missing));
+    };
+    let permissions = read_permissions(permissions)?;
+    let on_disk = current.and_then(|c| MapFile::read(c, ctx.family).ok());
+    let mut m = own_parts(j, index, on_disk.as_ref(), ctx)?;
+    let part = |p: &Part, name: &'static str, now: Option<&[u8]>| {
+        part_in_at(p, name, ctx.dir, &map_key(index, name), now, ctx.base)
+    };
+    m.model = part(model, "model", on_disk.as_ref().map(|m| m.model.as_slice()))?;
+    m.bdhc = part(bdhc, "bdhc", on_disk.as_ref().map(|m| m.bdhc.as_slice()))?;
+    m.permissions = permissions;
+    // Permissions and tail are checked: only the BGS block can fail here.
+    m.validate()
+        .map_err(|e| format!("{SCHEMA_CODE}: bgs: kein ganzer BGS-Block ({e})."))?;
+    Ok(m.write(ctx.family))
+}
+
+/// „Eine Welt-Karte trägt `permissions`, `model` und `bdhc` nicht; sie entstehen beim Backen.“
+/// at key `key`, a `textproject.map-source` error.
+fn derived_key_refusal(key: &str) -> String {
+    format!(
+        "{MAP_SOURCE_CODE}: {key}: Eine Welt-Karte trägt `permissions`, `model` und `bdhc` \
+         nicht; sie entstehen beim Backen."
+    )
+}
+
+/// A world map's source: buildings, tail and BGS read like a binary map; the verbatim parts
+/// (`world.freeform[].nsbmd`, `world.terrain.bdhc`) resolved with `part_in_at` (keys
+/// `maps NNNN model` / `bdhc`, `current` answering first). A world map with `permissions`,
+/// `model` or `bdhc` is refused with the key's path (`textproject.map-source`), and so is a
+/// file that is no world map.
+pub(crate) fn world_source(
+    j: &MapJson,
+    index: u32,
+    current: Option<&[u8]>,
+    ctx: &ImportCtx<'_>,
+) -> Result<WorldMapSource, String> {
+    let world = match (is_world_map(j)?, &j.world) {
+        (true, Some(world)) => world,
+        _ => {
             return Err(format!(
-                "{MAP_SOURCE_CODE}: source: Unbekannte Kartenquelle „{other}“."
+                "{MAP_SOURCE_CODE}: source: „{}“ ist keine Welt-Karte.",
+                j.source
             ));
         }
+    };
+    for (key, there) in [
+        ("permissions", j.permissions.is_some()),
+        ("model", j.model.is_some()),
+        ("bdhc", j.bdhc.is_some()),
+    ] {
+        if there {
+            return Err(derived_key_refusal(key));
+        }
     }
-    let permissions = read_permissions(&j.permissions)?;
+    let on_disk = current.and_then(|c| MapFile::read(c, ctx.family).ok());
+    let base = own_parts(j, index, on_disk.as_ref(), ctx)?;
+    // Validated with a full set of cells: the world bakes the permissions.
+    MapFile {
+        permissions: vec![Cell::default(); MAP_SIZE * MAP_SIZE],
+        ..base.clone()
+    }
+    .validate()
+    .map_err(|e| format!("{SCHEMA_CODE}: bgs: kein ganzer BGS-Block ({e})."))?;
+    let part = |p: &Part, path: &str, name: &'static str, now: Option<&[u8]>| {
+        part_in_at(p, path, ctx.dir, &map_key(index, name), now, ctx.base)
+    };
+    let model = world
+        .freeform
+        .iter()
+        .enumerate()
+        .find_map(|(i, f)| f.nsbmd.as_ref().map(|p| (i, p)))
+        .map(|(i, p)| {
+            part(
+                p,
+                &format!("world.freeform[{i}].nsbmd"),
+                "model",
+                on_disk.as_ref().map(|m| m.model.as_slice()),
+            )
+        })
+        .transpose()?;
+    let bdhc = world
+        .terrain
+        .as_ref()
+        .map(|TerrainJson { bdhc }| {
+            part(
+                bdhc,
+                "world.terrain.bdhc",
+                "bdhc",
+                on_disk.as_ref().map(|m| m.bdhc.as_slice()),
+            )
+        })
+        .transpose()?;
+    Ok(WorldMapSource {
+        world: world.clone(),
+        base,
+        verbatim: Verbatim { model, bdhc },
+    })
+}
+
+/// The parts of `j` a binary map and a world map share: buildings, tail and BGS (the BGS part
+/// resolved, `on_disk` answering first); `permissions`, `model` and `bdhc` empty.
+fn own_parts(
+    j: &MapJson,
+    index: u32,
+    on_disk: Option<&MapFile>,
+    ctx: &ImportCtx<'_>,
+) -> Result<MapFile, String> {
     let mut buildings = Vec::with_capacity(j.buildings.len());
     for (i, b) in j.buildings.iter().enumerate() {
         let mut dummy = [0u8; 8];
@@ -245,21 +421,14 @@ fn map_bytes(
             buildings_tail.len()
         ));
     }
-    let on_disk = current.and_then(|c| MapFile::read(c, ctx.family).ok());
-    let part = |p: &Part, name: &'static str, now: Option<&[u8]>| {
-        part_in_at(p, name, ctx.dir, &map_key(index, name), now, ctx.base)
-    };
-    let model = part(
-        &j.model,
-        "model",
-        on_disk.as_ref().map(|m| m.model.as_slice()),
-    )?;
-    let bdhc = part(&j.bdhc, "bdhc", on_disk.as_ref().map(|m| m.bdhc.as_slice()))?;
     let bgs = match (&j.bgs, ctx.family) {
-        (Some(p), Family::Hgss) => Some(part(
+        (Some(p), Family::Hgss) => Some(part_in_at(
             p,
             "bgs",
-            on_disk.as_ref().and_then(|m| m.bgs.as_deref()),
+            ctx.dir,
+            &map_key(index, "bgs"),
+            on_disk.and_then(|m| m.bgs.as_deref()),
+            ctx.base,
         )?),
         (None, Family::Hgss) => {
             return Err(format!(
@@ -274,29 +443,38 @@ fn map_bytes(
         }
         (None, Family::Pt | Family::Dp) => None,
     };
-    let m = MapFile {
+    Ok(MapFile {
         bgs,
-        permissions,
+        permissions: Vec::new(),
         buildings,
         buildings_tail,
-        model,
-        bdhc,
-    };
-    // Permissions and tail are checked above: only the BGS block can fail here.
-    m.validate()
-        .map_err(|e| format!("{SCHEMA_CODE}: bgs: kein ganzer BGS-Block ({e})."))?;
-    Ok(m.write(ctx.family))
+        model: Vec::new(),
+        bdhc: Vec::new(),
+    })
 }
 
-/// A map with one building, its options set when `full` (a blank world on package 0 among
-/// them, `source` then `"world"`).
+/// The ground tile of the sample worlds.
+const BLANK_FILL: TileRef = TileRef {
+    tile: 0,
+    rotate: 0,
+    flip: false,
+};
+
+/// A map with one building, its options set when `full`: a world on package 0 with a verbatim
+/// model and terrain among them (`source` then `"world"`), next to the derived parts a binary
+/// map has (a shape for the schema snapshot, not a file that imports).
 fn sample_map(full: bool) -> MapJson {
     let hex = || Part::Hex { hex: "00".into() };
-    let fill = TileRef {
-        tile: 0,
-        rotate: 0,
-        flip: false,
-    };
+    let world = full.then(|| {
+        let mut w = WorldJson::blank(0, BLANK_FILL, 0);
+        w.freeform.push(crate::world::doc::FreeformJson {
+            glb: None,
+            nsbmd: Some(hex()),
+            at: [0, 0, 0],
+        });
+        w.terrain = Some(TerrainJson { bdhc: hex() });
+        w
+    });
     MapJson {
         source: if full {
             MAP_SOURCE_WORLD
@@ -304,8 +482,8 @@ fn sample_map(full: bool) -> MapJson {
             MAP_SOURCE_BINARY
         }
         .into(),
-        world: full.then(|| WorldJson::blank(0, fill, 0)),
-        permissions: vec!["0000".into()],
+        world,
+        permissions: Some(vec!["0000".into()]),
         buildings: vec![BuildingJson {
             model_id: 0,
             position: [0; 3],
@@ -314,8 +492,8 @@ fn sample_map(full: bool) -> MapJson {
             dummy: full.then(|| "00".repeat(8)),
         }],
         buildings_tail: full.then(|| "00".into()),
-        model: hex(),
-        bdhc: hex(),
+        model: Some(hex()),
+        bdhc: Some(hex()),
         bgs: full.then(hex),
     }
 }
@@ -396,15 +574,15 @@ mod tests {
         };
         assert_eq!(
             j.model,
-            Part::Base {
+            Some(Part::Base {
                 base_sha1: sha1_hex(&m.model)
-            }
+            })
         );
         assert_eq!(
             j.bdhc,
-            Part::File {
+            Some(Part::File {
                 file: "0000.bdhc".into()
-            }
+            })
         );
         assert_eq!(side, vec![("0000.bdhc".to_owned(), m.bdhc.clone())]);
         assert_eq!(j.bgs, None);
@@ -460,11 +638,11 @@ mod tests {
         let Member::Value(j) = &e.0 else { panic!() };
         assert_eq!(
             j.model,
-            Part::File {
+            Some(Part::File {
                 file: "0003.nsbmd".into()
-            }
+            })
         );
-        assert!(matches!(j.bdhc, Part::Base { .. }));
+        assert!(matches!(j.bdhc, Some(Part::Base { .. })));
         assert_eq!(side, vec![("0003.nsbmd".to_owned(), changed.model.clone())]);
 
         // Back to the original: the model is the base again and no side file is left.
@@ -473,9 +651,9 @@ mod tests {
         let Member::Value(j) = &e.0 else { panic!() };
         assert_eq!(
             j.model,
-            Part::Base {
+            Some(Part::Base {
                 base_sha1: sha1_hex(&original.model)
-            }
+            })
         );
         assert!(side.is_empty(), "{side:?}");
         let back = import_in(Family::Pt, &e, 3, &symbols(), Path::new("/x"), &base, &[]);
@@ -500,9 +678,9 @@ mod tests {
         );
         assert_eq!(
             j.model,
-            Part::Hex {
+            Some(Part::Hex {
                 hex: "aa".repeat(8)
-            }
+            })
         );
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v.as_object().unwrap().keys().next_back().unwrap(), "bgs");
@@ -590,21 +768,27 @@ mod tests {
             "textproject.map-source: source: Unbekannte Kartenquelle „dsl“."
         );
         let err = edit(&|j| {
-            j.permissions.pop();
+            j.permissions.as_mut().unwrap().pop();
         });
         assert_eq!(code_and_path(&err), ("textproject.schema", "permissions"));
-        let err = edit(&|j| j.permissions[4] = "0000 0000".into());
+        let err = edit(&|j| j.permissions.as_mut().unwrap()[4] = "0000 0000".into());
         assert_eq!(
             code_and_path(&err),
             ("textproject.schema", "permissions[4]")
         );
-        let err = edit(&|j| j.permissions[2] = format!("02g0{}", &j.permissions[2][4..]));
+        let err = edit(&|j| {
+            let rows = j.permissions.as_mut().unwrap();
+            rows[2] = format!("02g0{}", &rows[2][4..]);
+        });
         assert_eq!(
             code_and_path(&err),
             ("textproject.schema", "permissions[2]")
         );
         assert!(err.contains("`02g0`"), "{err}");
-        let err = edit(&|j| j.permissions[2] = format!("020{}", &j.permissions[2][4..]));
+        let err = edit(&|j| {
+            let rows = j.permissions.as_mut().unwrap();
+            rows[2] = format!("020{}", &rows[2][4..]);
+        });
         assert_eq!(
             code_and_path(&err),
             ("textproject.schema", "permissions[2]")
@@ -625,16 +809,16 @@ mod tests {
             ("textproject.schema", "buildings_tail")
         );
         let err = edit(&|j| {
-            j.model = Part::File {
+            j.model = Some(Part::File {
                 file: "0000.nsbmd".into(),
-            }
+            })
         });
         assert_eq!(code_and_path(&err), ("textproject.side-file", "model.file"));
 
         // Cells may be upper case; the tail may be left out.
         let mut e = good.clone();
-        let j = json_of(&mut e);
-        j.permissions[0] = j.permissions[0].to_uppercase();
+        let rows = json_of(&mut e).permissions.as_mut().unwrap();
+        rows[0] = rows[0].to_uppercase();
         assert_eq!(
             import(Family::Pt, &e, 0).unwrap(),
             vec![Some(bytes_of(&m, Family::Pt))]
@@ -680,39 +864,187 @@ mod tests {
         )
     }
 
-    #[test]
-    fn a_world_map_imports_its_binary_parts() {
+    /// The small map of [`small_map`] as a world map: `source: "world"`, a blank world, no
+    /// `permissions`, `model` and `bdhc`.
+    fn world_map() -> (MapEntity, Vec<u8>) {
         let (mut e, bytes) = small_map();
         let j = json_of(&mut e);
         j.source = MAP_SOURCE_WORLD.into();
         j.world = Some(blank_world());
-        // The world sits right after `source` and reads back as it was written.
+        j.permissions = None;
+        j.model = None;
+        j.bdhc = None;
+        (e, bytes)
+    }
+
+    #[test]
+    fn a_world_map_keeps_the_member_on_disk() {
+        let (e, bytes) = world_map();
+        // The world sits right after `source`; the derived parts are not in the file.
         let text = to_canonical(&e);
         let v: serde_json::Value = serde_json::from_slice(&text).unwrap();
         let keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
-        assert_eq!(
-            keys,
-            [
-                "source",
-                "world",
-                "permissions",
-                "buildings",
-                "buildings_tail",
-                "model",
-                "bdhc"
-            ]
-        );
+        assert_eq!(keys, ["source", "world", "buildings", "buildings_tail"]);
         let back: MapEntity = serde_json::from_slice(&text).unwrap();
         assert_eq!(back, e);
         assert_eq!(to_canonical(&back), text);
-        // The member is the binary map's, byte for byte: the world flows into no member.
+        // The import makes no member: the one on disk is answered as it is, none without.
+        let current = [Some(bytes.clone())];
+        let dir = Path::new("/x");
+        let base = MemBase::default();
         assert_eq!(
-            import(Family::Pt, &e, 0).unwrap(),
-            vec![Some(bytes.clone())]
+            import_in(Family::Pt, &e, 0, &symbols(), dir, &base, &current).unwrap(),
+            vec![Some(bytes)]
         );
-        let mut busy = e.clone();
-        json_of(&mut busy).world = Some(crate::world::doc::fixtures::busy_world());
-        assert_eq!(import(Family::Pt, &busy, 0).unwrap(), vec![Some(bytes)]);
+        assert_eq!(import(Family::Pt, &e, 0).unwrap(), vec![None]);
+    }
+
+    #[test]
+    fn a_world_map_with_derived_keys_is_refused_with_its_path() {
+        let (good, bytes) = world_map();
+        let (binary, _) = small_map();
+        let Member::Value(parts) = &binary.0 else {
+            panic!()
+        };
+        let current = [Some(bytes)];
+        for key in ["permissions", "model", "bdhc"] {
+            let mut e = good.clone();
+            let j = json_of(&mut e);
+            match key {
+                "permissions" => j.permissions = parts.permissions.clone(),
+                "model" => j.model = parts.model.clone(),
+                _ => j.bdhc = parts.bdhc.clone(),
+            }
+            let err = import_in(
+                Family::Pt,
+                &e,
+                0,
+                &symbols(),
+                Path::new("/x"),
+                &MemBase::default(),
+                &current,
+            )
+            .unwrap_err();
+            assert_eq!(
+                err,
+                format!(
+                    "textproject.map-source: {key}: Eine Welt-Karte trägt `permissions`, \
+                     `model` und `bdhc` nicht; sie entstehen beim Backen."
+                )
+            );
+            assert_eq!(code_and_path(&err), ("textproject.map-source", key));
+            // `locate` finds the key in the file.
+            let text = to_canonical(&e);
+            let p =
+                crate::textproject::locate::located(Path::new("data/maps/0000.json"), &text, &err);
+            assert!(p.line > 1, "{p:?}");
+        }
+    }
+
+    #[test]
+    fn a_binary_map_needs_its_three_parts() {
+        let (good, _) = small_map();
+        for key in ["permissions", "model", "bdhc"] {
+            let mut e = good.clone();
+            let j = json_of(&mut e);
+            match key {
+                "permissions" => j.permissions = None,
+                "model" => j.model = None,
+                _ => j.bdhc = None,
+            }
+            let err = import(Family::Pt, &e, 0).unwrap_err();
+            assert_eq!(
+                err,
+                format!("textproject.schema: $: Schlüssel `{key}` fehlt.")
+            );
+        }
+        // Serde reads a file without them; the check is the import's.
+        let mut v = serde_json::to_value(&good).unwrap();
+        v.as_object_mut().unwrap().shift_remove("model");
+        let e: MapEntity = serde_json::from_value(v).unwrap();
+        assert_eq!(json_of(&mut e.clone()).model, None);
+    }
+
+    #[test]
+    fn world_source_resolves_the_verbatim_parts() {
+        let model: Vec<u8> = (0..100u8).collect();
+        let terrain = vec![0xBD; 80];
+        let (mut e, bytes) = world_map();
+        let j = json_of(&mut e);
+        let world = j.world.as_mut().unwrap();
+        world.freeform.push(crate::world::doc::FreeformJson {
+            glb: None,
+            nsbmd: Some(Part::Base {
+                base_sha1: sha1_hex(&model),
+            }),
+            at: [0, 0, 0],
+        });
+        world.terrain = Some(TerrainJson {
+            bdhc: Part::File {
+                file: "0000.bdhc".into(),
+            },
+        });
+        let j = j.clone();
+        let mut base = MemBase::default();
+        base.0.insert(map_key(0, "model"), model.clone());
+        let dir = side_dir(&[("0000.bdhc".to_owned(), terrain.clone())]);
+        let source_of = |j: &MapJson, base: &MemBase| {
+            let current = [Some(bytes.clone())];
+            let symbols = symbols();
+            let ctx = ImportCtx {
+                family: Family::Pt,
+                symbols: &symbols,
+                dir: dir.path(),
+                base,
+                current: &current,
+            };
+            world_source(j, 0, Some(&bytes), &ctx)
+        };
+        let source = source_of(&j, &base).unwrap();
+        assert_eq!(
+            source.verbatim,
+            Verbatim {
+                model: Some(model.clone()),
+                bdhc: Some(terrain.clone()),
+            }
+        );
+        assert_eq!(source.world, *j.world.as_ref().unwrap());
+        let disk = MapFile::read(&bytes, Family::Pt).unwrap();
+        assert_eq!(source.base.buildings, disk.buildings);
+        assert_eq!(source.base.buildings_tail, disk.buildings_tail);
+        assert!(source.base.permissions.is_empty() && source.base.model.is_empty());
+        assert!(source.base.bdhc.is_empty() && source.base.bgs.is_none());
+        // Without the base (the member on disk has other bytes) the model is missing, with
+        // its path; a missing side file names its path too.
+        let empty = MemBase::default();
+        let err = source_of(&j, &empty).unwrap_err();
+        assert_eq!(
+            code_and_path(&err),
+            (
+                "textproject.base-missing",
+                "world.freeform[0].nsbmd.base_sha1"
+            ),
+            "{err}"
+        );
+        let mut no_file = j.clone();
+        no_file.world.as_mut().unwrap().terrain = Some(TerrainJson {
+            bdhc: Part::File {
+                file: "0001.bdhc".into(),
+            },
+        });
+        let err = source_of(&no_file, &base).unwrap_err();
+        assert_eq!(
+            code_and_path(&err),
+            ("textproject.side-file", "world.terrain.bdhc.file"),
+            "{err}"
+        );
+        // Without verbatim parts nothing is resolved.
+        let (plain, _) = world_map();
+        let Member::Value(plain) = &plain.0 else {
+            panic!()
+        };
+        let source = source_of(plain, &empty).unwrap();
+        assert_eq!(source.verbatim, Verbatim::default());
     }
 
     #[test]

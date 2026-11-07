@@ -228,4 +228,27 @@ describe("worldMesh", () => {
     expect((await mapModel(h, 12, 2)).name).toBe("glb");
     expect(notes).toEqual([[12, null]]);
   });
+  it("map_model_falls_back_to_the_glb_without_faces", async () => {
+    // A world adopted with Form 1 has no grid: the scene shows its baked model through the GLB.
+    const { h, notes } = fakeHost({ 0: true });
+    api.getWorldMesh.mockResolvedValue({ map: 0, tileset: 6, faces: 0, textures: [], corners: [], uv: [], texture: [], layer: [] });
+    api.getMapModelGlb.mockResolvedValue(new ArrayBuffer(4));
+    expect((await mapModel(h, 0, 2)).name).toBe("glb");
+    expect(api.getWorldMesh).toHaveBeenCalledWith(0);
+    expect(api.getMapModelGlb).toHaveBeenCalledWith(0, 2);
+    expect(notes).toEqual([[0, null]]);
+  });
+
+  it("map_model_falls_back_to_the_glb_on_error", async () => {
+    // A world whose mesh does not read (rows that do not parse, a package that fails): the GLB, not a hole in the scene.
+    const { h, notes } = fakeHost({ 0: true });
+    api.getWorldMesh.mockRejectedValue({ code: "error", message: "world.schema: kaputt", asset: null });
+    api.getMapModelGlb.mockResolvedValue(new ArrayBuffer(4));
+    expect((await mapModel(h, 0, 2)).name).toBe("glb");
+    expect((await mapModel(h, 0, 2, { probe: true })).name).toBe("glb");
+    expect(notes).toEqual([
+      [0, null],
+      [0, null],
+    ]);
+  });
 });

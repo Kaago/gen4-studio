@@ -472,14 +472,39 @@ Ablehnungen (`error` mit dem Text, nichts geändert):
 - `world_create` auf einer Welt-Karte („Karte 0000 ist schon eine Welt-Karte.“), `world_edit` auf einer Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“), eine Zelle außerhalb der Karte, eine Kachel jenseits des Tilesets, eine Änderung mit keinem oder mehreren von `tile`, `height`, `ramp`, `permission`, eine Welt-Datei mit Fehlern (der erste mit seinem Pfad) und ein Aufruf, der nichts ändert („Nichts zu ändern.“).
 - `tileset_save`, wenn die Datei schon da ist („data/tilesets/0006.json gibt es schon.“), und ein Paket, das es nicht gibt („Kartentextur-Paket 0200 gibt es nicht (74 Pakete).“).
 
+## Welt-Karten backen (6.3b, über `g4_call`)
+
+Im Textprojekt ist das Map-Asset einer Welt-Karte ihr gebackener Member: jeder Strich backt im selben Undo-Schritt Modell, Terrain (BDHC) und Permissions neu. Vier weitere Befehle gehen bis zu den kuratierten Werkzeugen von 6.4a über `g4_call` (Expertenmodus, `--expert`); Argumente wie in `api.ts` (camelCase), die Anfragen von `world_adopt` und `tileset_edit` unter `req`.
+
+| Befehl | Art | Argumente | Antwort |
+|---|---|---|---|
+| `world_adopt` | Schreiben (ein Undo-Schritt) | `req: {map, tileset?, form?}` | `{map, tileset, tileset_guessed, deviations: [{x, z, height, step}], change, bake}`: „Karte als Quelle übernehmen“ (Form 1, Label „Karte als Quelle übernommen: Karte 0000“). Modell und BDHC bleiben verbatim (`world.freeform = [{nsbmd}]`, `world.terrain = {bdhc}`), die Bodenebene „Boden“ ganz `.` mit den Höhen aus der BDHC, jede Permission als Handwert; die Karte backt byte-gleich. Paket aus `tileset`, sonst aus dem ersten Header der Karte, sonst 0 mit `tileset_guessed: true`. `form` nur `"verbatim"` (Vorgabe). `deviations`: Zellen ohne Platte (`height: null`) oder mehr als 0,1 E neben ihrer Stufe |
+| `world_to_binary` | Schreiben (ein Undo-Schritt) | `map` | `{map, tileset, cells: 0, change, bake: null}`: „Als binäre Karte übernehmen“ ohne Konflikt (Label „Welt aufgegeben: Karte 0000“); die Welt geht, das zuletzt gebackene Map-Asset bleibt, Speichern schreibt die Karte binär |
+| `world_bake` | Lesen | `map` | das Backen der Karte, wie der Store sie hält (nichts geändert), oder `null` (keine Welt, außerhalb eines Textprojekts): `{map, ok, style, faces, model_bytes, model_share, model_kept, textures, vram_bytes, bdhc_bytes, bdhc_payload, plates, blocked, verbatim_model, verbatim_terrain, messages: [{code, level, args, message}]}` |
+| `tileset_edit` | Schreiben (ein Undo-Schritt) | `req: {package, changes: [{tile, role?, kind?, collision?, sound?, wall?}]}` | `{package, tiles, change}`: ändert Kacheln der Datei `data/tilesets/NNNN.json` als ein Dateischritt („Tileset 0000 geändert (2 Kacheln)“), geänderte Kacheln bekommen `origin: user`, `wall: null` entfernt die Wandkachel; danach backen die sauberen Welt-Karten dieses Pakets neu (auch bei Undo und Redo), schmutzige backt das nächste Speichern |
+
+`world_get` antwortet zusätzlich mit `bake` (dasselbe wie `world_bake`, `null` ohne Welt und bei einer Welt, deren Zeilen sich nicht lesen; dann bleibt `world` mit `faces: 0`, `world_bake` lehnt mit dem ersten Fehler ab, etwa „world.schema: world.layers[0].tiles[0]: 31 Zellen statt 32.“). `world_create` und `world_edit` antworten mit `bake` des Schritts: ein abgelehntes Backen (`ok: false`, etwa `bake.model-too-big`, `bake.texture-missing`, `world.no-area`, `world.verbatim-mixed`, `world.freeform-later`) ist kein Fehler des Aufrufs, der Strich bleibt, das Modell bleibt das letzte (`model_kept: true`), BDHC und Permissions folgen der Welt.
+
+Konflikte `world.member-changed` über `resolve_external_conflict` (`studio` = Neu backen, `dspre` = Als binäre Karte übernehmen). `external_sync` nennt sie mit `world: true` (immer `other: "dspre"`, nie eine einseitige Übernahme).
+
+Ablehnungen (`error` mit dem Text, nichts geändert):
+
+- Außerhalb eines Textprojekts der aktuellen Fassung lehnen `world_adopt`, `world_to_binary` und `tileset_edit` mit „Boden malen gibt es im Textprojekt (Technik › Textprojekt).“ ab; `world_bake` antwortet dort `null`.
+- `world_adopt`: Form 2 („Form 2 (glTF) kommt mit 6.5b.“), eine Welt-Karte („Karte 0000 ist schon eine Welt-Karte.“), eine gesperrte Karte oder eine, deren Member sich nicht liest („Karte 0001 lässt sich nicht übernehmen: ihr Member lässt sich nicht lesen (…).“ mit dem Grund), ein Paket, das es nicht gibt.
+- `world_bake` auf einer Welt, deren Zeilen sich nicht lesen (`world.schema: …` mit dem Pfad des ersten Fehlers).
+- `world_to_binary` auf einer Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“).
+- `tileset_edit` ohne Datei („Erst `tileset_save` für Paket 0006.“), eine Kachel jenseits des Tilesets („changes[0].tile: Kachel 0x0120 gibt es im Tileset 0006 nicht (94 Kacheln).“), ein Aufruf, der nichts ändert („Nichts zu ändern.“), ein Ergebnis mit Fehlern (der erste mit dem Pfad der Datei, etwa „data/tilesets/0006.json: tiles[0].wall: …“).
+- Abgeleitete Teile einer Welt-Karte direkt ändern (`set_permission`, `set_map_terrain`, `bake_test`, `map_import` von Modell, BDHC, Permissions oder der ganzen Karte): „Karte 0000 ist eine Welt-Karte: Modell, Terrain und Permissions entstehen beim Backen; Permissions über `world_edit` (`permission`), zurück zur binären Karte über „Als binäre Karte übernehmen“.“
+- „Auf Original zurücksetzen“ einer Welt: „Eine Welt hat kein Original; erst „Als binäre Karte übernehmen“.“
+
 ## Malen (6.4a)
 
 Seit 6.4a malt ein Agent Welt-Karten mit drei kuratierten Werkzeugen wie die App: `world_get` und `tileset_get` lesen, `world_edit` schreibt. Welten gibt es nur im Textprojekt der aktuellen Fassung (siehe „Welt-Karten (6.3a, über `g4_call`)“ für die Befehle dahinter und ihre Ablehnungen).
 
 | Werkzeug | Art | Argumente | Antwort |
 |---|---|---|---|
-| `world_get` | lesend | `{map}` | `{map, world, faces, textures, estimate, share}`: das Weltobjekt (`version`, `tileset` das Kartentextur-Paket, `layers` mit `tiles`, `heights` und `ramps` als je 32 Zeilen zu 32 Token, `pieces`, `permissions`), Flächen und Texturen des Netzes, die geschätzte Modellgröße in Byte und ihr Anteil an 0xF000. `world: null` bei einer Karte ohne Welt, einer binären Karte oder außerhalb eines Textprojekts. Das Backen (`bake`: Modell- und Terrain-Bytes, Anteil an 0xF000, Texturen, VRAM, `ok`, Meldungen) kommt mit 6.3b in die Antwort; die Beschreibung des Werkzeugs nennt es schon. |
-| `world_edit` | schreibend (ein Undo-Schritt) | `{req: {map, label?, changes: [{layer?, cells: [[x, z]], tile? \| height? \| ramp? \| permission?}]}}` | `{map, tileset, cells, change}` |
+| `world_get` | lesend | `{map}` | `{map, world, faces, textures, estimate, share, bake}`: das Weltobjekt (`version`, `tileset` das Kartentextur-Paket, `layers` mit `tiles`, `heights` und `ramps` als je 32 Zeilen zu 32 Token, `pieces`, `permissions`), Flächen und Texturen des Netzes, die geschätzte Modellgröße in Byte und ihr Anteil an 0xF000. `world: null` bei einer Karte ohne Welt, einer binären Karte oder außerhalb eines Textprojekts. `bake` ist das Backen der Karte (Modell- und Terrain-Bytes, Anteil an 0xF000, Texturen, VRAM, `ok`, Meldungen; wie `world_bake` in „Welt-Karten backen (6.3b, über `g4_call`)“), `null` ohne Welt. |
+| `world_edit` | schreibend (ein Undo-Schritt) | `{req: {map, label?, changes: [{layer?, cells: [[x, z]], tile? \| height? \| ramp? \| permission?}]}}` | `{map, tileset, cells, change, bake}` (das Backen des Schritts) |
 | `tileset_get` | lesend | `{package}` | `{package, stored, tileset}`: je Kachel Textur, Größe in Texeln, Rolle (`ground`, `wall`, `ramp`, `water`, `grass`, `piece`), Art, Kollision, Höhenverhalten, Schrittgeräusch (HGSS) und Wandkachel; `stored: false`, solange es aus dem Paket abgeleitet und noch nicht unter `data/tilesets/` liegt (`tileset_save` über `g4_call` schreibt es) |
 
 Eine Änderung in `changes` nennt Zellen `[x, z]` (je 0 bis 31) und genau eines von:
@@ -495,7 +520,7 @@ Eine neue Welt-Karte legt heute `world_create` über `g4_call` an; das Rezept `n
 
 ### Ebenen über `g4_call`
 
-`world_layers` (Expertenmodus, schreibend, ein Undo-Schritt) legt eine Überlagerungsebene an oder entfernt eine: `{req: {map, op: {add: {name}}}}` hängt eine leere Ebene (Rolle `overlay`, 32 Zeilen `.`) an, Schritt „Ebene „Büsche“ angelegt: Karte 0000“; `{req: {map, op: {remove: {layer}}}}` entfernt Ebene `layer`, Schritt „Ebene 2 „Büsche“ entfernt: Karte 0000“. Die Antwort ist `{map, tileset, cells: 0, change}`. Ablehnungen wie bei `world_edit`, dazu „Die Bodenebene (0) bleibt.“, „Eine Ebene braucht einen Namen.“, „Ebene „Büsche“ gibt es schon.“ und „Ebene 3 gibt es nicht (Karte 0000 hat 2).“
+`world_layers` (Expertenmodus, schreibend, ein Undo-Schritt) legt eine Überlagerungsebene an oder entfernt eine: `{req: {map, op: {add: {name}}}}` hängt eine leere Ebene (Rolle `overlay`, 32 Zeilen `.`) an, Schritt „Ebene „Büsche“ angelegt: Karte 0000“; `{req: {map, op: {remove: {layer}}}}` entfernt Ebene `layer`, Schritt „Ebene 2 „Büsche“ entfernt: Karte 0000“. Die Antwort ist `{map, tileset, cells: 0, change, bake}`. Ablehnungen wie bei `world_edit`, dazu „Die Bodenebene (0) bleibt.“, „Eine Ebene braucht einen Namen.“, „Ebene „Büsche“ gibt es schon.“ und „Ebene 3 gibt es nicht (Karte 0000 hat 2).“
 
 ### Beispiel: ein Strich wie die App
 

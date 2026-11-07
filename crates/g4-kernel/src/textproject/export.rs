@@ -22,7 +22,9 @@ use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::start::{MarkState, mark_state};
 use crate::text::{self, Problem, Severity};
+#[cfg(doc)]
 use crate::world::keep::carry_world;
+use crate::world::keep::carry_world_parts;
 
 use super::MANIFEST_FILE;
 use super::arts::{
@@ -669,20 +671,22 @@ pub(crate) fn entity_files(
 /// visible file there; the folder goes when it ends up empty. JSON and side files are told
 /// apart by their extension. A JSON whose file on disk carries the tombstone envelope keeps
 /// it ([`file_deleted`]): the export never brings a deleted entity back. A map file keeps the
-/// `source` and `world` of its file on disk ([`carry_world`]): the member knows no world.
+/// `source` and `world` of its file on disk ([`carry_world`]): the member knows no world; a
+/// world map's file then loses the derived parts, a verbatim one moving into the world, and
+/// the side file of a dropped part is not written ([`world_parts`](crate::world::world_parts)).
 fn write_folder(root: &Path, art: Art, files: &ArtFiles) -> Result<ArtStats, KernelError> {
     let rel = &art.dir();
     let mut stats = ArtStats::default();
-    for (name, bytes) in &files.files {
+    let world_maps;
+    let files = if art == Art::Maps {
+        world_maps = world_map_files(root, rel, &files.files)?;
+        &world_maps
+    } else {
+        &files.files
+    };
+    for (name, bytes) in files {
         let file = rel.join(name);
         let json = name.ends_with(".json");
-        let carried;
-        let bytes = if json && art == Art::Maps {
-            carried = carry_world_at(root, &file, bytes.clone())?;
-            &carried
-        } else {
-            bytes
-        };
         let enveloped;
         let bytes = if json && file_deleted(root, &file)? {
             enveloped = with_envelope(bytes.clone());
@@ -702,7 +706,7 @@ fn write_folder(root: &Path, art: Art, files: &ArtFiles) -> Result<ArtStats, Ker
     }
     let dir = root.join(rel);
     for name in file_names(&dir)? {
-        if !files.files.contains_key(&name) {
+        if !files.contains_key(&name) {
             let path = dir.join(&name);
             std::fs::remove_file(&path).map_err(io_at(&path))?;
             stats.removed += 1;
@@ -712,15 +716,39 @@ fn write_folder(root: &Path, art: Art, files: &ArtFiles) -> Result<ArtStats, Ker
     Ok(stats)
 }
 
-/// [`carry_world`] with the map file `root/rel` as it is on disk.
-fn carry_world_at(root: &Path, rel: &Path, fresh: Vec<u8>) -> Result<Vec<u8>, KernelError> {
-    let path = root.join(rel);
-    let on_disk = match std::fs::read(&path) {
-        Ok(bytes) => Some(bytes),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(io_at(&path)(e)),
-    };
-    carry_world(on_disk.as_deref(), fresh)
+/// The map files `files` of folder `rel` with the `source` and `world` of each file on disk
+/// carried ([`carry_world_parts`]): a world map's JSON without the derived parts, and without
+/// the side files of the parts it dropped.
+fn world_map_files(
+    root: &Path,
+    rel: &Path,
+    files: &BTreeMap<String, Vec<u8>>,
+) -> Result<BTreeMap<String, Vec<u8>>, KernelError> {
+    let mut out = files.clone();
+    for (name, bytes) in files {
+        let Some(stem) = name.strip_suffix(".json") else {
+            continue;
+        };
+        let prefix = format!("{stem}.");
+        let mut side: Vec<(String, Vec<u8>)> = files
+            .iter()
+            .filter(|(n, _)| n.starts_with(&prefix) && *n != name)
+            .map(|(n, b)| (n.clone(), b.clone()))
+            .collect();
+        let before: Vec<String> = side.iter().map(|(n, _)| n.clone()).collect();
+        let path = root.join(rel).join(name);
+        let on_disk = match std::fs::read(&path) {
+            Ok(bytes) => Some(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(io_at(&path)(e)),
+        };
+        let carried = carry_world_parts(on_disk.as_deref(), bytes.clone(), &mut side)?;
+        out.insert(name.clone(), carried);
+        for gone in before.iter().filter(|n| !side.iter().any(|(s, _)| s == *n)) {
+            out.remove(gone);
+        }
+    }
+    Ok(out)
 }
 
 /// Deletes folder `dir` when it holds nothing (a missing folder is fine).
@@ -804,7 +832,12 @@ mod tests {
     use super::*;
     use crate::test_support::TextFixture;
     use crate::world::doc::fixtures::busy_world;
-    use crate::world::keep::{with_world, world_field};
+    use crate::world::keep::{with_world, world_field, world_parts};
+
+    /// `fresh` as a world map's file with `world` (no derived keys).
+    fn world_file(fresh: Vec<u8>, world: &crate::world::WorldJson) -> Vec<u8> {
+        world_parts(fresh, world, &mut Vec::new()).unwrap()
+    }
 
     fn export_again(fx: &TextFixture) -> ExportReport {
         export(
@@ -823,7 +856,7 @@ mod tests {
         const MAP: &str = "data/maps/0000.json";
         let fx = TextFixture::exported();
         let world = busy_world();
-        let file = with_world(fx.read(MAP), Some(&world)).unwrap();
+        let file = world_file(fx.read(MAP), &world);
         fx.write(MAP, &file);
 
         let report = export_again(&fx);
@@ -869,9 +902,7 @@ mod tests {
     fn export_keeps_a_tombstoned_world_map() {
         let fx = TextFixture::exported();
         let world = busy_world();
-        let file = crate::textproject::tombstone::with_envelope(
-            with_world(fx.read(MAP), Some(&world)).unwrap(),
-        );
+        let file = crate::textproject::tombstone::with_envelope(world_file(fx.read(MAP), &world));
         fx.write(MAP, &file);
         // Carried first, then the envelope: world after `source`, `deleted` last.
         let v: serde_json::Value = serde_json::from_slice(&file).unwrap();
@@ -884,6 +915,56 @@ mod tests {
             assert_eq!(fx.read(MAP), file);
         }
         assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(world));
+    }
+
+    #[test]
+    fn export_of_a_world_map_is_idempotent() {
+        use g4_formats::map::MapFile;
+        const MODEL: &str = "data/maps/0000.nsbmd";
+        const TERRAIN: &str = "data/maps/0000.bdhc";
+        let fx = TextFixture::exported();
+        let p = fx.project();
+        // Map 0 with a model and a terrain over 64 bytes, unlike the base: side files.
+        let member = crate::textproject::arts::member_rel(&p, AssetKind::Map, 0);
+        let member = member.to_string_lossy();
+        let mut m = MapFile::read(&fx.read(&member), p.family).unwrap();
+        m.model = (0..100).collect();
+        m.bdhc = vec![0xBD; 80];
+        fx.write(&member, &m.write(p.family));
+        forced(&fx).unwrap();
+        assert_eq!(fx.read(MODEL), m.model);
+        assert_eq!(fx.read(TERRAIN), m.bdhc);
+
+        // A file as 6.3a wrote it (the derived keys beside the world) with a verbatim model:
+        // the model part moves into the world, the others go with the terrain's side file.
+        let mut world = busy_world();
+        world.freeform.push(crate::world::FreeformJson {
+            glb: None,
+            nsbmd: Some(crate::textproject::Part::Hex { hex: "00".into() }),
+            at: [0, 0, 0],
+        });
+        fx.write(MAP, &with_world(fx.read(MAP), Some(&world)).unwrap());
+        let report = forced(&fx).unwrap();
+        assert!(report.written >= 1, "{report:#?}");
+        let v: serde_json::Value = serde_json::from_slice(&fx.read(MAP)).unwrap();
+        let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, ["source", "world", "buildings"]);
+        assert_eq!(
+            v["world"]["freeform"][0]["nsbmd"],
+            serde_json::json!({"file": "0000.nsbmd"})
+        );
+        assert_eq!(fx.read(MODEL), m.model);
+        assert!(!fx.root().join(TERRAIN).exists());
+
+        // From then on the export writes nothing.
+        let file = fx.read(MAP);
+        for _ in 0..2 {
+            let report = forced(&fx).unwrap();
+            assert_eq!(report.written, 0, "{report:#?}");
+            assert_eq!(fx.read(MAP), file);
+            assert_eq!(fx.read(MODEL), m.model);
+            assert!(!fx.root().join(TERRAIN).exists());
+        }
     }
 
     #[test]

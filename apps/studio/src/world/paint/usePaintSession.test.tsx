@@ -33,8 +33,8 @@ function world(first = "0041"): WorldJson {
     permissions: { derive: true },
   };
 }
-const dto = (w: WorldJson): WorldGetDto => ({ map: MAP, world: w, faces: 0, textures: 0, estimate: 0, share: 0 });
-const report = (req: WorldEditRequest): WorldReport => ({ map: req.map, tileset: 6, cells: 1, change: 1 });
+const dto = (w: WorldJson): WorldGetDto => ({ map: MAP, world: w, faces: 0, textures: 0, estimate: 0, share: 0, bake: null });
+const report = (req: WorldEditRequest): WorldReport => ({ map: req.map, tileset: 6, cells: 1, change: 1, bake: null });
 const tick = () => act(async () => new Promise((r) => setTimeout(r, 0)));
 
 describe("usePaintSession", () => {

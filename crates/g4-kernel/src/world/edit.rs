@@ -1,7 +1,9 @@
-//! „Welt anlegen“ ([`world_create`]) and the changes of cells ([`world_edit`]): each is one
-//! undo step on the store's world map asset ([`AssetKind::WorldMap`]), whose bytes are the
-//! world object of the map's JSON. Both are refused outside a text project of the current
-//! schema ([`WORLD_NEEDS_TEXT_PROJECT`]) and change nothing when they are refused.
+//! „Welt anlegen“ ([`world_create`]), the changes of cells ([`world_edit`]) and „Als binäre
+//! Karte übernehmen“ ([`world_to_binary`]): each is one undo step on the store's world map
+//! asset ([`AssetKind::WorldMap`]), whose bytes are the world object of the map's JSON, and
+//! (create, edit) on the map it bakes into ([`crate::store::Tx::edit_world`]). All are refused
+//! outside a text project of the current schema ([`WORLD_NEEDS_TEXT_PROJECT`]) and change
+//! nothing when they are refused.
 //!
 //! A change names cells and exactly one of `tile` (on a layer, the ground by default),
 //! `height`, `ramp` (both the ground's only) and `permission` (the map's override, no layer),
@@ -14,6 +16,7 @@ use crate::error::KernelError;
 use crate::project::SourceMode;
 use crate::store::{ChangeId, Store};
 
+use super::bake::WorldBakeReport;
 use super::check::tile_errors;
 use super::doc::WorldJson;
 use super::grid::{
@@ -34,7 +37,7 @@ pub const ONE_FIELD: &str = "Eine Änderung setzt genau eines von tile, height, 
 pub const NOTHING_TO_CHANGE: &str = "Nichts zu ändern.";
 /// Why a world has no state to go back to (`reset` „Auf Original zurücksetzen“).
 pub const WORLD_HAS_NO_ORIGINAL: &str =
-    "Eine Welt hat kein Original; „Karte als Quelle übernehmen“ und zurück kommen mit 6.3b.";
+    "Eine Welt hat kein Original; erst „Als binäre Karte übernehmen“.";
 /// A height or a ramp on an overlay.
 const GROUND_ONLY: &str = "Höhen und Rampen gibt es nur auf der Bodenebene (0).";
 /// A permission with a layer.
@@ -120,14 +123,22 @@ pub struct WorldChange {
     pub permission: Option<String>,
 }
 
-/// What `world_create` or `world_edit` did: the map, its package, the cells it set (a new world:
-/// all 1024 of the ground) and the undo step (`None`: nothing recorded).
+/// What `world_create`, `world_edit`, `world_layers` or `world_to_binary` did: the map, its
+/// package, the cells it set (a new world: all 1024 of the ground; a layer added or removed or
+/// the world given up: 0), the undo step (`None`: nothing recorded) and the bake of the step
+/// (`None` when it baked nothing: the world given up). A refused bake is in its messages, never an error of the call: the stroke stays.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorldReport {
     pub map: u16,
     pub tileset: u16,
     pub cells: usize,
     pub change: Option<ChangeId>,
+    pub bake: Option<WorldBakeReport>,
+}
+
+/// „Welt aufgegeben: Karte 0123“, the label of [`world_to_binary`].
+pub fn world_to_binary_label(map: u16) -> String {
+    format!("Welt aufgegeben: Karte {map:04}")
 }
 
 /// The rows a change writes to.
@@ -147,7 +158,7 @@ struct Checked<'a> {
 }
 
 /// Refused outside a text project of the current schema.
-fn require_text_project(store: &Store) -> Result<(), KernelError> {
+pub(super) fn require_text_project(store: &Store) -> Result<(), KernelError> {
     if *store.project().source_mode() != SourceMode::TextProject {
         return Err(KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()));
     }
@@ -182,13 +193,18 @@ fn first_error_with(world: &WorldJson, tileset: &Tileset) -> Result<(), KernelEr
 }
 
 /// Refused when map `map` cannot carry a world: its member does not decode (it is written as
-/// `{locked, raw}`, without a place for a world) or the store holds it locked
-/// ([`locked_map_refusal`]).
-fn refuse_locked_map(store: &mut Store, map: u16) -> Result<(), KernelError> {
+/// `{locked, raw}`, without a place for a world) or the store holds it locked. `refusal` says
+/// why from the cause (the decoder's error or the lock's reason): [`locked_map_refusal`] for a
+/// world map, [`binary_map_refusal`] for a map that is to become one.
+pub(super) fn refuse_locked_map(
+    store: &mut Store,
+    map: u16,
+    refusal: impl Fn(&str) -> String,
+) -> Result<(), KernelError> {
     match store.map(map) {
         Ok(_) => {}
-        Err(KernelError::Format(_) | KernelError::Uxie(_)) => {
-            return Err(refused(locked_map_refusal(map)));
+        Err(e @ (KernelError::Format(_) | KernelError::Uxie(_))) => {
+            return Err(refused(refusal(&e.to_string())));
         }
         Err(e) => return Err(e),
     }
@@ -196,10 +212,20 @@ fn refuse_locked_map(store: &mut Store, map: u16) -> Result<(), KernelError> {
         kind: crate::project::AssetKind::Map,
         index: map,
     };
-    if store.locked(id).is_some() {
-        return Err(refused(locked_map_refusal(map)));
+    if let Some(why) = store.locked(id) {
+        return Err(refused(refusal(why)));
     }
     Ok(())
+}
+
+/// „Karte 0001 lässt sich nicht übernehmen: ihr Member lässt sich nicht lesen (…).“: why a
+/// binary map whose member is locked or does not read does not become a world map; `action`
+/// is what was asked („übernehmen“, „als Welt anlegen“), `cause` the decoder's error or the
+/// lock's reason.
+pub(super) fn binary_map_refusal(map: u16, action: &str, cause: &str) -> String {
+    format!(
+        "Karte {map:04} lässt sich nicht {action}: ihr Member lässt sich nicht lesen ({cause})."
+    )
 }
 
 /// Refused with `text` (a parser's sentence).
@@ -225,7 +251,9 @@ pub fn world_create(
     if store.world(map)?.is_some() {
         return Err(refused(already_world(map)));
     }
-    refuse_locked_map(store, map)?;
+    refuse_locked_map(store, map, |cause| {
+        binary_map_refusal(map, "als Welt anlegen", cause)
+    })?;
     let package = match req.tileset {
         Some(package) => package,
         None => *packs_of_map(store, map)?
@@ -247,17 +275,19 @@ pub fn world_create(
     let world = WorldJson::blank(package, fill, height);
     first_error(&world)?;
     let label = format!("Welt angelegt: Karte {map:04}");
-    let ((), change) = store.transaction(&label, |tx| {
+    let (bake, change) = store.transaction(&label, |tx| {
         tx.edit_world(map, |w| {
             *w = Some(world);
             Ok(())
-        })
+        })?;
+        Ok(tx.bake_report(map))
     })?;
     Ok(WorldReport {
         map,
         tileset: package,
         cells: MAP_CELLS * MAP_CELLS,
         change,
+        bake,
     })
 }
 
@@ -280,7 +310,7 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
         .world(map)?
         .cloned()
         .ok_or_else(|| refused(not_a_world_map(map)))?;
-    refuse_locked_map(store, map)?;
+    refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
     first_error(&before)?;
     let tileset = store.tileset(before.tileset)?;
     first_error_with(&before, &tileset)?;
@@ -290,6 +320,13 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
         checked.push(check_change(change, i, map, &before, tiles)?);
     }
     let mut world = before.clone();
+    // Heights or ramps painted: the BDHC comes from the grid from now on.
+    if checked
+        .iter()
+        .any(|c| matches!(c.rows, Rows::Heights | Rows::Ramps))
+    {
+        world.terrain = None;
+    }
     let had_ramps = world.layers.first().is_some_and(|l| l.ramps.is_some());
     let had_overrides = world.permissions.overrides.is_some();
     for change in &checked {
@@ -333,17 +370,48 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
         None => format!("Welt geändert: Karte {map:04} ({cells} Zellen)"),
     };
     let package = world.tileset;
-    let ((), change) = store.transaction(&label, |tx| {
+    let (bake, change) = store.transaction(&label, |tx| {
         tx.edit_world(map, |w| {
             *w = Some(world);
             Ok(())
-        })
+        })?;
+        Ok(tx.bake_report(map))
     })?;
     Ok(WorldReport {
         map,
         tileset: package,
         cells,
         change,
+        bake,
+    })
+}
+
+/// „Als binäre Karte übernehmen“ without a conflict: the world of map `map` goes as one undo
+/// step ([`world_to_binary_label`]); the Map asset (its last bake) stays, so the next save
+/// writes the map binary, with its permissions, model and BDHC.
+///
+/// Refused ([`KernelError::Refused`], nothing changed): outside a text project
+/// ([`WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]).
+pub fn world_to_binary(store: &mut Store, map: u16) -> Result<WorldReport, KernelError> {
+    require_text_project(store)?;
+    let package = store
+        .world(map)?
+        .map(|w| w.tileset)
+        .ok_or_else(|| refused(not_a_world_map(map)))?;
+    // The bake the map keeps: loaded before the world goes.
+    store.map(map)?;
+    let ((), change) = store.transaction(&world_to_binary_label(map), |tx| {
+        tx.edit_world(map, |w| {
+            *w = None;
+            Ok(())
+        })
+    })?;
+    Ok(WorldReport {
+        map,
+        tileset: package,
+        cells: 0,
+        change,
+        bake: None,
     })
 }
 
@@ -443,7 +511,7 @@ mod tests {
     use crate::textproject::canon::to_canonical;
     use crate::textproject::part::sha1_hex;
     use crate::world::grid::TileRef;
-    use crate::world::keep::{with_world, world_field};
+    use crate::world::keep::{world_field, world_parts};
     use crate::world::tileset::{Tileset, tileset_rel};
 
     const MAP: &str = "data/maps/0000.json";
@@ -522,11 +590,12 @@ mod tests {
         )
     }
 
-    /// Flips the collision bit of cell (0, 0) of map 0 as one step.
-    fn paint_permission(store: &mut Store) {
+    /// Moves the first building of map 0 as one step (a world map's own part: its derived
+    /// parts are the bake's).
+    fn move_building(store: &mut Store) {
         store
-            .edit_map(0, "Permission gemalt", |m| {
-                m.permissions[0].collision ^= 0x80;
+            .edit_map(0, "Gebäude verschoben", |m| {
+                m.buildings[0].position[0] += 1;
                 Ok(())
             })
             .unwrap();
@@ -575,12 +644,19 @@ mod tests {
             (3, 0)
         );
 
+        // The world and the map it bakes into.
         assert_eq!(
             store.undo().unwrap(),
-            [AssetId {
-                kind: AssetKind::WorldMap,
-                index: 0
-            }]
+            [
+                AssetId {
+                    kind: AssetKind::WorldMap,
+                    index: 0
+                },
+                AssetId {
+                    kind: AssetKind::Map,
+                    index: 0
+                }
+            ]
         );
         assert_eq!(world(&mut store, 0), Some(created.clone()));
         store.undo().unwrap();
@@ -623,35 +699,36 @@ mod tests {
     }
 
     #[test]
-    fn save_writes_world_and_keeps_member() {
+    fn save_writes_world_and_the_baked_member() {
         let (fx, mut store) = fixture();
         let sha1 = member_sha1(&fx);
         create(&mut store, 0);
-        assert_eq!(
-            store.dirty(),
-            [AssetId {
+        let both = [
+            AssetId {
+                kind: AssetKind::Map,
+                index: 0,
+            },
+            AssetId {
                 kind: AssetKind::WorldMap,
-                index: 0
-            }]
-        );
+                index: 0,
+            },
+        ];
+        assert_eq!(store.dirty(), both);
         let report = store.save().unwrap();
-        assert_eq!(
-            report.written,
-            [AssetId {
-                kind: AssetKind::WorldMap,
-                index: 0
-            }]
-        );
+        assert_eq!(report.written, both);
         assert!(store.dirty().is_empty());
-        assert_eq!(member_sha1(&fx), sha1);
+        // The member is the bake now (BDHC and permissions of the world; the stub package
+        // has no textures, so the model stays).
+        assert_ne!(member_sha1(&fx), sha1);
+        let family = fx.project().family;
+        let member = std::fs::read(member_path(&fx)).unwrap();
+        assert_eq!(store.map(0).unwrap().write(family), member);
         let v = file_json(&fx);
         assert_eq!(v["source"], "world");
         assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(blank()));
-        // Read back by a new store, the map as its member.
+        // Read back by a new store, the map as its bake: the member saved.
         let mut again = store_of(&fx);
         assert_eq!(world(&mut again, 0), Some(blank()));
-        let member = std::fs::read(member_path(&fx)).unwrap();
-        let family = fx.project().family;
         assert_eq!(again.map(0).unwrap().write(family), member);
         // A second save writes nothing.
         let before = fx.read(MAP);
@@ -663,7 +740,7 @@ mod tests {
     fn a_map_edit_keeps_the_world() {
         let (fx, mut store) = fixture();
         create(&mut store, 0);
-        paint_permission(&mut store);
+        move_building(&mut store);
         store.save().unwrap();
         assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(blank()));
         let family = fx.project().family;
@@ -674,15 +751,15 @@ mod tests {
         create(&mut store, 0);
         store.save().unwrap();
         let with_world = fx.read(MAP);
-        paint_permission(&mut store);
+        move_building(&mut store);
         store.save().unwrap();
         assert_eq!(world_field(&fx.read(MAP)).unwrap(), Some(blank()));
-        let (old, new) = (
-            String::from_utf8(with_world).unwrap(),
-            String::from_utf8(fx.read(MAP)).unwrap(),
-        );
-        let differ = old.lines().zip(new.lines()).filter(|(a, b)| a != b).count();
-        assert_eq!((old.lines().count(), differ), (new.lines().count(), 1));
+        // The building is the file's: it moves there and in the member.
+        assert_ne!(fx.read(MAP), with_world);
+        let x = store.map(0).unwrap().buildings[0].position[0];
+        assert_eq!(file_json(&fx)["buildings"][0]["position"][0], x);
+        let map = store.map(0).unwrap().write(family);
+        assert_eq!(std::fs::read(member_path(&fx)).unwrap(), map);
     }
 
     #[test]
@@ -695,7 +772,7 @@ mod tests {
                 0 => {
                     create(store, 0);
                 }
-                1 => paint_permission(store),
+                1 => move_building(store),
                 _ => {
                     edit(
                         store,
@@ -714,15 +791,18 @@ mod tests {
             store.history().0,
             [
                 "Welt angelegt: Karte 0000",
-                "Permission gemalt",
+                "Gebäude verschoben",
                 "Welt geändert: Karte 0000 (1 Zelle)"
             ]
         );
-        // The world steps leave the member as it is; the permission writes it.
-        assert_eq!(states[1].1, states[0].1);
+        // Each step writes the member (a world step its bake, the building move its own part)
+        // and the file (the world, the building).
+        assert_ne!(states[1].1, states[0].1);
         assert_ne!(states[2].1, states[1].1);
-        assert_eq!(states[3].1, states[2].1);
-        assert!(states.windows(2).all(|w| w[0].0 != w[1].0));
+        assert_ne!(states[3].1, states[2].1);
+        assert_ne!(states[1].0, states[0].0);
+        assert_ne!(states[2].0, states[1].0);
+        assert_ne!(states[3].0, states[2].0);
         for at in (0..3).rev() {
             store.undo().unwrap();
             store.save().unwrap();
@@ -982,9 +1062,8 @@ mod tests {
                 &mut store,
                 &create_req(json!({"map": 0, "tileset": 0}))
             )),
-            "textproject.map-source: Karte 0000 ist eine Welt-Karte, ihr Member lässt sich \
-             nicht lesen; Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder \
-             die Welt aus der Datei sichern)."
+            "Karte 0000 lässt sich nicht als Welt anlegen: ihr Member lässt sich nicht lesen \
+             (data truncated: needed 4 bytes, have 1)."
         );
         assert!(store.history().0.is_empty());
         assert_eq!(fx.read(MAP), locked);
@@ -996,7 +1075,7 @@ mod tests {
         let mut broken = blank();
         broken.layers[0].tiles.pop();
         broken.layers[0].heights.as_mut().unwrap()[4] = vec!["70"; 32].join(" ");
-        let file = with_world(fx.read(MAP), Some(&broken)).unwrap();
+        let file = world_parts(fx.read(MAP), &broken, &mut Vec::new()).unwrap();
         fx.write(MAP, &file);
         let mut store = store(&fx);
         assert_eq!(world(&mut store, 0), Some(broken.clone()));
@@ -1043,7 +1122,7 @@ mod tests {
         let mut row: Vec<&str> = vec!["0000"; 32];
         row[3] = "0120";
         broken.layers[0].tiles[2] = row.join(" ");
-        let file = with_world(fx.read(MAP), Some(&broken)).unwrap();
+        let file = world_parts(fx.read(MAP), &broken, &mut Vec::new()).unwrap();
         fx.write(MAP, &file);
         let mut store = store(&fx);
         assert_eq!(world(&mut store, 0), Some(broken.clone()));
@@ -1169,12 +1248,12 @@ mod tests {
             world.changed && world.old.is_none() && world.new.is_some(),
             "{world:?}"
         );
-        assert!(
-            parts
-                .iter()
-                .filter(|p| p.part != "world")
-                .all(|p| !p.changed)
-        );
+        // The derived parts leave the file of a world map (schema 4); the others stay.
+        for p in parts.iter().filter(|p| p.part != "world") {
+            let derived = ["model", "permissions", "bdhc"].contains(&p.part.as_str());
+            assert_eq!(p.changed, derived, "{p:?}");
+            assert_eq!(p.new.is_none(), derived, "{p:?}");
+        }
         store.save().unwrap();
         assert!(crate::diff::unsaved_entries(&mut store).unwrap().is_empty());
         let report = diff_entity(
@@ -1298,7 +1377,8 @@ mod tests {
     fn a_hand_written_world_survives_a_map_save() {
         let (fx, _) = fixture();
         let mut v: Value =
-            serde_json::from_slice(&with_world(fx.read(MAP), Some(&blank())).unwrap()).unwrap();
+            serde_json::from_slice(&world_parts(fx.read(MAP), &blank(), &mut Vec::new()).unwrap())
+                .unwrap();
         // Not as the store writes it: a piece without `rotate`, an empty `freeform`.
         v["world"]["pieces"] = json!([{"tile": 5, "at": [3, 3]}]);
         v["world"]["freeform"] = json!([]);
@@ -1307,16 +1387,13 @@ mod tests {
         let mut store = store_of(&fx);
         // Loaded and unchanged in the store.
         assert_eq!(world(&mut store, 0).unwrap().pieces[0].rotate, 0);
-        paint_permission(&mut store);
+        move_building(&mut store);
         store.save().unwrap();
         let now: Value = serde_json::from_slice(&fx.read(MAP)).unwrap();
         assert_eq!(now["world"], v["world"]);
-        let (old, new) = (
-            String::from_utf8(hand).unwrap(),
-            String::from_utf8(fx.read(MAP)).unwrap(),
-        );
-        let differ = old.lines().zip(new.lines()).filter(|(a, b)| a != b).count();
-        assert_eq!((old.lines().count(), differ), (new.lines().count(), 1));
+        // The world as written: the piece without `rotate`, the empty `freeform`.
+        assert!(now["world"]["pieces"][0].get("rotate").is_none(), "{now}");
+        assert_ne!(fx.read(MAP), hand);
     }
 
     #[test]
@@ -1375,7 +1452,7 @@ pub fn world_layers(
         .world(map)?
         .cloned()
         .ok_or_else(|| refused(not_a_world_map(map)))?;
-    refuse_locked_map(store, map)?;
+    refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
     first_error(&world)?;
     let label = match &req.op {
         LayerOp::Add { name } => {
@@ -1409,17 +1486,19 @@ pub fn world_layers(
     };
     first_error(&world)?;
     let package = world.tileset;
-    let ((), change) = store.transaction(&label, |tx| {
+    let (bake, change) = store.transaction(&label, |tx| {
         tx.edit_world(map, |w| {
             *w = Some(world);
             Ok(())
-        })
+        })?;
+        Ok(tx.bake_report(map))
     })?;
     Ok(WorldReport {
         map,
         tileset: package,
         cells: 0,
         change,
+        bake,
     })
 }
 

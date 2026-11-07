@@ -75,8 +75,9 @@ pub struct MapDto {
     /// The walk height of every tile centre in world units, row-major (32 x 32), as
     /// `get_map_heights` answers it; `null` where no plate lies under the centre and everywhere
     /// when the BDHC is unreadable. A world map (6.3a) gives the heights of its world document
-    /// instead, `null` where its ground is empty (`.`) (`get_map` sets them; `get_map_heights`
-    /// still reads the member's BDHC).
+    /// instead, `null` where its ground is empty (`.`) (`get_map` sets them); a world map with
+    /// verbatim terrain (`world.terrain`, form 1) gives the heights of its baked BDHC, as
+    /// `get_map_heights` does.
     pub heights: Vec<Option<f32>>,
 }
 
@@ -304,11 +305,14 @@ pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
     } else {
         None
     };
-    // A world map walks on its world document, not on the old BDHC of its member: the height
-    // at each cell centre (8 units a step, a ramp half way up), `null` where the ground is
-    // empty (`.`: no floor there). A world that does not read keeps the member's heights.
+    // A world map walks on its world document: the height at each cell centre (8 units a
+    // step, a ramp half way up), `null` where the ground is empty (`.`: no floor there). A world
+    // with verbatim terrain (`world.terrain`, form 1, kept by tile strokes until a height or
+    // ramp edit) walks on that BDHC: its heights are those of the baked map asset, as
+    // `get_map_heights` answers them. A world that does not read keeps the map asset's too.
     let world_heights = world
         .as_ref()
+        .filter(|w| w.terrain.is_none())
         .and_then(|w| g4_kernel::world::grid::WorldGrid::parse(w).ok())
         .map(|grid| {
             let ground = grid.layers.first().map(|l| l.tiles.as_slice());
