@@ -40,6 +40,8 @@ Fehlt eine Zeile oder weicht sie ab (vor allem die mit Stand 6.3b), zuerst die A
 
 Teil 1 (Tasks 2–6) auf 7f01683b; Teil 2 nach dem Merge von main mit 6.3b.
 
+**6.3b-Zeilen bestätigt nach dem Merge von main `53210d31` (Merge-Commit `f22ea326`):** `WorldReport.bake: Option<WorldBakeReport>`, `Store::world_bake_report`, `WorldBakeReport` (`world/bake.rs`), `test_support::world_ready()`, `fixtures::gate_world(tileset, ground, grass, water)`, `WORLD_VERSION = 2`, `world_adopt` (`world/adopt.rs`), `world_to_binary`, `tileset_edit` (`world/tileset.rs`), Frontend `WorldBakeReport`, `worldAdopt`, `worldToBinary`, `worldBake`, `WorldSourceSection`, Szenarien `{pt,hg}-gemalt.yaml` mit `NEUER_HEADER` sind da. Beim Merge angepasst: `world_layers` übergibt den neuen Ablehnungstext an `refuse_locked_map` und meldet den Bake des Schritts wie `world_edit`; TS `tilesetEdit` mit `TilesetEditReport`.
+
 **Geprüft auf `7f01683b` (07.11.2026, grep), Abweichungen der main-Zeilen:**
 
 - `world::doc::fixtures::gate_world` fehlt auf main (kommt mit 6.3b, wie in der Zeile vermerkt); `one_tile_world`, `checkerboard_world`, `busy_world` sind da. `WorldJson::blank(tileset, fill: TileRef, height: i8)` nimmt eine `TileRef`, keinen Token (Task 1 parst `fill_tile` vorher).
