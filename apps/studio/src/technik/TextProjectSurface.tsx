@@ -355,9 +355,12 @@ function ConflictRow({ conflict, busy, onResolved }: { conflict: ConflictEntry; 
 
 type DiffState = { diff: ConflictDiff | null; error: string | null };
 
-/** `busy`: a build runs, the choice waits (it would write a member the build is reading). */
+/**
+ * `busy`: a build runs, the choice waits (it would write a member the build is reading). A world map's conflict (`world`) offers
+ * „Neu backen“ (`studio`) and „Als binäre Karte übernehmen“ (`dspre`).
+ */
 function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry; busy: boolean; onResolved: (assets: AssetId[]) => void }) {
-  const { key, label, unsaved, other } = conflict;
+  const { key, label, unsaved, other, world } = conflict;
   const [read, setRead] = useState<DiffState>({ diff: null, error: null });
   const [resolving, setResolving] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
@@ -371,7 +374,9 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
       current = false;
     };
   }, [key]);
-  const take = other === "files" ? "Geänderte Datei übernehmen" : "DSPRE-Fassung übernehmen";
+  // A world map's member is the bake's output: the Studio's side bakes anew, the other side takes the member as a binary map.
+  const keep = world ? "Neu backen" : "Studio-Fassung behalten";
+  const take = world ? "Als binäre Karte übernehmen" : other === "files" ? "Geänderte Datei übernehmen" : "DSPRE-Fassung übernehmen";
   const { diff, error } = read;
   // The Studio's side of a unit held unsaved is its unsaved value (what the editor shows): the column says so.
   const columns: TableColumn[] = [
@@ -394,6 +399,7 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
   };
   return (
     <>
+      {world && <p className={styles.note}>Diese Welt-Karte wurde außerhalb des Studios geändert.</p>}
       {diff === null && error === null && <p className={styles.note}>Lese die Abweichungen …</p>}
       {error !== null && <Notice kind="error">{error}</Notice>}
       {diff !== null && (
@@ -410,7 +416,7 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
       {unsaved && <Notice kind="warning">„{take}“ verwirft die ungespeicherten Änderungen an diesem Eintrag.</Notice>}
       <div className={styles.actions}>
         <Button kind="secondary" size="s" aria-disabled={locked || undefined} onClick={() => void choose("studio")}>
-          Studio-Fassung behalten
+          {keep}
         </Button>
         <Button kind="secondary" size="s" aria-disabled={locked || undefined} onClick={() => void choose("dspre")}>
           {take}

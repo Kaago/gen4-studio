@@ -97,4 +97,8 @@ describe("stepWords", () => {
     expect(stepLabel(step("pack:maps", { done: 666, total: 666, reason: "build.cache-stale" }), "bauen", true).result).toBe("666 Member gepackt (neues Werkzeug, voll gebaut)");
     expect(stepLabel(step("rom", { status: "skipped" }), "bauen", true).result).toBe("aktuell");
   });
+  it("world_step_is_named", () => {
+    expect(stepLabel(step("world", { status: "incremental", done: 1, total: 3 }), "bauen")).toEqual({ name: "Karten backen", result: "teilweise neu gebaut" });
+    expect(stepLabel(step("world", { status: "skipped" }), "tuefteln")).toEqual({ name: "Karten backen", result: "übersprungen" });
+  });
 });

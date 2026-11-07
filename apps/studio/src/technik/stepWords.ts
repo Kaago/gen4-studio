@@ -18,6 +18,7 @@ const PACK_WORDS: Readonly<Record<string, string>> = {
 
 const NAMES: Readonly<Record<string, string>> = {
   rotom: "Scripts",
+  world: "Karten backen",
   chatot: "Texte",
   "blz:arm9": "Spielcode (ARM9)",
   "blz:overlays": "Overlays",
