@@ -493,8 +493,11 @@ schrieb, zur binären Karte.
   Welt-Karten. Ob ein Member außen geändert ist, entscheidet er **vor** dem ersten Schreiben: dann
   lehnt er mit `world.member-changed` ab, und nichts ist geschrieben; mit `--force` backt er über
   den Member. Ein abgelehntes Backen (`world.bake`) zeigt sich erst nach den anderen Schreibvorgängen
-  und kommt als Problem des Berichts zurück; das `build::prepare` am Ende des Imports lehnt dann
-  im Schritt `world` mit demselben Fehler ab.
+  und kommt als Problem des Berichts zurück; die Karte behält ihren Member. Der Import bleibt
+  erfolgreich: das `build::prepare` am Ende des Imports findet im Schritt `world` denselben
+  Fehler, lässt ihn aber nicht scheitern (nur `world.bake`, jeder andere Fehler schon), die
+  übrigen Schritte laufen, und der Abgleich zeichnet das Geschriebene auf. Erst ein späterer
+  Build lehnt die Karte ab, bis die Welt wieder backt.
 
 ## Prüfungen
 

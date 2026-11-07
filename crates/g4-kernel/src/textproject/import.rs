@@ -25,6 +25,7 @@ use crate::scripts;
 use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
 use crate::world::build::{BakeMode, BakeScope, bake_world_maps, member_changed_problems};
+use crate::world::check::WORLD_BAKE_CODE;
 
 use super::MANIFEST_FILE;
 use super::arts::{
@@ -293,7 +294,8 @@ pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport,
 /// members (it reads the packages, area data, matrices and headers the import writes): a bake
 /// the baker refuses (`world.bake`, e.g. a model over the budget) is known only then, so it
 /// comes back after the other members were written, as a problem of the report, and the
-/// world map keeps its member; the build that follows the import then fails with it. Parts
+/// world map keeps its member; the import stays `Ok` and records the sync (the `prepare` it
+/// runs tolerates `world.bake`), a later build fails with it. Parts
 /// stored as `base_sha1` come from the current member when it has them, else from the base
 /// layer, made from `base` when there is none. Afterwards the build's `prepare` runs its
 /// steps (`textproject` finds the members in sync), compiles the scripts and encodes the
@@ -333,7 +335,11 @@ pub fn import_with(
     let applied = apply_import(project, &plan)?;
     // Every JSON equals its member now: nothing is newer than its JSON.
     clear_kept(&project.root)?;
-    let prepared = build::prepare(project)?;
+    // A world the baker refuses was refused by the import's own bake already (a problem of
+    // `applied`); the step `world` refuses it again, which does not fail the import.
+    let world_bake = format!("{WORLD_BAKE_CODE}: ");
+    let prepared =
+        build::prepare_tolerating(project, &|p| p.message.starts_with(world_bake.as_str()))?;
     // The build compiled the scripts: rotom's compile state proves which are in step.
     scripts::note_in_step(project)?;
     let journal = journal.finish();
@@ -2908,6 +2914,63 @@ mod tests {
                 .message
                 .starts_with("textproject.map-source: model: Eine Welt-Karte trägt"),
             "{refused:#?}"
+        );
+    }
+
+    /// A world the baker refuses (over the model budget) does not fail the import: the other
+    /// members are written and recorded, the world map keeps its member, and `world.bake`
+    /// comes back as a problem of the report (the build step `world` finds it again).
+    #[test]
+    fn a_refused_world_bake_keeps_the_import_successful() {
+        use crate::textproject::sync::{UnitSide, scan};
+        use crate::world::doc::fixtures::oversize_world;
+        use crate::world::keep::world_parts;
+
+        let fx = crate::test_support::world_built();
+        let p = fx.project();
+        let member = |n: u16| std::fs::read(p.member_path(AssetKind::Map, n)).unwrap();
+        let member_0 = member(0);
+        let member_2 = member(2);
+        let rel = "data/maps/0000.json";
+        let file = world_parts(fx.read(rel), &oversize_world(), &mut Vec::new()).unwrap();
+        fx.write(rel, &file);
+        // A binary map changed too: its member is written.
+        let rel_2 = "data/maps/0002.json";
+        let mut v: serde_json::Value = serde_json::from_slice(&fx.read(rel_2)).unwrap();
+        let row = v["permissions"][0].as_str().unwrap().to_owned();
+        v["permissions"][0] = set_token_of(&row, "0180").into();
+        fx.write(rel_2, &serde_json::to_vec_pretty(&v).unwrap());
+
+        let report = import_with(&p, Some(&fx.base()), &ImportOptions::default()).unwrap();
+        let errors: Vec<&Problem> = report
+            .problems
+            .iter()
+            .filter(|p| p.severity == Severity::Error)
+            .collect();
+        assert!(!errors.is_empty(), "{:#?}", report.problems);
+        assert!(
+            errors.iter().all(|p| p.file == Path::new(rel)
+                && p.message
+                    .starts_with("world.bake: world: bake.model-too-big: ")),
+            "{errors:#?}"
+        );
+        assert_eq!(member(0), member_0);
+        assert_ne!(member(2), member_2);
+        assert!(report.synced > 0);
+        // The sync recorded what the import wrote: the next scan names only the world map.
+        let scan = scan(&p, &mut |_| {}).unwrap();
+        let open: Vec<&str> = scan
+            .units
+            .iter()
+            .filter(|u| u.side != UnitSide::InSync)
+            .map(|u| u.key.as_str())
+            .collect();
+        assert!(
+            scan.units
+                .iter()
+                .filter(|u| u.side != UnitSide::InSync)
+                .all(|u| u.world && u.sources.iter().any(|s| s == Path::new(rel))),
+            "{open:?}"
         );
     }
 

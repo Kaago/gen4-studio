@@ -569,9 +569,12 @@ seit seinem Datensatz von außen geändert ist, entscheidet `import_with` **vor*
 Schreiben: dann ist es ein Fehler des Plans (`world.member-changed` an `data/maps/NNNN.json`), und
 nichts wird geschrieben. Mit `--force` (`ImportOptions { force }`) backt der Import über diesen
 Member (Modus `Rebake`). Ein abgelehntes Backen (`world.bake`) zeigt sich erst danach: die übrigen
-Member sind dann geschrieben, das Problem steht im Bericht, und das `build::prepare`, das
-`import_with` danach laufen lässt, lehnt im Schritt `world` mit demselben Fehler ab: der Import
-scheitert sichtbar.
+Member sind dann geschrieben, die Karte behält ihren Member, und das Problem steht im Bericht.
+Der Import bleibt erfolgreich: das `build::prepare`, das `import_with` danach laufen lässt, findet
+im Schritt `world` denselben Fehler, lässt ihn aber nicht scheitern (nur `world.bake`; jeder andere
+Fehler lässt den Import scheitern), die übrigen Schritte laufen, und der Abgleich zeichnet das
+Geschriebene auf (kein Schwall von Änderungen beim nächsten Abgleich). Ein späterer Build lehnt die
+Karte ab, bis die Welt wieder backt.
 
 **Wenn die andere Seite neuer ist** (seit 4.3a I1): Export und Import verwerfen sonst Arbeit. Der
 Export schreibt die JSON aus den Membern (und löscht Beifiles und Blobs, die er nicht schreibt), der

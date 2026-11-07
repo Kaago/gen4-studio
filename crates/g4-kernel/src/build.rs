@@ -109,6 +109,17 @@ pub struct Prepared {
 /// steps is `Err(KernelError::Compile(problems))` (all problems, all steps), and the caller
 /// packs nothing. Warnings come back in [`Prepared::problems`].
 pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
+    prepare_tolerating(project, &|_| false)
+}
+
+/// [`prepare`], except that errors `tolerated` accepts do not fail it: when every error of the
+/// steps is one of them, the result is `Ok` with all problems in [`Prepared::problems`] (the
+/// later steps ran as in [`prepare`]) and no [`Prepared::steps`] rows. The import uses it for
+/// `world.bake`: a world the baker refuses keeps the import successful.
+pub(crate) fn prepare_tolerating(
+    project: &Project,
+    tolerated: &dyn Fn(&Problem) -> bool,
+) -> Result<Prepared, KernelError> {
     let text_project = TextProjectStep::default();
     let world = WorldStep::default();
     let rotom = RotomStep::default();
@@ -142,7 +153,14 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
     prepared.encoded = encoded;
     prepared.problems.extend(problems);
     let Some(rows) = rows else {
-        return Err(KernelError::Compile(prepared.problems));
+        if prepared
+            .problems
+            .iter()
+            .any(|p| p.severity == Severity::Error && !tolerated(p))
+        {
+            return Err(KernelError::Compile(prepared.problems));
+        }
+        return Ok(prepared);
     };
     debug_assert!(
         !prepared
