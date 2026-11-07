@@ -158,7 +158,7 @@ struct Checked<'a> {
 }
 
 /// Refused outside a text project of the current schema.
-fn require_text_project(store: &Store) -> Result<(), KernelError> {
+pub(super) fn require_text_project(store: &Store) -> Result<(), KernelError> {
     if *store.project().source_mode() != SourceMode::TextProject {
         return Err(KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()));
     }
@@ -195,7 +195,7 @@ fn first_error_with(world: &WorldJson, tileset: &Tileset) -> Result<(), KernelEr
 /// Refused when map `map` cannot carry a world: its member does not decode (it is written as
 /// `{locked, raw}`, without a place for a world) or the store holds it locked
 /// ([`locked_map_refusal`]).
-fn refuse_locked_map(store: &mut Store, map: u16) -> Result<(), KernelError> {
+pub(super) fn refuse_locked_map(store: &mut Store, map: u16) -> Result<(), KernelError> {
     match store.map(map) {
         Ok(_) => {}
         Err(KernelError::Format(_) | KernelError::Uxie(_)) => {

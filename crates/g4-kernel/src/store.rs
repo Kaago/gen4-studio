@@ -1460,6 +1460,39 @@ impl Store {
         Store::source(&mut self.source, &project)?.read_world_map(&project, map)
     }
 
+    /// `world` as a save would write it into the file of map `map` whose Map asset is `file`:
+    /// the JSON exported into memory ([`EntitySource::export_bytes`]), so a verbatim part
+    /// (`freeform[].nsbmd`, `terrain.bdhc`) takes the form of the writer (`base_sha1` when the
+    /// base has the bytes, else a side file or hex). Nothing is written.
+    pub(crate) fn world_as_written(
+        &mut self,
+        map: u16,
+        file: &MapFile,
+        world: &WorldJson,
+    ) -> Result<WorldJson, KernelError> {
+        let project = Arc::clone(&self.project);
+        let writes = [
+            (
+                AssetId {
+                    kind: AssetKind::Map,
+                    index: map,
+                },
+                file.write(project.family),
+            ),
+            (world_id(map), to_canonical(&Some(world))),
+        ];
+        let files =
+            Store::source(&mut self.source, &project)?
+                .export_bytes(&project, &writes, &|_| None)?;
+        let rel = crate::world::record::map_json_rel(map);
+        let bytes = files.get(&rel).ok_or_else(|| {
+            KernelError::InvalidProject(format!("{} wurde nicht exportiert.", rel.display()))
+        })?;
+        crate::world::keep::world_field(bytes)?.ok_or_else(|| {
+            KernelError::InvalidProject(format!("{} trägt keine Welt.", rel.display()))
+        })
+    }
+
     /// Whether the project is a text project, where maps can carry a world.
     pub(crate) fn in_text_project(&self) -> bool {
         *self.project.source_mode() == SourceMode::TextProject
@@ -1491,8 +1524,10 @@ impl Store {
     /// tileset or package): read again from the map's JSON, base and value, as on first use.
     /// The history stays (undo restores the bytes of its step; the next save bakes a dirty
     /// world map anew anyway). A world map with unsaved changes is left as it is: the next
-    /// save bakes it. A map that does not read again keeps its value.
+    /// save bakes it. A map that does not read again keeps its value. The cached tileset of
+    /// `package` goes first, so a file rewritten with the same length and time reads again.
     pub fn forget_world_bakes(&mut self, package: u16) {
+        self.tilesets.remove(&package);
         let maps: Vec<u16> = self
             .assets
             .iter()

@@ -23,8 +23,11 @@
 //! [`bake::bake_world`]): in a text project a world map's Map asset is its bake; `record.rs` the
 //! record of each world map's last bake in `.g4/build/state.json` ([`record::world_side`]);
 //! `build.rs` the build step `world` after `textproject`, which bakes the world maps whose world
-//! changed into their members ([`build::bake_world_maps`]).
+//! changed into their members ([`build::bake_world_maps`]); `adopt.rs` „Karte als Quelle
+//! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]). `tileset.rs` also edits
+//! the tiles of a tileset file as one step ([`tileset::tileset_edit`]).
 
+pub mod adopt;
 pub mod bake;
 pub mod build;
 pub mod check;
@@ -37,6 +40,10 @@ pub mod places;
 pub mod record;
 pub mod tileset;
 
+pub use adopt::{
+    ADOPT_TOLERANCE, AdoptForm, HeightDeviation, WorldAdoptReport, WorldAdoptRequest, adopt_label,
+    world_adopt,
+};
 pub use bake::{
     BakeEnv, EMPTY_CELL, FLOOR_TOLERANCE, GridBake, Verbatim, WORLD_BAKE_REV, WorldBake,
     WorldBakeMessage, WorldBakeReport, assemble, bake_grid, bake_world, report,
@@ -55,10 +62,10 @@ pub use keep::world_parts;
 pub use places::{maps_of_packages, packs_of_map};
 pub use record::{WorldSide, input_hash, member_hash, record_world, world_salt, world_side};
 pub use tileset::{
-    DEFAULT_RULE, Deriver, HeightBehavior, TILESET_VERSION, TILESETS_DIR, TileJson, TileOrigin,
-    TileRole, Tileset, TilesetSaveReport, UNIQUE_SHARE, VoteRule, derive_tileset,
-    read_tileset_file, save_tileset, textures_only, tile_outside, tileset_problems, tileset_rel,
-    tileset_texture,
+    DEFAULT_RULE, Deriver, HeightBehavior, TILESET_VERSION, TILESETS_DIR, TileChange, TileJson,
+    TileOrigin, TileRole, Tileset, TilesetEditReport, TilesetEditRequest, TilesetSaveReport,
+    UNIQUE_SHARE, VoteRule, derive_tileset, read_tileset_file, save_tileset, textures_only,
+    tile_outside, tileset_edit, tileset_problems, tileset_rel, tileset_texture,
 };
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
