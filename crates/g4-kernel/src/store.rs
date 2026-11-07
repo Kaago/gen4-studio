@@ -3439,10 +3439,16 @@ impl Store {
     /// `before` (`None` removes the file) and sets the rotom entry's `before` in the compile
     /// state; redo the other way (see [`Store::undo`]). Clears the
     /// redo stack and reports a change of `step.asset` (see [`Store::changes_since`]).
+    ///
+    /// A step that wrote a tileset file or a map texture pack bakes the clean world maps on
+    /// its package anew ([`Store::forget_world_bakes`]), as undo and redo of it do.
     pub fn record_file_step(&mut self, label: &str, step: FileStep) -> ChangeId {
         let change = ChangeId(self.next_change);
         self.next_change += 1;
         self.note_change(step.asset);
+        for package in self.packages_of_steps(std::slice::from_ref(&step)) {
+            self.forget_world_bakes(package);
+        }
         self.undo.push(Changeset {
             parts: Vec::new(),
             tombs: Vec::new(),
@@ -3604,22 +3610,32 @@ impl Store {
     }
 
     /// After undo or redo of `change`: a file step that wrote a tileset file
-    /// (`data/tilesets/NNNN.json`, `tileset_save`, `tileset_edit`) bakes the clean world maps
-    /// on its package anew ([`Store::forget_world_bakes`]), as the step itself did.
+    /// (`data/tilesets/NNNN.json`, `tileset_save`, `tileset_edit`) or a map texture pack
+    /// (`append_textures`) bakes the clean world maps on its package anew
+    /// ([`Store::forget_world_bakes`]), as the step itself did.
     fn forget_tileset_steps(&mut self, change: &Changeset) {
-        let root = self.project.root.clone();
-        let packages: Vec<u16> = change
-            .files
-            .iter()
-            .flat_map(|step| &step.files)
-            .filter_map(|file| {
-                let rel = file.path.strip_prefix(&root).unwrap_or(&file.path);
-                crate::world::tileset::package_of_rel(rel)
-            })
-            .collect();
-        for package in packages {
+        for package in self.packages_of_steps(&change.files) {
             self.forget_world_bakes(package);
         }
+    }
+
+    /// The packages whose world maps `steps` touch: the package of every tileset file they
+    /// write and every map texture pack they are a step of (each once, in order).
+    fn packages_of_steps(&self, steps: &[FileStep]) -> Vec<u16> {
+        let root = &self.project.root;
+        let mut packages = Vec::new();
+        for step in steps {
+            if step.asset.kind == AssetKind::MapTexture {
+                packages.push(step.asset.index);
+            }
+            packages.extend(step.files.iter().filter_map(|file| {
+                let rel = file.path.strip_prefix(root).unwrap_or(&file.path);
+                crate::world::tileset::package_of_rel(rel)
+            }));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        packages.retain(|p| seen.insert(*p));
+        packages
     }
 
     /// The number of steps on the undo stack: a mark for [`Store::squash_since`] and

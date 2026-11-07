@@ -368,8 +368,9 @@ Permissions-Overlay und GLB der Szene der Welt ohne Sonderweg.
   `world_edit` (`permission`), zurück zur binären Karte über „Als binäre Karte übernehmen“.“ Damit
   lehnen `set_permission`, `set_map_terrain`, `bake_test` und `map_import` (Modell, BDHC,
   Permissions, ganze Karte) auf Welt-Karten ab; Gebäude verschieben und BGS gehen.
-- **Tileset geändert:** nach `tileset_edit` ([tileset.md](tileset.md)) und nach Undo oder Redo
-  eines Dateischritts, der eine Tileset-Datei schrieb (`tileset_save`, `tileset_edit`), backt
+- **Tileset geändert:** nach jedem Dateischritt, der eine Tileset-Datei schrieb (`tileset_save`,
+  `tileset_edit`, [tileset.md](tileset.md)) oder die Kartentexturen eines Pakets änderte
+  (`append_textures`), und nach Undo oder Redo eines solchen Schritts backt
   `Store::forget_world_bakes(package)` die sauberen geladenen Welt-Karten dieses Pakets **an Ort
   und Stelle** neu (aus der JSON gelesen wie beim ersten Zugriff), statt sie zu entladen: ihr
   Verlauf bleibt, denn Undo braucht geladene Assets. Vorher fällt das zwischengespeicherte Tileset

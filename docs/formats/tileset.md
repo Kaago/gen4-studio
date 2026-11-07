@@ -116,8 +116,9 @@ eine Datei, die sich nicht lesen lässt.
 
 Danach backt der Store die sauberen geladenen Welt-Karten dieses Pakets an Ort und Stelle neu
 (`Store::forget_world_bakes`, ihr Verlauf bleibt; das zwischengespeicherte Tileset des Pakets fällt
-vorher weg), schmutzige backt das nächste Speichern; dasselbe nach Undo und Redo eines Dateischritts
-von `tileset_save` oder `tileset_edit`. Der Build-Schritt `world` backt die Karten des Pakets beim
+vorher weg), schmutzige backt das nächste Speichern; dasselbe nach `tileset_save`, nach dem
+Dateischritt der Kartentexturen des Pakets (`append_textures`) und nach Undo und Redo eines dieser
+Dateischritte (`Store::record_file_step` erkennt sie an der Tileset-Datei bzw. am Asset `MapTexture`). Der Build-Schritt `world` backt die Karten des Pakets beim
 nächsten Build, denn die Tileset-Datei gehört zu ihrem Eingabe-Hash ([build_state.md](build_state.md)).
 Der Tileset-Editor von 6.4a baut auf diesem Befehl.
 

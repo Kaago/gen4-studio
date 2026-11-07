@@ -777,7 +777,8 @@ pub struct TilesetSaveReport {
 
 /// Writes the derived tileset of `package` as one file step (FileStepKind::Reset, asset
 /// HEADER_TABLE, label „Tileset 0006 abgeleitet“); refused in the DSPRE layout and when the
-/// file exists („data/tilesets/0006.json gibt es schon.“).
+/// file exists („data/tilesets/0006.json gibt es schon.“). Recording the step bakes the clean
+/// world maps on the package anew (`Store::record_file_step`).
 pub fn save_tileset(store: &mut Store, package: u16) -> Result<TilesetSaveReport, KernelError> {
     let project = store.project_arc();
     project.editable()?;
@@ -885,7 +886,7 @@ pub fn tileset_edit_label(package: u16, tiles: usize) -> String {
 
 /// One file step „Tileset 0006 geändert (2 Kacheln)“; a changed tile gets `origin: user`; refused without the file
 /// („Erst `tileset_save` für Paket 0006.“), in the DSPRE layout, for a tile past the tileset and when the result has
-/// `tileset_problems`; then `Store::forget_world_bakes(package)`.
+/// `tileset_problems`; then `Store::forget_world_bakes(package)` (by `Store::record_file_step`).
 ///
 /// The step is a file step as [`save_tileset`]'s (FileStepKind::Reset, asset HEADER_TABLE):
 /// undo writes the file as it was. Refused besides ([`KernelError::Refused`], nothing written):
@@ -978,8 +979,8 @@ pub fn tileset_edit(
         kind: FileStepKind::Reset,
     };
     write_file_step(&project, &step)?;
+    // Recording the step bakes the clean world maps on the package anew.
     let change = store.record_file_step(&tileset_edit_label(package, changed), step);
-    store.forget_world_bakes(package);
     Ok(TilesetEditReport {
         package,
         tiles: changed,
@@ -1884,6 +1885,79 @@ mod tests {
         .unwrap();
         // The clean world map bakes anew on its next use, nothing unsaved.
         assert_eq!(cell(&mut store), [0x02, 0]);
+        assert!(store.dirty().is_empty(), "{:?}", store.dirty());
+    }
+
+    /// `tileset_save` bakes the clean world maps on its package anew: the map baked from a
+    /// tileset file removed past the store follows the derived file just written.
+    #[test]
+    fn tileset_save_rebakes_world_maps_on_its_package() {
+        use crate::world::edit::{WorldCreateRequest, world_create};
+        let fx = crate::test_support::world_ready();
+        let mut store = store_of(&fx);
+        let req: WorldCreateRequest =
+            serde_json::from_value(json!({"map": 0, "tileset": 0})).unwrap();
+        world_create(&mut store, &req).unwrap();
+        store.save().unwrap();
+        // Tile 0 blocks: every cell of the map does.
+        tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [{"tile": 0, "collision": 128}]})),
+        )
+        .unwrap();
+        let cells = |store: &mut Store| store.map(0).unwrap().permissions.clone();
+        assert_eq!(cells(&mut store)[0].collision, 0x80);
+        // The file goes past the store (a Git switch); `tileset_save` writes the derived one,
+        // whose collisions are all 0.
+        std::fs::remove_file(fx.project().root.join(tileset_rel(0))).unwrap();
+        save_tileset(&mut store, 0).unwrap();
+        let fresh = cells(&mut store_of(&fx));
+        assert_eq!(fresh[0].collision, 0);
+        assert_eq!(cells(&mut store), fresh);
+        assert!(store.dirty().is_empty(), "{:?}", store.dirty());
+    }
+
+    /// A file step of the map texture pack of a package (what `append_textures` records)
+    /// bakes the clean world maps on it anew, and so does undo of that step.
+    #[test]
+    fn a_map_texture_step_rebakes_world_maps_on_its_package() {
+        use crate::project::AssetId;
+        use crate::world::edit::{WorldCreateRequest, world_create};
+        let fx = crate::test_support::world_ready();
+        let mut store = store_of(&fx);
+        let req: WorldCreateRequest =
+            serde_json::from_value(json!({"map": 0, "tileset": 0})).unwrap();
+        world_create(&mut store, &req).unwrap();
+        store.save().unwrap();
+        let kind = |store: &mut Store| store.map(0).unwrap().permissions[0].kind;
+        assert_eq!(kind(&mut store), 0);
+        // The tileset file changes past the store; the pack step makes the map read it.
+        let mut tileset = Tileset::synthetic();
+        tileset.tiles[0].kind = 0x33;
+        fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&tileset));
+        let project = fx.project();
+        let member = project.member_path(AssetKind::MapTexture, 0);
+        let pack = std::fs::read(&member).unwrap();
+        let step = FileStep {
+            asset: AssetId {
+                kind: AssetKind::MapTexture,
+                index: 0,
+            },
+            files: vec![FileChange {
+                path: member,
+                before: Some(pack.clone()),
+                after: Some(pack),
+            }],
+            rotom_entry: None,
+            kind: FileStepKind::Reset,
+        };
+        write_file_step(&project, &step).unwrap();
+        store.record_file_step("Kartentexturen 0000: 1 Textur angehängt", step);
+        assert_eq!(kind(&mut store), 0x33);
+        tileset.tiles[0].kind = 0x44;
+        fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&tileset));
+        store.undo().unwrap();
+        assert_eq!(kind(&mut store), 0x44);
         assert!(store.dirty().is_empty(), "{:?}", store.dirty());
     }
 
