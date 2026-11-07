@@ -28,7 +28,7 @@ use std::time::Instant;
 
 use g4_formats::bdhc::{Bdhc, tile_center};
 use g4_formats::game::Family;
-use g4_formats::map::MapFile;
+use g4_formats::map::{Cell, MapFile};
 use g4_formats::nsbtx::Nsbtx;
 use g4_kernel::bake::{Face, decode_quads};
 use g4_kernel::base::BaseRom;
@@ -50,7 +50,9 @@ use g4_kernel::world::{
     tileset_edit, world_adopt, world_parts,
 };
 
-use common::glb::{glb_chunks, glb_materials, glb_wrapped, input_wrapped};
+use common::glb::{
+    glb_chunks, glb_materials, glb_triangles, glb_wrapped, input_wrapped, unmatched_triangles,
+};
 
 /// Cells per row of a map.
 const N: usize = 32;
@@ -459,7 +461,38 @@ fn painted_map_on_a_vanilla_pack_bakes_within_limits() {
     );
     assert_eq!(grid.ramps, want_grid.ramps, "the edit paints gate_world");
 
+    assert_eq!(
+        grid.layers[0].tiles, want_grid.layers[0].tiles,
+        "the edit paints gate_world"
+    );
+
     let file = store.map(map).unwrap().clone();
+    let quads = decode_quads(&file.model).expect("the baked model decodes");
+    // Grass (20, 5) and water (5, 26) take their tile's permission, the door (12, 21) its hand
+    // value.
+    let tiles = store.tileset(pack).unwrap();
+    let family = store.project().family;
+    let derived = |tile: usize| {
+        let t = &tiles.tiles[tile];
+        let sound = if family == Family::Hgss { t.sound } else { 0 };
+        Cell {
+            kind: t.kind,
+            collision: t.collision | sound,
+        }
+    };
+    let cell = |x: usize, z: usize| file.permissions[z * N + x];
+    assert_eq!((cell(20, 5).kind, cell(20, 5).collision & 0x80), (0x02, 0));
+    assert_eq!(cell(20, 5), derived(1), "grass");
+    assert_eq!((cell(5, 26).kind, cell(5, 26).collision & 0x80), (0x15, 0));
+    assert_eq!(cell(5, 26), derived(2), "water");
+    assert_eq!(
+        cell(12, 21),
+        Cell {
+            kind: 0x69,
+            collision: 0x80
+        },
+        "door"
+    );
     assert!(
         file.model.len() <= 0xF000,
         "model {} bytes",
@@ -476,6 +509,7 @@ fn painted_map_on_a_vanilla_pack_bakes_within_limits() {
 
     let tileset = store.tileset(pack).unwrap();
     let faces = mesh(&grid, &tileset);
+    assert_eq!(quads.len(), faces.len(), "one baked quad per face");
     let pack_bytes = store
         .project()
         .map_tileset_member(pack)
@@ -513,6 +547,16 @@ fn painted_map_on_a_vanilla_pack_bakes_within_limits() {
             assert!(
                 missing.is_empty() && extra.is_empty(),
                 "missing {missing:?}, extra {extra:?}"
+            );
+            let triangles = glb_triangles(&json, &bin, size);
+            assert_eq!(triangles.len(), 2 * faces.len(), "two triangles per face");
+            let unmatched = unmatched_triangles(&inputs, &triangles, size);
+            assert!(
+                unmatched.is_empty(),
+                "{} of {}: {:?}",
+                unmatched.len(),
+                triangles.len(),
+                &unmatched[..unmatched.len().min(5)]
             );
             assert_eq!(glb_materials(&json), mesh_textures(&faces));
             "ok"

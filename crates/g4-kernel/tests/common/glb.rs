@@ -104,6 +104,22 @@ pub fn glb_wrapped(
 /// Every corner of every primitive: its position rounded to whole units, its material's name
 /// and its texture coordinates.
 fn glb_corners(json: &serde_json::Value, bin: &[u8]) -> Vec<([i32; 3], String, [f32; 2])> {
+    glb_primitives(json, bin)
+        .into_iter()
+        .flat_map(|(material, corners)| {
+            corners
+                .into_iter()
+                .map(move |(c, t)| (c, material.clone(), t))
+        })
+        .collect()
+}
+
+/// A corner of a primitive: its position rounded to whole units and its texture coordinates.
+type GlbCorner = ([i32; 3], [f32; 2]);
+
+/// Per primitive its material's name and its corners in index order (position rounded to
+/// whole units, texture coordinates).
+fn glb_primitives(json: &serde_json::Value, bin: &[u8]) -> Vec<(String, Vec<GlbCorner>)> {
     let mut out = Vec::new();
     for mesh in json["meshes"].as_array().unwrap() {
         for prim in mesh["primitives"].as_array().unwrap() {
@@ -122,14 +138,94 @@ fn glb_corners(json: &serde_json::Value, bin: &[u8]) -> Vec<([i32; 3], String, [
                 Some(i) => indices(json, bin, i as usize),
                 None => (0..pos.len()).collect(),
             };
-            for v in used {
-                let (p, t) = (&pos[v], &uv[v]);
-                let c = [p[0], p[1], p[2]].map(|v| v.round() as i32);
-                out.push((c, material.clone(), [t[0], t[1]]));
-            }
+            let corners = used
+                .into_iter()
+                .map(|v| {
+                    let (p, t) = (&pos[v], &uv[v]);
+                    ([p[0], p[1], p[2]].map(|v| v.round() as i32), [t[0], t[1]])
+                })
+                .collect();
+            out.push((material, corners));
         }
     }
     out
+}
+
+/// One triangle of a GLB: its material's name and its three corners with uv in 1/16 texel.
+pub type GlbTriangle = (String, [([i32; 3], [i32; 2]); 3]);
+
+/// The triangles of a GLB whose primitives are triangle lists (glTF mode 4, the default);
+/// `size` gives a texture's size in texels.
+pub fn glb_triangles(
+    json: &serde_json::Value,
+    bin: &[u8],
+    size: impl Fn(&str) -> (u16, u16),
+) -> Vec<GlbTriangle> {
+    for mesh in json["meshes"].as_array().unwrap() {
+        for prim in mesh["primitives"].as_array().unwrap() {
+            assert!(
+                prim["mode"].as_u64().is_none_or(|m| m == 4),
+                "not a triangle list: {prim}"
+            );
+        }
+    }
+    let mut out = Vec::new();
+    for (material, corners) in glb_primitives(json, bin) {
+        assert_eq!(
+            corners.len() % 3,
+            0,
+            "{material}: {} corners",
+            corners.len()
+        );
+        let wh = size(&material);
+        for t in corners.chunks(3) {
+            let tri = [0, 1, 2].map(|k| (t[k].0, uv_of(t[k].1, wh)));
+            out.push((material.clone(), tri));
+        }
+    }
+    out
+}
+
+/// The triangles of `triangles` that match no input face shift-invariantly, as messages: a
+/// triangle matches a face with its texture that has all three of its corners when its uv
+/// minus the face's uv at those corners is one vector for all three, a multiple of the
+/// texture's size (the baker shifts a face's uv by whole textures, one shift per face or
+/// strip). Every face must be matched by exactly two triangles.
+pub fn unmatched_triangles(
+    faces: &[Face],
+    triangles: &[GlbTriangle],
+    size: impl Fn(&str) -> (u16, u16),
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut hits = vec![0usize; faces.len()];
+    for (material, tri) in triangles {
+        let (w, h) = size(material);
+        let (w, h) = (i32::from(w) * 16, i32::from(h) * 16);
+        let found = faces.iter().enumerate().find(|(_, f)| {
+            if &f.texture != material {
+                return false;
+            }
+            let mut shift = None;
+            tri.iter().all(|(c, st)| {
+                let Some(k) = f.corners.iter().position(|fc| fc == c) else {
+                    return false;
+                };
+                let d = [st[0] - f.uv[k][0] * 16, st[1] - f.uv[k][1] * 16];
+                *shift.get_or_insert(d) == d
+            }) && shift.is_some_and(|d| d[0].rem_euclid(w) == 0 && d[1].rem_euclid(h) == 0)
+        });
+        match found {
+            Some((i, _)) => hits[i] += 1,
+            None => problems.push(format!("triangle {material} {tri:?} matches no face")),
+        }
+    }
+    for (i, n) in hits.iter().enumerate().filter(|(_, n)| **n != 2) {
+        problems.push(format!(
+            "face {i} ({:?}) has {n} triangles",
+            faces[i].corners
+        ));
+    }
+    problems
 }
 
 /// The vertex indices of index accessor `index` (unsigned byte, short or int).
