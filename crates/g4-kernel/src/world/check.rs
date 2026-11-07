@@ -762,6 +762,7 @@ mod tests {
             verbatim_model: false,
             verbatim_terrain: false,
             messages: Vec::new(),
+            freeform_faces: 0,
         }
     }
 

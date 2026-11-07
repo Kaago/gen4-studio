@@ -9,10 +9,15 @@ use super::*;
 use crate::bake::{AreaStyle, BakeInput, Face, VANILLA_VRAM_MAX_PT, bake, decode_quads};
 use crate::textproject::Part;
 use crate::world::doc::fixtures::{
-    busy_world, checkerboard_world, gate_world, one_tile_world, oversize_world,
+    busy_world, checkerboard_world, freeform_world, gate_world, one_tile_world, oversize_world,
 };
 use crate::world::doc::{FreeformJson, LayerJson, LayerRole, PieceJson, TerrainJson, WorldJson};
+use crate::world::freeform::fixtures::cube_faces;
+use crate::world::freeform::{
+    FREEFORM_LAYER, FREEFORM_UNIT, SideModels, freeform_rel, load_side_models_at, side_glb,
+};
 use crate::world::grid::{Ramp, WorldGrid, ramp_token};
+use crate::world::mesh::{PieceModels, mesh};
 use crate::world::tileset::Tileset;
 
 const N: usize = MAP_SIZE;
@@ -41,12 +46,22 @@ fn input(textures: &[PackTexture]) -> BakeInput<'_> {
     }
 }
 
+/// No side files.
+const NO_SIDE: &SideModels = &SideModels {
+    freeform: Vec::new(),
+    pieces: PieceModels {
+        by_tile: std::collections::BTreeMap::new(),
+    },
+    messages: Vec::new(),
+};
+
 fn env<'a>(tileset: &'a Tileset, textures: &'a [PackTexture], family: Family) -> BakeEnv<'a> {
     BakeEnv {
         map: 7,
         tileset,
         input: Some(input(textures)),
         family,
+        side: NO_SIDE,
     }
 }
 
@@ -564,6 +579,7 @@ fn form1_needs_no_area() {
         tileset: &tileset,
         input: None,
         family: Family::Pt,
+        side: &SideModels::default(),
     };
     let b = bake_grid(&grid(&w), &w, &verbatim, &e);
     assert_eq!(b.messages, Vec::new());
@@ -572,6 +588,10 @@ fn form1_needs_no_area() {
     assert!(r.ok);
     assert_eq!(file.model, b"verbatim");
 }
+
+/// The new sentence of `world.verbatim-mixed`.
+const MIXED: &str = "Ein Verbatim-Modell (Form 1) backt nur allein; für Kacheln oder Freiform daneben \
+                     die Karte als binäre Karte übernehmen und mit Form 2 (glTF) neu übernehmen.";
 
 #[test]
 fn verbatim_with_tiles_is_refused_and_keeps_the_model() {
@@ -583,11 +603,7 @@ fn verbatim_with_tiles_is_refused_and_keeps_the_model() {
     assert_eq!(codes(&b), ["world.verbatim-mixed"]);
     let m = &b.messages[0];
     assert_eq!(m.level, Level::Error);
-    assert_eq!(
-        m.message,
-        "Ein Verbatim-Modell (Form 1) und gemalte Kacheln zusammen backt erst 6.5b; Kacheln \
-         leeren oder „Als binäre Karte übernehmen“."
-    );
+    assert_eq!(m.message, MIXED);
     assert!(b.model.is_none());
     let (file, kept) = assemble(&base(), &b, &verbatim);
     assert_eq!(file.model, b"verbatim");
@@ -600,22 +616,231 @@ fn verbatim_with_tiles_is_refused_and_keeps_the_model() {
     assert!(!report(7, &b, &file, kept, None).ok);
 }
 
+/// The side file of the cube on the synthetic pack.
+fn cube_glb() -> Vec<u8> {
+    side_glb(
+        &cube_faces("syn_boden"),
+        &synthetic_pack_textures(),
+        FREEFORM_UNIT,
+    )
+    .expect("the cube's side file")
+}
+
+/// Bakes `world` (map `map`) on the synthetic tileset and pack, Platinum, with the side files
+/// `files` (`data/maps/<name>`, bytes) loaded from a temporary root.
+fn baked_with(
+    map: u16,
+    world: &WorldJson,
+    verbatim: &Verbatim,
+    files: &[(&str, &[u8])],
+) -> GridBake {
+    let tileset = Tileset::synthetic();
+    let pack = synthetic_pack_textures();
+    let dir = tempfile::tempdir().expect("temp dir");
+    for (file, bytes) in files {
+        let path = dir.path().join(freeform_rel(file));
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("folder");
+        std::fs::write(&path, bytes).expect("written");
+    }
+    let side = load_side_models_at(dir.path(), map, world, &tileset, &pack);
+    let e = BakeEnv {
+        side: &side,
+        ..env(&tileset, &pack, Family::Pt)
+    };
+    bake_grid(&grid(world), world, verbatim, &e)
+}
+
+/// The corners of `corners` as a sorted list (a face up to its corner order).
+fn corner_set(corners: &[[i32; 3]; 4]) -> Vec<[i32; 3]> {
+    let mut c = corners.to_vec();
+    c.sort_unstable();
+    c.dedup();
+    c
+}
+
+/// Asserts that the baked model holds every face of the cube moved by `at`.
+fn assert_cube_in(b: &GridBake, at: [i32; 3]) {
+    let model = b.model.as_ref().expect("a baked model");
+    let quads = decode_quads(&model.nsbmd).expect("the model decodes");
+    let baked: Vec<Vec<[i32; 3]>> = quads.iter().map(|q| corner_set(&q.corners)).collect();
+    for face in cube_faces("syn_boden") {
+        let moved = face
+            .corners
+            .map(|p| [p[0] + at[0], p[1] + at[1], p[2] + at[2]]);
+        assert!(
+            baked.contains(&corner_set(&moved)),
+            "{moved:?} not in the model"
+        );
+    }
+}
+
 #[test]
-fn glb_freeform_is_refused_for_now() {
+fn freeform_faces_join_the_bake() {
+    let w = freeform_world(0);
+    let b = baked_with(
+        0,
+        &w,
+        &Verbatim::default(),
+        &[("0000.wuerfel.glb", &cube_glb())],
+    );
+    assert_eq!(b.messages, Vec::new());
+    assert_eq!(b.freeform_faces, 6);
+    assert_eq!(
+        b.faces.len(),
+        mesh(&grid(&w), &Tileset::synthetic()).len() + 6
+    );
+    assert!(
+        b.faces
+            .iter()
+            .rev()
+            .take(6)
+            .all(|f| f.layer == FREEFORM_LAYER)
+    );
+    assert_cube_in(&b, [0, 0, 0]);
+    let (file, kept) = assemble(&base(), &b, &Verbatim::default());
+    let r = report(7, &b, &file, kept, Some(AreaStyle::Outdoor));
+    assert!(r.ok && !r.model_kept);
+    assert_eq!(r.freeform_faces, 6);
+}
+
+#[test]
+fn at_moves_the_freeform() {
+    let mut w = freeform_world(0);
+    w.freeform[0].at = [16, 8, 0];
+    let b = baked_with(
+        0,
+        &w,
+        &Verbatim::default(),
+        &[("0000.wuerfel.glb", &cube_glb())],
+    );
+    assert_eq!(b.messages, Vec::new());
+    assert_cube_in(&b, [16, 8, 0]);
+}
+
+#[test]
+fn freeform_alone_bakes() {
+    let mut w = empty_world();
+    w.freeform = freeform_world(0).freeform;
+    let b = baked_with(
+        0,
+        &w,
+        &Verbatim::default(),
+        &[("0000.wuerfel.glb", &cube_glb())],
+    );
+    assert_eq!(b.messages, Vec::new());
+    assert_eq!((b.faces.len(), b.freeform_faces), (6, 6));
+    assert_cube_in(&b, [0, 0, 0]);
+    let (file, kept) = assemble(&base(), &b, &Verbatim::default());
+    assert!(report(7, &b, &file, kept, Some(AreaStyle::Outdoor)).ok);
+}
+
+#[test]
+fn a_missing_side_file_refuses_the_model_and_keeps_the_last() {
+    let w = freeform_world(0);
+    let b = baked_with(0, &w, &Verbatim::default(), &[]);
+    assert_eq!(codes(&b), ["world.side-file"]);
+    assert_eq!(b.messages[0].args, ["data/maps/0000.wuerfel.glb"]);
+    assert_eq!(
+        b.messages[0].message,
+        "Das Beifile data/maps/0000.wuerfel.glb fehlt."
+    );
+    assert!(b.model.is_none());
+    assert_eq!(b.freeform_faces, 0);
+    let (file, kept) = assemble(&base(), &b, &Verbatim::default());
+    assert!(kept);
+    assert_eq!(file.model, base().model);
+    // BDHC and permissions are the new ones.
+    let g = grid(&w);
+    assert_eq!(file.bdhc, bdhc::from_grid(&g.height_grid()).write());
+    assert_eq!(
+        file.permissions,
+        world_permissions(&g, &Tileset::synthetic(), Family::Pt)
+    );
+    let r = report(7, &b, &file, kept, Some(AreaStyle::Outdoor));
+    assert!(!r.ok && r.model_kept);
+}
+
+#[test]
+fn a_foreign_glb_with_unknown_materials_is_texture_missing() {
+    let samples = tempfile::tempdir().expect("temp dir");
+    crate::model_import::samples::write_samples(samples.path()).expect("samples");
+    let plane = std::fs::read(samples.path().join(crate::model_import::samples::PLANE_GLB))
+        .expect("the plane");
+    let w = freeform_world(0);
+    let b = baked_with(0, &w, &Verbatim::default(), &[("0000.wuerfel.glb", &plane)]);
+    assert_eq!(codes(&b), ["bake.texture-missing"]);
+    assert_eq!(b.messages[0].args, ["g4_imp_plane_mat"]);
+    assert!(b.model.is_none());
+    let (_, kept) = assemble(&base(), &b, &Verbatim::default());
+    assert!(kept);
+}
+
+#[test]
+fn freeform_out_of_range_is_face_out_of_range() {
+    let mut w = freeform_world(0);
+    w.freeform[0].at = [511, 0, 0];
+    let b = baked_with(
+        0,
+        &w,
+        &Verbatim::default(),
+        &[("0000.wuerfel.glb", &cube_glb())],
+    );
+    assert_eq!(codes(&b), ["bake.face-out-of-range"]);
+    assert!(b.model.is_none());
+}
+
+#[test]
+fn verbatim_with_freeform_is_mixed() {
+    let verbatim = Verbatim {
+        model: Some(b"verbatim".to_vec()),
+        bdhc: None,
+    };
+    let mut w = empty_world();
+    w.freeform = freeform_world(0).freeform;
+    let b = baked_with(0, &w, &verbatim, &[("0000.wuerfel.glb", &cube_glb())]);
+    assert_eq!(codes(&b), ["world.verbatim-mixed"]);
+    assert_eq!(b.messages[0].message, MIXED);
+    assert_eq!(b.messages[0].level, Level::Error);
+    let (file, kept) = assemble(&base(), &b, &verbatim);
+    assert_eq!(file.model, b"verbatim");
+    assert!(!kept);
+}
+
+#[test]
+fn freeform_later_is_gone() {
+    // A missing side file names only itself; there is no „glTF-Freiform backt 6.5b.“ any more.
+    let mut w = one_tile_world();
+    w.freeform = vec![FreeformJson {
+        glb: Some("0007.haus.glb".to_owned()),
+        nsbmd: None,
+        at: [0, 0, 0],
+    }];
+    let b = baked_with(7, &w, &Verbatim::default(), &[]);
+    assert_eq!(codes(&b), ["world.side-file"]);
+    assert!(b.messages.iter().all(|m| m.code != "world.freeform-later"));
+}
+
+/// 6.3b's `glb_freeform_is_refused_for_now` on the rules of 6.5b: a glTF free-form model with
+/// its side file bakes with the grid.
+#[test]
+fn glb_freeform_bakes_with_its_side_file() {
     let mut w = one_tile_world();
     w.freeform.push(FreeformJson {
         glb: Some("0007.haus.glb".to_owned()),
         nsbmd: None,
         at: [0, 0, 0],
     });
-    let b = baked(&w, &Verbatim::default());
-    assert_eq!(codes(&b), ["world.freeform-later"]);
-    assert_eq!(b.messages[0].message, "glTF-Freiform backt 6.5b.");
-    assert_eq!(b.messages[0].level, Level::Error);
-    assert!(b.model.is_none());
+    let b = baked_with(
+        7,
+        &w,
+        &Verbatim::default(),
+        &[("0007.haus.glb", &cube_glb())],
+    );
+    assert_eq!(b.messages, Vec::new());
+    assert_eq!(b.freeform_faces, 6);
     let (file, kept) = assemble(&base(), &b, &Verbatim::default());
-    assert!(kept);
-    assert_eq!(file.model, base().model);
+    assert!(!kept);
+    assert_ne!(file.model, base().model);
 }
 
 #[test]
@@ -654,6 +879,7 @@ fn a_painted_world_without_area_reports_no_area() {
         tileset: &tileset,
         input: None,
         family: Family::Pt,
+        side: &SideModels::default(),
     };
     let b = bake_grid(&grid(&w), &w, &Verbatim::default(), &e);
     assert_eq!(codes(&b), ["world.no-area"]);

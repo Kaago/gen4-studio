@@ -163,7 +163,7 @@ const MAP_CELLS: usize = g4_formats::map::MAP_SIZE;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixtures {
     use super::super::grid::{Ramp, TileRef, ramp_token, tile_token};
-    use super::{LayerJson, LayerRole, WorldJson, rows_of};
+    use super::{FreeformJson, LayerJson, LayerRole, WorldJson, rows_of};
 
     /// The package of the synthetic tileset.
     const PACKAGE: u16 = crate::world::tileset::SYNTHETIC_PACKAGE;
@@ -187,6 +187,18 @@ pub mod fixtures {
             },
             0,
         )
+    }
+
+    /// `one_tile_world()` on package `tileset` with `freeform = [{glb: "0000.wuerfel.glb", at: [0, 0, 0]}]`.
+    pub fn freeform_world(tileset: u16) -> WorldJson {
+        let mut w = one_tile_world();
+        w.tileset = tileset;
+        w.freeform = vec![FreeformJson {
+            glb: Some("0000.wuerfel.glb".to_owned()),
+            nsbmd: None,
+            at: [0, 0, 0],
+        }];
+        w
     }
 
     /// `0000` and `0001` as a checkerboard (`(x + z) % 2`), height 0.

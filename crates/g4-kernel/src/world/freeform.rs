@@ -10,19 +10,29 @@
 //! `to_faces`, bound only to the pack's textures: the faces come back as written (up to corners at
 //! the position of the one before, which a quad with no area there loses), and a side file written
 //! from what was read is the same bytes.
+//!
+//! The store side: [`load_side_models`] reads the side files a world names (its free-form models
+//! and the models of the piece tiles it places) for the bake and the scene, [`world_faces`] is
+//! what the scene shows of a world map.
 
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 use serde_json::json;
 
-use super::bake::{WorldBakeMessage, baker_text};
-use super::tileset::TILESETS_DIR;
+use super::bake::{WorldBakeMessage, baker_text, world_pack_textures};
+use super::doc::WorldJson;
+use super::grid::WorldGrid;
+use super::mesh::{MeshFace, PIECE_LAYER, PieceModels, mesh_textures, mesh_with};
+use super::tileset::{TILESETS_DIR, TileRole, Tileset};
 use crate::bake::{BakeCode, Face, PackTexture};
 use crate::error::KernelError;
 use crate::export::write_glb;
 use crate::map_import::PartCode;
 use crate::model_import::mesh::{Binding, to_faces};
 use crate::model_import::read_model;
+use crate::project::{Project, SourceMode};
+use crate::store::Store;
 use crate::textproject::arts::Art;
 
 /// World units per glTF unit in a side file (one glTF unit is one tile).
@@ -316,13 +326,7 @@ pub fn side_faces(
             format!("Das Beifile {shown} fehlt."),
         ));
     }
-    let unreadable = |reason: &str| {
-        WorldBakeMessage::error(
-            SIDE_FILE_CODE,
-            vec![shown.clone(), reason.to_owned()],
-            format!("Das Beifile {shown} lässt sich nicht lesen ({reason})."),
-        )
-    };
+    let unreadable = |reason: &str| unreadable(&shown, reason);
     let (mesh, _notes) = read_model(path).map_err(|m| unreadable(&m.message))?;
     let bindings: Vec<Option<Binding>> = mesh
         .materials
@@ -351,6 +355,200 @@ pub fn side_faces(
         .collect())
 }
 
+/// `world.side-file` for the side file shown as `shown` that does not read for `reason`.
+fn unreadable(shown: &str, reason: &str) -> WorldBakeMessage {
+    WorldBakeMessage::error(
+        SIDE_FILE_CODE,
+        vec![shown.to_owned(), reason.to_owned()],
+        format!("Das Beifile {shown} lässt sich nicht lesen ({reason})."),
+    )
+}
+
+/// The side files a world reads: per `freeform` entry with `glb` its faces shifted by `at` (layer
+/// FREEFORM_LAYER) or the message; per piece tile with `model` that the grid places its faces or the message.
+///
+/// `messages` holds every side file's message once, in the order of `freeform`, then of the
+/// pieces; an `Err` in `freeform` only marks its entry (the bake reports `messages`).
+#[derive(Debug, Clone, Default)]
+pub struct SideModels {
+    pub freeform: Vec<Result<Vec<Face>, WorldBakeMessage>>,
+    pub pieces: PieceModels,
+    pub messages: Vec<WorldBakeMessage>,
+}
+
+impl SideModels {
+    /// The faces of every free-form model that read, in `freeform` order.
+    pub fn freeform_faces(&self) -> impl Iterator<Item = &Face> {
+        self.freeform
+            .iter()
+            .filter_map(|f| f.as_ref().ok())
+            .flatten()
+    }
+}
+
+/// [`load_side_models_at`] the project's root: the side files of `world` (map `map`) bound to
+/// `textures` (the pack textures the bake binds, [`world_pack_textures`]).
+pub fn load_side_models(
+    project: &Project,
+    map: u16,
+    world: &WorldJson,
+    tileset: &Tileset,
+    textures: &[PackTexture],
+) -> SideModels {
+    load_side_models_at(&project.root, map, world, tileset, textures)
+}
+
+/// The side files of `world` (map `map`) below `root`, read with [`side_faces`] against
+/// `textures`: each `freeform[i].glb` from `data/maps/` (layer FREEFORM_LAYER, moved by `at`),
+/// then once per piece tile of `tileset` that `world.pieces` places and that has a `model`, from
+/// `data/tilesets/PPPP.<model>.glb` (layer PIECE_LAYER, model space). A name that is no side file
+/// of the map (or of the package) is not read: `world.side-file` with the reason.
+pub(crate) fn load_side_models_at(
+    root: &Path,
+    map: u16,
+    world: &WorldJson,
+    tileset: &Tileset,
+    textures: &[PackTexture],
+) -> SideModels {
+    let mut side = SideModels::default();
+    for entry in &world.freeform {
+        let Some(file) = &entry.glb else { continue };
+        let read = if side_name_of(file, map).is_some() {
+            side_faces(&root.join(freeform_rel(file)), textures, FREEFORM_LAYER)
+                .map(|faces| faces.into_iter().map(|f| moved(f, entry.at)).collect())
+        } else {
+            Err(unreadable(
+                &format!("data/maps/{file}"),
+                &format!("kein Beifile-Name der Karte {map:04}"),
+            ))
+        };
+        if let Err(m) = &read {
+            side.messages.push(m.clone());
+        }
+        side.freeform.push(read);
+    }
+    let package = world.tileset;
+    let mut seen = BTreeSet::new();
+    for piece in &world.pieces {
+        if !seen.insert(piece.tile) {
+            continue;
+        }
+        let Some(name) = tileset
+            .tile(piece.tile)
+            .filter(|t| t.role == TileRole::Piece)
+            .and_then(|t| t.model.as_deref())
+        else {
+            continue;
+        };
+        let rel = piece_rel(package, name);
+        let read = if side_parts(&format!("{package:04}.{name}.glb")).is_some() {
+            side_faces(&root.join(&rel), textures, PIECE_LAYER)
+        } else {
+            Err(unreadable(
+                &crate::relpath::slash(&rel),
+                &format!("kein Beifile-Name des Pakets {package:04}"),
+            ))
+        };
+        match read {
+            Ok(faces) => {
+                side.pieces.by_tile.insert(piece.tile, faces);
+            }
+            Err(m) => side.messages.push(m),
+        }
+    }
+    side
+}
+
+/// The side files [`load_side_models_at`] reads for `world` (map `map`), relative to the root, in
+/// its order: the free-form models, then the models of the piece tiles of `tileset` the world
+/// places (each once, none without `tileset`); names that are no side file of the map or package
+/// are left out.
+pub(crate) fn side_file_rels(
+    map: u16,
+    world: &WorldJson,
+    tileset: Option<&Tileset>,
+) -> Vec<PathBuf> {
+    let mut rels: Vec<PathBuf> = world
+        .freeform
+        .iter()
+        .filter_map(|f| f.glb.as_deref())
+        .filter(|file| side_name_of(file, map).is_some())
+        .map(freeform_rel)
+        .collect();
+    let Some(tileset) = tileset else {
+        return rels;
+    };
+    let package = world.tileset;
+    let mut seen = BTreeSet::new();
+    for piece in &world.pieces {
+        if !seen.insert(piece.tile) {
+            continue;
+        }
+        if let Some(name) = tileset
+            .tile(piece.tile)
+            .filter(|t| t.role == TileRole::Piece)
+            .and_then(|t| t.model.as_deref())
+            .filter(|name| side_parts(&format!("{package:04}.{name}.glb")).is_some())
+        {
+            rels.push(piece_rel(package, name));
+        }
+    }
+    rels
+}
+
+/// `face` moved by `at` world units.
+fn moved(face: Face, at: [i32; 3]) -> Face {
+    Face {
+        corners: face
+            .corners
+            .map(|p| [0, 1, 2].map(|k| p[k].saturating_add(at[k]))),
+        ..face
+    }
+}
+
+/// What the scene shows of world map `map`: grid, piece geometry and free-form faces, the pack textures
+/// they bind, the messages of the side files. `None` without world.
+#[derive(Debug, Clone)]
+pub struct WorldFaces {
+    pub faces: Vec<MeshFace>,
+    pub textures: Vec<PackTexture>,
+    pub messages: Vec<WorldBakeMessage>,
+}
+
+/// The faces of world map `map` as the bake sees them: [`mesh_with`] the piece models (no grid
+/// faces for a world that does not read into cells, the check names its problems), then the
+/// free-form models that read, from the side files bound to the package's
+/// [`world_pack_textures`]; `textures` are the pack textures of the faces in order of first use
+/// (a texture the pack lacks is left out). `None` outside a text project or without world.
+pub fn world_faces(store: &mut Store, map: u16) -> Result<Option<WorldFaces>, KernelError> {
+    if *store.project().source_mode() != SourceMode::TextProject {
+        return Ok(None);
+    }
+    let Some(world) = store.world(map)?.cloned() else {
+        return Ok(None);
+    };
+    let tileset = store.tileset(world.tileset)?;
+    let pack = match store.project().map_tileset_member(world.tileset)? {
+        Some(bytes) => world_pack_textures(&bytes, &tileset).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let side = load_side_models(store.project(), map, &world, &tileset, &pack);
+    let mut faces = match WorldGrid::parse(&world) {
+        Ok(grid) => mesh_with(&grid, &tileset, &side.pieces),
+        Err(_) => Vec::new(),
+    };
+    faces.extend(side.freeform_faces().cloned().map(MeshFace::from));
+    let textures = mesh_textures(&faces)
+        .iter()
+        .filter_map(|name| pack.iter().find(|t| &t.name == name).cloned())
+        .collect();
+    Ok(Some(WorldFaces {
+        faces,
+        textures,
+        messages: side.messages,
+    }))
+}
+
 /// `path` from its last folder `data` on, with `/` (`data/maps/0123.haus.glb`); the whole path
 /// without such a folder.
 fn shown_path(path: &Path) -> String {
@@ -364,6 +562,45 @@ fn shown_path(path: &Path) -> String {
     match parts.iter().rposition(|p| p == "data") {
         Some(at) => parts[at..].join("/"),
         None => path.display().to_string(),
+    }
+}
+
+/// Synthetic side-file geometry for tests (no ROM data).
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixtures {
+    use crate::bake::Face;
+
+    /// The six faces of the box from `lo` to `hi` (world units), counter-clockwise seen from
+    /// outside, uv 0 to 16 texels, texture `texture`, layer 0.
+    pub fn box_faces(lo: [i32; 3], hi: [i32; 3], texture: &str) -> Vec<Face> {
+        let [x0, y0, z0] = lo;
+        let [x1, y1, z1] = hi;
+        let quads = [
+            // Top, bottom.
+            [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]],
+            [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+            // East, west.
+            [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]],
+            [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
+            // South, north.
+            [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+            [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]],
+        ];
+        quads
+            .into_iter()
+            .map(|corners| Face {
+                corners,
+                uv: [[0, 16], [16, 16], [16, 0], [0, 0]],
+                texture: texture.to_owned(),
+                layer: 0,
+            })
+            .collect()
+    }
+
+    /// The box of 16 world units around the vertical axis through the origin, standing on it:
+    /// x and z from −8 to 8, y from 0 to 16.
+    pub fn cube_faces(texture: &str) -> Vec<Face> {
+        box_faces([-8, 0, -8], [8, 16, 8], texture)
     }
 }
 

@@ -62,6 +62,7 @@ pub use grid::{
     parse_override, parse_ramp, parse_tile, ramp_token, set_token, tile_token,
 };
 pub use keep::world_parts;
+pub use mesh::{PieceModels, mesh_with};
 pub use places::{maps_of_packages, packs_of_map};
 pub use record::{WorldSide, input_hash, member_hash, record_world, world_salt, world_side};
 pub use tileset::{
@@ -73,6 +74,7 @@ pub use tileset::{
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
 pub use freeform::{
-    APICULA_UNIT, FREEFORM_LAYER, FREEFORM_UNIT, SIDE_FILE_CODE, SIDE_NAME_MAX, freeform_file,
-    freeform_rel, piece_rel, side_faces, side_glb, side_name, side_name_of,
+    APICULA_UNIT, FREEFORM_LAYER, FREEFORM_UNIT, SIDE_FILE_CODE, SIDE_NAME_MAX, SideModels,
+    WorldFaces, freeform_file, freeform_rel, load_side_models, piece_rel, side_faces, side_glb,
+    side_name, side_name_of, world_faces,
 };
