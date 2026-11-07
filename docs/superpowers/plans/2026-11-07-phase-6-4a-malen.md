@@ -206,9 +206,9 @@ pub struct WorldLayersRequest { pub map: u16, pub op: LayerOp }
 pub fn world_layers(store: &mut Store, req: &WorldLayersRequest) -> Result<WorldReport, KernelError>;
 ```
 
-- [ ] **Step 1: Scheiternde Tests:** `adding_a_layer_is_one_step` (Ebene 1 „Büsche“, Rolle `overlay`, 32 Zeilen `.`, Verlaufstext wörtlich, `undo` → eine Ebene), `removing_an_overlay_is_one_step`, `the_ground_stays`, `a_blank_or_taken_name_is_refused`, `a_missing_layer_is_refused`, `layers_need_the_text_project`; danach `world_edit` mit `layer: 1` malt auf der neuen Ebene (`painting_on_an_added_layer`).
-- [ ] **Step 2: Lauf** `cargo test -p g4-kernel --all-features world::edit` → FAIL; **Step 3: Umsetzen**; **Step 4: Lauf** → PASS.
-- [ ] **Step 5: Commit** `feat(world): add and remove overlay layers as one undo step` (mit Trailer).
+- [x] **Step 1: Scheiternde Tests:** `adding_a_layer_is_one_step` (Ebene 1 „Büsche“, Rolle `overlay`, 32 Zeilen `.`, Verlaufstext wörtlich, `undo` → eine Ebene), `removing_an_overlay_is_one_step`, `the_ground_stays`, `a_blank_or_taken_name_is_refused`, `a_missing_layer_is_refused`, `layers_need_the_text_project`; danach `world_edit` mit `layer: 1` malt auf der neuen Ebene (`painting_on_an_added_layer`).
+- [x] **Step 2: Lauf** `cargo test -p g4-kernel --all-features world::edit` → FAIL; **Step 3: Umsetzen**; **Step 4: Lauf** → PASS.
+- [x] **Step 5: Commit** `feat(world): add and remove overlay layers as one undo step` (mit Trailer).
 
 ### Task 3: Befehle und MCP: `world_layers`, kuratierte `world_get`/`world_edit`/`tileset_get`, `docs/mcp.md`
 
@@ -521,3 +521,4 @@ Texte: Titel „Neue Karte malen“, Felder „Name“ (Pflicht), „Boden“ (P
 - **Format-5-Texturen:** wenn `palette … placeholder > 0` auf einem Vanilla-Paket, eigener Posten nach 6.4b.
 - **Parallele Merges:** Konflikte an den Anhängepunkten gesammelt lösen; `.fig` von main behalten; nach dem Merge von 6.5b den Katalog-Zähltest neu zählen.
 - **Teil 1 vor 6.3b (Entscheidung der Umsetzung):** Tasks 2–6 laufen auf `7f01683b` ohne 6.3b. In Task 3 bleiben der Test `painted_map_recipe_over_dispatch` und die Katalogtexte zu `new_painted_map` (`recipe_args`, `recipe_apply`) für Teil 2 offen, weil sie Task 1 brauchen; der Zeittest `world-stroke-bridge` misst in Teil 1 `world_edit` ohne Bake und wird nach dem Merge mit Bake wiederholt. In Task 4 kommt `WorldReport.bake` (TS) erst in Teil 2. Wo Task 6 Bake oder Budget berührt, folgt das in Task 7.
+- **`world_layers` Namensregel (Task 2):** „gibt es schon“ vergleicht die getrimmten Namen exakt (Groß-/Kleinschreibung zählt, „büsche“ ≠ „Büsche“), auch gegen die Bodenebene; eine fehlende Ebene lehnt mit dem Satz von `world_edit` ab („Ebene 2 gibt es nicht (Karte 0123 hat 1).“). Ein Deckel für die Zahl der Ebenen (Index `u8`) fehlt bewusst.
