@@ -1012,6 +1012,45 @@ impl TextFixture {
     }
 }
 
+/// `TextFixture::exported()` with map texture package 0 as a real NSBTX of the six `syn_*`
+/// textures (16 colours, palettes `<name>_pl`) and `data/tilesets/0000.json` from
+/// `Tileset::synthetic()`.
+pub fn world_ready() -> TextFixture {
+    use crate::project::AssetKind;
+    use crate::world::tileset::{Tileset, tileset_rel};
+    let fx = TextFixture::exported();
+    let tileset = Tileset::synthetic();
+    let textures: Vec<g4_formats::nsbtx::NewTexture> = tileset
+        .tiles
+        .iter()
+        .map(|t| {
+            let [width, height] = t.size.map(u32::from);
+            g4_formats::nsbtx::NewTexture {
+                name: t.texture.clone(),
+                palette: format!("{}_pl", t.texture),
+                width,
+                height,
+                format: 3,
+                color0: false,
+                texels: vec![0x5A; (width * height / 2) as usize],
+                colors: (0..16u16).map(|c| c * 0x421).collect(),
+            }
+        })
+        .collect();
+    let project = fx.project();
+    project.ensure_unpacked(AssetKind::MapTexture).unwrap();
+    std::fs::write(
+        project.member_path(AssetKind::MapTexture, 0),
+        g4_formats::nsbtx::build(&textures).unwrap(),
+    )
+    .unwrap();
+    fx.write(
+        tileset_rel(0).to_str().unwrap(),
+        &crate::textproject::canon::to_canonical(&tileset),
+    );
+    fx
+}
+
 /// The header table offset of Platinum DE in `arm9.bin` (`header_tables.yaml`).
 pub const PT_HEADER_TABLE_CPUD: usize = 0xE6074;
 

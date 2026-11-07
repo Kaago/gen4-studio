@@ -1,8 +1,8 @@
 //! The world document of a map (phase 6.3a): a map file of the text project with
 //! `source: "world"` carries the object `world`, the painted form of the map (layers of tiles,
 //! the heights and ramps of the ground, pieces, permissions derived from the tileset or set by
-//! hand). Until the baker of 6.3b the build still writes the map's former member; the world is
-//! shown in the scene through the mesher.
+//! hand). The map's model, BDHC and permissions are baked from it (6.3b); the world is shown in
+//! the scene through the mesher.
 //!
 //! `doc.rs` holds the document as it is on disk (serde, canonical key order, unknown keys
 //! refused) and the synthetic fixtures; `grid.rs` the token grammar of its rows and the schema
@@ -13,11 +13,13 @@
 //! ramps and footprints to a face list and the budget estimate; `keep.rs` the world object
 //! kept when the map file is written from its member, without the derived parts
 //! ([`keep::world_parts`]); `edit.rs` „Welt anlegen“
-//! ([`edit::world_create`]) and the changes of cells ([`edit::world_edit`]), each one undo step
-//! on the store's world map asset ([`crate::project::AssetKind::WorldMap`]); `check.rs` the
-//! checks `world.schema`, `world.tileset-mismatch`, `world.not-baked` and `world.budget` of the
-//! text-project check ([`check::world_problems`]); `bake.rs` the pure baker of a world into the
-//! map's model, BDHC and permissions ([`bake::bake_grid`], [`bake::assemble`]).
+//! ([`edit::world_create`]), the changes of cells ([`edit::world_edit`]) and „Als binäre Karte
+//! übernehmen“ ([`edit::world_to_binary`]), each one undo step on the store's world map asset
+//! ([`crate::project::AssetKind::WorldMap`]) and the map it bakes into; `check.rs` the checks
+//! `world.schema`, `world.tileset-mismatch`, `world.bake` and `world.budget` of the
+//! text-project check ([`check::world_problems`]); `bake.rs` the baker of a world into the map's
+//! model, BDHC and permissions ([`bake::bake_grid`], [`bake::assemble`], with the store
+//! [`bake::bake_world`]): in a text project a world map's Map asset is its bake.
 
 pub mod bake;
 pub mod check;
@@ -30,8 +32,9 @@ pub mod places;
 pub mod tileset;
 
 pub use bake::{
-    BakeEnv, EMPTY_CELL, FLOOR_TOLERANCE, GridBake, Verbatim, WORLD_BAKE_REV, WorldBakeMessage,
-    WorldBakeReport, assemble, bake_grid, report, world_permissions,
+    BakeEnv, EMPTY_CELL, FLOOR_TOLERANCE, GridBake, Verbatim, WORLD_BAKE_REV, WorldBake,
+    WorldBakeMessage, WorldBakeReport, assemble, bake_grid, bake_world, report,
+    world_derived_refusal, world_permissions,
 };
 pub use doc::{
     FreeformJson, HEIGHT_MAX, HEIGHT_MIN, LayerJson, LayerRole, MAP_SOURCE_WORLD, PermissionsJson,

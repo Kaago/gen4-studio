@@ -415,10 +415,6 @@ impl EntitySource {
     /// that does not read, a world map with derived parts or a part that does not resolve is
     /// [`KernelError::Compile`] with file, line and path. Remembers the JSON's `base_sha1`
     /// parts, as [`Self::read`] does.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the store's bake of a world map reads it")
-    )]
     pub(crate) fn read_world_map(
         &mut self,
         project: &Project,

@@ -6,7 +6,8 @@
 //! [`bake_grid`] gives the parts and the messages, [`assemble`] puts them into a map file whose
 //! buildings, tail and BGS stay, [`report`] sums the result up. A verbatim part (Form 1 of
 //! „Karte als Quelle übernehmen“, [`Verbatim`]) passes through byte-equal; a refused model keeps
-//! the map's last model. Nothing here touches the store.
+//! the map's last model. [`bake_world`] is the store's way in: it takes the tileset, the
+//! textures of the world's package and the style and VRAM of the map's area from the store.
 
 use g4_formats::bdhc::{self, Bdhc};
 use g4_formats::game::Family;
@@ -14,13 +15,18 @@ use g4_formats::map::{Cell, MAP_SIZE, MapFile};
 use g4_formats::nsbmd_header::material_texture_names;
 use serde::Serialize;
 
+use super::check::{WORLD_SCHEMA_CODE, thousands};
 use super::doc::WorldJson;
 use super::grid::WorldGrid;
 use super::mesh::{MODEL_BUDGET, MeshFace, footprint_of, mesh};
 use super::tileset::{TileJson, Tileset};
 use crate::bake::{
-    AreaStyle, BakeCode, BakeInput, BakeMessage, BakeReport, Face, Level, PackTexture, bake,
+    AreaStyle, BakeCode, BakeInput, BakeMessage, BakeReport, Face, Level, PackTexture, WORLD_MAX,
+    WORLD_MIN, area_vram, bake, pack_textures, vanilla_vram_max,
 };
+use crate::error::KernelError;
+use crate::map_import::map_areas;
+use crate::store::Store;
 use crate::terrain::block_edges;
 
 /// The revision of the world bake: raised whenever the same world bakes to other bytes (the
@@ -101,14 +107,57 @@ impl WorldBakeMessage {
 }
 
 impl From<&BakeMessage> for WorldBakeMessage {
+    /// The baker's code, level and args; the message in German ([`baker_text`]), the baker's
+    /// English one for a code the world bake does not give.
     fn from(m: &BakeMessage) -> WorldBakeMessage {
         WorldBakeMessage {
             code: m.code.as_str().to_owned(),
             level: m.level,
             args: m.args.clone(),
-            message: m.message.clone(),
+            message: baker_text(m.code, &m.args).unwrap_or_else(|| m.message.clone()),
         }
     }
+}
+
+/// The German sentence of the baker's finding `code` with `args` (as [`BakeCode`] documents
+/// them), numbers with a space between thousands; `None` for a code of appending textures or
+/// args of another shape.
+pub fn baker_text(code: BakeCode, args: &[String]) -> Option<String> {
+    let number = |s: &String| {
+        s.parse::<usize>()
+            .map(thousands)
+            .unwrap_or_else(|_| s.clone())
+    };
+    Some(match (code, args) {
+        (BakeCode::Empty, []) => "Die Welt hat keine Fläche zum Backen.".to_owned(),
+        (BakeCode::ModelTooBig, [bytes, limit]) => format!(
+            "Das gebackene Modell hat {} Byte, das Spiel fasst höchstens {} Byte; die Karte \
+             behält ihr letztes Modell.",
+            number(bytes),
+            number(limit)
+        ),
+        (BakeCode::ModelTooBig, [error]) => {
+            format!("Das gebackene Modell lässt sich nicht schreiben: {error}.")
+        }
+        (BakeCode::TextureMissing, [name]) => {
+            format!("Die Textur „{name}“ fehlt im Kartentextur-Paket oder hat dort keine Palette.")
+        }
+        (BakeCode::FaceOutOfRange, [face, x, y, z]) => format!(
+            "Fläche {face} hat die Ecke ({x}, {y}, {z}); Ecken liegen zwischen {WORLD_MIN} und \
+             {WORLD_MAX} Welteinheiten."
+        ),
+        (BakeCode::FaceUvRange, [face, axis, span]) => format!(
+            "Fläche {face} spannt {} Texel in {axis}; ihre Texturkoordinaten passen weder so \
+             noch um ganze Texturen verschoben in den Bereich des Modells.",
+            number(span)
+        ),
+        (BakeCode::VramHigh, [vram, limit]) => format!(
+            "Die Texturen des Gebiets belegen {} Byte VRAM, das größte Vanilla-Gebiet {} Byte.",
+            number(vram),
+            number(limit)
+        ),
+        _ => return None,
+    })
 }
 
 /// The parts of a bake: `model` is `None` when it is refused (a message says why) or verbatim.
@@ -138,7 +187,9 @@ pub struct WorldBakeReport {
     pub model_bytes: usize,
     /// `model_bytes / 0xF000`.
     pub model_share: f32,
-    /// The map kept its last model: the bake has none.
+    /// The map kept its last model: the bake has none. False with a verbatim model, also when
+    /// painted tiles refuse the bake (`world.verbatim-mixed`): the verbatim model stays, see
+    /// [`WorldBakeReport::verbatim_model`] and [`WorldBakeReport::ok`].
     pub model_kept: bool,
     /// The textures the map's model binds, in material order.
     pub textures: Vec<String>,
@@ -236,7 +287,7 @@ pub fn bake_grid(
         messages.push(WorldBakeMessage::error(
             BakeCode::Empty.as_str(),
             Vec::new(),
-            "Die Welt hat keine Fläche zum Backen.".to_owned(),
+            baker_text(BakeCode::Empty, &[]).unwrap_or_default(),
         ));
     } else if let Some(input) = &env.input {
         if !gltf {
@@ -357,6 +408,86 @@ pub fn report(
     }
 }
 
+/// A bake through the store: the map file (the Map asset of the world map) and its report.
+#[derive(Debug, Clone)]
+pub struct WorldBake {
+    pub file: MapFile,
+    pub report: WorldBakeReport,
+}
+
+/// Bakes `world` for map `map` with the store: `Store::tileset(world.tileset)`, `pack_textures`
+/// of that package's member, style and VRAM of the first of `map_areas(store, map)`. `Err`
+/// only for a world that does not parse (`world.schema`) or I/O; refusals are in the report.
+///
+/// `base` gives the buildings, the tail and the BGS, and the model a refused bake keeps;
+/// `verbatim` the verbatim parts ([`Verbatim::of`]). A package that does not read gives no
+/// textures (the baker refuses with `bake.texture-missing`) and no VRAM; a map outside every
+/// matrix cell with a header, or whose area data is not in the archive, has no area.
+pub fn bake_world(
+    store: &mut Store,
+    map: u16,
+    world: &WorldJson,
+    base: &MapFile,
+    verbatim: &Verbatim,
+) -> Result<WorldBake, KernelError> {
+    let grid = WorldGrid::parse(world).map_err(|errors| {
+        KernelError::Refused(match errors.first() {
+            Some(e) => format!("{WORLD_SCHEMA_CODE}: {e}"),
+            None => format!("{WORLD_SCHEMA_CODE}: world: kaputt."),
+        })
+    })?;
+    let tileset = store.tileset(world.tileset)?;
+    let family = store.project().family;
+    let (pack, textures) = match store.project().map_tileset_member(world.tileset)? {
+        Some(bytes) => match pack_textures(&bytes) {
+            Ok(textures) => (Some(bytes), textures),
+            Err(_) => (None, Vec::new()),
+        },
+        None => (None, Vec::new()),
+    };
+    let mut area = None;
+    if let Some(&id) = map_areas(store, map)?.first()
+        && let Some(data) = store.area_data_checked(id)?
+    {
+        let vram = match &pack {
+            Some(bytes) => match area_vram(store, id, Some(bytes)) {
+                Ok(vram) => vram,
+                // A building pack that does not read counts nothing, as a missing one.
+                Err(KernelError::Format(_)) => 0,
+                Err(e) => return Err(e),
+            },
+            None => 0,
+        };
+        area = Some((AreaStyle::of(&data), vram));
+    }
+    let env = BakeEnv {
+        map,
+        tileset: &tileset,
+        input: area.map(|(style, vram_bytes)| BakeInput {
+            style,
+            textures: &textures,
+            vram_bytes,
+            vram_limit: vanilla_vram_max(family),
+        }),
+        family,
+    };
+    let bake = bake_grid(&grid, world, verbatim, &env);
+    let (file, kept) = assemble(base, &bake, verbatim);
+    let report = report(map, &bake, &file, kept, area.map(|(style, _)| style));
+    Ok(WorldBake { file, report })
+}
+
+/// „Karte 0123 ist eine Welt-Karte: Modell, Terrain und Permissions entstehen beim Backen;
+/// Permissions über `world_edit` (`permission`), zurück zur binären Karte über „Als binäre
+/// Karte übernehmen“.“: why an edit of a world map's derived parts is refused.
+pub fn world_derived_refusal(map: u16) -> String {
+    format!(
+        "Karte {map:04} ist eine Welt-Karte: Modell, Terrain und Permissions entstehen beim \
+         Backen; Permissions über `world_edit` (`permission`), zurück zur binären Karte über \
+         „Als binäre Karte übernehmen“."
+    )
+}
+
 #[cfg(any(test, feature = "test-support"))]
 /// Pack textures for `Tileset::synthetic()`: each name with palette `<name>_pl`, sizes of the tiles.
 pub fn synthetic_pack_textures() -> Vec<PackTexture> {
@@ -372,5 +503,7 @@ pub fn synthetic_pack_textures() -> Vec<PackTexture> {
         .collect()
 }
 
+#[cfg(all(test, feature = "test-support"))]
+mod store_tests;
 #[cfg(test)]
 mod tests;

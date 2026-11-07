@@ -2,8 +2,8 @@
 //! not in the check register (`checks/*` is phase 6.2's): `world.schema` (error: the grid of
 //! [`WorldGrid::parse`], the package out of range, tiles past the tileset, pieces),
 //! `world.tileset-mismatch` (warning: a header that shows the map names area data of another
-//! package), `world.not-baked` (info: until the baker of 6.3b the build writes the map's former
-//! member) and `world.budget` (info: the estimated model size from faces and textures).
+//! package), `world.bake` (error: each refusal of the bake, with its code) and `world.budget`
+//! (info, a warning over the vanilla VRAM: the baked sizes).
 //!
 //! Serde form errors of `world` stay `textproject.schema` (the import's and the export's). The
 //! import skips a world map with a `world.schema` error ([`map_schema_problems`]), its problem in
@@ -22,55 +22,67 @@ use crate::text::{Problem, Severity};
 use crate::textproject::arts::{Art, numbered, slash};
 use crate::textproject::locate::position;
 
+use super::bake::WorldBakeReport;
 use super::doc::WorldJson;
 use super::grid::{WorldError, WorldGrid, error_cell};
 use super::keep::world_field;
-use super::mesh::{MODEL_BUDGET, estimate_model_bytes, mesh, mesh_textures, piece_problems};
+use super::mesh::{MODEL_BUDGET, piece_problems};
 use super::places::headers_of_map;
 use super::tileset::{
     TileRole, Tileset, missing_package, package_file, read_package_file, read_tileset_file,
     textures_only, tile_outside,
 };
+use crate::bake::{BakeCode, Level, vanilla_vram_max};
 
 /// A world document that breaks its grammar, its ranges or its tileset (error).
 pub const WORLD_SCHEMA_CODE: &str = "world.schema";
 /// A header that shows the map names area data of another package than the world (warning).
 pub const WORLD_TILESET_MISMATCH_CODE: &str = "world.tileset-mismatch";
-/// A world map the build does not bake yet (info, until 6.3b).
-pub const WORLD_NOT_BAKED_CODE: &str = "world.not-baked";
-/// The estimated size of the map model of a world (info).
+/// The sizes of a world's bake (info; a warning with `bake.vram-high`).
 pub const WORLD_BUDGET_CODE: &str = "world.budget";
+/// A refusal of a world's bake (error), the bake's code first in the sentence.
+pub const WORLD_BAKE_CODE: &str = "world.bake";
+/// The member of a world map changed outside the Studio (warning; the check part follows with
+/// the build step `world`).
+pub const WORLD_MEMBER_CHANGED_CODE: &str = "world.member-changed";
 
-/// „Geschätzt höchstens 1 680 Byte (3 % von 0xF000) aus 1 Fläche und 1 Textur.“, the estimate
-/// of [`estimate_model_bytes`] with a space between thousands and the share of
-/// [`MODEL_BUDGET`] rounded to a whole percent; above the budget with „; mehr als das Modell
-/// fassen darf, das Backen (6.3b) lehnt es ab, wenn es nicht kleiner wird“ before the stop.
-pub fn budget_text(faces: usize, textures: usize) -> String {
-    let bytes = estimate_model_bytes(faces, textures);
-    let percent = (bytes * 100 + MODEL_BUDGET / 2) / MODEL_BUDGET;
-    let faces = match faces {
-        1 => "1 Fläche".to_owned(),
-        n => format!("{} Flächen", thousands(n)),
-    };
-    let textures = match textures {
+/// „Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), 3
+/// Texturen, VRAM 21 656 Byte.“: the model's bytes and share of [`MODEL_BUDGET`], the BDHC's
+/// payload and its share of `bdhc.max_bytes`, the textures the model binds and the area's
+/// VRAM, thousands split by a space, shares rounded to a whole percent; with a `bake.vram-high`
+/// warning „; VRAM über dem Vanilla-Höchstwert 110 640 Byte“ (`vram_max`) before the stop.
+pub fn baked_budget_text(report: &WorldBakeReport, vram_max: usize) -> String {
+    let share = |bytes: usize, of: usize| (bytes * 100 + of / 2) / of.max(1);
+    let terrain_max = Project::limits().bdhc.max_bytes.value;
+    let textures = match report.textures.len() {
         1 => "1 Textur".to_owned(),
         n => format!("{} Texturen", thousands(n)),
     };
-    let over = if bytes > MODEL_BUDGET {
-        "; mehr als das Modell fassen darf, das Backen (6.3b) lehnt es ab, wenn es nicht kleiner \
-         wird"
+    let high = report
+        .messages
+        .iter()
+        .any(|m| m.code == BakeCode::VramHigh.as_str());
+    let over = if high {
+        format!(
+            "; VRAM über dem Vanilla-Höchstwert {} Byte",
+            thousands(vram_max)
+        )
     } else {
-        ""
+        String::new()
     };
     format!(
-        "Geschätzt höchstens {} Byte ({percent} % von {MODEL_BUDGET:#X}) aus {faces} und \
-         {textures}{over}.",
-        thousands(bytes)
+        "Gebacken: Modell {} Byte ({} % von {MODEL_BUDGET:#X}), Terrain {} Byte ({} % von \
+         {terrain_max:#X}), {textures}, VRAM {} Byte{over}.",
+        thousands(report.model_bytes),
+        share(report.model_bytes, MODEL_BUDGET),
+        thousands(report.bdhc_payload),
+        share(report.bdhc_payload, terrain_max),
+        thousands(report.vram_bytes),
     )
 }
 
 /// `n` with a space between each three digits: `1 680`, `61 440`.
-fn thousands(n: usize) -> String {
+pub(crate) fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, d) in digits.chars().enumerate() {
@@ -84,8 +96,10 @@ fn thousands(n: usize) -> String {
 
 /// Problems of every world map of the project (the `data/maps/*.json` with `source: "world"`, read with `world_field`):
 /// schema (grid, tiles against the tileset file or `textures_only` of the package, package range, pieces), tileset
-/// mismatch, not baked, budget. The headers for the mismatch come from a Store on `Project::open(&project.root)`, read only.
-/// Without a base at hand it reports a package missing on disk even when the import would restore it from the base.
+/// mismatch, and for a world without schema error its bake: each refusal (`world.bake`) and, when it bakes, the sizes
+/// (`world.budget`). Headers and bake come from a Store on `Project::open(&project.root)`, read only (a world map whose
+/// file the store refuses, derived keys say, is the import's error, not baked here). Without a base at hand it reports
+/// a package missing on disk even when the import would restore it from the base.
 pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
     let dir = Art::Maps.dir();
     let mut problems = Vec::new();
@@ -107,7 +121,7 @@ pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
             bytes: &bytes,
             world: &world,
         };
-        let (schema, checked) = schema_of(project, &at, &mut tilesets, &|_| false)?;
+        let schema = schema_of(project, &at, &mut tilesets, &|_| false)?;
         let clean = schema.is_empty();
         problems.extend(schema);
         if store.is_none() {
@@ -115,24 +129,40 @@ pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
         }
         if let Some(store) = store.as_mut() {
             mismatch(store, map, &at, &mut problems);
-        }
-        problems.push(at.problem(
-            Severity::Info,
-            WORLD_NOT_BAKED_CODE,
-            "world",
-            &format!(
-                "Karte {map:04} ist eine Welt-Karte; bis zum Backen (6.3b) baut der Build ihren \
-                 bisherigen Member."
-            ),
-            None,
-        ));
-        if let (true, Some((grid, tileset))) = (clean, checked) {
-            let faces = mesh(&grid, &tileset);
-            let text = budget_text(faces.len(), mesh_textures(&faces).len());
-            problems.push(at.problem(Severity::Info, WORLD_BUDGET_CODE, "world", &text, None));
+            if clean {
+                bake_problems(store, map, &at, &mut problems);
+            }
         }
     }
     Ok(problems)
+}
+
+/// The bake of world map `map` as the store holds it: one `world.bake` error per refusal
+/// („bake.model-too-big: Das gebackene Modell …“), and when it bakes the sizes
+/// ([`baked_budget_text`], a warning over the vanilla VRAM). A world the store does not bake
+/// (its file refused) gives none.
+fn bake_problems(store: &mut Store, map: u16, at: &Spot<'_>, problems: &mut Vec<Problem>) {
+    let Ok(Some(report)) = store.world_bake_report(map) else {
+        return;
+    };
+    for m in report.messages.iter().filter(|m| m.level == Level::Error) {
+        let sentence = format!("{}: {}", m.code, m.message);
+        problems.push(at.problem(Severity::Error, WORLD_BAKE_CODE, "world", &sentence, None));
+    }
+    if report.ok {
+        let vram_max = vanilla_vram_max(store.project().family);
+        let high = report
+            .messages
+            .iter()
+            .any(|m| m.code == BakeCode::VramHigh.as_str());
+        let severity = if high {
+            Severity::Warning
+        } else {
+            Severity::Info
+        };
+        let text = baked_budget_text(&report, vram_max);
+        problems.push(at.problem(severity, WORLD_BUDGET_CODE, "world", &text, None));
+    }
 }
 
 /// The `world.schema` errors of the map file `rel` (`bytes`) when it is a world map, for the
@@ -154,7 +184,7 @@ pub(crate) fn map_schema_problems(
         bytes,
         world: &world,
     };
-    Ok(schema_of(project, &at, &mut Tilesets::default(), in_base)?.0)
+    schema_of(project, &at, &mut Tilesets::default(), in_base)
 }
 
 /// The tileset of each package, read once per check: the tileset file, else the package's
@@ -243,20 +273,16 @@ impl Spot<'_> {
     }
 }
 
-/// A grid that parsed, with the tileset it was checked against.
-type Checked = (WorldGrid, Arc<Tileset>);
-
-/// The `world.schema` errors of `at`, and the grid with its tileset when the grid parses and
-/// the tileset reads (for the budget).
+/// The `world.schema` errors of `at`.
 fn schema_of(
     project: &Project,
     at: &Spot<'_>,
     tilesets: &mut Tilesets,
     in_base: &dyn Fn(u16) -> bool,
-) -> Result<(Vec<Problem>, Option<Checked>), KernelError> {
+) -> Result<Vec<Problem>, KernelError> {
     let grid = match WorldGrid::parse(at.world) {
         Ok(grid) => grid,
-        Err(errors) => return Ok((errors.iter().map(|e| at.error(e)).collect(), None)),
+        Err(errors) => return Ok(errors.iter().map(|e| at.error(e)).collect()),
     };
     let package = grid.tileset;
     if project.has_archive(AssetKind::MapTexture) {
@@ -270,17 +296,16 @@ fn schema_of(
                 path: "world.tileset".to_owned(),
                 message: text,
             };
-            return Ok((vec![at.error(&e)], None));
+            return Ok(vec![at.error(&e)]);
         }
     }
     let Some(tileset) = tilesets.get(project, package)? else {
-        return Ok((Vec::new(), None));
+        return Ok(Vec::new());
     };
-    let errors = tile_errors(&grid, &tileset);
-    Ok((
-        errors.iter().map(|e| at.error(e)).collect(),
-        Some((grid, tileset)),
-    ))
+    Ok(tile_errors(&grid, &tileset)
+        .iter()
+        .map(|e| at.error(e))
+        .collect())
 }
 
 /// The tiles of `grid` past `tileset` (the first per row, like a token error), the pieces whose
@@ -624,38 +649,19 @@ mod tests {
     }
 
     #[test]
-    fn every_world_map_is_not_baked() {
-        let fx = fixture();
-        assert!(problems_of(&fx).is_empty(), "{:#?}", problems_of(&fx));
+    fn not_baked_is_gone() {
+        let fx = crate::test_support::world_ready();
         put_world(&fx, &fixtures::one_tile_world());
-        let bytes = world_parts(
-            fx.read("data/maps/0002.json"),
-            &fixtures::busy_world(),
-            &mut Vec::new(),
-        )
-        .unwrap();
-        fx.write("data/maps/0002.json", &bytes);
         let problems = problems_of(&fx);
-        let infos = with_code(&problems, WORLD_NOT_BAKED_CODE);
-        assert_eq!(
-            infos
+        assert!(
+            problems
                 .iter()
-                .map(|p| (p.file.to_str().unwrap(), p.severity, p.message.as_str()))
-                .collect::<Vec<_>>(),
-            [
-                (
-                    MAP,
-                    Severity::Info,
-                    "world.not-baked: world: Karte 0000 ist eine Welt-Karte; bis zum Backen \
-                     (6.3b) baut der Build ihren bisherigen Member."
-                ),
-                (
-                    "data/maps/0002.json",
-                    Severity::Info,
-                    "world.not-baked: world: Karte 0002 ist eine Welt-Karte; bis zum Backen \
-                     (6.3b) baut der Build ihren bisherigen Member."
-                ),
-            ]
+                .all(|p| !p.message.starts_with("world.not-baked")),
+            "{problems:#?}"
+        );
+        assert!(
+            with_code(&problems, WORLD_BAKE_CODE).is_empty(),
+            "{problems:#?}"
         );
         // The binary map 0001 has none.
         assert!(
@@ -666,41 +672,113 @@ mod tests {
         );
     }
 
+    fn sample_report() -> WorldBakeReport {
+        WorldBakeReport {
+            map: 0,
+            ok: true,
+            style: None,
+            faces: 3,
+            model_bytes: 21_740,
+            model_share: 0.35,
+            model_kept: false,
+            textures: vec!["a".into(), "b".into(), "c".into()],
+            vram_bytes: 21_656,
+            bdhc_bytes: 350,
+            bdhc_payload: 334,
+            plates: 1,
+            blocked: 0,
+            verbatim_model: false,
+            verbatim_terrain: false,
+            messages: Vec::new(),
+        }
+    }
+
     #[test]
-    fn budget_is_an_info_with_faces_and_textures() {
+    fn budget_is_the_baked_size() {
+        let mut r = sample_report();
         assert_eq!(
-            budget_text(1, 1),
-            "Geschätzt höchstens 1 680 Byte (3 % von 0xF000) aus 1 Fläche und 1 Textur."
+            baked_budget_text(&r, 110_640),
+            "Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), \
+             3 Texturen, VRAM 21 656 Byte."
         );
+        r.textures.truncate(1);
+        r.vram_bytes = 120_000;
+        r.messages.push(crate::world::WorldBakeMessage {
+            code: "bake.vram-high".into(),
+            level: Level::Warning,
+            args: vec!["120000".into(), "110640".into()],
+            message: String::new(),
+        });
         assert_eq!(
-            budget_text(1024, 2),
-            "Geschätzt höchstens 59 568 Byte (97 % von 0xF000) aus 1 024 Flächen und 2 Texturen."
-        );
-        assert_eq!(
-            budget_text(2000, 3),
-            "Geschätzt höchstens 114 824 Byte (187 % von 0xF000) aus 2 000 Flächen und 3 \
-             Texturen; mehr als das Modell fassen darf, das Backen (6.3b) lehnt es ab, wenn es \
-             nicht kleiner wird."
-        );
-        assert_eq!(
-            budget_text(0, 0),
-            "Geschätzt höchstens 1 024 Byte (2 % von 0xF000) aus 0 Flächen und 0 Texturen."
+            baked_budget_text(&r, 110_640),
+            "Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), \
+             1 Textur, VRAM 120 000 Byte; VRAM über dem Vanilla-Höchstwert 110 640 Byte."
         );
 
-        let fx = fixture();
+        // In the check: the bake of the store, an info at `world`.
+        let fx = crate::test_support::world_ready();
         put_world(&fx, &fixtures::one_tile_world());
         let problems = problems_of(&fx);
         let budget = with_code(&problems, WORLD_BUDGET_CODE);
         assert_eq!(budget.len(), 1, "{problems:#?}");
         assert_eq!(budget[0].severity, Severity::Info);
+        let mut store = Store::new(Arc::new(fx.project()));
+        let report = store.world_bake_report(0).unwrap().unwrap();
+        assert!(report.ok, "{:?}", report.messages);
         assert_eq!(
             budget[0].message,
-            "world.budget: world: Geschätzt höchstens 1 680 Byte (3 % von 0xF000) aus 1 Fläche \
-             und 1 Textur."
+            format!(
+                "world.budget: world: {}",
+                baked_budget_text(&report, 110_640)
+            )
+        );
+        assert!(
+            budget[0].message.contains(", 1 Textur, "),
+            "{}",
+            budget[0].message
         );
         assert_eq!(
             (budget[0].line, budget[0].col),
             spot(&fx, MAP, "\"world\":")
+        );
+    }
+
+    #[test]
+    fn bake_problems_name_the_code() {
+        let fx = crate::test_support::world_ready();
+        put_world(&fx, &fixtures::oversize_world());
+        let problems = problems_of(&fx);
+        let bake = with_code(&problems, WORLD_BAKE_CODE);
+        assert_eq!(bake.len(), 1, "{problems:#?}");
+        assert_eq!(bake[0].severity, Severity::Error);
+        assert_eq!(bake[0].file, Path::new(MAP));
+        let mut store = Store::new(Arc::new(fx.project()));
+        let report = store.world_bake_report(0).unwrap().unwrap();
+        let bytes = thousands(report.messages[0].args[0].parse().unwrap());
+        assert_eq!(
+            bake[0].message,
+            format!(
+                "world.bake: world: bake.model-too-big: Das gebackene Modell hat {bytes} Byte, \
+                 das Spiel fasst höchstens 61 440 Byte; die Karte behält ihr letztes Modell."
+            )
+        );
+        // A refused bake has no budget.
+        assert!(
+            with_code(&problems, WORLD_BUDGET_CODE).is_empty(),
+            "{problems:#?}"
+        );
+
+        // A package that does not read: the texture is missing, in German.
+        let fx = fixture();
+        put_world(&fx, &fixtures::one_tile_world());
+        let problems = problems_of(&fx);
+        let bake = with_code(&problems, WORLD_BAKE_CODE);
+        assert_eq!(
+            bake.iter().map(|p| p.message.as_str()).collect::<Vec<_>>(),
+            [
+                "world.bake: world: bake.texture-missing: Die Textur „syn_boden“ fehlt im \
+                 Kartentextur-Paket oder hat dort keine Palette."
+            ]
         );
     }
 }

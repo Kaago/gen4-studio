@@ -38,6 +38,7 @@ use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite, deleted_
 use crate::textproject::sync::{self, Known, changed_since_record, record_known};
 use crate::textproject::tombstone::{EnvelopeCache, read_deleted_cached};
 use crate::world::WorldJson;
+use crate::world::bake::{Verbatim, WorldBakeReport, bake_world, world_derived_refusal};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -627,6 +628,17 @@ pub struct Tx<'s> {
     staged: Vec<Staged>,
     /// Tombstones staged by [`Tx::set_deleted`], each target once.
     tombs: Vec<TombPart>,
+    /// The report of each world map this transaction baked ([`Tx::edit_world`]), the last
+    /// bake per map.
+    bakes: Vec<WorldBakeReport>,
+}
+
+/// Whether `after` changes a derived part of `before` (permissions, model, BDHC): what a
+/// world map's bake makes, never an edit.
+fn derived_changed(before: &MapFile, after: &MapFile) -> bool {
+    before.permissions != after.permissions
+        || before.model != after.model
+        || before.bdhc != after.bdhc
 }
 
 impl Tx<'_> {
@@ -668,15 +680,77 @@ impl Tx<'_> {
     /// canonical JSON; trainer: [`trainer_pair_bytes`]). Refuses like the other edits (a locked
     /// asset, one edited twice in this transaction); bytes that do not decode fail the
     /// transaction with the decode error. Bytes equal to the current value record no part.
+    ///
+    /// A map that is a world map refuses new derived parts as [`Tx::edit_map`] does.
     pub fn replace(&mut self, id: AssetId, bytes: &[u8]) -> Result<(), KernelError> {
         let family = self.store.project.family;
         let lang = self.store.lang();
+        let world = id.kind == AssetKind::Map && self.is_world(id.index)?;
         self.edit(id, |loaded| {
             let mut value = Loaded::from_bytes(id.kind, bytes, family, lang)?;
             keep_budget(&mut value, Some(loaded));
+            if let (true, Loaded::Map(before), Loaded::Map(after)) = (world, &*loaded, &value)
+                && derived_changed(before, after)
+            {
+                return Err(KernelError::Refused(world_derived_refusal(id.index)));
+            }
             *loaded = value;
             Ok(())
         })
+    }
+
+    /// Stages `value` as asset `id`: over the copy this transaction staged already, else as
+    /// a new edit of the loaded asset (refused when it is locked). The store's internal way
+    /// to set a value it derives (the bake of a world map), without the checks of the edits.
+    fn stage(&mut self, id: AssetId, value: Loaded) -> Result<(), KernelError> {
+        let family = self.store.project.family;
+        let after = value.to_bytes(family)?;
+        if let Some(staged) = self.staged.iter_mut().find(|s| s.asset == id) {
+            staged.edited = value;
+            staged.after = after;
+            return Ok(());
+        }
+        let asset = self.store.load(id)?;
+        if let Some(reason) = &asset.locked {
+            return Err(KernelError::ReadOnly {
+                asset: id,
+                reason: reason.clone(),
+            });
+        }
+        let before = asset.current.to_bytes(family)?;
+        self.staged.push(Staged {
+            asset: id,
+            edited: value,
+            before,
+            after,
+        });
+        Ok(())
+    }
+
+    /// The world of map `map` as this transaction sees it: staged, else the store's.
+    fn world_of(&mut self, map: u16) -> Result<Option<WorldJson>, KernelError> {
+        let id = world_id(map);
+        if let Some(staged) = self.staged.iter().find(|s| s.asset == id) {
+            return match &staged.edited {
+                Loaded::World(world) => Ok(world.clone()),
+                _ => Err(mismatch(id)),
+            };
+        }
+        Ok(self.store.world(map)?.cloned())
+    }
+
+    /// Whether map `map` is a world map as this transaction sees it ([`Store::is_world_map`]).
+    fn is_world(&mut self, map: u16) -> Result<bool, KernelError> {
+        if !self.store.in_text_project() {
+            return Ok(false);
+        }
+        Ok(self.world_of(map)?.is_some())
+    }
+
+    /// The report of the bake of map `map` this transaction made ([`Tx::edit_world`]), `None`
+    /// when it baked none.
+    pub fn bake_report(&self, map: u16) -> Option<WorldBakeReport> {
+        self.bakes.iter().find(|r| r.map == map).cloned()
     }
 
     /// Edits matrix `index`. An error from `edit` or from `Matrix::validate` fails the
@@ -783,10 +857,17 @@ impl Tx<'_> {
             kind: AssetKind::Map,
             index,
         };
+        let world = self.is_world(index)?;
         self.edit(id, |loaded| match loaded {
             Loaded::Map(m) => {
+                let before = world.then(|| m.clone());
                 edit(m)?;
                 m.validate()?;
+                if let Some(before) = before
+                    && derived_changed(&before, m)
+                {
+                    return Err(KernelError::Refused(world_derived_refusal(index)));
+                }
                 Ok(())
             }
             _ => Err(mismatch(id)),
@@ -796,6 +877,11 @@ impl Tx<'_> {
     /// Edits the world of map `map` ([`AssetKind::WorldMap`]; `None`: the map has none). `edit`
     /// may set, change or remove it; an error from `edit` fails the transaction. Outside a text
     /// project the world is refused ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]).
+    ///
+    /// A world that is there afterwards is baked into the map at once, as a second part of the
+    /// same step: [`bake_world`] over the map as the transaction holds it, with the verbatim
+    /// parts of the new world ([`Verbatim::of`]); its report is [`Tx::bake_report`]. A world
+    /// removed leaves the map as it is (its last bake).
     pub fn edit_world(
         &mut self,
         map: u16,
@@ -805,7 +891,26 @@ impl Tx<'_> {
         self.edit(id, |loaded| match loaded {
             Loaded::World(world) => edit(world),
             _ => Err(mismatch(id)),
-        })
+        })?;
+        let Some(world) = self.world_of(map)? else {
+            return Ok(());
+        };
+        let map_id = AssetId {
+            kind: AssetKind::Map,
+            index: map,
+        };
+        let base = match self.staged.iter().find(|s| s.asset == map_id) {
+            Some(staged) => staged.edited.clone(),
+            None => self.store.load(map_id)?.current.clone(),
+        };
+        let Loaded::Map(base) = base else {
+            return Err(mismatch(map_id));
+        };
+        let verbatim = Verbatim::of(&world, &base);
+        let baked = bake_world(self.store, map, &world, &base, &verbatim)?;
+        self.bakes.retain(|r| r.map != map);
+        self.bakes.push(baked.report);
+        self.stage(map_id, Loaded::Map(baked.file))
     }
 
     /// Edits text archive `index`.
@@ -1280,6 +1385,9 @@ impl Store {
     /// Read as the base ([`Read::Base`]), a JSON that does not read is the raw bytes of the
     /// unit's files: never the store's bytes, so `save` finds it changed (`Stale`) and
     /// `accept_disk_as_base` can take it as a base the next save overwrites.
+    ///
+    /// A world map's Map asset is its bake ([`Store::baked_world_map`]); loading it loads its
+    /// world map asset too, so a save of the map compares the world it was baked from.
     fn entity_bytes(
         &mut self,
         id: AssetId,
@@ -1287,6 +1395,22 @@ impl Store {
         read: Read,
     ) -> Result<Option<Vec<u8>>, KernelError> {
         let project = Arc::clone(&self.project);
+        if id.kind == AssetKind::Map {
+            match Store::source(&mut self.source, &project)?.read_world_map(&project, id.index) {
+                Ok(Some(source)) => {
+                    if let Some(bytes) = self.baked_world_map(id.index, source)? {
+                        if read == Read::Load {
+                            self.load(world_id(id.index))?;
+                        }
+                        return Ok(Some(bytes));
+                    }
+                }
+                Ok(None) => {}
+                // As the base, the raw bytes of the unit's files below.
+                Err(KernelError::Compile(_)) if read == Read::Base => {}
+                Err(e) => return Err(e),
+            }
+        }
         match (
             Store::source(&mut self.source, &project)?.read(&project, id),
             read,
@@ -1299,6 +1423,173 @@ impl Store {
                 Ok(Some(raw))
             }
             (bytes, _) => bytes,
+        }
+    }
+
+    /// The bytes of world map `map` read from its JSON (`source`): the bake of its world over
+    /// the buildings, tail and BGS of the file, the model of the member on disk kept when the
+    /// bake refuses one. `None` when the world does not bake ([`KernelError::Refused`]: its
+    /// grid does not parse, its package is not there): the map is then its member on disk,
+    /// as before the baker, and the check names the world's problem.
+    fn baked_world_map(
+        &mut self,
+        map: u16,
+        source: crate::textproject::schema::map::WorldMapSource,
+    ) -> Result<Option<Vec<u8>>, KernelError> {
+        let family = self.project.family;
+        let member = read_file(&self.project.member_path(AssetKind::Map, map))?;
+        let mut base = source.base;
+        base.model = member
+            .and_then(|bytes| MapFile::read(&bytes, family).ok())
+            .map(|m| m.model)
+            .unwrap_or_default();
+        match bake_world(self, map, &source.world, &base, &source.verbatim) {
+            Ok(baked) => Ok(Some(baked.file.write(family))),
+            Err(KernelError::Refused(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Whether the project is a text project, where maps can carry a world.
+    pub(crate) fn in_text_project(&self) -> bool {
+        *self.project.source_mode() == SourceMode::TextProject
+    }
+
+    /// Whether map `map` is a world map (a text project, and the store's world of the map is
+    /// there); `false` outside a text project.
+    pub fn is_world_map(&mut self, map: u16) -> Result<bool, KernelError> {
+        Ok(self.in_text_project() && self.world(map)?.is_some())
+    }
+
+    /// The bake report of world map `map` as the store holds it (baked anew, nothing changed);
+    /// `None` without world.
+    pub fn world_bake_report(&mut self, map: u16) -> Result<Option<WorldBakeReport>, KernelError> {
+        if !self.is_world_map(map)? {
+            return Ok(None);
+        }
+        let Some(world) = self.world(map)?.cloned() else {
+            return Ok(None);
+        };
+        let base = self.map(map)?.clone();
+        let verbatim = Verbatim::of(&world, &base);
+        Ok(Some(
+            bake_world(self, map, &world, &base, &verbatim)?.report,
+        ))
+    }
+
+    /// Bakes the clean Map assets of every loaded world map on `package` anew (a changed
+    /// tileset or package): read again from the map's JSON, base and value, as on first use.
+    /// The history stays (undo restores the bytes of its step; the next save bakes a dirty
+    /// world map anew anyway). A world map with unsaved changes is left as it is: the next
+    /// save bakes it. A map that does not read again keeps its value.
+    pub fn forget_world_bakes(&mut self, package: u16) {
+        let maps: Vec<u16> = self
+            .assets
+            .iter()
+            .filter_map(|(id, asset)| match &asset.current {
+                Loaded::World(Some(world))
+                    if id.kind == AssetKind::WorldMap && world.tileset == package =>
+                {
+                    Some(id.index)
+                }
+                _ => None,
+            })
+            .collect();
+        for map in maps {
+            let map_id = AssetId {
+                kind: AssetKind::Map,
+                index: map,
+            };
+            if !self.assets.contains_key(&map_id)
+                || self.is_dirty(map_id)
+                || self.is_dirty(world_id(map))
+            {
+                continue;
+            }
+            let Ok(bytes) = self.read_member(map_id) else {
+                continue;
+            };
+            let Ok((current, locked)) = self.decode_locked(map_id, &bytes) else {
+                continue;
+            };
+            self.assets.insert(
+                map_id,
+                Asset {
+                    saved_bytes: Some(bytes),
+                    current,
+                    locked,
+                },
+            );
+            self.note_change(map_id);
+        }
+    }
+
+    /// Bakes every world map with unsaved changes (its Map or its world map asset dirty) anew
+    /// over its Map asset, right before a save writes it: the tileset, the package or the area
+    /// may have changed since the stroke. A changed result replaces the Map asset's value
+    /// without a step of its own.
+    fn rebake_dirty_worlds(&mut self) -> Result<(), KernelError> {
+        if !self.in_text_project() {
+            return Ok(());
+        }
+        let mut maps: Vec<u16> = self
+            .dirty()
+            .into_iter()
+            .filter(|id| matches!(id.kind, AssetKind::Map | AssetKind::WorldMap))
+            .map(|id| id.index)
+            .collect();
+        maps.sort_unstable();
+        maps.dedup();
+        let family = self.project.family;
+        for map in maps {
+            let map_id = AssetId {
+                kind: AssetKind::Map,
+                index: map,
+            };
+            let (Some(Loaded::World(Some(world))), Some(Loaded::Map(base))) =
+                (self.peek(world_id(map)), self.peek(map_id))
+            else {
+                continue;
+            };
+            let (world, base) = (world.clone(), base.clone());
+            let verbatim = Verbatim::of(&world, &base);
+            let baked = bake_world(self, map, &world, &base, &verbatim)?;
+            if baked.file.write(family) != base.write(family)
+                && let Some(asset) = self.assets.get_mut(&map_id)
+            {
+                asset.current = Loaded::Map(baked.file);
+                self.note_change(map_id);
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `on_disk` (read as the base) is still what the store last saw of `id`
+    /// (`saved`): the same bytes, or, for the Map asset of a world map (its world map asset
+    /// loaded from a world), the same buildings, tail and BGS. A world map's model, BDHC and
+    /// permissions are the bake's output, which also follows the tileset, the package and the
+    /// area; its world is compared as the world map asset.
+    fn same_base(&self, id: AssetId, on_disk: Option<&[u8]>, saved: Option<&[u8]>) -> bool {
+        if on_disk == saved {
+            return true;
+        }
+        if id.kind != AssetKind::Map {
+            return false;
+        }
+        let world_saved = self
+            .assets
+            .get(&world_id(id.index))
+            .and_then(|a| a.saved_bytes.as_deref());
+        if world_saved.is_none_or(|bytes| bytes == b"null") {
+            return false;
+        }
+        let family = self.project.family;
+        let read = |bytes: Option<&[u8]>| bytes.and_then(|b| MapFile::read(b, family).ok());
+        match (read(on_disk), read(saved)) {
+            (Some(a), Some(b)) => {
+                a.buildings == b.buildings && a.buildings_tail == b.buildings_tail && a.bgs == b.bgs
+            }
+            _ => false,
         }
     }
 
@@ -1692,6 +1983,7 @@ impl Store {
             store: self,
             staged: Vec::new(),
             tombs: Vec::new(),
+            bakes: Vec::new(),
         };
         let value = f(&mut tx)?;
         let staged = tx.staged;
@@ -1745,24 +2037,18 @@ impl Store {
 
     /// Edits map `index`. An error from `edit` or from `MapFile::validate` rolls the edit
     /// back and is returned as [`KernelError::Format`].
+    ///
+    /// On a world map ([`Store::is_world_map`]) an edit that changes the permissions, the
+    /// model or the BDHC is refused ([`world_derived_refusal`]): they are the bake's; the
+    /// buildings, their tail and the BGS are the map's own.
     pub fn edit_map(
         &mut self,
         index: u16,
         label: &str,
         edit: impl FnOnce(&mut MapFile) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        let id = AssetId {
-            kind: AssetKind::Map,
-            index,
-        };
-        self.apply_edit(id, label, |loaded| match loaded {
-            Loaded::Map(m) => {
-                edit(m)?;
-                m.validate()?;
-                Ok(())
-            }
-            _ => Err(mismatch(id)),
-        })
+        self.run_transaction(label, None, |tx| tx.edit_map(index, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Edits matrix `index`. An error from `edit` or from `Matrix::validate` rolls the
@@ -3545,13 +3831,14 @@ impl Store {
         if !conflicts.is_empty() {
             return Err(KernelError::TextConflict(conflicts));
         }
+        self.rebake_dirty_worlds()?;
         let mut pending = Vec::new();
         for id in self.dirty() {
             // A text archive or entity JSON that no longer decodes differs from what was
             // loaded: stale.
             let (location, on_disk) = self.read_disk_as(id, Read::Base)?;
             if let Some(asset) = self.assets.get(&id) {
-                if on_disk != asset.saved_bytes {
+                if !self.same_base(id, on_disk.as_deref(), asset.saved_bytes.as_deref()) {
                     return Err(KernelError::Stale(id));
                 }
                 pending.push((id, location, asset.current.to_bytes(family)?));
@@ -3639,11 +3926,9 @@ impl Store {
         }
         for part in parts {
             let (_, on_disk) = self.read_disk_as(part, Read::Base)?;
-            if self
-                .assets
-                .get(&part)
-                .is_some_and(|a| a.saved_bytes != on_disk)
-            {
+            if self.assets.get(&part).is_some_and(|a| {
+                !self.same_base(part, on_disk.as_deref(), a.saved_bytes.as_deref())
+            }) {
                 return Err(KernelError::Stale(part));
             }
         }
