@@ -4,6 +4,11 @@
 //! mesh of a world map as flat arrays for the scene (`get_world_mesh`) and the RGBA of one of
 //! its textures (`get_tileset_texture`).
 //!
+//! Phase 6.3b: „Karte als Quelle übernehmen“ (`world_adopt`, Form 1), „Als binäre Karte
+//! übernehmen“ without a conflict (`world_to_binary`), the bake of a world map as the store
+//! holds it (`world_bake`, also `world_get.bake`) and the tiles of a tileset file
+//! (`tileset_edit`), each writer one undo step.
+//!
 //! Painting is for text projects only: outside one the writers refuse with
 //! [`WORLD_NEEDS_TEXT_PROJECT`], while `world_get` answers `world: null` and `get_world_mesh`
 //! an empty mesh (the scene shows the map's model then); `tileset_get` derives the tileset in
@@ -19,6 +24,9 @@ use g4_kernel::world::{
     TileRole, Tileset, TilesetSaveReport, WorldGrid, WorldJson, derive_tileset, read_tileset_file,
     save_tileset, tileset_texture,
 };
+use g4_kernel::world::{
+    TilesetEditReport, TilesetEditRequest, WorldAdoptReport, WorldAdoptRequest, WorldBakeReport,
+};
 use serde::Serialize;
 use tauri::State;
 
@@ -31,7 +39,7 @@ use g4_kernel::world::WORLD_NEEDS_TEXT_PROJECT;
 
 /// What `world_get` answers: the world of the map (`None`: none, or outside a text project),
 /// the faces and textures of its mesh, the estimated model size and its share of
-/// [`MODEL_BUDGET`].
+/// [`MODEL_BUDGET`], and the bake of the map as the store holds it (`None` without world).
 #[derive(Debug, Serialize)]
 pub struct WorldGetDto {
     pub map: u16,
@@ -41,6 +49,7 @@ pub struct WorldGetDto {
     pub estimate: usize,
     /// `estimate / 0xF000`.
     pub share: f64,
+    pub bake: Option<WorldBakeReport>,
 }
 
 /// The tileset of a package: the file `data/tilesets/NNNN.json` (`stored`) or derived from the
@@ -134,11 +143,13 @@ pub fn world_get_impl(state: &AppState, map: u16) -> Result<WorldGetDto, CmdErro
             textures: 0,
             estimate: 0,
             share: 0.0,
+            bake: None,
         });
     };
     let (faces, _) = faces_of(store, &world)?;
     let textures = mesh_textures(&faces).len();
     let estimate = estimate_model_bytes(faces.len(), textures);
+    let bake = store.world_bake_report(map)?;
     Ok(WorldGetDto {
         map,
         world: Some(world),
@@ -146,7 +157,45 @@ pub fn world_get_impl(state: &AppState, map: u16) -> Result<WorldGetDto, CmdErro
         textures,
         estimate,
         share: estimate as f64 / MODEL_BUDGET as f64,
+        bake,
     })
+}
+
+/// „Karte als Quelle übernehmen“ (Form 1) of `req.map`, one undo step.
+pub fn world_adopt_impl(
+    state: &AppState,
+    req: WorldAdoptRequest,
+) -> Result<WorldAdoptReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(g4_kernel::world::world_adopt(&mut session.store, &req)?)
+}
+
+/// „Als binäre Karte übernehmen“ without a conflict: the world of `map` goes, its bake stays as
+/// the map; one undo step.
+pub fn world_to_binary_impl(state: &AppState, map: u16) -> Result<WorldReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(edit::world_to_binary(&mut session.store, map)?)
+}
+
+/// The bake of world map `map` as the store holds it (nothing changed); `None` without world
+/// or outside a text project.
+pub fn world_bake_impl(state: &AppState, map: u16) -> Result<Option<WorldBakeReport>, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(session.store.world_bake_report(map)?)
+}
+
+/// The tiles of the tileset file of `req.package` changed as one file step; the clean world
+/// maps on the package bake anew.
+pub fn tileset_edit_impl(
+    state: &AppState,
+    req: TilesetEditRequest,
+) -> Result<TilesetEditReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(g4_kernel::world::tileset_edit(&mut session.store, &req)?)
 }
 
 pub fn tileset_get_impl(state: &AppState, package: u16) -> Result<TilesetDto, CmdError> {
@@ -296,6 +345,35 @@ pub fn get_tileset_texture(
     texture: String,
 ) -> Result<Option<SpriteDto>, CmdError> {
     get_tileset_texture_impl(&state, package, texture)
+}
+
+#[tauri::command]
+pub fn world_adopt(
+    state: State<'_, AppState>,
+    req: WorldAdoptRequest,
+) -> Result<WorldAdoptReport, CmdError> {
+    world_adopt_impl(&state, req)
+}
+
+#[tauri::command]
+pub fn world_to_binary(state: State<'_, AppState>, map: u16) -> Result<WorldReport, CmdError> {
+    world_to_binary_impl(&state, map)
+}
+
+#[tauri::command]
+pub fn world_bake(
+    state: State<'_, AppState>,
+    map: u16,
+) -> Result<Option<WorldBakeReport>, CmdError> {
+    world_bake_impl(&state, map)
+}
+
+#[tauri::command]
+pub fn tileset_edit(
+    state: State<'_, AppState>,
+    req: TilesetEditRequest,
+) -> Result<TilesetEditReport, CmdError> {
+    tileset_edit_impl(&state, req)
 }
 
 #[cfg(test)]
@@ -534,6 +612,298 @@ mod tests {
                 .undo
                 .is_empty()
         );
+    }
+
+    // ---- Phase 6.3b: adopt, bake, give up, edit the tileset ----
+
+    /// `fx` (a fixture with its own tileset file) open in a fresh state, with its policy.
+    fn open_as_is(fx: &TextFixture) -> (AppState, UserPolicy) {
+        let state = AppState::default();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        (state, policy)
+    }
+
+    /// The map asset of `map` as the open store holds it.
+    fn map_of(state: &AppState, map: u16) -> g4_formats::map::MapFile {
+        let mut guard = lock(state).unwrap();
+        session(&mut guard).unwrap().store.map(map).unwrap().clone()
+    }
+
+    fn labels(state: &AppState) -> Vec<String> {
+        crate::commands::history_impl(state).unwrap().undo
+    }
+
+    #[test]
+    fn world_bake_commands_over_dispatch() {
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
+        assert_eq!(
+            call(&state, &policy, "world_bake", json!({ "map": 0 })),
+            Value::Null
+        );
+        assert_eq!(
+            call(&state, &policy, "world_get", json!({ "map": 0 }))["bake"],
+            Value::Null
+        );
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0 } }),
+        );
+        let edited = call(
+            &state,
+            &policy,
+            "world_edit",
+            json!({ "req": { "map": 0, "changes": [{ "cells": [[3, 4]], "height": 2 }] } }),
+        );
+        assert_eq!(edited["bake"]["ok"], true, "{edited}");
+        let got = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        let bake = &got["bake"];
+        assert_eq!(bake["ok"], true, "{got}");
+        assert_eq!(bake["map"], 0);
+        assert!(bake["model_bytes"].as_u64().unwrap() > 0, "{bake}");
+        assert_eq!(
+            &call(&state, &policy, "world_bake", json!({ "map": 0 })),
+            bake
+        );
+        // The map's heights follow the world: the raised cell at step 2 (16 units).
+        let heights = call(&state, &policy, "get_map_heights", json!({ "index": 0 }));
+        let heights = heights["heights"].as_array().unwrap();
+        assert_eq!(heights[4 * 32 + 3], json!(16.0));
+        assert_eq!(heights[0], json!(0.0));
+
+        let released = call(&state, &policy, "world_to_binary", json!({ "map": 0 }));
+        assert_eq!(
+            (&released["map"], &released["cells"], &released["bake"]),
+            (&json!(0), &json!(0), &Value::Null),
+            "{released}"
+        );
+        assert!(released["change"].is_number(), "{released}");
+        assert_eq!(
+            labels(&state).last().unwrap(),
+            "Welt aufgegeben: Karte 0000"
+        );
+        let binary = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        assert_eq!(
+            (&binary["world"], &binary["bake"]),
+            (&Value::Null, &Value::Null)
+        );
+        // The bake stays as the binary map.
+        let heights = call(&state, &policy, "get_map_heights", json!({ "index": 0 }));
+        assert_eq!(heights["heights"][4 * 32 + 3], json!(16.0));
+        assert_eq!(
+            refused(&state, &policy, "world_to_binary", json!({ "map": 0 })),
+            "Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create)."
+        );
+
+        call(&state, &policy, "undo", json!({}));
+        let again = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        assert_eq!(again["world"], got["world"]);
+        assert_eq!(again["bake"], got["bake"]);
+    }
+
+    #[test]
+    fn world_adopt_over_dispatch() {
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
+        // Map 0 as a binary map with a model apicula reads: a world baked, saved, given up.
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0, "height": 1 } }),
+        );
+        call(&state, &policy, "save", json!({}));
+        call(&state, &policy, "world_to_binary", json!({ "map": 0 }));
+        call(&state, &policy, "save", json!({}));
+        let before = map_of(&state, 0);
+        let glb = || {
+            crate::commands::models::find_apicula().map(|_| {
+                match dispatch(
+                    &state,
+                    &policy,
+                    "get_map_model_glb",
+                    json!({ "index": 0, "areaDataId": 0 }),
+                ) {
+                    Ok(Reply::Bytes(bytes)) => bytes,
+                    other => panic!("get_map_model_glb: {:?}", other.map(|_| ())),
+                }
+            })
+        };
+        let glb_before = glb();
+        assert_eq!(
+            refused(
+                &state,
+                &policy,
+                "world_adopt",
+                json!({ "req": { "map": 0, "form": "gltf" } })
+            ),
+            "Form 2 (glTF) kommt mit 6.5b."
+        );
+        let report = call(
+            &state,
+            &policy,
+            "world_adopt",
+            json!({ "req": { "map": 0, "tileset": 0 } }),
+        );
+        assert_eq!(
+            (
+                &report["map"],
+                &report["tileset"],
+                &report["tileset_guessed"]
+            ),
+            (&json!(0), &json!(0), &json!(false)),
+            "{report}"
+        );
+        assert!(report["deviations"].is_array(), "{report}");
+        assert!(report["change"].is_number(), "{report}");
+        assert_eq!(report["bake"]["verbatim_model"], true, "{report}");
+        assert_eq!(report["bake"]["verbatim_terrain"], true, "{report}");
+        assert_eq!(
+            labels(&state).last().unwrap(),
+            "Karte als Quelle übernommen: Karte 0000"
+        );
+        let got = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        assert_eq!(got["world"]["tileset"], 0, "{got}");
+        assert_eq!(got["bake"], report["bake"]);
+        // Form 1 keeps the map verbatim: the same model, BDHC and permissions, the same GLB.
+        let after = map_of(&state, 0);
+        assert_eq!(after.model, before.model);
+        assert_eq!(after.bdhc, before.bdhc);
+        assert_eq!(after.permissions, before.permissions);
+        assert_eq!(glb(), glb_before);
+        assert_eq!(
+            refused(
+                &state,
+                &policy,
+                "world_adopt",
+                json!({ "req": { "map": 0 } })
+            ),
+            "Karte 0000 ist schon eine Welt-Karte."
+        );
+        call(&state, &policy, "undo", json!({}));
+        assert_eq!(
+            call(&state, &policy, "world_get", json!({ "map": 0 }))["world"],
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn tileset_edit_over_dispatch() {
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0 } }),
+        );
+        call(&state, &policy, "save", json!({}));
+        let cell = |state: &AppState| {
+            let c = map_of(state, 0).permissions[0];
+            [c.kind, c.collision]
+        };
+        assert_eq!(cell(&state), [0, 0]);
+        let report = call(
+            &state,
+            &policy,
+            "tileset_edit",
+            json!({ "req": { "package": 0, "changes": [{ "tile": 0, "role": "grass", "kind": 2 }] } }),
+        );
+        assert_eq!(
+            (&report["package"], &report["tiles"]),
+            (&json!(0), &json!(1)),
+            "{report}"
+        );
+        assert!(report["change"].is_number(), "{report}");
+        assert_eq!(
+            labels(&state).last().unwrap(),
+            "Tileset 0000 geändert (1 Kachel)"
+        );
+        let tileset = call(&state, &policy, "tileset_get", json!({ "package": 0 }));
+        assert_eq!(tileset["tileset"]["tiles"][0]["role"], "grass");
+        // The clean world map on the package bakes anew, nothing unsaved; undo and redo too.
+        assert_eq!(cell(&state), [0x02, 0]);
+        assert_eq!(call(&state, &policy, "dirty", json!({})), json!([]));
+        call(&state, &policy, "undo", json!({}));
+        assert_eq!(cell(&state), [0, 0]);
+        call(&state, &policy, "redo", json!({}));
+        assert_eq!(cell(&state), [0x02, 0]);
+        // A package without tileset file.
+        assert_eq!(
+            refused(
+                &state,
+                &policy,
+                "tileset_edit",
+                json!({ "req": { "package": 1, "changes": [{ "tile": 0, "kind": 2 }] } })
+            ),
+            "Erst `tileset_save` für Paket 0001."
+        );
+    }
+
+    #[test]
+    fn world_commands_refuse_in_the_dspre_layout() {
+        let fx = TextFixture::dspre();
+        let (state, policy) = open(&fx);
+        for (name, args) in [
+            ("world_adopt", json!({ "req": { "map": 0 } })),
+            ("world_to_binary", json!({ "map": 0 })),
+            (
+                "tileset_edit",
+                json!({ "req": { "package": 0, "changes": [{ "tile": 0, "kind": 2 }] } }),
+            ),
+        ] {
+            assert_eq!(
+                refused(&state, &policy, name, args),
+                WORLD_NEEDS_TEXT_PROJECT,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            call(&state, &policy, "world_bake", json!({ "map": 0 })),
+            Value::Null
+        );
+        assert_eq!(
+            call(&state, &policy, "world_get", json!({ "map": 0 }))["bake"],
+            Value::Null
+        );
+        assert!(labels(&state).is_empty());
+    }
+
+    /// DSPRE changes a world map's member: `external_sync` names the conflict with
+    /// `world: true`; `studio` („Neu backen“) writes the bake back.
+    #[test]
+    fn a_changed_world_member_is_a_world_conflict_over_dispatch() {
+        let fx = g4_kernel::test_support::world_built();
+        let (state, policy) = open_as_is(&fx);
+        let first = call(&state, &policy, "external_sync", json!({}));
+        assert_eq!(first["conflicts"], json!([]), "{first}");
+        let member = fx
+            .project()
+            .member_path(g4_kernel::project::AssetKind::Map, 0);
+        let baked = std::fs::read(&member).unwrap();
+        let mut outside = baked.clone();
+        outside[0x10] ^= 0x01;
+        std::fs::write(&member, &outside).unwrap();
+        let synced = call(&state, &policy, "external_sync", json!({}));
+        let conflicts = synced["conflicts"].as_array().unwrap();
+        assert_eq!(conflicts.len(), 1, "{synced}");
+        let conflict = &conflicts[0];
+        assert_eq!(
+            (&conflict["key"], &conflict["world"], &conflict["other"]),
+            (&json!("data/maps/0000.json"), &json!(true), &json!("dspre")),
+            "{conflict}"
+        );
+        call(
+            &state,
+            &policy,
+            "resolve_external_conflict",
+            json!({ "key": "data/maps/0000.json", "keep": "studio" }),
+        );
+        assert_eq!(std::fs::read(&member).unwrap(), baked);
     }
 
     /// The ground of [`busy_world`] (checkerboard, heights, ramps) set over `world_edit`; then

@@ -3568,6 +3568,7 @@ impl Store {
         };
         match self.apply_change(&change, Side::Before) {
             Ok(assets) => {
+                self.forget_tileset_steps(&change);
                 self.redo.push(change);
                 Ok(assets)
             }
@@ -3590,6 +3591,7 @@ impl Store {
         };
         match self.apply_change(&change, Side::After) {
             Ok(assets) => {
+                self.forget_tileset_steps(&change);
                 self.undo.push(change);
                 Ok(assets)
             }
@@ -3598,6 +3600,25 @@ impl Store {
                 Err(e)
             }
             Err(StepError::Drop(e)) => Err(e),
+        }
+    }
+
+    /// After undo or redo of `change`: a file step that wrote a tileset file
+    /// (`data/tilesets/NNNN.json`, `tileset_save`, `tileset_edit`) bakes the clean world maps
+    /// on its package anew ([`Store::forget_world_bakes`]), as the step itself did.
+    fn forget_tileset_steps(&mut self, change: &Changeset) {
+        let root = self.project.root.clone();
+        let packages: Vec<u16> = change
+            .files
+            .iter()
+            .flat_map(|step| &step.files)
+            .filter_map(|file| {
+                let rel = file.path.strip_prefix(&root).unwrap_or(&file.path);
+                crate::world::tileset::package_of_rel(rel)
+            })
+            .collect();
+        for package in packages {
+            self.forget_world_bakes(package);
         }
     }
 

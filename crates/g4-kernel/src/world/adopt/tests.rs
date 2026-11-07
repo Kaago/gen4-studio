@@ -319,9 +319,7 @@ fn adopt_refuses_dspre_world_locked_and_gltf() {
     .unwrap();
     assert_eq!(
         refused(world_adopt(&mut st, &req(json!({"map": 1})))),
-        "textproject.map-source: Karte 0001 ist eine Welt-Karte, ihr Member lässt sich nicht \
-         lesen; Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder die Welt aus \
-         der Datei sichern)."
+        "Karte 0001 lässt sich nicht übernehmen: ihr Member lässt sich nicht lesen (gesperrt)."
     );
     assert_eq!(st.world(1).unwrap(), None);
     assert_eq!(st.history().0.len(), 1);

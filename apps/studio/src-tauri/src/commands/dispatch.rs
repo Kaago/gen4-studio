@@ -238,6 +238,10 @@ pub const COMMANDS: &[&str] = &[
     "set_map_terrain",
     "get_map_budget",
     "bake_test",
+    "world_adopt",
+    "world_to_binary",
+    "world_bake",
+    "tileset_edit",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1267,6 +1271,22 @@ pub fn dispatch(
                 bake_test_impl(state, a.map, a.block, out_dir)
             }
         ),
+        "world_adopt" => run!(
+            json, "world_adopt", args,
+            { req: g4_kernel::world::WorldAdoptRequest },
+            |a| world_adopt_impl(state, a.req)
+        ),
+        "world_to_binary" => run!(json, "world_to_binary", args, { map: u16 }, |a| {
+            world_to_binary_impl(state, a.map)
+        }),
+        "world_bake" => run!(json, "world_bake", args, { map: u16 }, |a| world_bake_impl(
+            state, a.map
+        )),
+        "tileset_edit" => run!(
+            json, "tileset_edit", args,
+            { req: g4_kernel::world::TilesetEditRequest },
+            |a| tileset_edit_impl(state, a.req)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1756,6 +1776,17 @@ mod tests {
             ("get_map_budget", json!({ "index": 0 })),
             // Pack 0 of the synthetic project is no NSBTX: refused before anything is written.
             ("bake_test", json!({ "map": 0 })),
+            // The DSPRE layout: the world map writers refuse, the bake report is null.
+            (
+                "world_adopt",
+                json!({ "req": { "map": 0, "form": "verbatim" } }),
+            ),
+            ("world_to_binary", json!({ "map": 0 })),
+            ("world_bake", json!({ "map": 0 })),
+            (
+                "tileset_edit",
+                json!({ "req": { "package": 0, "changes": [{ "tile": 0, "kind": 2 }] } }),
+            ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

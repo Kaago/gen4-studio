@@ -987,6 +987,15 @@ pub fn tileset_edit(
     })
 }
 
+/// The package of tileset file `rel` (relative to the project root): `data/tilesets/0006.json`
+/// is 6; `None` for any other path.
+pub(crate) fn package_of_rel(rel: &Path) -> Option<u16> {
+    if rel.parent()? != Path::new(TILESETS_DIR) {
+        return None;
+    }
+    package_of(rel.file_name()?.to_str()?)
+}
+
 /// The package of a tileset file name `NNNN.json` (four decimal digits).
 fn package_of(name: &str) -> Option<u16> {
     let digits = name.strip_suffix(".json")?;
@@ -1876,5 +1885,36 @@ mod tests {
         // The clean world map bakes anew on its next use, nothing unsaved.
         assert_eq!(cell(&mut store), [0x02, 0]);
         assert!(store.dirty().is_empty(), "{:?}", store.dirty());
+    }
+
+    /// Undo and redo of the tileset file step bake the clean world maps on its package anew,
+    /// like the step itself.
+    #[test]
+    fn undo_and_redo_of_tileset_edit_rebake_world_maps() {
+        use crate::world::edit::{WorldCreateRequest, world_create};
+        let fx = crate::test_support::world_ready();
+        let mut store = store_of(&fx);
+        let req: WorldCreateRequest =
+            serde_json::from_value(json!({"map": 0, "tileset": 0})).unwrap();
+        world_create(&mut store, &req).unwrap();
+        store.save().unwrap();
+        let cell = |store: &mut Store| {
+            let c = store.map(0).unwrap().permissions[0];
+            [c.kind, c.collision]
+        };
+        tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [{"tile": 0, "role": "grass", "kind": 2}]})),
+        )
+        .unwrap();
+        assert_eq!(cell(&mut store), [0x02, 0]);
+        store.undo().unwrap();
+        assert_eq!(cell(&mut store), [0, 0]);
+        store.redo().unwrap();
+        assert_eq!(cell(&mut store), [0x02, 0]);
+        assert!(store.dirty().is_empty(), "{:?}", store.dirty());
+        // Undoing the save of the tileset file too: the derived tileset again.
+        store.undo().unwrap();
+        assert_eq!(cell(&mut store), [0, 0]);
     }
 }

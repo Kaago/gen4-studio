@@ -53,7 +53,38 @@ export interface WorldJson {
   permissions: { derive: boolean; override?: string[] };
 }
 
-/** What `world_get` answers: the world of the map (null: none), the faces and textures of its mesh, the estimated model size and its share of the budget. */
+/** One message of a bake: its code with the args the UI words it from, and the message. */
+export interface WorldBakeMessage {
+  code: string;
+  level: "error" | "warning";
+  args: string[];
+  message: string;
+}
+
+/** The bake of a world map as the store holds it (6.3b); `ok` false: an error refused the model, the map kept its last one (`model_kept`). */
+export interface WorldBakeReport {
+  map: number;
+  ok: boolean;
+  style: "outdoor" | "indoor" | null;
+  faces: number;
+  model_bytes: number;
+  model_share: number;
+  model_kept: boolean;
+  textures: string[];
+  vram_bytes: number;
+  bdhc_bytes: number;
+  bdhc_payload: number;
+  plates: number;
+  blocked: number;
+  verbatim_model: boolean;
+  verbatim_terrain: boolean;
+  messages: WorldBakeMessage[];
+}
+
+/**
+ * What `world_get` answers: the world of the map (null: none), the faces and textures of its mesh, the estimated model size and its share of
+ * the budget, and the bake of the map (null without world).
+ */
 export interface WorldGetDto {
   map: number;
   world: WorldJson | null;
@@ -61,6 +92,7 @@ export interface WorldGetDto {
   textures: number;
   estimate: number;
   share: number;
+  bake: WorldBakeReport | null;
 }
 
 /** The mesh of map `map` (no faces without a world). */

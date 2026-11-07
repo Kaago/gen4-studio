@@ -17,7 +17,7 @@ use super::doc::{
     FreeformJson, HEIGHT_MAX, HEIGHT_MIN, LayerJson, LayerRole, PermissionsJson, STEP_UNITS,
     TerrainJson, WORLD_VERSION, WorldJson,
 };
-use super::edit::{already_world, refuse_locked_map, require_text_project};
+use super::edit::{already_world, binary_map_refusal, refuse_locked_map, require_text_project};
 use super::grid::{override_token, tile_token};
 use super::places::packs_of_map;
 
@@ -136,7 +136,8 @@ fn rows(token: impl Fn(usize) -> String) -> Vec<String> {
 /// Refused ([`KernelError::Refused`], nothing changed): outside a text project
 /// ([`super::WORLD_NEEDS_TEXT_PROJECT`]), Form 2 ([`ADOPT_GLTF_LATER`]), a map that is a world
 /// map already ([`already_world`]), a locked map or one whose member does not read
-/// ([`super::keep::locked_map_refusal`]), a package that is not there (the refusal of
+/// ([`super::edit::binary_map_refusal`]: „Karte 0001 lässt sich nicht übernehmen: ihr Member
+/// lässt sich nicht lesen (…).“), a package that is not there (the refusal of
 /// [`Store::tileset`]).
 pub fn world_adopt(
     store: &mut Store,
@@ -150,7 +151,9 @@ pub fn world_adopt(
     if store.world(map)?.is_some() {
         return Err(KernelError::Refused(already_world(map)));
     }
-    refuse_locked_map(store, map)?;
+    refuse_locked_map(store, map, |cause| {
+        binary_map_refusal(map, "übernehmen", cause)
+    })?;
     let (package, guessed) = match req.tileset {
         Some(package) => (package, false),
         None => match packs_of_map(store, map)?.first() {

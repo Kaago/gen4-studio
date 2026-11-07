@@ -193,13 +193,18 @@ fn first_error_with(world: &WorldJson, tileset: &Tileset) -> Result<(), KernelEr
 }
 
 /// Refused when map `map` cannot carry a world: its member does not decode (it is written as
-/// `{locked, raw}`, without a place for a world) or the store holds it locked
-/// ([`locked_map_refusal`]).
-pub(super) fn refuse_locked_map(store: &mut Store, map: u16) -> Result<(), KernelError> {
+/// `{locked, raw}`, without a place for a world) or the store holds it locked. `refusal` says
+/// why from the cause (the decoder's error or the lock's reason): [`locked_map_refusal`] for a
+/// world map, [`binary_map_refusal`] for a map that is to become one.
+pub(super) fn refuse_locked_map(
+    store: &mut Store,
+    map: u16,
+    refusal: impl Fn(&str) -> String,
+) -> Result<(), KernelError> {
     match store.map(map) {
         Ok(_) => {}
-        Err(KernelError::Format(_) | KernelError::Uxie(_)) => {
-            return Err(refused(locked_map_refusal(map)));
+        Err(e @ (KernelError::Format(_) | KernelError::Uxie(_))) => {
+            return Err(refused(refusal(&e.to_string())));
         }
         Err(e) => return Err(e),
     }
@@ -207,10 +212,20 @@ pub(super) fn refuse_locked_map(store: &mut Store, map: u16) -> Result<(), Kerne
         kind: crate::project::AssetKind::Map,
         index: map,
     };
-    if store.locked(id).is_some() {
-        return Err(refused(locked_map_refusal(map)));
+    if let Some(why) = store.locked(id) {
+        return Err(refused(refusal(why)));
     }
     Ok(())
+}
+
+/// „Karte 0001 lässt sich nicht übernehmen: ihr Member lässt sich nicht lesen (…).“: why a
+/// binary map whose member is locked or does not read does not become a world map; `action`
+/// is what was asked („übernehmen“, „als Welt anlegen“), `cause` the decoder's error or the
+/// lock's reason.
+pub(super) fn binary_map_refusal(map: u16, action: &str, cause: &str) -> String {
+    format!(
+        "Karte {map:04} lässt sich nicht {action}: ihr Member lässt sich nicht lesen ({cause})."
+    )
 }
 
 /// Refused with `text` (a parser's sentence).
@@ -236,7 +251,9 @@ pub fn world_create(
     if store.world(map)?.is_some() {
         return Err(refused(already_world(map)));
     }
-    refuse_locked_map(store, map)?;
+    refuse_locked_map(store, map, |cause| {
+        binary_map_refusal(map, "als Welt anlegen", cause)
+    })?;
     let package = match req.tileset {
         Some(package) => package,
         None => *packs_of_map(store, map)?
@@ -293,7 +310,7 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
         .world(map)?
         .cloned()
         .ok_or_else(|| refused(not_a_world_map(map)))?;
-    refuse_locked_map(store, map)?;
+    refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
     first_error(&before)?;
     let tileset = store.tileset(before.tileset)?;
     first_error_with(&before, &tileset)?;
@@ -1045,9 +1062,8 @@ mod tests {
                 &mut store,
                 &create_req(json!({"map": 0, "tileset": 0}))
             )),
-            "textproject.map-source: Karte 0000 ist eine Welt-Karte, ihr Member lässt sich \
-             nicht lesen; Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder \
-             die Welt aus der Datei sichern)."
+            "Karte 0000 lässt sich nicht als Welt anlegen: ihr Member lässt sich nicht lesen \
+             (data truncated: needed 4 bytes, have 1)."
         );
         assert!(store.history().0.is_empty());
         assert_eq!(fx.read(MAP), locked);
