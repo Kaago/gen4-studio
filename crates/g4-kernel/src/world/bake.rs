@@ -415,8 +415,42 @@ pub struct WorldBake {
     pub report: WorldBakeReport,
 }
 
-/// Bakes `world` for map `map` with the store: `Store::tileset(world.tileset)`, `pack_textures`
-/// of that package's member, style and VRAM of the first of `map_areas(store, map)`. `Err`
+/// The textures of package `pack` as the world bake binds them: a texture a tile of `tileset`
+/// shows with a palette the pack has takes that palette (what the scene shows, the game
+/// shows: Platinum's `allpeak` binds `apeak`, the palette of its index, in every vanilla
+/// model, a palette [`pack_textures`] does not find); every other texture as
+/// [`pack_textures`] binds it. In the pack's texture order.
+pub fn world_pack_textures(
+    pack: &[u8],
+    tileset: &Tileset,
+) -> Result<Vec<PackTexture>, g4_formats::error::FormatError> {
+    let btx = g4_formats::nsbtx::Nsbtx::read(pack)?;
+    let own = pack_textures(pack)?;
+    Ok(btx
+        .textures
+        .iter()
+        .filter_map(|t| {
+            let named = tileset
+                .tiles
+                .iter()
+                .filter(|tile| tile.texture == t.name)
+                .find_map(|tile| tile.palette.as_deref())
+                .filter(|&p| btx.palettes.iter().any(|q| q.name == p));
+            match named {
+                Some(palette) => Some(PackTexture {
+                    name: t.name.clone(),
+                    palette: palette.to_owned(),
+                    width: u16::try_from(t.width).ok()?,
+                    height: u16::try_from(t.height).ok()?,
+                }),
+                None => own.iter().find(|o| o.name == t.name).cloned(),
+            }
+        })
+        .collect())
+}
+
+/// Bakes `world` for map `map` with the store: `Store::tileset(world.tileset)`,
+/// [`world_pack_textures`] of that package's member, style and VRAM of the first of `map_areas(store, map)`. `Err`
 /// only for a world that does not parse (`world.schema`) or I/O; refusals are in the report.
 ///
 /// `base` gives the buildings, the tail and the BGS, and the model a refused bake keeps;
@@ -439,7 +473,7 @@ pub fn bake_world(
     let tileset = store.tileset(world.tileset)?;
     let family = store.project().family;
     let (pack, textures) = match store.project().map_tileset_member(world.tileset)? {
-        Some(bytes) => match pack_textures(&bytes) {
+        Some(bytes) => match world_pack_textures(&bytes, &tileset) {
             Ok(textures) => (Some(bytes), textures),
             Err(_) => (None, Vec::new()),
         },

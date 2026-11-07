@@ -618,3 +618,66 @@ fn a_failing_bake_at_save_keeps_the_stroke_and_saves_the_rest() {
             .contains_key(&0)
     );
 }
+
+/// Platinum's package 6 binds texture `allpeak` to palette `apeak` (palette 0, the texture's
+/// index): neither the texture's name nor `<name>_pl`, and the pack has more than one palette.
+/// The tileset names that palette; the bake binds it as vanilla models do (40 of them in
+/// Platin DE), instead of refusing the tile with `bake.texture-missing`.
+#[test]
+fn a_tile_bakes_with_the_palette_its_tileset_names() {
+    let fx = world_ready();
+    let project = fx.project();
+    // world_ready's package with syn_boden's palette named „pboden“.
+    let textures: Vec<g4_formats::nsbtx::NewTexture> = Tileset::synthetic()
+        .tiles
+        .iter()
+        .map(|t| {
+            let [width, height] = t.size.map(u32::from);
+            g4_formats::nsbtx::NewTexture {
+                name: t.texture.clone(),
+                palette: match t.texture.as_str() {
+                    "syn_boden" => "pboden".to_owned(),
+                    other => format!("{other}_pl"),
+                },
+                width,
+                height,
+                format: 3,
+                color0: false,
+                texels: vec![0x5A; (width * height / 2) as usize],
+                colors: (0..16u16).map(|c| c * 0x421).collect(),
+            }
+        })
+        .collect();
+    let renamed = g4_formats::nsbtx::build(&textures).unwrap();
+    std::fs::write(project.member_path(AssetKind::MapTexture, 0), &renamed).unwrap();
+    fx.write("data/map_textures/0000.nsbtx", &renamed);
+    assert!(
+        pack_textures(&renamed)
+            .unwrap()
+            .iter()
+            .all(|t| t.name != "syn_boden"),
+        "the pack's own rule finds no palette for syn_boden"
+    );
+    let mut tileset = Tileset::synthetic();
+    tileset.tiles[0].palette = Some("pboden".to_owned());
+    fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&tileset));
+
+    let mut st = store(&fx);
+    let report = create(&mut st, 0);
+    let bake = report.bake.expect("a bake report");
+    assert!(bake.ok, "{:?}", bake.messages);
+    let model = g4_formats::nsbmd::Nsbmd::read(&st.map(0).unwrap().model).unwrap();
+    let names = |pairings: &[g4_formats::nsbmd::model::Pairing]| -> Vec<String> {
+        pairings
+            .iter()
+            .map(|p| {
+                String::from_utf8_lossy(&p.name)
+                    .trim_end_matches('\0')
+                    .to_owned()
+            })
+            .collect()
+    };
+    let (_, m) = &model.models[0];
+    assert_eq!(names(&m.textures), ["syn_boden"]);
+    assert_eq!(names(&m.palettes), ["pboden"]);
+}
