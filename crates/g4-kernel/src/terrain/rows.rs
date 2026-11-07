@@ -3,14 +3,18 @@
 //! `heights` are integers (steps of 8 units), `ramps` `.` or `n1 n2 e1 e2 s1 s2 w1 w2`
 //! (direction uphill, steps per tile), `kinds` one [`TerrainKind::code`] per cell.
 //!
+//! The cells are lexed by the world format's [`lex_height`] and [`lex_ramp`] (one grammar for
+//! both row formats); the steps of a ramp are bounded by [`HeightGrid::check`] here.
+//!
 //! Refusals are German sentences naming the place ([`KernelError::Refused`]); the shown text
 //! goes to the user as it is.
 
 use g4_formats::bdhc::{GridProblem, MAX_STEP, MIN_STEP, STEP_UNITS};
 use serde::{Deserialize, Serialize};
 
-use super::{CELLS, HeightGrid, Ramp, SIDE, TerrainKind, edge_rule};
+use super::{CELLS, HeightGrid, SIDE, TerrainKind, edge_rule};
 use crate::error::KernelError;
+use crate::world::grid::{lex_height, lex_ramp, ramp_token};
 
 /// The height grid as rows: `heights[y]` and `ramps[y]` hold the 32 cells of row `y`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,38 +72,6 @@ fn height_text(x: usize, y: usize, height: i64) -> String {
     )
 }
 
-/// `.` or a direction letter `n e s w` followed by the steps (digits only). The steps are not
-/// bounded here: [`HeightGrid::check`] names a ramp of 3 steps with its own sentence.
-fn parse_ramp(cell: &str) -> Option<Ramp> {
-    if cell == "." {
-        return Some(Ramp::None);
-    }
-    let mut chars = cell.chars();
-    let letter = chars.next()?;
-    let digits = chars.as_str();
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let steps: u8 = digits.parse().ok()?;
-    match letter {
-        'n' => Some(Ramp::North(steps)),
-        'e' => Some(Ramp::East(steps)),
-        's' => Some(Ramp::South(steps)),
-        'w' => Some(Ramp::West(steps)),
-        _ => None,
-    }
-}
-
-fn ramp_code(ramp: Ramp) -> String {
-    match ramp {
-        Ramp::None => ".".to_string(),
-        Ramp::North(s) => format!("n{s}"),
-        Ramp::East(s) => format!("e{s}"),
-        Ramp::South(s) => format!("s{s}"),
-        Ramp::West(s) => format!("w{s}"),
-    }
-}
-
 /// Parses and checks the grid: 32 rows of 32 cells each in `heights` and `ramps`, integers and
 /// ramp codes, then [`HeightGrid::check`]. The first problem is refused with its place.
 pub fn parse_grid(rows: &GridRows) -> Result<HeightGrid, KernelError> {
@@ -108,7 +80,7 @@ pub fn parse_grid(rows: &GridRows) -> Result<HeightGrid, KernelError> {
     let mut grid = HeightGrid::flat(0);
     for (y, row) in heights.iter().enumerate() {
         for (x, cell) in row.iter().enumerate() {
-            let height: i64 = cell.parse().map_err(|_| {
+            let height = lex_height(cell).ok_or_else(|| {
                 refused(format!(
                     "heights: Zeile {y}, Spalte {x}: „{cell}“ ist keine ganze Zahl."
                 ))
@@ -119,7 +91,7 @@ pub fn parse_grid(rows: &GridRows) -> Result<HeightGrid, KernelError> {
     }
     for (y, row) in ramps.iter().enumerate() {
         for (x, cell) in row.iter().enumerate() {
-            grid.ramp[y * SIDE + x] = parse_ramp(cell).ok_or_else(|| {
+            grid.ramp[y * SIDE + x] = lex_ramp(cell).ok_or_else(|| {
                 refused(format!(
                     "ramps: Zeile {y}, Spalte {x}: „{cell}“ ist keine Rampe (erlaubt: {RAMP_CODES})."
                 ))
@@ -168,7 +140,7 @@ fn join_rows(cells: impl Iterator<Item = String>) -> Vec<String> {
 pub fn format_grid(grid: &HeightGrid) -> GridRows {
     GridRows {
         heights: join_rows(grid.height.iter().map(|h| h.to_string())),
-        ramps: join_rows(grid.ramp.iter().map(|&r| ramp_code(r))),
+        ramps: join_rows(grid.ramp.iter().map(|&r| ramp_token(r.into()))),
     }
 }
 
@@ -204,7 +176,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
-    use crate::terrain::Direction;
+    use crate::terrain::{Direction, Ramp};
 
     fn rows_of(cell: &str) -> Vec<String> {
         vec![vec![cell; 32].join(" "); 32]

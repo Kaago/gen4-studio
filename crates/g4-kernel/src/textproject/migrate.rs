@@ -37,6 +37,10 @@ pub const MIGRATIONS: &[Migration] = &[
         from: 1,
         run: v1_to_v2,
     },
+    Migration {
+        from: 2,
+        run: v2_to_v3,
+    },
 ];
 
 /// What [`migrate`] did: the versions, the files written or removed (relative, `/`) and the
@@ -388,4 +392,192 @@ fn v1_to_v2(tree: &mut Tree) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// v2 → v3 (phase 6.3a): the manifest's `schemas` names the world document of a map file
+/// (`maps.world`) and the tileset files (`tilesets`), each with version 1 (a higher version a
+/// newer Studio wrote stays). No other file changes: a map without `world` reads in version 3
+/// as it is. The manifest version is set by the chain.
+fn v2_to_v3(tree: &mut Tree) -> Result<(), String> {
+    let manifest = tree
+        .files
+        .get_mut(Path::new(MANIFEST_FILE))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| format!("{MANIFEST_FILE} ist kein JSON-Objekt."))?;
+    let schemas = manifest
+        .entry("schemas")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| format!("{MANIFEST_FILE}: `schemas` ist kein Objekt."))?;
+    for key in ["maps.world", "tilesets"] {
+        let kept = schemas.get(key).and_then(Value::as_u64).unwrap_or(0);
+        schemas.insert(key.to_owned(), Value::from(kept.max(1)));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A manifest of schema version 2 as an exported project has it (the data kinds in
+    /// `schemas`).
+    const V2: &str = r#"{
+  "format": "g4-project",
+  "schemaVersion": 2,
+  "game": {
+    "code": "CPUE",
+    "family": "pt",
+    "language": "en_US"
+  },
+  "studioVersion": "0.1.0",
+  "schemas": {
+    "flags": 1,
+    "stories": 1,
+    "vars": 1
+  },
+  "plugins": []
+}
+"#;
+
+    /// Every file under `root` (hidden entries aside) with its bytes, relative with `/`.
+    fn contents(root: &Path) -> BTreeMap<String, Vec<u8>> {
+        fn walk(root: &Path, rel: &str, out: &mut BTreeMap<String, Vec<u8>>) {
+            for entry in std::fs::read_dir(root.join(rel)).unwrap() {
+                let entry = entry.unwrap();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') {
+                    continue;
+                }
+                let child = if rel.is_empty() {
+                    name
+                } else {
+                    format!("{rel}/{name}")
+                };
+                if entry.file_type().unwrap().is_dir() {
+                    walk(root, &child, out);
+                } else {
+                    out.insert(child.clone(), std::fs::read(root.join(&child)).unwrap());
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        walk(root, "", &mut out);
+        out
+    }
+
+    fn write(root: &Path, rel: &str, bytes: &[u8]) {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn v2_to_v3_changes_only_the_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, MANIFEST_FILE, V2.as_bytes());
+        // Files under `data/` a v1 → v2 step would touch, and a map: none of them changes.
+        write(
+            root,
+            "data/maps/0000.json",
+            b"{\n  \"source\": \"binary\",\n  \"permissions\": []\n}\n",
+        );
+        write(root, "data/ids/flags.json", b"{\n  \"FLAG_A\": 148\n}\n");
+        write(
+            root,
+            "data/events/0001.json",
+            b"{\n  \"object_events\": [\n    {\n      \"hidden_flag\": 148\n    }\n  ]\n}\n",
+        );
+        write(root, "data/raw/blob.json", b"no json");
+        let before = contents(root);
+
+        let report = migrate(root).unwrap();
+        assert_eq!((report.from, report.to), (2, 3));
+        assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
+        let after = contents(root);
+        assert_eq!(
+            before.keys().collect::<Vec<_>>(),
+            after.keys().collect::<Vec<_>>()
+        );
+        for (rel, bytes) in &before {
+            if rel != MANIFEST_FILE {
+                assert_eq!(&after[rel], bytes, "{rel}");
+            }
+        }
+        let expected = V2
+            .replace("\"schemaVersion\": 2", "\"schemaVersion\": 3")
+            .replace(
+                "    \"flags\": 1,\n",
+                "    \"flags\": 1,\n    \"maps.world\": 1,\n",
+            );
+        let expected = expected.replace(
+            "    \"stories\": 1,\n",
+            "    \"stories\": 1,\n    \"tilesets\": 1,\n",
+        );
+        assert_eq!(
+            String::from_utf8(after[MANIFEST_FILE].clone()).unwrap(),
+            expected
+        );
+        // The snapshot holds only the old manifest.
+        let snapshot = report.snapshot.unwrap();
+        assert_eq!(
+            contents(&snapshot).into_keys().collect::<Vec<_>>(),
+            [MANIFEST_FILE]
+        );
+
+        // A version a newer Studio wrote stays; a manifest without `schemas` gets both.
+        let mut tree = Tree {
+            files: BTreeMap::from([(
+                PathBuf::from(MANIFEST_FILE),
+                serde_json::json!({"schemaVersion": 2, "schemas": {"tilesets": 4}}),
+            )]),
+        };
+        v2_to_v3(&mut tree).unwrap();
+        assert_eq!(
+            tree.files[Path::new(MANIFEST_FILE)]["schemas"],
+            serde_json::json!({"tilesets": 4, "maps.world": 1})
+        );
+        let mut tree = Tree {
+            files: BTreeMap::from([(
+                PathBuf::from(MANIFEST_FILE),
+                serde_json::json!({"schemaVersion": 2}),
+            )]),
+        };
+        v2_to_v3(&mut tree).unwrap();
+        assert_eq!(
+            tree.files[Path::new(MANIFEST_FILE)]["schemas"],
+            serde_json::json!({"maps.world": 1, "tilesets": 1})
+        );
+    }
+
+    #[test]
+    fn the_chain_reaches_version_three() {
+        assert_eq!(SCHEMA_VERSION, 3);
+        let froms: Vec<u32> = MIGRATIONS.iter().map(|m| m.from).collect();
+        assert_eq!(froms, (0..SCHEMA_VERSION).collect::<Vec<_>>());
+
+        // From the v0 manifest the chain runs every step and ends at version 3.
+        let dir = tempfile::tempdir().unwrap();
+        let v0 = V2
+            .replace("\"schemaVersion\": 2", "\"schema\": 0")
+            .replace(
+                "  \"schemas\": {\n    \"flags\": 1,\n    \"stories\": 1,\n    \"vars\": 1\n  },\n  \"plugins\": []\n",
+                "",
+            )
+            .replace("\"studioVersion\": \"0.1.0\",", "\"studioVersion\": \"0.1.0\"");
+        write(dir.path(), MANIFEST_FILE, v0.as_bytes());
+        let report = migrate(dir.path()).unwrap();
+        assert_eq!((report.from, report.to), (0, 3));
+        let manifest = super::super::manifest::read_manifest(dir.path()).unwrap();
+        assert_eq!(manifest.schema_version, 3);
+        assert_eq!(
+            manifest.schemas,
+            BTreeMap::from([
+                ("maps.world".to_owned(), Value::from(1)),
+                ("tilesets".to_owned(), Value::from(1)),
+            ])
+        );
+        assert_eq!(schema_state(dir.path()).unwrap(), SchemaState::Current);
+    }
 }

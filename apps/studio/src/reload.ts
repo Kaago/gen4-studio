@@ -89,6 +89,13 @@ export function reloadPlan(
         actions.push({ kind: "map", map: asset.index }, { kind: "mapModel", map: asset.index });
       return actions;
     }
+    case "WorldMap": {
+      // A world edit (or its ⌘Z) changes the map's permissions and heights and the mesh the scene shows instead of its model.
+      const actions: ReloadAction[] = [];
+      if (scene?.maps.includes(asset.index)) actions.push({ kind: "map", map: asset.index }, { kind: "mapModel", map: asset.index });
+      actions.push({ kind: "thumbnail", map: asset.index });
+      return actions;
+    }
     case "Matrix": {
       const actions: ReloadAction[] = [
         { kind: "unpin" },

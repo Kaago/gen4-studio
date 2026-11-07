@@ -662,6 +662,8 @@ mod tests {
         assert_eq!(counts[&AssetKind::Personal], 508);
         assert_eq!(counts[&AssetKind::Item], 20);
         assert_eq!(counts[&AssetKind::TrainerTextOffsets], 1);
+        // One world map per map (store-only, in the map's JSON).
+        assert_eq!(counts[&AssetKind::WorldMap], 3);
         assert!(!counts.contains_key(&AssetKind::DynamicHeaders));
         // Serialized for the frontend as an object keyed by the kind name.
         let json = serde_json::to_value(&counts).unwrap();

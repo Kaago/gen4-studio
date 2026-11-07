@@ -619,12 +619,17 @@ fn archive_map_resolves_world_kinds_per_family_and_language() {
     );
     assert_eq!(packed("CPUD", AssetKind::InteriorBuildingModel), None);
     assert_eq!(packed("ADAE", AssetKind::InteriorBuildingModel), None);
-    // Every archive kind has the DSPRE folder name from the constraints (the header table and
-    // the trainer are store-only and have no folder).
+    // Every archive kind has the DSPRE folder name from the constraints (the header table, the
+    // trainer and the world map are store-only and have no folder).
     let p = Project::open(s.dir.path()).unwrap();
     let names: Vec<_> = AssetKind::ALL
         .iter()
-        .filter(|k| !matches!(k, AssetKind::HeaderTable | AssetKind::Trainer))
+        .filter(|k| {
+            !matches!(
+                k,
+                AssetKind::HeaderTable | AssetKind::Trainer | AssetKind::WorldMap
+            )
+        })
         .map(|k| p.archives.unpacked_name(*k))
         .collect();
     assert_eq!(
@@ -695,7 +700,8 @@ fn asset_kind_labels() {
             "battle sprites",
             "form battle sprites",
             "trainer graphics",
-            "egg moves"
+            "egg moves",
+            "world map"
         ]
     );
 }
@@ -773,8 +779,8 @@ fn vanilla_headers_carry_location_names() {
 }
 
 #[test]
-fn asset_kinds_have_twenty_nine_slots() {
-    assert_eq!(AssetKind::ALL.len(), 29);
+fn asset_kinds_have_thirty_slots() {
+    assert_eq!(AssetKind::ALL.len(), 30);
     // Every kind is listed once, and `kinds()` of a family only yields kinds of `ALL`.
     for (i, a) in AssetKind::ALL.iter().enumerate() {
         for b in &AssetKind::ALL[i + 1..] {
@@ -802,8 +808,8 @@ fn asset_kinds_have_twenty_nine_slots() {
         ]
     );
     // The two icon archives follow (slots 22 and 23), then the trainer, the store-only pair of
-    // the two trainer archives, the three read-only battle sprite archives (25 to 27) and the
-    // egg moves (28).
+    // the two trainer archives, the three read-only battle sprite archives (25 to 27), the
+    // egg moves (28) and the world map, store-only in the map's JSON (29).
     assert_eq!(
         AssetKind::ALL[22..],
         [
@@ -814,9 +820,11 @@ fn asset_kinds_have_twenty_nine_slots() {
             AssetKind::OtherPokemonBattleSprites,
             AssetKind::TrainerGraphics,
             AssetKind::EggMoves,
+            AssetKind::WorldMap,
         ]
     );
     assert_eq!(AssetKind::EggMoves.label(), "egg moves");
+    assert_eq!(AssetKind::WorldMap.label(), "world map");
     assert_eq!(AssetKind::PokemonBattleSprites.label(), "battle sprites");
     assert_eq!(
         AssetKind::OtherPokemonBattleSprites.label(),

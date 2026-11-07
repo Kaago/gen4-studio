@@ -33,9 +33,11 @@ use crate::fsutil::{Journal, Notes};
 use crate::project::{AssetKind, Location, Project, SourceMode};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 use crate::textproject::Art;
+use crate::textproject::canon::to_canonical;
 use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite, deleted_on_disk};
 use crate::textproject::sync::{self, Known, changed_since_record, record_known};
 use crate::textproject::tombstone::{EnvelopeCache, read_deleted_cached};
+use crate::world::WorldJson;
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -113,6 +115,9 @@ pub(crate) enum Loaded {
     /// The egg move table; read from the slice of overlay 5 it carries the slice's length as
     /// its budget.
     EggMoves(EggMoves),
+    /// The world document of a map (`None`: a map without world); its bytes are the canonical
+    /// JSON of the option (`null` without world), see [`AssetKind::WorldMap`].
+    World(Option<WorldJson>),
     /// A data member of a length its codec rejects, kept as read. Such an asset is always
     /// locked (see [`decode`]).
     Raw(Vec<u8>),
@@ -130,6 +135,7 @@ impl Loaded {
                 | AssetKind::HeaderTable
                 | AssetKind::TextArchive
                 | AssetKind::Trainer
+                | AssetKind::WorldMap
         ) || Loaded::is_data(kind)
     }
 
@@ -219,6 +225,9 @@ impl Loaded {
             }
             // Without a budget: the store gives a table read from a slice its budget.
             AssetKind::EggMoves => Ok(Loaded::EggMoves(EggMoves::read(bytes)?)),
+            AssetKind::WorldMap => serde_json::from_slice::<Option<WorldJson>>(bytes)
+                .map(Loaded::World)
+                .map_err(|e| KernelError::InvalidProject(format!("world map bytes: {e}"))),
         }
     }
 
@@ -250,6 +259,7 @@ impl Loaded {
                 Ok(trainer_pair_bytes(&props, &party))
             }
             Loaded::EggMoves(table) => egg_move_bytes(table),
+            Loaded::World(world) => Ok(to_canonical(world)),
             Loaded::Raw(bytes) => Ok(bytes.clone()),
         }
     }
@@ -783,6 +793,21 @@ impl Tx<'_> {
         })
     }
 
+    /// Edits the world of map `map` ([`AssetKind::WorldMap`]; `None`: the map has none). `edit`
+    /// may set, change or remove it; an error from `edit` fails the transaction. Outside a text
+    /// project the world is refused ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]).
+    pub fn edit_world(
+        &mut self,
+        map: u16,
+        edit: impl FnOnce(&mut Option<WorldJson>) -> Result<(), KernelError>,
+    ) -> Result<(), KernelError> {
+        let id = world_id(map);
+        self.edit(id, |loaded| match loaded {
+            Loaded::World(world) => edit(world),
+            _ => Err(mismatch(id)),
+        })
+    }
+
     /// Edits text archive `index`.
     pub fn edit_text_archive(
         &mut self,
@@ -1069,6 +1094,17 @@ pub struct Store {
     /// only when its `stat` changed ([`read_deleted_cached`]), so a list does not read every
     /// entity file each time and still sees a change made outside the app.
     envelopes: Mutex<HashMap<Art, EnvelopeCache>>,
+    /// What [`Store::tileset`] answered per map texture package, with the `stat` of the file
+    /// it came from (the tileset file, else the package's member): read again when it changed.
+    tilesets: HashMap<u16, CachedTileset>,
+}
+
+/// One answer of [`Store::tileset`]: the tileset and the file it came from with that file's
+/// size and time when it was read.
+struct CachedTileset {
+    from_file: bool,
+    stamp: (u64, Option<std::time::SystemTime>),
+    tileset: Arc<crate::world::Tileset>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -1098,6 +1134,14 @@ pub const EGG_MOVES: AssetId = AssetId {
     kind: AssetKind::EggMoves,
     index: 0,
 };
+
+/// The world map asset of map `map`.
+fn world_id(map: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::WorldMap,
+        index: map,
+    }
+}
 
 fn text_id(index: u16) -> AssetId {
     AssetId {
@@ -1151,8 +1195,52 @@ impl Store {
             unexpanded_texts: HashMap::new(),
             tombstones: BTreeMap::new(),
             envelopes: Mutex::new(HashMap::new()),
+            tilesets: HashMap::new(),
             project,
         }
+    }
+
+    /// The tileset file of `package` (read again when its size or time changes), else
+    /// [`textures_only`](crate::world::textures_only) of the package (cached); a missing
+    /// package is `Refused` („Kartentextur-Paket 0200 gibt es nicht (74 Pakete).“).
+    pub fn tileset(&mut self, package: u16) -> Result<Arc<crate::world::Tileset>, KernelError> {
+        use crate::world::tileset::{package_file, read_package_file};
+        let file = self.project.root.join(crate::world::tileset_rel(package));
+        let (from_file, path, meta) = match std::fs::metadata(&file) {
+            Ok(meta) => (true, file, meta),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let path = package_file(&self.project, package)?;
+                let meta = std::fs::metadata(&path).map_err(io_at(&path))?;
+                (false, path, meta)
+            }
+            Err(e) => return Err(io_at(&file)(e)),
+        };
+        let stamp = (meta.len(), meta.modified().ok());
+        if let Some(cached) = self.tilesets.get(&package)
+            && cached.from_file == from_file
+            && cached.stamp == stamp
+        {
+            return Ok(Arc::clone(&cached.tileset));
+        }
+        let tileset = if from_file {
+            match crate::world::read_tileset_file(&self.project, package)? {
+                Some(tileset) => tileset,
+                // Removed right after the stat: the package answers.
+                None => return self.tileset(package),
+            }
+        } else {
+            crate::world::textures_only(package, &read_package_file(&path, package)?)
+        };
+        let tileset = Arc::new(tileset);
+        self.tilesets.insert(
+            package,
+            CachedTileset {
+                from_file,
+                stamp,
+                tileset: Arc::clone(&tileset),
+            },
+        );
+        Ok(tileset)
     }
 
     /// Refuses every write (edits, appends, new headers, the header patch, undo, redo, save)
@@ -1351,6 +1439,13 @@ impl Store {
         if !Loaded::is_editable(id.kind) {
             return Err(KernelError::NotEditable(id.kind));
         }
+        // A world is read from its map's unit only: refused before anything is unpacked.
+        if id.kind == AssetKind::WorldMap && *self.project.source_mode() != SourceMode::TextProject
+        {
+            return Err(KernelError::Refused(
+                crate::world::WORLD_NEEDS_TEXT_PROJECT.to_owned(),
+            ));
+        }
         self.ensure_unpacked(id.kind)?;
         let location = self.project.asset_location(id.kind, id.index)?;
         let bytes = match (&location, read) {
@@ -1382,6 +1477,10 @@ impl Store {
                 let missing = if props.is_file() { party } else { props };
                 Err(io_at(&missing)(std::io::ErrorKind::NotFound.into()))
             }
+            // No member: a world is read from its map's unit in a text project only.
+            (Location::Derived { .. }, None) => Err(KernelError::Refused(
+                crate::world::WORLD_NEEDS_TEXT_PROJECT.to_owned(),
+            )),
             (Location::Entity { unit, .. }, None) => {
                 let json = unit
                     .sources
@@ -1464,6 +1563,18 @@ impl Store {
         };
         match &self.load(id)?.current {
             Loaded::Map(m) => Ok(m),
+            _ => Err(mismatch(id)),
+        }
+    }
+
+    /// The world of map `map` (`None`: a map without world), read from the map's JSON in a text
+    /// project on first use. Outside a text project it is refused
+    /// ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]); a `world` that does not read is the
+    /// [`KernelError::Compile`] of the JSON (file, line, path).
+    pub fn world(&mut self, map: u16) -> Result<Option<&WorldJson>, KernelError> {
+        let id = world_id(map);
+        match &self.load(id)?.current {
+            Loaded::World(world) => Ok(world.as_ref()),
             _ => Err(mismatch(id)),
         }
     }
@@ -2745,6 +2856,7 @@ impl Store {
                 Location::Member(_)
                 | Location::TextSource { .. }
                 | Location::MemberPair { .. }
+                | Location::Derived { .. }
                 | Location::Entity { .. },
                 None,
             ) => None,
@@ -2812,7 +2924,8 @@ impl Store {
     /// stays, [`Store::remove_trailing_headers`] shortened it), their parts and file steps leave
     /// the undo and redo stacks (their tombstone steps stay: the barrier the caller records
     /// next keeps undo from reaching them), the store's own tombstone flags of them go, and
-    /// their assets are reported changed. The sync forgets the files ([`Known::Drop`]) and the
+    /// their assets are reported changed (a map: its world map asset too, so a later map with
+    /// the number has no world). The sync forgets the files ([`Known::Drop`]) and the
     /// build step's members kept as newer. Returns the files removed. Not undoable.
     pub(crate) fn remove_member_files(
         &mut self,
@@ -2853,6 +2966,13 @@ impl Store {
                         });
                     }
                 }
+                // A map's world goes with it: the next map with the number has none.
+                if id.kind == AssetKind::Map {
+                    ids.push(AssetId {
+                        kind: AssetKind::WorldMap,
+                        index: id.index,
+                    });
+                }
             }
         }
         for &id in &ids {
@@ -2873,6 +2993,12 @@ impl Store {
         for target in targets {
             for id in target.assets() {
                 self.note_change(id);
+                if id.kind == AssetKind::Map {
+                    self.note_change(AssetId {
+                        kind: AssetKind::WorldMap,
+                        index: id.index,
+                    });
+                }
             }
         }
         // Caches the next scan or build puts right: neither fails the files removed already.
@@ -3596,6 +3722,8 @@ impl Store {
             Location::Member(path) => write_atomic(root, path, bytes),
             Location::MemberPair { props, party } => write_pair(root, props, party, bytes),
             Location::Slice { .. } => write_slice(root, id, location, base, bytes),
+            // No member: the world is written with its map's JSON.
+            Location::Derived { .. } => Ok(()),
             Location::HeaderFiles { dir, count } => {
                 if bytes.len() != count * MAP_HEADER_SIZE {
                     return Err(KernelError::InvalidProject(format!(
@@ -3749,7 +3877,9 @@ fn member_targets(location: &Location, bytes: &[u8]) -> Result<Vec<PathBuf>, Ker
             }
             out
         }
-        Location::TextSource { .. } | Location::Entity { .. } => Vec::new(),
+        Location::TextSource { .. } | Location::Derived { .. } | Location::Entity { .. } => {
+            Vec::new()
+        }
     })
 }
 
@@ -3776,6 +3906,8 @@ fn read_location(location: &Location, reading: Reading) -> Result<Option<Vec<u8>
             });
         }
         Location::Entity { members, .. } => return read_location(members, reading),
+        // No member to read; the store refuses it outside a unit (`read_member`).
+        Location::Derived { .. } => return Ok(None),
     };
     let Some(bytes) = read_file(path)? else {
         return Ok(None);

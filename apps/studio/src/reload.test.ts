@@ -11,6 +11,12 @@ describe("reloadPlan", () => {
     expect(plan("Map", 11)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "thumbnail", map: 11 }, { kind: "map", map: 11 }, { kind: "mapModel", map: 11 }]);
   });
 
+  it("world_map_reloads_map_and_model", () => {
+    const shown: SceneState = { ...scene, maps: [12, null, 11] };
+    expect(plan("WorldMap", 12, shown)).toEqual([{ kind: "map", map: 12 }, { kind: "mapModel", map: 12 }, { kind: "thumbnail", map: 12 }]);
+    expect(plan("WorldMap", 12)).toEqual([{ kind: "thumbnail", map: 12 }]);
+  });
+
   it("leaves the scene alone when the map is not shown", () => {
     expect(plan("Map", 99)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "thumbnail", map: 99 }]);
     expect(plan("Map", 11, null)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "thumbnail", map: 11 }]);

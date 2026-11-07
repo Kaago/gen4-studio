@@ -172,6 +172,9 @@ export interface MapDto {
   /** Walk height of every tile centre in world units (16 per tile), row-major (32 x 32); `null` where no plate lies
    * under the centre and everywhere when the BDHC is unreadable (`getMapHeights` names the reason). */
   heights: (number | null)[];
+  /** The map carries a world document (text project, 6.3a): the scene shows its mesh instead of the model, the heights come from it.
+   * The backend always sends it; optional so that hand-made maps (tests, drafts) are binary maps. */
+  world?: boolean;
 }
 
 /**
@@ -447,7 +450,9 @@ export type AssetKind =
   | "OtherPokemonBattleSprites"
   | "TrainerGraphics"
   /** The egg move table, one asset (index 0): a NARC member, or in Platinum the fixed slice of overlay 5. */
-  | "EggMoves";
+  | "EggMoves"
+  /** The world document of a map (text project only, 6.3a; index = map). */
+  | "WorldMap";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;
@@ -1143,3 +1148,5 @@ export interface MapBudgetDto {
 export const getMapHeights = (index: number) => invoke<MapHeightsDto>("get_map_heights", { index });
 /** Model, terrain payload, buildings and texture VRAM of map `index` against the game's limits. */
 export const getMapBudget = (index: number) => invoke<MapBudgetDto>("get_map_budget", { index });
+
+export * from "./api.world";

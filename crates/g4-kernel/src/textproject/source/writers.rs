@@ -9,6 +9,8 @@ use g4_formats::data::egg_moves::EggMoves;
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::split_pair;
+use crate::world::WorldJson;
+use crate::world::keep::{carry_world, with_world, world_field};
 
 use super::super::MANIFEST_FILE;
 use super::super::arts::{Art, file_names, numbered};
@@ -226,6 +228,35 @@ impl EntitySource {
             egg_moves: eggs.as_ref(),
         };
         let mut files = entity_files(art, u32::from(index), &parts, &mut ctx, deleted)?;
+        // A map takes `source` and `world` from its world map asset (given, else as the store
+        // holds it) when that differs from the file's world; else it keeps those its file has,
+        // as they are written there (the member knows no world, and a hand-written world the
+        // store holds unchanged keeps its bytes).
+        if art == Art::Maps
+            && let Some((_, fresh)) = files.first_mut()
+        {
+            let world_id = AssetId {
+                kind: AssetKind::WorldMap,
+                index,
+            };
+            let world = given
+                .iter()
+                .find(|(id, _)| *id == world_id)
+                .map(|(_, bytes)| bytes.to_vec())
+                .or_else(|| current(world_id));
+            let on_disk = json
+                .as_deref()
+                .and_then(|bytes| world_field(bytes).ok())
+                .map(|world| to_canonical(&world));
+            *fresh = match world {
+                Some(bytes) if on_disk.as_deref() != Some(bytes.as_slice()) => {
+                    let world: Option<WorldJson> = serde_json::from_slice(&bytes)
+                        .map_err(|e| KernelError::InvalidProject(format!("{world_id}: {e}")))?;
+                    with_world(std::mem::take(fresh), world.as_ref())?
+                }
+                _ => carry_world(json.as_deref(), std::mem::take(fresh))?,
+            };
+        }
         if let (Some(field), Some((_, json))) = (keep_eggs, files.first_mut()) {
             let mut entity: SpeciesEntity = serde_json::from_slice(json).map_err(|e| {
                 KernelError::InvalidProject(format!("{}: {e}", crate::build::step::key(&rel)))

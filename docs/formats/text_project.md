@@ -21,6 +21,7 @@ Diamant/Perl in Phase 4.“).
 | `data/<art>/NNNN.<ext>` | Beifiles einer Entität (gleicher Stamm) und die Member der Binärarten |
 | `data/ids/{maps,trainers,trainer_classes,places}.json` | Register der getauften IDs |
 | `data/ids/{flags,vars,stories}.json` | Register der eigenen Flag- und Variablennamen und der Geschichten |
+| `data/tilesets/NNNN.json` | Tileset eines Kartentextur-Pakets (seit 6.3a, [tileset.md](tileset.md)); nur mit `tileset_save` |
 | `data/raw/<pfad>` | Blobs: geänderte Dateien, die keine Entität und keine Quelle besitzt |
 | `data/rotom-quirks.json` | rotoms Binär-Eigenheiten je Script-Quelle |
 | `expanded/textArchives/NNNN.json` | Texte (wie in 4.2, unverändert) |
@@ -35,7 +36,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 ```json
 {
   "format": "g4-project",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "game": {
     "code": "CPUE",
     "family": "pt",
@@ -44,7 +45,9 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
   "studioVersion": "0.1.0",
   "schemas": {
     "flags": 1,
+    "maps.world": 1,
     "stories": 1,
+    "tilesets": 1,
     "vars": 1
   },
   "plugins": []
@@ -59,7 +62,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 | `game.family` | `pt` oder `hgss` |
 | `game.language` | Sprachschlüssel (`de_DE`, `en_US`, …) |
 | `studioVersion` | Version des Kernels, der zuletzt exportierte |
-| `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“; `stories`, siehe [stories.md](stories.md)), vom Export geschrieben; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
+| `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“; `stories`, siehe [stories.md](stories.md)), jeder Dateiart (`tilesets`, seit 6.3a, [tileset.md](tileset.md)) und jedes Teilschemas einer Art (`maps.world`, das Weltdokument einer Karte, seit 6.3a, [world_map.md](world_map.md)), vom Export geschrieben; eine höhere Version, die ein neueres Studio schrieb, bleibt stehen; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
 | `plugins` | reserviert; der Inhalt bleibt unverändert, gelesen wird er nicht (`textproject.reserved`) |
 | `eggMovesPatch` | `true`, wenn die Ei-Attacken in DSPRE's Patch-NARC liegen (Platin, `files/zcustom/egg_moves.narc`); gesetzt vom Export und vom Speichern der Ei-Attacken. Ein Klon hat NARC und Ordner nicht, der Import legt dann `unpacked/eggMoves/0000` aus den Spezies-Dateien an (siehe „Ei-Attacken“); fehlt sonst |
 | `eggMoves` | `true`, wenn die Spezies-Dateien die Ei-Attacken-Tabelle halten (siehe „Ei-Attacken“): gesetzt vom Export, der die Tabelle lesen konnte, und vom ersten Speichern der Ei-Attacken im Studio; fehlt sonst (auslassbar, keine neue Schema-Version) |
@@ -72,7 +75,7 @@ Keine Basis-SHA-1: die Basis-ROM nennt `.g4/base.json` ([project_base.md](projec
 |---|---|---|
 | `headers` | Header | Ausschnitt der Header-Tabelle in `arm9.bin` (oder Datei von `unpacked/dynamicHeaders`) und Eintrag von `mapname.bin` |
 | `matrices` | Matrix | `matrices` |
-| `maps` | Karte | `maps` |
+| `maps` | Karte | `maps`; mit `source: "world"` dazu das Weltdokument `world` (seit 6.3a, [world_map.md](world_map.md)), das bis 6.3b in keinen Member fließt |
 | `area_data` | Bereichsdatei | `areaData` |
 | `events` | Ereignisdatei | `eventFiles` |
 | `encounters` | Begegnungsdatei | `encounters` |
@@ -87,10 +90,14 @@ Keine Basis-SHA-1: die Basis-ROM nennt `.g4/base.json` ([project_base.md](projec
 | `flags` | eigener Name eines Flags (`NNNN.json`, dezimal) | keiner: Datenart ohne ROM-Gegenstück, `{id, description?}` ([flags_vars.md](flags_vars.md)) |
 | `vars` | eigener Name einer Variable (`NNNN.json`, dezimal, `16492.json`) | keiner, wie `flags` |
 | `stories` | Geschichte (Projekt-Entität ohne Member, Beifile `.layout.json`) | keiner: Datenart ohne ROM-Gegenstück ([stories.md](stories.md)) |
+| `tilesets` | Kartentextur-Paket (`NNNN.json`, Stamm = Paket) | keiner: Dateiart ohne IDs und Register ([tileset.md](tileset.md)) |
 
 `flags`, `vars` und `stories` sind Datenarten (`textproject/kinds.rs`): Export und Import fassen sie
 nicht an, nur der Check liest sie; bei Flags und Variablen gibt es eine Datei nur für eine Nummer
-mit eigenem Namen, bei Geschichten eine je Registereintrag. Eine Art,
+mit eigenem Namen, bei Geschichten eine je Registereintrag. `tilesets` ist eine Dateiart
+(`FILE_KINDS` in `kinds.rs`, seit 6.3a): ein Ordner ohne IDs, Register und Entitäten, den nur der
+Check mit eigener Prüfung liest (`world::tileset::check_folder`); Export und Import lassen ihn
+liegen, geschrieben wird er nur von `tileset_save`. Eine Art,
 deren Archiv das Spiel nicht hat, fehlt. Items gibt es nur mit geprüfter Item-Tabelle
 (`arm9_tables.yaml`); ohne sie laufen die Item-Member wie alles Nicht-Abgebildete (Blob bei
 Abweichung). Teilen sich IDs einen Member, trägt die erste die Daten, jede weitere
@@ -269,7 +276,11 @@ Members trägt die Daten (`data/items/0001.json`), eine weitere ID desselben Mem
 { "offsets": [0, 0] }
 ```
 
-Karten: `source` ist in Phase 4 immer `binary` (`textproject.map-source` sonst), `permissions` sind
+Karten: `source` ist `binary` oder seit 6.3a `world` mit dem Objekt `world` direkt danach
+([world_map.md](world_map.md); jede andere Quelle, `world` ohne `source: "world"` und umgekehrt sind
+`textproject.map-source`). Eine Welt-Karte baut bis 6.3b aus ihren Binärteilen wie eine binäre;
+der Export und jedes Speichern aus den Member-Bytes nehmen `source` und `world` der Datei mit.
+`permissions` sind
 32 Zeilen zu 32 Zellen `kkcc` (Art, Kollision in Hex), `buildings_tail` (Hex) nur, wenn da, `bgs`
 nur auf HeartGold/SoulSilver. Header: `internal_name_bytes` (Hex) nur, wenn die 16 Byte von
 `mapname.bin` nicht „Name + NUL-Füllung“ sind; ohne den Patch „Dynamische Header“ ändert sich die
@@ -1202,6 +1213,7 @@ den Umschlag als erste Zeile nach dem Kopf fest (`*.deleted?`).
 |---|---|
 | 0 → 1 | Manifest-Schlüssel `schema` wird `schemaVersion`; jedes Register `{"ids": {"0003": "MAP_T01"}}` wird `{"MAP_T01": 3}` |
 | 1 → 2 | in jeder `data/events/NNNN.json` werden `object_events[].hidden_flag` und `coord_events[].var` von der Zahl zum eigenen Namen aus `data/ids/flags.json` bzw. `vars.json`, nur wo einer eingetragen ist (0 und Nummern ohne eigenen Namen bleiben Zahl); sonst ändert sich keine Datei, ein Projekt ohne eigene Namen bleibt bis auf das Manifest byte-gleich. Der Umschlag `deleted` kommt mit dieser Version dazu und braucht keine Änderung |
+| 2 → 3 | nur das Manifest: `schemas` bekommt `maps.world` und `tilesets`, je Version 1 (eine höhere, die ein neueres Studio schrieb, bleibt). Keine andere Datei ändert sich, eine Karte ohne `world` liest in Version 3, wie sie ist (`migrate::v2_to_v3`, Phase 6.3a; Test `v2_to_v3_changes_only_the_manifest`) |
 
 Das Gate von 3d.4 (Grabstein je Art, Round-Trip und Idempotenz mit Grabstein, Kürz-Regel des Imports über Git hinweg, Migration 1 → 2 ändert nur Manifest und die Namen in der Event-JSON) und die Zahlen dazu stehen in [phase-3d-4-gate.md](../phase-3d-4-gate.md); die Befehle in [agent-gate.md](../agent-gate.md), Abschnitt „Phase 3d.4“.
 
@@ -1218,7 +1230,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.side-file` | Fehler | ein Beifile `{"file"}` fehlt oder ist nicht lesbar |
 | `textproject.base-missing` | Fehler | ein `base_sha1`-Teil, den weder der Member noch eine Basisschicht hat, oder eine Basisschicht, die sich nicht lesen oder anlegen lässt |
 | `textproject.base-mismatch` | Fehler | die Basisschicht hat für den Teil andere Bytes |
-| `textproject.map-source` | Fehler | eine Karte mit anderer `source` als `binary` |
+| `textproject.map-source` | Fehler | eine Karte mit anderer `source` als `binary` oder `world`, `source: "world"` ohne `world` („source: „world“ braucht das Objekt `world`.“), `world` mit anderer Quelle („world: nur mit source „world“.“), oder ein Speichern bzw. Export, das eine Welt-Karte mit unlesbarem Member gesperrt schriebe und dabei ihr Weltobjekt verlöre (abgelehnt, [world_map.md](world_map.md) „Store-Art und Undo“) |
 | `textproject.header-count` | Fehler | eine Header-Zahl, die das Projekt nicht aufnehmen kann, oder Nummern doppelt bzw. mit Lücke |
 | `textproject.member-without-json` | Fehler | ein Member (oder Header) ohne JSON, auch das überzählige Member einer Art aus zwei Archiven (Trainer); der Import löscht nur Member am Ende ohne JSON, die seit der Aufzeichnung unverändert sind (`textproject.member-removed`). Der Export warnt bei dem überzähligen Member mit demselben Code |
 | `textproject.member-removed` | Warnung | Import, Build-Schritt und Abgleich: Member (oder Header) am Ende einer Art ohne JSON, seit der Aufzeichnung des Abgleichs unverändert und nicht in der Basis (die JSON ging mit „Nummer freigeben“, auch auf einem anderen Git-Branch); sie werden entfernt (Kürz-Regel, siehe „Export, Import, Check“) |
@@ -1235,6 +1247,10 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.unsynced` | Fehler | Build ohne Eintrag (erster Build, „ohne Cache“, neues Salz): ein Member weicht von seiner JSON und von der Basisschicht ab; nichts geschrieben |
 | `textproject.egg-moves-unexported` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber `g4-project.json` hat die Marke `eggMoves` nicht (vor dem Feld exportiert); nichts wird geschrieben, bis ein Export oder das Speichern der Ei-Attacken im Studio sie setzt |
 | `textproject.egg-moves-locked` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber die Ei-Attacken-Tabelle hat keinen Ort (Platin mit ungeprüfter Fassung oder fehlender Signatur); der Grund steht im Satz, nichts wird geschrieben |
+| `world.schema` | Fehler | Check und Import (seit 6.3a): ein Weltdokument, das seine Grammatik, seine Bereiche oder sein Tileset bricht (Zeilen, Token, Höhe außerhalb −16 bis 62, Rampe über 62, Kachel jenseits des Tilesets, Paket außerhalb, Teilmodell, Überschreibung), mit Pfad und Zeile; der Import lässt nur diese Karte aus. Formfehler von `world` bleiben `textproject.schema` ([world_map.md](world_map.md) „Prüfungen“) |
+| `world.tileset-mismatch` | Warnung | Check: ein Header, dessen Matrix die Welt-Karte zeigt, nennt Gebietsdaten mit einem anderen Paket als `world.tileset` |
+| `world.not-baked` | Info | Check: je Welt-Karte „Karte 0123 ist eine Welt-Karte; bis zum Backen (6.3b) baut der Build ihren bisherigen Member.“ |
+| `world.budget` | Info | Check: die geschätzte Modellgröße einer Welt aus Flächen und Texturen („Geschätzt höchstens 1 680 Byte (3 % von 0xF000) aus 1 Fläche und 1 Textur.“) |
 | `story.dangling-ref` | Warnung | Check: eine ID in `progress`, `uses` oder `flags` einer Geschichte nennt im Projekt nichts, oder ein Eintrag in `uses` nennt, was es auf der Platte nicht mehr gibt (eine Nummer über der höchsten Scriptdatei, dem höchsten Textarchiv oder der höchsten Eventdatei, eine Trainer- oder Header-Datei, die „Nummer freigeben“ entfernte: „… gibt es nicht.“) oder eine gelöschte Entität (Grabstein: „… ist gelöscht.“); gemeldet mit Datei und Zeile des Eintrags, hält nichts auf ([stories.md](stories.md) „Verweise“, „Prüfung“) |
 
 ## Quellenliste

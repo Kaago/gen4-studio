@@ -69,9 +69,14 @@ pub struct MapDto {
     /// `[kind, collision]` per cell, row-major (32 x 32).
     pub permissions: Vec<[u8; 2]>,
     pub buildings: Vec<BuildingDto>,
+    /// The map is a world map (6.3a): a text project's map file with `source: "world"`. Always
+    /// false outside a text project; [`MapDto::from_map`] says false, `get_map` sets it.
+    pub world: bool,
     /// The walk height of every tile centre in world units, row-major (32 x 32), as
     /// `get_map_heights` answers it; `null` where no plate lies under the centre and everywhere
-    /// when the BDHC is unreadable.
+    /// when the BDHC is unreadable. A world map (6.3a) gives the heights of its world document
+    /// instead, `null` where its ground is empty (`.`) (`get_map` sets them; `get_map_heights`
+    /// still reads the member's BDHC).
     pub heights: Vec<Option<f32>>,
 }
 
@@ -103,6 +108,7 @@ impl MapDto {
                     rotation: b.rotation.map(|r| format!("{:08X}", r as u32)),
                 })
                 .collect(),
+            world: false,
             heights: super::terrain::tile_heights(&map.bdhc).0,
         }
     }
@@ -287,8 +293,40 @@ pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, CmdErr
 pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    let map = session.store.map(index).map_err(CmdError::from)?;
-    Ok(MapDto::from_map(index, map))
+    let store = &mut session.store;
+    // Worlds exist only in a text project of the current schema (the store refuses elsewhere).
+    // A world whose JSON does not read (a serde error) leaves the map unreadable too: the
+    // `store.map` below answers with the error. One that reads but has row errors is a world.
+    let text_project =
+        *store.project().source_mode() == g4_kernel::project::SourceMode::TextProject;
+    let world = if text_project {
+        store.world(index).ok().flatten().cloned()
+    } else {
+        None
+    };
+    // A world map walks on its world document, not on the old BDHC of its member: the height
+    // at each cell centre (8 units a step, a ramp half way up), `null` where the ground is
+    // empty (`.`: no floor there). A world that does not read keeps the member's heights.
+    let world_heights = world
+        .as_ref()
+        .and_then(|w| g4_kernel::world::grid::WorldGrid::parse(w).ok())
+        .map(|grid| {
+            let ground = grid.layers.first().map(|l| l.tiles.as_slice());
+            let heights = grid.height_grid();
+            (0..heights.height.len())
+                .map(|c| {
+                    let floor = ground.is_some_and(|t| t.get(c).copied().flatten().is_some());
+                    floor.then(|| heights.center_units(c) as f32)
+                })
+                .collect::<Vec<_>>()
+        });
+    let map = store.map(index).map_err(CmdError::from)?;
+    let dto = MapDto::from_map(index, map);
+    Ok(MapDto {
+        world: world.is_some(),
+        heights: world_heights.unwrap_or(dto.heights),
+        ..dto
+    })
 }
 
 pub fn get_events_impl(state: &AppState, event_file_id: u16) -> Result<EventsDto, CmdError> {

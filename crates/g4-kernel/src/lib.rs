@@ -49,3 +49,4 @@ pub mod bake;
 pub mod terrain;
 
 pub mod model_import;
+pub mod world;

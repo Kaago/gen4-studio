@@ -361,4 +361,21 @@ describe("SceneHost", () => {
       toDataURL.mockRestore();
     }
   });
+  it("marks_the_canvas_with_world_meshes", () => {
+    const { h } = host();
+    expect(h.canvas.hasAttribute("data-world-mesh")).toBe(false);
+    h.noteWorldMesh(40, 30);
+    h.noteWorldMesh(12, 10);
+    // Maps ascending, faces summed.
+    expect(h.canvas.dataset.worldMesh).toBe("12,40");
+    expect(h.canvas.dataset.worldMeshFaces).toBe("40");
+    expect([...h.worldMeshes]).toEqual([[40, 30], [12, 10]]);
+    h.noteWorldMesh(12, 4);
+    expect(h.canvas.dataset.worldMeshFaces).toBe("34");
+    h.noteWorldMesh(40, null);
+    expect(h.canvas.dataset.worldMesh).toBe("12");
+    h.noteWorldMesh(12, null);
+    expect(h.canvas.hasAttribute("data-world-mesh")).toBe(false);
+    expect(h.canvas.hasAttribute("data-world-mesh-faces")).toBe(false);
+  });
 });

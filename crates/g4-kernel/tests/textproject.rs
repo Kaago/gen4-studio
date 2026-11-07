@@ -157,7 +157,7 @@ fn export_writes_manifest_entities_registries_and_quirks() {
 
     let manifest = fx.json("g4-project.json");
     assert_eq!(manifest["format"], "g4-project");
-    assert_eq!(manifest["schemaVersion"], 2);
+    assert_eq!(manifest["schemaVersion"], 3);
     assert_eq!(manifest["game"]["code"], "CPUE");
     assert_eq!(manifest["game"]["family"], "pt");
 
@@ -241,7 +241,9 @@ fn export_writes_manifest_entities_registries_and_quirks() {
     assert_eq!(fx.text("data/ids/stories.json"), "{}\n");
     assert_eq!(
         manifest["schemas"],
-        serde_json::json!({"flags": 1, "stories": 1, "vars": 1})
+        serde_json::json!({
+            "flags": 1, "maps.world": 1, "stories": 1, "tilesets": 1, "vars": 1
+        })
     );
     assert!(
         report.adopted.is_some_and(|n| n > 0),
@@ -1116,7 +1118,7 @@ fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
     let fx = built();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 2",
+        "\"schemaVersion\": 3",
         "\"schemaVersion\": 0",
     );
     let before = fx.mtimes();
@@ -1775,8 +1777,8 @@ fn a_changed_manifest_leaves_the_judgement_to_the_step() {
     tick();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 2",
-        "\"schemaVersion\":  2",
+        "\"schemaVersion\": 3",
+        "\"schemaVersion\":  3",
     );
     fx.dspre_power(57);
     let problems = compile_problems(build::prepare(&fx.p()));
@@ -2494,23 +2496,84 @@ fn tombstone_last_trainer(copy: &Path) -> (PathBuf, Vec<u8>) {
     (path, bytes)
 }
 
+/// A world on the first map of the exported `copy` whose matrices show it with exactly one map
+/// texture package (`packs_of_map`): „Welt anlegen“, then one edit with a checkerboard of
+/// tiles 0 and 1 over rows 0–3 (only tile 0 when the package has one texture) and height 2 in
+/// the block x 8–11, z 8–11, saved. Returns the map and the bytes of its JSON.
+fn world_on_first_map(copy: &Path) -> (u16, Vec<u8>) {
+    use g4_kernel::world::edit::{WorldCreateRequest, WorldEditRequest, world_create, world_edit};
+    use g4_kernel::world::{maps_of_packages, packs_of_map};
+    let mut store = Store::new(Arc::new(Project::open(copy).unwrap()));
+    let mut packs: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
+    for (pack, maps) in maps_of_packages(&mut store).unwrap() {
+        for map in maps {
+            packs.entry(map).or_default().push(pack);
+        }
+    }
+    let (map, pack) = packs
+        .iter()
+        .find(|(_, p)| p.len() == 1)
+        .map(|(&map, p)| (map, p[0]))
+        .expect("a map with exactly one map texture package");
+    assert_eq!(packs_of_map(&mut store, map).unwrap(), vec![pack]);
+    let tiles = store.tileset(pack).unwrap().tiles.len();
+    let create: WorldCreateRequest =
+        serde_json::from_value(serde_json::json!({ "map": map })).unwrap();
+    world_create(&mut store, &create).unwrap();
+    let (mut even, mut odd) = (Vec::new(), Vec::new());
+    for z in 0..4u8 {
+        for x in 0..32u8 {
+            if tiles < 2 || (x + z) % 2 == 0 {
+                even.push([x, z]);
+            } else {
+                odd.push([x, z]);
+            }
+        }
+    }
+    let block: Vec<[u8; 2]> = (8..12u8)
+        .flat_map(|z| (8..12u8).map(move |x| [x, z]))
+        .collect();
+    let mut changes = vec![serde_json::json!({ "cells": even, "tile": "0000" })];
+    if !odd.is_empty() {
+        changes.push(serde_json::json!({ "cells": odd, "tile": "0001" }));
+    }
+    changes.push(serde_json::json!({ "cells": block, "height": 2 }));
+    let edit: WorldEditRequest =
+        serde_json::from_value(serde_json::json!({ "map": map, "changes": changes })).unwrap();
+    world_edit(&mut store, &edit).unwrap();
+    store.save().unwrap();
+    let bytes = std::fs::read(copy.join(format!("data/maps/{map:04}.json"))).unwrap();
+    eprintln!("world on map {map:04}, package {pack:04} ({tiles} tiles)");
+    (map, bytes)
+}
+
 #[test]
 fn textproject_round_trip() {
-    round_trip(false);
+    round_trip(false, false);
 }
 
 /// The round trip with a tombstone on the last trainer: the import ignores the envelope, the
 /// member comes back and the ROM builds byte-equal; the file keeps the envelope.
 #[test]
 fn textproject_round_trip_with_tombstone() {
-    round_trip(true);
+    round_trip(true, false);
 }
 
-fn round_trip(tombstone: bool) {
+/// The round trip with a world on a map ([`world_on_first_map`]): the world does not reach the
+/// member, the ROM builds byte-equal and the import leaves the map JSON as saved.
+#[test]
+fn textproject_round_trip_with_world() {
+    round_trip(false, true);
+}
+
+fn round_trip(tombstone: bool, with_world: bool) {
     let Some((tmp, copy, nds, report)) = exported_copy() else {
         return;
     };
     let tombstoned = tombstone.then(|| tombstone_last_trainer(&copy));
+    let started = std::time::Instant::now();
+    let world = with_world.then(|| world_on_first_map(&copy));
+    let world_ms = ms(started);
     let base = BaseRom::open(&nds, None).unwrap();
     let code = base.game_code().to_owned();
     print_arts(&code, &copy, &report);
@@ -2596,31 +2659,51 @@ fn round_trip(tombstone: bool) {
     if let Some((path, bytes)) = &tombstoned {
         assert_eq!(&std::fs::read(path).unwrap(), bytes, "the envelope stays");
     }
+    if let Some((map, bytes)) = &world {
+        assert_eq!(
+            &std::fs::read(copy.join(format!("data/maps/{map:04}.json"))).unwrap(),
+            bytes,
+            "the world map JSON stays"
+        );
+    }
     eprintln!(
-        "textproject-stats {code} tombstone={tombstone} files={} bytes={} json={json} \
-         side={side} raw={} base_layer_ms={} export_ms={} import_ms={import_ms} \
-         build_ms={build_ms}",
-        report.files, report.bytes, report.raw_blobs, report.base_layer_ms, report.ms
+        "textproject-stats {code} tombstone={tombstone} world={:?} files={} bytes={} \
+         json={json} side={side} raw={} base_layer_ms={} export_ms={} world_ms={world_ms} \
+         import_ms={import_ms} build_ms={build_ms}",
+        world.as_ref().map(|(map, _)| *map),
+        report.files,
+        report.bytes,
+        report.raw_blobs,
+        report.base_layer_ms,
+        report.ms
     );
 }
 
 #[test]
 fn textproject_export_idempotent() {
-    export_idempotent(false);
+    export_idempotent(false, false);
 }
 
 /// The second export with a tombstone on the last trainer writes nothing: the envelope of the
 /// file on disk is carried over.
 #[test]
 fn textproject_export_idempotent_with_tombstone() {
-    export_idempotent(true);
+    export_idempotent(true, false);
 }
 
-fn export_idempotent(tombstone: bool) {
+/// The second export after a world on a map ([`world_on_first_map`]) writes nothing: the world
+/// is kept and the map JSON stays byte-equal.
+#[test]
+fn textproject_export_idempotent_with_world() {
+    export_idempotent(false, true);
+}
+
+fn export_idempotent(tombstone: bool, with_world: bool) {
     let Some((_tmp, copy, nds, _report)) = exported_copy() else {
         return;
     };
     let tombstoned = tombstone.then(|| tombstone_last_trainer(&copy));
+    let world = with_world.then(|| world_on_first_map(&copy));
     let base = BaseRom::open(&nds, None).unwrap();
     let snapshot = || {
         sources(&Project::open(&copy).unwrap())
@@ -2660,9 +2743,17 @@ fn export_idempotent(tombstone: bool) {
     if let Some((path, bytes)) = &tombstoned {
         assert_eq!(&std::fs::read(path).unwrap(), bytes, "the envelope stays");
     }
+    if let Some((map, bytes)) = &world {
+        assert_eq!(
+            &std::fs::read(copy.join(format!("data/maps/{map:04}.json"))).unwrap(),
+            bytes,
+            "the world map JSON stays"
+        );
+    }
     eprintln!(
-        "textproject-second-export {} tombstone={tombstone} ms={second_ms}",
-        base.game_code()
+        "textproject-second-export {} tombstone={tombstone} world={:?} ms={second_ms}",
+        base.game_code(),
+        world.as_ref().map(|(map, _)| *map)
     );
 }
 

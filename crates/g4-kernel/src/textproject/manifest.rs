@@ -211,9 +211,9 @@ fn family_key(family: Family) -> &'static str {
 mod tests {
     use super::*;
 
-    const V2: &str = r#"{
+    const V3: &str = r#"{
   "format": "g4-project",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "game": {
     "code": "CPUE",
     "family": "pt",
@@ -227,20 +227,20 @@ mod tests {
 
     #[test]
     fn manifest_round_trips_and_refuses_unknown_keys() {
-        let manifest: Manifest = serde_json::from_str(V2).unwrap();
-        assert_eq!(manifest.schema_version, 2);
+        let manifest: Manifest = serde_json::from_str(V3).unwrap();
+        assert_eq!(manifest.schema_version, 3);
         assert_eq!(manifest.game.family, "pt");
         assert_eq!(
             crate::textproject::canon::to_canonical(&manifest),
-            V2.as_bytes()
+            V3.as_bytes()
         );
 
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(MANIFEST_FILE), V2).unwrap();
+        std::fs::write(dir.path().join(MANIFEST_FILE), V3).unwrap();
         assert_eq!(read_manifest(dir.path()).unwrap(), manifest);
 
         // A typo in a key: the schema state cannot be read, the error names the key.
-        let typo = V2.replace("\"schemaVersion\"", "\"schemaVersio\"");
+        let typo = V3.replace("\"schemaVersion\"", "\"schemaVersio\"");
         std::fs::write(dir.path().join(MANIFEST_FILE), &typo).unwrap();
         let problems = match read_manifest(dir.path()).unwrap_err() {
             KernelError::Compile(problems) => problems,
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(problems[0].file, Path::new(MANIFEST_FILE));
 
         // An unknown key next to a valid version: serde names it with line and column.
-        let extra = V2.replace("\"plugins\"", "\"plugin\"");
+        let extra = V3.replace("\"plugins\"", "\"plugin\"");
         std::fs::write(dir.path().join(MANIFEST_FILE), &extra).unwrap();
         let problems = match read_manifest(dir.path()).unwrap_err() {
             KernelError::Compile(problems) => problems,
@@ -279,7 +279,7 @@ mod tests {
             refused(dir.path()),
             "Kein Textprojekt: g4-project.json fehlt."
         );
-        let older = V2.replace("\"schemaVersion\": 2", "\"schemaVersion\": 1");
+        let older = V3.replace("\"schemaVersion\": 3", "\"schemaVersion\": 1");
         std::fs::write(dir.path().join(MANIFEST_FILE), older).unwrap();
         assert_eq!(
             refused(dir.path()),
@@ -288,11 +288,11 @@ mod tests {
                  `g4k text migrate` ausführen."
             )
         );
-        let newer = V2.replace("\"schemaVersion\": 2", "\"schemaVersion\": 3");
+        let newer = V3.replace("\"schemaVersion\": 3", "\"schemaVersion\": 4");
         std::fs::write(dir.path().join(MANIFEST_FILE), newer).unwrap();
         assert_eq!(
             refused(dir.path()),
-            "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 3)."
+            "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 4)."
         );
     }
 
@@ -349,7 +349,11 @@ mod tests {
             .push(serde_json::json!({"name": "x", "enabled": true}));
         let kept = manifest_for(&project, Some(&old));
         assert_eq!(kept.schemas["maps"], old.schemas["maps"]);
-        assert_eq!(kept.schemas.len(), 4, "maps, flags, stories, vars");
+        assert_eq!(
+            kept.schemas.len(),
+            6,
+            "maps, flags, maps.world, stories, tilesets, vars"
+        );
         assert_eq!(kept.plugins, old.plugins);
         assert_eq!(kept.studio_version, env!("CARGO_PKG_VERSION"));
         assert_eq!(kept.game, fresh.game);
@@ -365,7 +369,9 @@ mod tests {
             fresh.schemas,
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(1)),
                 ("stories".to_owned(), Value::from(1)),
+                ("tilesets".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
@@ -377,8 +383,10 @@ mod tests {
             manifest_for(&project, Some(&old)).schemas,
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
+                ("maps.world".to_owned(), Value::from(1)),
                 ("plugins".to_owned(), serde_json::json!({"version": 3})),
                 ("stories".to_owned(), Value::from(1)),
+                ("tilesets".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );

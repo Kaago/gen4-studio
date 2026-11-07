@@ -6,6 +6,10 @@ für das Gebäude-Layout pret/pokeplatinum `src/overlay005/map_prop.c`
 Alle Werte Little Endian. Jedes Member von `land_data.narc` (Pt, DP) bzw.
 `a/0/6/5` (HGSS) ist eine solche Datei.
 
+Welt-Karten: siehe [world_map.md](world_map.md); bis 6.3b ist der Member der
+bisherige (das Weltdokument fließt in kein Member, die Karte baut aus ihren
+Binärteilen wie hier beschrieben).
+
 ## Byte-Layout
 
 | Abschnitt | Offset | Inhalt |

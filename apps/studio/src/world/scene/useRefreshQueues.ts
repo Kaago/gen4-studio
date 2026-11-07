@@ -1,15 +1,16 @@
 import { useEffect, useRef } from "react";
-import { errorText, getMap, getMapModelGlb, mapModelTextureStatus } from "../../api";
+import { errorText, getMap, mapModelTextureStatus } from "../../api";
 import { drainWhenReady, pendingSince } from "../../reload";
 import type { RefreshQueue } from "../../reload";
 import { reconcileBuildings } from "../buildings";
 import type { BuildingRefresh } from "../buildings";
 import { createGround } from "../ground";
 import { textureNote } from "../load";
-import { disposeTree, parseGlb } from "../sceneUtil";
+import { disposeTree } from "../sceneUtil";
 import { dropMissingSelection, loadMissingBuildingModels } from "./buildingModels";
 import { reportBuildings } from "./buildingReport";
 import { addModel, moveMapGround, recolourMap, removeMapModel } from "./content";
+import { mapModel } from "./worldMesh";
 import { refreshEvents } from "./eventFetch";
 import type { ReportEvents, SceneRefs } from "./types";
 
@@ -87,7 +88,7 @@ export function useMapModelRefresh(refs: SceneRefs, mapModelRefresh: RefreshQueu
       const stale = () => h.disposed || refs.handle.current !== h || h.matrix !== matrixAtStart || refs.area.current !== area || h.mapModelGen.get(map) !== gen;
       (async () => {
         if (!h.loaded.has(map)) return;
-        const model = await getMapModelGlb(map, area).then(parseGlb);
+        const model = await mapModel(h, map, area, { probe: true });
         if (stale()) {
           disposeTree(model);
           return;

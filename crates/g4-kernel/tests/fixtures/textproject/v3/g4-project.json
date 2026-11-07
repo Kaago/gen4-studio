@@ -1,0 +1,15 @@
+{
+  "format": "g4-project",
+  "schemaVersion": 3,
+  "game": {
+    "code": "CPUE",
+    "family": "pt",
+    "language": "en_US"
+  },
+  "studioVersion": "0.1.0",
+  "schemas": {
+    "maps.world": 1,
+    "tilesets": 1
+  },
+  "plugins": []
+}

@@ -370,6 +370,7 @@ pub fn asset_label(id: AssetId) -> String {
         AssetKind::OtherPokemonBattleSprites => "Formen-Kampfbild",
         AssetKind::TrainerGraphics => "Trainerbild",
         AssetKind::EggMoves => "Ei-Attacken",
+        AssetKind::WorldMap => "Welt",
     };
     format!("{word} {:04}", id.index)
 }
@@ -753,6 +754,11 @@ fn current_bytes(store: &mut Store, id: AssetId) -> Result<Vec<u8>, KernelError>
         }
         AssetKind::Encounter => {
             store.encounter(index)?;
+        }
+        AssetKind::WorldMap => {
+            return Err(KernelError::Refused(
+                crate::world::edit::WORLD_HAS_NO_ORIGINAL.to_owned(),
+            ));
         }
         kind => return Err(KernelError::NotEditable(kind)),
     }
