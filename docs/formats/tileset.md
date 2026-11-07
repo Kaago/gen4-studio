@@ -1,4 +1,4 @@
-# Tileset (Kacheln eines Kartentextur-Pakets, Phase 6.3a)
+# Tileset (Kacheln eines Kartentextur-Pakets, Phasen 6.3a und 6.3b)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Ein Tileset sagt je Textur eines
 Kartentextur-Pakets (`map_tileset` der Gebietsdaten, Member von `mapTextures`), wie sie als Kachel
@@ -88,14 +88,48 @@ zwischen und liest neu, wenn sich Größe oder Änderungszeit der Datei bzw. des
 oder die Datei kommt oder geht.
 
 Die Ableitung mit Vorgaben (`derive_tileset`) läuft nur in `tileset_get` ohne Datei (Antwort
-`stored: false`) und in `tileset_save`. Geschrieben wird die Datei **nur** mit `tileset_save`;
-„Welt anlegen“ schreibt keine. `tileset_save(package)` leitet ab und schreibt
+`stored: false`) und in `tileset_save`. Angelegt wird die Datei **nur** mit `tileset_save`, geändert
+mit `tileset_edit` (6.3b, unten); „Welt anlegen“ schreibt keine. `tileset_save(package)` leitet ab und schreibt
 `data/tilesets/NNNN.json` als einen Dateischritt („Tileset 0006 abgeleitet“, Undo entfernt die Datei
 wieder) und antwortet mit `{package, file, tiles, vanilla, unclear, change}`. Abgelehnt: im
 DSPRE-Layout („Boden malen gibt es im Textprojekt (Technik › Textprojekt).“), wenn die Datei schon
 da ist („data/tilesets/0006.json gibt es schon.“), ein Paket, das es nicht gibt
 („Kartentextur-Paket 0200 gibt es nicht (74 Pakete).“), eines, das sich nicht lesen lässt
 („Kartentextur-Paket 0006 lässt sich nicht lesen: …“). `tileset_get` leitet in jedem Layout ab.
+
+## Kacheln ändern (`tileset_edit`, 6.3b)
+
+`tileset_edit {req: {package, changes: [{tile, role?, kind?, collision?, sound?, wall?}]}}` ändert
+Kacheln der vorhandenen Datei `data/tilesets/NNNN.json` als **einen** Dateischritt wie
+`tileset_save` (`FileStepKind::Reset`; Undo schreibt die Datei, wie sie war), Label „Tileset 0006
+geändert (2 Kacheln)“ („(1 Kachel)“). Ein fehlender Schlüssel lässt den Wert, `"wall": null`
+entfernt die Wandkachel. Gezählt und mit `origin: user` versehen werden nur Kacheln, deren Werte
+sich wirklich ändern; eine Rolle setzt kein `kind` mit (Gras mit abgeleiteter Begegnung braucht
+`role: "grass"` und `kind: 2` getrennt). Antwort `{package, tiles, change}`.
+
+Abgelehnt (nichts geschrieben, Verlauf unverändert): im DSPRE-Layout („Boden malen gibt es im
+Textprojekt (Technik › Textprojekt).“), ohne Datei („Erst `tileset_save` für Paket 0006.“), eine
+Kachel jenseits des Tilesets („changes[0].tile: Kachel 0x0120 gibt es im Tileset 0006 nicht (94
+Kacheln).“), ein Aufruf, der nichts ändert („Nichts zu ändern.“), ein Ergebnis mit einem Problem der
+Prüfungen oben (das erste, mit dem Pfad der Datei: „data/tilesets/0006.json: tiles[0].wall: …“),
+eine Datei, die sich nicht lesen lässt.
+
+Danach backt der Store die sauberen geladenen Welt-Karten dieses Pakets an Ort und Stelle neu
+(`Store::forget_world_bakes`, ihr Verlauf bleibt; das zwischengespeicherte Tileset des Pakets fällt
+vorher weg), schmutzige backt das nächste Speichern; dasselbe nach Undo und Redo eines Dateischritts
+von `tileset_save` oder `tileset_edit`. Der Build-Schritt `world` backt die Karten des Pakets beim
+nächsten Build, denn die Tileset-Datei gehört zu ihrem Eingabe-Hash ([build_state.md](build_state.md)).
+Der Tileset-Editor von 6.4a baut auf diesem Befehl.
+
+## Palette beim Backen (6.3b)
+
+Das Backen einer Welt-Karte bindet jede Textur mit der Palette, die das Tileset für sie nennt, wenn
+das Paket diese Palette hat (`world::bake::world_pack_textures`), sonst wie `bake::pack_textures`
+(die gleichnamige Palette, sonst `<Textur>_pl`, sonst die einzige des Pakets). Nennen mehrere Kacheln dieselbe Textur,
+entscheidet die erste Kachel in Tileset-Reihenfolge, die eine Palette nennt; eine andere Palette
+einer späteren Kachel bleibt ungenutzt. Grund: was die Szene zeigt, zeigt das Spiel; Platins
+`allpeak` bindet in jedem Vanilla-Modell die Palette seines Index (`apeak`), die `pack_textures`
+nicht findet.
 
 ## Ableitung
 

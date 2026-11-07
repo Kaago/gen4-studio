@@ -62,7 +62,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 | `game.family` | `pt` oder `hgss` |
 | `game.language` | Sprachschlüssel (`de_DE`, `en_US`, …) |
 | `studioVersion` | Version des Kernels, der zuletzt exportierte |
-| `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“; `stories`, siehe [stories.md](stories.md)), jeder Dateiart (`tilesets`, seit 6.3a, [tileset.md](tileset.md)) und jedes Teilschemas einer Art (`maps.world`, das Weltdokument einer Karte, seit 6.3a, [world_map.md](world_map.md)), vom Export geschrieben; eine höhere Version, die ein neueres Studio schrieb, bleibt stehen; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
+| `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“; `stories`, siehe [stories.md](stories.md)), jeder Dateiart (`tilesets`, seit 6.3a, [tileset.md](tileset.md)) und jedes Teilschemas einer Art (`maps.world`, das Weltdokument einer Karte, seit 6.3a, [world_map.md](world_map.md); seit Schema 4 Version 2), vom Export geschrieben; eine höhere Version, die ein neueres Studio schrieb, bleibt stehen; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
 | `plugins` | reserviert; der Inhalt bleibt unverändert, gelesen wird er nicht (`textproject.reserved`) |
 | `eggMovesPatch` | `true`, wenn die Ei-Attacken in DSPRE's Patch-NARC liegen (Platin, `files/zcustom/egg_moves.narc`); gesetzt vom Export und vom Speichern der Ei-Attacken. Ein Klon hat NARC und Ordner nicht, der Import legt dann `unpacked/eggMoves/0000` aus den Spezies-Dateien an (siehe „Ei-Attacken“); fehlt sonst |
 | `eggMoves` | `true`, wenn die Spezies-Dateien die Ei-Attacken-Tabelle halten (siehe „Ei-Attacken“): gesetzt vom Export, der die Tabelle lesen konnte, und vom ersten Speichern der Ei-Attacken im Studio; fehlt sonst (auslassbar, keine neue Schema-Version) |
@@ -75,7 +75,7 @@ Keine Basis-SHA-1: die Basis-ROM nennt `.g4/base.json` ([project_base.md](projec
 |---|---|---|
 | `headers` | Header | Ausschnitt der Header-Tabelle in `arm9.bin` (oder Datei von `unpacked/dynamicHeaders`) und Eintrag von `mapname.bin` |
 | `matrices` | Matrix | `matrices` |
-| `maps` | Karte | `maps`; mit `source: "world"` dazu das Weltdokument `world` (seit 6.3a, [world_map.md](world_map.md)), das bis 6.3b in keinen Member fließt |
+| `maps` | Karte | `maps`; mit `source: "world"` das Weltdokument `world` (seit 6.3a, [world_map.md](world_map.md)) statt `permissions`, `model` und `bdhc`: der Member einer Welt-Karte ist die Ausgabe des Backens (seit 6.3b) |
 | `area_data` | Bereichsdatei | `areaData` |
 | `events` | Ereignisdatei | `eventFiles` |
 | `encounters` | Begegnungsdatei | `encounters` |
@@ -282,10 +282,13 @@ Karten: `source` ist `binary` oder seit 6.3a `world` mit dem Objekt `world` dire
 `bdhc` **nicht**: sie entstehen beim Backen („textproject.map-source: model: Eine Welt-Karte trägt
 `permissions`, `model` und `bdhc` nicht; sie entstehen beim Backen.“); ihre Verbatim-Teile (Form 1)
 stehen in der Welt (`world.freeform[].nsbmd`, `world.terrain.bdhc`, Basisschlüssel `maps NNNN model`
-bzw. `bdhc`). Der Import prüft eine Welt-Karte und löst ihre Teile auf, schreibt aber kein Member
-(`ImportPlan::world_maps`); eine binäre Karte braucht alle drei („textproject.schema: $: Schlüssel
-`model` fehlt.“). Der Export und jedes Speichern aus den Member-Bytes nehmen `source` und `world`
-der Datei mit und lassen die abgeleiteten Teile weg (`world::keep::world_parts`).
+bzw. `bdhc`). Der Import prüft eine Welt-Karte, löst ihre Teile auf und nimmt sie aus den
+Einheiten von `textproject` (`ImportPlan::world_maps`); ihren Member backt er nach den übrigen
+Membern (siehe „Export, Import, Check“), der Build im Schritt `world` direkt nach `textproject`
+([world_map.md](world_map.md) „Build, Datensatz und DSPRE“). Eine binäre Karte braucht alle drei
+(„textproject.schema: $: Schlüssel `model` fehlt.“). Der Export und jedes Speichern aus den
+Member-Bytes nehmen `source` und `world` der Datei mit und lassen die abgeleiteten Teile weg
+(`world::keep::world_parts`).
 `permissions` sind
 32 Zeilen zu 32 Zellen `kkcc` (Art, Kollision in Hex), `buildings_tail` (Hex) nur, wenn da, `bgs`
 nur auf HeartGold/SoulSilver. Header: `internal_name_bytes` (Hex) nur, wenn die 16 Byte von
@@ -558,6 +561,18 @@ schreibt keine JSON dafür und warnt mit demselben Code. Binärarten ohne Datei 
 bleiben sie, wie sie sind (`textproject.base-unchecked`, eine Warnung). Lässt sich die Basisschicht nicht
 lesen oder aus der gegebenen Basis-ROM nicht anlegen, ist das `textproject.base-missing` (ein Fehler).
 
+**Welt-Karten im Import** (seit 6.3b): nach den Membern der übrigen Entitäten und der
+Header-Tabelle backt `apply_import` die Welt-Karten des Plans (`bake_world_maps`, Modus `Import`;
+es liest die Paket-, Gebiets-, Header- und Matrix-Member, die der Import gerade schrieb) und
+zeichnet sie im Abschnitt `world` von `.g4/build/state.json` auf. Ob ein Member einer Welt-Karte
+seit seinem Datensatz von außen geändert ist, entscheidet `import_with` **vor** dem ersten
+Schreiben: dann ist es ein Fehler des Plans (`world.member-changed` an `data/maps/NNNN.json`), und
+nichts wird geschrieben. Mit `--force` (`ImportOptions { force }`) backt der Import über diesen
+Member (Modus `Rebake`). Ein abgelehntes Backen (`world.bake`) zeigt sich erst danach: die übrigen
+Member sind dann geschrieben, das Problem steht im Bericht, und das `build::prepare`, das
+`import_with` danach laufen lässt, lehnt im Schritt `world` mit demselben Fehler ab: der Import
+scheitert sichtbar.
+
 **Wenn die andere Seite neuer ist** (seit 4.3a I1): Export und Import verwerfen sonst Arbeit. Der
 Export schreibt die JSON aus den Membern (und löscht Beifiles und Blobs, die er nicht schreibt), der
 Import schreibt die Member aus der JSON. Gibt es `.g4/build/textproject.json` (nach dem ersten
@@ -653,8 +668,10 @@ löscht es weiter ohne Rückfrage.
 **Check** (`textproject::check`, `g4k text check`): wie der Import, schreibt nie (auch keine
 Basisschicht); nennt die Probleme, die Hinweise und die Dateien, die ein Import schreiben würde.
 
-**Build** (Schritt `textproject`, `textproject::step`, nur mit `g4-project.json`, vor `rotom` und
-`chatot`): plant wie der Import, schreibt aber nur die Einheiten, deren JSON-Seite gilt. Eine
+**Build** (Schritt `textproject`, `textproject::step`, nur mit `g4-project.json`, vor `world`,
+`rotom` und `chatot`): plant wie der Import, schreibt aber nur die Einheiten, deren JSON-Seite gilt.
+Welt-Karten sind keine Einheit dieses Schritts: ihre Member schreibt danach der Schritt `world`,
+und nur wenn `textproject` gelang ([build_state.md](build_state.md) „Schritte“). Eine
 Einheit ist eine Entität (JSON mit Beifiles ↔ ihre Member), die Item-Dateien eines Item-Members, ein
 Binärmember, ein Blob (`data/raw/X` ↔ `X`), die Header-Tabelle (alle `data/headers/*` ↔ Ausschnitt in
 `arm9.bin` bzw. Dynamic-Header-Dateien und `mapname.bin`) oder die Quirks-Datei (↔ Compile-Zustand).
@@ -862,6 +879,31 @@ Aufzeichnung vor, sodass kurz vorher aufgezeichnete (racy) Einträge danach alle
 verglichen werden. Der Fortschritt zählt die Dateien und danach die Einheiten.
 
 Scan und Übernahme eines Projekts laufen nacheinander (eine Sperre je Projektwurzel im Prozess).
+
+**Welt-Karten** (seit 6.3b): eine Karten-Einheit, deren JSON eine Welt-Karte ist, urteilt der
+Abgleich nicht über JSON gegen Member (der Member ist die Ausgabe des Backens), sondern über ihren
+Datensatz im Abschnitt `world` von `.g4/build/state.json` ([build_state.md](build_state.md)):
+
+| Seite gegen den Datensatz | Urteil | Übernahme |
+|---|---|---|
+| Eingabe und Member wie aufgezeichnet | abgeglichen | neu aufzeichnen |
+| Eingabe geändert (JSON über Git, Tileset, Paket, Gebiet) oder kein Datensatz, Member wie aufgezeichnet bzw. fehlt | aus Datei | backen und den Member schreiben (`bake_world_maps`, Modus `Import`); ein abgelehntes Backen lässt die Einheit mit den `world.bake`-Problemen fehlschlagen |
+| Member geändert (DSPRE), mit oder ohne geänderte Eingabe | **immer Konflikt** (`other: "dspre"`, `world: true`) | nichts; nie eine einseitige Übernahme |
+| JSON nicht lesbar oder mit abgeleiteten Schlüsseln | fehlerhaft | nichts |
+
+`ConflictEntry.world` ist `true` nur für diesen Konflikt (Member außen geändert); eine Welt-Karte,
+deren JSON nur über Git geändert ist, während der Store einen ungespeicherten Strich hält, ist der
+gewöhnliche Konflikt `other: "files"`. Die Wahl in einem Welt-Konflikt: „Neu backen“ (`studio`,
+`Keep::Studio`) backt den Member aus der Welt (Modus `Rebake`) und zeichnet ihn neu auf;
+ein ungespeicherter Strich bleibt ungespeichert und wird beim nächsten Speichern geschrieben (vor
+der Wahl lehnt sein Speichern mit `Stale` ab).
+„Als binäre Karte übernehmen“ (`dspre`, `Keep::Dspre`, `world::build::take_member_as_binary`)
+schreibt die JSON aus dem Member mit `source: "binary"` (alle Teile aus dem Member, die Welt weg),
+löscht den Datensatz und zeichnet Datei und Member auf. `conflict_diff` zeigt für eine Welt-Karte
+das Backen gegen den Member (bei einem ungespeicherten Strich die Bytes des Stores):
+`permissions[i].kind`/`.collision`, `buildings[i].*`, `model`, `bdhc` und `bgs` als `N Byte`
+(bei gleicher Größe mit xxh3). Ein Scan, der eine Karten-Einheit beurteilt, öffnet dafür einmal
+einen Store.
 
 **Ungespeicherte Werte.** Mit dem Store (`sync_store`) wird eine Einheit mit einem ungespeicherten
 Asset nie übernommen und das Asset nie neu geladen: Jede Änderung von außen daran ist ein Konflikt
@@ -1220,7 +1262,7 @@ den Umschlag als erste Zeile nach dem Kopf fest (`*.deleted?`).
 | 0 → 1 | Manifest-Schlüssel `schema` wird `schemaVersion`; jedes Register `{"ids": {"0003": "MAP_T01"}}` wird `{"MAP_T01": 3}` |
 | 1 → 2 | in jeder `data/events/NNNN.json` werden `object_events[].hidden_flag` und `coord_events[].var` von der Zahl zum eigenen Namen aus `data/ids/flags.json` bzw. `vars.json`, nur wo einer eingetragen ist (0 und Nummern ohne eigenen Namen bleiben Zahl); sonst ändert sich keine Datei, ein Projekt ohne eigene Namen bleibt bis auf das Manifest byte-gleich. Der Umschlag `deleted` kommt mit dieser Version dazu und braucht keine Änderung |
 | 2 → 3 | nur das Manifest: `schemas` bekommt `maps.world` und `tilesets`, je Version 1 (eine höhere, die ein neueres Studio schrieb, bleibt). Keine andere Datei ändert sich, eine Karte ohne `world` liest in Version 3, wie sie ist (`migrate::v2_to_v3`, Phase 6.3a; Test `v2_to_v3_changes_only_the_manifest`) |
-| 3 → 4 | `schemas` bekommt `maps.world` 2; jede `data/maps/NNNN.json` mit `source: "world"` verliert `permissions`, `model` und `bdhc`, ihr `world.version` 1 wird 2, ein Dateiname in `world.freeform[].nsbmd` (Form von 6.3a) wird der Teil `{"file": …}`; ein Beifile, auf das nur ein entfernter Teil zeigte, wird gelöscht. Binäre Karten und alles andere bleiben byte-gleich (`migrate::v3_to_v4`, Phase 6.3b; Test `v3_to_v4_drops_derived_parts_of_world_maps`). Ein Manifest mit `maps.world` über 2 gilt wie eine neuere Schema-Version (nur lesen) |
+| 3 → 4 | `schemas` bekommt `maps.world` 2; jede `data/maps/NNNN.json` mit `source: "world"` verliert `permissions`, `model` und `bdhc`, ihr `world.version` 1 wird 2, ein Dateiname in `world.freeform[].nsbmd` (Form von 6.3a) wird der Teil `{"file": …}`; ein Beifile, auf das nur ein entfernter Teil zeigte, wird gelöscht. Binäre Karten und alles andere bleiben byte-gleich (`migrate::v3_to_v4`, Phase 6.3b; Test `v3_to_v4_drops_derived_parts_of_world_maps`). **Verloren** gehen dabei die Permissions, das Modell und die BDHC, die eine 6.3a-Welt-Karte auf Ebene der Karte trug, auch von Hand gesetzte Permissions: 6.3a-Welten waren eine Vorschau für Experten (nur über `g4_call --expert` erreichbar, „bis 6.3b baut der Build ihren bisherigen Member“); ab Schema 4 entstehen die drei Teile beim Backen aus der Welt, Handwerte gehören nach `world.permissions.override`. Ein Manifest mit `maps.world` über 2 gilt wie eine neuere Schema-Version (nur lesen) |
 
 Das Gate von 3d.4 (Grabstein je Art, Round-Trip und Idempotenz mit Grabstein, Kürz-Regel des Imports über Git hinweg, Migration 1 → 2 ändert nur Manifest und die Namen in der Event-JSON) und die Zahlen dazu stehen in [phase-3d-4-gate.md](../phase-3d-4-gate.md); die Befehle in [agent-gate.md](../agent-gate.md), Abschnitt „Phase 3d.4“.
 
@@ -1256,8 +1298,9 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.egg-moves-locked` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber die Ei-Attacken-Tabelle hat keinen Ort (Platin mit ungeprüfter Fassung oder fehlender Signatur); der Grund steht im Satz, nichts wird geschrieben |
 | `world.schema` | Fehler | Check und Import (seit 6.3a): ein Weltdokument, das seine Grammatik, seine Bereiche oder sein Tileset bricht (Zeilen, Token, Höhe außerhalb −16 bis 62, Rampe über 62, Kachel jenseits des Tilesets, Paket außerhalb, Teilmodell, Überschreibung), mit Pfad und Zeile; der Import lässt nur diese Karte aus. Formfehler von `world` bleiben `textproject.schema` ([world_map.md](world_map.md) „Prüfungen“) |
 | `world.tileset-mismatch` | Warnung | Check: ein Header, dessen Matrix die Welt-Karte zeigt, nennt Gebietsdaten mit einem anderen Paket als `world.tileset` |
-| `world.not-baked` | Info | Check: je Welt-Karte „Karte 0123 ist eine Welt-Karte; bis zum Backen (6.3b) baut der Build ihren bisherigen Member.“ |
-| `world.budget` | Info | Check: die geschätzte Modellgröße einer Welt aus Flächen und Texturen („Geschätzt höchstens 1 680 Byte (3 % von 0xF000) aus 1 Fläche und 1 Textur.“) |
+| `world.bake` | Fehler | Check, Build-Schritt `world`, Import und Abgleich (seit 6.3b): das Backen einer Welt-Karte lehnt ab, mit dem Code des Backens vorn (`bake.model-too-big`, `bake.texture-missing`, `bake.face-out-of-range`, `bake.face-uv-range`, `bake.empty`, `world.no-area`, `world.verbatim-mixed`, `world.freeform-later`), etwa „world.bake: world: bake.texture-missing: Die Textur „syn_boden“ fehlt im Kartentextur-Paket oder hat dort keine Palette.“ ([world_map.md](world_map.md) „Backen“) |
+| `world.budget` | Info | Check: die gebackenen Größen einer Welt ohne Fehler („Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), 3 Texturen, VRAM 21 656 Byte.“); eine Warnung mit „; VRAM über dem Vanilla-Höchstwert 110 640 Byte“, wenn der Bäcker `bake.vram-high` meldet |
+| `world.member-changed` | Fehler / Warnung | Build-Schritt `world` und Import: Fehler je Karte, nichts geschrieben; Check: Warnung; Abgleich: immer ein Konflikt mit `world: true`. Der Member einer Welt-Karte weicht von ihrem Datensatz ab: „Karte 0123: Der Member wurde außerhalb des Studios geändert (DSPRE?). In Technik › Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“.“ |
 | `story.dangling-ref` | Warnung | Check: eine ID in `progress`, `uses` oder `flags` einer Geschichte nennt im Projekt nichts, oder ein Eintrag in `uses` nennt, was es auf der Platte nicht mehr gibt (eine Nummer über der höchsten Scriptdatei, dem höchsten Textarchiv oder der höchsten Eventdatei, eine Trainer- oder Header-Datei, die „Nummer freigeben“ entfernte: „… gibt es nicht.“) oder eine gelöschte Entität (Grabstein: „… ist gelöscht.“); gemeldet mit Datei und Zeile des Eintrags, hält nichts auf ([stories.md](stories.md) „Verweise“, „Prüfung“) |
 
 ## Quellenliste

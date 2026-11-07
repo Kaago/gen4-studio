@@ -82,6 +82,13 @@ Die Kollision ist in beiden Familien nur Bit 7. Ein Test hält jeden `name` gege
    collision }` die ganze Zelle, spätere über frühere. Ein Wert außerhalb (x oder y ab 32) wird
    abgelehnt, bevor sich eine Zelle ändert.
 
+Die Schritte 2 und 3 sind seit 6.3b eine eigene Funktion, `terrain::block_edges(grid, cells)`:
+`derive_permissions` ist Muster plus `block_edges`, und das Backen einer Welt-Karte
+([world_map.md](world_map.md) „Permissions“) nimmt dieselbe Kantenregel auf die Zellen aus den
+Kacheln des Tilesets (oberste Ebene mit Kachel, leere Zelle `kind 0` / `collision 0x80`, dann die
+Fußabdrücke), danach die Handwerte. `block_edges` setzt nur Bit 7 und lässt die Geräusch-Bits;
+ein Index jenseits der Zellen wird übergangen statt zu paniken.
+
 ## Zeilenformat
 
 Wie die Permissions und das Weltformat (Gutachten C §5.2): **32 Zeilen** (Zeile `y`, ab 0) zu je
@@ -95,7 +102,8 @@ Leerraum als Trenner; `format_*` schreibt genau eines).
 | `kinds` | ein Zeichen aus `# . g G ~ r i ^ > v < D` | `# . . g g …` |
 
 `heights` und `ramps` sind wörtlich die Grammatik des Weltformats (6.3a, `layers[0].heights`,
-`ramps`). Eine Rampe mit anderer Stufenzahl (`e3`) ist lesbar und wird von der Rasterprüfung mit
+`ramps`): beide lesen mit **einem** Lexer, seit 6.3b in `terrain/rows.rs` (`terrain::lex_height`,
+`terrain::lex_ramp`); `world::grid` re-exportiert sie (`world::grid::lex_height`, `lex_ramp`). Eine Rampe mit anderer Stufenzahl (`e3`) ist lesbar und wird von der Rasterprüfung mit
 eigenem Satz abgelehnt. Ablehnungen (`KernelError::Refused`, deutsch, mit Ort):
 
 | Fall | Satz |
@@ -171,7 +179,8 @@ zeigt nur an; Speichern blockiert es nie.
 
 **Gebiet:** das der Gebietsdaten des ersten Headers in Tabellenreihenfolge, dessen Matrix die
 Karte zeigt (eine Zelle mit der Karte und, wo die Matrix einen Header-Abschnitt hat, mit diesem
-Header; dieselbe Regel wie die Texturpakete des Kartenimports). Kartenpaket `map_tileset`,
+Header): seit 6.3b das erste von `map_import::map_areas(store, map)`, dieselbe Funktion wie die
+Texturpakete des Kartenimports und das Backen einer Welt-Karte. Kartenpaket `map_tileset`,
 Gebäudepaket `buildings_tileset` der Gebietsdaten; `textures` ist die Zahl der Texturen im
 Kartenpaket. Ohne Gebiet ist `textures` `null` und `textures_missing` sagt warum: „Kein Header
 zeigt diese Karte.“, „Gebietsdaten 12 fehlen.“, „Texturpaket 6 nicht lesbar: <Grund>.“ bzw.
@@ -184,8 +193,10 @@ Byte je Palettenfarbe. Der Zustand folgt nicht der 90-%-Regel: **Knapp** über d
 Vanilla-Maximum der Familie (`vram.vanilla_max`: Platin 110 640 B, HGSS 87 424 B, A §2.4),
 **Voll** über `vram.full_estimate` 204 800 B. **Grenzen der Schätzung:** Texel, die zwei
 Texturen teilen, zählen doppelt; die Ausrichtung im VRAM und der Anteil der Figuren an der Bank
-sind nicht gemessen (die Bank teilen Karte, Gebäude und Figuren); Polygone und Vertices fehlen
-(sie folgen mit dem Modell-Codec in 6.3b). Ein Paket, das nicht passt, bricht im Spiel beim
+sind nicht gemessen (die Bank teilen Karte, Gebäude und Figuren); Polygone und Vertices fehlen.
+Eine Welt-Karte misst das Budget am gebackenen Map-Asset (6.3b); der Check `world.budget` nennt
+dort die Zahlen des Bäckers ([world_map.md](world_map.md) „Prüfungen“). Die doppelt gezählten Texel
+behebt 6.4a (`map_budget` über `bake::pack_vram`). Ein Paket, das nicht passt, bricht im Spiel beim
 Hochladen ab (A §2.4); die Schätzung ist eine Warnung, keine Prüfung.
 
 **Abweichung auf Vanilla** (gated Test `terrain_over_the_command_path_on_the_vanilla_copy`, über

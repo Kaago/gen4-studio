@@ -12,11 +12,13 @@ lässt jeden Schritt voll laufen, ohne Fehler, und das Ergebnis ist byte-gleich;
 Textprojekt kann `textproject` dann mit `textproject.unsynced` anhalten (siehe „Neu bauen“). Die Einträge unter
 `texts` sind dabei mehr als Cache: Sie entscheiden, ob die JSON oder der Member eines Textarchivs
 gilt. Ohne sie gilt für jedes Archiv die JSON, auch wenn DSPRE den Member seitdem geändert hat (der
-Build meldet das als Hinweis).
+Build meldet das als Hinweis). Ebenso der Abschnitt `world` (6.3b): ohne ihn gilt für jede
+Welt-Karte die Welt, ihr Member wird gebacken und überschrieben, auch wenn DSPRE ihn geändert hat.
 
 **„Neu bauen (ohne Cache)“** (`build::clear_cache`, `g4k build --no-cache`, `build_rom` mit
 `fresh: true`) löscht darum alles unter `.g4/build/` (BLZ-Cache, Schritt-Einträge, `rom`), behält
-aber die `texts`-Einträge und den Abschnitt `sync` (siehe „`sync` (4.3b)“): Zuerst ersetzt es `state.json` atomar durch einen Zustand nur mit
+aber die `texts`-Einträge, den Abschnitt `sync` (siehe „`sync` (4.3b)“) und den Abschnitt `world`
+(siehe „`world` (6.3b)“): Zuerst ersetzt es `state.json` atomar durch einen Zustand nur mit
 ihnen, erst danach löscht es den Rest des Ordners, sodass ein Absturz dazwischen den Textabgleich
 nicht verliert. Alle Schritte laufen danach
 voll (`no-state`), die Seiten der Textarchive folgen weiter den Fingerabdrücken. Fehlt `state.json`
@@ -42,14 +44,15 @@ JSON, kompakt, UTF-8.
     }
   },
   "texts": { "0012": { "json": [512, 1, 1, 4711, "00ab…"], "member": [380, 1, 1, 4712, "00cd…"], "scanned_at_ns": 1761480000123456789 } },
-  "rom": { "path": "/Users/…/out.nds", "fp": [134217728, 1, 1, 815, "00ab…"] }
+  "rom": { "path": "/Users/…/out.nds", "fp": [134217728, 1, 1, 815, "00ab…"] },
+  "world": { "0000": { "input": "3f2a9c0d11e4b7a8", "member": "9b1e0c47d2a35f60" } }
 }
 ```
 
 | Feld | Inhalt |
 |---|---|
 | `version` | Formatversion, heute `1` (`salt::STATE_VERSION`) |
-| `steps` | je Schritt-ID (`textproject`, `rotom`, `chatot`, `pack:<Ordner unter unpacked/>`, `watch:<Ordner unter unpacked/>`, `rom`) ein Eintrag |
+| `steps` | je Schritt-ID (`textproject`, `world`, `rotom`, `chatot`, `pack:<Ordner unter unpacked/>`, `watch:<Ordner unter unpacked/>`, `rom`) ein Eintrag |
 | `steps.*.salt` | Werkzeug-Salz des Schritts (siehe unten) |
 | `steps.*.scanned_at_ns` | Zeitpunkt der Aufnahme, Nanosekunden seit 1970 (für die racy-Regel) |
 | `steps.*.inputs`, `outputs` | Pfad → Fingerabdruck; Pfade projektrelativ mit `/`, eine Ausgabe außerhalb des Projekts (die ROM) absolut |
@@ -57,6 +60,7 @@ JSON, kompakt, UTF-8.
 | `texts` | je Textarchiv (vierstellig) die Fingerabdrücke von JSON und Member beim letzten Abgleich, immer mit Hash, und `scanned_at_ns` (fehlt es, gilt der Eintrag als racy); siehe „Welche Fassung gilt“ in [text_archive.md](text_archive.md) |
 | `rom` | die zuletzt geschriebene ROM: Pfad wie in `outputs` und ihr Fingerabdruck |
 | `sync` | nur im Textprojekt: der Abgleich zwischen Quellen und Membern, siehe „`sync` (4.3b)“; fehlt, bis einmal alles aufgezeichnet ist |
+| `world` | nur im Textprojekt: je Welt-Karte (vierstellig) der Datensatz ihres letzten Backens, siehe „`world` (6.3b)“; leer `{}` |
 
 Ein **Fingerabdruck** ist ein Array `[size, mtime_ns, ctime_ns, ino, "xxh3hex" | null]`: Größe,
 Änderungszeit und Statusänderungszeit in Nanosekunden, Inode und der xxh3-64 des Inhalts als
@@ -120,6 +124,51 @@ Geschrieben wird `sync` von:
 Konflikte und fehlerhafte Einheiten bleiben unaufgezeichnet, bis sie gelöst sind. „Neu bauen
 (ohne Cache)“ behält `sync` wie `texts`; fehlt der Abschnitt (gelöschte oder kaputte Datei),
 vergleicht der nächste Abgleich voll mit Fortschritt und zeichnet danach neu auf.
+
+## `world` (6.3b)
+
+Je Welt-Karte (Schlüssel vierstellig) `{ "input": "<xxh3>", "member": "<xxh3>" }`, je 16
+Hex-Ziffern (`build::state::WorldRecord`, `world/record.rs`):
+
+- `input`: der xxh3 über alles, was das Backen der Karte liest, je Stück mit Name und Länge davor:
+  das Salz `world#<WORLD_BAKE_REV>+bake#<BAKE_REV>+bdhc#<GENERATOR_REV>` (heute
+  `world#1+bake#1+bdhc#1`), die Familie, die Bytes von `data/maps/NNNN.json` auf der Platte (nicht
+  der ungespeicherte Stand des Stores), die aufgelösten Verbatim-Bytes (Modell, BDHC), die
+  Tileset-Datei `data/tilesets/NNNN.json` (fehlt sie, gilt `textures_only` des Pakets, das die
+  Paket-Bytes decken), der Member des Pakets `world.tileset` und das erste Gebiet der Karte
+  (`map_areas`) mit seinem Stil. Gebäudepakete (VRAM) zählen nicht: sie ändern nur die Warnung
+  `bake.vram-high`, nicht die Bytes.
+- `member`: der xxh3 des Members, den das Backen schrieb.
+
+Gegen den Datensatz steht eine Welt-Karte so (`world::record::world_side`):
+
+| Eingabe | Member | Seite |
+|---|---|---|
+| wie aufgezeichnet | wie aufgezeichnet | `InStep` (nichts zu tun) |
+| geändert | wie aufgezeichnet, oder **fehlt** | `SourceChanged` (backen) |
+| wie aufgezeichnet | geändert | `MemberChanged` (`world.member-changed`) |
+| geändert | geändert | `Both` (`world.member-changed`) |
+| – (kein Datensatz) | – | `Unrecorded`: die Welt gilt, backen |
+
+Geschrieben wird `world` von:
+
+- dem **Build-Schritt** `world` (die Karten, die er backte und schrieb),
+- dem **Speichern** im Store: eine gespeicherte Welt-Karte, deren Backen ohne Fehler war, mit dem
+  Member, wie er geschrieben wurde; jede andere gespeicherte Karte (abgelehntes oder
+  gescheitertes Backen, eine aufgegebene Welt) **verliert** ihren Datensatz, sodass der nächste
+  Build sie backt und `world.bake` meldet, statt den eigenen Member für einen außen geänderten zu
+  halten; ein Fehler beim Schreiben des Datensatzes ist nicht der des Speicherns, die Karte bleibt
+  dann ohne Datensatz,
+- dem **Import** (die Welt-Karten, die er backte),
+- der **Wahl** in einem Welt-Konflikt: „Neu backen“ zeichnet neu auf, „Als binäre Karte
+  übernehmen“ löscht den Datensatz.
+
+Wie `texts` und `sync` ist `world` kein Cache: „Neu bauen (ohne Cache)“ behält ihn, damit sich
+„Welt geändert“ weiter von „Member außen geändert“ trennen lässt. Fehlt er (gelöschte oder
+kaputte Datei), gilt die Welt: jede Welt-Karte wird gebacken und ihr Member überschrieben, ohne
+Konflikt und ohne Fehler. Die Regeln für Build, Abgleich und Import stehen in
+[world_map.md](world_map.md) „Build, Datensatz und DSPRE“ und [text_project.md](text_project.md)
+„DSPRE parallel“.
 
 ## Vergleich
 
@@ -206,10 +255,13 @@ Lauf aufgenommen, ebenso die Ausgaben. Ändert jemand anderes eine Eingabe, wäh
 läuft, sieht der nächste Build sie als geändert. Scheitert ein Schritt, wird sein alter Eintrag
 gelöscht. Ausnahme ist ein Textkonflikt (`KernelError::TextConflict`): `rotom` und `chatot` melden
 ihn, bevor sie etwas schreiben, also behalten sie ihren Eintrag, und der Build nach dem Auflösen
-läuft inkrementell statt mit `no-state` („erster Build“). `prepare_for_build` schreibt die Einträge von `textproject`, `rotom` und
+läuft inkrementell statt mit `no-state` („erster Build“). `prepare_for_build` schreibt die Einträge von `textproject`, `world`, `rotom` und
 `chatot`, `build_prepared` die der Pack- und Beobachtungs-Schritte und von `rom`.
 
 ## Werkzeug-Salz
+
+`world` hat kein Werkzeug: sein Salz ist `world#<WORLD_BAKE_REV>+bake#<BAKE_REV>+bdhc#<GENERATOR_REV>`
+(siehe „`world` (6.3b)“).
 
 `crates/g4-kernel/build.rs` liest die Zeilen von ds-rom, rotom, chatot und uxie aus `Cargo.lock`
 (`"<name> <version> <source>"`, sonst `"unknown"`). Das Salz eines Schritts ist diese Zeile plus
@@ -224,6 +276,7 @@ Schritt einmal voll laufen.
 | Schritt | Eingaben | Ausgaben |
 |---|---|---|
 | `textproject` (nur mit `g4-project.json`, vor `rotom`) | `g4-project.json`, `data/ids/`, `data/rotom-quirks.json`, je bekannte Art `data/<art>/`, alle Dateien unter `data/raw/` (rekursiv, vom Schritt gelistet) und je Blob `data/raw/X` die Datei `X`, je abgebildete Art der Member-Ordner unter `unpacked/`, `arm9/arm9.bin`, `files/fielddata/maptable/mapname.bin`, bei angewandtem Dynamic-Headers-Patch `unpacked/dynamicHeaders/` | – |
+| `world` (nur mit `g4-project.json`, direkt nach `textproject` und nur wenn es gelang, vor `rotom`) | `data/maps/`, `data/tilesets/`, die Member-Ordner unter `unpacked/` der Kartentexturen, Gebietsdaten und Matrizen, `arm9/arm9.bin` (Header-Tabelle), bei angewandtem Dynamic-Headers-Patch `unpacked/dynamicHeaders/` | die Member der Welt-Karten |
 | `rotom` (nur mit `rotom.toml`) | alle Dateien unter `expanded/scripts/` (rekursiv, wie rotom sammelt) und unter den `include_roots` aus `rotom.toml`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, die versteckten ID-Dateien `.rotom/command_database/.g4-ids-*.json` einzeln und die Register `data/ids/*.json` des Textprojekts, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts (die ID-Dateien, die der Compile schreibt, zählen als vom Schritt geschrieben) |
 | `chatot` | `expanded/textArchives/`, `unpacked/textArchives/` | – |
 | `pack:<Ordner>` | `unpacked/<Ordner>/` | das gepackte NARC |
@@ -247,6 +300,23 @@ JSON gilt inkrementell als neuer (wenn er geändert oder schon behalten ist), vo
 Ist der Schritt übersprungen, hat der Compile-Zustand aber die Quirks der Quirks-Datei verloren
 (gelöscht, zurückgesetzt), legt `prepare` sie vor `rotom` wieder hinein. Salz:
 `textproject#<TEXTPROJECT_REV>+schema<SCHEMA_VERSION>+sync<Version der Datei>+` und die uxie-Zeile.
+
+`world` (6.3b, `world::build`): entscheidet **jede** Welt-Karte (eine `data/maps/NNNN.json` mit
+`source: "world"`, deren `world` sich liest, ohne Grabstein) über ihren Eingabe-Hash gegen den
+Datensatz, was immer der Runner als geändert meldet: `InStep` bleibt, `SourceChanged` und
+`Unrecorded` werden gebacken, `MemberChanged` und `Both` sind je Karte der Fehler
+`world.member-changed: Karte 0123: Der Member wurde außerhalb des Studios geändert (DSPRE?). In
+Technik › Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“.` an `data/maps/NNNN.json`;
+ein abgelehntes Backen ist `world.bake: world: <code>: <Satz>`. Bei einem Fehler schreibt der
+Schritt nichts und zeichnet nichts auf. Sonst schreibt er die Member (nur bei geänderten Bytes),
+zeichnet sie unter `world` auf und für den Abgleich unter `sync` (ohne das wäre ein Speichern
+danach `Stale`). Eine geänderte Karten-JSON backt also genau eine Karte, ein geändertes Tileset
+die Karten seines Pakets. Eine Karte, deren JSON sich nicht liest oder abgeleitete Schlüssel
+trägt, übergeht er still: sie meldet schon `textproject` (wie der Import) mit ihrem Pfad. Die Zeile zählt `done` = gebackene Karten von `total` = Welt-Karten
+(„Karten backen“ in Technik › Prüfen und Bauen). Ein Speichern, das einen Member einer Welt-Karte
+neu schreibt, lässt den nächsten Lauf voll laufen (`output-changed`); er backt trotzdem nur, was
+nicht `InStep` ist. Nach einem Lauf, in dem `world` Member schrieb, läuft `textproject` beim
+nächsten Build einmal inkrementell ohne Arbeit (die Member sind seine Eingaben).
 
 `rotom`: rotoms eigener `compile-state.json` bleibt maßgeblich; das Tor entscheidet nur, ob
 `scripts::compile` läuft. `chatot` voll: jede JSON, die nach `TextSync` gilt (`OnlyJson`,
