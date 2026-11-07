@@ -1450,6 +1450,16 @@ impl Store {
         }
     }
 
+    /// The source of world map `map` as its JSON on disk holds it (world, own parts, verbatim
+    /// parts resolved), not as the store holds it: see [`EntitySource::read_world_map`].
+    pub(crate) fn world_map_source(
+        &mut self,
+        map: u16,
+    ) -> Result<Option<crate::textproject::schema::map::WorldMapSource>, KernelError> {
+        let project = Arc::clone(&self.project);
+        Store::source(&mut self.source, &project)?.read_world_map(&project, map)
+    }
+
     /// Whether the project is a text project, where maps can carry a world.
     pub(crate) fn in_text_project(&self) -> bool {
         *self.project.source_mode() == SourceMode::TextProject
@@ -1527,10 +1537,14 @@ impl Store {
     /// Bakes every world map with unsaved changes (its Map or its world map asset dirty) anew
     /// over its Map asset, right before a save writes it: the tileset, the package or the area
     /// may have changed since the stroke. A changed result replaces the Map asset's value
-    /// without a step of its own.
-    fn rebake_dirty_worlds(&mut self) -> Result<(), KernelError> {
+    /// without a step of its own. A bake that fails (its package gone, an I/O error reading the
+    /// area) leaves that map as the stroke baked it and does not stop the save of the others;
+    /// the check reports the world's problem. Returns per dirty map with a world whether its
+    /// bake was ok (a failed bake is not).
+    fn rebake_dirty_worlds(&mut self) -> BTreeMap<u16, bool> {
+        let mut ok = BTreeMap::new();
         if !self.in_text_project() {
-            return Ok(());
+            return ok;
         }
         let mut maps: Vec<u16> = self
             .dirty()
@@ -1553,7 +1567,11 @@ impl Store {
             };
             let (world, base) = (world.clone(), base.clone());
             let verbatim = Verbatim::of(&world, &base);
-            let baked = bake_world(self, map, &world, &base, &verbatim)?;
+            let Ok(baked) = bake_world(self, map, &world, &base, &verbatim) else {
+                ok.insert(map, false);
+                continue;
+            };
+            ok.insert(map, baked.report.ok);
             if baked.file.write(family) != base.write(family)
                 && let Some(asset) = self.assets.get_mut(&map_id)
             {
@@ -1561,7 +1579,7 @@ impl Store {
                 self.note_change(map_id);
             }
         }
-        Ok(())
+        ok
     }
 
     /// Whether `on_disk` (read as the base) is still what the store last saw of `id`
@@ -3831,7 +3849,7 @@ impl Store {
         if !conflicts.is_empty() {
             return Err(KernelError::TextConflict(conflicts));
         }
-        self.rebake_dirty_worlds()?;
+        let baked_ok = self.rebake_dirty_worlds();
         let mut pending = Vec::new();
         for id in self.dirty() {
             // A text archive or entity JSON that no longer decodes differs from what was
@@ -3900,8 +3918,53 @@ impl Store {
         let source = Store::source(&mut self.source, &project).ok();
         record_saved(&project, source, &written, &members, &units, &journal);
         self.record_texts(&report.written);
+        self.record_saved_worlds(&report.written, &baked_ok);
         crate::scripts::mark_stale(&self.project, &report.retargeted_scripts)?;
         Ok(report)
+    }
+
+    /// Records the world maps among `written` for the build step `world`
+    /// ([`crate::world::record`]): one whose bake was ok (`baked_ok`) with the input hash and the
+    /// member as written; any other map written (a refused bake, a world given up) loses its
+    /// record, so the next build bakes it and reports, instead of taking the store's own member
+    /// for one changed outside. The record is a cache like the sync's: an error here is not the
+    /// save's, it leaves the map unrecorded.
+    fn record_saved_worlds(&mut self, written: &[AssetId], baked_ok: &BTreeMap<u16, bool>) {
+        use crate::build::state::WorldRecord;
+        use crate::world::record::{forget_world, input_hash, member_hash, record_world};
+        if !self.in_text_project() {
+            return;
+        }
+        let mut maps: Vec<u16> = written
+            .iter()
+            .filter(|id| matches!(id.kind, AssetKind::Map | AssetKind::WorldMap))
+            .map(|id| id.index)
+            .collect();
+        maps.sort_unstable();
+        maps.dedup();
+        let mut entries = Vec::new();
+        let mut forget = Vec::new();
+        for map in maps {
+            let record = match baked_ok.get(&map) {
+                Some(true) => input_hash(self, map).ok().flatten().and_then(|input| {
+                    let member = std::fs::read(self.project.member_path(AssetKind::Map, map));
+                    member.ok().map(|bytes| WorldRecord {
+                        input,
+                        member: member_hash(&bytes),
+                    })
+                }),
+                _ => None,
+            };
+            match record {
+                Some(record) => entries.push((map, record)),
+                None => forget.push(map),
+            }
+        }
+        let project = Arc::clone(&self.project);
+        if record_world(&project, &entries).is_err() {
+            forget.extend(entries.iter().map(|(map, _)| *map));
+        }
+        let _ = forget_world(&project, &forget);
     }
 
     /// Before a save in a text project writes anything: every other loaded asset of a unit it

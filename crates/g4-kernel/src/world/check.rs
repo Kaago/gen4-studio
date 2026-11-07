@@ -2,8 +2,9 @@
 //! not in the check register (`checks/*` is phase 6.2's): `world.schema` (error: the grid of
 //! [`WorldGrid::parse`], the package out of range, tiles past the tileset, pieces),
 //! `world.tileset-mismatch` (warning: a header that shows the map names area data of another
-//! package), `world.bake` (error: each refusal of the bake, with its code) and `world.budget`
-//! (info, a warning over the vanilla VRAM: the baked sizes).
+//! package), `world.bake` (error: each refusal of the bake, with its code), `world.budget`
+//! (info, a warning over the vanilla VRAM: the baked sizes) and `world.member-changed` (warning:
+//! the member differs from the one recorded for the world, see [`world_side`]).
 //!
 //! Serde form errors of `world` stay `textproject.schema` (the import's and the export's). The
 //! import skips a world map with a `world.schema` error ([`map_schema_problems`]), its problem in
@@ -23,11 +24,13 @@ use crate::textproject::arts::{Art, numbered, slash};
 use crate::textproject::locate::position;
 
 use super::bake::WorldBakeReport;
+use super::build::member_changed_text;
 use super::doc::WorldJson;
 use super::grid::{WorldError, WorldGrid, error_cell};
 use super::keep::world_field;
 use super::mesh::{MODEL_BUDGET, piece_problems};
 use super::places::headers_of_map;
+use super::record::{WorldSide, world_side};
 use super::tileset::{
     TileRole, Tileset, missing_package, package_file, read_package_file, read_tileset_file,
     textures_only, tile_outside,
@@ -42,8 +45,8 @@ pub const WORLD_TILESET_MISMATCH_CODE: &str = "world.tileset-mismatch";
 pub const WORLD_BUDGET_CODE: &str = "world.budget";
 /// A refusal of a world's bake (error), the bake's code first in the sentence.
 pub const WORLD_BAKE_CODE: &str = "world.bake";
-/// The member of a world map changed outside the Studio (warning; the check part follows with
-/// the build step `world`).
+/// The member of a world map changed outside the Studio since its record (warning in the
+/// check; an error of the build step `world`).
 pub const WORLD_MEMBER_CHANGED_CODE: &str = "world.member-changed";
 
 /// „Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), 3
@@ -132,6 +135,7 @@ pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
             if clean {
                 bake_problems(store, map, &at, &mut problems);
             }
+            member_problems(store, map, &at, &mut problems);
         }
     }
     Ok(problems)
@@ -142,8 +146,16 @@ pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
 /// ([`baked_budget_text`], a warning over the vanilla VRAM). A world the store does not bake
 /// (its file refused) gives none.
 fn bake_problems(store: &mut Store, map: u16, at: &Spot<'_>, problems: &mut Vec<Problem>) {
-    let Ok(Some(report)) = store.world_bake_report(map) else {
-        return;
+    let report = match store.world_bake_report(map) {
+        Ok(Some(report)) => report,
+        Ok(None) => return,
+        // The file refused (derived keys): the import's error.
+        Err(KernelError::Compile(_)) => return,
+        Err(e) => {
+            let text = e.to_string();
+            problems.push(at.problem(Severity::Error, WORLD_BAKE_CODE, "world", &text, None));
+            return;
+        }
     };
     for m in report.messages.iter().filter(|m| m.level == Level::Error) {
         let sentence = format!("{}: {}", m.code, m.message);
@@ -162,6 +174,23 @@ fn bake_problems(store: &mut Store, map: u16, at: &Spot<'_>, problems: &mut Vec<
         };
         let text = baked_budget_text(&report, vram_max);
         problems.push(at.problem(severity, WORLD_BUDGET_CODE, "world", &text, None));
+    }
+}
+
+/// `world.member-changed` (warning) when the member of world map `map` differs from its record
+/// (DSPRE wrote it): „Karte 0123: Der Member wurde außerhalb des Studios geändert (DSPRE?). In
+/// Technik › Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“.“ Nothing without a
+/// record, and nothing when the side cannot be told (the file refused: the import's error).
+fn member_problems(store: &mut Store, map: u16, at: &Spot<'_>, problems: &mut Vec<Problem>) {
+    if let Ok(Some(WorldSide::MemberChanged | WorldSide::Both)) = world_side(store, map) {
+        let text = member_changed_text(map);
+        problems.push(at.problem(
+            Severity::Warning,
+            WORLD_MEMBER_CHANGED_CODE,
+            "world",
+            &text,
+            None,
+        ));
     }
 }
 
@@ -779,6 +808,49 @@ mod tests {
                 "world.bake: world: bake.texture-missing: Die Textur „syn_boden“ fehlt im \
                  Kartentextur-Paket oder hat dort keine Palette."
             ]
+        );
+    }
+
+    #[test]
+    fn member_changed_is_a_warning_in_the_check() {
+        let fx = crate::test_support::world_built();
+        assert!(
+            with_code(&problems_of(&fx), WORLD_MEMBER_CHANGED_CODE).is_empty(),
+            "in step"
+        );
+        let path = fx.project().member_path(AssetKind::Map, 0);
+        let mut member = std::fs::read(&path).unwrap();
+        member[0x10] ^= 0x01;
+        std::fs::write(&path, &member).unwrap();
+        let problems = problems_of(&fx);
+        let changed = with_code(&problems, WORLD_MEMBER_CHANGED_CODE);
+        assert_eq!(changed.len(), 1, "{problems:#?}");
+        assert_eq!(changed[0].severity, Severity::Warning);
+        assert_eq!(changed[0].file, Path::new(MAP));
+        assert_eq!(
+            changed[0].message,
+            "world.member-changed: world: Karte 0000: Der Member wurde außerhalb des Studios \
+             geändert (DSPRE?). In Technik › Textprojekt „Neu backen“ oder „Als binäre Karte \
+             übernehmen“."
+        );
+    }
+
+    /// A bake that fails for another reason than the file (a tileset file that does not read)
+    /// is a `world.bake` error, not swallowed.
+    #[test]
+    fn a_failing_bake_is_a_world_bake_error() {
+        let fx = crate::test_support::world_ready();
+        put_world(&fx, &fixtures::one_tile_world());
+        fx.write(tileset_rel(0).to_str().unwrap(), b"{ not a tileset");
+        let problems = problems_of(&fx);
+        let bake = with_code(&problems, WORLD_BAKE_CODE);
+        assert_eq!(bake.len(), 1, "{problems:#?}");
+        assert_eq!(bake[0].severity, Severity::Error);
+        assert!(
+            bake[0].message.starts_with("world.bake: world: ")
+                && bake[0].message.contains("data/tilesets/0000.json"),
+            "{}",
+            bake[0].message
         );
     }
 }

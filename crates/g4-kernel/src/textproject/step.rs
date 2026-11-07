@@ -35,6 +35,10 @@
 //! compile state, which is rotom's cache; when the step is skipped, `prepare` seeds them again
 //! if the compile state lost them ([`reseed_quirks`]).
 //!
+//! A world map (`source: "world"`) is no unit: the plan checks its JSON but writes no member
+//! for it ([`ImportPlan::world_maps`]), so its member is never `member-newer`, `unsynced` or a
+//! conflict here; the build step `world` right after bakes it ([`crate::world::build`]).
+//!
 //! Every unit is decided before the first write; one error and the step fails with
 //! [`KernelError::Compile`] and writes nothing.
 //!
@@ -89,7 +93,7 @@ use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 pub(crate) const STEP_ID: &str = "textproject";
 
 /// The step's revision; raise it when what the step writes changes.
-pub(crate) const TEXTPROJECT_REV: u32 = 2;
+pub(crate) const TEXTPROJECT_REV: u32 = 3;
 
 /// The members the step kept as newer than their JSON, below the build's cache (deleted with
 /// it, which makes the next run full anyway).

@@ -543,3 +543,78 @@ fn world_edit_refuses_a_world_file_with_derived_keys() {
     assert!(again.history().0.is_empty());
     assert_eq!(fx.read(JSON), before);
 }
+
+/// Task 4 review: the save bakes a dirty world map anew over a tileset changed since the stroke;
+/// undo and redo still work.
+#[test]
+fn save_rebakes_over_a_tileset_changed_since_the_stroke() {
+    let fx = world_ready();
+    let mut st = store(&fx);
+    create(&mut st, 0);
+    edit(
+        &mut st,
+        json!({"map": 0, "changes": [{"cells": [[10, 10], [11, 10]], "height": 1}]}),
+    )
+    .unwrap();
+    let stroke = st.map(0).unwrap().clone();
+    assert!(stroke.permissions.iter().all(|c| c.kind != 0x02));
+    // Tile 0 becomes grass on disk, past the store (no `forget_world_bakes`).
+    let mut tileset = Tileset::synthetic();
+    tileset.tiles[0].kind = 0x02;
+    fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&tileset));
+    st.save().unwrap();
+    let saved = MapFile::read(&member(&fx), Family::Pt).unwrap();
+    // Every cell with tile 0 follows the new tileset.
+    let grid = WorldGrid::parse(st.world(0).unwrap().unwrap()).unwrap();
+    let tiled: Vec<usize> = (0..32 * 32)
+        .filter(|&i| grid.layers[0].tiles[i].is_some_and(|t| t.tile == 0))
+        .collect();
+    assert!(!tiled.is_empty());
+    for i in tiled {
+        assert_eq!(saved.permissions[i].kind, 0x02, "cell {i}");
+    }
+    assert_eq!(st.map(0).unwrap(), &saved);
+    // Undo and redo still work.
+    let world = st.world(0).unwrap().cloned();
+    st.undo().unwrap();
+    assert_eq!(st.history().0.len(), 1);
+    assert_ne!(st.world(0).unwrap().cloned(), world);
+    st.redo().unwrap();
+    assert_eq!(st.history().0.len(), 2);
+    assert_eq!(st.world(0).unwrap().cloned(), world);
+}
+
+/// Task 4 review: a bake that fails at save time (the tileset file does not read) keeps the
+/// stroke's bake for that map and does not stop the save of the others.
+#[test]
+fn a_failing_bake_at_save_keeps_the_stroke_and_saves_the_rest() {
+    let fx = world_ready();
+    let mut st = store(&fx);
+    create(&mut st, 0);
+    edit(
+        &mut st,
+        json!({"map": 0, "changes": [{"cells": [[3, 3]], "tile": "0001"}]}),
+    )
+    .unwrap();
+    let stroke = map_bytes(&mut st);
+    st.edit_map(2, "Permission", |m| {
+        m.permissions[0].collision ^= 0x80;
+        Ok(())
+    })
+    .unwrap();
+    let map_2 = st.map(2).unwrap().write(Family::Pt);
+    fx.write(tileset_rel(0).to_str().unwrap(), b"{ not a tileset");
+    let report = st.save().unwrap();
+    assert!(report.written.contains(&MAP), "{:?}", report.written);
+    assert_eq!(member(&fx), stroke);
+    assert_eq!(
+        std::fs::read(fx.project().member_path(AssetKind::Map, 2)).unwrap(),
+        map_2
+    );
+    // Not recorded: the next build bakes it and reports.
+    assert!(
+        !crate::build::state::BuildState::load(fx.root())
+            .world
+            .contains_key(&0)
+    );
+}

@@ -1039,15 +1039,32 @@ pub fn world_ready() -> TextFixture {
         .collect();
     let project = fx.project();
     project.ensure_unpacked(AssetKind::MapTexture).unwrap();
-    std::fs::write(
-        project.member_path(AssetKind::MapTexture, 0),
-        g4_formats::nsbtx::build(&textures).unwrap(),
-    )
-    .unwrap();
+    let pack = g4_formats::nsbtx::build(&textures).unwrap();
+    std::fs::write(project.member_path(AssetKind::MapTexture, 0), &pack).unwrap();
+    // The package's file in the text project too, so a build keeps the member.
+    fx.write("data/map_textures/0000.nsbtx", &pack);
     fx.write(
         tileset_rel(0).to_str().unwrap(),
         &crate::textproject::canon::to_canonical(&tileset),
     );
+    fx
+}
+
+/// [`world_ready`] with maps 0 and 1 made world maps (one tile each, package 0) by a store,
+/// saved, and built once (`build::prepare`): both members baked and recorded.
+pub fn world_built() -> TextFixture {
+    use std::sync::Arc;
+    let fx = world_ready();
+    let mut store = crate::store::Store::new(Arc::new(fx.project()));
+    for map in [0u16, 1] {
+        let req: crate::world::edit::WorldCreateRequest =
+            serde_json::from_value(serde_json::json!({"map": map, "tileset": 0})).unwrap();
+        let report = crate::world::edit::world_create(&mut store, &req).unwrap();
+        let bake = report.bake.expect("a bake report");
+        assert!(bake.ok, "map {map}: {:?}", bake.messages);
+    }
+    store.save().unwrap();
+    crate::build::prepare(&fx.project()).unwrap();
     fx
 }
 

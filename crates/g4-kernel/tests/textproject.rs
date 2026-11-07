@@ -949,7 +949,11 @@ fn the_step_runs_only_with_a_manifest() {
     fx.export();
     let rows = run_source_and_pack_steps(&fx.p()).unwrap();
     let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
-    assert_eq!(ids[..3], ["textproject", "rotom", "chatot"], "{ids:?}");
+    assert_eq!(
+        ids[..4],
+        ["textproject", "world", "rotom", "chatot"],
+        "{ids:?}"
+    );
 }
 
 #[test]

@@ -32,6 +32,21 @@ pub struct BuildState {
     /// cache" keeps it like `texts`; `None` until the whole tree was recorded once.
     #[serde(default)]
     pub sync: Option<SyncRecord>,
+    /// The world maps' records (phase 6.3b): per map the input hash of its last bake and the
+    /// hash of the member it wrote, by which the build step `world` and the sync tell a changed
+    /// world from a member changed outside. Not build cache either: "build without cache" keeps
+    /// it like `texts` and `sync`; without one the world applies (its member is baked anew).
+    #[serde(default, with = "archive_keys")]
+    pub world: BTreeMap<u16, WorldRecord>,
+}
+
+/// What the build step `world`, a save, the import or a conflict resolution last baked for a
+/// world map: the xxh3 of what the bake read (`input`) and of the member written (`member`),
+/// 16 hex digits each (see `world::record`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorldRecord {
+    pub input: String,
+    pub member: String,
 }
 
 /// The fingerprints of the files the text project's sync watches (project-relative paths
@@ -72,17 +87,15 @@ pub struct RomRecord {
     pub fp: Fp,
 }
 
-/// Serializes the text archives' map with four-digit keys (`"0012"`).
+/// Serializes a map by archive or map number with four-digit keys (`"0012"`).
 mod archive_keys {
     use std::collections::BTreeMap;
 
     use serde::de::Error as _;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    use super::TextRecord;
-
-    pub fn serialize<S: Serializer>(
-        map: &BTreeMap<u16, TextRecord>,
+    pub fn serialize<S: Serializer, T: Serialize>(
+        map: &BTreeMap<u16, T>,
         s: S,
     ) -> Result<S::Ok, S::Error> {
         map.iter()
@@ -91,10 +104,10 @@ mod archive_keys {
             .serialize(s)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
+    pub fn deserialize<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
         d: D,
-    ) -> Result<BTreeMap<u16, TextRecord>, D::Error> {
-        BTreeMap::<String, TextRecord>::deserialize(d)?
+    ) -> Result<BTreeMap<u16, T>, D::Error> {
+        BTreeMap::<String, T>::deserialize(d)?
             .into_iter()
             .map(|(key, record)| Ok((key.parse::<u16>().map_err(D::Error::custom)?, record)))
             .collect()
@@ -258,8 +271,8 @@ impl BuildState {
         Ok(())
     }
 
-    /// Deletes [`BUILD_DIR`] but keeps the text archives' sync records (`texts`) and the text
-    /// project's sync (`sync`): they are not build cache but what decides whether a text's
+    /// Deletes [`BUILD_DIR`] but keeps the text archives' sync records (`texts`), the text
+    /// project's sync (`sync`) and the world maps' records (`world`): they are not build cache but what decides whether a text's
     /// JSON or its member applies (a member DSPRE changed since the last sync stays
     /// `MemberNewer`) and which side of an entity changed, and they are checked by content.
     /// The state with them alone (no step entries, no ROM) replaces `state.json` first,
@@ -271,10 +284,10 @@ impl BuildState {
     pub(crate) fn clear_keeping_texts(root: &Path) -> Result<(), KernelError> {
         let mut cache = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let state = BuildState::read(&mut cache, root);
-        let (texts, sync) = (state.texts.clone(), state.sync.clone());
+        let (texts, sync, world) = (state.texts.clone(), state.sync.clone(), state.world.clone());
         forget(&mut cache, root);
         let dir = root.join(BUILD_DIR);
-        if texts.is_empty() && sync.is_none() {
+        if texts.is_empty() && sync.is_none() && world.is_empty() {
             return remove_all(&dir);
         }
         BuildState::write(
@@ -283,6 +296,7 @@ impl BuildState {
             BuildState {
                 texts,
                 sync,
+                world,
                 ..BuildState::empty()
             },
         )?;
@@ -451,6 +465,27 @@ mod tests {
             loaded.steps.is_empty() && loaded.texts.is_empty(),
             "{loaded:?}"
         );
+    }
+
+    #[test]
+    fn clear_cache_keeps_world_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let record = WorldRecord {
+            input: "0123456789abcdef".into(),
+            member: "fedcba9876543210".into(),
+        };
+        BuildState::update(root, |s| {
+            s.steps.insert("world".into(), StepRecord::default());
+            s.world.insert(1, record.clone());
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(state_path(root)).unwrap();
+        assert!(text.contains(r#""world":{"0001":{"input":"#), "{text}");
+        BuildState::clear_keeping_texts(root).unwrap();
+        let loaded = BuildState::load(root);
+        assert_eq!(loaded.world, BTreeMap::from([(1, record)]));
+        assert!(loaded.steps.is_empty(), "{loaded:?}");
     }
 
     #[test]

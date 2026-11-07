@@ -24,6 +24,7 @@ use crate::project::{AssetKind, Location, Project};
 use crate::scripts;
 use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
+use crate::world::build::{BakeMode, BakeScope, bake_world_maps};
 
 use super::MANIFEST_FILE;
 use super::arts::{
@@ -327,7 +328,7 @@ pub fn import_with(
     let synced = super::sync::record_all_written(project, &mut |_| {}, &journal)?;
     let mut problems = plan.problems;
     // The build step `textproject` plans again and finds the plan's hints once more.
-    for problem in prepared.problems {
+    for problem in applied.problems.into_iter().chain(prepared.problems) {
         if !problems.contains(&problem) {
             problems.push(problem);
         }
@@ -1664,18 +1665,23 @@ pub(crate) fn plan_quirks_alone(project: &Project) -> Result<ImportPlan, KernelE
 
 /// What [`apply_import`] wrote: `paths` every file written (relative to the root; rotom's
 /// compile state when the quirks changed it), `raw` the blobs, `members` the members and
-/// header files, `quirks` the compile state entries the quirks changed.
+/// header files (the world maps' baked members among them), `quirks` the compile state entries
+/// the quirks changed, `problems` those of baking the world maps (`world.bake`,
+/// `world.member-changed`; with an error among them no world map was written).
 #[derive(Debug, Default)]
 pub(crate) struct Applied {
     pub paths: Vec<PathBuf>,
     pub raw: u32,
     pub members: u32,
     pub quirks: u32,
+    pub problems: Vec<Problem>,
 }
 
 /// Writes what `plan` found: the blobs, the members of each art (its archive unpacked
 /// first), then removes the members of [`ImportPlan::removals`], the header table last, then
-/// the quirks into the compile state (adopted projects only). `paths` names the removed
+/// bakes the world maps of [`ImportPlan::world_maps`] over what was just written
+/// ([`bake_world_maps`] in [`BakeMode::Import`]), then the quirks into the compile state
+/// (adopted projects only). `paths` names the removed
 /// members too.
 pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Applied, KernelError> {
     let mut out = Applied::default();
@@ -1732,6 +1738,21 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
         let wrote = write_headers(project, headers)?;
         out.members += u32::try_from(wrote.len()).unwrap_or(u32::MAX);
         out.paths.extend(wrote);
+    }
+    if !plan.world_maps.is_empty() {
+        let world = bake_world_maps(
+            project,
+            &BakeScope::Maps(plan.world_maps.clone()),
+            BakeMode::Import,
+        )?;
+        out.members += u32::try_from(world.baked.len()).unwrap_or(u32::MAX);
+        out.paths.extend(
+            world
+                .baked
+                .iter()
+                .map(|&map| member_rel(project, AssetKind::Map, usize::from(map))),
+        );
+        out.problems = world.problems;
     }
     if scripts::is_adopted(project) {
         out.quirks = seed_quirks(project, &plan.quirks)?;
@@ -2833,7 +2854,18 @@ mod tests {
             let member = slash(&member_rel(&p, AssetKind::Map, n));
             assert_eq!(written.contains(&member), n != 0, "{n}: {written:?}");
         }
-        apply_import(&p, &plan).unwrap();
+        // The world map is baked after the members (6.3b); the synthetic package lacks its
+        // texture, so the bake refuses with `world.bake` and the member stays.
+        let applied = apply_import(&p, &plan).unwrap();
+        assert!(!applied.problems.is_empty());
+        assert!(
+            applied
+                .problems
+                .iter()
+                .all(|p| p.message.starts_with("world.bake: world: ")),
+            "{:#?}",
+            applied.problems
+        );
         assert_eq!(
             std::fs::read(p.root.join(member_rel(&p, AssetKind::Map, 0))).unwrap(),
             member_0

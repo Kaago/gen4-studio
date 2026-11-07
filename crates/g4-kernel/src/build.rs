@@ -2,8 +2,8 @@
 //! ds-rom (the compressed ARM9 and overlays from the BLZ cache under [`BUILD_DIR`]), and
 //! extracts a `.nds` into a new ds-rom project folder.
 //!
-//! A build is a fixed list of steps ([`step::Step`]): `textproject` (text projects only),
-//! `rotom`, `chatot`, one `pack:<name>` per archive and per pack entry of `archives.yaml`,
+//! A build is a fixed list of steps ([`step::Step`]): `textproject` and `world` (text projects
+//! only), `rotom`, `chatot`, one `pack:<name>` per archive and per pack entry of `archives.yaml`,
 //! one `watch:<name>` per other folder below `unpacked/` (it never runs, see
 //! [`unpacked_unpacked`]) and `rom`. Each runs only when its inputs changed since it last
 //! succeeded, recorded in [`state::BuildState`] (`.g4/build/state.json`, see
@@ -41,6 +41,7 @@ use state::BuildState;
 use steps::{ChatotStep, PackKind, PackStep, RomStep, RotomStep};
 
 use crate::textproject::{self, step::TextProjectStep};
+use crate::world::build::WorldStep;
 
 /// The build's cache below the project root: the BLZ cache (`blz/`) and the build state.
 /// Everything in it may be deleted; the next build then runs fully.
@@ -94,20 +95,22 @@ pub struct Prepared {
     pub encoded: Vec<u16>,
     pub touched_archives: Vec<u16>,
     pub problems: Vec<Problem>,
-    /// The rows of `textproject` (text projects only), `rotom` (adopted projects only) and
-    /// `chatot`.
+    /// The rows of `textproject` and `world` (text projects only), `rotom` (adopted projects
+    /// only) and `chatot`.
     pub steps: Vec<StepReport>,
 }
 
 /// Brings the unpacked folders up to date with their sources: writes the members of a text
 /// project from its JSON (only where the project has a `g4-project.json`, never over a
-/// member newer than its JSON, see `textproject::step`), compiles stale scripts (only where
-/// the project is adopted) and encodes stale text JSON, each step only when its sources
-/// changed since it last succeeded. Any [`Severity::Error`] among the problems of the steps
-/// is `Err(KernelError::Compile(problems))` (all problems, all steps), and the caller packs
-/// nothing. Warnings come back in [`Prepared::problems`].
+/// member newer than its JSON, see `textproject::step`), bakes its world maps whose world
+/// changed (`world::build`, never over a member changed outside), compiles stale scripts
+/// (only where the project is adopted) and encodes stale text JSON, each step only when its
+/// sources changed since it last succeeded. Any [`Severity::Error`] among the problems of the
+/// steps is `Err(KernelError::Compile(problems))` (all problems, all steps), and the caller
+/// packs nothing. Warnings come back in [`Prepared::problems`].
 pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
     let text_project = TextProjectStep::default();
+    let world = WorldStep::default();
     let rotom = RotomStep::default();
     let chatot = ChatotStep::default();
     let mut steps: Vec<&dyn step::Step> = Vec::new();
@@ -116,7 +119,7 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
     }
     steps.push(&chatot);
     let mut pending = step::Pending::default();
-    let ran = prepare_steps(project, &text_project, &steps, &mut pending);
+    let ran = prepare_steps(project, &text_project, &world, &steps, &mut pending);
     let written = pending.write(&project.root);
     let ran = ran.and_then(|rows| written.map(|()| rows));
     let rows = match ran {
@@ -129,6 +132,7 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
         problems: text_project.problems.into_inner(),
         ..Prepared::default()
     };
+    prepared.problems.extend(world.problems.into_inner());
     if let Some(report) = rotom.report.into_inner() {
         prepared.compiled = report.compiled;
         prepared.touched_archives = report.touched_archives;
@@ -150,23 +154,28 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
     Ok(prepared)
 }
 
-/// The steps of [`prepare`] with their entry changes left in `pending`: `textproject` first
-/// (text projects only), then `steps`. A skipped `textproject` has not seeded the quirks
-/// file; when rotom's compile state lost them since (deleted or reset), they are seeded here,
-/// before `rotom`. As in [`step::run_steps`], a [`KernelError::Compile`] lets the later steps
+/// The steps of [`prepare`] with their entry changes left in `pending`: `textproject` and
+/// `world` first (text projects only), then `steps`. A skipped `textproject` has not seeded
+/// the quirks file; when rotom's compile state lost them since (deleted or reset), they are
+/// seeded here, before `rotom`. As in [`step::run_steps`], a [`KernelError::Compile`] lets the later steps
 /// run and comes back with all their problems.
 fn prepare_steps(
     project: &Project,
     text_project: &TextProjectStep,
+    world: &WorldStep,
     steps: &[&dyn step::Step],
     pending: &mut step::Pending,
 ) -> Result<Vec<StepReport>, KernelError> {
     let mut rows = Vec::new();
     let mut problems = Vec::new();
     if textproject::is_text_project(&project.root) {
-        match step::run_steps_into(project, &[text_project], pending) {
+        match step::run_steps_into(project, &[text_project, world], pending) {
             Ok(own) => {
-                if own.iter().all(|r| r.status == StepStatus::Skipped) {
+                if own
+                    .iter()
+                    .filter(|r| r.id == textproject::step::STEP_ID)
+                    .all(|r| r.status == StepStatus::Skipped)
+                {
                     textproject::step::reseed_quirks(project)?;
                 }
                 rows.extend(own);
