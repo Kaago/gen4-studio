@@ -7,6 +7,7 @@ import {
   cellsOf,
   fillCells,
   flipTile,
+  heightSkipped,
   lineCells,
   pickedTile,
   rectCells,
@@ -180,7 +181,7 @@ describe("paint ops", () => {
     });
     const out = strokeRequest(123, "rect", rectCells([0, 0], [1, 0]), c, options());
     expect(out?.req.changes).toEqual([{ layer: 0, cells: [[1, 0]], tile: "0041" }]);
-    expect(out?.req.label).toBe("Gemalt: Karte 0123 (1 Zelle)");
+    expect(out?.req.label).toBe("Rechteck gemalt: Karte 0123 (1 Zelle)");
   });
 
   it("height_groups_cells_by_target", () => {
@@ -257,6 +258,24 @@ describe("paint ops", () => {
     expect(strokeRequest(123, "height", [[0, 0]], c, options())).toBeNull();
   });
 
+  it("height_skipped_counts_cells_at_the_limit_when_nothing_is_sent", () => {
+    const c = world((c) => {
+      c.heights[0][0] = 62;
+      c.heights[0][1] = 62;
+      c.heights[0][2] = -16;
+    });
+    const up: Cell[] = [
+      [0, 0],
+      [1, 0],
+      [1, 0],
+      [40, 0],
+    ];
+    expect(strokeRequest(123, "height", up, c, options())).toBeNull();
+    expect(heightSkipped(up, c, false)).toBe(2);
+    expect(heightSkipped(up, c, true)).toBe(0);
+    expect(heightSkipped([[2, 0]], c, true)).toBe(1);
+  });
+
   it("height_and_ramp_write_the_ground", () => {
     const h = strokeRequest(123, "height", [[0, 0]], world(), options({ layer: 1 }));
     expect(h?.req.changes).toEqual([{ cells: [[0, 0]], height: 1 }]);
@@ -279,7 +298,7 @@ describe("paint ops", () => {
     );
     expect(set?.req).toEqual({
       map: 123,
-      label: "Rampe geändert: Karte 0123 (2 Zellen)",
+      label: "Rampe gesetzt: Karte 0123 (2 Zellen)",
       changes: [
         {
           cells: [
@@ -304,6 +323,7 @@ describe("paint ops", () => {
       options({ lower: true }),
     );
     expect(removed?.req.changes).toEqual([{ cells: [[4, 4]], ramp: "." }]);
+    expect(removed?.req.label).toBe("Rampe gesetzt: Karte 0123 (1 Zelle)");
     expect(strokeRequest(123, "ramp", [[4, 4]], c, options())).toBeNull();
   });
 
@@ -334,7 +354,7 @@ describe("paint ops", () => {
     const out = strokeRequest(123, "fill", cells, c, options({ layer: 1 }));
     expect(out?.req.changes).toHaveLength(1);
     expect(out?.req.changes[0].cells).toHaveLength(1024);
-    expect(out?.req.label).toBe("Gemalt: Karte 0123 (1024 Zellen)");
+    expect(out?.req.label).toBe("Gefüllt: Karte 0123 (1024 Zellen)");
   });
 
   it("cells_of_reads_missing_rows_as_ground_defaults", () => {
@@ -347,5 +367,19 @@ describe("paint ops", () => {
     expect(c.tiles[0][31][31]).toBe("0a0b");
     expect(c.heights[3][4]).toBe(5);
     expect(c.ramps[0][0]).toBe(".");
+  });
+
+  it("cells_of_writes_ramps_canonically", () => {
+    const ramps = rows(".");
+    ramps[2] = ["E01", "n2", "w02", "."].concat(Array(28).fill(".")).join(" ");
+    const c = cellsOf({
+      version: 1,
+      tileset: 0,
+      layers: [{ name: "Boden", role: "ground", tiles: rows("0000"), heights: rows("0"), ramps }],
+      permissions: { derive: true },
+    });
+    expect(c.ramps[2].slice(0, 4)).toEqual(["e1", "n2", "w2", "."]);
+    // A canonical ramp already there sends nothing.
+    expect(strokeRequest(123, "ramp", [[0, 2]], c, options())).toBeNull();
   });
 });

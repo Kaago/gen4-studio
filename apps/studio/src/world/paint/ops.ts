@@ -43,13 +43,19 @@ function grid<T>(rows: string[] | undefined, fallback: T, read: (token: string) 
   });
 }
 
+/** A ramp token in its canonical form (`E01` → `e1`); `.` and tokens outside the grammar stay (lowercased). */
+function rampToken(token: string): string {
+  const m = /^([nesw])(\d+)$/.exec(token.toLowerCase());
+  return m ? `${m[1]}${Number(m[2])}` : token.toLowerCase();
+}
+
 /** The grids of `world`; missing ground rows read as height 0 and no ramp. */
 export function cellsOf(world: WorldJson): WorldCells {
   const ground = world.layers[0];
   return {
     tiles: world.layers.map((layer) => grid(layer.tiles, EMPTY, (t) => t.toLowerCase())),
     heights: grid(ground?.heights, 0, (t) => Number.parseInt(t, 10) || 0),
-    ramps: grid(ground?.ramps, EMPTY, (t) => t.toLowerCase()),
+    ramps: grid(ground?.ramps, EMPTY, rampToken),
   };
 }
 
@@ -160,18 +166,29 @@ export function turnRamp(dir: RampDir): RampDir {
 
 const VERBS: Record<PaintSub, string> = {
   brush: "Gemalt",
-  rect: "Gemalt",
-  fill: "Gemalt",
+  rect: "Rechteck gemalt",
+  fill: "Gefüllt",
   erase: "Radiert",
   pick: "Aufgenommen",
   height: "Höhe geändert",
-  ramp: "Rampe geändert",
+  ramp: "Rampe gesetzt",
 };
 
 /** The history text of a stroke: „Gemalt: Karte 0123 (3 Zellen)“. */
 export function strokeLabel(sub: PaintSub, map: number, cells: number): string {
   const count = cells === 1 ? "1 Zelle" : `${cells} Zellen`;
   return `${VERBS[sub]}: Karte ${String(map).padStart(4, "0")} (${count})`;
+}
+
+/** Whether a height stroke (down with `lower`) leaves `cell` out because it is already at −16 or 62. */
+const atLimit = (world: WorldCells, [x, z]: Cell, lower: boolean) =>
+  lower ? world.heights[z][x] <= HEIGHT_MIN : world.heights[z][x] >= HEIGHT_MAX;
+
+/** The distinct in-map cells of a height stroke that are already at the limit of its direction (−16 down, 62 up). */
+export function heightSkipped(cells: Cell[], world: WorldCells, lower: boolean): number {
+  return unique(cells)
+    .filter(inside)
+    .filter((cell) => atLimit(world, cell, lower)).length;
 }
 
 /** `cells` without repeats, in first-seen order. */
@@ -198,12 +215,10 @@ export function strokeRequest(
   let skipped = 0;
   if (sub === "height") {
     const groups = new Map<number, Cell[]>();
+    skipped = heightSkipped(own, world, o.lower);
     for (const cell of own) {
+      if (atLimit(world, cell, o.lower)) continue;
       const target = world.heights[cell[1]][cell[0]] + (o.lower ? -1 : 1);
-      if (target < HEIGHT_MIN || target > HEIGHT_MAX) {
-        skipped++;
-        continue;
-      }
       const group = groups.get(target);
       if (group) group.push(cell);
       else groups.set(target, [cell]);
