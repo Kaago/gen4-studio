@@ -750,7 +750,7 @@ Welche Zelle an der Klippe blockiert, sagt `block` des Satzes:
 **Naht zu Nachbarkarten.** Der Kernel sucht die **erste** Matrixzelle, die die Karte zeigt (Matrizen
 aufsteigend, Zellen zeilenweise), und liest aus den 8 Nachbarzellen dieser Matrix den Ring der Zellen
 direkt hinter dem Kartenrand (Koordinate −1 und 32): für den Terrain-Pinsel die Kacheln der
-gleichnamigen Ebene (nach Index), für die Klippe die Höhen der Bodenebene. Gelesen werden nur
+Ebene mit demselben Index, für die Klippe die Höhen der Bodenebene. Gelesen werden nur
 Welt-Karten mit demselben Tileset; eine leere Zelle, eine binäre Karte, eine Welt auf einem anderen
 Paket, eine Karte, die sich nicht liest, und die Karte selbst lesen nichts. Nachbarkarten werden
 **nie** geschrieben. Passt eine Nachbarzelle danach nicht mehr zum Satz, steht eine Notiz im Bericht:
@@ -855,7 +855,7 @@ Phasen-Gate über die Oberfläche (dort mit den Kacheln des Spiels). Für Agente
 - **Seit 6.4b da:** Kantensätze (`edge_sets` im Tileset, [tileset.md](tileset.md) „Kantensätze
   (6.4b)“), Terrain- und Klippenpinsel in `world_edit` und in der App, der Kantensatz-Editor und die
   Muster der Schicht „Gelände“ („Smart Drawing (6.4b)“).
-- **später:** Wände zu Nachbarkarten, Kanten-Sätze, Automapping.
+- **später:** Wände zu Nachbarkarten, Kanten-Sätze (Tiled „edge“, Linien), Automapping.
 - **6.5b:** Beifiles der Teilmodelle (`model`, `NNNN.<name>.glb`) und ihre Geometrie im Backen,
   glTF-Freiform und Form 2 von „Karte als Quelle übernehmen“ (`form: "gltf"`), ein Verbatim-Modell
   zusammen mit gemalten Kacheln (heute `world.verbatim-mixed`).

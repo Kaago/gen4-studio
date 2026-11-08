@@ -3,7 +3,7 @@
   //                dem Satz „Weg“ (als Platz-Raster gezeichnet: jede Zelle in vier Viertel, innen Weg, außen Boden) und einer Klippe von zwei Stufen
   //                mit dem Rand oben und dem Wandband im Süden; die aufrechte Werkzeugleiste mit „Gelände malen“ gedrückt und den neun Unterwerkzeugen
   //                als zweite Spalte daneben, „Terrain-Pinsel“ (T) gedrückt; im Inspector „Karte 0666“ mit „Palette“ (Platz „Kante N“ gewählt: die
-  //                Notiz „Ein Klick hängt …“), „Ebenen“, „Kachel 0007“ eingeklappt, „Kantensätze“ offen mit dem Editor des Satzes „Weg“, „Quelle“
+  //                Notiz „Ein Klick hängt …“), „Ebenen“ offen, „Kachel 0007“ eingeklappt, „Kantensätze“ offen mit dem Editor des Satzes „Weg“, „Quelle“
   //                eingeklappt; Statusleiste „Gelände malen · Terrain-Pinsel · Ziehen malt „Weg“ · ⇧Ziehen nimmt es weg“. Mit --dunkel gebaut heißt
   //                der Frame „Gelände malen: Kantensatz-Editor (Dunkel)“
   //   'muster'     „Gelände-Muster“: dieselbe Werkbank, in der Schau ein Ausschnitt von oben mit der Schicht „Gelände“ (gedrückt): Blockiert schraffiert,
@@ -230,7 +230,7 @@
       schauInhalt: MalSzene({ w: SW, h: SH, children: [SceneBarX(8, 8, { draufsicht: true }), PaintToolbar({ sub: 'Terrain-Pinsel' }), LegendBtn(8, SH - 40)] }),
       inspector: [Kopf(), <Frame name="Abschnitte" flex="col" w="fill">
         {Palette({ sel: '0007', target: 'Kante N' })}
-        {Layers({ open: false })}
+        {Layers()}
         {Zu('Kachel 0007')}
         {EdgeSets({ sets: SAETZE, active: 'Weg', sel: 'n' })}
         {Zu('Quelle')}
@@ -239,7 +239,7 @@
   }
 
   // ----- Muster der Schicht „Gelände“ (patterns.ts): die Linien sind die Zellfarbe × 0,55; hier Schwarz mit 45 % darüber (dieselbe Farbe) -----
-  // Zeichen je Muster für Zellen und Legende: Schraffur ╱, Wellen ∿, Punkte ⋮ (3 × 3), Pfeil ↓ (Vorsprung nach Süden), Kreuzschraffur ╳
+  // Zeichen je Muster für Zellen und Legende: Schraffur ╱, Wellen ∿, Punkte ⁘ (3 × 3), Pfeil ↓ (Vorsprung nach Süden; in den Legendenproben ↑ nach Norden wie Legend.tsx), Kreuzschraffur ╳
   const KLASSEN = [
     ['Blockiert', 'gelaende/blockiert', 'Schraffur', '╱'],
     ['Wasser', 'gelaende/wasser', 'Wellen', '∿'],
@@ -251,7 +251,7 @@
   ];
   const klasse = (name) => KLASSEN.find((k) => k[0] === name);
   const Muster = (zeichen, s) => <Frame name="Muster" position="absolute" x={0} y={0} w={s} h={s} opacity={0.45} flex="row" items="center" justify="center">{T(zeichen, { s: Math.round(s * 0.8), lh: s, hex: '#000000', align: 'center' })}</Frame>;
-  const Probe = (name, s = 16) => { const [, tok, , z] = klasse(name); return <Frame name={'Probe ' + name} w={s} h={s} rounded={3} bg={v(tok)} overflow="hidden">{z && Muster(z, s)}</Frame>; };
+  const Probe = (name, s = 16) => { const [, tok, , z0] = klasse(name); const z = name === 'Vorsprung' ? '↑' : z0; return <Frame name={'Probe ' + name} w={s} h={s} rounded={3} bg={v(tok)} overflow="hidden">{z && Muster(z, s)}</Frame>; };
 
   // ----- 'muster': ein Ausschnitt mit allen fünf Mustern von oben, Schicht „Gelände“ gedrückt, die Legende offen -----
   if (MODE === 'muster') {
