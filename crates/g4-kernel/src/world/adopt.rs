@@ -1,30 +1,53 @@
-//! „Karte als Quelle übernehmen“ (Form 1, verbatim): a binary map becomes a world map that
-//! bakes byte-equal ([`world_adopt`]). The world keeps the map's model as its verbatim model
-//! (`freeform = [{nsbmd}]`) and its BDHC as verbatim terrain (`terrain = {bdhc}`), both parts
-//! in the form a save writes them ([`Store::world_as_written`]: `base_sha1`, a side file or
-//! hex); every permission is a hand value; the ground layer „Boden“ has no tile, its heights
-//! are sampled from the BDHC (a cell centre's height in steps of 8 units) and listed where they
-//! do not fit ([`HeightDeviation`]). Buildings and BGS stay in the Map asset. One undo step.
+//! „Karte als Quelle übernehmen“: a binary map becomes a world map, in one of two forms.
+//!
+//! Form 1 (verbatim, [`world_adopt`]) bakes byte-equal: the world keeps the map's model as its
+//! verbatim model (`freeform = [{nsbmd}]`) and its BDHC as verbatim terrain (`terrain = {bdhc}`),
+//! both parts in the form a save writes them ([`Store::world_as_written`]: `base_sha1`, a side
+//! file or hex); every permission is a hand value; the ground layer „Boden“ has no tile, its
+//! heights are sampled from the BDHC (a cell centre's height in steps of 8 units) and listed
+//! where they do not fit ([`HeightDeviation`]). Buildings and BGS stay in the Map asset.
+//!
+//! Form 2 (glTF, [`world_adopt_with`], 6.5b) is the same world with the map's model as the
+//! free-form side file `NNNN.model.glb` (`freeform = [{glb, at: [0, 0, 0]}]`): apicula converts
+//! the model to glTF, its materials bind the package's textures by the rule of
+//! [`bind_vanilla_materials`], and the faces become the canonical side file; the model is baked
+//! anew, terrain and permissions stay as they were. Either form is one undo step.
 
+use std::path::Path;
+
+use g4_formats::nsbmd::Nsbmd;
 use serde::{Deserialize, Serialize};
 
+use crate::bake::Level;
 use crate::error::KernelError;
+use crate::export::nsbmd_to_glb;
+use crate::map_import::PartCode;
+use crate::model_import::mesh::to_faces;
+use crate::model_import::read_model;
 use crate::store::{ChangeId, Store};
 use crate::textproject::Part;
 
-use super::bake::WorldBakeReport;
+use super::bake::{WorldBakeReport, bake_pack};
 use super::doc::{
     FreeformJson, HEIGHT_MAX, HEIGHT_MIN, LayerJson, LayerRole, PermissionsJson, STEP_UNITS,
     TerrainJson, WORLD_VERSION, WorldJson,
 };
 use super::edit::{already_world, binary_map_refusal, refuse_locked_map, require_text_project};
+use super::freeform::{
+    APICULA_UNIT, FREEFORM_UNIT, bind_vanilla_materials, file_step_at, freeform_file, freeform_rel,
+    in_one_step, side_glb, world_asset,
+};
 use super::grid::{override_token, tile_token};
 use super::places::packs_of_map;
 
 /// The most a sampled cell centre may lie off its step (`8 · step` units), in world units.
 pub const ADOPT_TOLERANCE: f64 = 0.1;
-/// Why Form 2 is refused.
-pub const ADOPT_GLTF_LATER: &str = "Form 2 (glTF) kommt mit 6.5b.";
+/// Why Form 2 is refused without apicula.
+pub const ADOPT_NEEDS_APICULA: &str = "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula).";
+/// A material of Form 2 that binds no texture of the package.
+pub const ADOPT_TEXTURE_CODE: &str = "world.adopt-texture";
+/// The `<name>` of the side file of Form 2: `NNNN.model.glb`.
+pub const FORM2_SIDE_NAME: &str = "model";
 
 /// The name of the ground layer of an adopted world.
 const GROUND_NAME: &str = "Boden";
@@ -34,7 +57,7 @@ const MAP_CELLS: usize = g4_formats::map::MAP_SIZE;
 const FX_ONE: f64 = g4_formats::bdhc::FX_ONE as f64;
 
 /// The form of the adopted world: the map's model and BDHC verbatim (Form 1), or the model as
-/// glTF (Form 2, 6.5b).
+/// a glTF side file (Form 2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AdoptForm {
@@ -66,8 +89,45 @@ pub struct HeightDeviation {
     pub step: i8,
 }
 
+/// The vanilla model of a map adopted in Form 2: its polygons, quads and triangles as its MDL0
+/// shapes draw them ([`g4_formats::nsbmd::Model::geometry`] of the first model; 0 when it does
+/// not read) and its size in bytes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct VanillaGeometry {
+    pub polygons: u32,
+    pub quads: u32,
+    pub triangles: u32,
+    pub bytes: usize,
+}
+
+/// The model baked from the side file of Form 2: the faces of the bake, the quads and
+/// triangles the conversion gave the baker, the quad strips and single quads the model sends,
+/// the polygons the conversion dropped (no area once rounded) and the model's size in bytes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct BakedGeometry {
+    pub faces: usize,
+    pub quads: usize,
+    pub triangles: usize,
+    pub strips: usize,
+    pub single_quads: usize,
+    pub dropped: usize,
+    pub bytes: usize,
+}
+
+/// What Form 2 made of the map's model: both polygon counts (they differ: the baker draws
+/// quad strips where the vanilla model has its own lists), the parts of the glTF the reader
+/// left out (`model.parts-ignored`: `skins`, `vertex-colours` …) and the side file's name.
+#[derive(Debug, Clone, Serialize)]
+pub struct Form2Report {
+    pub vanilla: VanillaGeometry,
+    pub baked: BakedGeometry,
+    pub ignored: Vec<String>,
+    pub glb: String,
+}
+
 /// What `world_adopt` did: the map, the package of the world and whether it was guessed (0, no
-/// header shows the map), the cells whose heights deviate, the undo step and the bake.
+/// header shows the map), the cells whose heights deviate, the undo step, the bake and, for
+/// Form 2, the figures of the model.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorldAdoptReport {
     pub map: u16,
@@ -76,6 +136,7 @@ pub struct WorldAdoptReport {
     pub deviations: Vec<HeightDeviation>,
     pub change: Option<ChangeId>,
     pub bake: WorldBakeReport,
+    pub form2: Option<Form2Report>,
 }
 
 /// „Karte als Quelle übernommen: Karte 0123“, the label of [`world_adopt`].
@@ -126,27 +187,25 @@ fn rows(token: impl Fn(usize) -> String) -> Vec<String> {
         .collect()
 }
 
-/// „Karte als Quelle übernehmen“ (Form 1) of map `req.map` as one undo step
-/// ([`adopt_label`]): a world on package `req.tileset` (else the first of [`packs_of_map`],
-/// else 0 with `tileset_guessed`), a ground layer „Boden“ all `.` with the heights sampled
-/// from the map's BDHC, no ramp, the map's model as `freeform = [{nsbmd}]` and its BDHC as
-/// `terrain = {bdhc}` (each part as a save writes it), permissions derived with every cell a
-/// hand value. The Map asset bakes to the same bytes.
-///
-/// Refused ([`KernelError::Refused`], nothing changed): outside a text project
-/// ([`super::WORLD_NEEDS_TEXT_PROJECT`]), Form 2 ([`ADOPT_GLTF_LATER`]), a map that is a world
-/// map already ([`already_world`]), a locked map or one whose member does not read
-/// ([`super::edit::binary_map_refusal`]: „Karte 0001 lässt sich nicht übernehmen: ihr Member
-/// lässt sich nicht lesen (…).“), a package that is not there (the refusal of
-/// [`Store::tileset`]).
-pub fn world_adopt(
+/// The map to adopt, checked, and the world both forms share.
+struct Source {
+    map: u16,
+    package: u16,
+    guessed: bool,
+    file: g4_formats::map::MapFile,
+    deviations: Vec<HeightDeviation>,
+    world: WorldJson,
+}
+
+/// The checks both forms make (the map is no world map yet, its member is not locked and
+/// reads, the package is there) and the adopted world with `freeform` as its model: the ground
+/// layer „Boden“ all `.` with the heights sampled from the map's BDHC, no ramp, the BDHC as
+/// `terrain = {bdhc}`, permissions derived with every cell a hand value.
+fn source(
     store: &mut Store,
     req: &WorldAdoptRequest,
-) -> Result<WorldAdoptReport, KernelError> {
-    require_text_project(store)?;
-    if req.form == AdoptForm::Gltf {
-        return Err(KernelError::Refused(ADOPT_GLTF_LATER.to_owned()));
-    }
+    freeform: FreeformJson,
+) -> Result<Source, KernelError> {
     let map = req.map;
     if store.world(map)?.is_some() {
         return Err(KernelError::Refused(already_world(map)));
@@ -164,7 +223,8 @@ pub fn world_adopt(
     store.tileset(package)?;
     let file = store.map(map)?.clone();
     let (steps, deviations) = sample_heights(&file.bdhc);
-    // The parts are placeholders here; the writer gives them their form.
+    // The BDHC part (and the model part of Form 1) is a placeholder here; the writer gives it
+    // its form.
     let placeholder = || Part::Hex { hex: String::new() };
     let world = WorldJson {
         version: WORLD_VERSION,
@@ -177,11 +237,7 @@ pub fn world_adopt(
             ramps: None,
         }],
         pieces: Vec::new(),
-        freeform: vec![FreeformJson {
-            glb: None,
-            nsbmd: Some(placeholder()),
-            at: [0, 0, 0],
-        }],
+        freeform: vec![freeform],
         terrain: Some(TerrainJson {
             bdhc: placeholder(),
         }),
@@ -191,7 +247,25 @@ pub fn world_adopt(
         },
     };
     let world = store.world_as_written(map, &file, &world)?;
-    let (bake, change) = store.transaction(&adopt_label(map), |tx| {
+    Ok(Source {
+        map,
+        package,
+        guessed,
+        file,
+        deviations,
+        world,
+    })
+}
+
+/// The transaction that makes `world` map `map`'s world, labelled `label`: its bake report and
+/// the change.
+fn set_world(
+    store: &mut Store,
+    map: u16,
+    label: &str,
+    world: WorldJson,
+) -> Result<(WorldBakeReport, Option<ChangeId>), KernelError> {
+    let (bake, change) = store.transaction(label, |tx| {
         tx.edit_world(map, |w| {
             *w = Some(world);
             Ok(())
@@ -201,15 +275,204 @@ pub fn world_adopt(
     let bake = bake.ok_or_else(|| {
         KernelError::InvalidProject(format!("Karte {map:04}: das Übernehmen backte nicht."))
     })?;
+    Ok((bake, change))
+}
+
+/// „Karte als Quelle übernehmen“ of map `req.map` as one undo step ([`adopt_label`]), in the
+/// form `req.form`; Form 2 needs `apicula`.
+///
+/// Form 1 (verbatim): a world on package `req.tileset` (else the first of [`packs_of_map`],
+/// else 0 with `tileset_guessed`), a ground layer „Boden“ all `.` with the heights sampled from
+/// the map's BDHC, no ramp, the map's model as `freeform = [{nsbmd}]` and its BDHC as `terrain =
+/// {bdhc}` (each part as a save writes it), permissions derived with every cell a hand value.
+/// The Map asset bakes to the same bytes.
+///
+/// Form 2 (glTF): apicula converts the map's model with the package's textures into
+/// `<root>/.g4/tmp/adopt-NNNN` (failing that, without them), then [`world_adopt_glb`]; the
+/// folder is removed afterwards, whatever the outcome.
+///
+/// Refused ([`KernelError::Refused`], nothing changed): outside a text project
+/// ([`super::WORLD_NEEDS_TEXT_PROJECT`]), Form 2 without apicula ([`ADOPT_NEEDS_APICULA`]), a
+/// map that is a world map already ([`already_world`]), a locked map or one whose member does
+/// not read ([`super::edit::binary_map_refusal`]: „Karte 0001 lässt sich nicht übernehmen: ihr
+/// Member lässt sich nicht lesen (…).“), a package that is not there (the refusal of
+/// [`Store::tileset`]), and what [`world_adopt_glb`] refuses. apicula's own failure is its
+/// error ([`KernelError::ToolMissing`], `ToolTimeout` or `Build`).
+pub fn world_adopt_with(
+    store: &mut Store,
+    req: &WorldAdoptRequest,
+    apicula: Option<&Path>,
+) -> Result<WorldAdoptReport, KernelError> {
+    require_text_project(store)?;
+    if req.form == AdoptForm::Gltf {
+        let Some(apicula) = apicula else {
+            return Err(KernelError::Refused(ADOPT_NEEDS_APICULA.to_owned()));
+        };
+        return adopt_through_apicula(store, req, apicula);
+    }
+    let placeholder = || Part::Hex { hex: String::new() };
+    let source = source(
+        store,
+        req,
+        FreeformJson {
+            glb: None,
+            nsbmd: Some(placeholder()),
+            at: [0, 0, 0],
+        },
+    )?;
+    let map = source.map;
+    let (bake, change) = set_world(store, map, &adopt_label(map), source.world)?;
     Ok(WorldAdoptReport {
         map,
-        tileset: package,
-        tileset_guessed: guessed,
-        deviations,
+        tileset: source.package,
+        tileset_guessed: source.guessed,
+        deviations: source.deviations,
         change,
         bake,
+        form2: None,
     })
 }
 
+/// [`world_adopt_with`] without apicula: Form 1, or the refusal [`ADOPT_NEEDS_APICULA`].
+pub fn world_adopt(
+    store: &mut Store,
+    req: &WorldAdoptRequest,
+) -> Result<WorldAdoptReport, KernelError> {
+    world_adopt_with(store, req, None)
+}
+
+/// Form 2 through `apicula`: the checks first (so that a refused map runs no tool), the map's
+/// model converted into `<root>/.g4/tmp/adopt-NNNN` (with the package, failing that without),
+/// [`world_adopt_glb`], the folder removed.
+fn adopt_through_apicula(
+    store: &mut Store,
+    req: &WorldAdoptRequest,
+    apicula: &Path,
+) -> Result<WorldAdoptReport, KernelError> {
+    let checked = source(store, req, form2_entry(req.map))?;
+    let model = checked.file.model.clone();
+    let pack = store.project().map_tileset_member(checked.package)?;
+    let dir = store
+        .project()
+        .root
+        .join(".g4")
+        .join("tmp")
+        .join(format!("adopt-{:04}", req.map));
+    let glb = match pack.as_deref() {
+        Some(pack) => nsbmd_to_glb(apicula, &model, Some(pack), &dir)
+            .or_else(|_| nsbmd_to_glb(apicula, &model, None, &dir)),
+        None => nsbmd_to_glb(apicula, &model, None, &dir),
+    };
+    let result = glb.and_then(|glb| world_adopt_glb(store, req, &glb));
+    // A folder left behind holds nothing anyone reads; the outcome stands either way.
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// The free-form entry of Form 2: the side file `NNNN.model.glb` at the map's origin.
+fn form2_entry(map: u16) -> FreeformJson {
+    FreeformJson {
+        glb: Some(freeform_file(map, FORM2_SIDE_NAME)),
+        nsbmd: None,
+        at: [0, 0, 0],
+    }
+}
+
+/// `sentence (code)`: the text of a Form 2 refusal.
+fn form2_refusal(sentence: &str, code: &str) -> KernelError {
+    KernelError::Refused(format!("{sentence} ({code})"))
+}
+
+/// Form 2 of map `req.map` from `glb_path`, a GLB apicula wrote of the map's model (positions
+/// in world units, [`APICULA_UNIT`]), as one undo step ([`adopt_label`]): the world of Form 1
+/// with `freeform = [{glb: "NNNN.model.glb", at: [0, 0, 0]}]`; the side file is the canonical GLB
+/// ([`side_glb`]) of the faces converted with the bindings of [`bind_vanilla_materials`]
+/// against the package's textures as the world bake binds them; the step writes the side file,
+/// then sets the world ([`in_one_step`]). The report carries [`Form2Report`].
+///
+/// Refused (`„{sentence} ({code})“`, no step, no side file, the map stays binary): the GLB does
+/// not read or converts to nothing (its `model.*` code), a material binds no texture of the
+/// package ([`ADOPT_TEXTURE_CODE`]: „Material „lake_lm2“ der Karte 0123 bindet keine Textur des
+/// Pakets 0006; Form 2 geht für diese Karte nicht, Form 1 schon.“), the bake reports an error
+/// (the first one, e.g. `bake.model-too-big`: the step is rolled back). Besides what Form 1
+/// refuses.
+pub fn world_adopt_glb(
+    store: &mut Store,
+    req: &WorldAdoptRequest,
+    glb_path: &Path,
+) -> Result<WorldAdoptReport, KernelError> {
+    require_text_project(store)?;
+    let map = req.map;
+    let source = source(store, req, form2_entry(map))?;
+    let package = source.package;
+    let (mesh, notes) =
+        read_model(glb_path).map_err(|m| form2_refusal(&m.message, m.code.as_str()))?;
+    let tileset = store.tileset(package)?;
+    let (_, textures) = bake_pack(store, package, &tileset, None)?;
+    let bindings = bind_vanilla_materials(&mesh, &source.file.model, &textures).map_err(|m| {
+        form2_refusal(
+            &format!(
+                "Material „{m}“ der Karte {map:04} bindet keine Textur des Pakets {package:04}; \
+                 Form 2 geht für diese Karte nicht, Form 1 schon."
+            ),
+            ADOPT_TEXTURE_CODE,
+        )
+    })?;
+    let converted = to_faces(&mesh, APICULA_UNIT, &bindings)
+        .map_err(|m| form2_refusal(&m.message, m.code.as_str()))?;
+    let glb_name = freeform_file(map, FORM2_SIDE_NAME);
+    let glb = side_glb(&converted.faces, &textures, FREEFORM_UNIT)?;
+    let label = adopt_label(map);
+    let step = file_step_at(store, world_asset(map), &freeform_rel(&glb_name), Some(glb))?;
+    let world = source.world;
+    let (bake, change) = in_one_step(store, &label, None, step, |store| {
+        let (bake, change) = set_world(store, map, &label, world)?;
+        match bake.messages.iter().find(|m| m.level == Level::Error) {
+            Some(m) => Err(form2_refusal(&m.message, &m.code)),
+            None => Ok((bake, change)),
+        }
+    })?;
+    let vanilla = Nsbmd::read(&source.file.model)
+        .ok()
+        .and_then(|file| file.models.first().map(|(_, m)| m.geometry()))
+        .unwrap_or_default();
+    let ignored = notes
+        .iter()
+        .filter(|n| n.code == PartCode::ModelPartsIgnored)
+        .flat_map(|n| n.args.first().map(|a| a.split(',').map(str::to_owned)))
+        .flatten()
+        .collect();
+    let form2 = Form2Report {
+        vanilla: VanillaGeometry {
+            polygons: vanilla.polys,
+            quads: vanilla.quads,
+            triangles: vanilla.tris,
+            bytes: source.file.model.len(),
+        },
+        baked: BakedGeometry {
+            faces: bake.faces,
+            quads: converted.stats.quads,
+            triangles: converted.stats.triangles,
+            strips: bake.strips,
+            single_quads: bake.single_quads,
+            dropped: converted.stats.dropped,
+            bytes: bake.model_bytes,
+        },
+        ignored,
+        glb: glb_name,
+    };
+    Ok(WorldAdoptReport {
+        map,
+        tileset: package,
+        tileset_guessed: source.guessed,
+        deviations: source.deviations,
+        change,
+        bake,
+        form2: Some(form2),
+    })
+}
+
+#[cfg(all(test, feature = "test-support"))]
+mod form2_tests;
 #[cfg(test)]
 mod tests;

@@ -774,6 +774,8 @@ mod tests {
             verbatim_terrain: false,
             messages: Vec::new(),
             freeform_faces: 0,
+            strips: 0,
+            single_quads: 0,
         }
     }
 

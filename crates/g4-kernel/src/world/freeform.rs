@@ -18,6 +18,8 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
+use g4_formats::nitro_dict::name_text;
+use g4_formats::nsbmd::Nsbmd;
 use g4_formats::nsbtx::NewTexture;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -36,7 +38,7 @@ use crate::bake::{BakeCode, Face, Level, PackTexture, append_textures, appended_
 use crate::error::{KernelError, io_at};
 use crate::export::write_glb;
 use crate::map_import::{PartCode, PartMessage, map_areas};
-use crate::model_import::mesh::{Binding, MeshStats, to_faces};
+use crate::model_import::mesh::{Binding, Mesh, MeshStats, to_faces};
 use crate::model_import::{
     ImportOptions, ModelRefusal, TexturePreview, from_bake, plan_textures, read_model,
 };
@@ -47,6 +49,16 @@ use crate::textproject::arts::Art;
 /// World units per glTF unit in a side file (one glTF unit is one tile).
 pub const FREEFORM_UNIT: f32 = 16.0;
 /// World units per unit of a GLB apicula writes.
+///
+/// Probe 6.5b Task 5 (2026-11-08, apicula `convert -f=glb` of the model of the first map of
+/// Zweiblattdorf's first header, Platin DE, map 0, package 6, with the package): positions are
+/// world units — the GLB's box (−260, −16, −272) to (292, 58.3125, 320) is the model head's box
+/// (`box_pos`/`box_size` × `box_scale`); two nodes (the bone without transform, the mesh with a
+/// skin of that bone), one mesh, one primitive per material; the reader leaves out `skins` and
+/// `vertex-colours` (`model.parts-ignored`); every glTF material is named as its MDL0 material
+/// (`s_snow03_lm2`, which binds texture `s_snow02`); images are `<texture>.png` beside the GLB,
+/// a `.` in the texture name written as `_` (`lakep.1` → `lakep_1.png`), none without the
+/// package; 1628 triangles in the GLB for 815 polygons (813 quads, 2 triangles) in the MDL0.
 pub const APICULA_UNIT: f32 = 1.0;
 /// The layer of the faces of free-form models.
 pub const FREEFORM_LAYER: u8 = 254;
@@ -783,6 +795,59 @@ pub(crate) fn bind_model(
     }))
 }
 
+/// One binding per material of `mesh` by the texture rule of Form 2 against the vanilla `model` and `pack`;
+/// Err(material name) for the first that binds nothing in the pack.
+///
+/// Per material: (1) the MDL0 material of the same name in the first model of `model` gives
+/// the texture that binds it (`Model.textures[*].materials`), when the pack has that texture;
+/// (2) else the stem of the material's image (apicula writes `<texture>.png`, a `.` in the
+/// name as `_`), when the pack has a texture of that name. A `model` that does not read has no
+/// MDL0 materials: only (2). The binding takes the pack texture's name and size.
+pub fn bind_vanilla_materials(
+    mesh: &Mesh,
+    model: &[u8],
+    pack: &[PackTexture],
+) -> Result<Vec<Option<Binding>>, String> {
+    let vanilla = Nsbmd::read(model).ok();
+    let mdl0 = vanilla
+        .as_ref()
+        .and_then(|file| file.models.first())
+        .map(|(_, m)| m);
+    let mdl0_texture = |material: &str| -> Option<String> {
+        let model = mdl0?;
+        let index = model
+            .materials
+            .iter()
+            .position(|m| name_text(&m.name) == material)?;
+        let index = u8::try_from(index).ok()?;
+        model
+            .textures
+            .iter()
+            .find(|p| p.materials.contains(&index))
+            .map(|p| name_text(&p.name))
+    };
+    let in_pack = |name: &str| pack.iter().find(|t| t.name == name);
+    mesh.materials
+        .iter()
+        .map(|material| {
+            let by_mdl0 = mdl0_texture(&material.name);
+            let by_stem = material.image.as_ref().map(|i| i.stem.as_str());
+            by_mdl0
+                .as_deref()
+                .and_then(in_pack)
+                .or_else(|| by_stem.and_then(in_pack))
+                .map(|t| {
+                    Some(Binding {
+                        texture: t.name.clone(),
+                        width: t.width,
+                        height: t.height,
+                    })
+                })
+                .ok_or_else(|| material.name.clone())
+        })
+        .collect()
+}
+
 /// The `<name>` a new side file of `stem` (`PPPP` or `NNNN`) in folder `dir` takes: [`side_name`]
 /// of `wanted` (the request's name, else `path`'s file stem), numbered past `taken` and past
 /// every side file of `stem` already in the folder but `own` (an orphan is not overwritten; the
@@ -1124,7 +1189,7 @@ pub fn world_freeform_remove(
 }
 
 /// The world map asset of map `map`, the asset of its side files' steps.
-fn world_asset(map: u16) -> AssetId {
+pub(crate) fn world_asset(map: u16) -> AssetId {
     AssetId {
         kind: AssetKind::WorldMap,
         index: map,

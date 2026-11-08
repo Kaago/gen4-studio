@@ -300,8 +300,9 @@ fn adopt_refuses_dspre_world_locked_and_gltf() {
             &mut st,
             &req(json!({"map": 0, "form": "gltf"}))
         )),
-        "Form 2 (glTF) kommt mit 6.5b."
+        "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula)."
     );
+    assert!(st.history().0.is_empty());
     adopt(&mut st, 0);
     assert_eq!(
         refused(world_adopt(&mut st, &req(json!({"map": 0})))),

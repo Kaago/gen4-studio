@@ -800,7 +800,7 @@ mod tests {
                 "world_adopt",
                 json!({ "req": { "map": 0, "form": "gltf" } })
             ),
-            "Form 2 (glTF) kommt mit 6.5b."
+            "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula)."
         );
         let report = call(
             &state,

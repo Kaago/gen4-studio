@@ -211,6 +211,10 @@ pub struct WorldBakeReport {
     pub messages: Vec<WorldBakeMessage>,
     /// Faces of free-form models among `faces`.
     pub freeform_faces: usize,
+    /// Quad strips the baked model sends (0 without a baked model).
+    pub strips: usize,
+    /// Faces the baked model sends as single quads (0 without a baked model).
+    pub single_quads: usize,
 }
 
 /// The derived permissions of `grid` (`derive: true`, before the hand values): per cell the
@@ -414,6 +418,8 @@ pub fn report(
         verbatim_terrain: bake.verbatim_terrain,
         messages: bake.messages.clone(),
         freeform_faces: bake.freeform_faces,
+        strips: bake.model.as_ref().map_or(0, |m| m.strips),
+        single_quads: bake.model.as_ref().map_or(0, |m| m.single_quads),
     }
 }
 

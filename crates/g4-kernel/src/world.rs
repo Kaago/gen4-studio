@@ -24,7 +24,8 @@
 //! record of each world map's last bake in `.g4/build/state.json` ([`record::world_side`]);
 //! `build.rs` the build step `world` after `textproject`, which bakes the world maps whose world
 //! changed into their members ([`build::bake_world_maps`]); `adopt.rs` „Karte als Quelle
-//! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]). `tileset.rs` also edits
+//! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]; Form 2: the model as a
+//! glTF side file through apicula, [`adopt::world_adopt_with`]). `tileset.rs` also edits
 //! the tiles of a tileset file as one step ([`tileset::tileset_edit`]) and sets the model of a
 //! piece tile ([`tileset::tileset_piece_set`]).
 //! `freeform.rs` the canonical side file of a free-form model (6.5b, [`freeform::side_glb`],
@@ -47,8 +48,9 @@ pub mod record;
 pub mod tileset;
 
 pub use adopt::{
-    ADOPT_TOLERANCE, AdoptForm, HeightDeviation, WorldAdoptReport, WorldAdoptRequest, adopt_label,
-    world_adopt,
+    ADOPT_NEEDS_APICULA, ADOPT_TEXTURE_CODE, ADOPT_TOLERANCE, AdoptForm, BakedGeometry,
+    FORM2_SIDE_NAME, Form2Report, HeightDeviation, VanillaGeometry, WorldAdoptReport,
+    WorldAdoptRequest, adopt_label, world_adopt, world_adopt_glb, world_adopt_with,
 };
 pub use bake::{
     BakeEnv, EMPTY_CELL, FLOOR_TOLERANCE, GridBake, Verbatim, WORLD_BAKE_REV, WorldBake,
