@@ -1287,4 +1287,149 @@ mod tests {
             assert!(median <= 300.0, "median {median:.2} ms");
         }
     }
+
+    // ---- Phase 6.4b: smart drawing ----
+
+    /// [`world_ready_edges`] with the set „Weg“ taken out of the tileset file of package 0 (22
+    /// tiles, no edge set), open in a fresh state, with its policy.
+    ///
+    /// [`world_ready_edges`]: g4_kernel::test_support::world_ready_edges
+    fn open_without_sets() -> (TextFixture, AppState, UserPolicy) {
+        let fx = g4_kernel::test_support::world_ready_edges();
+        let mut tileset = Tileset::synthetic_edges();
+        tileset.edge_sets.clear();
+        fx.write(
+            tileset_rel(0).to_str().unwrap(),
+            &serde_json::to_vec_pretty(&tileset).unwrap(),
+        );
+        let (state, policy) = open_as_is(&fx);
+        (fx, state, policy)
+    }
+
+    /// The edge set „Weg“ put into the tileset over `tileset_edit` with `sets` (no tile
+    /// changes), a terrain stroke with it: two steps of the history, both undone again.
+    #[test]
+    fn edge_sets_over_dispatch() {
+        let (_fx, state, policy) = open_without_sets();
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0 } }),
+        );
+        let before = call(&state, &policy, "world_get", json!({ "map": 0 }))["world"].clone();
+        assert_eq!(
+            call(&state, &policy, "tileset_get", json!({ "package": 0 }))["tileset"]["edge_sets"],
+            Value::Null
+        );
+        let weg = serde_json::to_value(g4_kernel::world::edge::fixtures::weg13()).unwrap();
+        let report = call(
+            &state,
+            &policy,
+            "tileset_edit",
+            json!({ "req": { "package": 0, "changes": [], "sets": [{ "put": weg }] } }),
+        );
+        assert_eq!(
+            (&report["package"], &report["tiles"]),
+            (&json!(0), &json!(0)),
+            "{report}"
+        );
+        let tileset = call(&state, &policy, "tileset_get", json!({ "package": 0 }));
+        assert_eq!(
+            tileset["tileset"]["edge_sets"][0]["name"], "Weg",
+            "{tileset}"
+        );
+        let painted = call(
+            &state,
+            &policy,
+            "world_edit",
+            json!({ "req": { "map": 0, "changes": [{
+                "cells": g4_kernel::world::smart::fixtures::plus_cells(),
+                "terrain": { "set": "Weg" },
+            }] } }),
+        );
+        assert_eq!(painted["cells"], 45, "{painted}");
+        assert_eq!(painted.get("notes"), None, "{painted}");
+        let labels = labels(&state);
+        assert_eq!(
+            labels[labels.len() - 2..],
+            [
+                "Kantensatz „Weg“ angelegt: Tileset 0000",
+                "Welt geändert: Karte 0000 (45 Zellen)",
+            ]
+        );
+        let ground = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        let row9 = ground["world"]["layers"][0]["tiles"][9]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(row9.contains("0006"), "{row9}");
+        // A set the tileset lacks.
+        assert_eq!(
+            refused(
+                &state,
+                &policy,
+                "world_edit",
+                json!({ "req": { "map": 0, "changes": [{ "cells": [[1, 1]], "terrain": { "set": "Fels" } }] } }),
+            ),
+            "Kantensatz „Fels“ gibt es im Tileset 0000 nicht."
+        );
+        call(&state, &policy, "undo", json!({}));
+        call(&state, &policy, "undo", json!({}));
+        assert_eq!(
+            call(&state, &policy, "world_get", json!({ "map": 0 }))["world"],
+            before
+        );
+        assert_eq!(
+            call(&state, &policy, "tileset_get", json!({ "package": 0 }))["tileset"]["edge_sets"],
+            Value::Null
+        );
+    }
+
+    /// A stroke whose seam no longer fits a neighbour map: the note is in the answer of
+    /// `world_edit`, the neighbour stays.
+    #[test]
+    fn smart_stroke_notes_reach_the_answer() {
+        let fx = g4_kernel::test_support::world_ready_edges();
+        let (state, policy) = open_as_is(&fx);
+        for map in [0, 1] {
+            call(
+                &state,
+                &policy,
+                "world_create",
+                json!({ "req": { "map": map, "tileset": 0 } }),
+            );
+        }
+        let rect = |xs: std::ops::RangeInclusive<u8>| -> Vec<[u8; 2]> {
+            (9..=11u8)
+                .flat_map(|z| xs.clone().map(move |x| [x, z]))
+                .collect()
+        };
+        let stroke = |map: u16, cells: Vec<[u8; 2]>, inside: bool| {
+            call(
+                &state,
+                &policy,
+                "world_edit",
+                json!({ "req": { "map": map, "changes": [{
+                    "cells": cells, "terrain": { "set": "Weg", "inside": inside },
+                }] } }),
+            )
+        };
+        stroke(1, rect(0..=3), true);
+        stroke(0, rect(28..=31), true);
+        let east = call(&state, &policy, "world_get", json!({ "map": 1 }))["world"].clone();
+        let report = stroke(0, vec![[31, 10]], false);
+        assert_eq!(
+            report["notes"],
+            json!([
+                "Naht zu Karte 0001: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die \
+                 Nachbarkarte bleibt, wie sie ist."
+            ]),
+            "{report}"
+        );
+        assert_eq!(
+            call(&state, &policy, "world_get", json!({ "map": 1 }))["world"],
+            east
+        );
+    }
 }

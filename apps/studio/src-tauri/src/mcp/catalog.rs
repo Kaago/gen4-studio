@@ -1942,11 +1942,18 @@ static TOOLS: &[ToolDef] = &[
                       digits, r1..r3 turn, f flip, . empty), height (steps of 8 units, \
                       \u{2212}16 to 62, ground only), ramp (level . or n/e/s/w with 1 or 2 \
                       steps, uphill, ground only), permission (kkcc hex or . for derived, no \
-                      layer)}], label? (the history text; default names the map and the number \
-                      of cells). Tools such as fill or rectangle are computed by the caller and \
-                      sent as cells; answers cells, change and bake. Refused outside a text \
-                      project and for a map without world (recipe_apply new_painted_map makes \
-                      one).",
+                      layer), terrain, cliff}], label? (the history text; default names the map \
+                      and the number of cells); tools such as fill or rectangle are computed by \
+                      the caller and sent as cells; answers cells, change, bake and notes; \
+                      refused outside a text project and for a map without world \
+                      (recipe_apply new_painted_map makes one). terrain {set, inside? (default \
+                      true), seed?} paints the inside (or with inside false the outside) of an \
+                      edge set of the tileset on the cells and sets the matching edge and corner \
+                      tiles around them; cliff {set, height, seed?} sets the cells to height \
+                      (ground only) with the set's rim on top, walls follow the height edge and \
+                      collision the set's rule (block upper or lower); entries with several \
+                      tiles are chosen by seed. Neighbour maps are read at the seam, never \
+                      written; notes say where they no longer fit.",
         input_schema: world_edit_args,
         output_schema: answers_object,
         route: command("world_edit"),
@@ -1989,7 +1996,7 @@ fn world_edit_args() -> Value {
                         "description": "the changes, applied in order as one undo step",
                         "items": object(
                             json!({
-                                "layer": uint("the layer of tile (default 0, the ground)"),
+                                "layer": uint("the layer of tile and terrain (default 0, the ground)"),
                                 "cells": {
                                     "type": "array",
                                     "items": cell,
@@ -2004,6 +2011,38 @@ fn world_edit_args() -> Value {
                                 "ramp": text(". (level) or n/e/s/w with 1 or 2 steps, uphill \
                                               (ground only)"),
                                 "permission": text("kkcc hex or . for derived (no layer)"),
+                                "terrain": object_described(
+                                    json!({
+                                        "set": text("the name of an edge set of the tileset \
+                                                     (tileset_get edge_sets)"),
+                                        "inside": {
+                                            "type": "boolean",
+                                            "default": true,
+                                            "description": "true paints the set's inside, \
+                                                            false its outside",
+                                        },
+                                        "seed": seed(),
+                                    }),
+                                    &["set"],
+                                    "terrain brush: the cells get the set's inside (or \
+                                     outside), the ring around them its edge and corner tiles \
+                                     (on layer)",
+                                ),
+                                "cliff": object_described(
+                                    json!({
+                                        "set": text("the name of an edge set of the tileset \
+                                                     (tileset_get edge_sets)"),
+                                        "height": {
+                                            "type": "integer",
+                                            "description": "the cells' new height in steps of 8 \
+                                                            units, \u{2212}16 to 62",
+                                        },
+                                        "seed": seed(),
+                                    }),
+                                    &["set", "height"],
+                                    "cliff brush (ground only): the cells get height, the set's \
+                                     rim lies on top",
+                                ),
                             }),
                             &["cells"],
                         ),
@@ -2015,6 +2054,18 @@ fn world_edit_args() -> Value {
         }),
         &["req"],
     )
+}
+
+/// The `seed` of a smart stroke: which entry a place with several tiles takes.
+fn seed() -> Value {
+    json!({
+        "type": "integer",
+        "minimum": 0,
+        "maximum": u32::MAX,
+        "default": 0,
+        "description": "chooses among the entries of a place with several tiles (the same \
+                        seed gives the same tiles)",
+    })
 }
 
 /// The argument of `get_map_heights` and `get_map_budget`.
@@ -3376,6 +3427,34 @@ mod tests {
         );
     }
 
+    /// 6.4b: world_edit names the smart strokes in its description and its schema; no new
+    /// tool (the count and the decided set stay).
+    #[test]
+    fn world_edit_describes_terrain_and_cliff() {
+        let edit = tool("world_edit");
+        for part in [
+            "terrain {set, inside? (default true), seed?}",
+            "cliff {set, height, seed?}",
+            "Neighbour maps are read at the seam, never written",
+        ] {
+            assert!(
+                edit.description.contains(part),
+                "{part}: {}",
+                edit.description
+            );
+        }
+        let schema = (edit.input_schema)();
+        let change = &schema["properties"]["req"]["properties"]["changes"]["items"];
+        let terrain = &change["properties"]["terrain"];
+        assert_eq!(terrain["required"], json!(["set"]), "{terrain}");
+        assert_eq!(terrain["properties"]["inside"]["default"], true);
+        assert_eq!(terrain["properties"]["seed"]["default"], 0);
+        let cliff = &change["properties"]["cliff"];
+        assert_eq!(cliff["required"], json!(["set", "height"]), "{cliff}");
+        assert_eq!(cliff["properties"]["seed"]["default"], 0);
+        assert_eq!(change["required"], json!(["cells"]));
+    }
+
     /// The three painting tools over `tools/call` (the toolbox) in a text project: world_get
     /// and tileset_get read, world_edit with `{req: …}` is one step of the history.
     #[test]
@@ -3386,7 +3465,7 @@ mod tests {
         let fx = TextFixture::exported();
         fx.write(
             tileset_rel(0).to_str().unwrap(),
-            &serde_json::to_vec_pretty(&Tileset::synthetic()).unwrap(),
+            &serde_json::to_vec_pretty(&Tileset::synthetic_edges()).unwrap(),
         );
         let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
         let access = crate::mcp::Access {
@@ -3420,6 +3499,24 @@ mod tests {
         let undo = call("history", json!({}))["undo"].clone();
         assert!(
             undo.as_array().unwrap().contains(&json!("Agent: Weg")),
+            "{undo}"
+        );
+        // 6.4b: a terrain stroke with the tileset's edge set „Weg“, one more step.
+        assert_eq!(
+            tileset["tileset"]["edge_sets"][0]["name"], "Weg",
+            "{tileset}"
+        );
+        let painted = call(
+            "world_edit",
+            json!({ "req": { "map": 0, "changes": [{
+                "cells": [[10, 10], [11, 10]], "terrain": { "set": "Weg", "seed": 7 },
+            }] } }),
+        );
+        assert_eq!(painted["cells"], 2, "{painted}");
+        let undo = call("history", json!({}))["undo"].clone();
+        assert_eq!(
+            undo.as_array().unwrap().last().unwrap(),
+            "Welt geändert: Karte 0000 (2 Zellen)",
             "{undo}"
         );
         let got = call("world_get", json!({ "map": 0 }));
