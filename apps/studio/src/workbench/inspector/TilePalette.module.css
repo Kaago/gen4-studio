@@ -62,6 +62,23 @@
   image-rendering: pixelated;
 }
 
+/* The picture of the chosen tile turned clockwise and mirrored after the turn, as the mesh shows it (`rotate` acts after `scale`). */
+.picture[data-palette-turn="1"] {
+  rotate: 90deg;
+}
+
+.picture[data-palette-turn="2"] {
+  rotate: 180deg;
+}
+
+.picture[data-palette-turn="3"] {
+  rotate: 270deg;
+}
+
+.picture[data-palette-flip] {
+  scale: -1 1;
+}
+
 /* The placeholder colour of a tile without picture, by role (as `placeholderColor` in the scene). */
 .swatch {
   background: var(--g4-szene-gelaende-unbekannt);

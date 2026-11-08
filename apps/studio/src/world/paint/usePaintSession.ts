@@ -9,7 +9,7 @@ import { clearStrokePreview, holdStrokePreview, setStrokePreview } from "../scen
 import type { PreviewLook } from "../scene/strokePreview";
 import type { Stroke } from "../scene/strokes";
 import { placeholderColor } from "../scene/worldMesh";
-import { HEIGHT_MAX, HEIGHT_MIN, cellsOf, fillCells, heightSkipped, pickedTile, strokeRequest } from "./ops";
+import { HEIGHT_MAX, HEIGHT_MIN, cellsOf, fillCells, heightSkipped, pickedTile, strokeRequest, tileParts } from "./ops";
 import type { Cell, PaintSub, WorldCells } from "./ops";
 import { peekTileImage, tileImage } from "./paletteImages";
 import { createStrokeQueue } from "./session";
@@ -58,10 +58,11 @@ function strokeLook(sub: PaintSub, lower: boolean, state: PaintState, cells: Wor
   const height = ([x, z]: Cell) => cells?.heights[z]?.[x] ?? 0;
   if (sub === "height") return { color: (cell) => stepColor(height(cell) + (lower ? -1 : 1)) };
   if (sub === "ramp") return { color: (cell) => stepColor(height(cell) + state.ramp.steps) };
-  const index = Number.parseInt(state.tile.slice(0, 4), 16);
-  const tile = tileset?.tileset.tiles[index];
+  const parts = tileParts(state.tile);
+  const tile = parts ? tileset?.tileset.tiles[Number.parseInt(parts.digits, 16)] : undefined;
   const picture = tileset && tile ? peekTileImage(tileset.package, tile.texture) : null;
-  return picture ? { texture: picture } : { color: placeholderColor(tile?.role ?? "ground") };
+  // Turned and mirrored as the token says, like the mesh will show it.
+  return picture && parts ? { texture: picture, rotate: parts.rotate, flip: parts.flip } : { color: placeholderColor(tile?.role ?? "ground") };
 }
 
 /** The open paint session of `target`: its world (world_get, read again on every revision), tileset (tileset_get), queue;
@@ -180,20 +181,29 @@ export function usePaintSession(
       inFlight.current = inFlight.current.filter((r) => r !== req);
       setPending(inFlight.current.length);
     };
+    // `settled` runs whatever happens on the way (a throwing refresh, clear or onError): a request must never stay on its way.
     queue.push(req).then(
       async () => {
-        latest.current.refresh(req.map);
-        await readWorld(req.map).catch((e) => latest.current.onError(e));
-        clear();
-        settled();
+        try {
+          latest.current.refresh(req.map);
+          await readWorld(req.map).catch((e) => latest.current.onError(e));
+          clear();
+        } finally {
+          settled();
+        }
       },
       async (e) => {
-        clear();
-        latest.current.onError(e);
-        await readWorld(req.map).catch(() => undefined);
-        settled();
+        try {
+          clear();
+          latest.current.onError(e);
+          await readWorld(req.map).catch(() => undefined);
+        } finally {
+          settled();
+        }
       },
-    );
+    )
+      // A throw that reached here (onError itself throwing) has nowhere left to go; it must not become an unhandled rejection.
+      .catch(() => undefined);
   }, []);
 
   const onPick = useCallback((map: number, at: Cell) => {

@@ -254,11 +254,43 @@ describe("usePaintSession", () => {
     expect(session!.look("brush", false)).toEqual({ color: placeholderColor("grass") });
     const picture = {} as ImageBitmap;
     images.peekTileImage.mockImplementation(() => picture);
-    expect(session!.look("brush", false)).toEqual({ texture: picture });
-    expect(session!.look("rect", false)).toEqual({ texture: picture });
+    // Turned (and mirrored) as the token says, like the mesh will show it.
+    expect(session!.look("brush", false)).toEqual({ texture: picture, rotate: 1, flip: false });
+    expect(session!.look("rect", false)).toEqual({ texture: picture, rotate: 1, flip: false });
     expect(images.peekTileImage).toHaveBeenCalledWith(6, "gras_a");
+    state = { ...INITIAL_PAINT, tile: "0001r3f" };
+    await show();
+    expect(session!.look("brush", false)).toEqual({ texture: picture, rotate: 3, flip: true });
     // The eraser stays hatched.
     expect(session!.look("erase", false)).toEqual({ erase: true });
     images.peekTileImage.mockImplementation(() => undefined);
+  });
+  it("a_throwing_clear_still_lets_the_stroke_settle", async () => {
+    await show();
+    preview.clearStrokePreview.mockImplementation(() => {
+      throw new Error("clear");
+    });
+    act(() => session?.onStroke(stroke({ preview: 9 })));
+    await tick();
+    await tick();
+    // The answered stroke left the requests on their way although clearing its preview threw.
+    expect(api.worldEdit).toHaveBeenCalledOnce();
+    expect(session?.pending).toBe(0);
+    preview.clearStrokePreview.mockReset();
+  });
+
+  it("a_throwing_on_error_still_lets_a_refused_stroke_settle", async () => {
+    onError.mockImplementation(() => {
+      throw new Error("onError");
+    });
+    await show();
+    api.worldEdit.mockRejectedValue(new Error("refused"));
+    act(() => session?.onStroke(stroke({ preview: 9 })));
+    await tick();
+    await tick();
+    expect(onError).toHaveBeenCalled();
+    expect(session?.pending).toBe(0);
+    api.worldEdit.mockImplementation(async (req: WorldEditRequest) => report(req));
+    onError.mockReset();
   });
 });

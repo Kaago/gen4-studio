@@ -11,7 +11,10 @@ import type { SceneHost } from "./SceneHost";
  * How the plates of a stroke look: the tile's texture (brush, rectangle), a colour (the placeholder of a tile without a picture; height
  * and ramp in the colour of the target step, per cell when it is a function) or hatched like an unknown tile (eraser, removing a ramp).
  */
-export type PreviewLook = { texture: CanvasImageSource } | { color: number | ((cell: Cell) => number) } | { erase: true };
+export type PreviewLook =
+  | { texture: CanvasImageSource; rotate?: number; flip?: boolean }
+  | { color: number | ((cell: Cell) => number) }
+  | { erase: true };
 
 /** The plates float this far over the layer „Höhen“ (`HEIGHT_LAYER_Y`), so they are seen over it and over the overlay. */
 export const PREVIEW_LIFT = 0.01;
@@ -68,6 +71,48 @@ function hatchTexture(): THREE.DataTexture {
   return texture;
 }
 
+/**
+ * The world-bound UV of the floor point (x, z) of a tile turned `rotate` quarter turns and mirrored after the turn with `flip`: a port of
+ * the kernel's `uv_of` (`g4_kernel::world::mesh`, table in docs/formats/world_map.md).
+ */
+export function uvOf(x: number, z: number, rotate: number, flip: boolean): [u: number, v: number] {
+  const r = ((rotate % 4) + 4) % 4;
+  const [u, v] = r === 0 ? [x, z] : r === 1 ? [z, -x] : r === 2 ? [-x, -z] : [-z, x];
+  // `+ 0` turns −0 into 0.
+  return [(flip ? -u : u) + 0, v + 0];
+}
+
+/** The corners of a plate in the order of its geometry (`PlaneGeometry` laid flat): north-west, north-east, south-west, south-east. */
+const PLATE_CORNERS: Cell[] = [
+  [0, 0],
+  [1, 0],
+  [0, 1],
+  [1, 1],
+];
+
+/**
+ * The UVs the world mesh gives the corners of one cell painted with a tile turned `rotate` and mirrored with `flip` (`uvOf` in tile units,
+ * then `(u, −v)` as `meshGeometries` divides it), for a texture as large as the cell; corners as `PLATE_CORNERS`, flat `[u0, v0, u1, …]`.
+ */
+export function plateMeshUvs(rotate: number, flip: boolean): number[] {
+  return PLATE_CORNERS.flatMap(([x, z]) => {
+    const [u, v] = uvOf(x, z, rotate, flip);
+    return [u, -v + 0];
+  });
+}
+
+/**
+ * The UVs of a plate showing a tile picture (an `ImageBitmap`, whose first row WebGL puts at v = 0 since it ignores flipY) the way the
+ * mesh shows it from a texture with its first row at v = 1 (`toTexture`): v mirrored, then each axis moved into 0 to 1 (the mesh repeats
+ * its textures, the plate clamps). Turned and mirrored like the mesh, so r1 shows the picture turned clockwise seen from above, north up.
+ */
+export function plateUvs(rotate: number, flip: boolean): number[] {
+  const mesh = plateMeshUvs(rotate, flip);
+  const out = mesh.map((value, i) => (i % 2 === 0 ? value : 1 - value));
+  const min = [Math.min(out[0], out[2], out[4], out[6]), Math.min(out[1], out[3], out[5], out[7])];
+  return out.map((value, i) => value - min[i % 2] + 0);
+}
+
 function previewMaterial(look: PreviewLook): THREE.MeshBasicMaterial {
   const material = new THREE.MeshBasicMaterial({
     transparent: true,
@@ -83,11 +128,8 @@ function previewMaterial(look: PreviewLook): THREE.MeshBasicMaterial {
     texture.minFilter = THREE.NearestFilter;
     texture.generateMipmaps = false;
     texture.colorSpace = THREE.SRGBColorSpace;
-    // WebGL ignores flipY for an ImageBitmap (its first row lands at v = 0): mirror v so the first row lies at v = 1, as the meshes'
-    // textures store it (`toTexture`), i.e. towards the north edge of the plate.
+    // WebGL ignores flipY for an ImageBitmap (its first row lands at v = 0); the plate's UVs (`plateUvs`) account for it.
     texture.flipY = false;
-    texture.repeat.y = -1;
-    texture.offset.y = 1;
     texture.needsUpdate = true;
     material.map = texture;
   } else if ("erase" in look) {
@@ -107,6 +149,7 @@ export function setStrokePreview(h: SceneHost, map: number, cells: Cell[], look:
   if (own.length === 0 || at.length === 0) return;
   const plane = new THREE.PlaneGeometry(1, 1);
   plane.rotateX(-Math.PI / 2);
+  if ("texture" in look) plane.setAttribute("uv", new THREE.Float32BufferAttribute(plateUvs(look.rotate ?? 0, look.flip ?? false), 2));
   const plates = new THREE.InstancedMesh(plane, previewMaterial(look), own.length * at.length);
   plates.name = LIVE;
   plates.renderOrder = PREVIEW_ORDER;

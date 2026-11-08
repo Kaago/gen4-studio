@@ -43,8 +43,8 @@ function tooltipOf(digits: string, tile: TileJson, tinker: boolean): string {
   return parts.join(" · ");
 }
 
-/** A tile's picture drawn into a canvas, texel for texel. */
-function TilePicture({ bitmap }: { bitmap: ImageBitmap }) {
+/** A tile's picture drawn into a canvas, texel for texel; turned clockwise `rotate` quarter turns and mirrored after the turn like the mesh. */
+function TilePicture({ bitmap, rotate = 0, flip = false }: { bitmap: ImageBitmap; rotate?: number; flip?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const el = canvas.current;
@@ -54,13 +54,23 @@ function TilePicture({ bitmap }: { bitmap: ImageBitmap }) {
     ctx.clearRect(0, 0, el.width, el.height);
     ctx.drawImage(bitmap, 0, 0, el.width, el.height);
   }, [bitmap]);
-  return <canvas ref={canvas} className={styles.picture} width={32} height={32} aria-hidden="true" />;
+  return (
+    <canvas
+      ref={canvas}
+      className={styles.picture}
+      width={32}
+      height={32}
+      data-palette-turn={rotate > 0 ? rotate : undefined}
+      data-palette-flip={flip ? "" : undefined}
+      aria-hidden="true"
+    />
+  );
 }
 
 /**
  * The palette of a world map while painting (section „Palette“): the tiles of its package (`tileset_get`) grouped by role in the order
  * Boden, Gras, Wasser, Wand, Rampe, Teilmodell (empty groups left out), one 32 × 32 key each with the whole texture of the tile
- * (`tileImage`), or the colour of its role without one. The chosen tile is pressed and shows its turn and mirror as a small mark; a click
+ * (`tileImage`), or the colour of its role without one. The chosen tile is pressed and shows its turn and mirror as a small mark and in its picture (turned like the mesh); a click
  * chooses a tile plain. Tüfteln writes the number under each tile and adds kind and collision to the tooltip.
  */
 export function TilePalette({
@@ -130,7 +140,7 @@ export function TilePalette({
                           aria-pressed={pressed}
                           onClick={() => onTile(digits)}
                         >
-                          {bitmap ? <TilePicture bitmap={bitmap} /> : <span className={styles.swatch} data-palette-color={t.role} aria-hidden="true" />}
+                          {bitmap ? <TilePicture bitmap={bitmap} rotate={pressed ? chosen?.rotate : 0} flip={pressed && chosen?.flip} /> : <span className={styles.swatch} data-palette-color={t.role} aria-hidden="true" />}
                           {mark && (
                             <span className={styles.mark} data-palette-mark="" aria-hidden="true">
                               {mark}

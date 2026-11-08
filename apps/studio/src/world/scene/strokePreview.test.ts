@@ -5,7 +5,7 @@ import { szene } from "../../ui/tokens/tokens";
 import { createGround } from "../ground";
 import { HEIGHT_LAYER_Y, buildHeightLayer } from "./heightLayer";
 import type { SceneHost } from "./SceneHost";
-import { PREVIEW_LIFT, clearStrokePreview, holdStrokePreview, setStrokePreview, setStrokeRect } from "./strokePreview";
+import { PREVIEW_LIFT, clearStrokePreview, holdStrokePreview, plateMeshUvs, plateUvs, setStrokePreview, setStrokeRect, uvOf } from "./strokePreview";
 
 /** Matrix 0, 2 × 1: map 5 in cell (0, 0), raised by 4 altitude steps (2 scene units), map 7 beside it. */
 const matrix: MatrixDto = { index: 0, name: "m", width: 2, height: 1, maps: [5, 7], headers: null, altitudes: [4, 0] };
@@ -59,9 +59,52 @@ describe("strokePreview", () => {
     expect(map.image).toBe(picture);
     expect(map.magFilter).toBe(THREE.NearestFilter);
     expect(map.minFilter).toBe(THREE.NearestFilter);
-    // The bitmap's first row lands at v = 1 (flipY is ignored for bitmaps): v is mirrored.
+    // flipY is ignored for bitmaps (the first row lands at v = 0): the plate's UVs put it at the north edge, no texture transform.
     expect(map.flipY).toBe(false);
-    expect([map.repeat.y, map.offset.y]).toEqual([-1, 1]);
+    expect([map.repeat.y, map.offset.y]).toEqual([1, 0]);
+    expect(Array.from(plates(h)[0].geometry.getAttribute("uv").array)).toEqual(plateUvs(0, false));
+  });
+
+  it("uv_of_matches_the_table_of_world_map_md", () => {
+    // docs/formats/world_map.md, „Koordinaten und UV“: r0 (x, z), r1 (z, −x), r2 (−x, −z), r3 (−z, x), f: u = −u after the turn.
+    expect(uvOf(3, 5, 0, false)).toEqual([3, 5]);
+    expect(uvOf(3, 5, 1, false)).toEqual([5, -3]);
+    expect(uvOf(3, 5, 2, false)).toEqual([-3, -5]);
+    expect(uvOf(3, 5, 3, false)).toEqual([-5, 3]);
+    expect(uvOf(3, 5, 0, true)).toEqual([-3, 5]);
+    expect(uvOf(3, 5, 1, true)).toEqual([-5, -3]);
+    expect(uvOf(3, 5, 3, true)).toEqual([5, 3]);
+  });
+
+  it("plate_uvs_turn_and_flip_like_the_mesh", () => {
+    // Corners NW (0, 0), NE (1, 0), SW (0, 1), SE (1, 1); mesh uv = (u, −v) as meshGeometries divides it.
+    expect(plateMeshUvs(0, false)).toEqual([0, 0, 1, 0, 0, -1, 1, -1]);
+    expect(plateMeshUvs(1, false)).toEqual([0, 0, 0, 1, 1, 0, 1, 1]);
+    expect(plateMeshUvs(2, false)).toEqual([0, 0, -1, 0, 0, 1, -1, 1]);
+    expect(plateMeshUvs(3, false)).toEqual([0, 0, 0, -1, -1, 0, -1, -1]);
+    expect(plateMeshUvs(0, true)).toEqual([0, 0, -1, 0, 0, -1, -1, -1]);
+    // The bitmap's (column, row) at each corner, row 0 its first row: r0 unchanged (first row north, as before), r1 turned clockwise
+    // seen from above (first row along the east edge), r2 upside down, r3 counter-clockwise; f mirrors the columns.
+    expect(plateUvs(0, false)).toEqual([0, 0, 1, 0, 0, 1, 1, 1]);
+    expect(plateUvs(1, false)).toEqual([0, 1, 0, 0, 1, 1, 1, 0]);
+    expect(plateUvs(2, false)).toEqual([1, 1, 0, 1, 1, 0, 0, 0]);
+    expect(plateUvs(3, false)).toEqual([1, 0, 1, 1, 0, 0, 0, 1]);
+    expect(plateUvs(0, true)).toEqual([1, 0, 0, 0, 1, 1, 0, 1]);
+    expect(plateUvs(1, true)).toEqual([1, 1, 1, 0, 0, 1, 0, 0]);
+    // Each matches the mesh up to whole texture repeats, with v mirrored for the bitmap.
+    for (const [r, f] of [[0, false], [1, false], [2, false], [3, false], [0, true], [1, true], [2, true], [3, true]] as const) {
+      const mesh = plateMeshUvs(r, f);
+      plateUvs(r, f).forEach((value, i) => {
+        const want = i % 2 === 0 ? mesh[i] : 1 - mesh[i];
+        expect(Number.isInteger(value - want)).toBe(true);
+      });
+    }
+  });
+
+  it("a_turned_tile_gets_its_turned_plate_uvs", () => {
+    const h = host();
+    setStrokePreview(h, 5, [[0, 0]], { texture: { width: 16, height: 16 } as unknown as CanvasImageSource, rotate: 1, flip: true });
+    expect(Array.from(plates(h)[0].geometry.getAttribute("uv").array)).toEqual(plateUvs(1, true));
   });
 
   it("clear_frees_the_geometry", () => {

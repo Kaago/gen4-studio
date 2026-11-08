@@ -136,7 +136,7 @@ export function pickedTile(cells: WorldCells, layer: number, at: Cell): string |
 }
 
 /** A tile token in parts; null for `.` or a token outside the grammar. */
-function tileParts(token: string): { digits: string; rotate: number; flip: boolean } | null {
+export function tileParts(token: string): { digits: string; rotate: number; flip: boolean } | null {
   const m = /^([0-9a-f]{4})(?:r([1-3]))?(f)?$/.exec(token.toLowerCase());
   return m ? { digits: m[1], rotate: m[2] ? Number(m[2]) : 0, flip: m[3] !== undefined } : null;
 }

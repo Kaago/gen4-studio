@@ -122,6 +122,23 @@ describe("TilePalette", () => {
     expect(onTile).toHaveBeenCalledWith("0004");
   });
 
+  it("the_pressed_picture_turns_and_mirrors_like_the_mesh", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((() => ({ drawImage: vi.fn(), clearRect: vi.fn(), imageSmoothingEnabled: true })) as never);
+    const picture = {} as ImageBitmap;
+    await show({ tileToken: "0000r3f", image: async () => picture });
+    // The chosen tile's picture: three quarter turns clockwise, mirrored after the turn (CSS by data attribute, no inline style).
+    const chosen = button("0000").querySelector("canvas")!;
+    expect(chosen.getAttribute("data-palette-turn")).toBe("3");
+    expect(chosen.hasAttribute("data-palette-flip")).toBe(true);
+    // The other tiles stay plain.
+    const other = button("0002").querySelector("canvas")!;
+    expect(other.hasAttribute("data-palette-turn")).toBe(false);
+    expect(other.hasAttribute("data-palette-flip")).toBe(false);
+    await show({ tileToken: "0000r1", image: async () => picture });
+    expect(button("0000").querySelector("canvas")!.getAttribute("data-palette-turn")).toBe("1");
+    expect(button("0000").querySelector("canvas")!.hasAttribute("data-palette-flip")).toBe(false);
+  });
+
   async function tooltipOf(token: string) {
     await act(async () => {
       button(token).dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));

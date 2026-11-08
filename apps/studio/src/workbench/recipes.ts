@@ -122,7 +122,8 @@ export interface PaintingStart {
 }
 
 /**
- * „Gelände anpassen“ (after „Neue Karte malen“, or as the step of a result): selects the map in `cell` (the world map stays the view),
+ * „Gelände anpassen“ (after „Neue Karte malen“, or as the step of a result): selects the map in `cell` (the matrix of `cell` stays the
+ * view: the world map for a map outside, the room plan's own matrix for a room),
  * turns the top view on and frames the cell in it (the scene does so once the refreshed matrix holds the map and the map is the paint
  * target, also when the top view was on already), switches to „Gelände malen“ (which shows the terrain layer) and paints with the brush.
  * The top view stays the user's choice afterwards; choosing the tool alone never switches the camera.
