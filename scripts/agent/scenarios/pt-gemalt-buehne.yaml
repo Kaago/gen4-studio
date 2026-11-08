@@ -1,0 +1,130 @@
+# Platin DE, phase gate 6.4a: the stage for the painted map the gate paints in the browser, headless
+# over MCP (`studio mcp`, one session), no build and no play. It is pt-gemalt.yaml up to and
+# including `tileset_edit`, without the recipe and the strokes: the text project, the 1x1 area on a
+# new header, its encounter file, its script file with the gift, the gift (14, 23) and the arrival
+# door warp (12, 21) where 6.3b put them, the bedroom stairs to the new header, the tileset file of
+# pack 6 with the roles of grass, water and wall. In the browser then: the „+“ east of the 1x1 cell,
+# „Neue Karte malen“ (ground 001c), the strokes of pt-gemalt.yaml with the tools of the surface (one
+# history entry each), ⌘S, `call.sh update_event` moves door warp and gift 32 tiles east;
+# pt-gemalt-ui.yaml builds the copy and plays it.
+#
+# After this scenario the copy may be committed as the starting point (outside: `git add -A && git
+# commit`). Place, tiles and the reasons: pt-gemalt.yaml.
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   BASIS         the .nds beside the copy, relative to the project folder (../<copy>.nds)
+#   NEUER_HEADER  id the new header gets = the header count before (593 on an unmodified Platin DE)
+#   S_WILD L_WILD wild species and level (150 Mewtu, 5)
+#   S_GIFT        the gift, level 100 (445 Knakrack)
+# Example (from scripts/g4emu; docs/agent-gate.md, "Szenarien über MCP"):
+#   uv run g4emu scenario ../agent/scenarios/pt-gemalt-buehne.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/6-4a-buehne-pt_DSPRE_contents --set BASIS=../6-4a-buehne-pt.nds \
+#     --out $W/target/agent/gate-$(date +%F)/6-4a/pt-gemalt-buehne \
+#     --set NEUER_HEADER=593 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445
+game: CPUD
+# --expert: create_encounter_file, new_script_file, tileset_save and tileset_edit are no curated
+# tools (g4_call); --allow-irreversible: the patch and the new files
+mcp: [--allow-irreversible, --expert]
+edits:
+  # (1) base ROM, patch, text project (adopts the scripts), the new place
+  - [assign_base, {nds: "${BASIS}"}]
+  - [apply_header_patch, {}]
+  - [adopt_text_project, {}]
+  - - create_area
+    - spec:
+        name: Gemalt
+        width: 1
+        height: 1
+        cells:                       # Route 201 (header 342): matrix 0 cell (3, 26) = map 5
+          - {x: 0, y: 0, source_map: 5, clear_buildings: true}
+        with_headers: true
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: New
+          new_header: {template: 342, internal_name: T_GEMALT}
+    - area
+  # (2) a new, empty encounter file and a new script file on the new header
+  - [get_header, {id: "${area.header}"}, hdr]
+  - [g4_call, {command: create_encounter_file}, enc]
+  - [g4_call, {command: new_script_file, args: {kind: script}}, geber_datei]
+  - - set_header
+    - id: "${area.header}"
+      header: {Pt: {$base: "${hdr.Pt}", wild_pokemon: "${enc}", script_file_id: "${geber_datei}"}}
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, field: rate, value: 100}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 0, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 1, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 2, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 2, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 3, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 3, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 4, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 4, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 5, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 5, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 6, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 6, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 7, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 7, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 8, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 8, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 9, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 9, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 10, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 10, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 11, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 11, field: level, value: "${L_WILD}"}}}]
+  # the day and night lists replace slots 2 and 3 by the clock
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: day, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: day, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: night, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: night, slot: 1, field: species, value: "${S_WILD}"}}}]
+  # (4) the gift south of (14, 22) (script 2 of the new script file)
+  - - add_event
+    - event_file: "${area.event_file}"
+      kind: object
+      x: 14
+      z: 23
+      patch: {graphics_id: 6, movement_type: 15, dir: 0, script: 2, trainer_type: 0, sight: 0}
+  # (5) arrival warp 0 (back to the bedroom stairs) on the door, the stairs to the new place
+  - [add_event, {event_file: "${area.event_file}", kind: warp, x: 12, z: 21, patch: {dest_header_id: 415, dest_warp_id: 0}}]
+  - [update_event, {event_file: 394, kind: warp, index: 0, patch: {dest_header_id: "${area.header}", dest_warp_id: 0}}]
+  # a text literal needs a saved header that uses the script file (it goes to the header's archive)
+  - [save, {}]
+  - - save_script
+    - file: "${geber_datei}"
+      text: |
+        script Main #1:
+            End
+
+        script Geber #2:
+            LockAll
+            FacePlayer
+            GoToIfSet FLAG_UNUSED_0x0094, label_given
+            Message "Hier, nimm das."
+            WaitButton
+            CloseMessage
+            GivePokemon ${S_GIFT}, 100, 0, VAR_RESULT
+            SetFlag FLAG_UNUSED_0x0094
+            ReleaseAll
+            End
+
+        label_given:
+            ReleaseAll
+            End
+  # the package of the area's header (area data 6); the recipe in the browser paints on it
+  # the tileset file of the package, then the roles (as in 6.3b)
+  - [g4_call, {command: tileset_save, args: {package: 6}}]
+  - - g4_call
+    - command: tileset_edit
+      args:
+        req:
+          package: 6
+          changes:
+            - {tile: 33, role: grass, kind: 2, collision: 0}
+            - {tile: 44, role: water, kind: 21, collision: 0}
+            - {tile: 13, role: wall}
+            - {tile: 28, wall: 13}
+    - expect: {path: tiles, equals: 4}
