@@ -288,7 +288,13 @@ Membern (siehe „Export, Import, Check“), der Build im Schritt `world` direkt
 ([world_map.md](world_map.md) „Build, Datensatz und DSPRE“). Eine binäre Karte braucht alle drei
 („textproject.schema: $: Schlüssel `model` fehlt.“). Der Export und jedes Speichern aus den
 Member-Bytes nehmen `source` und `world` der Datei mit und lassen die abgeleiteten Teile weg
-(`world::keep::world_parts`).
+(`world::keep::world_parts`). Seit 6.5b nennt `world.freeform[].glb` Freiform-Beifiles
+`data/maps/NNNN.<name>.glb`: Speichern und Export behalten jedes, das die Welt der Karte nennt, und
+löschen ein nicht genanntes wie jedes andere Beifile; ein `glb`, das eine andere Karte nennt, ist ein
+Problem des Imports (`world.schema`), und Beifiles sind keine Member und keine Einheit
+([world_map.md](world_map.md) „Freiform und Beifiles (6.5b)“). Im Ordner `data/tilesets/` liegen
+seit 6.5b neben `PPPP.json` die Modell-Beifiles der Teilmodelle `PPPP.<name>.glb`
+([tileset.md](tileset.md)).
 `permissions` sind
 32 Zeilen zu 32 Zellen `kkcc` (Art, Kollision in Hex), `buildings_tail` (Hex) nur, wenn da, `bgs`
 nur auf HeartGold/SoulSilver. Header: `internal_name_bytes` (Hex) nur, wenn die 16 Byte von
@@ -1301,7 +1307,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.egg-moves-locked` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber die Ei-Attacken-Tabelle hat keinen Ort (Platin mit ungeprüfter Fassung oder fehlender Signatur); der Grund steht im Satz, nichts wird geschrieben |
 | `world.schema` | Fehler | Check und Import (seit 6.3a): ein Weltdokument, das seine Grammatik, seine Bereiche oder sein Tileset bricht (Zeilen, Token, Höhe außerhalb −16 bis 62, Rampe über 62, Kachel jenseits des Tilesets, Paket außerhalb, Teilmodell, Überschreibung), mit Pfad und Zeile; der Import lässt nur diese Karte aus. Formfehler von `world` bleiben `textproject.schema` ([world_map.md](world_map.md) „Prüfungen“) |
 | `world.tileset-mismatch` | Warnung | Check: ein Header, dessen Matrix die Welt-Karte zeigt, nennt Gebietsdaten mit einem anderen Paket als `world.tileset` |
-| `world.bake` | Fehler | Check, Build-Schritt `world`, Import und Abgleich (seit 6.3b): das Backen einer Welt-Karte lehnt ab, mit dem Code des Backens vorn (`bake.model-too-big`, `bake.texture-missing`, `bake.face-out-of-range`, `bake.face-uv-range`, `bake.empty`, `world.no-area`, `world.verbatim-mixed`, `world.freeform-later`), etwa „world.bake: world: bake.texture-missing: Die Textur „syn_boden“ fehlt im Kartentextur-Paket oder hat dort keine Palette.“ ([world_map.md](world_map.md) „Backen“) |
+| `world.bake` | Fehler | Check, Build-Schritt `world`, Import und Abgleich (seit 6.3b): das Backen einer Welt-Karte lehnt ab, mit dem Code des Backens vorn (`bake.model-too-big`, `bake.texture-missing`, `bake.face-out-of-range`, `bake.face-uv-range`, `bake.empty`, `world.no-area`, `world.verbatim-mixed`, seit 6.5b `world.side-file`; `world.freeform-later` gibt es seit 6.5b nicht mehr), etwa „world.bake: world: bake.texture-missing: Die Textur „syn_boden“ fehlt im Kartentextur-Paket oder hat dort keine Palette.“ ([world_map.md](world_map.md) „Backen“) |
 | `world.budget` | Info | Check: die gebackenen Größen einer Welt ohne Fehler („Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), 3 Texturen, VRAM 21 656 Byte.“); eine Warnung mit „; VRAM über dem Vanilla-Höchstwert 110 640 Byte“, wenn der Bäcker `bake.vram-high` meldet |
 | `world.member-changed` | Fehler / Warnung | Build-Schritt `world` und Import: Fehler je Karte, nichts geschrieben; Check: Warnung; Abgleich: immer ein Konflikt mit `world: true`. Der Member einer Welt-Karte weicht von ihrem Datensatz ab: „Karte 0123: Der Member wurde außerhalb des Studios geändert (DSPRE?). In Technik › Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“.“ |
 | `story.dangling-ref` | Warnung | Check: eine ID in `progress`, `uses` oder `flags` einer Geschichte nennt im Projekt nichts, oder ein Eintrag in `uses` nennt, was es auf der Platte nicht mehr gibt (eine Nummer über der höchsten Scriptdatei, dem höchsten Textarchiv oder der höchsten Eventdatei, eine Trainer- oder Header-Datei, die „Nummer freigeben“ entfernte: „… gibt es nicht.“) oder eine gelöschte Entität (Grabstein: „… ist gelöscht.“); gemeldet mit Datei und Zeile des Eintrags, hält nichts auf ([stories.md](stories.md) „Verweise“, „Prüfung“) |

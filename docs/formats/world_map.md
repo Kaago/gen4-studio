@@ -1,4 +1,4 @@
-# Welt-Karte (Weltdokument einer Karte, Phasen 6.3a, 6.3b und 6.4a)
+# Welt-Karte (Weltdokument einer Karte, Phasen 6.3a, 6.3b, 6.4a und 6.5b)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Eine Karte des Textprojekts kann
 statt nur ihrer Binärteile ein **Weltdokument** tragen, das Objekt `world` in
@@ -9,11 +9,11 @@ den Git zeilenweise vergleicht. Quelle: [Spezifikation Phase 6](../superpowers/s
 [entscheidungen.md](../research/2026-11-05-phase-6/entscheidungen.md) („Malen, Weltformat,
 Import, Tiled“, „Writer“, „BDHC“), Pläne [2026-11-05-phase-6-3a-weltformat.md](../superpowers/plans/2026-11-05-phase-6-3a-weltformat.md)
 und [2026-11-06-phase-6-3b-backen-build.md](../superpowers/plans/2026-11-06-phase-6-3b-backen-build.md)
-(je „Entscheidungen“), das Malen in der App aus [2026-11-07-phase-6-4a-malen.md](../superpowers/plans/2026-11-07-phase-6-4a-malen.md). Implementierung: `crates/g4-kernel/src/world/` (`doc.rs` serde-Form, `grid.rs`
+(je „Entscheidungen“), das Malen in der App aus [2026-11-07-phase-6-4a-malen.md](../superpowers/plans/2026-11-07-phase-6-4a-malen.md), Freiform, Teilmodell-Geometrie und Form 2 aus [2026-11-07-phase-6-5b-freiform-austausch.md](../superpowers/plans/2026-11-07-phase-6-5b-freiform-austausch.md). Implementierung: `crates/g4-kernel/src/world/` (`doc.rs` serde-Form, `grid.rs`
 Grammatik und Raster, `mesh.rs` Vernetzer, `bake.rs` Backen, `record.rs` Datensatz je Karte,
 `build.rs` Build-Schritt `world`, `adopt.rs` „Karte als Quelle übernehmen“, `edit.rs` Anlegen,
 Ändern und Aufgeben, `keep.rs` Mitnehmen beim Schreiben, `check.rs` Prüfungen, `places.rs` Paket
-und Karten); das Tileset, auf das die Kacheln zeigen, steht in [tileset.md](tileset.md). Alle
+und Karten, seit 6.5b `freeform.rs` Beifiles und Freiform, `tmj.rs` Austausch mit Tiled, [tmj.md](tmj.md)); das Tileset, auf das die Kacheln zeigen, steht in [tileset.md](tileset.md). Alle
 Beispiele stammen aus synthetischen Welten (`world::doc::fixtures`, Tileset `Tileset::synthetic()`),
 nicht aus einer ROM.
 
@@ -153,7 +153,8 @@ und 270 tauschen Breite und Tiefe). `at` liegt auf der Karte (0 bis 31), der Fu�
 Zellen des Abdrucks, auf der höchsten Ecke der Bodenzellen darunter, mit der Textur der Kachel
 (gedreht wie das Stück, nicht gespiegelt) und Ebene `PIECE_LAYER = 255`. Diese Fläche wird seit
 6.3b mitgebacken wie in der Vorschau, und der Abdruck setzt die Permission der Kachel des Stücks
-(„Permissions“). Die Geometrie des Stücks (Beifile `NNNN.<name>.glb`) kommt mit 6.5b.
+(„Permissions“). Seit 6.5b kann die Kachel ein Modell tragen (`model` im Tileset); dann steht seine
+Geometrie statt der Fläche da („Teilmodelle mit Geometrie (6.5b)“).
 
 **Freiform** `{ "glb": "…" }` oder `{ "nsbmd": <Teil> }`, dazu `at: [x, y, z]` in Welteinheiten
 (Vorgabe `[0, 0, 0]`); genau eines von `glb` und `nsbmd` („braucht genau eines von `glb` und
@@ -161,8 +162,8 @@ Zellen des Abdrucks, auf der höchsten Ecke der Bodenzellen darunter, mit der Te
 [text_project.md](text_project.md) „Teile“ (`{"base_sha1"}`, `{"file": "0123.nsbmd"}`, `{"hex"}`,
 Basisschlüssel `maps NNNN model`): höchstens eines („Höchstens ein Verbatim-Modell (`nsbmd`) in
 `freeform`.“) an `[0, 0, 0]` („Ein Verbatim-Modell liegt an [0, 0, 0].“). Beides ist
-`world.schema` am Pfad des Eintrags (`world.freeform[1]`, `world.freeform[0].at`). `glb` gilt im
-Schema, das Backen lehnt es ab (`world.freeform-later`: „glTF-Freiform backt 6.5b.“).
+`world.schema` am Pfad des Eintrags (`world.freeform[1]`, `world.freeform[0].at`). `glb` nennt seit
+6.5b ein Beifile der Karte und backt mit („Freiform und Beifiles (6.5b)“).
 
 **Terrain** `{ "bdhc": <Teil> }` (nach `freeform`, vor `permissions`; Basisschlüssel
 `maps NNNN bdhc`): solange es steht, ist die BDHC der Karte dieser Teil, nicht die aus dem Raster.
@@ -175,6 +176,148 @@ aufgelöst. Der Writer bildet die Teile mit `part_out` aus den Map-Bytes (diesel
 binäre Karten: `base_sha1` bei Gleichheit mit der Basisschicht, sonst Beifile oder Hex); so trägt
 eine übernommene Vanilla-Karte `base_sha1` und schreibt keine Vanilla-Bytes als Beifile ins
 Projekt.
+
+## Freiform und Beifiles (6.5b)
+
+Ein Freiform-Modell ist ein Eintrag `{ "glb": "0123.haus.glb", "at": [x, y, z] }` in `freeform`, der
+ein **Beifile** der Karte nennt: `data/maps/NNNN.<name>.glb`, `NNNN` die Karte, `<name>` 1 bis 32
+Zeichen aus a–z, 0–9, `_`, `-` (`SIDE_NAME_MAX = 32`). Ein Teilmodell nennt sein Beifile über das
+Tileset: `data/tilesets/PPPP.<name>.glb` mit `PPPP` dem Paket („Teilmodelle mit Geometrie (6.5b)“).
+Quelle: Plan [2026-11-07-phase-6-5b-freiform-austausch.md](../superpowers/plans/2026-11-07-phase-6-5b-freiform-austausch.md)
+(„Entscheidungen“). Implementierung: `world/freeform.rs`.
+
+**Schema** (`world.schema` am Pfad des Eintrags):
+
+- `glb` hat die Form eines Beifile-Namens: „`glb` nennt ein Beifile dieser Karte: `NNNN.<name>.glb`
+  mit a–z, 0–9, `_`, `-`.“ (der Leser kennt die Karte nicht und schreibt `NNNN`); nennt ein Name
+  dieser Form eine andere Karte, sagt der Check (und der Import des Textprojekts) dasselbe mit der
+  Nummer der Karte: „`glb` nennt ein Beifile dieser Karte: `0123.<name>.glb` mit a–z, 0–9, `_`, `-`.“
+  (`world.freeform[0].glb`). Die Nummer hat genau vier Ziffern, wie `{:04}` sie schreibt.
+- `at` liegt je Achse in −512 bis 511 Welteinheiten („`at` liegt nicht in −512 bis 511.“, nur für
+  Einträge ohne `nsbmd`).
+- Ob das Beifile da ist, prüft erst das Backen (`world.side-file`).
+
+**Form des Beifiles.** Ein Beifile ist nie die Datei des Nutzers, sondern immer das **kanonische
+GLB**, das `side_glb` aus den Flächen des Bäckers schreibt; so backt die Karte genau, was beim
+Hinzufügen geprüft wurde, und OBJ-, Blender- und apicula-Eingaben enden in derselben Form:
+
+- eine Primitive je Textur, in der Reihenfolge ihres ersten Auftretens in den Flächen, je Primitive
+  ein Material **ohne Bild**, benannt nach der Textur des Pakets (keine `textures`, keine `images`);
+  ein Knoten `{mesh: 0}` ohne Transformation; `asset.generator` „gen4-studio“;
+- Positionen in Kacheln: Welteinheiten / `FREEFORM_UNIT` (16, eine glTF-Einheit ist eine Kachel);
+  UV als Bruchteil der gebundenen Paket-Textur (Texel / Breite bzw. Höhe, t nach unten wie
+  [model_import.md](model_import.md)); Indizes als `u32`, Modus Dreiecke;
+- je Fläche ihre Ecken ohne eine, die an der Stelle der vorigen liegt (zyklisch; eine Wand neben
+  einer Rampe hat zwei gleiche Ecken): vier Ecken sind ein Viereck, geschrieben als die Dreiecke
+  **`3 0 1` und `3 1 2`** (so setzt `pair_triangles` beim Lesen das Viereck mit seinen Ecken in
+  derselben Reihenfolge wieder zusammen), drei Ecken ein Dreieck; Dreiecke ohne Fläche entfallen.
+  Je Primitive stehen die Vierecke vor den einzelnen Dreiecken, damit kein einzelnes Dreieck beim
+  Lesen die Hälfte eines Vierecks nimmt;
+- ohne Flächen ein gültiges GLB ohne Netz (Lesen gibt `world.side-file`, keine Geometrie).
+
+Gelesen wird ein Beifile mit `read_model` und `to_faces` (Einheit 16), gebunden **nur** an die
+Texturen des Pakets `world.tileset`, wie das Backen sie bindet (`world_pack_textures`), nach dem
+Namen des Materials (`side_faces`). Die Flächen kommen zurück, wie sie geschrieben wurden (bis auf
+Ecken an der Stelle der vorigen), und ein aus dem Gelesenen geschriebenes Beifile hat dieselben
+Bytes (Fixpunkt; Tests in `world/freeform.rs`, Eigenschaftstest `prop_side_glb_round_trips`).
+
+**Achsen und Lage** wie das Netz der Welt und [model_import.md](model_import.md): y oben, x Osten,
+z Süden, Ursprung die Kartenmitte. `at` (Welteinheiten, Vorgabe `[0, 0, 0]`) wird auf jede Ecke
+addiert. Ecken außerhalb der Karte (±256), aber im Bereich des Bäckers, sind erlaubt (das Modell
+ragt in die Nachbarkarte wie eine Vanilla-Kulisse); außerhalb von −512 bis 511 lehnt der Bäcker
+mit `bake.face-out-of-range` ab. Die Freiform-Flächen tragen Ebene `FREEFORM_LAYER = 254`, die
+Geometrie der Teilmodelle Ebene `PIECE_LAYER = 255` (eigene Läufe im Bäcker, keine Streifen über
+Raster und Freiform hinweg).
+
+**Kulisse für BDHC und Permissions.** Freiform und Teilmodelle ändern weder Terrain noch
+Permissions: die BDHC kommt aus dem Raster (oder verbatim aus `terrain`), die Permissions aus
+Raster, Fußabdruck und Überschreibung; aus Polygonen entstehen keine Wände und keine Höhen. Höhe
+und Kollision unter einem Modell malt man im Raster.
+
+**Texturen.** Das Backen ändert kein Paket. Neue Texturen eines Modells hängt `world_freeform_add`
+(bzw. `tileset_piece_set`) an das Paket `world.tileset` an (`append_textures`), im selben
+Undo-Schritt wie Beifile und Eintrag. Fehlt beim Backen die Textur eines Materials im Paket:
+`bake.texture-missing` mit dem Satz des Bäckers („Die Textur „syn_boden“ fehlt im
+Kartentextur-Paket oder hat dort keine Palette.“).
+
+**Beifile fehlt oder liest nicht** (`world.side-file`, Fehler; das Modell wird abgelehnt, die Karte
+behält ihr letztes Modell, BDHC und Permissions folgen der Welt): „Das Beifile
+data/maps/0123.haus.glb fehlt.“ (Argumente `[Pfad]`) oder „Das Beifile data/maps/0123.haus.glb
+lässt sich nicht lesen ({Grund}).“ (`[Pfad, Grund]`). Der Pfad steht ab dem letzten Ordner `data`.
+Gründe: der Satz des Lesers (englisch, aus `model_import`, etwa der von `model.no-geometry`) und, für einen
+Namen, der kein Beifile-Name der Karte bzw. des Pakets ist, „kein Beifile-Name der Karte 0123“ bzw.
+„kein Beifile-Name des Pakets 0006“: ein solcher Name wird gar nicht gelesen (Schutz vor Pfaden
+aus dem Projekt hinaus in einer von Hand geänderten Datei). Die Szene zeigt das Raster ohne diese
+Freiform; ein Teilmodell ohne lesbares Beifile steht als Fußabdruck. Die App sagt dazu „Das Beifile
+data/maps/0123.haus.glb fehlt oder lässt sich nicht lesen. Füge das Modell neu hinzu.“
+
+**Hinzufügen und Entfernen** (Kernel `world_freeform_inspect`, `world_freeform_add`,
+`world_freeform_remove`; Befehle in [mcp.md](../mcp.md) „Freiform, Form 2, Tiled (6.5b, über
+`g4_call`)“):
+
+- `world_freeform_inspect {req: {map, path, at?, options?, name?}}` liest das Modell (OBJ oder glTF,
+  `read_model`; `options` wie beim Import von 6.5a, Vorgabe `unit` 16 und 16 Farben), plant seine
+  Texturen gegen das Paket der Welt, hängt neue nur im Speicher an und backt die Welt mit dem Modell
+  im Speicher; nichts wird geschrieben. Lehnt das Modell ab, kommt seine Ablehnung mit Code.
+- `world_freeform_add` (gleiche Anfrage) ist **ein** Undo-Schritt „Freiform hinzugefügt: Karte 0123
+  (0123.haus.glb)“: neue Texturen ans Paket, das Beifile als Dateischritt, der Eintrag
+  `{glb, at}` am Ende von `world.freeform`, gebacken. Der Name kommt aus `name`, sonst aus dem
+  Dateistamm (`side_name`: ASCII klein, jedes andere Zeichen `_`, höchstens 32 Zeichen, leer
+  „freiform“, vergeben `_2`, `_3` …; vergeben ist auch jedes Beifile der Karte, das schon im Ordner
+  liegt, so überschreibt ein neues Modell keine verwaiste Datei). Abgelehnt: was inspect ablehnt
+  („Freiform nicht hinzugefügt: <Satz> (<Code>)“), ein Backen mit Fehler („Freiform nicht
+  hinzugefügt: <Satz des ersten Fehlers>“, etwa `bake.model-too-big` oder `world.verbatim-mixed`
+  auf einer Karte nach Form 1), eine Karte ohne Welt, eine gesperrte Karte, außerhalb eines
+  Textprojekts. Scheitert ein Teil des Schritts, nimmt er alles zurück.
+- `world_freeform_remove {map, index}` ist ein Undo-Schritt „Freiform entfernt: Karte 0123
+  (0123.haus.glb)“: der Eintrag geht, sein Beifile im selben Schritt, wenn kein anderer Eintrag es
+  nennt. Abgelehnt: ein Index jenseits der Liste („Karte 0123 hat keine Freiform 3 (1 Einträge).“)
+  und das Verbatim-Modell („Freiform 0 von Karte 0123 ist das Originalmodell (Form 1); zurück zur
+  binären Karte über „Als binäre Karte übernehmen“.“). In der App gibt es das Entfernen nicht (nur
+  über `g4_call`, oder ⌘Z).
+- In der App ist das Hinzufügen die Zeile „Freiform (glTF)“ im Dialog „Teile importieren…“ einer
+  Welt-Karte (`.obj`, `.gltf`, `.glb`), mit dem Feld „Lage“ (x, y, z in Welteinheiten; „16 = eine
+  Kachel; 0, 0, 0 = Kartenmitte“), den Texturen und dem Budget des Modells der Karte
+  ([design-system/README.md](../../design-system/README.md), „Nachtrag 6.5b“). Ein Modell verschieben
+  heißt entfernen und neu hinzufügen; `at` steht in der JSON.
+
+**Im Textprojekt.** Speichern einer Karte und der Export behalten jedes Beifile, das
+`world.freeform` der Karte nennt, und löschen ein nicht genanntes `NNNN.*` wie jedes andere
+Beifile; der Import des Textprojekts macht aus Beifiles keine Member und keine Einheit. Die
+`.gitattributes` der Projekte markiert `*.glb` und `*.png` binär
+([project_git.md](project_git.md)). Jedes Beifile, das das Backen einer Karte liest, gehört zu
+ihrem Eingabe-Hash ([build_state.md](build_state.md)): ein geändertes Beifile backt die Karte im
+nächsten Build neu.
+
+**Gate-Messung** (gated Test `freeform_on_a_painted_map_bakes_and_apicula_reads_it` in
+`crates/g4-kernel/tests/world_freeform.rs`): die gemalte Startkarte (19 Flächen) mit dem Würfel
+`g4_imp_cube.obj` (`unit` 32, `at [0, 0, 0]`) backt auf Platin DE, HeartGold DE und US gleich zu
+25 Flächen, davon 6 Freiform, Modell 1 972 Byte (3,2 % von 0xF000); apicula liest das Modell, die
+Freiform-Flächen stehen im GLB. Die Szenarien `pt-freiform.yaml` und `hg-freiform.yaml` zeigen den
+Würfel im Spiel.
+
+## Teilmodelle mit Geometrie (6.5b)
+
+Eine Kachel der Rolle `piece` kann im Tileset `model: "<name>"` tragen ([tileset.md](tileset.md));
+ihr Beifile ist `data/tilesets/PPPP.<name>.glb` im Paket der Welt, in derselben kanonischen Form wie
+ein Freiform-Beifile. Gelesen wird es einmal je Kachel, die die Karte als Teilmodell setzt
+(Kacheln, die sie nicht setzt, zählen nicht).
+
+**Lage** (`mesh_with`): die Geometrie steht im Modellraum, ihr Ursprung kommt auf die Mitte des
+**gedrehten, nicht abgeschnittenen** Fußabdrucks (x = linke Kante + Breite · 8, z ebenso, ganze
+Welteinheiten), auf die Höhe der Fußabdruck-Fläche (die höchste Ecke der Bodenzellen darunter,
+innerhalb der Karte); `rotate` dreht sie im Uhrzeigersinn von oben, je Vierteldrehung
+`(x, z) → (−z, x)`, auf ganzen Welteinheiten. Ihre Flächen tragen Ebene 255, UV und Texturen
+bleiben. Mit Modell ersetzt die Geometrie die Fußabdruck-Fläche; ohne `model` oder ohne lesbares
+Beifile bleibt die Fläche. Die Permissions folgen weiter dem Fußabdruck.
+
+Gesetzt wird das Modell mit `tileset_piece_set` (ein Undo-Schritt, [tileset.md](tileset.md)
+„Teilmodell setzen (6.5b)“); die sauberen Welt-Karten des Pakets backen danach neu. In der Szene
+liegt die Geometrie wie die Fußabdrücke halbdurchsichtig (Deckkraft 0,6).
+
+Gate-Messung (gated Test `piece_model_on_the_copy`): der Würfel als Modell von Kachel 3 mit
+Fußabdruck 1 × 1, ein Stück auf der gemalten Startkarte: 25 Flächen, Modell 1 972 Byte, auf allen
+drei Spielen.
 
 ## Backen
 
@@ -196,7 +339,9 @@ Projekt.
   `map_import::map_areas(store, map)` (erster Header in Tabellenordnung, dessen Matrix die Karte
   zeigt). Ohne Gebiet, oder wenn dessen Gebietsdaten nicht im Archiv liegen, und mit Flächen:
   `world.no-area`. Ohne Flächen (Form 1) braucht das Backen kein Gebiet.
-- **Modell:** die Flächen des Vernetzers (`From<MeshFace> for bake::Face`) über `bake::bake`. Mit
+- **Modell:** die Flächen des Vernetzers (`From<MeshFace> for bake::Face`; seit 6.5b mit der
+  Geometrie der Teilmodelle, `mesh_with`), dahinter die Flächen jedes Freiform-Beifiles, das sich
+  liest, verschoben um sein `at` (`world::freeform::load_side_models`), über `bake::bake`. Mit
   Verbatim-Modell sind es dessen Bytes.
 - **Terrain:** `bdhc::from_grid(grid.height_grid()).write()`, mit `terrain` dessen Bytes.
 - **Permissions:** siehe „Permissions“. BDHC und Permissions entstehen immer, auch wenn das Modell
@@ -206,8 +351,8 @@ Meldungen in fester Reihenfolge (`WorldBakeMessage {code, level, args, message}`
 
 | Code | Wann | Satz |
 |---|---|---|
-| `world.freeform-later` | ein `glb` in `freeform` | „glTF-Freiform backt 6.5b.“ |
-| `world.verbatim-mixed` | Verbatim-Modell und gemalte Flächen | „Ein Verbatim-Modell (Form 1) und gemalte Kacheln zusammen backt erst 6.5b; Kacheln leeren oder „Als binäre Karte übernehmen“.“ (die Karte behält das Verbatim-Modell) |
+| `world.side-file` | seit 6.5b: ein Beifile (Freiform oder Teilmodell) fehlt, liest sich nicht oder ist kein Beifile-Name; je Beifile einmal, Freiform vor Teilmodellen | „Das Beifile data/maps/0123.haus.glb fehlt.“ (Argumente `[Pfad]`), „Das Beifile data/maps/0123.haus.glb lässt sich nicht lesen ({Grund}).“ (`[Pfad, Grund]`); Gründe unter „Freiform und Beifiles (6.5b)“ |
+| `world.verbatim-mixed` | Verbatim-Modell und gemalte Flächen oder ein `glb` in `freeform` | „Ein Verbatim-Modell (Form 1) backt nur allein; für Kacheln oder Freiform daneben die Karte als binäre Karte übernehmen und mit Form 2 (glTF) neu übernehmen.“ (die Karte behält das Verbatim-Modell) |
 | `bake.empty` | ohne Verbatim-Modell keine Fläche | „Die Welt hat keine Fläche zum Backen.“ |
 | `world.no-area` | Flächen, aber kein Gebiet | „Karte 0123 liegt in keiner Matrixzelle mit Header; Backen braucht Licht und VRAM ihres Gebiets.“ |
 | `bake.model-too-big` | Modell über 0xF000 | „Das gebackene Modell hat 61 952 Byte, das Spiel fasst höchstens 61 440 Byte; die Karte behält ihr letztes Modell.“ |
@@ -216,7 +361,8 @@ Meldungen in fester Reihenfolge (`WorldBakeMessage {code, level, args, message}`
 | `bake.face-uv-range` | Texturkoordinaten zu weit | „Fläche 3 spannt 4 100 Texel in u; ihre Texturkoordinaten passen weder so noch um ganze Texturen verschoben in den Bereich des Modells.“ |
 | `bake.vram-high` | Warnung: VRAM des Gebiets über dem Vanilla-Höchstwert | „Die Texturen des Gebiets belegen 120 000 Byte VRAM, das größte Vanilla-Gebiet 110 640 Byte.“ |
 
-Vom Bäcker kommt nur sein erster Fehler (`refusal`) und jede `bake.vram-high`-Warnung. Zahlen im
+Ein `world.side-file` lehnt das Modell ab (das letzte bleibt), auch wenn die übrigen Flächen
+backen würden. Vom Bäcker kommt nur sein erster Fehler (`refusal`) und jede `bake.vram-high`-Warnung. Zahlen im
 Satz mit Leerzeichen als Tausendertrenner (`baker_text`); die Beispielzahlen der Tabelle sind
 Muster, keine Messung.
 
@@ -225,14 +371,17 @@ Muster, keine Messung.
 
 **Bericht** `WorldBakeReport` (`world_bake`, `world_get.bake`, `WorldReport.bake`):
 `{map, ok, style, faces, model_bytes, model_share, model_kept, textures, vram_bytes, bdhc_bytes,
-bdhc_payload, plates, blocked, verbatim_model, verbatim_terrain, messages}`; `ok` heißt keine
-Meldung der Stufe Fehler, `textures` sind die Texturen der Materialien des Modells der Karte (auch
-eines behaltenen oder verbatim), `vram_bytes` 0 ohne gebackenes Modell, `blocked` die Zellen mit
-Bit 0x80.
+bdhc_payload, plates, blocked, verbatim_model, verbatim_terrain, messages, freeform_faces, strips,
+single_quads}`; `ok` heißt keine Meldung der Stufe Fehler, `faces` zählt seit 6.5b die Flächen des
+Vernetzers mit der Geometrie der Teilmodelle und die Freiform-Flächen, `freeform_faces` die
+Freiform-Flächen darunter, `strips` und `single_quads` die Viereckstreifen und einzelnen Vierecke,
+die das gebackene Modell sendet (0 ohne gebackenes Modell; alle drei seit 6.5b), `textures` die
+Texturen der Materialien des Modells der Karte (auch eines behaltenen oder verbatim), `vram_bytes` 0
+ohne gebackenes Modell, `blocked` die Zellen mit Bit 0x80.
 
-**Revisionen:** `WORLD_BAKE_REV = 1` (`world/bake.rs`), `bake::BAKE_REV = 1`,
-`bdhc::GENERATOR_REV = 1`; jede steigt, wenn dieselbe Welt andere Bytes ergibt, und salzt den
-Build-Schritt `world` (`world#1+bake#1+bdhc#1`).
+**Revisionen:** `WORLD_BAKE_REV = 2` (`world/bake.rs`, seit 6.5b: Teilmodell-Geometrie und Freiform
+backen mit), `bake::BAKE_REV = 1`, `bdhc::GENERATOR_REV = 1`; jede steigt, wenn dieselbe Welt andere
+Bytes ergibt, und salzt den Build-Schritt `world` (`world#2+bake#1+bdhc#1`).
 
 **Modellboden = BDHC** ist ein Test, keine Laufzeitprüfung: je Zelle mit Bodenkachel liest
 `bake::decode_quads` das gebackene Modell zurück; die höchste nach oben zeigende Fläche über der
@@ -310,7 +459,8 @@ Gras und Wasser, eine Überschreibung) gibt 19 Flächen, ein Modell von 1 704 By
 232 Byte (216 Byte Nutzlast) und 12 blockierte Zellen; der Modellboden trifft die BDHC in allen
 1 024 Zellmitten auf 0,0000 E genau (Tests in `world/bake/tests.rs`, synthetisches Tileset und
 synthetische Paket-Texturen).
-Eine Rampe, eine Überlagerung, ein Teilmodell und eine Überschreibung sähen so aus (Ausschnitte
+Eine Rampe, eine Überlagerung, ein Teilmodell, ein Freiform-Modell (wie
+`fixtures::freeform_world`) und eine Überschreibung sähen so aus (Ausschnitte
 von Hand, kein ganzes JSON):
 
 ```text
@@ -318,6 +468,7 @@ von Hand, kein ganzes JSON):
 "…": "…",
 { "name": "Deko", "role": "overlay", "tiles": [". 0002 . … .", "…"] },
 "pieces": [{ "tile": 5, "at": [10, 4], "rotate": 90 }],
+"freeform": [{ "glb": "0000.wuerfel.glb", "at": [0, 0, 0] }],
 "permissions": { "derive": true, "override": [". . 0280 … .", "…"] }
 ```
 
@@ -414,7 +565,9 @@ Permissions-Overlay und GLB der Szene der Welt ohne Sonderweg.
   `buildings`, `buildings_tail` und `bgs` aus den Map-Bytes und lässt `permissions`, `model` und
   `bdhc` weg (`world::keep::world_parts`); Verbatim-Teile gehen an ihren Platz in der Welt
   (`freeform[0].nsbmd`, `terrain.bdhc`), ein Beifile, auf das nur ein weggelassener Teil zeigte,
-  wird gelöscht. Der volle Export nimmt `source`/`world` von der Platte wie den
+  wird gelöscht. Ein Freiform-Beifile `NNNN.<name>.glb`, das `world.freeform` der Karte nennt, bleibt
+  (seit 6.5b, auch wenn die Welt sich nicht liest: dann zählen die Texte unter
+  `world.freeform[].glb` der Datei); ein nicht genanntes geht wie jedes andere Beifile. Der volle Export nimmt `source`/`world` von der Platte wie den
   Grabstein-Umschlag (`carry_world_parts`). Ein verschobenes Gebäude und jeder Export lassen das
   Weltobjekt Byte für Byte stehen, auch eines, das der Check ablehnt.
 - **Neu lesen und Zurücksetzen:** `reload_from_disk` eines WorldMap-Assets liest die JSON neu.
@@ -452,15 +605,129 @@ backt: ein Undo-Schritt „Karte als Quelle übernommen: Karte 0123“ (`world::
 Der Bericht `{map, tileset, tileset_guessed, deviations, change, bake}` nennt in `deviations` jede
 Zelle ohne Platte (`height: null`) oder mit `|y − 8 · Stufe| > ADOPT_TOLERANCE = 0,1` E als
 `{x, z, height, step}`. Abgelehnt (nichts geändert): außerhalb eines Textprojekts („Boden malen
-gibt es im Textprojekt (Technik › Textprojekt).“), `form: "gltf"` („Form 2 (glTF) kommt mit
-6.5b.“), eine Welt-Karte („Karte 0123 ist schon eine Welt-Karte.“), eine gesperrte Karte oder eine,
+gibt es im Textprojekt (Technik › Textprojekt).“), eine Welt-Karte („Karte 0123 ist schon eine Welt-Karte.“), eine gesperrte Karte oder eine,
 deren Member sich nicht liest (siehe „Gesperrte Karte“), ein Paket, das es nicht gibt.
 
-Malt man danach Kacheln, lehnt das Backen mit `world.verbatim-mixed` ab (das Verbatim-Modell
-bleibt); eine Änderung von `height` oder `ramp` beendet das Verbatim-Terrain. Prüfstein (gated
+`form: "gltf"` ist Form 2 (unten). Malt man nach Form 1 Kacheln, lehnt das Backen mit
+`world.verbatim-mixed` ab (das Verbatim-Modell bleibt; `world_freeform_add` lehnt eine Freiform
+daneben mit demselben Satz ab); eine Änderung von `height` oder `ramp` beendet das Verbatim-Terrain. Prüfstein (gated
 Test `vanilla_maps_adopted_form1_bake_byte_equal` in `crates/g4-kernel/tests/world_bake.rs`): alle
 Vanilla-Karten von Platin DE (666), HeartGold DE und US (676) backen nach dem Übernehmen
 byte-gleich.
+
+## Form 2: Als glTF übernehmen (6.5b)
+
+`world_adopt {map, tileset?, form: "gltf"}` macht eine binäre Karte zur Welt-Karte wie Form 1
+(Höhen aus der BDHC abgetastet, `terrain` verbatim, alle Permissions als Überschreibung, Gebäude
+und `bgs` im Map-Asset, Bodenebene ganz `.`), nur das Modell ist ein Freiform-Beifile:
+`freeform = [{glb: "NNNN.model.glb", at: [0, 0, 0]}]` (`FORM2_SIDE_NAME = "model"`). Das Modell
+backt **neu**, also nicht byte-gleich; Terrain und Permissions bleiben, wie sie waren. Danach
+lassen sich Kacheln und weitere Freiform-Modelle daneben malen und backen (kein Verbatim-Modell,
+also kein `world.verbatim-mixed`). Ein Undo-Schritt mit dem Label von Form 1 („Karte als Quelle
+übernommen: Karte 0123“): erst das Beifile als Dateischritt, dann die Welt. Implementierung:
+`world/adopt.rs` (`world_adopt_with`, `world_adopt_glb`), die Bindung `world/freeform.rs`
+(`bind_vanilla_materials`).
+
+**Weg.** apicula (`G4_APICULA`, sonst neben der App, im Debug-Build `tools/apicula/bin/apicula`)
+wandelt das Modell der Karte mit den Texturen des Pakets nach `<Projekt>/.g4/tmp/adopt-NNNN`
+(scheitert das, ohne Paket); der Ordner wird danach immer entfernt. Das GLB liest `read_model`,
+jedes Material bindet eine Textur des Pakets (Regel unten), `to_faces` wandelt mit
+`APICULA_UNIT = 1` (apicula schreibt Welteinheiten), und die Flächen werden das kanonische Beifile
+(„Freiform und Beifiles (6.5b)“). Ohne apicula: „Form 2 braucht apicula (`G4_APICULA` oder
+tools/apicula).“; scheitert apicula selbst, kommt dessen Fehler. Der Kernel kennt apicula nur als
+Argument (`world_adopt_with(store, req, apicula)`); `world_adopt` ohne apicula ist Form 1 oder
+diese Ablehnung.
+
+**Probe** (Task 5, apicula `convert -f=glb` mit Paket auf dem Modell der ersten Karte von
+Zweiblattdorf, Platin DE, Karte 0, Paket 6; Kommentar an `APICULA_UNIT`): die Positionen sind
+Welteinheiten (die Box des GLB ist die Box im Kopf des Modells); jedes glTF-Material heißt wie sein
+MDL0-Material, das eine Textur anderen Namens binden kann; die Bilder heißen `<Textur>.png`, ein
+`.` im Texturnamen als `_`, ohne Paket schreibt apicula keine; der Leser lässt `skins` und
+`vertex-colours` aus (`model.parts-ignored`); das GLB hat 1 628 Dreiecke für die 815 Polygone (813
+Vierecke, 2 Dreiecke) des MDL0.
+
+**Paket.** `tileset` aus der Anfrage; sonst sucht Form 2 nach Passung: das erste Paket von
+`places::packs_of_map`, das jede Textur hat, die das erste Modell im MDL0 mit einem Material paart
+(gemessen an den Texturen, wie das Backen sie bindet, `world_pack_textures`), sonst das erste
+solche Paket des Archivs in aufsteigender Reihenfolge (`tileset_guessed: true`), sonst die Wahl von
+Form 1 (das erste Paket der Header, sonst 0 mit `tileset_guessed`). Die Wahl von Form 1 ändert sich
+dadurch nicht.
+
+**Bindung je glTF-Material** (`bind_vanilla_materials`):
+
+1. Das MDL0-Material gleichen Namens im ersten Modell der Karte gibt die Textur, die es bindet
+   (Paarungen `Model.textures[*].materials`), wenn das Paket sie hat;
+2. sonst (auch wenn die Textur aus 1 nicht im Paket steht) der Stamm des Bilds des Materials, wenn
+   das Paket eine Textur dieses Namens hat. Ein Modell, das sich nicht liest, hat keine
+   MDL0-Materialien: nur 2.
+3. Ein Material ohne MDL0-Textur **und** ohne Bild ist **ohne Textur** (ein Material nur mit
+   Eckenfarben, etwa Mayas `lambert1`): seine Polygone fallen weg, ihre Zahl steht in
+   `baked.untextured` und zählt in `baked.dropped` mit, und `ignored` nennt es als
+   `untextured:<Material>`. Polygone ganz ohne Material bleiben (`to_faces` lehnt sie ab).
+4. Ein Material, das eine Textur nennt (über MDL0 oder sein Bild), die das Paket nicht bindet, lehnt
+   ab: `world.adopt-texture`, „Material „lake_lm2“ der Karte 0123 bindet keine Textur des Pakets
+   0006; Form 2 geht für diese Karte nicht, Form 1 schon.“
+
+Im Beifile heißt das Material danach wie die Textur des Pakets.
+
+**Abgelehnt** (Text „{Satz} ({Code})“, kein Schritt, kein Beifile, die Karte bleibt binär): ein GLB,
+das sich nicht liest oder zu nichts wird (sein `model.*`-Code; auch wenn nur Polygone ohne Textur
+da waren, dann `model.no-geometry`), `world.adopt-texture`, ein Backen mit Fehler (der erste, etwa
+`bake.model-too-big` oder `world.no-area`; der Schritt wird zurückgenommen); dazu alles, was Form 1
+ablehnt. In der App ist das die Taste „Als glTF übernehmen (Form 2)“ im Abschnitt „Quelle“, die
+Ablehnung steht dort als Fehlermeldung.
+
+**Bericht.** `WorldAdoptReport.form2` (bei Form 1 `null`): `{vanilla: {polygons, quads, triangles,
+bytes}, baked: {faces, quads, triangles, strips, single_quads, dropped, bytes, untextured}, ignored,
+glb}`. `vanilla` zählt, was die Shapes des ersten MDL0-Modells zeichnen
+(`Model::geometry`), `baked` die Flächen des Backens, die Vierecke und Dreiecke, die die Umwandlung
+dem Bäcker gab, die Streifen und einzelnen Vierecke, die das Modell sendet, die weggefallenen
+Polygone (nach dem Runden ohne Fläche oder ohne Textur) und die Bytes. Die App meldet „Übernommen
+als glTF: 815 Vanilla-Polygone, 816 gebackene Flächen.“
+
+**Abweichung der Polygonzahl.** Die beiden Zahlen weichen ab: apicula zerlegt jedes Polygon in
+Dreiecke, `to_faces` setzt Paare wieder zu Vierecken zusammen (`pair_triangles`), aber nicht jedes
+Paar so, wie das Vanilla-Modell es hatte, und der Bäcker zeichnet Viereckstreifen, wo das
+Vanilla-Modell eigene Listen hat. Gemessen (gated Test `form2_of_a_vanilla_map_bakes_apicula_readable`,
+die Startkarte, Task 10; nach Task 10b unverändert):
+
+| Spiel | Karte | Vanilla: Polygone (Vierecke + Dreiecke), Bytes | gebacken: Flächen (Vierecke + Dreiecke), Streifen, Bytes | weggefallen | Anteil an 0xF000 |
+|---|---|---|---|---|---|
+| Platin DE (CPUD) | 0 | 815 (813 + 2), 38 876 B | 816 (812 + 4), 4 Streifen, 38 224 B | 0 | 0,622 |
+| HeartGold DE (IPKD) | 0 | 336 (318 + 18), 16 604 B | 332 (322 + 10), 24 Streifen, 16 248 B | 0 | 0,264 |
+| HeartGold US (IPKE) | 0 | 336 (318 + 18), 16 604 B | 332 (322 + 10), 24 Streifen, 16 248 B | 0 | 0,264 |
+
+`ignored` ist auf allen drei `skins,vertex-colours`. Das gebackene Modell liest apicula wieder, die
+Ecken und UV des GLB sind die der gebackenen Flächen, BDHC und Permissions sind die des Originals.
+
+**Über alle Karten** (gated Test `form2_sweep_over_every_map`, nur mit `G4_FORM2_SWEEP=1` und
+apicula; eine Karte zählt als ok, `bake.model-too-big`, `world.adopt-texture` oder anderes). Vor
+und nach Task 10b (Polygone ohne Textur weglassen, Paket nach Passung):
+
+| Spiel | Karten | vorher: ok / zu groß / Textur / anderes | nachher: ok / zu groß / Textur / anderes | Median Flächen : Polygone |
+|---|---|---|---|---|
+| Platin DE | 666 | 465 / 1 / 187 / 13 | 601 / 1 / 28 / 36 | 1,000 |
+| HeartGold DE | 676 | 518 / 14 / 131 / 13 | 607 / 14 / 8 / 47 | 0,997 |
+| HeartGold US | 676 | 518 / 14 / 131 / 13 | 607 / 14 / 8 / 47 | 0,997 |
+
+Nachher ließ Form 2 auf Platin DE in 126 Karten zusammen 2 785 Polygone ohne Textur weg, auf
+HeartGold DE und US in je 88 Karten 2 709; 8 Karten von Platin gelangen auf einem gesuchten Paket.
+„Anderes“ wuchs, weil Karten ohne Header früher schon beim Binden auf dem geratenen Paket 0
+scheiterten und jetzt bis zum Backen kommen: Platin 29 × `world.no-area`, 4 × `model.no-geometry`
+(nur Polygone ohne Textur), 3 × `model.out-of-range`; HeartGold 30 × `world.no-area`, 15 ×
+`model.out-of-range`, 2 × `model.no-geometry`.
+
+**Grenzen.**
+
+- **Ursache C bleibt eine Ablehnung:** das Paket hat die Textur, aber `pack_textures` findet ihre
+  Palette nicht (und keine Kachel des Tilesets nennt eine, die das Paket hat); dann fehlt sie unter
+  den Texturen, gegen die gebunden wird, und Form 2 lehnt mit `world.adopt-texture` ab (bei der
+  Diagnose vor Task 10b Platin DE 13, HeartGold 1 Karte). Ebenso eine Textur, die in keinem Paket
+  liegt. Form 1 geht für diese Karten.
+- `model.out-of-range`: Vanilla-Modelle, deren Ecken über −512 bis 511 Welteinheiten hinausragen
+  (bis ±768), lehnt der Leser von 6.5a ab; Form 1 übernimmt sie byte-gleich.
+- `world.no-area`: eine Karte in keiner Matrixzelle mit Header hat kein Gebiet zum Backen.
+- Eckenfarben und Skins des Vanilla-Modells gehen verloren (`ignored`).
 
 ## Zurück: Als binäre Karte übernehmen
 
@@ -507,9 +774,9 @@ Zeilenfehler zeigt auf sein Token in der Zeile.
 
 | Code | Schwere | Wortlaut |
 |---|---|---|
-| `world.schema` | Fehler | Zeilen- und Token-Fehler (siehe „Grammatik“), Bereiche, Rolle der Ebenen, Rampe über 62, `derive: false` ohne volle Überschreibung, Teilmodell (`rotate`, `at`), Freiform; dazu gegen das Tileset: „Zelle 2: Kachel 0x0006 gibt es im Tileset 0000 nicht (6 Kacheln).“ (je Zeile die erste), ein Paket, das es nicht gibt („world.tileset: Kartentextur-Paket 0007 gibt es nicht (1 Paket).“), eine Teilmodell-Kachel, die keine ist („Kachel 0x0001 ist kein Teilmodell (Rolle `grass`).“) oder deren Fußabdruck keine Fläche hat („… (0 × 2).“), ein Stück über dem Rand („Das Teilmodell ragt über den Kartenrand (x 31, Breite 2).“) |
+| `world.schema` | Fehler | Zeilen- und Token-Fehler (siehe „Grammatik“), Bereiche, Rolle der Ebenen, Rampe über 62, `derive: false` ohne volle Überschreibung, Teilmodell (`rotate`, `at`), Freiform (seit 6.5b auch der Name in `glb` und `at`, „Freiform und Beifiles (6.5b)“); dazu gegen das Tileset: „Zelle 2: Kachel 0x0006 gibt es im Tileset 0000 nicht (6 Kacheln).“ (je Zeile die erste), ein Paket, das es nicht gibt („world.tileset: Kartentextur-Paket 0007 gibt es nicht (1 Paket).“), eine Teilmodell-Kachel, die keine ist („Kachel 0x0001 ist kein Teilmodell (Rolle `grass`).“) oder deren Fußabdruck keine Fläche hat („… (0 × 2).“), ein Stück über dem Rand („Das Teilmodell ragt über den Kartenrand (x 31, Breite 2).“) |
 | `world.tileset-mismatch` | Warnung | je Header, dessen Matrix die Karte zeigt und dessen Gebietsdaten ein anderes Paket nennen, an `world.tileset`: „Karte 0000 nimmt Tileset 0000, ihr Header 0001 nennt Gebietsdaten mit Paket 0001.“ |
-| `world.bake` | Fehler | je Ablehnung des Backens einer Welt ohne `world.schema`-Fehler, an `world`, mit dem Code des Backens vorn: „world.bake: world: bake.model-too-big: Das gebackene Modell hat …“; Codes `bake.model-too-big`, `bake.texture-missing`, `bake.face-out-of-range`, `bake.face-uv-range`, `bake.empty`, `world.no-area`, `world.verbatim-mixed`, `world.freeform-later` (Sätze unter „Backen“); ein Backen, das mit einem anderen Fehler als dem der Datei scheitert, ist ebenfalls `world.bake` mit dessen Text |
+| `world.bake` | Fehler | je Ablehnung des Backens einer Welt ohne `world.schema`-Fehler, an `world`, mit dem Code des Backens vorn: „world.bake: world: bake.model-too-big: Das gebackene Modell hat …“; Codes `bake.model-too-big`, `bake.texture-missing`, `bake.face-out-of-range`, `bake.face-uv-range`, `bake.empty`, `world.no-area`, `world.verbatim-mixed`, seit 6.5b `world.side-file` (Sätze unter „Backen“; `world.freeform-later` gibt es seit 6.5b nicht mehr); ein Backen, das mit einem anderen Fehler als dem der Datei scheitert, ist ebenfalls `world.bake` mit dessen Text |
 | `world.budget` | Info | je Welt, die ohne Fehler backt, an `world`: „Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), 3 Texturen, VRAM 21 656 Byte.“ (Terrain ist die Nutzlast der BDHC, Anteile auf ganze Prozent gerundet; Beispielzahlen des Tests `budget_is_the_baked_size`); **Warnung** mit `bake.vram-high`, vor dem Punkt dazu „; VRAM über dem Vanilla-Höchstwert 110 640 Byte“. Bei einem abgelehnten Backen fehlt die Zeile |
 | `world.member-changed` | Warnung | der Member weicht vom Datensatz der Karte ab: „world.member-changed: world: Karte 0123: Der Member wurde außerhalb des Studios geändert (DSPRE?). In Technik › Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“.“ (im Build-Schritt `world` ein Fehler, „Build, Datensatz und DSPRE“) |
 
@@ -522,6 +789,18 @@ Geprüft werden die Kacheln gegen die Tileset-Datei des Pakets, sonst gegen die 
 oder abgeleiteten Schlüsseln aus (ihr Problem im Plan, wie eine Entität, die sich nicht importieren lässt) und importiert die
 übrigen; der Check zeigt jedes Problem einmal. Ein Paket, das nur in der Basis liegt, ist kein
 Fehler: der Import stellt seinen Member wieder her.
+
+**Codes von 6.5b.**
+
+| Code | Wo | Schwere | Wortlaut |
+|---|---|---|---|
+| `world.side-file` | Backen (Strich, Speichern, Build-Schritt `world`, Import), im Check als `world.bake` | Fehler | „world.bake: world: world.side-file: Das Beifile data/maps/0123.haus.glb fehlt.“, „… lässt sich nicht lesen ({Grund}).“ („Freiform und Beifiles (6.5b)“) |
+| `world.verbatim-mixed` | Backen, im Check als `world.bake` | Fehler | „Ein Verbatim-Modell (Form 1) backt nur allein; für Kacheln oder Freiform daneben die Karte als binäre Karte übernehmen und mit Form 2 (glTF) neu übernehmen.“ (seit 6.5b auch mit einem `glb`-Eintrag neben dem Verbatim-Modell, selbst wenn dessen Beifile fehlt) |
+| `world.adopt-texture` | keine Prüfung: Ablehnung von `world_adopt` mit `form: "gltf"` | – | „Material „lake_lm2“ der Karte 0123 bindet keine Textur des Pakets 0006; Form 2 geht für diese Karte nicht, Form 1 schon. (world.adopt-texture)“ („Form 2“) |
+
+Dazu im Schema die Regeln für `glb` und `at` („Freiform und Beifiles (6.5b)“) und im Tileset die
+Regeln für `model` sowie ein Beifile im Tileset-Ordner, das keine Kachel nennt ([tileset.md](tileset.md)
+„Prüfungen“). `world.freeform-later` gibt es nicht mehr.
 
 ## Vernetzer
 
@@ -544,7 +823,9 @@ Tilesets und leere Zellen ergeben keine Fläche.
   einer leeren Zelle und wo sich die Profile **kreuzen** (gegenläufige Rampen nebeneinander). Liegt
   eine Rampe neben einer ebenen Zelle, die an einem Ende gleich hoch ist, wird die Wand ein
   **entartetes Viereck**: zwei Ecken fallen zusammen, es ist ein Dreieck.
-- **Fußabdrücke:** je Teilmodell eine Fläche auf `PIECE_LAYER` (siehe „Teilmodelle“).
+- **Fußabdrücke:** je Teilmodell eine Fläche auf `PIECE_LAYER` (siehe „Teilmodelle“); trägt die
+  Kachel ein lesbares Modell, stattdessen dessen Flächen (`mesh_with`, „Teilmodelle mit Geometrie
+  (6.5b)“). `mesh(grid, tileset)` ist `mesh_with` ohne Modelle.
 - **Reihenfolge:** Ebene aufsteigend; je Ebene die Böden in Reihenfolge ihrer Startzelle
   (Zeile, dann Spalte), auf der Bodenebene danach die Wände (Nordkanten zeilenweise, dann
   Westkanten spaltenweise). Die Fußabdrücke kommen einmal nach allen Ebenen, in
@@ -566,7 +847,12 @@ Tilesets und leere Zellen ergeben keine Fläche.
 `get_world_mesh(map)` gibt das Netz als flache Felder (`WorldMeshDto`: `faces`, `textures` je
 `{name, width, height, role, palette?}`, `corners` 12 Werte je Fläche, `uv` 8, `texture` Index in
 `textures`, `layer`); `get_tileset_texture(package, texture)` das RGBA einer Textur mit der Palette
-ihrer Kachel oder `null`. Die Szene (`apps/studio/src/world/scene/worldMesh.ts`, `mapModel`) zeigt
+ihrer Kachel oder `null`. Seit 6.5b liefert `get_world_mesh` die Flächen von
+`world::freeform::world_faces` (Raster, Teilmodell-Geometrie, dann die Freiform-Flächen auf Ebene
+254); eine Textur, die keine Kachel des Tilesets ist (von einem Modell angehängt), trägt die Größe
+aus dem Paket und die Rolle `piece`, `get_tileset_texture` findet sie im Paket (Palette
+`palette_name(name)`, sonst 0). Ein Beifile, das fehlt, zeigt die Szene nicht (eine Freiform fehlt,
+ein Teilmodell steht als Fußabdruck). Die Szene (`apps/studio/src/world/scene/worldMesh.ts`, `mapModel`) zeigt
 für eine Welt-Karte das Netz **statt des GLB**, wenn es Flächen hat; mit 0 Flächen (eine
 übernommene Karte, Form 1) oder wenn `get_world_mesh` scheitert das GLB, und das ist seit 6.3b das
 gebackene Modell (über apicula aus dem Map-Asset). Das Netz: eine Geometrie je Textur, je Ebene eine Gruppe,
@@ -585,7 +871,7 @@ einer Kartenzelle zeigt der Abschnitt „Quelle“ binäre Karte oder Welt-Karte
 Backens und den Wegen „Karte als Quelle übernehmen“ und „Als binäre Karte übernehmen“; ein
 `world.member-changed` ist eine Zeile in Technik › Textprojekt mit „Neu backen“ und „Als binäre
 Karte übernehmen“. Gestaltung: [design-system/README.md](../../design-system/README.md),
-„Nachtrag 6.3a“, „Nachtrag 6.3b“ und „Nachtrag 6.4a“.
+„Nachtrag 6.3a“, „Nachtrag 6.3b“, „Nachtrag 6.4a“ und „Nachtrag 6.5b“.
 
 ## Malen (6.4a)
 
@@ -700,6 +986,14 @@ der Testumgebung, `left_click_drag`, nur von einem Punkt zu einem zweiten führt
   außer dem Rechteck gibt es nicht.
 - **6.4b:** Kantensätze (`edge_sets` im Tileset) mit Terrain-Pinsel, Wände zu Nachbarkarten und die
   Muster-Shader der Schicht „Gelände“.
-- **6.5b:** Beifiles der Teilmodelle (`model`, `NNNN.<name>.glb`) und ihre Geometrie im Backen,
-  glTF-Freiform und Form 2 von „Karte als Quelle übernehmen“ (`form: "gltf"`), ein Verbatim-Modell
-  zusammen mit gemalten Kacheln (heute `world.verbatim-mixed`).
+- **Seit 6.5b da:** Freiform-Beifiles und die Geometrie der Teilmodelle im Backen („Freiform und
+  Beifiles (6.5b)“, „Teilmodelle mit Geometrie (6.5b)“), Form 2 von „Karte als Quelle übernehmen“
+  („Form 2: Als glTF übernehmen (6.5b)“) und der Austausch mit Tiled ([tmj.md](tmj.md)). Ein
+  Verbatim-Modell zusammen mit gemalten Kacheln bleibt `world.verbatim-mixed`; der Weg dorthin ist
+  Form 2.
+- **Nicht in 6.5b, offen:** Ursache C von `world.adopt-texture` (Palette, die `pack_textures` nicht
+  findet) und Vanilla-Modelle über ±512 (`model.out-of-range`) in Form 2; eine Freiform verschieben
+  oder skalieren (heute entfernen und neu hinzufügen), sie in der App entfernen; Kollision oder BDHC
+  aus Polygonen; die Teilmodell-Geometrie zeigt die Szene halbdurchsichtig wie einen Fußabdruck.
+  Vanilla-Teilmodelle herauslösen, Vanilla-NSBMD zurück ins Raster, Bearbeiten von
+  Vanilla-Modellen über den Codec, eine Tiled-Erweiterung und Automapping sind nicht in Phase 6.

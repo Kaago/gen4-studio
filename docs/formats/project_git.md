@@ -97,13 +97,21 @@ Gleich für beide Layouts:
 *.yml text eol=lf
 *.toml text eol=lf
 *.md text eol=lf
+# Beifiles der Phase 6 (Modelle, Bilder): ohne Diff und Merge; LFS erst ab 1 MB je Datei, etwa: *.glb filter=lfs diff=lfs merge=lfs -text
+*.png binary
+*.glb binary
 ```
 
 Git hält 81 bis 99 Spieldaten-Dateien für Text (`pokeHeight`, `files/data`, C §2.3). Mit
 `core.autocrlf=true` (Standard von Git für Windows) schriebe Git sie beim Auschecken um, und die ROM
 änderte sich, ohne dass jemand etwas bearbeitet hat. `* -text` verbietet jede Umwandlung; die
-Textquellen bekommen feste LF-Zeilenenden. Eine auskommentierte LFS-Zeile hält den Platz für große
-Binärquellen (Phase 6).
+Textquellen bekommen feste LF-Zeilenenden. Seit 6.5b sind die Beifiles der Phase 6 (Modelle
+`*.glb`, etwa die Freiform- und Teilmodell-Beifiles aus [world_map.md](world_map.md), und Bilder
+`*.png`) `binary`: Git zeigt keinen Text-Diff und mergt sie nicht zeilenweise. Git LFS gibt es
+nicht; der Kommentar nennt die Zeile, mit der ein Projekt große Modelle (ab 1 MB je Datei) selbst
+in LFS legen kann. Die Repo-`.gitattributes` von gen4-studio hat dieselben zwei Zeilen. Tests
+`attributes_mark_everything_binary_and_text_sources_lf` und
+`the_project_attributes_mark_png_and_glb_binary` in `git/templates.rs`.
 
 ## Block
 

@@ -22,6 +22,13 @@ Der Dialog „Teile importieren…“ einer Karte nimmt neben den fertigen Binä
 Geprüft wird vorher ohne Schreiben (Vorschau mit Kennzahlen, Budget und Ablehnungsgrund),
 importiert wird als **ein** Undo-Schritt.
 
+Freiform in Welt-Karten: [world_map.md](world_map.md) „Freiform und Beifiles (6.5b)“. Bei einer
+Welt-Karte wird ein Modell aus OBJ oder glTF nicht der Modell-Teil, sondern die Zeile „Freiform
+(glTF)“: dieselben Leser und `options`, das Ergebnis ist ein kanonisches Beifile
+`data/maps/NNNN.<name>.glb`, das mit dem Raster backt; Teilmodelle bekommen ihr Modell über
+`tileset_piece_set` ([tileset.md](tileset.md)), Form 2 liest das GLB von apicula mit denselben
+Lesern.
+
 ## Dateiarten
 
 Die Endung entscheidet (Groß- und Kleinschreibung egal):
