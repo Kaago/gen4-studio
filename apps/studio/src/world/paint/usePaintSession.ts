@@ -11,6 +11,7 @@ import type { Stroke } from "../scene/strokes";
 import { placeholderColor } from "../scene/worldMesh";
 import { HEIGHT_MAX, HEIGHT_MIN, cellsOf, fillCells, heightSkipped, pickedTile, strokeRequest } from "./ops";
 import type { Cell, PaintSub, WorldCells } from "./ops";
+import { peekTileImage, tileImage } from "./paletteImages";
 import { createStrokeQueue } from "./session";
 import type { StrokeQueue } from "./session";
 
@@ -48,8 +49,9 @@ function limitNotice(n: number): string {
 const stepColor = (step: number) => heightColor(Math.min(HEIGHT_MAX, Math.max(HEIGHT_MIN, step)) * UNITS_PER_STEP);
 
 /**
- * The look of a stroke's plates: brush, rectangle and fill the placeholder colour of the tile's role (the palette's pictures come with
- * its store), the eraser and removing a ramp hatched, height and ramp the colour of the step each cell goes to.
+ * The look of a stroke's plates: brush, rectangle and fill the texture of the tile from the palette's store (`peekTileImage`), the
+ * placeholder colour of its role while the picture is not there or when there is none; the eraser and removing a ramp hatched, height and
+ * ramp the colour of the step each cell goes to.
  */
 function strokeLook(sub: PaintSub, lower: boolean, state: PaintState, cells: WorldCells | null, tileset: TilesetDto | null): PreviewLook {
   if (sub === "erase" || (sub === "ramp" && lower)) return { erase: true };
@@ -57,7 +59,9 @@ function strokeLook(sub: PaintSub, lower: boolean, state: PaintState, cells: Wor
   if (sub === "height") return { color: (cell) => stepColor(height(cell) + (lower ? -1 : 1)) };
   if (sub === "ramp") return { color: (cell) => stepColor(height(cell) + state.ramp.steps) };
   const index = Number.parseInt(state.tile.slice(0, 4), 16);
-  return { color: placeholderColor(tileset?.tileset.tiles[index]?.role ?? "ground") };
+  const tile = tileset?.tileset.tiles[index];
+  const picture = tileset && tile ? peekTileImage(tileset.package, tile.texture) : null;
+  return picture ? { texture: picture } : { color: placeholderColor(tile?.role ?? "ground") };
 }
 
 /** The open paint session of `target`: its world (world_get, read again on every revision), tileset (tileset_get), queue;
@@ -122,6 +126,12 @@ export function usePaintSession(
       live = false;
     };
   }, [pkg]);
+
+  // The picture of the chosen tile is asked for ahead, so the first stroke with it already shows its texture.
+  const chosenTexture = tileset?.tileset.tiles[Number.parseInt(paint.state.tile.slice(0, 4), 16)]?.texture ?? null;
+  useEffect(() => {
+    if (tileset && chosenTexture !== null) void tileImage(tileset.package, chosenTexture);
+  }, [tileset, chosenTexture]);
 
   /** The cells of `map` as they will be once the strokes on their way are answered; null without its world. */
   const cellsFor = (map: number): WorldCells | null => {

@@ -15,6 +15,7 @@ import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
 import { useMatrix } from "../useMatrix";
+import { usePaint } from "../paint/PaintContext";
 import { useWorld } from "../WorkbenchContext";
 import type { World } from "../worldModel";
 import styles from "./Editor.module.css";
@@ -22,9 +23,11 @@ import { ExportPartDialog } from "./ExportPartDialog";
 import { ImportPartsDialog } from "./ImportPartsDialog";
 import { isDirty } from "./dirtyAssets";
 import { InspectorHead } from "./InspectorHead";
+import { LayerList } from "./LayerList";
 import { MapBudgetSection } from "./MapBudgetSection";
 import { RawRowSection } from "./RawRowSection";
 import { TechnicalSection } from "./TechnicalSection";
+import { TilePalette } from "./TilePalette";
 import { WorldSourceSection } from "./WorldSourceSection";
 
 /** What the cell editor needs from App. */
@@ -50,7 +53,11 @@ export interface MatrixCellContext {
   onMapImported: (map: number) => void | Promise<void>;
   /** The checks of the project: the import dialog lists what they find at the map after an import. */
   checks: ChecksApi | null;
+  /** The tool „Gelände malen“ is active: a world map's cell shows its palette and layers. */
+  painting?: boolean;
 }
+
+const NO_LAYERS: ReadonlySet<number> = new Set();
 
 /** The map of a cell: a number from 0 to `max`, or nothing for a cell without a map. An entry outside that is refused with its limit. */
 function MapField({ map, max, onCommit }: { map: number | null; max: number; onCommit: (next: number | "empty") => void }) {
@@ -188,8 +195,9 @@ function MapSource({ map, revision, onChanged, onError }: { map: number; revisio
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
-  const { dirty, headers, identify, headerCount, goTo, counts, revision, mapRevision = 0, onEdited, onCountsChanged, onError, onMapImported, checks } = context;
+  const { dirty, headers, identify, headerCount, goTo, counts, revision, mapRevision = 0, onEdited, onCountsChanged, onError, onMapImported, checks, painting = false } = context;
   const matrix = useMatrix(index, revision, onError);
+  const paint = usePaint();
   const { world } = useWorld();
   const reset = useReset();
   const remove = useDelete();
@@ -278,6 +286,11 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   ];
   // How the cell's map stands in the saved project against the base.
   const state = map === null ? null : remove.stateOf({ kind: "map", index: map });
+  // While „Gelände malen“ paints this cell's world map: the world the paint session read last (palette, layers, the bake for the budget).
+  const painted = map !== null && paint.target === map && paint.world?.map === map ? paint.world : null;
+  const paintWorld = painting && depthAtLeast(depth, "bauen") ? (painted?.world ?? null) : null;
+  // Choosing a tile goes back to the brush from the tools that paint no tile (Tiled: a click in the tileset takes the stamp).
+  const chooseTile = (tile: string) => paint.set((s) => (s.sub === "brush" || s.sub === "rect" || s.sub === "fill" ? { tile } : { tile, sub: "brush" }));
 
   return (
     <div className={styles.panel}>
@@ -320,10 +333,26 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         <InspectorRow label="Höhe" hint="0 bis 255">
           <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depthAtLeast(depth, "tuefteln")} />
         </InspectorRow>
+        {/* While painting a world map: its palette and layers, before „Quelle“ and „Budget“. */}
+        {map !== null && paintWorld && (
+          <>
+            {paint.tileset && <TilePalette tileset={paint.tileset} tile={paint.state.tile} onTile={chooseTile} depth={depth} />}
+            <LayerList
+              map={map}
+              world={paintWorld}
+              active={paint.state.layer}
+              hidden={paint.hidden ?? NO_LAYERS}
+              onActive={(layer) => paint.set({ layer })}
+              onToggle={(layer) => paint.toggleHidden?.(layer)}
+              onError={onError}
+              onChanged={onMapImported}
+            />
+          </>
+        )}
         {/* Where the cell's map comes from (binary or world) and the way to the other, from Bauen on. */}
         {map !== null && depthAtLeast(depth, "bauen") && <MapSource map={map} revision={revision + mapRevision} onChanged={onMapImported} onError={onError} />}
         {/* The game's limits for the cell's map, from Bauen on. */}
-        {map !== null && depthAtLeast(depth, "bauen") && <MapBudgetSection map={map} revision={revision + mapRevision} depth={depth} onError={onError} />}
+        {map !== null && depthAtLeast(depth, "bauen") && <MapBudgetSection map={map} revision={revision + mapRevision} depth={depth} onError={onError} bake={painted?.bake} />}
         {depthAtLeast(depth, "tuefteln") && <RawRowSection matrix={matrix} x={x} y={y} />}
         {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
         <p className={styles.note}>

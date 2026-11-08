@@ -12,7 +12,7 @@ vi.mock("../sceneUtil", () => ({ disposeTree: () => undefined, parseGlb: async (
 
 import { szene } from "../../ui/tokens/tokens";
 import type { SceneHost } from "./SceneHost";
-import { mapModel, meshGeometries, placeholderColor, resetWorldTextures, worldMeshModel } from "./worldMesh";
+import { mapModel, meshGeometries, placeholderColor, resetWorldTextures, setLayerVisible, worldMeshModel } from "./worldMesh";
 
 /** A floor quad of one tile at cell (cx, cz) and height `y`, corners NW, SW, SE, NE (counter-clockwise from above), UV = (x, z). */
 function floor(cx: number, cz: number, y = 0) {
@@ -249,6 +249,49 @@ describe("worldMesh", () => {
     expect(notes).toEqual([
       [0, null],
       [0, null],
+    ]);
+  });
+
+  it("a_hidden_layer_stays_hidden_in_a_mesh_loaded_later", async () => {
+    api.getWorldMesh.mockResolvedValue(
+      dto(
+        [
+          { cx: 0, cz: 0, texture: 0, layer: 0 },
+          { cx: 1, cz: 0, texture: 0, layer: 1 },
+        ],
+        [small],
+      ),
+    );
+    api.getTilesetTexture.mockResolvedValue(null);
+    const { h } = fakeHost({ 12: true });
+    const scene = new THREE.Scene();
+    Object.assign(h, { scene, queueRender: vi.fn() });
+    const visible = (model: THREE.Object3D) =>
+      ((model.children[0] as THREE.Mesh).material as THREE.Material[]).map((m) => [m.userData.layer as number, m.visible]);
+    const first = await mapModel(h, 12, 2);
+    scene.add(first);
+    setLayerVisible(h, 12, 1, false);
+    expect(visible(first)).toEqual([
+      [0, true],
+      [1, false],
+    ]);
+    expect(h.queueRender).toHaveBeenCalled();
+    // A stroke reloads the mesh: the overlay stays hidden until it is shown again.
+    const second = await mapModel(h, 12, 2);
+    expect(visible(second)).toEqual([
+      [0, true],
+      [1, false],
+    ]);
+    scene.add(second);
+    setLayerVisible(h, 12, 1, true);
+    expect(visible(second)).toEqual([
+      [0, true],
+      [1, true],
+    ]);
+    const third = await mapModel(h, 12, 2);
+    expect(visible(third)).toEqual([
+      [0, true],
+      [1, true],
     ]);
   });
 });

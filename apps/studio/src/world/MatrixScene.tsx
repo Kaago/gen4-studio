@@ -14,6 +14,7 @@ import type { BuildingRef } from "./buildingLayer";
 import type { EventLock, EventRef } from "./events";
 import { eventsNote } from "./scene/eventFetch";
 import type { PaintCallbacks } from "./scene/strokes";
+import { setLayerVisible } from "./scene/worldMesh";
 import type { MapBuildings, ReportEvents, TileClick } from "./scene/types";
 import { useBuildingRefresh, useEventRefresh, useMapModelRefresh, useMapRefresh } from "./scene/useRefreshQueues";
 import { useDraft } from "./scene/useDraft";
@@ -170,6 +171,9 @@ function MatrixScene({
   // The status line (Tüfteln) names the tokens of the hovered cell from the world the session read last.
   const publishWorld = painting.publishWorld;
   useEffect(() => publishWorld?.(session.world), [publishWorld, session.world]);
+  // The inspector's palette shows the tiles of the tileset the session read.
+  const publishTileset = painting.publishTileset;
+  useEffect(() => publishTileset?.(session.tileset), [publishTileset, session.tileset]);
   const paint: PaintCallbacks = {
     sub: paintSub,
     target: paintTarget,
@@ -227,6 +231,19 @@ function MatrixScene({
     const h = refs.handle.current;
     if (h) h.canvas.dataset.strokePending = String(pending);
   }, [pending, sceneBuilt]);
+  // The eye of „Ebenen“: the layers hidden while painting the target map; leaving the map or the tool shows them again.
+  const hiddenLayers = paintTarget === null ? null : painting.hidden;
+  const layerCount = session.world?.world?.layers.length ?? 0;
+  const shownHidden = useRef<{ map: number; layers: number[] } | null>(null);
+  useEffect(() => {
+    const h = refs.handle.current;
+    if (!h) return;
+    const before = shownHidden.current;
+    const now = paintTarget === null || !hiddenLayers ? null : { map: paintTarget, layers: [...hiddenLayers].filter((l) => l < layerCount) };
+    if (before) for (const layer of before.layers) if (now?.map !== before.map || !now.layers.includes(layer)) setLayerVisible(h, before.map, layer, true);
+    if (now) for (const layer of now.layers) setLayerVisible(h, now.map, layer, false);
+    shownHidden.current = now;
+  }, [paintTarget, hiddenLayers, layerCount, sceneBuilt]);
 
   return (
     <div className={styles.scene} data-draft="" data-draft-count={draftCount}>

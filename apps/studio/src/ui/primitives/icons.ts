@@ -28,7 +28,9 @@ import {
   DotsThree,
   Drone,
   Eraser,
+  Eye,
   Eyedropper,
+  EyeSlash,
   FileCode,
   FloppyDisk,
   FolderOpen,
@@ -185,6 +187,9 @@ export const icons = {
   eraser: Eraser,
   eyedropper: Eyedropper,
   ramp: Stairs,
+  /** A layer of a world map shown or hidden in the scene (6.4a, section „Ebenen“). */
+  eye: Eye,
+  eyeSlash: EyeSlash,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

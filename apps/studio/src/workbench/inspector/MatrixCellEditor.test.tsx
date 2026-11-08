@@ -15,8 +15,13 @@ import type { Area, World } from "../worldModel";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, closeMenu, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 import { deleteSpy, withDelete } from "../../delete/deleteTesting";
+import type { TilesetDto, WorldGetDto } from "../../api.world";
+import { INITIAL_PAINT, PaintContext } from "../paint/PaintContext";
+import type { PaintModel } from "../paint/PaintContext";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []), getMapBudget: vi.fn(), getMap: vi.fn(), worldBake: vi.fn() }));
+// The palette's pictures: none (the role colours), no kernel asked.
+vi.mock("../../world/paint/paletteImages", () => ({ tileImage: async () => null, peekTileImage: () => undefined, resetTileImages: () => {} }));
 // The world model the editor names areas and world maps from (Bauen); null until a test sets one.
 const shownWorld: { world: World | null } = { world: null };
 vi.mock("../WorkbenchContext", async (importOriginal) => {
@@ -129,6 +134,75 @@ describe("MatrixCellEditor", () => {
     expect(getMap).toHaveBeenCalledExactlyOnceWith(11);
     expect(container.querySelector("[data-world-source]")?.getAttribute("data-world-source")).toBe("world");
     expect(worldBake).toHaveBeenCalledWith(11);
+  });
+
+  describe("painting", () => {
+    const world: WorldGetDto = {
+      map: 11,
+      world: {
+        version: 1,
+        tileset: 3,
+        layers: [
+          { name: "Boden", role: "ground", tiles: [] },
+          { name: "Büsche", role: "overlay", tiles: [] },
+        ],
+        permissions: { derive: true },
+      },
+      faces: 1024,
+      textures: 2,
+      estimate: 30000,
+      share: 0.5,
+      bake: null,
+    };
+    const tileset: TilesetDto = {
+      package: 3,
+      stored: true,
+      tileset: {
+        version: 1,
+        package: 3,
+        tiles: [{ texture: "weg", texture_index: 0, size: [32, 32], role: "ground", kind: 0, collision: 0, height: "flat", origin: "vanilla" }],
+      },
+    };
+    const model = (): PaintModel => ({ state: INITIAL_PAINT, set: vi.fn(), target: 11, world, tileset, hidden: new Set(), toggleHidden: vi.fn() });
+    async function showPainting(painting: boolean) {
+      await act(async () =>
+        root.render(
+          <PaintContext.Provider value={model()}>
+            {withReset(reset, <MatrixCellEditor matrix={3} x={1} y={0} context={{ ...context(), painting }} depth="bauen" />)}
+          </PaintContext.Provider>,
+        ),
+      );
+      await flush();
+    }
+
+    it("paint_sections_show_for_a_world_map_while_painting", async () => {
+      await showPainting(true);
+      const palette = container.querySelector("[data-paint-palette]");
+      const layers = container.querySelector("[data-paint-layers]");
+      expect(palette?.querySelector('[data-palette-tile="0000"]')?.getAttribute("aria-pressed")).toBe("true");
+      expect(layers?.querySelector('[data-layer-row="1"]')?.textContent).toContain("Büsche · Überlagerung");
+      // Palette, then layers, both before „Quelle“ and „Budget“.
+      expect(palette!.compareDocumentPosition(layers!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(layers!.compareDocumentPosition(container.querySelector("[data-world-source]")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(layers!.compareDocumentPosition(container.querySelector("[data-map-budget]")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+
+    it("paint_sections_hide_for_another_tool", async () => {
+      await showPainting(false);
+      expect(container.querySelector("[data-paint-palette]")).toBeNull();
+      expect(container.querySelector("[data-paint-layers]")).toBeNull();
+      expect(container.querySelector("[data-map-budget]")).not.toBeNull();
+      // Another cell than the painted map shows none either.
+      await act(async () =>
+        root.render(
+          <PaintContext.Provider value={model()}>
+            {withReset(reset, <MatrixCellEditor matrix={3} x={0} y={0} context={{ ...context(), painting: true }} depth="bauen" />)}
+          </PaintContext.Provider>,
+        ),
+      );
+      await flush();
+      expect(container.querySelector("[data-paint-palette]")).toBeNull();
+    });
   });
 
   it("a_cell_with_a_map_shows_its_budget", async () => {

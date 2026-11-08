@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { JSX, MutableRefObject, ReactNode } from "react";
 import { getMap } from "../../api";
-import type { WorldGetDto } from "../../api.world";
+import type { TilesetDto, WorldGetDto } from "../../api.world";
 import { useTextProject } from "../../textproject/TextProjectContext";
 import type { PaintOptions, PaintSub } from "../../world/paint/ops";
 import { useMatrixSelection, useWorkbench } from "../WorkbenchContext";
@@ -23,7 +23,17 @@ export interface PaintModel {
   world?: WorldGetDto | null;
   /** The scene's paint session hands its world here (see `world`). */
   publishWorld?: (world: WorldGetDto | null) => void;
+  /** The tileset of the package of `world` as the paint session read it (null: none yet); the palette shows its tiles. */
+  tileset?: TilesetDto | null;
+  /** The scene's paint session hands its tileset here (see `tileset`). */
+  publishTileset?: (tileset: TilesetDto | null) => void;
+  /** The layers of `target` hidden in the scene (the eye of „Ebenen“; never saved, forgotten with another target). */
+  hidden?: ReadonlySet<number>;
+  /** Hides a shown layer of `target` or shows a hidden one. */
+  toggleHidden?: (layer: number) => void;
 }
+
+const NO_LAYERS: ReadonlySet<number> = new Set();
 
 /** The brush with the first tile of a package on the ground layer, a ramp of one step uphill to the east. The palette picks a real tile. */
 export const INITIAL_PAINT: PaintState = { sub: "brush", layer: 0, tile: "0000", ramp: { dir: "e", steps: 1 }, lower: false };
@@ -85,7 +95,31 @@ export function PaintProvider({ children, bridge }: { children: ReactNode; bridg
   const target = asked !== null && world?.map === asked && world.world ? asked : null;
   const [published, publishWorld] = useState<WorldGetDto | null>(null);
   const shownWorld = published !== null && published.map === target ? published : null;
-  const model = useMemo<PaintModel>(() => ({ state, set, target, world: shownWorld, publishWorld }), [state, set, target, shownWorld]);
+  // A layer removed (or the world read anew with fewer layers): the brush goes back to the ground.
+  const layerCount = shownWorld?.world?.layers.length ?? null;
+  useEffect(() => {
+    if (layerCount !== null && state.layer >= layerCount) setState((s) => ({ ...s, layer: 0 }));
+  }, [layerCount, state.layer]);
+  const [tilesetRead, publishTileset] = useState<TilesetDto | null>(null);
+  const tileset = shownWorld?.world && tilesetRead?.package === shownWorld.world.tileset ? tilesetRead : null;
+  // The hidden layers belong to one map: another target shows every layer again.
+  const [hiddenOf, setHiddenOf] = useState<{ map: number; layers: ReadonlySet<number> } | null>(null);
+  const hidden = target !== null && hiddenOf?.map === target ? hiddenOf.layers : NO_LAYERS;
+  const toggleHidden = useCallback(
+    (layer: number) => {
+      if (target === null) return;
+      setHiddenOf((h) => {
+        const layers = new Set(h?.map === target ? h.layers : []);
+        if (!layers.delete(layer)) layers.add(layer);
+        return { map: target, layers };
+      });
+    },
+    [target],
+  );
+  const model = useMemo<PaintModel>(
+    () => ({ state, set, target, world: shownWorld, publishWorld, tileset, publishTileset, hidden, toggleHidden }),
+    [state, set, target, shownWorld, tileset, hidden, toggleHidden],
+  );
   useLayoutEffect(() => {
     if (!bridge) return;
     bridge.current = model;

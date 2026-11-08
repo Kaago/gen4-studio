@@ -8,6 +8,7 @@ import { INITIAL_PAINT, PaintContext } from "../../workbench/paint/PaintContext"
 import type { PaintModel, PaintState } from "../../workbench/paint/PaintContext";
 import type { SceneHost } from "../scene/SceneHost";
 import type { Stroke } from "../scene/strokes";
+import { placeholderColor } from "../scene/worldMesh";
 import { usePaintSession } from "./usePaintSession";
 
 const api = vi.hoisted(() => ({ worldEdit: vi.fn(), worldGet: vi.fn(), tilesetGet: vi.fn() }));
@@ -17,6 +18,8 @@ const preview = vi.hoisted(() => {
   return { setStrokePreview: vi.fn(), holdStrokePreview: vi.fn(() => ++id), clearStrokePreview: vi.fn() };
 });
 vi.mock("../scene/strokePreview", () => preview);
+const images = vi.hoisted(() => ({ tileImage: vi.fn(async () => null), peekTileImage: vi.fn((): ImageBitmap | null | undefined => undefined), resetTileImages: vi.fn() }));
+vi.mock("./paletteImages", () => images);
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -227,5 +230,24 @@ describe("usePaintSession", () => {
     await tick();
     expect(preview.clearStrokePreview).toHaveBeenCalledWith(host, 9);
     expect(session?.pending).toBe(0);
+  });
+
+  it("the_brush_preview_shows_the_texture_of_the_tile", async () => {
+    const tile = (texture: string) => ({ texture, texture_index: 0, size: [32, 32] as [number, number], role: "grass" as const, kind: 2, collision: 0, height: "flat" as const, origin: "vanilla" as const });
+    api.tilesetGet.mockResolvedValue({ package: 6, stored: true, tileset: { version: 1, package: 6, tiles: [tile("weg"), tile("gras_a")] } });
+    state = { ...INITIAL_PAINT, tile: "0001r1" };
+    await show();
+    // The chosen tile's picture is asked for ahead.
+    expect(images.tileImage).toHaveBeenCalledWith(6, "gras_a");
+    // Not there yet: the colour of the role.
+    expect(session!.look("brush", false)).toEqual({ color: placeholderColor("grass") });
+    const picture = {} as ImageBitmap;
+    images.peekTileImage.mockImplementation(() => picture);
+    expect(session!.look("brush", false)).toEqual({ texture: picture });
+    expect(session!.look("rect", false)).toEqual({ texture: picture });
+    expect(images.peekTileImage).toHaveBeenCalledWith(6, "gras_a");
+    // The eraser stays hatched.
+    expect(session!.look("erase", false)).toEqual({ erase: true });
+    images.peekTileImage.mockImplementation(() => undefined);
   });
 });

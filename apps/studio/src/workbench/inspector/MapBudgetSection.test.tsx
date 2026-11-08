@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getMapBudget } from "../../api";
 import type { MapBudgetDto } from "../../api";
+import type { WorldBakeReport } from "../../api.world";
 import type { Depth } from "../../ui/frame/shellState";
 import { resetSectionFolds } from "./foldState";
 import { MapBudgetSection } from "./MapBudgetSection";
@@ -49,8 +50,8 @@ describe("MapBudgetSection", () => {
     container.remove();
   });
 
-  async function show(map = 10, revision = 0, depth: Depth = "bauen") {
-    await act(async () => root.render(<MapBudgetSection map={map} revision={revision} depth={depth} onError={onError} />));
+  async function show(map = 10, revision = 0, depth: Depth = "bauen", bake?: WorldBakeReport | null) {
+    await act(async () => root.render(<MapBudgetSection map={map} revision={revision} depth={depth} onError={onError} bake={bake} />));
     await flush();
   }
   const row = (key: string) => container.querySelector<HTMLElement>(`[data-map-budget] [data-budget="${key}"]`);
@@ -124,6 +125,60 @@ describe("MapBudgetSection", () => {
     await flush();
     expect(row("model")?.textContent).toContain("1.000 von 61.440 B");
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("budget_follows_each_stroke", async () => {
+    // Each stroke is a revision: the budget is read after each, the second number is the one shown.
+    vi.mocked(getMapBudget).mockImplementationOnce(async () => budget({ model: { used: 30000, max: 61440, state: "calm" } }));
+    await show(10, 1);
+    expect(row("model")?.textContent).toContain("30.000 von 61.440 B");
+    vi.mocked(getMapBudget).mockImplementationOnce(async () => budget({ model: { used: 31500, max: 61440, state: "calm" } }));
+    await show(10, 2);
+    expect(getMapBudget).toHaveBeenCalledTimes(2);
+    expect(row("model")?.textContent).toContain("31.500 von 61.440 B");
+  });
+
+  it("a_refused_bake_says_the_game_keeps_the_last_model", async () => {
+    const bake = (over: Partial<WorldBakeReport> = {}): WorldBakeReport => ({
+      map: 10,
+      ok: true,
+      style: "outdoor",
+      faces: 900,
+      model_bytes: 70000,
+      model_share: 1.1,
+      model_kept: false,
+      textures: [],
+      vram_bytes: 0,
+      bdhc_bytes: 0,
+      bdhc_payload: 0,
+      plates: 0,
+      blocked: 0,
+      verbatim_model: false,
+      verbatim_terrain: false,
+      messages: [],
+      ...over,
+    });
+    await show(10, 0, "bauen", bake());
+    expect(container.querySelector("[data-budget-refused]")).toBeNull();
+    await show(10, 0, "bauen", null);
+    expect(container.querySelector("[data-budget-refused]")).toBeNull();
+    await show(
+      10,
+      1,
+      "bauen",
+      bake({
+        ok: false,
+        model_kept: true,
+        messages: [
+          { code: "w", level: "warning", args: [], message: "Eine Warnung." },
+          { code: "model-too-big", level: "error", args: [], message: "Das Modell ist zu groß (70.000 von 61.440 B)." },
+        ],
+      }),
+    );
+    const refused = container.querySelector("[data-budget-refused]");
+    expect(refused?.textContent).toBe("Nicht gebacken: Das Modell ist zu groß (70.000 von 61.440 B). Das Spiel bekommt das letzte Modell.");
+    // The sentence stands under the row „Modell“.
+    expect(row("model")?.nextElementSibling).toBe(refused);
   });
 
   it("reports_a_failed_read", async () => {
