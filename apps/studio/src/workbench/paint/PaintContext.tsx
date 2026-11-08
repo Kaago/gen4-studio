@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { JSX, MutableRefObject, ReactNode } from "react";
 import { getMap } from "../../api";
 import type { TilesetDto, WorldGetDto } from "../../api.world";
@@ -53,6 +53,22 @@ export interface PaintModel {
 }
 
 const NO_LAYERS: ReadonlySet<number> = new Set();
+
+/**
+ * Whether a frame request is still wanted, given whether it was `met` (the selection reached its cell while „Gelände malen“ was on) and
+ * the selection and tool now: before it is met nothing cancels it (the step asks before its link and tool arrive); once met, another
+ * cell, another matrix, no selection or another tool cancels it, so the camera never jumps later unasked. Answers the new `met` too.
+ */
+export function frameStillWanted(
+  frame: PaintFrame,
+  met: boolean,
+  cell: { matrix: number; x: number; y: number } | null,
+  tool: string | undefined,
+): { wanted: boolean; met: boolean } {
+  const here = cell !== null && cell.matrix === frame.matrix && cell.x === frame.x && cell.y === frame.y && tool === "paint";
+  if (here) return { wanted: true, met: true };
+  return { wanted: !met, met };
+}
 
 /** The brush with the first tile of a package on the ground layer, a ramp of one step uphill to the east. The palette picks a real tile. */
 export const INITIAL_PAINT: PaintState = { sub: "brush", layer: 0, tile: "0000", ramp: { dir: "e", steps: 1 }, lower: false };
@@ -144,10 +160,24 @@ export function PaintProvider({ children, bridge }: { children: ReactNode; bridg
     },
     [target],
   );
-  const [frame, requestFrame] = useState<PaintFrame | null>(null);
+  const [frame, setFrame] = useState<PaintFrame | null>(null);
+  // A request is dropped when the user leaves its cell or the tool after it was reached (`frameStillWanted`).
+  const frameMet = useRef(false);
+  const requestFrame = useCallback((cell: PaintFrame | null) => {
+    frameMet.current = false;
+    setFrame(cell);
+  }, []);
+  const selectedCell = useMatrixSelection();
+  const tool = useWorkbench().tool;
+  useEffect(() => {
+    if (frame === null) return;
+    const next = frameStillWanted(frame, frameMet.current, selectedCell, tool);
+    frameMet.current = next.met;
+    if (!next.wanted) setFrame(null);
+  }, [frame, selectedCell, tool]);
   const model = useMemo<PaintModel>(
     () => ({ state, set, target, world: shownWorld, publishWorld, tileset, publishTileset, hidden, toggleHidden, layerRemoved, frame, requestFrame }),
-    [state, set, target, shownWorld, tileset, hidden, toggleHidden, layerRemoved, frame],
+    [state, set, target, shownWorld, tileset, hidden, toggleHidden, layerRemoved, frame, requestFrame],
   );
   useLayoutEffect(() => {
     if (!bridge) return;

@@ -8,7 +8,7 @@ import { createEditBus } from "../../bus/editBus";
 import { EntityIdCache, TextProjectProvider } from "../../textproject/TextProjectContext";
 import { NO_WORLD, WorkbenchProviders } from "../WorkbenchContext";
 import type { MatrixSelection, WorkbenchData } from "../WorkbenchContext";
-import { PaintProvider, usePaint } from "./PaintContext";
+import { PaintProvider, frameStillWanted, usePaint } from "./PaintContext";
 import type { PaintModel } from "./PaintContext";
 
 const api = vi.hoisted(() => ({ worlds: new Set<number>(), getMap: vi.fn() }));
@@ -45,8 +45,8 @@ describe("PaintContext", () => {
     container.remove();
   });
 
-  const show = async (cell: MatrixSelection | null, textProject: boolean) => {
-    const data = { matrix: MATRIX, bus } as unknown as WorkbenchData;
+  const show = async (cell: MatrixSelection | null, textProject: boolean, tool = "select") => {
+    const data = { matrix: MATRIX, bus, tool } as unknown as WorkbenchData;
     await act(async () =>
       root.render(
         <TextProjectProvider active={textProject} ids={new EntityIdCache()} onRenamed={() => {}}>
@@ -82,6 +82,33 @@ describe("PaintContext", () => {
     api.worlds.add(121);
     await act(async () => bus.emit({ topic: "mapModelReload", map: 121 }));
     expect(seen!.target).toBe(121);
+  });
+
+  it("a_frame_request_waits_for_its_cell_and_goes_when_the_user_leaves_it", async () => {
+    // Asked before the link and the tool arrive: nothing cancels it yet.
+    await show({ matrix: 4, x: 1, y: 0 }, true);
+    act(() => seen!.requestFrame!({ matrix: 4, x: 0, y: 0 }));
+    expect(seen!.frame).toEqual({ matrix: 4, x: 0, y: 0 });
+    // Its cell selected with „Gelände malen“: met, kept until the scene frames it.
+    await show({ matrix: 4, x: 0, y: 0 }, true, "paint");
+    expect(seen!.frame).toEqual({ matrix: 4, x: 0, y: 0 });
+    // Another tool afterwards: dropped, the camera never jumps later.
+    await show({ matrix: 4, x: 0, y: 0 }, true, "select");
+    expect(seen!.frame).toBeNull();
+    // Met, then another cell: dropped as well.
+    act(() => seen!.requestFrame!({ matrix: 4, x: 0, y: 0 }));
+    await show({ matrix: 4, x: 0, y: 0 }, true, "paint");
+    await show({ matrix: 4, x: 1, y: 0 }, true, "paint");
+    expect(seen!.frame).toBeNull();
+  });
+
+  it("frameStillWanted_cancels_only_after_the_request_was_met", () => {
+    const frame = { matrix: 0, x: 4, y: 27 };
+    expect(frameStillWanted(frame, false, null, "select")).toEqual({ wanted: true, met: false });
+    expect(frameStillWanted(frame, false, { matrix: 0, x: 4, y: 27 }, "paint")).toEqual({ wanted: true, met: true });
+    expect(frameStillWanted(frame, true, { matrix: 0, x: 4, y: 27 }, "select")).toEqual({ wanted: false, met: true });
+    expect(frameStillWanted(frame, true, { matrix: 1, x: 4, y: 27 }, "paint")).toEqual({ wanted: false, met: true });
+    expect(frameStillWanted(frame, true, null, "paint")).toEqual({ wanted: false, met: true });
   });
 
   it("starts_with_the_brush_and_merges_a_patch", async () => {
