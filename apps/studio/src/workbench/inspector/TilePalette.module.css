@@ -62,7 +62,7 @@
   image-rendering: pixelated;
 }
 
-/* The picture of the chosen tile turned clockwise and mirrored after the turn, as the mesh shows it (`rotate` acts after `scale`). */
+/* The picture of the chosen tile as the mesh shows it: on screen it is mirrored first, then turned clockwise (`scale` acts before `rotate`). */
 .picture[data-palette-turn="1"] {
   rotate: 90deg;
 }
