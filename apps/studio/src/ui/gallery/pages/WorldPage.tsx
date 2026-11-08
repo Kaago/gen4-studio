@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { HeaderPatchDto, MatrixDto } from "../../../api";
-import type { LayerOp, TileJson, TileRole, TilesetDto, WorldJson } from "../../../api.world";
+import type { EdgePlace, EdgeSetJson, LayerOp, TileJson, TileRole, TilesetDto, WorldJson } from "../../../api.world";
+import { EdgeSetEditor } from "../../../workbench/inspector/EdgeSetEditor";
 import { LayerList } from "../../../workbench/inspector/LayerList";
 import { TilePalette } from "../../../workbench/inspector/TilePalette";
 import { PAINT_TOOLS } from "../../../workbench/paintTools";
@@ -366,9 +367,63 @@ function LayersStill() {
   );
 }
 
+/** „Weg“ with all 13 places (the middle with two variants, turned tokens at the edges and corners), „Fels“ empty and blocking below. */
+const EXAMPLE_SETS: EdgeSetJson[] = [
+  {
+    name: "Weg",
+    outside: "0000",
+    places: {
+      center: ["0001", "0002"],
+      n: ["0003"],
+      e: ["0003r1"],
+      s: ["0003r2"],
+      w: ["0003r3"],
+      outer_nw: ["0004"],
+      outer_ne: ["0004r1"],
+      outer_sw: ["0004r3"],
+      outer_se: ["0004r2"],
+      inner_nw: ["0005"],
+      inner_ne: ["0005r1"],
+      inner_sw: ["0005r3"],
+      inner_se: ["0005r2"],
+    },
+  },
+  { name: "Fels", outside: "0001r1", block: "lower", places: {} },
+];
+/** The example package saved as a file with the two sets (the editor works only on a file). */
+const EXAMPLE_EDGE_TILESET: TilesetDto = { ...EXAMPLE_TILESET, stored: true, tileset: { ...EXAMPLE_TILESET.tileset, edge_sets: EXAMPLE_SETS } };
+const NO_TILESET_EDIT = async () => undefined;
+
+/** The section „Kantensätze“: „Weg“ active and complete, its outer NW corner chosen; nothing is written. */
+function EdgeSetStill() {
+  const [active, setActive] = useState<string | null>("Weg");
+  const [place, setPlace] = useState<EdgePlace | null>("outer_nw");
+  const [rise, setRise] = useState(2);
+  return (
+    <div className={styles.inspectorWide} data-depth="bauen">
+      <EdgeSetEditor
+        tileset={EXAMPLE_EDGE_TILESET}
+        active={active}
+        place={place}
+        tile="0001r1"
+        rise={rise}
+        onRise={setRise}
+        onActive={setActive}
+        onPlace={setPlace}
+        onChanged={noop}
+        onError={noop}
+        depth="bauen"
+        edit={NO_TILESET_EDIT}
+        save={NO_TILESET_EDIT}
+        image={NO_PICTURE}
+      />
+    </div>
+  );
+}
+
 /**
  * Phase 3f „Weltmodell“: the world map with its views and the room plan, places, the patch line and the shared room, with example data;
- * phase 6.2 adds the budget and the height steps, phase 6.4a the paint tools, the palette and the layers.
+ * phase 6.2 adds the budget and the height steps, phase 6.4a the paint tools, the palette and the layers, phase 6.4b the edge set editor.
  */
 export function WorldPage() {
   return (
@@ -446,6 +501,16 @@ export function WorldPage() {
           hinzufügen“.
         </p>
         <LayersStill />
+      </section>
+
+      <section className={styles.block} data-gallery-state="kantensatz">
+        <h2 className={styles.blockTitle}>Kantensatz-Editor</h2>
+        <p className={styles.note}>
+          Der Abschnitt „Kantensätze“ beim Malen: die Sätze mit „Aktiv“ und ihrem Stand, „Neuer Kantensatz“, die Stufen der Klippe und der Editor des aktiven Satzes mit
+          den 13 + 2 Plätzen (Tasten 40 × 40; leer gestrichelt, gewählt mit Kobalt-Kante, mit mehreren Kacheln ein Zähler), den Kacheln des gewählten Platzes als Chips,
+          „Außen“, „Blockiert an der Klippe“ und „Wand“. Platzhalter statt Bilder.
+        </p>
+        <EdgeSetStill />
       </section>
 
       <section className={styles.block} data-gallery-state="geteilt">

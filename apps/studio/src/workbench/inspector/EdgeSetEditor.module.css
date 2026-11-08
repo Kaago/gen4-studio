@@ -1,0 +1,202 @@
+/* The section „Kantensätze“ of a world map while painting: the sets, a new set, the cliff's steps and the editor of the active set. */
+.body {
+  display: grid;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-4) var(--g4-raum-8) var(--g4-raum-8);
+}
+
+.save {
+  display: grid;
+  justify-items: start;
+  gap: var(--g4-raum-4);
+}
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.rows {
+  display: grid;
+  gap: var(--g4-raum-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  min-height: var(--g4-dichte-steuer);
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.radio {
+  margin: 0;
+  accent-color: var(--g4-akzent-grund);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.add,
+.inline {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor {
+  display: grid;
+  gap: var(--g4-raum-6);
+  padding-top: var(--g4-raum-6);
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+/* The three blocks side by side, wrapping in a narrow inspector. */
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--g4-raum-12);
+}
+
+.block {
+  display: grid;
+  grid-template-columns: repeat(3, var(--g4-raum-40));
+  gap: var(--g4-raum-4);
+}
+
+.block[data-columns="2"] {
+  grid-template-columns: repeat(2, var(--g4-raum-40));
+}
+
+.cell {
+  display: grid;
+  justify-items: center;
+  gap: var(--g4-raum-2);
+  min-width: 0;
+}
+
+/* A place: a key of 40 × 40 like the tool keys, the picture of its first variant inside. */
+.place {
+  position: relative;
+  display: block;
+  width: var(--g4-raum-40);
+  height: var(--g4-raum-40);
+  padding: var(--g4-raum-2);
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-taste);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.place:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+/* An empty place: only a dashed frame. */
+.place[data-edge-empty] {
+  border-style: dashed;
+  background: transparent;
+}
+
+.place[aria-pressed="true"] {
+  border-color: var(--g4-auswahl-kante);
+  outline: var(--g4-strich-fokus) solid var(--g4-auswahl-kante);
+}
+
+/* The number of variants, small in the corner (only with more than one). */
+.badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 0 var(--g4-raum-2);
+  border-top-left-radius: var(--g4-radius-feld);
+  background: var(--g4-auswahl-kante);
+  color: var(--g4-akzent-auf);
+  font: var(--g4-font-text-xs);
+  line-height: 1.2;
+}
+
+.tokens {
+  max-width: var(--g4-raum-40);
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unknown {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--g4-szene-gelaende-unbekannt);
+}
+
+.variants {
+  display: grid;
+  gap: var(--g4-raum-4);
+}
+
+.variantsTitle {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+/* A variant as a chip: its picture, its tile and „Entfernen“. */
+.chip {
+  display: inline-flex;
+  min-height: var(--g4-raum-24);
+  align-items: center;
+  gap: var(--g4-raum-4);
+  padding: 0 0 0 var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-taste);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-xs);
+  white-space: nowrap;
+}
+
+.chipFace {
+  display: block;
+  width: var(--g4-raum-16);
+  height: var(--g4-raum-16);
+  flex: none;
+  overflow: hidden;
+  border-radius: var(--g4-radius-feld);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-start;
+}

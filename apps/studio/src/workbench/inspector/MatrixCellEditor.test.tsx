@@ -215,6 +215,19 @@ describe("MatrixCellEditor", () => {
     });
 
     /** A binary map (no paint target) of the text project or, with `textProject` false, of the DSPRE layout. */
+    it("edge_sets_show_while_painting_a_world_map", async () => {
+      await showPainting(true);
+      const sets = container.querySelector("[data-edge-sets]");
+      expect(sets?.querySelector("h3")?.textContent).toBe("Kantensätze");
+      // Below palette and layers (and the tile), above „Quelle“ and „Budget“.
+      expect(container.querySelector("[data-paint-layers]")!.compareDocumentPosition(sets!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(container.querySelector("[data-tile-editor]")!.compareDocumentPosition(sets!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(sets!.compareDocumentPosition(container.querySelector("[data-world-source]")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(sets!.querySelector("[data-cliff-rise]")).not.toBeNull();
+      await showPainting(false);
+      expect(container.querySelector("[data-edge-sets]")).toBeNull();
+    });
+
     async function showBinary(painting: boolean, textProject = true) {
       vi.mocked(getMap).mockReset().mockResolvedValue({ world: false } as MapDto);
       const editor = withReset(

@@ -140,6 +140,13 @@ export function PaintProvider({ children, bridge }: { children: ReactNode; bridg
   }, [layerCount, state.layer]);
   const [tilesetRead, publishTileset] = useState<TilesetDto | null>(null);
   const tileset = shownWorld?.world && tilesetRead?.package === shownWorld.world.tileset ? tilesetRead : null;
+  // A tileset read (another map's package, the file changed, undo) without the active edge set: T and K paint with none, never with a
+  // stale name. Only a newly read tileset checks, so a set chosen right after it was created waits for the tileset that holds it.
+  useEffect(() => {
+    if (tileset === null) return;
+    const names = new Set((tileset.tileset.edge_sets ?? []).map((s) => s.name));
+    setState((s) => (s.edgeSet !== null && !names.has(s.edgeSet) ? { ...s, edgeSet: null } : s));
+  }, [tileset]);
   // The hidden layers belong to one map: another target forgets them (coming back shows every layer).
   const [hiddenOf, setHiddenOf] = useState<{ map: number; layers: ReadonlySet<number> } | null>(null);
   useEffect(() => setHiddenOf(null), [target]);

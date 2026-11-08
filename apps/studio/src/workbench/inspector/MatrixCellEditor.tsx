@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { MATRIX_EMPTY, duplicateMap, getMap, setMatrixCell, worldAdopt } from "../../api";
+import { MATRIX_EMPTY, duplicateMap, getMap, setMatrixCell, tilesetEdit, worldAdopt } from "../../api";
+import type { EdgePlace } from "../../api.world";
 import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import { useDelete } from "../../delete/DeleteContext";
@@ -15,10 +16,13 @@ import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
 import { useMatrix } from "../useMatrix";
+import { tileParts } from "../../world/paint/ops";
 import { usePaint } from "../paint/PaintContext";
 import { useWorld } from "../WorkbenchContext";
 import type { World } from "../worldModel";
 import styles from "./Editor.module.css";
+import { EdgeSetEditor } from "./EdgeSetEditor";
+import { PLACE_LABEL, withVariant } from "./edgeSets";
 import { ExportPartDialog } from "./ExportPartDialog";
 import { ImportPartsDialog } from "./ImportPartsDialog";
 import { isDirty } from "./dirtyAssets";
@@ -276,6 +280,10 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const remove = useDelete();
   const [working, setWorking] = useState(false);
   const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
+  // The chosen place of the active edge set (section „Kantensätze“): while one is chosen, a palette click appends to it.
+  const [edgePlace, setEdgePlace] = useState<EdgePlace | null>(null);
+  // An append in flight: a second click waits for it (it would put the set without the first tile).
+  const appending = useRef(false);
 
   const cell = `Zelle ${x}, ${y}`;
   // Bauen speaks of the world map and the area a cell belongs to; Tüfteln keeps the matrix ("Raster") and the header.
@@ -366,7 +374,29 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   // The chosen tile of the palette (its four hex digits). After the tile section changed the tileset, `onMapImported` refetches the map:
   // the paint session reads its world and tileset again (palette and section show the new values), mesh and bake follow.
   const chosenTile = Number.parseInt(paint.state.tile.slice(0, 4), 16);
-  const chooseTile = (tile: string) => paint.set((s) => (s.sub === "brush" || s.sub === "rect" || s.sub === "fill" ? { tile } : { tile, sub: "brush" }));
+  const choosePlain = (tile: string) => paint.set((s) => (s.sub === "brush" || s.sub === "rect" || s.sub === "fill" ? { tile } : { tile, sub: "brush" }));
+  // The active edge set of the paint state in this tileset, and the place chosen in it (none without a file: nothing can be written).
+  const edgeSet = paint.tileset?.tileset.edge_sets?.find((s) => s.name === paint.state.edgeSet) ?? null;
+  const placing = edgeSet !== null && paint.tileset?.stored === true ? edgePlace : null;
+  // While a place is chosen, a palette click appends the clicked tile with the active turn and mirror (Z, X) to it: one `tileset_edit`;
+  // the token becomes the active tile, the sub-tool stays (T or K, painting with the set).
+  const chooseTile = (digits: string) => {
+    if (placing === null || edgeSet === null || !paint.tileset || map === null) return choosePlain(digits);
+    const turn = tileParts(paint.state.tile);
+    const token = `${digits}${turn?.rotate ? `r${turn.rotate}` : ""}${turn?.flip ? "f" : ""}`;
+    paint.set({ tile: token });
+    const next = withVariant(edgeSet, placing, token);
+    if (next === edgeSet || appending.current) return;
+    appending.current = true;
+    void tilesetEdit(paint.tileset.package, [], [{ put: next }])
+      .then(
+        () => onMapImported(map),
+        (e: unknown) => onError(e),
+      )
+      .finally(() => {
+        appending.current = false;
+      });
+  };
 
   return (
     <div className={styles.panel}>
@@ -417,7 +447,9 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         {/* While painting a world map: its palette, layers and the chosen tile, before „Quelle“ and „Budget“. */}
         {map !== null && paintWorld && (
           <>
-            {paint.tileset && <TilePalette tileset={paint.tileset} tile={paint.state.tile} onTile={chooseTile} depth={depth} />}
+            {paint.tileset && (
+              <TilePalette tileset={paint.tileset} tile={paint.state.tile} onTile={chooseTile} depth={depth} target={placing === null ? undefined : PLACE_LABEL[placing]} />
+            )}
             <LayerList
               map={map}
               world={paintWorld}
@@ -437,6 +469,24 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
                 depth={depth}
                 onChanged={() => void onMapImported(map)}
                 onError={onError}
+              />
+            )}
+            {paint.tileset && (
+              <EdgeSetEditor
+                tileset={paint.tileset}
+                active={paint.state.edgeSet}
+                place={placing}
+                tile={paint.state.tile}
+                rise={paint.state.cliffRise}
+                onRise={(cliffRise) => paint.set({ cliffRise })}
+                onActive={(name) => {
+                  setEdgePlace(null);
+                  paint.set({ edgeSet: name });
+                }}
+                onPlace={setEdgePlace}
+                onChanged={() => void onMapImported(map)}
+                onError={onError}
+                depth={depth}
               />
             )}
           </>

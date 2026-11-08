@@ -106,6 +106,26 @@ describe("WorldPage", () => {
     expect(layers.querySelector('[data-layer-row="1"] button[aria-label="Zeigen"]')?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("shows_the_edge_set_editor_with_placeholders", async () => {
+    await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    const block = state("kantensatz");
+    expect(block.querySelector("h2")?.textContent).toBe("Kantensatz-Editor");
+    const sets = block.querySelector("[data-edge-sets]")!;
+    expect([...sets.querySelectorAll("[data-edge-set]")].map((r) => r.getAttribute("data-edge-set"))).toEqual(["Weg", "Fels"]);
+    expect(sets.querySelector('[data-edge-set="Weg"]')?.textContent).toContain("13 von 13 Plätzen · Diagonalen 0 von 2");
+    const editor = sets.querySelector("[data-edge-editor]")!;
+    expect(editor.querySelectorAll("[data-edge-place]")).toHaveLength(15);
+    // Placeholders, no pictures: an empty place, a filled one, the chosen one, one with a counter.
+    expect(editor.querySelector("canvas")).toBeNull();
+    expect(editor.querySelector('[data-edge-place="diag_nwse"]')?.hasAttribute("data-edge-empty")).toBe(true);
+    expect(editor.querySelector('[data-edge-place="center"] [data-edge-count]')?.textContent).toBe("2");
+    expect(editor.querySelector('[data-edge-place="outer_nw"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(editor.querySelectorAll("[data-edge-variant]").length).toBeGreaterThan(0);
+    act(() => editor.querySelector<HTMLButtonElement>('[data-edge-place="n"]')!.click());
+    expect(editor.querySelector('[data-edge-place="n"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(sets.querySelector("[data-edge-block]")?.textContent).toContain("Untere Zelle");
+  });
+
   it("speaks_bauen_without_raster_matrix_or_header", () => {
     const bauen = [...container.querySelectorAll('[data-depth="bauen"]')];
     expect(bauen.length).toBeGreaterThanOrEqual(10);
