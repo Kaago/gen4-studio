@@ -163,7 +163,7 @@ const MAP_CELLS: usize = g4_formats::map::MAP_SIZE;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixtures {
     use super::super::grid::{Ramp, TileRef, ramp_token, tile_token};
-    use super::{FreeformJson, LayerJson, LayerRole, WorldJson, rows_of};
+    use super::{FreeformJson, LayerJson, LayerRole, PieceJson, WorldJson, rows_of};
 
     /// The package of the synthetic tileset.
     const PACKAGE: u16 = crate::world::tileset::SYNTHETIC_PACKAGE;
@@ -276,6 +276,52 @@ pub mod fixtures {
                 tile_token(None)
             }
         }));
+        w
+    }
+
+    /// The world of the TMJ round trip: [`gate_world`] on the synthetic tiles plus an overlay
+    /// „Deko“ (tile `0002` turned and mirrored through all eight turns on row 1, x 0–7, `0005`
+    /// at (31, 31)) and two pieces (`0005` at (3, 12) turned 90°, at (24, 14) unturned); with
+    /// `derive` false every cell has an override (`0000`, the door `6980` at (12, 21)).
+    pub fn tmj_world(derive: bool) -> WorldJson {
+        let mut w = gate_world(PACKAGE, &tile(0), &tile(1), &tile(2));
+        w.layers.push(LayerJson {
+            name: "Deko".to_owned(),
+            role: LayerRole::Overlay,
+            tiles: rows_of(|x, z| match (x, z) {
+                (0..=7, 1) => tile_token(Some(TileRef {
+                    tile: 2,
+                    rotate: (x % 4) as u8,
+                    flip: x >= 4,
+                })),
+                (31, 31) => tile(5),
+                _ => tile_token(None),
+            }),
+            heights: None,
+            ramps: None,
+        });
+        w.pieces = vec![
+            PieceJson {
+                tile: 5,
+                at: [3, 12],
+                rotate: 90,
+            },
+            PieceJson {
+                tile: 5,
+                at: [24, 14],
+                rotate: 0,
+            },
+        ];
+        if !derive {
+            w.permissions.derive = false;
+            w.permissions.overrides = Some(rows_of(|x, z| {
+                if (x, z) == (12, 21) {
+                    "6980".to_owned()
+                } else {
+                    "0000".to_owned()
+                }
+            }));
+        }
         w
     }
 

@@ -13,23 +13,34 @@
 //! three tilesets are embedded image collections with fixed first GIDs: the map's tiles from
 //! 1, the heights from 1 + N, the ramps from 1 + N + 79 (N tiles in the tileset).
 //!
-//! The serde types are the subset of TMJ this module writes; reading ignores unknown fields
-//! (Tiled adds `class`, `parallaxx`, `tintcolor` …) and fills missing ones with defaults.
+//! Reading it back ([`from_tmj`], with the store [`world_inspect_tmj`] and [`world_import_tmj`],
+//! one undo step) is our own reader over the serde types of `tmj/types.rs` (the TMJ subset
+//! written and read; unknown fields ignored, missing ones filled with defaults), every error
+//! collected with its path.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use g4_formats::map::{Building, MAP_SIZE};
+use g4_formats::map::{Building, Cell, MAP_SIZE};
 use g4_formats::nsbtx::Rgba;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::doc::{HEIGHT_MAX, HEIGHT_MIN, LayerRole, TILE_UNITS, WorldJson};
-use super::edit::not_a_world_map;
-use super::grid::{Ramp, WorldGrid};
+use super::bake::WorldBakeReport;
+use super::bake::{Verbatim, bake_world};
+use super::check::tile_errors;
+use super::doc::{
+    HEIGHT_MAX, HEIGHT_MIN, LayerJson, LayerRole, PermissionsJson, PieceJson, TILE_UNITS, WorldJson,
+};
+use super::edit::{not_a_world_map, refuse_locked_map};
+use super::grid::{Ramp, TileRef, WorldGrid, override_token, ramp_token, tile_token};
+use super::keep::locked_map_refusal;
 use super::tileset::{TileJson, TileRole, Tileset, tileset_texture};
 use crate::error::{KernelError, io_at};
-use crate::store::Store;
+use crate::store::{ChangeId, Store};
+
+mod types;
+pub use types::*;
 
 /// The version of the TMJ mapping (property `g4.version`).
 pub const TMJ_VERSION: i64 = 1;
@@ -61,199 +72,6 @@ pub const PERMISSION_LAYER: &str = "Permissions";
 pub const BUILDING_LAYER: &str = "Gebäude (nur Ansicht)";
 pub const HEIGHT_TILESET: &str = "g4 Höhen";
 pub const RAMP_TILESET: &str = "g4 Rampen";
-
-/// The TMJ subset this module writes and reads (serde; unknown fields ignored on read).
-/// Keys in Tiled's order (alphabetical).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TmjMap {
-    #[serde(default = "minus_one")]
-    pub compressionlevel: i64,
-    pub height: u32,
-    #[serde(default)]
-    pub infinite: bool,
-    #[serde(default)]
-    pub layers: Vec<TmjLayer>,
-    #[serde(default)]
-    pub nextlayerid: u32,
-    #[serde(default)]
-    pub nextobjectid: u32,
-    #[serde(default)]
-    pub orientation: String,
-    #[serde(default)]
-    pub properties: Vec<TmjProperty>,
-    #[serde(default)]
-    pub renderorder: String,
-    #[serde(default)]
-    pub tiledversion: String,
-    pub tileheight: u32,
-    #[serde(default)]
-    pub tilesets: Vec<TmjTileset>,
-    pub tilewidth: u32,
-    #[serde(rename = "type", default)]
-    pub kind: String,
-    #[serde(default)]
-    pub version: String,
-    pub width: u32,
-}
-
-/// A layer: a `tilelayer` (`data`, `width`, `height`, optionally `encoding` and
-/// `compression`) or an `objectgroup` (`draworder`, `objects`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TmjLayer {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compression: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<TmjData>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub draworder: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub encoding: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub height: Option<u32>,
-    #[serde(default)]
-    pub id: u32,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub objects: Option<Vec<TmjObject>>,
-    #[serde(default = "one")]
-    pub opacity: f64,
-    #[serde(default)]
-    pub properties: Vec<TmjProperty>,
-    #[serde(rename = "type", default)]
-    pub kind: String,
-    #[serde(default = "yes")]
-    pub visible: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub width: Option<u32>,
-    #[serde(default)]
-    pub x: i64,
-    #[serde(default)]
-    pub y: i64,
-}
-
-/// The cells of a `tilelayer`: GIDs as a list (CSV in Tiled) or Base64 (`encoding`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum TmjData {
-    Gids(Vec<u32>),
-    Encoded(String),
-}
-
-/// An embedded tileset; the studio writes image collections (`columns` 0, `grid` 16 × 16,
-/// one image per tile). `source` (an external tileset) is only read, to refuse it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TmjTileset {
-    #[serde(default)]
-    pub columns: u32,
-    #[serde(default)]
-    pub firstgid: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grid: Option<TmjGrid>,
-    #[serde(default)]
-    pub margin: u32,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub properties: Vec<TmjProperty>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    #[serde(default)]
-    pub spacing: u32,
-    #[serde(default)]
-    pub tilecount: u32,
-    #[serde(default)]
-    pub tileheight: u32,
-    #[serde(default)]
-    pub tiles: Vec<TmjTile>,
-    #[serde(default)]
-    pub tilewidth: u32,
-}
-
-/// The grid of an image collection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TmjGrid {
-    #[serde(default)]
-    pub height: u32,
-    #[serde(default)]
-    pub orientation: String,
-    #[serde(default)]
-    pub width: u32,
-}
-
-/// One tile of an image collection: its image (relative to the TMJ) and properties.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TmjTile {
-    #[serde(default)]
-    pub id: u32,
-    #[serde(default)]
-    pub image: String,
-    #[serde(default)]
-    pub imagewidth: u32,
-    #[serde(default)]
-    pub imageheight: u32,
-    #[serde(default)]
-    pub properties: Vec<TmjProperty>,
-}
-
-/// An object: a tile object (`gid`), a rectangle or a point (`point: true`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TmjObject {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gid: Option<u32>,
-    #[serde(default)]
-    pub height: f64,
-    #[serde(default)]
-    pub id: u32,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub point: bool,
-    #[serde(default)]
-    pub properties: Vec<TmjProperty>,
-    #[serde(default)]
-    pub rotation: f64,
-    #[serde(rename = "type", default)]
-    pub kind: String,
-    #[serde(default = "yes")]
-    pub visible: bool,
-    #[serde(default)]
-    pub width: f64,
-    #[serde(default)]
-    pub x: f64,
-    #[serde(default)]
-    pub y: f64,
-}
-
-/// A custom property (`type` `string`, `int`, `bool` …).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TmjProperty {
-    pub name: String,
-    #[serde(rename = "type", default = "string_type")]
-    pub kind: String,
-    #[serde(default)]
-    pub value: Value,
-}
-
-fn minus_one() -> i64 {
-    -1
-}
-
-fn one() -> f64 {
-    1.0
-}
-
-fn yes() -> bool {
-    true
-}
-
-fn is_false(b: &bool) -> bool {
-    !*b
-}
-
-fn string_type() -> String {
-    "string".to_owned()
-}
 
 /// The table „Drehen und Spiegeln“: (rotate, flip, Tiled's bits). Derived from
 /// `mesh::uv_of`: the cell shows texel `uv_of(x, z)`, so the image goes to the cell by the
@@ -677,16 +495,15 @@ pub fn to_tmj(
             overrides,
         ));
     }
-    let centre = (MAP_SIZE as f64) * tile / 2.0;
-    let fx = |v: i32| f64::from(v) / 4096.0 + centre;
     let points: Vec<TmjObject> = buildings
         .iter()
-        .map(|b| TmjObject {
+        .map(|b| (b, building_point(b)))
+        .map(|(b, (x, y))| TmjObject {
             point: true,
             ..object(
                 new_id(),
-                fx(b.position[0]),
-                fx(b.position[2]),
+                x,
+                y,
                 0.0,
                 vec![int_prop("g4.model_id", i64::from(b.model_id))],
             )
@@ -808,5 +625,831 @@ pub fn world_export_tmj(
     })
 }
 
+/// The code of a TMJ import's errors.
+pub const TMJ_CODE: &str = "world.tmj";
+/// The note of an import whose building points or models differ from the map's buildings: the
+/// studio edits buildings itself, the import ignores them.
+pub const BUILDINGS_IGNORED_CODE: &str = "tmj.buildings-ignored";
+
+/// The flip bits and the hexagonal turn of a GID.
+const GID_FLAGS: u32 = FLIP_H | FLIP_V | FLIP_D | FLIP_HEX;
+/// Cells of a layer.
+const CELLS: usize = MAP_SIZE * MAP_SIZE;
+
+const NOT_A_MAP: &str = "Keine Tiled-Karte (`type` ist nicht „map“).";
+const INFINITE: &str = "Unendliche Karten liest das Studio nicht.";
+const COMPRESSED: &str = "Komprimierte Ebenen liest das Studio nicht; in Tiled unter Karte › \
+                          Eigenschaften „Kachelebenenformat“ CSV wählen.";
+const EXTERNAL: &str =
+    "Ausgelagerte Tilesets (`source`) liest das Studio nicht; in Tiled das Tileset einbetten.";
+const HEX_TURN: &str = "Sechseck-Drehung gibt es nicht.";
+const NO_HEIGHTS: &str = "Die Ebene „Höhe“ fehlt.";
+
+/// An error of a TMJ at `path` (`layers[2].data[517]`; the world's own paths `world.…` for
+/// what [`WorldGrid::parse`] or the tileset check refuse after the mapping).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TmjError {
+    pub path: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for TmjError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.path.is_empty() {
+            write!(f, "{}", self.message)
+        } else {
+            write!(f, "{}: {}", self.path, self.message)
+        }
+    }
+}
+
+/// The TMJ of `bytes`; a file that is no JSON object of the TMJ shape is one error with the
+/// parser's sentence (path empty).
+fn read_tmj(bytes: &[u8]) -> Result<TmjMap, Vec<TmjError>> {
+    serde_json::from_slice(bytes).map_err(|e| {
+        vec![TmjError {
+            path: String::new(),
+            message: e.to_string(),
+        }]
+    })
+}
+
+/// The world `bytes` (a TMJ) describes on top of `target` (version, tileset, freeform, terrain
+/// kept); every error collected.
+///
+/// The mapping is [`to_tmj`]'s backwards: the tile layers without `g4.kind` are the world's
+/// layers in file order (the first the ground, the others overlays, so a new layer without
+/// properties is an overlay); the tile layers `g4.kind` `heights` and `ramps` the ground's
+/// heights and ramps (a world without a „Rampen“ layer has none); the object groups `g4.kind`
+/// `pieces` and `overrides` the pieces and the permission overrides (rectangles of whole cells;
+/// a world without such a group has none), `g4.derive` the permissions' derivation (the
+/// target's when the property is missing). The buildings' points are not read. The tokens are
+/// written canonically (`tile_token`, `ramp_token`, `override_token`), so for a canonical world
+/// — every world a store saved after an edit, every world of the property test —
+/// `from_tmj(to_json(to_tmj(w)), w) == w`; a hand-written token in upper case comes back in
+/// lower case. Heights or ramps other than the target's drop its verbatim terrain, as a height
+/// painted in the studio does: the BDHC comes from the grid then.
+///
+/// Refused (every error with its path): a file that is no TMJ map, a map of another size or
+/// tile size, an infinite map, an external tileset, another package than the world's, a first
+/// tileset that is not the package's tiles, compressed layer data, a GID outside the layer's
+/// tileset, a hexagonal turn, a missing height, an object off the grid, a piece whose tile is
+/// none, a cell overridden twice; then what [`WorldGrid::parse`] and the tileset check refuse.
+pub fn from_tmj(
+    bytes: &[u8],
+    target: &WorldJson,
+    tileset: &Tileset,
+) -> Result<WorldJson, Vec<TmjError>> {
+    from_map(&read_tmj(bytes)?, target, tileset)
+}
+
+/// [`from_tmj`] on a TMJ read already.
+fn from_map(
+    tmj: &TmjMap,
+    target: &WorldJson,
+    tileset: &Tileset,
+) -> Result<WorldJson, Vec<TmjError>> {
+    if tmj.kind != "map" {
+        return Err(vec![TmjError {
+            path: "type".to_owned(),
+            message: NOT_A_MAP.to_owned(),
+        }]);
+    }
+    let mut reader = Reader {
+        errors: Vec::new(),
+        tileset,
+        gids: GidRanges::default(),
+    };
+    reader.header(tmj, target);
+    if !reader.errors.is_empty() {
+        return Err(reader.errors);
+    }
+    let read = reader.layers(tmj);
+    let derive = prop(&tmj.properties, "g4.derive")
+        .and_then(Value::as_bool)
+        .unwrap_or(target.permissions.derive);
+    let Read {
+        layers,
+        heights,
+        ramps,
+        pieces,
+        overrides,
+        height_layer,
+    } = read;
+    if !height_layer {
+        reader.push("layers", NO_HEIGHTS);
+    }
+    if !reader.errors.is_empty() {
+        return Err(reader.errors);
+    }
+    let layers = layers
+        .into_iter()
+        .enumerate()
+        .map(|(i, (name, tiles))| {
+            let ground = i == 0;
+            LayerJson {
+                name,
+                role: if ground {
+                    LayerRole::Ground
+                } else {
+                    LayerRole::Overlay
+                },
+                tiles: rows_of(&tiles),
+                heights: if ground {
+                    heights.as_deref().map(rows_of)
+                } else {
+                    None
+                },
+                ramps: if ground {
+                    ramps.as_deref().map(rows_of)
+                } else {
+                    None
+                },
+            }
+        })
+        .collect();
+    let mut world = WorldJson {
+        version: target.version,
+        tileset: target.tileset,
+        layers,
+        pieces,
+        freeform: target.freeform.clone(),
+        terrain: target.terrain.clone(),
+        permissions: PermissionsJson {
+            derive,
+            overrides: overrides
+                .map(|cells| rows_of(&cells.into_iter().map(override_token).collect::<Vec<_>>())),
+        },
+    };
+    let grid = WorldGrid::parse(&world).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|e| TmjError {
+                path: e.path,
+                message: e.message,
+            })
+            .collect::<Vec<_>>()
+    })?;
+    let problems = tile_errors(&grid, tileset);
+    if !problems.is_empty() {
+        return Err(problems
+            .into_iter()
+            .map(|e| TmjError {
+                path: e.path,
+                message: e.message,
+            })
+            .collect());
+    }
+    if let Ok(old) = WorldGrid::parse(target)
+        && (old.heights != grid.heights || old.ramps != grid.ramps)
+    {
+        world.terrain = None;
+    }
+    Ok(world)
+}
+
+/// 32 rows of the 1024 `tokens`, one space between them.
+fn rows_of(tokens: &[String]) -> Vec<String> {
+    tokens.chunks(MAP_SIZE).map(|row| row.join(" ")).collect()
+}
+
+/// Property `name` of `props`.
+fn prop<'a>(props: &'a [TmjProperty], name: &str) -> Option<&'a Value> {
+    props.iter().find(|p| p.name == name).map(|p| &p.value)
+}
+
+/// The `g4.kind` of `props`.
+fn kind_of(props: &[TmjProperty]) -> Option<&str> {
+    prop(props, "g4.kind").and_then(Value::as_str)
+}
+
+/// A byte property (`g4.kind`, `g4.collision` of an override).
+fn byte_prop(props: &[TmjProperty], name: &str) -> Option<u8> {
+    prop(props, name)
+        .and_then(Value::as_u64)
+        .and_then(|v| u8::try_from(v).ok())
+}
+
+/// The GIDs of the three tilesets: the package's tiles from 1, the helpers where the file has
+/// them (by `g4.kind`).
+#[derive(Default)]
+struct GidRanges {
+    tiles: u32,
+    heights: Option<u32>,
+    ramps: Option<u32>,
+}
+
+impl GidRanges {
+    /// The tile of GID `id` (flags off), `None` outside the package's tiles.
+    fn tile(&self, id: u32) -> Option<u16> {
+        (1..=self.tiles)
+            .contains(&id)
+            .then(|| u16::try_from(id - 1).ok())
+            .flatten()
+    }
+
+    /// The index of GID `id` in the helper tileset from `first` with `count` tiles.
+    fn helper(first: Option<u32>, count: u32, id: u32) -> Option<u32> {
+        let first = first?;
+        (first..first.saturating_add(count))
+            .contains(&id)
+            .then(|| id - first)
+    }
+}
+
+/// What the layers of a TMJ hold: the world's layers (name, 1024 tile tokens), the ground's
+/// 1024 height and ramp tokens, the pieces, the overrides (`None` without a group).
+struct Read {
+    layers: Vec<(String, Vec<String>)>,
+    heights: Option<Vec<String>>,
+    ramps: Option<Vec<String>>,
+    pieces: Vec<PieceJson>,
+    overrides: Option<Vec<Option<Cell>>>,
+    /// Whether the file has a „Höhe“ layer (good or not).
+    height_layer: bool,
+}
+
+/// Reads a TMJ, collecting its errors.
+struct Reader<'a> {
+    errors: Vec<TmjError>,
+    tileset: &'a Tileset,
+    gids: GidRanges,
+}
+
+impl Reader<'_> {
+    fn push(&mut self, path: impl Into<String>, message: impl Into<String>) {
+        self.errors.push(TmjError {
+            path: path.into(),
+            message: message.into(),
+        });
+    }
+
+    /// The map's size, tile size, `infinite`, its tilesets and package.
+    fn header(&mut self, tmj: &TmjMap, target: &WorldJson) {
+        let side = MAP_SIZE as u32;
+        if tmj.width != side || tmj.height != side {
+            let path = if tmj.width != side { "width" } else { "height" };
+            self.push(
+                path,
+                format!(
+                    "Die Karte ist {} × {} Kacheln groß; eine Karte hat {side} × {side}.",
+                    tmj.width, tmj.height
+                ),
+            );
+        }
+        if tmj.tilewidth != TMJ_TILE || tmj.tileheight != TMJ_TILE {
+            let path = if tmj.tilewidth != TMJ_TILE {
+                "tilewidth"
+            } else {
+                "tileheight"
+            };
+            self.push(
+                path,
+                format!(
+                    "Kacheln sind {} × {} Pixel; das Studio schreibt {TMJ_TILE} × {TMJ_TILE}.",
+                    tmj.tilewidth, tmj.tileheight
+                ),
+            );
+        }
+        if tmj.infinite {
+            self.push("infinite", INFINITE);
+        }
+        if let Some(package) = prop(&tmj.properties, "g4.tileset").and_then(Value::as_i64)
+            && package != i64::from(target.tileset)
+        {
+            self.push(
+                "properties",
+                format!(
+                    "Die Datei nutzt Paket {package:04}, die Welt Paket {:04}.",
+                    target.tileset
+                ),
+            );
+        }
+        for (i, set) in tmj.tilesets.iter().enumerate() {
+            if set.source.is_some() {
+                self.push(format!("tilesets[{i}].source"), EXTERNAL);
+            }
+        }
+        let tiles = self.tileset.tiles.len();
+        let count_error = |n: u32| {
+            format!(
+                "Das Tileset hat {n} Kacheln, Paket {:04} hat {tiles}.",
+                target.tileset
+            )
+        };
+        match tmj.tilesets.first() {
+            None => self.push("tilesets", count_error(0)),
+            Some(set) if set.source.is_none() => {
+                if set.firstgid != 1 {
+                    self.push(
+                        "tilesets[0].firstgid",
+                        format!(
+                            "Das erste Tileset beginnt bei GID {}; das Studio schreibt 1.",
+                            set.firstgid
+                        ),
+                    );
+                }
+                if usize::try_from(set.tilecount).ok() != Some(tiles) {
+                    self.push("tilesets[0].tilecount", count_error(set.tilecount));
+                }
+                self.gids.tiles = set.tilecount;
+            }
+            Some(_) => {}
+        }
+        let first_of = |kind: &str| {
+            tmj.tilesets
+                .iter()
+                .skip(1)
+                .find(|set| set.source.is_none() && kind_of(&set.properties) == Some(kind))
+                .map(|set| set.firstgid)
+        };
+        self.gids.heights = first_of("heights");
+        self.gids.ramps = first_of("ramps");
+    }
+
+    /// The layers of `tmj`: tile layers and object groups by their `g4.kind`; image layers,
+    /// groups and object groups of other kinds (the buildings) are not read.
+    fn layers(&mut self, tmj: &TmjMap) -> Read {
+        let mut read = Read {
+            layers: Vec::new(),
+            heights: None,
+            ramps: None,
+            pieces: Vec::new(),
+            overrides: None,
+            height_layer: false,
+        };
+        for (i, layer) in tmj.layers.iter().enumerate() {
+            match (layer.kind.as_str(), kind_of(&layer.properties)) {
+                ("tilelayer", Some("heights")) => {
+                    read.height_layer = true;
+                    let Some(gids) = self.cells(i, layer) else {
+                        continue;
+                    };
+                    let heights = self.heights(i, &gids);
+                    if read.heights.is_none() {
+                        read.heights = heights;
+                    }
+                }
+                ("tilelayer", Some("ramps")) => {
+                    let Some(gids) = self.cells(i, layer) else {
+                        continue;
+                    };
+                    let ramps = self.ramps(i, &gids);
+                    if read.ramps.is_none() {
+                        read.ramps = ramps;
+                    }
+                }
+                ("tilelayer", _) => {
+                    let Some(gids) = self.cells(i, layer) else {
+                        continue;
+                    };
+                    if let Some(tiles) = self.tiles(i, &gids) {
+                        read.layers.push((layer.name.clone(), tiles));
+                    }
+                }
+                ("objectgroup", Some("pieces")) => {
+                    for (j, object) in layer.objects.iter().flatten().enumerate() {
+                        if let Some(piece) = self.piece(i, j, object) {
+                            read.pieces.push(piece);
+                        }
+                    }
+                }
+                ("objectgroup", Some("overrides")) => {
+                    let cells = read.overrides.get_or_insert_with(|| vec![None; CELLS]);
+                    for (j, object) in layer.objects.iter().flatten().enumerate() {
+                        self.override_cells(i, j, object, cells);
+                    }
+                }
+                _ => {}
+            }
+        }
+        read
+    }
+
+    /// The 1024 GIDs of tile layer `i`: a list, or Base64 (little-endian, no compression).
+    fn cells(&mut self, i: usize, layer: &TmjLayer) -> Option<Vec<u32>> {
+        let at = format!("layers[{i}]");
+        if layer.compression.as_deref().is_some_and(|c| !c.is_empty()) {
+            self.push(format!("{at}.compression"), COMPRESSED);
+            return None;
+        }
+        let gids = match &layer.data {
+            None => Vec::new(),
+            Some(TmjData::Gids(gids)) => gids.clone(),
+            Some(TmjData::Encoded(text)) => {
+                use base64::Engine as _;
+                match base64::engine::general_purpose::STANDARD.decode(text.trim()) {
+                    Ok(bytes) if bytes.len() % 4 == 0 => bytes
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|c| u32::from_le_bytes(*c))
+                        .collect(),
+                    Ok(bytes) => {
+                        self.push(
+                            format!("{at}.data"),
+                            format!(
+                                "Die Ebenendaten sind {} Bytes lang, keine Folge von GIDs zu je \
+                                 4 Bytes.",
+                                bytes.len()
+                            ),
+                        );
+                        return None;
+                    }
+                    Err(e) => {
+                        self.push(
+                            format!("{at}.data"),
+                            format!("Die Ebenendaten sind kein Base64 ({e})."),
+                        );
+                        return None;
+                    }
+                }
+            }
+        };
+        if gids.len() != CELLS {
+            self.push(
+                format!("{at}.data"),
+                format!(
+                    "Die Ebene hat {} Zellen; eine Karte hat {MAP_SIZE} × {MAP_SIZE}.",
+                    gids.len()
+                ),
+            );
+            return None;
+        }
+        Some(gids)
+    }
+
+    /// The tile tokens of world layer `i`, `None` after noting a bad cell.
+    fn tiles(&mut self, i: usize, gids: &[u32]) -> Option<Vec<String>> {
+        let mut ok = true;
+        let mut tokens = Vec::with_capacity(CELLS);
+        for (c, &gid) in gids.iter().enumerate() {
+            let id = gid & !GID_FLAGS;
+            if id == 0 {
+                tokens.push(tile_token(None));
+                continue;
+            }
+            let at = format!("layers[{i}].data[{c}]");
+            let Some((rotate, flip)) = flags_turn(gid) else {
+                self.push(at, HEX_TURN);
+                ok = false;
+                continue;
+            };
+            match self.gids.tile(id) {
+                Some(tile) => tokens.push(tile_token(Some(TileRef { tile, rotate, flip }))),
+                None => {
+                    self.push(at, outside(id));
+                    ok = false;
+                }
+            }
+        }
+        ok.then_some(tokens)
+    }
+
+    /// The height tokens of layer `i` („Höhe“; flip bits mean nothing there).
+    fn heights(&mut self, i: usize, gids: &[u32]) -> Option<Vec<String>> {
+        let mut ok = true;
+        let mut tokens = Vec::with_capacity(CELLS);
+        let count = u32::from(HEIGHT_MAX.abs_diff(HEIGHT_MIN)) + 1;
+        for (c, &gid) in gids.iter().enumerate() {
+            let id = gid & !GID_FLAGS;
+            let at = format!("layers[{i}].data[{c}]");
+            if id == 0 {
+                self.push(
+                    at,
+                    format!("Zelle ({}, {}) hat keine Höhe.", c % MAP_SIZE, c / MAP_SIZE),
+                );
+                ok = false;
+                continue;
+            }
+            let step = GidRanges::helper(self.gids.heights, count, id)
+                .and_then(|n| i8::try_from(i32::from(HEIGHT_MIN) + n as i32).ok());
+            match step {
+                Some(h) => tokens.push(h.to_string()),
+                None => {
+                    self.push(at, outside(id));
+                    ok = false;
+                }
+            }
+        }
+        ok.then_some(tokens)
+    }
+
+    /// The ramp tokens of layer `i` („Rampen“; 0 is no ramp).
+    fn ramps(&mut self, i: usize, gids: &[u32]) -> Option<Vec<String>> {
+        let mut ok = true;
+        let mut tokens = Vec::with_capacity(CELLS);
+        for (c, &gid) in gids.iter().enumerate() {
+            let id = gid & !GID_FLAGS;
+            if id == 0 {
+                tokens.push(ramp_token(Ramp::None));
+                continue;
+            }
+            let token = GidRanges::helper(self.gids.ramps, RAMP_TILES.len() as u32, id)
+                .and_then(|n| RAMP_TILES.get(n as usize));
+            match token {
+                Some(token) => tokens.push((*token).to_owned()),
+                None => {
+                    self.push(format!("layers[{i}].data[{c}]"), outside(id));
+                    ok = false;
+                }
+            }
+        }
+        ok.then_some(tokens)
+    }
+
+    /// The piece of object `j` of layer `i`: a tile object of a piece tile on the grid (its
+    /// lower left corner on a cell's, Tiled's anchor of tile objects), turned by `g4.rotate`.
+    fn piece(&mut self, i: usize, j: usize, object: &TmjObject) -> Option<PieceJson> {
+        let at = format!("layers[{i}].objects[{j}]");
+        let id = object.id;
+        let cell = on_grid(object.x).zip(on_grid(object.y)).and_then(|(x, y)| {
+            let z = y.checked_sub(1)?;
+            let side = MAP_SIZE as u32;
+            (x < side && z < side).then_some([x as u8, z as u8])
+        });
+        let piece_tile = object
+            .gid
+            .and_then(|g| self.gids.tile(g & !GID_FLAGS))
+            .filter(|&t| {
+                self.tileset
+                    .tile(t)
+                    .is_some_and(|t| t.role == TileRole::Piece)
+            });
+        let rotate = match prop(&object.properties, "g4.rotate") {
+            None => Some(0),
+            Some(v) => v.as_u64().and_then(|v| u16::try_from(v).ok()),
+        };
+        let Some(at_cell) = cell else {
+            self.push(at, format!("Objekt {id} liegt nicht auf dem Raster."));
+            return None;
+        };
+        let Some(tile) = piece_tile else {
+            let shown = match object.gid.map(|g| g & !GID_FLAGS) {
+                Some(g) if g > 0 => format!("{:#06x}", g - 1),
+                _ => "–".to_owned(),
+            };
+            self.push(
+                at,
+                format!("Objekt {id}: Kachel {shown} ist kein Teilmodell."),
+            );
+            return None;
+        };
+        let Some(rotate) = rotate else {
+            self.push(
+                at,
+                format!("Objekt {id}: `g4.rotate` ist keine Drehung (0, 90, 180 oder 270)."),
+            );
+            return None;
+        };
+        Some(PieceJson {
+            tile,
+            at: at_cell,
+            rotate,
+        })
+    }
+
+    /// The cells of override object `j` of layer `i` (a rectangle of whole cells with
+    /// `g4.kind` and `g4.collision`) into `cells`; a cell set twice is an error.
+    fn override_cells(
+        &mut self,
+        i: usize,
+        j: usize,
+        object: &TmjObject,
+        cells: &mut [Option<Cell>],
+    ) {
+        let at = format!("layers[{i}].objects[{j}]");
+        let id = object.id;
+        let side = MAP_SIZE as u32;
+        let rect = on_grid(object.x)
+            .zip(on_grid(object.y))
+            .zip(on_grid(object.width).zip(on_grid(object.height)))
+            .filter(|&((x, z), (w, d))| w > 0 && d > 0 && x + w <= side && z + d <= side);
+        let Some(((x0, z0), (w, d))) = rect else {
+            self.push(at, format!("Objekt {id} liegt nicht auf dem Raster."));
+            return;
+        };
+        let props = &object.properties;
+        let (Some(kind), Some(collision)) = (
+            byte_prop(props, "g4.kind"),
+            byte_prop(props, "g4.collision"),
+        ) else {
+            self.push(
+                at,
+                format!("Objekt {id}: `g4.kind` und `g4.collision` brauchen Zahlen von 0 bis 255."),
+            );
+            return;
+        };
+        for z in z0..z0 + d {
+            for x in x0..x0 + w {
+                let c = (z * side + x) as usize;
+                let Some(slot) = cells.get_mut(c) else {
+                    continue;
+                };
+                if slot.is_some() {
+                    self.push(at, format!("Zelle ({x}, {z}) ist zweimal überschrieben."));
+                    return;
+                }
+                *slot = Some(Cell { kind, collision });
+            }
+        }
+    }
+}
+
+/// `v` pixels as whole cells (a multiple of 16 from 0), `None` off the grid.
+fn on_grid(v: f64) -> Option<u32> {
+    let tile = f64::from(TMJ_TILE);
+    ((0.0..=4096.0).contains(&v) && (v / tile).fract() == 0.0).then(|| (v / tile) as u32)
+}
+
+/// „GID 7 gehört nicht in diese Ebene.“
+fn outside(id: u32) -> String {
+    format!("GID {id} gehört nicht in diese Ebene.")
+}
+
+/// The point of `building` in the layer „Gebäude (nur Ansicht)“: pixels from the map's corner.
+fn building_point(building: &Building) -> (f64, f64) {
+    let centre = (MAP_SIZE as f64) * f64::from(TMJ_TILE) / 2.0;
+    let fx = |v: i32| f64::from(v) / 4096.0 + centre;
+    (fx(building.position[0]), fx(building.position[2]))
+}
+
+/// Whether the building points of `tmj` (positions and `g4.model_id`) differ from `buildings`.
+fn buildings_differ(tmj: &TmjMap, buildings: &[Building]) -> bool {
+    let points: Vec<(f64, f64, Option<i64>)> = tmj
+        .layers
+        .iter()
+        .filter(|l| kind_of(&l.properties) == Some("buildings"))
+        .flat_map(|l| l.objects.iter().flatten())
+        .map(|o| {
+            (
+                o.x,
+                o.y,
+                prop(&o.properties, "g4.model_id").and_then(Value::as_i64),
+            )
+        })
+        .collect();
+    let expected: Vec<(f64, f64, Option<i64>)> = buildings
+        .iter()
+        .map(|b| {
+            let (x, y) = building_point(b);
+            (x, y, Some(i64::from(b.model_id)))
+        })
+        .collect();
+    points != expected
+}
+
+/// The cells (of 1024) in which `after` differs from `before` on any layer, height, ramp or
+/// override; every cell when `before` does not read.
+fn changed_cells(before: &WorldJson, after: &WorldJson) -> usize {
+    let (Ok(a), Ok(b)) = (WorldGrid::parse(before), WorldGrid::parse(after)) else {
+        return CELLS;
+    };
+    let layers = a.layers.len().max(b.layers.len());
+    let tile = |g: &WorldGrid, l: usize, c: usize| {
+        g.layers
+            .get(l)
+            .and_then(|l| l.tiles.get(c).copied().flatten())
+    };
+    (0..CELLS)
+        .filter(|&c| {
+            (0..layers).any(|l| tile(&a, l, c) != tile(&b, l, c))
+                || a.heights.get(c) != b.heights.get(c)
+                || a.ramps.get(c) != b.ramps.get(c)
+                || a.overrides.get(c) != b.overrides.get(c)
+        })
+        .count()
+}
+
+/// „Tiled importiert: Karte 0123“, the label of [`world_import_tmj`].
+pub fn import_label(map: u16) -> String {
+    format!("Tiled importiert: Karte {map:04}")
+}
+
+/// What [`world_inspect_tmj`] read or [`world_import_tmj`] did: the map, the world's layers
+/// after the import, the cells that change, the notes (codes: [`BUILDINGS_IGNORED_CODE`]), the
+/// file's errors (inspect only; the import refuses), the undo step (`None`: nothing recorded,
+/// also when the file equals the world) and the bake (inspect: in memory; `None` without a
+/// change).
+#[derive(Debug, Clone, Serialize)]
+pub struct TmjImportReport {
+    pub map: u16,
+    pub layers: usize,
+    pub cells: usize,
+    pub notes: Vec<String>,
+    pub errors: Vec<TmjError>,
+    pub change: Option<ChangeId>,
+    pub bake: Option<WorldBakeReport>,
+}
+
+/// The report of `path` read against world map `map` and the world it gives (`None` with
+/// errors or when it equals the world).
+fn inspect(
+    store: &mut Store,
+    map: u16,
+    path: &Path,
+) -> Result<(TmjImportReport, Option<WorldJson>), KernelError> {
+    let target = world_of(store, map)?;
+    let bytes = std::fs::read(path).map_err(io_at(path))?;
+    let tileset = store.tileset(target.tileset)?;
+    let buildings = store.map(map)?.buildings.clone();
+    let mut report = TmjImportReport {
+        map,
+        layers: 0,
+        cells: 0,
+        notes: Vec::new(),
+        errors: Vec::new(),
+        change: None,
+        bake: None,
+    };
+    let tmj = match read_tmj(&bytes) {
+        Ok(tmj) => tmj,
+        Err(errors) => {
+            report.errors = errors;
+            return Ok((report, None));
+        }
+    };
+    if tmj.kind == "map" && buildings_differ(&tmj, &buildings) {
+        report.notes.push(BUILDINGS_IGNORED_CODE.to_owned());
+    }
+    match from_map(&tmj, &target, &tileset) {
+        Err(errors) => {
+            report.errors = errors;
+            Ok((report, None))
+        }
+        Ok(world) => {
+            report.layers = world.layers.len();
+            report.cells = changed_cells(&target, &world);
+            Ok((report, (world != target).then_some(world)))
+        }
+    }
+}
+
+/// The world of world map `map`; refused ([`not_a_world_map`]) for any other map.
+fn world_of(store: &mut Store, map: u16) -> Result<WorldJson, KernelError> {
+    match store.is_world_map(map)? {
+        true => store.world(map)?.cloned(),
+        false => None,
+    }
+    .ok_or_else(|| KernelError::Refused(not_a_world_map(map)))
+}
+
+/// Reads `path` against world map `map` without changing anything: the errors of the file, or
+/// the layers and cells it changes with the bake of the world it gives (in memory).
+///
+/// Refused ([`KernelError::Refused`]): a map without world ([`not_a_world_map`]); a file that
+/// does not read is an I/O error.
+pub fn world_inspect_tmj(
+    store: &mut Store,
+    map: u16,
+    path: &Path,
+) -> Result<TmjImportReport, KernelError> {
+    let (mut report, world) = inspect(store, map, path)?;
+    if let Some(world) = world {
+        let base = store.map(map)?.clone();
+        let verbatim = Verbatim::of(&world, &base);
+        report.bake = Some(bake_world(store, map, &world, &base, &verbatim)?.report);
+    }
+    Ok(report)
+}
+
+/// The world `path` describes as one undo step [`import_label`]; a file equal to the world is
+/// no step (`change: None`). A refused bake is in the report's messages, as with a painted
+/// stroke.
+///
+/// Refused ([`KernelError::Refused`], nothing changed): a map without world
+/// ([`not_a_world_map`]), a map whose member is locked, a file with errors (the first with its
+/// path and the count: „layers[0].data[0]: GID 500 gehört nicht in diese Ebene. (2 Fehler)“).
+pub fn world_import_tmj(
+    store: &mut Store,
+    map: u16,
+    path: &Path,
+) -> Result<TmjImportReport, KernelError> {
+    world_of(store, map)?;
+    refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
+    let (mut report, world) = inspect(store, map, path)?;
+    if let Some(first) = report.errors.first() {
+        return Err(KernelError::Refused(format!(
+            "{first} ({} Fehler)",
+            report.errors.len()
+        )));
+    }
+    let Some(world) = world else {
+        return Ok(report);
+    };
+    let (bake, change) = store.transaction(&import_label(map), |tx| {
+        tx.edit_world(map, |w| {
+            *w = Some(world);
+            Ok(())
+        })?;
+        Ok(tx.bake_report(map))
+    })?;
+    report.change = change;
+    report.bake = bake;
+    Ok(report)
+}
+
+#[cfg(test)]
+mod import_tests;
 #[cfg(test)]
 mod tests;

@@ -33,7 +33,8 @@
 //! models ([`freeform::world_freeform_add`], [`freeform::world_freeform_remove`]), each one undo
 //! step with the pack and the side file.
 //! `tmj.rs` the exchange with Tiled (6.5b): a world map as a Tiled map (TMJ) with its tile
-//! images ([`tmj::to_tmj`], [`tmj::world_export_tmj`]); not a world format.
+//! images ([`tmj::to_tmj`], [`tmj::world_export_tmj`]) and back ([`tmj::from_tmj`],
+//! [`tmj::world_import_tmj`] as one undo step); not a world format.
 
 pub mod adopt;
 pub mod bake;
@@ -81,7 +82,9 @@ pub use tileset::{
     tileset_problems, tileset_rel, tileset_texture,
 };
 pub use tmj::{
-    TMJ_FORMAT, TMJ_VERSION, TmjExportReport, TmjMap, to_json as tmj_json, to_tmj, world_export_tmj,
+    BUILDINGS_IGNORED_CODE, TMJ_CODE, TMJ_FORMAT, TMJ_VERSION, TmjError, TmjExportReport,
+    TmjImportReport, TmjMap, from_tmj, import_label, to_json as tmj_json, to_tmj, world_export_tmj,
+    world_import_tmj, world_inspect_tmj,
 };
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
