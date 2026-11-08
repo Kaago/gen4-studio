@@ -80,6 +80,8 @@ interface WorkbenchModelParams {
   onOpenDialog?: (target: DialogTarget) => void;
   /** Opens a step recipe as the app's dialog (App's state); must keep its identity. None: no „Dialog anlegen…“ (tests). */
   openStoryRecipe?: (request: StoryRecipeRequest) => void;
+  /** Starts painting a cell (App's, `startPaintingWith`); must keep its identity. None: nothing happens (tests). */
+  startPainting?: (cell: { matrix: number; x: number; y: number }) => void;
   /** The scene's switches and the tool, owned by App. */
   view: {
     showPermissions: boolean;
@@ -103,7 +105,7 @@ interface WorkbenchModelParams {
  * rendered again by a message. `live` is the volatile part (what the inspector shows, the cell
  * it selects, the message, the world model), where a panel subscribes to the piece it renders.
  */
-export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHistory, overview, onOpenWizard, onCreated, onMapImported, text, scripts, problems, checks, dataStore, draft, onDraft, view, onOpenDialog = NO_DIALOG, openStoryRecipe }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
+export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHistory, overview, onOpenWizard, onCreated, onMapImported, text, scripts, problems, checks, dataStore, draft, onDraft, view, onOpenDialog = NO_DIALOG, openStoryRecipe, startPainting }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
@@ -184,6 +186,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHisto
     onDraft,
     onOpenDialog,
     openStoryRecipe,
+    startPainting,
   });
 
   // The inspector shows the selection; the hover goes to the status line and is not part of the model.

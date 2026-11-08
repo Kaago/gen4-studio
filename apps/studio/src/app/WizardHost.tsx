@@ -70,6 +70,8 @@ interface Props {
   scriptFiles?: ScriptFiles;
   /** „Zu einer Geschichte“ after „Neue Figur“: the app opens „Gespräch schaltet weiter“ with the new figure. */
   onOpenStoryRecipe?: (request: StoryRecipeRequest) => void;
+  /** „Gelände anpassen“ on a result that made a map in a cell (`Created.cell`): the app selects it and starts painting. */
+  startPainting?: (cell: { matrix: number; x: number; y: number }) => void;
 }
 
 type PublishHostProps = Omit<PublishWizardProps, "defaults" | "defaultsError">;
@@ -96,6 +98,13 @@ export function WizardHost(props: Props) {
   // A next step of a result: show what the wizard made (as „Zeigen“ does), then open the step's wizard; „Raum anlegen“ puts its door
   // outside into the header just made. A step without a wizard does nothing (its button is locked anyway).
   const step = (id: string, made: Created) => {
+    // „Gelände anpassen“ is the app's step, no wizard: show what was made, then paint its cell.
+    const cell = made.cell;
+    if (id === "adjust_terrain" && cell && props.startPainting) {
+      const paint = props.startPainting;
+      void created(made).then(() => paint({ matrix: made.matrix, x: cell.x, y: cell.y }));
+      return;
+    }
     const next = recipeRequest(id, made.header);
     if (next) void created(made).then(() => open(next));
   };

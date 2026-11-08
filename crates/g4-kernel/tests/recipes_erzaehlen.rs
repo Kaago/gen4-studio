@@ -213,7 +213,7 @@ fn next_steps_after_3d5_lock_with_3d9_and_later() {
     assert_eq!(short["story_join"], (true, None));
     assert_eq!(short["play_here"], (false, Some("Kommt mit 3d.9")));
     assert_eq!(short["new_figure"], (true, None));
-    assert_eq!(short["adjust_terrain"], (false, Some("Kommt mit Phase 6")));
+    assert_eq!(short["adjust_terrain"], (true, None));
     // All three recipes of 3d.5 are in the list, so free.
     for id in ["connect_doors", "new_trainer_here"] {
         assert!(listed(id), "{id}");

@@ -291,6 +291,11 @@
   height: 120px;
 }
 
+/* „Gelände malen“ on a world map: the flat bar carries the sub-tools as a second group. */
+.paintToolbarView {
+  width: min(760px, 100%);
+}
+
 /* The flat recipe bar is wider than the toolbar (two keys with their names): 521 px in Komfort. */
 .recipeViewFlat {
   width: 560px;

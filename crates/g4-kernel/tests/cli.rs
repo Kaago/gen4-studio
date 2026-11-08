@@ -2129,6 +2129,7 @@ fn cli_recipe_list() {
             "figure_appears  Figur erscheint/verschwindet ab Schritt",
             "scene_on_enter  Szene beim Betreten",
             "reward_once  Belohnung einmalig",
+            "new_painted_map  Neue Karte malen  irreversible",
         ],
         "{out}"
     );

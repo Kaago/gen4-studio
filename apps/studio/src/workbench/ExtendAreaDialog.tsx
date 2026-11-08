@@ -32,6 +32,11 @@ interface Props {
   onError: (e: unknown) => void;
   /** The draft of the new cell as planned (null: nothing planned): the scene and the world map draw it until the dialog goes. */
   onDraft: (draft: DraftDto | null) => void;
+  /**
+   * „Stattdessen neu malen“: the panel replaces this dialog with „Neue Karte malen“ for the same cell. Only in a text project (the
+   * DSPRE layout has no world maps); absent: no such button.
+   */
+  onPaintInstead?: () => void;
 }
 
 /** What happens to the size of the grid: Bauen says "Die Karte wird größer", Tüfteln names the Raster. */
@@ -45,7 +50,7 @@ function sizeNote(building: boolean, matrix: MatrixDto, width: number, height: n
  * Creates a map copy at the cell `(x, y)` of a matrix, growing the grid when the cell lies outside it. A `Dialog`: the focus
  * stays inside, Escape and the cross cancel (not while the request runs; Escape that takes back typed text does not close it).
  */
-export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null, areaHeader = null, depth = "tuefteln", headers, counts, onDone, onError, onDraft }: Props) {
+export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null, areaHeader = null, depth = "tuefteln", headers, counts, onDone, onError, onDraft, onPaintInstead }: Props) {
   const building = !depthAtLeast(depth, "tuefteln");
   const defaults = extendDefaults(matrix, x, y, prefer);
   const neighbour = defaults.neighbour;
@@ -99,6 +104,7 @@ export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null,
       title={`Karte bei x ${x}, y ${y} anlegen?`}
       description="Anlegen lässt sich nicht rückgängig machen."
       actions={[
+        ...(onPaintInstead ? [{ label: "Stattdessen neu malen", onClick: () => !working && onPaintInstead(), data: { "data-paint-instead": "" } as const }] : []),
         { label: "Abbrechen", onClick: leave },
         { label: "Karte anlegen", kind: "primary", onClick: () => void create() },
       ]}

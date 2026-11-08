@@ -69,3 +69,4 @@ pub use tileset::{
 };
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
+pub use edit::{LayerOp, WorldLayersRequest, world_layers};

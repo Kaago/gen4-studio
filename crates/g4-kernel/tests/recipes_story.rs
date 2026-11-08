@@ -176,10 +176,11 @@ fn step(key: &str, value: u16, kind: StepKind, name: &str) -> Step {
 // ---------------------------------------------------------------------------------------
 
 #[test]
-fn list_names_twelve_recipes_with_the_story_recipes_last() {
+fn list_names_the_story_recipes_before_the_painted_map() {
     let list = recipes::list();
-    assert_eq!(list.len(), 12);
-    let shown: Vec<(RecipeId, &str, bool)> = list[7..]
+    assert_eq!(list.len(), 13);
+    assert_eq!(list[12].id, RecipeId::NewPaintedMap);
+    let shown: Vec<(RecipeId, &str, bool)> = list[7..12]
         .iter()
         .map(|r| (r.id, r.title, r.irreversible))
         .collect();
@@ -198,7 +199,7 @@ fn list_names_twelve_recipes_with_the_story_recipes_last() {
         ]
     );
     assert_eq!(
-        serde_json::to_value(&RecipeId::all()[7..]).unwrap(),
+        serde_json::to_value(&RecipeId::all()[7..12]).unwrap(),
         serde_json::json!([
             "new_story",
             "talk_advances",
@@ -210,7 +211,7 @@ fn list_names_twelve_recipes_with_the_story_recipes_last() {
     // Without the project only a visibility and a scene may create a level script file
     // (`is_irreversible_in` decides from their plan); the others never ask. A visibility reads
     // its input first: other input is refused.
-    for id in &RecipeId::all()[7..] {
+    for id in &RecipeId::all()[7..12] {
         let call = RecipeCall {
             recipe: *id,
             input: serde_json::json!({ "name": "Testfaden", "var": POOL_VAR }),
@@ -271,7 +272,7 @@ fn next_steps_after_3d7_free_story_join_and_say_later() {
     assert_eq!(short["talk_advances"], (true, None));
     assert_eq!(short["figure_appears"], (true, None));
     assert_eq!(short["play_here"], (false, Some("Kommt mit 3d.9")));
-    assert_eq!(short["adjust_terrain"], (false, Some("Kommt mit Phase 6")));
+    assert_eq!(short["adjust_terrain"], (true, None));
     assert_eq!(short["nonsense"], (false, Some("Kommt später")));
 }
 

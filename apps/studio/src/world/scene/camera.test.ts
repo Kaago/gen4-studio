@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import type { MatrixDto } from "../../api";
 import type { CellRect } from "../../workbench/sceneScope";
-import { frameCells, topDownFrame } from "./camera";
+import { frameCellTopDown, frameCells, requestedCell, topDownFrame } from "./camera";
 import type { SceneHost } from "./SceneHost";
 
 /** The parts of a scene host the camera touches; counts the control updates and the renders. */
@@ -85,5 +85,49 @@ describe("topDownFrame", () => {
         expect(f.target.toArray()).toEqual([32 + w / 2, 0, 64 + d / 2]);
       }
     }
+  });
+});
+
+describe("requestedCell", () => {
+  // 3 x 2; map 7 at (2, 1), the new map of „Neue Karte malen“ after the matrix refresh.
+  const fresh: MatrixDto = { index: 0, name: "m", width: 3, height: 2, maps: [1, 1, null, 1, 1, 7] };
+  const request = { matrix: 0, x: 2, y: 1 };
+
+  it("frames_the_cell_once_the_built_matrix_holds_the_target", () => {
+    expect(requestedCell(request, fresh, fresh, 7)).toEqual({ x: 2, y: 1, width: 1, height: 1 });
+  });
+
+  it("waits_for_the_refresh_the_build_and_the_target", () => {
+    // Before the refresh the cell lies outside (or is empty): the target is not there yet.
+    const before: MatrixDto = { index: 0, name: "m", width: 2, height: 2, maps: [1, 1, 1, 1] };
+    expect(requestedCell(request, before, before, 7)).toBeNull();
+    // The scene still shows the old matrix.
+    expect(requestedCell(request, fresh, before, 7)).toBeNull();
+    // The paint provider has not found the map a world map yet.
+    expect(requestedCell(request, fresh, fresh, null)).toBeNull();
+    // Another map is the target, another matrix is shown, no request.
+    expect(requestedCell(request, fresh, fresh, 1)).toBeNull();
+    expect(requestedCell({ ...request, matrix: 1 }, fresh, fresh, 7)).toBeNull();
+    expect(requestedCell(null, fresh, fresh, 7)).toBeNull();
+  });
+});
+
+describe("frameCellTopDown", () => {
+  const cell: CellRect = { x: 2, y: 1, width: 1, height: 1 };
+
+  it("switches_the_top_view_on_framing_the_cell", () => {
+    const calls: unknown[][] = [];
+    const host = { topDown: false, setTopDown: (...args: unknown[]) => calls.push(args) };
+    frameCellTopDown(host as unknown as SceneHost, cell, matrix);
+    expect(calls).toEqual([[true, cell, matrix]]);
+  });
+
+  it("frames_the_cell_when_the_top_view_was_on_already", () => {
+    const framed: unknown[][] = [];
+    const host = { ...fakeHost(), topDown: true, slantedTarget: new THREE.Vector3(), frameTopDown: (...args: unknown[]) => framed.push(args) };
+    frameCellTopDown(host as unknown as SceneHost, cell, matrix);
+    expect(framed).toEqual([[cell, matrix]]);
+    // The slanted camera waits above the cell (its middle at the cell's height) for the way back.
+    expect(host.slantedTarget.toArray()).toEqual([80, 2, 48]);
   });
 });

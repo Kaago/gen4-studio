@@ -13,8 +13,11 @@
   box-shadow: var(--g4-schatten-schwebend);
 }
 
+/* Flat, the bar breaks into lines inside its own frame once it is wider than the view (its width stops at the view, `.overlays > *` in
+   SceneOverlays): the sub-tools of „Gelände malen“ go to the next line instead of past the bar's edge, behind the inspector. */
 .bar[aria-orientation="horizontal"] {
   flex-direction: row;
+  flex-wrap: wrap;
 }
 
 /* At the bottom the bar sits in the middle of the view (the legend keeps the bottom left). */
@@ -85,6 +88,42 @@
 .bar[aria-orientation="horizontal"] .separator {
   width: var(--g4-strich-standard);
   height: var(--g4-dichte-werkzeug);
+}
+
+/* The sub-tools of „Gelände malen“ on a world map: laid out like the tools, in the bar's direction. */
+.group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+/* Flat, the group may shrink to one key and wraps itself, for a view narrower than the group alone. */
+.bar[aria-orientation="horizontal"] .group {
+  flex-direction: row;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Upright in a view too low for the sub-tools under the tools: they stand as a second column beside the bar, level with its top and
+   drawn like it (the bar keeps its place and height; the separator is the gap between the two). */
+.bar[data-paint-beside] {
+  position: relative;
+}
+
+.bar[data-paint-beside] > [data-paint-separator] {
+  display: none;
+}
+
+.bar[data-paint-beside] > .group {
+  position: absolute;
+  top: calc(-1 * var(--g4-strich-standard));
+  left: calc(100% + var(--g4-raum-4));
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  box-shadow: var(--g4-schatten-schwebend);
 }
 
 /* A square key per tool: the symbol in the middle, the letter in the corner. */

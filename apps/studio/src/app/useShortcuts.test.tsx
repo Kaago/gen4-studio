@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorModel } from "../workbench/Inspector";
 import type { AreaId, Tool } from "../ui/frame/shellState";
+import type { PaintModel, PaintPatch, PaintState } from "../workbench/paint/PaintContext";
 import { useShortcuts } from "./useShortcuts";
 
 vi.mock("../api", () => ({ undo: vi.fn(), redo: vi.fn() }));
@@ -16,7 +17,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), onSceneBack: vi.fn(), onSceneForward: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, toolsShown: (() => true) as () => boolean, onToolsHidden: vi.fn(), placing: false, tool: undefined as Tool | undefined, onEscape: vi.fn((): boolean => false) };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), onSceneBack: vi.fn(), onSceneForward: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, toolsShown: (() => true) as () => boolean, onToolsHidden: vi.fn(), placing: false, tool: undefined as Tool | undefined, onEscape: vi.fn((): boolean => false), paint: (() => null) as () => PaintModel | null };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -33,6 +34,7 @@ describe("useShortcuts", () => {
     handlers.placing = false;
     handlers.tool = undefined;
     handlers.onEscape.mockImplementation(() => false);
+    handlers.paint = () => null;
     pinned.current = { kind: "building", map: 3, index: 1 };
     for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) fn.mockClear();
     container = document.createElement("div");
@@ -453,6 +455,81 @@ describe("useShortcuts", () => {
       await press({ key: "Escape" });
       expect(handlers.unpinSelection).toHaveBeenCalledOnce();
       expect(handlers.onTool).not.toHaveBeenCalled();
+    });
+
+    /** A paint model whose `set` merges into its state, painting `target` (null: a binary map). */
+    const painting = (target: number | null, state: Partial<PaintState> = {}) => {
+      const model: PaintModel = {
+        state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, ...state },
+        set: vi.fn((patch: PaintPatch) => void (model.state = { ...model.state, ...(typeof patch === "function" ? patch(model.state) : patch) })),
+        target,
+      };
+      handlers.paint = () => model;
+      return model;
+    };
+
+    it("two_fast_turns_build_on_each_other", async () => {
+      // The shortcut hands `set` an updater: two keys before a render both see the state the first one left.
+      mountWith(none);
+      handlers.tool = "paint";
+      const model = painting(120);
+      const stale = model.state;
+      handlers.paint = () => ({ ...model, state: stale });
+      await press({ key: "z" });
+      await press({ key: "z" });
+      expect(model.state.tile).toBe("0041r2");
+    });
+
+    it("g_fills_while_painting_a_world_map_and_builds_otherwise", async () => {
+      mountWith(none);
+      handlers.tool = "paint";
+      const model = painting(120);
+      await press({ key: "g" });
+      expect(model.state.sub).toBe("fill");
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      // Shift is no obstacle for the paint keys; Z turns the tile, X mirrors it, R and 2 set a ramp of two steps.
+      await press({ key: "E", shiftKey: true });
+      expect(model.state.sub).toBe("erase");
+      await press({ key: "z" });
+      expect(model.state.tile).toBe("0041r1");
+      await press({ key: "x" });
+      expect(model.state.tile).toBe("0041r1f");
+      await press({ key: "r" });
+      await press({ key: "2" });
+      await press({ key: "z" });
+      expect(model.state.ramp).toEqual({ dir: "s", steps: 2 });
+      // The other tool letters still switch the tool.
+      await press({ key: "f" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("figure");
+      // On a binary map G is „Gebäude“, as with any other tool.
+      handlers.onTool.mockClear();
+      const binary = painting(null);
+      await press({ key: "g" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("building");
+      expect(binary.set).not.toHaveBeenCalled();
+      handlers.tool = "select";
+      const other = painting(120);
+      await press({ key: "g" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("building");
+      expect(other.set).not.toHaveBeenCalled();
+      // Typed into a field the letter is the field's.
+      handlers.tool = "paint";
+      const typed = painting(120);
+      const input = document.createElement("input");
+      container.append(input);
+      await press({ key: "g" }, input);
+      expect(typed.set).not.toHaveBeenCalled();
+    });
+
+    it("escape_returns_to_the_brush_first", async () => {
+      mountWith(none);
+      handlers.tool = "paint";
+      const model = painting(120, { sub: "ramp" });
+      await press({ key: "Escape" });
+      expect(model.state.sub).toBe("brush");
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      await press({ key: "Escape" });
+      expect(handlers.onTool).toHaveBeenCalledWith("select");
     });
 
     it("leaves_an_escape_that_something_else_already_handled", async () => {

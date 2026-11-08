@@ -12,6 +12,7 @@ import { mapsText } from "./places";
 import { TERMS } from "./terms";
 import { visibleWords } from "../ui/visibleText";
 import { ThumbnailCache } from "../world/thumbnails";
+import { EntityIdCache, TextProjectProvider } from "../textproject/TextProjectContext";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
 
@@ -631,6 +632,29 @@ describe("WorldMapPanel", () => {
     vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 2, height: 2 });
     await act(async () => [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Karte anlegen")?.click());
     expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ matrix: 7, x: 1, y: 1, source_map: 701, header_cell: 10 }));
+  });
+
+  it("offers_painting_anew_at_a_plus_of_the_room_plan_in_a_text_project", async () => {
+    // An area with its own 1x1 map (the gate's painted map grows east of it): the room plan's „+“ paints instead of copying, as the
+    // world map's does; without a text project it only copies.
+    serveMatrices();
+    await show(worldContext({ selected: 4 }));
+    act(() => container.querySelector<HTMLElement>('[data-extend="1,0"]')?.click());
+    expect(document.querySelector("[role=dialog] [data-paint-instead]")).toBeNull();
+    act(() => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Abbrechen")?.click());
+    act(() =>
+      root.render(
+        <TextProjectProvider active ids={new EntityIdCache()} onRenamed={() => {}}>
+          <WorldMapPanel context={worldContext({ selected: 4, revision: 1 })} />
+        </TextProjectProvider>,
+      ),
+    );
+    await flush();
+    act(() => container.querySelector<HTMLElement>('[data-extend="1,0"]')?.click());
+    const paint = document.querySelector<HTMLButtonElement>("[role=dialog] [data-paint-instead]");
+    expect(paint?.textContent).toBe("Stattdessen neu malen");
+    act(() => paint?.click());
+    expect(document.querySelector("[role=dialog]")?.textContent).toContain("Neue Karte malen");
   });
 
   it("gives_a_plus_beside_only_landscape_cells_of_the_room_plan_to_the_shown_room", async () => {

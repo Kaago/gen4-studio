@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PAINT_TOOLS } from "../../workbench/paintTools";
 import { TOOLS } from "../../workbench/tools";
+import type { PaintSub } from "../../world/paint/ops";
 import { pressKey } from "../primitives/testUtils";
 import type { Density } from "../tokens/theme";
 import { FloatingToolbar, anchorAt, isLowView, shownAnchor, toolbarMinHeight } from "./FloatingToolbar";
@@ -32,7 +35,8 @@ describe("FloatingToolbar", () => {
     container.remove();
   });
 
-  const show = (opts: { tool?: Tool; eventsBlocked?: string | null; density?: Density; anchor?: ToolbarAnchor; chosen?: ToolbarAnchor } = {}) =>
+  const onSub = vi.fn();
+  const show = (opts: { tool?: Tool; eventsBlocked?: string | null; density?: Density; anchor?: ToolbarAnchor; chosen?: ToolbarAnchor; sub?: PaintSub | null; beside?: boolean } = {}) =>
     act(() =>
       root.render(
         <FloatingToolbar
@@ -45,6 +49,8 @@ describe("FloatingToolbar", () => {
           chosen={opts.chosen ?? opts.anchor ?? "left"}
           onAnchor={onAnchor}
           area={area}
+          paint={opts.sub ? { tools: PAINT_TOOLS, sub: opts.sub, onSub } : null}
+          paintBeside={opts.beside}
         />,
       ),
     );
@@ -68,6 +74,50 @@ describe("FloatingToolbar", () => {
     expect(bar().textContent).not.toContain("Gelände malen");
     expect(tool("Gelände malen").getAttribute("aria-keyshortcuts")).toBe("B");
     expect(tool("Gelände malen").getAttribute("data-tool")).toBe("paint");
+  });
+
+  it("paint_tools_show_only_for_a_world_map", () => {
+    // A binary map (or another tool): no second group.
+    show({ tool: "paint" });
+    expect(container.querySelector("[data-paint-tools]")).toBeNull();
+    show({ tool: "paint", sub: "fill" });
+    const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
+    expect(group.getAttribute("role")).toBe("group");
+    expect(group.getAttribute("aria-label")).toBe("Unterwerkzeuge");
+    const subs = [...group.querySelectorAll<HTMLButtonElement>("button[data-paint-tool]")];
+    expect(subs.map((b) => b.getAttribute("aria-label"))).toEqual(["Pinsel", "Rechteck", "Füllen", "Radierer", "Pipette", "Höhe", "Rampe"]);
+    expect(subs.map((b) => b.textContent)).toEqual(["B", "P", "G", "E", "I", "H", "R"]);
+    // Exactly the active sub-tool is pressed; the main tool stays pressed too.
+    expect(subs.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false", "true", "false", "false", "false", "false"]);
+    expect(tool("Gelände malen").getAttribute("aria-pressed")).toBe("true");
+    expect(subs[6]!.getAttribute("aria-keyshortcuts")).toBe("R");
+    // The group follows the main tools, after a separator, inside the one roving list of the bar.
+    expect(group.previousElementSibling?.getAttribute("role")).toBe("separator");
+    expect(subs.every((b) => b.hasAttribute("data-roving"))).toBe(true);
+    act(() => subs[5]!.click());
+    expect(onSub).toHaveBeenCalledWith("height");
+    expect(onTool).not.toHaveBeenCalled();
+  });
+
+  it("puts_the_sub_tools_beside_the_upright_bar_only_when_asked_and_upright", () => {
+    show({ tool: "paint", sub: "brush" });
+    expect(bar().hasAttribute("data-paint-beside")).toBe(false);
+    show({ tool: "paint", sub: "brush", beside: true });
+    expect(bar().hasAttribute("data-paint-beside")).toBe(true);
+    // The group stays the bar's own (one roving list); the separator before it is marked so the column form can hide it.
+    const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
+    expect(group.parentElement).toBe(bar());
+    expect(group.previousElementSibling?.hasAttribute("data-paint-separator")).toBe(true);
+    // Flat bars wrap instead; without sub-tools there is nothing to put beside.
+    show({ tool: "paint", sub: "brush", beside: true, anchor: "top" });
+    expect(bar().hasAttribute("data-paint-beside")).toBe(false);
+    show({ tool: "paint", sub: null, beside: true });
+    expect(bar().hasAttribute("data-paint-beside")).toBe(false);
+    const css = readFileSync("src/ui/frame/FloatingToolbar.module.css", "utf8");
+    const column = /\.bar\[data-paint-beside\] > \.group \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(column).toContain("position: absolute");
+    expect(column).toContain("left: calc(100% + var(--g4-raum-4))");
+    expect(css).toMatch(/\.bar\[data-paint-beside\] > \[data-paint-separator\] \{\s*display: none;/);
   });
 
   it("switches_the_tool_on_a_click", () => {
@@ -207,6 +257,9 @@ describe("FloatingToolbar", () => {
     const komfort = toolbarMinHeight("komfort");
     const kompakt = toolbarMinHeight("kompakt");
     expect([komfort, kompakt]).toEqual([460, 400]);
+    // The seven sub-tools of „Gelände malen“ lengthen the upright bar by a separator and a key each.
+    expect([toolbarMinHeight("komfort", 7), toolbarMinHeight("kompakt", 7)]).toEqual([460 + 5 + 7 * 44, 400 + 5 + 7 * 36]);
+    expect(toolbarMinHeight("komfort", 0)).toBe(460);
     expect(isLowView(459, komfort)).toBe(true);
     expect(isLowView(460, komfort)).toBe(false);
     expect(isLowView(399, kompakt)).toBe(true);

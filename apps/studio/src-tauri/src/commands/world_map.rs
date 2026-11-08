@@ -13,12 +13,16 @@
 //! [`WORLD_NEEDS_TEXT_PROJECT`], while `world_get` answers `world: null` and `get_world_mesh`
 //! an empty mesh (the scene shows the map's model then); `tileset_get` derives the tileset in
 //! any layout.
+//!
+//! Phase 6.4a adds `world_layers`: a layer added or removed as one undo step.
 
 use std::collections::HashMap;
 
 use g4_kernel::project::SourceMode;
 use g4_kernel::store::Store;
-use g4_kernel::world::edit::{self, WorldCreateRequest, WorldEditRequest, WorldReport};
+use g4_kernel::world::edit::{
+    self, WorldCreateRequest, WorldEditRequest, WorldLayersRequest, WorldReport,
+};
 use g4_kernel::world::mesh::{MODEL_BUDGET, MeshFace, estimate_model_bytes, mesh, mesh_textures};
 use g4_kernel::world::{
     TileRole, Tileset, TilesetSaveReport, WorldGrid, WorldJson, derive_tileset, read_tileset_file,
@@ -129,6 +133,16 @@ pub fn world_edit_impl(state: &AppState, req: WorldEditRequest) -> Result<WorldR
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     Ok(edit::world_edit(&mut session.store, &req)?)
+}
+
+/// „Ebene hinzufügen“ and „Ebene entfernen“ (6.4a): one undo step each.
+pub fn world_layers_impl(
+    state: &AppState,
+    req: WorldLayersRequest,
+) -> Result<WorldReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(edit::world_layers(&mut session.store, &req)?)
 }
 
 pub fn world_get_impl(state: &AppState, map: u16) -> Result<WorldGetDto, CmdError> {
@@ -381,6 +395,14 @@ pub fn tileset_edit(
     req: TilesetEditRequest,
 ) -> Result<TilesetEditReport, CmdError> {
     tileset_edit_impl(&state, req)
+}
+
+#[tauri::command]
+pub fn world_layers(
+    state: State<'_, AppState>,
+    req: WorldLayersRequest,
+) -> Result<WorldReport, CmdError> {
+    world_layers_impl(&state, req)
 }
 
 #[cfg(test)]
@@ -1067,6 +1089,202 @@ mod tests {
         println!("world-mesh-bridge median_ms={median:.2} faces={faces}");
         if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
             assert!(median <= 50.0, "median {median:.2} ms");
+        }
+    }
+
+    /// „Neue Karte malen“ over `dispatch`: `recipe_plan` writes nothing, `recipe_apply` puts
+    /// a new world map into the empty cell east of map 1 (the matrix grows to 3 × 1), baked.
+    #[test]
+    fn painted_map_recipe_over_dispatch() {
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
+        let args = json!({ "recipe": "new_painted_map", "input": {
+            "x": 2, "y": 0, "name": "Waldweg", "tileset": 0,
+        } });
+        let undo = labels(&state).len();
+        let draft = call(&state, &policy, "recipe_plan", args.clone());
+        assert_eq!(
+            draft["cells"],
+            json!([{ "matrix": 0, "x": 2, "y": 0, "source_map": 1 }]),
+            "{draft}"
+        );
+        assert_eq!(
+            draft["painted"],
+            json!({ "tileset": 0, "fill_tile": "0000", "height": 0, "header": null }),
+            "{draft}"
+        );
+        assert_eq!(labels(&state).len(), undo);
+
+        let outcome = call(&state, &policy, "recipe_apply", args);
+        let report = &outcome["report"];
+        let map = report["map"].as_u64().expect("report.map");
+        assert_eq!(
+            (&report["width"], &report["base"], &report["tileset"]),
+            (&json!(3), &json!(1), &json!(0)),
+            "{outcome}"
+        );
+        assert_eq!(report["bake"]["ok"], true, "{outcome}");
+        assert_eq!(
+            outcome["created"],
+            json!([{ "kind": "Map", "index": map }]),
+            "{outcome}"
+        );
+        assert_eq!(labels(&state).len(), undo + 1);
+        let world = call(&state, &policy, "world_get", json!({ "map": map }));
+        assert_eq!(world["world"]["tileset"], 0, "{world}");
+        assert!(world["bake"].is_object(), "{world}");
+        assert_eq!(
+            call(&state, &policy, "get_map", json!({ "index": map }))["world"],
+            true
+        );
+    }
+
+    /// „Ebene hinzufügen“ over `dispatch`: a second layer, a tile on it, both undone again.
+    #[test]
+    fn world_layers_over_dispatch() {
+        let fx = TextFixture::exported();
+        let (state, policy) = open(&fx);
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0 } }),
+        );
+        let added = call(
+            &state,
+            &policy,
+            "world_layers",
+            json!({ "req": { "map": 0, "op": { "add": { "name": "Brücke" } } } }),
+        );
+        assert_eq!(added["map"], 0, "{added}");
+        call(
+            &state,
+            &policy,
+            "world_edit",
+            json!({ "req": { "map": 0, "changes": [{ "layer": 1, "cells": [[4, 5]], "tile": "0001" }] } }),
+        );
+        let got = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        let layers = got["world"]["layers"].as_array().unwrap();
+        assert_eq!(layers.len(), 2, "{got}");
+        assert_eq!(layers[1]["name"], "Brücke");
+        call(&state, &policy, "undo", json!({}));
+        call(&state, &policy, "undo", json!({}));
+        let back = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        assert_eq!(
+            back["world"]["layers"].as_array().unwrap().len(),
+            1,
+            "{back}"
+        );
+        // The ground stays.
+        assert_eq!(
+            refused(
+                &state,
+                &policy,
+                "world_layers",
+                json!({ "req": { "map": 0, "op": { "remove": { "layer": 0 } } } }),
+            ),
+            "Die Bodenebene (0) bleibt."
+        );
+    }
+
+    /// The changes that set the ground of [`busy_world`] (checkerboard, heights, ramps).
+    fn busy_ground_changes() -> Vec<Value> {
+        let busy = busy_world();
+        let ground = &busy.layers[0];
+        let mut changes = Vec::new();
+        for z in 0..32u8 {
+            let row = |rows: &[String]| -> Vec<String> {
+                rows[usize::from(z)]
+                    .split_whitespace()
+                    .map(str::to_owned)
+                    .collect()
+            };
+            let tiles = row(&ground.tiles);
+            let heights = row(ground.heights.as_ref().unwrap());
+            let ramps = row(ground.ramps.as_ref().unwrap());
+            for x in 0..32u8 {
+                let at = usize::from(x);
+                if tiles[at] != "0000" {
+                    changes.push(json!({ "cells": [[x, z]], "tile": tiles[at] }));
+                }
+                if heights[at] != "0" {
+                    changes.push(
+                        json!({ "cells": [[x, z]], "height": heights[at].parse::<i8>().unwrap() }),
+                    );
+                }
+                if ramps[at] != "." {
+                    changes.push(json!({ "cells": [[x, z]], "ramp": ramps[at] }));
+                }
+            }
+        }
+        changes
+    }
+
+    /// One stroke of the app over `dispatch` with JSON: `world_edit` of 37 cells (two tiles
+    /// in turn) on the ground of [`busy_world`], then `world_get` and `get_world_mesh`; warmed
+    /// once, median of 10. Prints `world-stroke-bridge median_ms=<…> faces=<…>`; with
+    /// `G4_TIMING_STRICT=1` at most 300 ms (a debug build). On [`world_ready`]'s real package
+    /// each `world_edit` bakes model and terrain in full.
+    ///
+    /// [`world_ready`]: g4_kernel::test_support::world_ready
+    #[test]
+    fn world_stroke_over_the_command_path_is_fast() {
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0 } }),
+        );
+        call(
+            &state,
+            &policy,
+            "world_edit",
+            json!({ "req": { "map": 0, "changes": busy_ground_changes() } }),
+        );
+        let stroke = |tile: &str| {
+            let start = Instant::now();
+            let edited = call(
+                &state,
+                &policy,
+                "world_edit",
+                json!({ "req": { "map": 0, "changes": [{ "cells": cells_37(), "tile": tile }] } }),
+            );
+            let got = call(&state, &policy, "world_get", json!({ "map": 0 }));
+            let mesh = call(&state, &policy, "get_world_mesh", json!({ "map": 0 }));
+            let bytes = [&edited, &got, &mesh]
+                .iter()
+                .map(|v| serde_json::to_string(v).unwrap().len())
+                .sum::<usize>();
+            assert!(bytes > 0);
+            // The bake runs through: the busy ground's model (about 74 KB) is built and
+            // only then refused for its size, the terrain is baked.
+            let bake = &edited["bake"];
+            let codes: Vec<&str> = bake["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| m["code"].as_str().unwrap())
+                .collect();
+            assert!(
+                codes.iter().all(|&c| c == "bake.model-too-big")
+                    && bake["bdhc_bytes"].as_u64().unwrap() > 0,
+                "{bake}"
+            );
+            (start.elapsed().as_secs_f64() * 1000.0, mesh)
+        };
+        let (_, warm) = stroke("0001");
+        let faces = warm["faces"].as_u64().unwrap();
+        assert!(faces > 500, "{faces}");
+        let mut times: Vec<f64> = (0..10)
+            .map(|i| stroke(if i % 2 == 0 { "0000" } else { "0001" }).0)
+            .collect();
+        times.sort_by(f64::total_cmp);
+        let median = (times[4] + times[5]) / 2.0;
+        println!("world-stroke-bridge median_ms={median:.2} faces={faces}");
+        if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
+            assert!(median <= 300.0, "median {median:.2} ms");
         }
     }
 }

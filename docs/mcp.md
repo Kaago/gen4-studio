@@ -274,6 +274,9 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `get_map_heights` | lesend | `{index}` (seit 6.2): die Laufhöhe der BDHC an jeder Kachelmitte der Karte in Welteinheiten (16 je Kachel, Zeile für Zeile `y * 32 + x`), bei überlappenden Platten der höchste Kandidat (das obere Deck einer Brücke); `null`, wo keine Platte unter der Mitte liegt. Antwort `{index, heights, error}`: bei einer unlesbaren BDHC sind alle 1 024 Werte `null` und `error` nennt den Grund des Lesers. Dieselben Zahlen trägt `get_map` als `heights` |
 | `set_map_terrain` | schreibend | `{index, grid: {heights, ramps}, kinds, overrides?, bdhc?, permissions?}` (seit 6.2, das Gate-Werkzeug bis 6.3a/6.4a): setzt BDHC und Permissions einer binären Karte aus einem Höhenraster als **ein** Undo-Schritt „set terrain“. `grid.heights`, `grid.ramps` und `kinds` sind je 32 Zeilen zu 32 Zellen, durch Leerzeichen getrennt (Zeile `y`, Spalte `x`): Höhen in Stufen zu 8 E (−16 bis 62), Rampen `.` oder `n1 n2 e1 e2 s1 s2 w1 w2` (steigt nach Norden, Osten, Süden, Westen um 1 oder 2 Stufen über die Kachel), Gelände `# . g G ~ r i ^ > v < D`. `overrides` (`[{x, y, kind, collision}]`) ersetzen zuletzt ganze Zellen. `bdhc: "flat"` schreibt statt des Rasters eine flache Platte auf 0, `permissions: "keep"` lässt die Permissions der Karte stehen (beides für die Gegenprobe; die Handwerte gelten auch dann). Antwort `{map, bdhc_bytes, payload, plates, strips, blocked, overrides, permissions_kept}`. Abgelehnt wird, bevor etwas geschrieben ist, mit dem Ort im deutschen Satz (Fehlercode `error`), etwa „heights: Zeile 4 hat 31 Zellen statt 32.“ oder „Kachel x 4, y 6: Rampe mit 3 Stufen je Kachel (24 E); …“; alle Sätze in [formats/terrain.md](formats/terrain.md) „Zeilenformat“ |
 | `get_map_budget` | lesend | `{index}` (seit 6.2): die Budgets der Karte gegen die Grenzen des Spiels, je `{used, max, state}` mit `state` `calm`, `tight` (ab 90 %) oder `full` (über `max`): `model` (Modell, von 61 440 B), `bdhc` (Nutzlast nach dem Kopf aus den Zählern, von 36 864 B), `buildings` (von 32). `textures` ist das Gebiet des ersten Headers, dessen Matrix die Karte zeigt: `area`, `map_pack`, `building_pack`, `textures` (Texturen im Kartenpaket), `vanilla_max` und `vram` (geschätzt aus beiden Paketen, gegen die Bank 262 144 B; `tight` über dem Vanilla-Maximum, `full` über 204 800 B); `null` mit dem Grund in `textures_missing` („Kein Header zeigt diese Karte.“, „Gebietsdaten 12 fehlen.“, „Texturpaket 6 nicht lesbar: …“, beim Gebäudepaket „Gebäude-Texturpaket 6 nicht lesbar: …“). Siehe [formats/terrain.md](formats/terrain.md) „Budget je Karte“ |
+| `world_get` | lesend | `{map}` (seit 6.4a): die Welt einer Karte eines Textprojekts (`world`, `null` bei einer binären Karte oder außerhalb eines Textprojekts) mit Flächen, Texturen und geschätzter Modellgröße ihres Netzes; siehe „Malen (6.4a)“ |
+| `world_edit` | schreibend | `{req: {map, label?, changes}}` (seit 6.4a): ändert Zellen einer Welt-Karte als **ein** Undo-Schritt; Werkzeuge wie Füllen oder Rechteck rechnet der Aufrufer und schickt Zellen; siehe „Malen (6.4a)“ |
+| `tileset_get` | lesend | `{package}` (seit 6.4a): das Tileset eines Kartentextur-Pakets je Kachel (Textur, Größe, Rolle, Art, Kollision, Höhenverhalten, Schrittgeräusch, Wandkachel), `stored: false`, solange es abgeleitet ist; siehe „Malen (6.4a)“ |
 
 Die Antworten sind JSON. Jedes Werkzeug antwortet mit `structuredContent = {"result": …}` und einem Textblock mit demselben JSON (`project_preview_get` und `project_preview_set` legen das Bild zusätzlich als Bild-Inhaltsblock `image/png` daneben, nicht ins JSON); die Schemas stehen in `tools/list` (`inputSchema` und `outputSchema`). Eingaben sind geschlossen: Ein unbekannter Schlüssel ist ein Fehler („Unbekanntes Argument für get_header: foo“). Jedes Werkzeug trägt Hinweise, damit ein Client erkennt, was er ohne Rückfrage ausführen darf: `readOnlyHint` und `idempotentHint` (beide wahr bei lesenden Werkzeugen, sonst falsch) und `openWorldHint` (überall falsch). Nur nicht lesende Werkzeuge tragen zusätzlich `destructiveHint`: wahr bei unumkehrbaren und bei denen, die es je nach Argument sind (`build_rom`, `apply_fix`, `publish_patch`), falsch bei den übrigen schreibenden. `g4_batch` und `g4_call` gelten mit `--read-only` als lesend, sonst als schreibend; `destructiveHint` tragen sie nur mit `--allow-irreversible`.
 
@@ -450,7 +453,7 @@ Löschen geht ebenso über Plan und Zustimmung: „Lösch Trainer 928, wenn nich
 
 ## Welt-Karten (6.3a, über `g4_call`)
 
-Kuratierte Werkzeuge für Welt-Karten kommen mit 6.4a; bis dahin gehen die sieben Befehle über `g4_call` (Expertenmodus, `--expert`). Argumente wie in `api.ts` (camelCase), die Anfragen von `world_create` und `world_edit` unter `req`.
+Diese sieben Befehle gehen über `g4_call` (Expertenmodus, `--expert`); seit 6.4a gibt es `world_get`, `world_edit` und `tileset_get` zusätzlich als kuratierte Werkzeuge (siehe „Malen (6.4a)“). Argumente wie in `api.ts` (camelCase), die Anfragen von `world_create` und `world_edit` unter `req`.
 
 | Befehl | Art | Argumente | Antwort |
 |---|---|---|---|
@@ -471,7 +474,7 @@ Ablehnungen (`error` mit dem Text, nichts geändert):
 
 ## Welt-Karten backen (6.3b, über `g4_call`)
 
-Im Textprojekt ist das Map-Asset einer Welt-Karte ihr gebackener Member: jeder Strich backt im selben Undo-Schritt Modell, Terrain (BDHC) und Permissions neu. Vier weitere Befehle gehen bis zu den kuratierten Werkzeugen von 6.4a über `g4_call` (Expertenmodus, `--expert`); Argumente wie in `api.ts` (camelCase), die Anfragen von `world_adopt` und `tileset_edit` unter `req`.
+Im Textprojekt ist das Map-Asset einer Welt-Karte ihr gebackener Member: jeder Strich backt im selben Undo-Schritt Modell, Terrain (BDHC) und Permissions neu. Vier weitere Befehle gehen über `g4_call` (Expertenmodus, `--expert`; kuratiert sind seit 6.4a nur `world_get`, `world_edit` und `tileset_get`); Argumente wie in `api.ts` (camelCase), die Anfragen von `world_adopt` und `tileset_edit` unter `req`.
 
 | Befehl | Art | Argumente | Antwort |
 |---|---|---|---|
@@ -493,3 +496,49 @@ Ablehnungen (`error` mit dem Text, nichts geändert):
 - `tileset_edit` ohne Datei („Erst `tileset_save` für Paket 0006.“), eine Kachel jenseits des Tilesets („changes[0].tile: Kachel 0x0120 gibt es im Tileset 0006 nicht (94 Kacheln).“), ein Aufruf, der nichts ändert („Nichts zu ändern.“), ein Ergebnis mit Fehlern (der erste mit dem Pfad der Datei, etwa „data/tilesets/0006.json: tiles[0].wall: …“).
 - Abgeleitete Teile einer Welt-Karte direkt ändern (`set_permission`, `set_map_terrain`, `bake_test`, `map_import` von Modell, BDHC, Permissions oder der ganzen Karte): „Karte 0000 ist eine Welt-Karte: Modell, Terrain und Permissions entstehen beim Backen; Permissions über `world_edit` (`permission`), zurück zur binären Karte über „Als binäre Karte übernehmen“.“
 - „Auf Original zurücksetzen“ einer Welt: „Eine Welt hat kein Original; erst „Als binäre Karte übernehmen“.“
+
+## Malen (6.4a)
+
+Seit 6.4a malt ein Agent Welt-Karten mit drei kuratierten Werkzeugen wie die App: `world_get` und `tileset_get` lesen, `world_edit` schreibt. Welten gibt es nur im Textprojekt der aktuellen Fassung (siehe „Welt-Karten (6.3a, über `g4_call`)“ für die Befehle dahinter und ihre Ablehnungen).
+
+| Werkzeug | Art | Argumente | Antwort |
+|---|---|---|---|
+| `world_get` | lesend | `{map}` | `{map, world, faces, textures, estimate, share, bake}`: das Weltobjekt (`version`, `tileset` das Kartentextur-Paket, `layers` mit `tiles`, `heights` und `ramps` als je 32 Zeilen zu 32 Token, `pieces`, `permissions`), Flächen und Texturen des Netzes, die geschätzte Modellgröße in Byte und ihr Anteil an 0xF000. `world: null` bei einer Karte ohne Welt, einer binären Karte oder außerhalb eines Textprojekts. `bake` ist das Backen der Karte (Modell- und Terrain-Bytes, Anteil an 0xF000, Texturen, VRAM, `ok`, Meldungen; wie `world_bake` in „Welt-Karten backen (6.3b, über `g4_call`)“), `null` ohne Welt. |
+| `world_edit` | schreibend (ein Undo-Schritt) | `{req: {map, label?, changes: [{layer?, cells: [[x, z]], tile? \| height? \| ramp? \| permission?}]}}` | `{map, tileset, cells, change, bake}` (das Backen des Schritts) |
+| `tileset_get` | lesend | `{package}` | `{package, stored, tileset}`: je Kachel Textur, Größe in Texeln, Rolle (`ground`, `wall`, `ramp`, `water`, `grass`, `piece`), Art, Kollision, Höhenverhalten, Schrittgeräusch (HGSS) und Wandkachel; `stored: false`, solange es aus dem Paket abgeleitet und noch nicht unter `data/tilesets/` liegt (`tileset_save` über `g4_call` schreibt es) |
+
+Eine Änderung in `changes` nennt Zellen `[x, z]` (je 0 bis 31) und genau eines von:
+
+- `tile`: vier Hex-Ziffern, dahinter optional `r1` bis `r3` (Drehung) und `f` (gespiegelt), oder `.` (leer); auf `layer` (Standard 0, der Boden);
+- `height`: Stufen zu 8 Einheiten, −16 bis 62, nur der Boden;
+- `ramp`: `.` (eben) oder `n`, `e`, `s`, `w` mit 1 oder 2 Stufen (`e1`, `n2`), bergauf, nur der Boden;
+- `permission`: `kkcc` hex oder `.` (abgeleitet), ohne `layer`.
+
+Alle Änderungen eines Aufrufs sind ein Schritt; ohne `label` heißt er „Welt geändert: Karte 0000 (37 Zellen)“. Ablehnungen (`error`, nichts geändert): außerhalb eines Textprojekts („Boden malen gibt es im Textprojekt (Technik › Textprojekt).“), eine Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“), eine Zelle außerhalb der Karte, eine Kachel jenseits des Tilesets, eine Änderung mit keinem oder mehr als einem Wert, eine Ebene, die es nicht gibt.
+
+### Neue Karte malen: `new_painted_map`
+
+Eine neue Welt-Karte in einer Zelle einer Weltkarte legt das Rezept `new_painted_map` („Neue Karte malen“, nur im Textprojekt) über `recipe_plan` und `recipe_apply` an: `{recipe: "new_painted_map", input: {matrix?, x, y, name, tileset?, fill_tile?, height?, header?, source_map?}}`. `matrix` ist ohne Angabe 0; die Zelle (`x`, `y`) muss leer sein oder außerhalb liegen (dann wächst die Weltkarte, höchstens auf 255 × 255 Zellen); `name` ist Pflicht. Ohne `source_map` wird die erste Nachbarkarte (Norden, Westen, Osten, Süden; Landschaftszellen, also Karten mit Header 0 in der Header-Spalte, zählen nicht) ohne Gebäude kopiert, und die Karte bekommt eine leere Welt: Paket aus `tileset`, sonst aus dem Header der Zelle (`header`, sonst der des Nachbarn), auf einer Weltkarte ohne Header-Spalte aus dem ersten Header, der den Nachbarn zeigt; der Boden ist ganz `fill_tile` (Vorgabe `0000`, `.` lehnt ab) auf Höhe `height` (Vorgabe 0). Mit `source_map` (eine Welt-Karte) wird diese ohne Gebäude kopiert und trägt ihre Welt; `tileset`, `fill_tile` und `height` bleiben dann weg. `header` geht nur auf einer Weltkarte mit Header-Spalte und landet in der Header-Zelle.
+
+`recipe_plan` schreibt nichts und antwortet den Entwurf: die Zelle in `cells` (die App zeigt sie gestrichelt, `source_map` ist die kopierte Karte), die Sätze in `notes` („Neue Karte „Waldweg“ in Zelle x 1, y 0 der Weltkarte 0000.“, „Gebietsdaten von Header 411.“, „Boden aus Tileset 0000, Kachel 0000, Höhe 0.“ oder „Die Welt kommt aus Karte 0002.“, „Die Weltkarte wächst auf 4 × 2 Zellen.“), `irreversible` („Karte 0667 wird angelegt“) und `painted` (`{tileset, fill_tile, height, header}`, der aufgelöste Boden; fehlt mit `source_map`).
+
+Das Rezept ist immer unumkehrbar: die kopierte Karte entsteht zuerst und bleibt nach Undo (`created`). Headless braucht `recipe_apply` deshalb `--allow-irreversible`, sonst antwortet der Aufruf `needs_confirmation`. Danach ist der Rest **ein** Undo-Schritt „Neue Karte gemalt: „Waldweg“ (Karte 0667)“: die Weltkarte wächst bei Bedarf, Zelle und Header-Zelle werden gesetzt, die neue Karte bekommt ihre Welt und wird im selben Schritt gebacken. `report` ist `NewPaintedMapReport` `{map, name, matrix, x, y, width, height, header, tileset, base, bake}` (`width`/`height` die Größe der Weltkarte danach, `base` die kopierte Karte, `bake` das Backen wie bei `world_edit`); `next` nennt `adjust_terrain` („Gelände anpassen“), weiter geht es mit `world_edit`. Ablehnungen (nichts geändert) unter anderem: „Die Karte braucht einen Namen.“, „Zelle (4, 27) der Weltkarte 0000 ist nicht leer.“, „Die Weltkarte würde breiter als 255 Zellen.“, „Neben Zelle (4, 27) liegt keine Karte; `source_map` nennen.“, „Kein Header zeigt eine Nachbarkarte; Tileset angeben (`tileset`).“, „Karte 0002 ist keine Welt-Karte; eine binäre Karte kopiert „Gebiet erweitern“.“ und außerhalb eines Textprojekts „Boden malen gibt es im Textprojekt (Technik › Textprojekt).“ Eine vorhandene Karte macht weiterhin `world_create` über `g4_call` zur Welt-Karte.
+
+### Ebenen über `g4_call`
+
+`world_layers` (Expertenmodus, schreibend, ein Undo-Schritt) legt eine Überlagerungsebene an oder entfernt eine: `{req: {map, op: {add: {name}}}}` hängt eine leere Ebene (Rolle `overlay`, 32 Zeilen `.`) an, Schritt „Ebene „Büsche“ angelegt: Karte 0000“; `{req: {map, op: {remove: {layer}}}}` entfernt Ebene `layer`, Schritt „Ebene 2 „Büsche“ entfernt: Karte 0000“. Die Antwort ist `{map, tileset, cells: 0, change, bake}`. Ablehnungen wie bei `world_edit`, dazu „Die Bodenebene (0) bleibt.“, „Eine Ebene braucht einen Namen.“, „Ebene „Büsche“ gibt es schon.“ und „Ebene 3 gibt es nicht (Karte 0000 hat 2).“
+
+### Beispiel: ein Strich wie die App
+
+Die App kennt Pinsel, Füllen, Rechteck und Linie; über MCP rechnet der Agent das Werkzeug selbst und schickt das Ergebnis als Zellen. Füllen ist die Menge der zusammenhängenden Zellen gleicher Kachel, eine Höhe sind Gruppen von Zellen gleicher Zielhöhe, alles in einem Aufruf und damit einem Undo-Schritt:
+
+```json
+{ "req": { "map": 12, "label": "Agent: Weg und Hügel", "changes": [
+  { "cells": [[3, 4], [4, 4], [5, 4], [3, 5], [4, 5]], "tile": "0001" },
+  { "cells": [[10, 10], [11, 10]], "height": 2 },
+  { "cells": [[10, 11], [11, 11]], "height": 1 },
+  { "cells": [[10, 12], [11, 12]], "ramp": "n1" }
+] } }
+```
+
+Danach zeigt `world_get` die Welt und die Modellgröße; `undo` nimmt den ganzen Strich zurück.

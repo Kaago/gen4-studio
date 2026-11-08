@@ -27,6 +27,10 @@ import {
   DotsSixVertical,
   DotsThree,
   Drone,
+  Eraser,
+  Eye,
+  Eyedropper,
+  EyeSlash,
   FileCode,
   FloppyDisk,
   FolderOpen,
@@ -51,6 +55,7 @@ import {
   Moon,
   Mountains,
   PaintBrush,
+  PaintBucket,
   Palette,
   PawPrint,
   PersonSimpleWalk,
@@ -58,6 +63,7 @@ import {
   Play,
   Plus,
   Question,
+  Rectangle,
   Robot,
   Rows,
   ShareNetwork,
@@ -66,6 +72,7 @@ import {
   SortAscending,
   SquareSplitVertical,
   Stack,
+  Stairs,
   Sun,
   TextAa,
   Toolbox,
@@ -174,6 +181,15 @@ export const icons = {
   heights: Mountains,
   /** The scene bar's „Draufsicht“ (the view from straight above); `map` keeps its mountains for maps. */
   topDown: Drone,
+  /** The paint sub-tools of „Gelände malen“ on a world map (6.4a): „Rechteck“, „Füllen“, „Radierer“, „Pipette“, „Rampe“. */
+  rectangle: Rectangle,
+  bucket: PaintBucket,
+  eraser: Eraser,
+  eyedropper: Eyedropper,
+  ramp: Stairs,
+  /** A layer of a world map shown or hidden in the scene (6.4a, section „Ebenen“). */
+  eye: Eye,
+  eyeSlash: EyeSlash,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

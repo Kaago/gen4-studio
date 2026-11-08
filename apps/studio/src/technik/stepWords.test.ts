@@ -49,6 +49,13 @@ describe("stepWords", () => {
     expect(stepLabel(step("plugin:x"), "tuefteln").name).toBe("plugin:x");
   });
 
+  it("names_the_text_project_step_before_the_bake_row", () => {
+    // The text project step runs first and „Karten backen“ follows it: Bauen names it instead of „Weiterer Schritt“.
+    expect(stepLabel(step("textproject", { reason: "no-state" }), "bauen")).toEqual({ name: "Textprojekt", result: "voll gebaut (erster Build, voll)" });
+    expect(stepLabel(step("textproject"), "tuefteln").name).toBe("Textprojekt");
+    expect(stepLabel(step("world"), "bauen").name).toBe("Karten backen");
+  });
+
   it("words_a_removed_output_of_the_rom_step_as_another_target_or_a_deleted_rom", () => {
     // The pack steps keep „Datei entfernt“.
     expect(stepLabel(step("pack:maps", { done: 665, total: 665, reason: "removed" }), "tuefteln").result).toBe("665 Member gepackt (Datei entfernt, voll gebaut)");

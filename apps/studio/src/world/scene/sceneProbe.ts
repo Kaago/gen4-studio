@@ -7,6 +7,8 @@ import type { SceneHost } from "./SceneHost";
 export interface SceneProbe {
   /** The client point of the centre of absolute tile (absX, absZ) on its overlay plate (its ground), or null beside the matrix or out of view. */
   tileToClient(absX: number, absZ: number): { clientX: number; clientY: number } | null;
+  /** Paint strokes sent and not yet answered (the canvas's `data-stroke-pending`; 0 without any). */
+  strokePending(): number;
 }
 
 declare global {
@@ -28,6 +30,7 @@ export function installSceneProbe(h: SceneHost): () => void {
       const rect = h.canvas.getBoundingClientRect();
       return { clientX: rect.left + ((p.x + 1) / 2) * rect.width, clientY: rect.top + ((1 - p.y) / 2) * rect.height };
     },
+    strokePending: () => Number(h.canvas.dataset.strokePending ?? 0),
   };
   window.__g4SceneProbe = probe;
   return () => {

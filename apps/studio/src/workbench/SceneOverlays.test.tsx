@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellProvider } from "../ui/frame/ShellContext";
+import { PaintContext } from "./paint/PaintContext";
+import type { PaintModel } from "./paint/PaintContext";
 import { SceneOverlays } from "./SceneOverlays";
 import { NO_WORLD, WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData } from "./WorkbenchContext";
@@ -15,12 +17,14 @@ const KEY = "g4.shell.v1";
 
 /** The overlays' stylesheet as written (jsdom lays nothing out and applies no CSS Modules), read from the package root vitest runs in. */
 const overlaysCss = readFileSync("src/workbench/SceneOverlays.module.css", "utf8");
+const toolbarCss = readFileSync("src/ui/frame/FloatingToolbar.module.css", "utf8");
 
 describe("SceneOverlays", () => {
   let container: HTMLElement;
   let root: Root;
   const onTool = vi.fn();
   const onShowPermissions = vi.fn();
+  const onShowHeights = vi.fn();
   const onShowEvents = vi.fn();
   const onOpenWizard = vi.fn();
   beforeEach(() => {
@@ -28,7 +32,7 @@ describe("SceneOverlays", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    for (const f of [onTool, onShowPermissions, onShowEvents, onOpenWizard]) f.mockReset();
+    for (const f of [onTool, onShowPermissions, onShowHeights, onShowEvents, onOpenWizard]) f.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -36,14 +40,20 @@ describe("SceneOverlays", () => {
     vi.restoreAllMocks();
   });
 
-  const show = (over: Partial<WorkbenchData> = {}) => {
+  const show = (over: Partial<WorkbenchData> = {}, paint?: PaintModel) => {
     const data = { tool: "select", onTool, eventFileId: 3, eventLock: null, selected: 7, onOpenWizard, ...over } as unknown as WorkbenchData;
-    const layers = { showPermissions: true, showHeights: false, showEvents: false, onShowPermissions, onShowHeights: () => {}, onShowEvents };
+    const layers = { showPermissions: true, showHeights: false, showEvents: false, onShowPermissions, onShowHeights, onShowEvents };
     act(() =>
       root.render(
         <ShellProvider>
           <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null, world: NO_WORLD }}>
-            <SceneOverlays layers={layers} />
+            {paint ? (
+              <PaintContext.Provider value={paint}>
+                <SceneOverlays layers={layers} />
+              </PaintContext.Provider>
+            ) : (
+              <SceneOverlays layers={layers} />
+            )}
           </WorkbenchProviders>
         </ShellProvider>,
       ),
@@ -75,6 +85,32 @@ describe("SceneOverlays", () => {
     expect(onTool).toHaveBeenCalledWith("figure");
     act(() => layerBar().querySelector<HTMLButtonElement>('button[aria-label="Ereignisse"]')!.click());
     expect(onShowEvents).toHaveBeenCalledWith(true);
+  });
+
+  it("shows_the_paint_sub_tools_while_painting_a_world_map", () => {
+    const set = vi.fn();
+    const model = (target: number | null): PaintModel => ({ state: { sub: "rect", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set, target });
+    show({ tool: "paint" }, model(120));
+    const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
+    expect(group.querySelector('[data-paint-tool="rect"]')!.getAttribute("aria-pressed")).toBe("true");
+    act(() => group.querySelector<HTMLButtonElement>('[data-paint-tool="erase"]')!.click());
+    expect(set).toHaveBeenCalledWith({ sub: "erase" });
+    // Another tool, or a binary map: no sub-tools.
+    show({ tool: "select" }, model(120));
+    expect(container.querySelector("[data-paint-tools]")).toBeNull();
+    show({ tool: "paint" }, model(null));
+    expect(container.querySelector("[data-paint-tools]")).toBeNull();
+  });
+
+  it("height_and_ramp_show_the_height_layer", () => {
+    const model = (sub: PaintModel["state"]["sub"]): PaintModel => ({ state: { sub, layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 });
+    show({ tool: "paint" }, model("brush"));
+    expect(onShowHeights).not.toHaveBeenCalled();
+    show({ tool: "paint" }, model("height"));
+    expect(onShowHeights).toHaveBeenCalledWith(true);
+    onShowHeights.mockReset();
+    show({ tool: "paint" }, model("ramp"));
+    expect(onShowHeights).toHaveBeenCalledWith(true);
   });
 
   it("takes_the_anchor_from_the_shell_and_writes_it_back", () => {
@@ -150,6 +186,57 @@ describe("SceneOverlays", () => {
     localStorage.setItem("g4.density", "kompakt");
     show();
     expect(overlays().getAttribute("data-anchor")).toBe("left");
+  });
+
+  it("keeps_the_paint_sub_tools_inside_the_flat_toolbar_of_a_narrow_view", () => {
+    // Browser run 6.4a: a view about 340 px wide, low, so the toolbar lies flat; the sub-tools ran past the bar's edge behind the
+    // inspector. They are a group of the toolbar itself, whose width stops at the view and whose flat row (and the group) wraps.
+    viewHeight(300);
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    show({ tool: "paint" }, model);
+    const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
+    expect(group.parentElement).toBe(toolbar());
+    expect(toolbar().getAttribute("aria-orientation")).toBe("horizontal");
+    expect(/\.overlays > \* \{([^}]*)\}/.exec(overlaysCss)?.[1]).toContain("max-width: 100%");
+    const flat = /\.bar\[aria-orientation="horizontal"\] \{([^}]*)\}/.exec(toolbarCss)?.[1] ?? "";
+    expect(flat).toContain("flex-wrap: wrap");
+    const flatGroup = /\.bar\[aria-orientation="horizontal"\] \.group \{([^}]*)\}/.exec(toolbarCss)?.[1] ?? "";
+    expect(flatGroup).toContain("flex-wrap: wrap");
+    expect(flatGroup).toContain("min-width: 0");
+  });
+
+  it("keeps_the_upright_bar_and_puts_the_sub_tools_beside_it_where_they_do_not_fit_under_it", () => {
+    // 600 px is high enough for the upright tools alone (460), not with the seven sub-tools under them (460 + 5 + 7 × 44 = 773 in
+    // komfort): the bar stays upright, the sub-tools stand beside it.
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    const spy = viewHeight(600);
+    show({ tool: "select" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
+    show({ tool: "paint" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
+    expect(toolbar().getAttribute("aria-orientation")).toBe("vertical");
+    expect(toolbar().hasAttribute("data-paint-beside")).toBe(true);
+    // High enough for both under each other: one column.
+    spy.mockRestore();
+    act(() => root.unmount());
+    root = createRoot(container);
+    viewHeight(800);
+    show({ tool: "paint" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
+    expect(toolbar().hasAttribute("data-paint-beside")).toBe(false);
+  });
+
+  it("lays_the_toolbar_flat_with_sub_tools_only_below_the_old_threshold", () => {
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    viewHeight(461);
+    show({ tool: "paint" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
+    act(() => root.unmount());
+    root = createRoot(container);
+    viewHeight(459);
+    show({ tool: "paint" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("top");
+    expect(toolbar().hasAttribute("data-paint-beside")).toBe(false);
   });
 
   it("locks_the_event_tools_with_the_locked_text_of_the_event_file", () => {

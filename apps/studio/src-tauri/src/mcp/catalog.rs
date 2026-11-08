@@ -1459,8 +1459,8 @@ static TOOLS: &[ToolDef] = &[
                       new members, created first; they stay after undo), change, changed \
                       (every asset to load again) and next (the recipes that make sense now, \
                       available or with a reason). create_area/create_room with \
-                      header.allow_patch, empty_region and new_trainer_here cannot be undone \
-                      completely (new members stay), nor figure_appears/scene_on_enter when the \
+                      header.allow_patch, empty_region, new_trainer_here and new_painted_map \
+                      cannot be undone completely (new members stay), nor figure_appears/scene_on_enter when the \
                       place needs a level script file of its own (it shares its file with \
                       another header or has none); headless they need --allow-irreversible, \
                       without it the call answers needs_confirmation. Not in g4_batch.",
@@ -1916,7 +1916,106 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("get_map_budget"),
     },
+    // Painting (6.4a).
+    ToolDef {
+        name: "world_get",
+        title: "Get world",
+        description: "The world of a map of a text project (world null for a binary map or \
+                      outside a text project): version, tileset (the map texture package), \
+                      layers (tiles, heights, ramps as 32 rows of 32 tokens), pieces and \
+                      permissions; faces and estimated model bytes of its mesh; bake (model and \
+                      terrain bytes, share of 0xF000, textures, VRAM, ok and messages).",
+        input_schema: || {
+            object(
+                json!({ "map": uint("map index, as get_matrix returns in maps") }),
+                &["map"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("world_get"),
+    },
+    ToolDef {
+        name: "world_edit",
+        title: "Edit world",
+        description: "Changes cells of a world map as one undo step and bakes it in the same \
+                      step: changes [{layer?, cells [[x, z]], exactly one of tile (four hex \
+                      digits, r1..r3 turn, f flip, . empty), height (steps of 8 units, \
+                      \u{2212}16 to 62, ground only), ramp (level . or n/e/s/w with 1 or 2 \
+                      steps, uphill, ground only), permission (kkcc hex or . for derived, no \
+                      layer)}], label? (the history text; default names the map and the number \
+                      of cells). Tools such as fill or rectangle are computed by the caller and \
+                      sent as cells; answers cells, change and bake. Refused outside a text \
+                      project and for a map without world (recipe_apply new_painted_map makes \
+                      one).",
+        input_schema: world_edit_args,
+        output_schema: answers_object,
+        route: command("world_edit"),
+    },
+    ToolDef {
+        name: "tileset_get",
+        title: "Get tileset",
+        description: "The tileset of a map texture package: per tile its texture, size in \
+                      texels, role (ground, wall, ramp, water, grass, piece), kind, collision, \
+                      height behaviour, step sound (HGSS) and wall tile; stored false while it is \
+                      derived and not yet in data/tilesets.",
+        input_schema: || {
+            object(
+                json!({ "package": uint("map texture package, as world_get returns in \
+                                         world.tileset") }),
+                &["package"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("tileset_get"),
+    },
 ];
+
+/// The argument of `world_edit` (`g4_kernel::world::edit::WorldEditRequest` under `req`).
+fn world_edit_args() -> Value {
+    let cell = json!({
+        "type": "array",
+        "items": { "type": "integer", "minimum": 0 },
+        "description": "[x, z], each 0 to 31",
+    });
+    object(
+        json!({
+            "req": object_described(
+                json!({
+                    "map": uint("map index, as get_matrix returns in maps"),
+                    "label": text("the history text; default „Welt geändert: Karte NNNN (N \
+                                   Zellen)“"),
+                    "changes": {
+                        "type": "array",
+                        "description": "the changes, applied in order as one undo step",
+                        "items": object(
+                            json!({
+                                "layer": uint("the layer of tile (default 0, the ground)"),
+                                "cells": {
+                                    "type": "array",
+                                    "items": cell,
+                                    "description": "the cells to change",
+                                },
+                                "tile": text("four hex digits, r1..r3 turn, f flip, . empty"),
+                                "height": {
+                                    "type": "integer",
+                                    "description": "steps of 8 units, \u{2212}16 to 62 (ground \
+                                                    only)",
+                                },
+                                "ramp": text(". (level) or n/e/s/w with 1 or 2 steps, uphill \
+                                              (ground only)"),
+                                "permission": text("kkcc hex or . for derived (no layer)"),
+                            }),
+                            &["cells"],
+                        ),
+                    },
+                }),
+                &["map", "changes"],
+                "the world change",
+            ),
+        }),
+        &["req"],
+    )
+}
 
 /// The argument of `get_map_heights` and `get_map_budget`.
 fn map_index_args() -> Value {
@@ -2067,7 +2166,9 @@ fn recipe_args() -> Value {
                  {header, local_id}, from_step, text, step_name?}; figure_appears {story, \
                  figure: {header, local_id}, step, appears, flag, step_name?}; scene_on_enter \
                  {story, header, step, text, step_name?}; reward_once {story, figure: {header, \
-                 local_id}, from_step, item, text, flag, step_name?} (details in g4://docs/mcp)"
+                 local_id}, from_step, item, text, flag, step_name?}; for new_painted_map (text \
+                 project) {matrix?, x, y, name, tileset?, fill_tile?, height?, header?, \
+                 source_map?} (details in g4://docs/mcp)"
             ),
         }),
         &["recipe"],
@@ -2370,9 +2471,11 @@ mod tests {
         // 3d.6's story_delete (a story is no DeleteTarget); the curation of the catalog
         // (merging read tools, moving rarely used ones behind `tool_help`) is scheduled for the
         // phase gate 3d, until then the bound only guards against runaway growth. 87 with 6.2's
-        // get_map_heights, set_map_terrain and get_map_budget (the gate tool until 6.3a/6.4a).
+        // get_map_heights, set_map_terrain and get_map_budget (the gate tool until 6.3a/6.4a). 90
+        // with 6.4a's world_get, world_edit and tileset_get: painting a world map is an activity
+        // of its own, and set_map_terrain only covers binary maps.
         assert!((30..=90).contains(&catalog().len()), "{}", catalog().len());
-        assert_eq!(catalog().len(), 87);
+        assert_eq!(catalog().len(), 90);
     }
 
     #[test]
@@ -2435,6 +2538,8 @@ mod tests {
                 "plan_delete",
                 "get_map_heights",
                 "get_map_budget",
+                "world_get",
+                "tileset_get",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -2496,6 +2601,7 @@ mod tests {
             "restore_entity",
             "story_delete",
             "set_map_terrain",
+            "world_edit",
         ]
         .into_iter()
         .collect();
@@ -2764,7 +2870,7 @@ mod tests {
             let input = schema["properties"]["input"]["description"]
                 .as_str()
                 .unwrap();
-            assert_eq!(ids.len(), 12);
+            assert_eq!(ids.len(), 13);
             for id in &ids {
                 assert!(input.contains(id.as_str().unwrap()), "{name} {id}: {input}");
             }
@@ -3036,6 +3142,13 @@ mod tests {
                         "bdhc": "flat", "permissions": "keep" }),
             ),
             ("get_map_budget", json!({ "index": 0 })),
+            // A binary map: world null, world_edit refused outside a text project.
+            ("world_get", json!({ "map": 0 })),
+            (
+                "world_edit",
+                json!({ "req": { "map": 0, "changes": [{ "cells": [[0, 0]], "tile": "0001" }] } }),
+            ),
+            ("tileset_get", json!({ "package": 0 })),
         ]
     }
 
@@ -3261,5 +3374,56 @@ mod tests {
             schema["properties"]["index"]["type"],
             json!(["integer", "string"])
         );
+    }
+
+    /// The three painting tools over `tools/call` (the toolbox) in a text project: world_get
+    /// and tileset_get read, world_edit with `{req: …}` is one step of the history.
+    #[test]
+    fn curated_world_tools_route_to_their_commands() {
+        use crate::mcp::tools::Toolbox;
+        use g4_kernel::test_support::TextFixture;
+        use g4_kernel::world::{Tileset, tileset_rel};
+        let fx = TextFixture::exported();
+        fx.write(
+            tileset_rel(0).to_str().unwrap(),
+            &serde_json::to_vec_pretty(&Tileset::synthetic()).unwrap(),
+        );
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        let access = crate::mcp::Access {
+            write: true,
+            irreversible: false,
+            expert: true,
+        };
+        let toolbox =
+            Toolbox::open_with_base(policy, access, Some(fx.rom().to_path_buf())).unwrap();
+        let call = |name: &str, args: Value| {
+            toolbox
+                .call(name, args, "Claude Code")
+                .unwrap_or_else(|e| panic!("{name}: {e:?}"))
+        };
+        assert_eq!(call("world_get", json!({ "map": 0 }))["world"], Value::Null);
+        call(
+            "g4_call",
+            json!({ "command": "world_create", "args": { "req": { "map": 0, "tileset": 0 } } }),
+        );
+        let tileset = call("tileset_get", json!({ "package": 0 }));
+        assert_eq!(
+            (&tileset["package"], &tileset["stored"]),
+            (&json!(0), &json!(true))
+        );
+        let edited = call(
+            "world_edit",
+            json!({ "req": { "map": 0, "label": "Agent: Weg",
+                             "changes": [{ "cells": [[1, 2], [2, 2]], "tile": "0001" }] } }),
+        );
+        assert_eq!((&edited["map"], &edited["cells"]), (&json!(0), &json!(2)));
+        let undo = call("history", json!({}))["undo"].clone();
+        assert!(
+            undo.as_array().unwrap().contains(&json!("Agent: Weg")),
+            "{undo}"
+        );
+        let got = call("world_get", json!({ "map": 0 }));
+        assert_eq!(got["world"]["tileset"], 0, "{got}");
+        assert!(got["faces"].as_u64().unwrap() > 1, "{got}");
     }
 }

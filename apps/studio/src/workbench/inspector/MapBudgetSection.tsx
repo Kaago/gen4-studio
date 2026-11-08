@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getMapBudget } from "../../api";
 import type { BudgetItemDto, MapBudgetDto } from "../../api";
+import type { WorldBakeReport } from "../../api.world";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Budget, Section } from "../../ui/primitives";
@@ -21,11 +22,37 @@ function ByteRow({ id, label, item, tinker, text, note }: { id: string; label: s
 }
 
 /**
+ * The sentence under „Modell“ when the last bake of a world map was refused: „Nicht gebacken: <the first error> Das Spiel bekommt das
+ * letzte Modell.“; null for a bake that went through or none.
+ */
+function refusedText(bake: WorldBakeReport | null | undefined): string | null {
+  if (!bake || bake.ok) return null;
+  const first = bake.messages.find((m) => m.level === "error") ?? bake.messages[0];
+  if (!first) return "Nicht gebacken. Das Spiel bekommt das letzte Modell.";
+  const message = first.message.trim();
+  return `Nicht gebacken: ${/[.!?]$/.test(message) ? message : `${message}.`} Das Spiel bekommt das letzte Modell.`;
+}
+
+/**
  * The section „Budget“ of a map cell (Bauen and Tüfteln): the game's limits for the map — model, terrain (BDHC), buildings and the
  * texture VRAM of its area — each with its state, as `get_map_budget` reads them. Read again when the map or `revision` changes; an
- * answer for an older map or revision is dropped. The limits never block saving.
+ * answer for an older map or revision is dropped. The limits never block saving. The model of a world map is its bake: every stroke is a
+ * revision, so the numbers follow the painting; a refused bake (`bake`, from `world_get`) says so under „Modell“.
  */
-export function MapBudgetSection({ map, revision, depth, onError }: { map: number; revision: number; depth: Depth; onError: (e: unknown) => void }) {
+export function MapBudgetSection({
+  map,
+  revision,
+  depth,
+  onError,
+  bake,
+}: {
+  map: number;
+  revision: number;
+  depth: Depth;
+  onError: (e: unknown) => void;
+  /** The last bake of a world map (`world_get.bake`); undefined or null says nothing. */
+  bake?: WorldBakeReport | null;
+}) {
   const [open, toggle] = useSectionOpen("matrixCell:budget", true);
   // The budget and the map it belongs to: another map shows „Wird gelesen …“ until its own answer is there.
   const [shown, setShown] = useState<{ map: number; budget: MapBudgetDto | null } | null>(null);
@@ -48,6 +75,7 @@ export function MapBudgetSection({ map, revision, depth, onError }: { map: numbe
   const tinker = depthAtLeast(depth, "tuefteln");
   const budget = shown?.map === map ? shown.budget : undefined;
   const textures = budget?.textures ?? null;
+  const refused = refusedText(bake);
   return (
     <div data-map-budget="">
       <Section title="Budget" open={open} onToggle={toggle}>
@@ -56,6 +84,11 @@ export function MapBudgetSection({ map, revision, depth, onError }: { map: numbe
         {budget && (
           <div className={styles.rows}>
             <ByteRow id="model" label="Modell" item={budget.model} tinker={tinker} />
+            {refused && (
+              <p className={styles.refused} data-budget-refused="">
+                {refused}
+              </p>
+            )}
             <ByteRow id="bdhc" label="Terrain (BDHC)" item={budget.bdhc} tinker={tinker} />
             <div data-budget="buildings">
               <Budget label="Gebäude" used={budget.buildings.used} max={budget.buildings.max} state={budget.buildings.state} />

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MATRIX_EMPTY, duplicateMap, getMap, getMapBudget, getMatrix, setMatrixCell, worldBake } from "../../api";
+import { MATRIX_EMPTY, duplicateMap, getMap, getMapBudget, getMatrix, setMatrixCell, worldAdopt, worldBake } from "../../api";
 import type { MapDto } from "../../api";
 import { EntityIdCache, TextProjectProvider } from "../../textproject/TextProjectContext";
 import type { AssetId, HeaderSummary, MatrixDto } from "../../api";
@@ -15,8 +15,13 @@ import type { Area, World } from "../worldModel";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, closeMenu, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 import { deleteSpy, withDelete } from "../../delete/deleteTesting";
+import type { TilesetDto, WorldGetDto } from "../../api.world";
+import { INITIAL_PAINT, PaintContext } from "../paint/PaintContext";
+import type { PaintModel } from "../paint/PaintContext";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []), getMapBudget: vi.fn(), getMap: vi.fn(), worldBake: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []), getMapBudget: vi.fn(), getMap: vi.fn(), worldBake: vi.fn(), worldAdopt: vi.fn() }));
+// The palette's pictures: none (the role colours), no kernel asked.
+vi.mock("../../world/paint/paletteImages", () => ({ tileImage: async () => null, peekTileImage: () => undefined, resetTileImages: () => {}, tileImagesGeneration: () => 0, onTileImagesReset: () => () => {} }));
 // The world model the editor names areas and world maps from (Bauen); null until a test sets one.
 const shownWorld: { world: World | null } = { world: null };
 vi.mock("../WorkbenchContext", async (importOriginal) => {
@@ -129,6 +134,143 @@ describe("MatrixCellEditor", () => {
     expect(getMap).toHaveBeenCalledExactlyOnceWith(11);
     expect(container.querySelector("[data-world-source]")?.getAttribute("data-world-source")).toBe("world");
     expect(worldBake).toHaveBeenCalledWith(11);
+  });
+
+  describe("painting", () => {
+    const world: WorldGetDto = {
+      map: 11,
+      world: {
+        version: 1,
+        tileset: 3,
+        layers: [
+          { name: "Boden", role: "ground", tiles: [] },
+          { name: "Büsche", role: "overlay", tiles: [] },
+        ],
+        permissions: { derive: true },
+      },
+      faces: 1024,
+      textures: 2,
+      estimate: 30000,
+      share: 0.5,
+      bake: null,
+    };
+    const tileset: TilesetDto = {
+      package: 3,
+      stored: true,
+      tileset: {
+        version: 1,
+        package: 3,
+        tiles: [{ texture: "weg", texture_index: 0, size: [32, 32], role: "ground", kind: 0, collision: 0, height: "flat", origin: "vanilla" }],
+      },
+    };
+    const model = (): PaintModel => ({ state: INITIAL_PAINT, set: vi.fn(), target: 11, world, tileset, hidden: new Set(), toggleHidden: vi.fn() });
+    async function showPainting(painting: boolean) {
+      await act(async () =>
+        root.render(
+          <PaintContext.Provider value={model()}>
+            {withReset(reset, <MatrixCellEditor matrix={3} x={1} y={0} context={{ ...context(), painting }} depth="bauen" />)}
+          </PaintContext.Provider>,
+        ),
+      );
+      await flush();
+    }
+
+    it("paint_sections_show_for_a_world_map_while_painting", async () => {
+      await showPainting(true);
+      const palette = container.querySelector("[data-paint-palette]");
+      const layers = container.querySelector("[data-paint-layers]");
+      expect(palette?.querySelector('[data-palette-tile="0000"]')?.getAttribute("aria-pressed")).toBe("true");
+      expect(layers?.querySelector('[data-layer-row="1"]')?.textContent).toContain("Büsche · Überlagerung");
+      // Palette, then layers, both before „Quelle“ and „Budget“.
+      expect(palette!.compareDocumentPosition(layers!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(layers!.compareDocumentPosition(container.querySelector("[data-world-source]")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(layers!.compareDocumentPosition(container.querySelector("[data-map-budget]")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+
+    it("paint_sections_hide_for_another_tool", async () => {
+      await showPainting(false);
+      expect(container.querySelector("[data-paint-palette]")).toBeNull();
+      expect(container.querySelector("[data-paint-layers]")).toBeNull();
+      expect(container.querySelector("[data-map-budget]")).not.toBeNull();
+      // Another cell than the painted map shows none either.
+      await act(async () =>
+        root.render(
+          <PaintContext.Provider value={model()}>
+            {withReset(reset, <MatrixCellEditor matrix={3} x={0} y={0} context={{ ...context(), painting: true }} depth="bauen" />)}
+          </PaintContext.Provider>,
+        ),
+      );
+      await flush();
+      expect(container.querySelector("[data-paint-palette]")).toBeNull();
+    });
+
+    it("the_tile_section_follows_the_layers_for_the_chosen_tile", async () => {
+      await showPainting(true);
+      const tile = container.querySelector("[data-tile-editor]");
+      expect(tile?.querySelector("h3")?.textContent).toBe("Kachel 0000");
+      expect(container.querySelector("[data-paint-layers]")!.compareDocumentPosition(tile!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(tile!.compareDocumentPosition(container.querySelector("[data-world-source]")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      await showPainting(false);
+      expect(container.querySelector("[data-tile-editor]")).toBeNull();
+    });
+
+    /** A binary map (no paint target) of the text project or, with `textProject` false, of the DSPRE layout. */
+    async function showBinary(painting: boolean, textProject = true) {
+      vi.mocked(getMap).mockReset().mockResolvedValue({ world: false } as MapDto);
+      const editor = withReset(
+        reset,
+        <PaintContext.Provider value={{ state: INITIAL_PAINT, set: vi.fn(), target: null }}>
+          <MatrixCellEditor matrix={3} x={1} y={0} context={{ ...context(), painting }} depth="bauen" />
+        </PaintContext.Provider>,
+      );
+      await act(async () =>
+        root.render(
+          textProject ? (
+            <TextProjectProvider active ids={new EntityIdCache()} onRenamed={() => {}}>
+              {editor}
+            </TextProjectProvider>
+          ) : (
+            editor
+          ),
+        ),
+      );
+      await flush();
+    }
+
+    it("a_binary_map_offers_adopt_while_painting", async () => {
+      vi.mocked(worldAdopt).mockReset().mockResolvedValue({ map: 11, tileset: 3, tileset_guessed: false, deviations: [] } as never);
+      onMapImported.mockReset();
+      await showBinary(false);
+      expect(container.querySelector("[data-paint-binary]")).toBeNull();
+      await act(async () => root.render(null));
+      await showBinary(true);
+      const note = container.querySelector<HTMLElement>("[data-paint-binary]")!;
+      expect(note.textContent).toContain("Boden malen: Karte als Quelle übernehmen");
+      // The note stands at the top, before the cell's fields.
+      expect(note.compareDocumentPosition(container.querySelector("input[aria-label='Karte']")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      // One read of the map serves the note and „Quelle“.
+      expect(getMap).toHaveBeenCalledExactlyOnceWith(11);
+      const adopt = note.querySelector<HTMLButtonElement>("[data-paint-adopt]")!;
+      expect(adopt.textContent).toBe("Karte als Quelle übernehmen");
+      expect(adopt.disabled).toBe(false);
+      await act(async () => void adopt.click());
+      await flush();
+      expect(worldAdopt).toHaveBeenCalledExactlyOnceWith(11);
+      expect(onMapImported).toHaveBeenCalledWith(11);
+    });
+
+    it("adopt_is_disabled_in_the_dspre_layout", async () => {
+      vi.mocked(worldAdopt).mockReset();
+      await showBinary(true, false);
+      const note = container.querySelector<HTMLElement>("[data-paint-binary]")!;
+      const adopt = note.querySelector<HTMLButtonElement>("[data-paint-adopt]")!;
+      expect(adopt.disabled).toBe(true);
+      expect(note.textContent).toContain("Boden malen gibt es im Textprojekt (Technik › Textprojekt).");
+      await act(async () => void adopt.click());
+      expect(worldAdopt).not.toHaveBeenCalled();
+      // Outside a text project nothing is read: every map is binary.
+      expect(getMap).not.toHaveBeenCalled();
+    });
   });
 
   it("a_cell_with_a_map_shows_its_budget", async () => {

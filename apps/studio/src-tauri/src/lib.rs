@@ -64,7 +64,7 @@ use commands::{get_battle_sprite, get_trainer_sprite};
 use commands::{get_map_budget, get_map_heights, set_map_terrain};
 use commands::{
     get_tileset_texture, get_world_mesh, tileset_get, tileset_save, world_create, world_edit,
-    world_get,
+    world_get, world_layers,
 };
 use commands::{git_commit_all, publish_patch, releases, reveal_path};
 use commands::{list_threads, story_create, story_get, story_list, story_update, thread_graph};
@@ -296,7 +296,8 @@ pub fn run() {
             world_adopt,
             world_to_binary,
             world_bake,
-            tileset_edit
+            tileset_edit,
+            world_layers
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

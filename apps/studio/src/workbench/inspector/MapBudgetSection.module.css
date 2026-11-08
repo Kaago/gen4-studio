@@ -22,3 +22,10 @@
 .label {
   color: var(--g4-text-sekundaer);
 }
+
+/* A refused bake of a world map: the game keeps the last model. */
+.refused {
+  margin: 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-xs);
+}

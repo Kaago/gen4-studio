@@ -158,6 +158,43 @@ export async function worldMeshModel(map: number): Promise<{ model: THREE.Group;
   return { model, faces: dto.faces };
 }
 
+/** The layers hidden per scene and map (the eye of „Ebenen“): a mesh loaded later (a stroke, undo) keeps them hidden. */
+const hiddenLayers = new WeakMap<SceneHost, Map<number, Set<number>>>();
+
+/** Shows or hides the materials of `layer` in `model` (a `world-mesh:<map>` group); other layers stay as they are. */
+function showLayer(model: THREE.Object3D, layer: number, on: boolean) {
+  model.traverse((o) => {
+    const materials = (o as THREE.Mesh).material;
+    if (!materials) return;
+    for (const m of Array.isArray(materials) ? materials : [materials]) if (m.userData.layer === layer) m.visible = on;
+  });
+}
+
+/**
+ * Shows or hides layer `layer` of the world mesh of `map` in the scene of `h` (in every matrix cell showing it): the materials of that
+ * layer (`userData.layer`, one per group of `meshGeometries`). Only the scene changes, nothing is saved; a mesh loaded later for `map`
+ * (`mapModel`) keeps the layer hidden. Asks for a render.
+ */
+export function setLayerVisible(h: SceneHost, map: number, layer: number, on: boolean): void {
+  let byMap = hiddenLayers.get(h);
+  if (!byMap) hiddenLayers.set(h, (byMap = new Map()));
+  const layers = byMap.get(map) ?? new Set<number>();
+  if (on) layers.delete(layer);
+  else layers.add(layer);
+  if (layers.size > 0) byMap.set(map, layers);
+  else byMap.delete(map);
+  const name = `world-mesh:${map}`;
+  h.scene.traverse((o) => {
+    if (o.name === name) showLayer(o, layer, on);
+  });
+  h.queueRender?.();
+}
+
+/** Hides the layers of `map` hidden on `h` in a freshly loaded mesh `model`. */
+function hideLayers(h: SceneHost, map: number, model: THREE.Object3D) {
+  for (const layer of hiddenLayers.get(h)?.get(map) ?? []) showLayer(model, layer, false);
+}
+
 /**
  * The terrain model of `map` for the scene: the world mesh of a world map, else the GLB as before. The initial load trusts the flag
  * (`h.loaded.get(map)?.map.world`, fresh from its own fetch). A refresh (`probe`) does not: undo, redo and agent edits refetch the map
@@ -180,6 +217,7 @@ export async function mapModel(h: SceneHost, map: number, area: number, { probe 
     const mesh = await worldMeshModel(map).catch(() => null);
     if (mesh !== null && mesh.faces > 0) {
       note(mesh.faces);
+      hideLayers(h, map, mesh.model);
       return mesh.model;
     }
     if (mesh !== null) disposeTree(mesh.model);

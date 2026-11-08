@@ -243,6 +243,7 @@ pub const COMMANDS: &[&str] = &[
     "world_to_binary",
     "world_bake",
     "tileset_edit",
+    "world_layers",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1301,6 +1302,11 @@ pub fn dispatch(
             { req: g4_kernel::world::TilesetEditRequest },
             |a| tileset_edit_impl(state, a.req)
         ),
+        "world_layers" => run!(
+            json, "world_layers", args,
+            { req: g4_kernel::world::WorldLayersRequest },
+            |a| world_layers_impl(state, a.req)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1803,6 +1809,11 @@ mod tests {
                 "tileset_edit",
                 json!({ "req": { "package": 0, "changes": [{ "tile": 0, "kind": 2 }] } }),
             ),
+            // Outside a text project: refused before anything is written.
+            (
+                "world_layers",
+                json!({ "req": { "map": 0, "op": { "add": { "name": "Brücke" } } } }),
+            ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -1872,7 +1883,8 @@ mod tests {
                 "talk_advances",
                 "figure_appears",
                 "scene_on_enter",
-                "reward_once"
+                "reward_once",
+                "new_painted_map"
             ]
         );
         let args = json!({ "recipe": "extend_area", "input": {

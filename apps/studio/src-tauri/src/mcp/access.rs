@@ -276,6 +276,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("world_to_binary", Kind::Write),
     ("world_bake", Kind::Read),
     ("tileset_edit", Kind::Write),
+    // Painting (6.4a, over `g4_call` only): adding or removing a layer is one undo step.
+    ("world_layers", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -1336,7 +1338,7 @@ mod tests {
             assert_eq!(kind(name), Kind::Read, "{name}");
         }
         // One undo step each.
-        for name in ["world_create", "world_edit", "tileset_save"] {
+        for name in ["world_create", "world_edit", "tileset_save", "world_layers"] {
             assert_eq!(kind(name), Kind::Write, "{name}");
         }
     }
