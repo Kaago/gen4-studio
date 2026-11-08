@@ -1092,6 +1092,53 @@ mod tests {
         }
     }
 
+    /// „Neue Karte malen“ over `dispatch`: `recipe_plan` writes nothing, `recipe_apply` puts
+    /// a new world map into the empty cell east of map 1 (the matrix grows to 3 × 1), baked.
+    #[test]
+    fn painted_map_recipe_over_dispatch() {
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
+        let args = json!({ "recipe": "new_painted_map", "input": {
+            "x": 2, "y": 0, "name": "Waldweg", "tileset": 0,
+        } });
+        let undo = labels(&state).len();
+        let draft = call(&state, &policy, "recipe_plan", args.clone());
+        assert_eq!(
+            draft["cells"],
+            json!([{ "matrix": 0, "x": 2, "y": 0, "source_map": 1 }]),
+            "{draft}"
+        );
+        assert_eq!(
+            draft["painted"],
+            json!({ "tileset": 0, "fill_tile": "0000", "height": 0, "header": null }),
+            "{draft}"
+        );
+        assert_eq!(labels(&state).len(), undo);
+
+        let outcome = call(&state, &policy, "recipe_apply", args);
+        let report = &outcome["report"];
+        let map = report["map"].as_u64().expect("report.map");
+        assert_eq!(
+            (&report["width"], &report["base"], &report["tileset"]),
+            (&json!(3), &json!(1), &json!(0)),
+            "{outcome}"
+        );
+        assert_eq!(report["bake"]["ok"], true, "{outcome}");
+        assert_eq!(
+            outcome["created"],
+            json!([{ "kind": "Map", "index": map }]),
+            "{outcome}"
+        );
+        assert_eq!(labels(&state).len(), undo + 1);
+        let world = call(&state, &policy, "world_get", json!({ "map": map }));
+        assert_eq!(world["world"]["tileset"], 0, "{world}");
+        assert!(world["bake"].is_object(), "{world}");
+        assert_eq!(
+            call(&state, &policy, "get_map", json!({ "index": map }))["world"],
+            true
+        );
+    }
+
     /// „Ebene hinzufügen“ over `dispatch`: a second layer, a tile on it, both undone again.
     #[test]
     fn world_layers_over_dispatch() {
@@ -1176,11 +1223,14 @@ mod tests {
     /// One stroke of the app over `dispatch` with JSON: `world_edit` of 37 cells (two tiles
     /// in turn) on the ground of [`busy_world`], then `world_get` and `get_world_mesh`; warmed
     /// once, median of 10. Prints `world-stroke-bridge median_ms=<…> faces=<…>`; with
-    /// `G4_TIMING_STRICT=1` at most 300 ms (a debug build).
+    /// `G4_TIMING_STRICT=1` at most 300 ms (a debug build). On [`world_ready`]'s real package
+    /// each `world_edit` bakes model and terrain in full.
+    ///
+    /// [`world_ready`]: g4_kernel::test_support::world_ready
     #[test]
     fn world_stroke_over_the_command_path_is_fast() {
-        let fx = TextFixture::exported();
-        let (state, policy) = open(&fx);
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
         call(
             &state,
             &policy,
@@ -1208,6 +1258,20 @@ mod tests {
                 .map(|v| serde_json::to_string(v).unwrap().len())
                 .sum::<usize>();
             assert!(bytes > 0);
+            // The bake runs through: the busy ground's model (about 74 KB) is built and
+            // only then refused for its size, the terrain is baked.
+            let bake = &edited["bake"];
+            let codes: Vec<&str> = bake["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| m["code"].as_str().unwrap())
+                .collect();
+            assert!(
+                codes.iter().all(|&c| c == "bake.model-too-big")
+                    && bake["bdhc_bytes"].as_u64().unwrap() > 0,
+                "{bake}"
+            );
             (start.elapsed().as_secs_f64() * 1000.0, mesh)
         };
         let (_, warm) = stroke("0001");

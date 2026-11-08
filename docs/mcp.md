@@ -474,7 +474,7 @@ Ablehnungen (`error` mit dem Text, nichts geändert):
 
 ## Welt-Karten backen (6.3b, über `g4_call`)
 
-Im Textprojekt ist das Map-Asset einer Welt-Karte ihr gebackener Member: jeder Strich backt im selben Undo-Schritt Modell, Terrain (BDHC) und Permissions neu. Vier weitere Befehle gehen bis zu den kuratierten Werkzeugen von 6.4a über `g4_call` (Expertenmodus, `--expert`); Argumente wie in `api.ts` (camelCase), die Anfragen von `world_adopt` und `tileset_edit` unter `req`.
+Im Textprojekt ist das Map-Asset einer Welt-Karte ihr gebackener Member: jeder Strich backt im selben Undo-Schritt Modell, Terrain (BDHC) und Permissions neu. Vier weitere Befehle gehen über `g4_call` (Expertenmodus, `--expert`; kuratiert sind seit 6.4a nur `world_get`, `world_edit` und `tileset_get`); Argumente wie in `api.ts` (camelCase), die Anfragen von `world_adopt` und `tileset_edit` unter `req`.
 
 | Befehl | Art | Argumente | Antwort |
 |---|---|---|---|
@@ -516,7 +516,13 @@ Eine Änderung in `changes` nennt Zellen `[x, z]` (je 0 bis 31) und genau eines 
 
 Alle Änderungen eines Aufrufs sind ein Schritt; ohne `label` heißt er „Welt geändert: Karte 0000 (37 Zellen)“. Ablehnungen (`error`, nichts geändert): außerhalb eines Textprojekts („Boden malen gibt es im Textprojekt (Technik › Textprojekt).“), eine Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“), eine Zelle außerhalb der Karte, eine Kachel jenseits des Tilesets, eine Änderung mit keinem oder mehr als einem Wert, eine Ebene, die es nicht gibt.
 
-Eine neue Welt-Karte legt heute `world_create` über `g4_call` an; das Rezept `new_painted_map` (Karte, Welt und Zelle in einem Schritt über `recipe_plan` und `recipe_apply`) folgt im zweiten Teil von 6.4a.
+### Neue Karte malen: `new_painted_map`
+
+Eine neue Welt-Karte in einer Zelle einer Weltkarte legt das Rezept `new_painted_map` („Neue Karte malen“, nur im Textprojekt) über `recipe_plan` und `recipe_apply` an: `{recipe: "new_painted_map", input: {matrix?, x, y, name, tileset?, fill_tile?, height?, header?, source_map?}}`. `matrix` ist ohne Angabe 0; die Zelle (`x`, `y`) muss leer sein oder außerhalb liegen (dann wächst die Weltkarte, höchstens auf 255 × 255 Zellen); `name` ist Pflicht. Ohne `source_map` wird die erste Nachbarkarte (Norden, Westen, Osten, Süden) ohne Gebäude kopiert, und die Karte bekommt eine leere Welt: Paket aus `tileset`, sonst aus dem Header der Zelle (`header`, sonst der des Nachbarn), auf einer Weltkarte ohne Header-Spalte aus dem ersten Header, der den Nachbarn zeigt; der Boden ist ganz `fill_tile` (Vorgabe `0000`, `.` lehnt ab) auf Höhe `height` (Vorgabe 0). Mit `source_map` (eine Welt-Karte) wird diese kopiert und trägt ihre Welt; `tileset`, `fill_tile` und `height` bleiben dann weg. `header` geht nur auf einer Weltkarte mit Header-Spalte und landet in der Header-Zelle.
+
+`recipe_plan` schreibt nichts und antwortet den Entwurf: die Zelle in `cells` (die App zeigt sie gestrichelt, `source_map` ist die kopierte Karte), die Sätze in `notes` („Neue Karte „Waldweg“ in Zelle x 1, y 0 der Weltkarte 0000.“, „Gebietsdaten von Header 0.“, „Boden aus Tileset 0000, Kachel 0000, Höhe 0.“ oder „Die Welt kommt aus Karte 0002.“, „Die Weltkarte wächst auf 4 × 2 Zellen.“), `irreversible` („Karte 0667 wird angelegt“) und `painted` (`{tileset, fill_tile, height, header}`, der aufgelöste Boden; fehlt mit `source_map`).
+
+Das Rezept ist immer unumkehrbar: die kopierte Karte entsteht zuerst und bleibt nach Undo (`created`). Headless braucht `recipe_apply` deshalb `--allow-irreversible`, sonst antwortet der Aufruf `needs_confirmation`. Danach ist der Rest **ein** Undo-Schritt „Neue Karte gemalt: „Waldweg“ (Karte 0667)“: die Weltkarte wächst bei Bedarf, Zelle und Header-Zelle werden gesetzt, die neue Karte bekommt ihre Welt und wird im selben Schritt gebacken. `report` ist `NewPaintedMapReport` `{map, name, matrix, x, y, width, height, header, tileset, base, bake}` (`width`/`height` die Größe der Weltkarte danach, `base` die kopierte Karte, `bake` das Backen wie bei `world_edit`); `next` nennt `adjust_terrain` („Gelände anpassen“), weiter geht es mit `world_edit`. Ablehnungen (nichts geändert) unter anderem: „Die Karte braucht einen Namen.“, „Zelle (4, 27) der Weltkarte 0000 ist nicht leer.“, „Die Weltkarte würde breiter als 255 Zellen.“, „Neben Zelle (4, 27) liegt keine Karte; `source_map` nennen.“, „Kein Header zeigt eine Nachbarkarte; Tileset angeben (`tileset`).“, „Karte 0002 ist keine Welt-Karte; eine binäre Karte kopiert „Gebiet erweitern“.“ und außerhalb eines Textprojekts „Boden malen gibt es im Textprojekt (Technik › Textprojekt).“ Eine vorhandene Karte macht weiterhin `world_create` über `g4_call` zur Welt-Karte.
 
 ### Ebenen über `g4_call`
 
