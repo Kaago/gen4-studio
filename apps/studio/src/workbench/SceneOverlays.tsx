@@ -24,7 +24,13 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
   const { tool, onTool, eventFileId, eventLock, selected, onOpenWizard } = useWorkbench();
   const { state, setToolbar, setTopDown, density, viewDepth } = useShell();
   const box = useRef<HTMLDivElement>(null);
-  const minHeight = toolbarMinHeight(density);
+  // On a world map of the text project „Gelände malen“ paints tiles, heights and ramps: its sub-tools follow the tools while it is active.
+  const { state: paintState, set: setPaint, target } = usePaint();
+  const tools = toolsFor(target !== null);
+  const sub = tool === "paint" && target !== null ? paintState.sub : null;
+  const paint = useMemo(() => (sub === null ? null : { tools: PAINT_TOOLS, sub, onSub: (s: PaintSub) => setPaint({ sub: s }) }), [sub, setPaint]);
+  // The sub-tools make the upright bar longer: the view must be that much higher for it (else it lies flat on top and wraps there).
+  const minHeight = toolbarMinHeight(density, paint === null ? 0 : paint.tools.length);
   // Only whether the view is too low is kept, not its height, and the bars are memoised: dragging the splitter re-renders this component
   // with every shell change, but the bars only when this flag, the anchor or their own props change. Measured before the first paint, so
   // a low view never shows the upright bar for a frame; a view that is not measured (jsdom has no layout) is not low.
@@ -43,11 +49,6 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
   // The four event tools wait for a shown place and an event file that may be written.
   const eventsBlocked = eventToolsBlocked(eventLock, eventFileId);
   const anchor = shownAnchor(state.toolbar, low);
-  // On a world map of the text project „Gelände malen“ paints tiles, heights and ramps: its sub-tools follow the tools while it is active.
-  const { state: paintState, set: setPaint, target } = usePaint();
-  const tools = toolsFor(target !== null);
-  const sub = tool === "paint" && target !== null ? paintState.sub : null;
-  const paint = useMemo(() => (sub === null ? null : { tools: PAINT_TOOLS, sub, onSub: (s: PaintSub) => setPaint({ sub: s }) }), [sub, setPaint]);
   // Height and ramp paint steps: choosing one shows the layer „Höhen“ (the rule of the layer bar hides „Gelände“ then); leaving them
   // keeps the layer as it is.
   const { onShowHeights } = layers;

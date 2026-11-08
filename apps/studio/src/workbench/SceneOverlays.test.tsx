@@ -17,6 +17,7 @@ const KEY = "g4.shell.v1";
 
 /** The overlays' stylesheet as written (jsdom lays nothing out and applies no CSS Modules), read from the package root vitest runs in. */
 const overlaysCss = readFileSync("src/workbench/SceneOverlays.module.css", "utf8");
+const toolbarCss = readFileSync("src/ui/frame/FloatingToolbar.module.css", "utf8");
 
 describe("SceneOverlays", () => {
   let container: HTMLElement;
@@ -185,6 +186,34 @@ describe("SceneOverlays", () => {
     localStorage.setItem("g4.density", "kompakt");
     show();
     expect(overlays().getAttribute("data-anchor")).toBe("left");
+  });
+
+  it("keeps_the_paint_sub_tools_inside_the_flat_toolbar_of_a_narrow_view", () => {
+    // Browser run 6.4a: a view about 340 px wide, low, so the toolbar lies flat; the sub-tools ran past the bar's edge behind the
+    // inspector. They are a group of the toolbar itself, whose width stops at the view and whose flat row (and the group) wraps.
+    viewHeight(300);
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    show({ tool: "paint" }, model);
+    const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
+    expect(group.parentElement).toBe(toolbar());
+    expect(toolbar().getAttribute("aria-orientation")).toBe("horizontal");
+    expect(/\.overlays > \* \{([^}]*)\}/.exec(overlaysCss)?.[1]).toContain("max-width: 100%");
+    const flat = /\.bar\[aria-orientation="horizontal"\] \{([^}]*)\}/.exec(toolbarCss)?.[1] ?? "";
+    expect(flat).toContain("flex-wrap: wrap");
+    const flatGroup = /\.bar\[aria-orientation="horizontal"\] \.group \{([^}]*)\}/.exec(toolbarCss)?.[1] ?? "";
+    expect(flatGroup).toContain("flex-wrap: wrap");
+    expect(flatGroup).toContain("min-width: 0");
+  });
+
+  it("lays_the_toolbar_flat_where_the_upright_bar_with_sub_tools_would_run_past_the_bottom", () => {
+    // 600 px is high enough for the upright tools alone (460), not with the seven sub-tools (460 + 5 + 7 × 44 = 773 in komfort).
+    viewHeight(600);
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    show({ tool: "select" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
+    show({ tool: "paint" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("top");
+    expect(JSON.parse(localStorage.getItem(KEY) ?? '{"toolbar":"left"}').toolbar).toBe("left");
   });
 
   it("locks_the_event_tools_with_the_locked_text_of_the_event_file", () => {

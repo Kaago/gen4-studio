@@ -15,8 +15,18 @@ import styles from "./FloatingToolbar.module.css";
  */
 const TOOLBAR_MIN_HEIGHT: Record<Density, number> = { komfort: 460, kompakt: 400 };
 
-export function toolbarMinHeight(density: Density): number {
-  return TOOLBAR_MIN_HEIGHT[density];
+/** What one more key adds to the upright bar: its height (`--g4-dichte-werkzeug`) and the gap (`--g4-raum-4`). */
+const KEY_STEP: Record<Density, number> = { komfort: 44, kompakt: 36 };
+
+/** What the separator in front of the sub-tools adds: its line (`--g4-strich-standard`) and the gap. */
+const SEPARATOR_STEP = 5;
+
+/**
+ * The lowest view that still shows the upright toolbar; with `paintTools` sub-tools of „Gelände malen“ (a second group) the bar is that
+ * much longer, so a view too low for it lies flat at the top, where the bar wraps inside the view instead of running past its bottom.
+ */
+export function toolbarMinHeight(density: Density, paintTools = 0): number {
+  return TOOLBAR_MIN_HEIGHT[density] + (paintTools > 0 ? SEPARATOR_STEP + paintTools * KEY_STEP[density] : 0);
 }
 
 /** Whether a view `viewHeight` high is too low for the upright toolbar; 0 (not measured) is not. */

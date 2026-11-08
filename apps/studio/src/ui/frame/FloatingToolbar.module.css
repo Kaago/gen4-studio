@@ -13,8 +13,11 @@
   box-shadow: var(--g4-schatten-schwebend);
 }
 
+/* Flat, the bar breaks into lines inside its own frame once it is wider than the view (its width stops at the view, `.overlays > *` in
+   SceneOverlays): the sub-tools of „Gelände malen“ go to the next line instead of past the bar's edge, behind the inspector. */
 .bar[aria-orientation="horizontal"] {
   flex-direction: row;
+  flex-wrap: wrap;
 }
 
 /* At the bottom the bar sits in the middle of the view (the legend keeps the bottom left). */
@@ -95,8 +98,11 @@
   gap: var(--g4-raum-4);
 }
 
+/* Flat, the group may shrink to one key and wraps itself, for a view narrower than the group alone. */
 .bar[aria-orientation="horizontal"] .group {
   flex-direction: row;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 /* A square key per tool: the symbol in the middle, the letter in the corner. */

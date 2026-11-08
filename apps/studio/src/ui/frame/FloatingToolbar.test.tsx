@@ -234,6 +234,9 @@ describe("FloatingToolbar", () => {
     const komfort = toolbarMinHeight("komfort");
     const kompakt = toolbarMinHeight("kompakt");
     expect([komfort, kompakt]).toEqual([460, 400]);
+    // The seven sub-tools of „Gelände malen“ lengthen the upright bar by a separator and a key each.
+    expect([toolbarMinHeight("komfort", 7), toolbarMinHeight("kompakt", 7)]).toEqual([460 + 5 + 7 * 44, 400 + 5 + 7 * 36]);
+    expect(toolbarMinHeight("komfort", 0)).toBe(460);
     expect(isLowView(459, komfort)).toBe(true);
     expect(isLowView(460, komfort)).toBe(false);
     expect(isLowView(399, kompakt)).toBe(true);
