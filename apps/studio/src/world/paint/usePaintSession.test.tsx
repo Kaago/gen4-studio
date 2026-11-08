@@ -171,6 +171,17 @@ describe("usePaintSession", () => {
     expect((api.worldEdit.mock.calls[0][0] as WorldEditRequest).changes[0].cells).toHaveLength(3);
   });
 
+  it("the_tileset_is_read_again_on_every_revision", async () => {
+    await show(0);
+    expect(api.tilesetGet).toHaveBeenCalledExactlyOnceWith(6);
+    expect(session?.tileset?.stored).toBe(false);
+    // ⌘Z of a tileset step (or tileset_save over MCP): a new revision, the same package, a new answer.
+    api.tilesetGet.mockResolvedValue({ package: 6, stored: true, tileset: { version: 1, package: 6, tiles: [] } });
+    await show(1);
+    expect(api.tilesetGet).toHaveBeenCalledTimes(2);
+    expect(session?.tileset?.stored).toBe(true);
+  });
+
   it("a_height_stroke_at_the_limit_says_so", async () => {
     const top = world();
     top.layers[0].heights = Array.from({ length: 32 }, () => row(Array.from({ length: 32 }, () => "62")));

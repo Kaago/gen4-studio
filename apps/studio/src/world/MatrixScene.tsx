@@ -148,7 +148,8 @@ function MatrixScene({
   const paintTarget = tool === "paint" ? painting.target : null;
   const paintSub = paintTarget === null ? null : painting.state.sub;
   const ownRefresh = useRef(false);
-  const paintRevision = useBusRevision(bus, (e) => !ownRefresh.current && (((e.topic === "mapModelReload" || e.topic === "mapRefetch") && e.map === paintTarget) || e.topic === "matrixData"));
+  // `headerTable`: the undo of a tileset step (a file step on the header table) reaches the session this way, which reads its tileset again.
+  const paintRevision = useBusRevision(bus, (e) => !ownRefresh.current && (((e.topic === "mapModelReload" || e.topic === "mapRefetch") && e.map === paintTarget) || e.topic === "matrixData" || e.topic === "headerTable"));
   const refreshPainted = useCallback(
     (map: number) => {
       ownRefresh.current = true;

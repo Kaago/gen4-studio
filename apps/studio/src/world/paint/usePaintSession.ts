@@ -112,6 +112,8 @@ export function usePaintSession(
   }, [target, revision, readWorld]);
 
   const pkg = world?.world?.tileset ?? null;
+  // The tileset is read again on every revision too (⌘Z of a tileset step, an edit over MCP): the palette and the tile section never show
+  // stale defaults. The kernel caches it per package, so a read per stroke is cheap; the last one stays shown until the next answer.
   useEffect(() => {
     if (pkg === null) {
       setTileset(null);
@@ -125,7 +127,7 @@ export function usePaintSession(
     return () => {
       live = false;
     };
-  }, [pkg]);
+  }, [pkg, revision]);
 
   // The picture of the chosen tile is asked for ahead, so the first stroke with it already shows its texture.
   const chosenTexture = tileset?.tileset.tiles[Number.parseInt(paint.state.tile.slice(0, 4), 16)]?.texture ?? null;

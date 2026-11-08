@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { MATRIX_EMPTY, duplicateMap, getMap, setMatrixCell } from "../../api";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { MATRIX_EMPTY, duplicateMap, getMap, setMatrixCell, worldAdopt } from "../../api";
 import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import { useDelete } from "../../delete/DeleteContext";
@@ -8,7 +8,7 @@ import { useTextProject } from "../../textproject/TextProjectContext";
 import { resetEntry } from "../../original/resetEntry";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
-import { Button, InspectorRow, NumberField, Picker, Reference, TextField, checkNumber } from "../../ui/primitives";
+import { Button, InspectorRow, Notice, NumberField, Picker, Reference, TextField, checkNumber } from "../../ui/primitives";
 import type { MenuEntry, PickerItem } from "../../ui/primitives";
 import type { HeaderIdentity } from "../headerIdentity";
 import { cellLabel } from "../matrix";
@@ -27,8 +27,9 @@ import { LayerList } from "./LayerList";
 import { MapBudgetSection } from "./MapBudgetSection";
 import { RawRowSection } from "./RawRowSection";
 import { TechnicalSection } from "./TechnicalSection";
+import { TileEditor } from "./TileEditor";
 import { TilePalette } from "./TilePalette";
-import { WorldSourceSection } from "./WorldSourceSection";
+import { ADOPT_NEEDS_TEXT_PROJECT, WorldSourceSection, adoptedText } from "./WorldSourceSection";
 
 /** What the cell editor needs from App. */
 export interface MatrixCellContext {
@@ -53,8 +54,10 @@ export interface MatrixCellContext {
   onMapImported: (map: number) => void | Promise<void>;
   /** The checks of the project: the import dialog lists what they find at the map after an import. */
   checks: ChecksApi | null;
-  /** The tool „Gelände malen“ is active: a world map's cell shows its palette and layers. */
+  /** The tool „Gelände malen“ is active: a world map's cell shows its palette, layers and tile; a binary map's the way to painting. */
   painting?: boolean;
+  /** The project's game family (`ProjectInfo.family`: "Dp", "Pt", "Hgss"): the tile section shows the step sound for HeartGold/SoulSilver. */
+  family?: string | null;
 }
 
 const NO_LAYERS: ReadonlySet<number> = new Set();
@@ -169,34 +172,104 @@ function OwnerField({
 }
 
 /**
- * The section „Quelle“ of the cell's map: in a text project the map is read (`get_map`, its `world` flag) when it or `revision` changes;
- * outside one every map is binary. Nothing shows until the first answer is there (no binary flash before a world).
+ * Whether map `map` carries a world document: in a text project the map is read (`get_map`, its `world` flag) when it or `revision`
+ * changes, only while `wanted` (from Bauen on); outside one every map is binary. Null until the first answer for this map (no binary
+ * flash before a world), without a map and while not wanted. One read serves „Quelle“ and the note of a binary map while painting.
  */
-function MapSource({ map, revision, onChanged, onError }: { map: number; revision: number; onChanged: (map: number) => void | Promise<void>; onError: (e: unknown) => void }) {
+function useMapIsWorld(map: number | null, revision: number, wanted: boolean, onError: (e: unknown) => void): boolean | null {
   const textProject = useTextProject().active;
   const [read, setRead] = useState<{ map: number; world: boolean } | null>(null);
   const report = useRef(onError);
   report.current = onError;
+  const asked = wanted && textProject ? map : null;
   useEffect(() => {
-    if (!textProject) return;
+    if (asked === null) return;
     let current = true;
-    getMap(map).then(
-      (dto) => current && setRead({ map, world: dto.world === true }),
+    getMap(asked).then(
+      (dto) => current && setRead({ map: asked, world: dto.world === true }),
       (e: unknown) => current && report.current(e),
     );
     return () => {
       current = false;
     };
-  }, [map, revision, textProject]);
-  const world = textProject ? (read?.map === map ? read.world : null) : false;
-  if (world === null) return null;
-  return <WorldSourceSection map={map} world={world} textProject={textProject} revision={revision} onChanged={onChanged} onError={onError} />;
+  }, [asked, revision]);
+  if (map === null || !wanted) return null;
+  if (!textProject) return false;
+  return read?.map === map ? read.world : null;
 }
+
+/**
+ * The note of a binary map while „Gelände malen“ is active (Gutachten C §7.1): painting the ground needs the map as a world, so the note
+ * offers „Karte als Quelle übernehmen“ (`world_adopt`, one undo step, as in „Quelle“); outside a text project the button is locked with
+ * the reason. After the adoption `onChanged` lets the app catch up (the paint target follows the map's world flag); `onAdopted` gets the
+ * notice; a refusal goes to `onError`.
+ */
+function PaintAdoptNote({
+  map,
+  textProject,
+  onChanged,
+  onAdopted,
+  onError,
+}: {
+  map: number;
+  textProject: boolean;
+  onChanged: (map: number) => void | Promise<void>;
+  onAdopted: (text: string) => void;
+  onError: (e: unknown) => void;
+}) {
+  const [working, setWorking] = useState(false);
+  const reasonId = useId();
+  async function adopt() {
+    if (working || !textProject) return;
+    setWorking(true);
+    try {
+      const done = await worldAdopt(map);
+      onAdopted(adoptedText(done));
+      await onChanged(map);
+    } catch (e) {
+      onError(e);
+    } finally {
+      setWorking(false);
+    }
+  }
+  return (
+    <div data-paint-binary="">
+      <Notice kind="info">Boden malen: Karte als Quelle übernehmen</Notice>
+      <div className={styles.actions}>
+        <Button
+          kind="secondary"
+          size="s"
+          data-paint-adopt=""
+          disabled={!textProject}
+          aria-disabled={(textProject && working) || undefined}
+          aria-describedby={textProject ? undefined : reasonId}
+          onClick={() => void adopt()}
+        >
+          Karte als Quelle übernehmen
+        </Button>
+      </div>
+      {!textProject && (
+        <p id={reasonId} className={styles.note}>
+          {ADOPT_NEEDS_TEXT_PROJECT}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The family word of the tile section: HeartGold/SoulSilver has the step sound. */
+const tileFamily = (family: string | null | undefined): "pt" | "hgss" => (family === "Hgss" ? "hgss" : "pt");
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
-  const { dirty, headers, identify, headerCount, goTo, counts, revision, mapRevision = 0, onEdited, onCountsChanged, onError, onMapImported, checks, painting = false } = context;
+  const { dirty, headers, identify, headerCount, goTo, counts, revision, mapRevision = 0, onEdited, onCountsChanged, onError, onMapImported, checks, painting = false, family = null } = context;
   const matrix = useMatrix(index, revision, onError);
+  const textProject = useTextProject().active;
+  // The cell's map, known before the matrix's own checks below: the map's world flag is read for „Quelle“ and the painting note.
+  const cellMap = matrix && x < matrix.width && y < matrix.height ? (matrix.maps[y * matrix.width + x] ?? null) : null;
+  const isWorld = useMapIsWorld(cellMap, revision + mapRevision, depthAtLeast(depth, "bauen"), onError);
+  // The notice of the last adoption from the painting note, for the map it belongs to (shown while that map is a world).
+  const [adopted, setAdopted] = useState<{ map: number; text: string } | null>(null);
   const paint = usePaint();
   const { world } = useWorld();
   const reset = useReset();
@@ -290,12 +363,20 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const painted = map !== null && paint.target === map && paint.world?.map === map ? paint.world : null;
   const paintWorld = painting && depthAtLeast(depth, "bauen") ? (painted?.world ?? null) : null;
   // Choosing a tile goes back to the brush from the tools that paint no tile (Tiled: a click in the tileset takes the stamp).
+  // The chosen tile of the palette (its four hex digits). After the tile section changed the tileset, `onMapImported` refetches the map:
+  // the paint session reads its world and tileset again (palette and section show the new values), mesh and bake follow.
+  const chosenTile = Number.parseInt(paint.state.tile.slice(0, 4), 16);
   const chooseTile = (tile: string) => paint.set((s) => (s.sub === "brush" || s.sub === "rect" || s.sub === "fill" ? { tile } : { tile, sub: "brush" }));
 
   return (
     <div className={styles.panel}>
       <InspectorHead kind="map" title={title} ident={ident} state={state} unsaved={unsaved} actions={actions} depth={depth} />
       <div className={styles.body}>
+        {/* While painting a binary map: the way to painting its ground, at the top. */}
+        {map !== null && painting && isWorld === false && (
+          <PaintAdoptNote map={map} textProject={textProject} onChanged={onMapImported} onAdopted={(text) => setAdopted({ map, text })} onError={onError} />
+        )}
+        {map !== null && painting && isWorld === true && adopted?.map === map && <Notice kind="success">{adopted.text}</Notice>}
         <InspectorRow label="Karte" hint={`0 bis ${mapMax}, leer = keine Karte`}>
           <MapField map={map} max={mapMax} onCommit={commitMap} />
         </InspectorRow>
@@ -333,7 +414,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         <InspectorRow label="Höhe" hint="0 bis 255">
           <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depthAtLeast(depth, "tuefteln")} />
         </InspectorRow>
-        {/* While painting a world map: its palette and layers, before „Quelle“ and „Budget“. */}
+        {/* While painting a world map: its palette, layers and the chosen tile, before „Quelle“ and „Budget“. */}
         {map !== null && paintWorld && (
           <>
             {paint.tileset && <TilePalette tileset={paint.tileset} tile={paint.state.tile} onTile={chooseTile} depth={depth} />}
@@ -348,10 +429,22 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
               onChanged={onMapImported}
               onRemoved={(layer) => paint.layerRemoved?.(layer)}
             />
+            {paint.tileset && Number.isInteger(chosenTile) && (
+              <TileEditor
+                tileset={paint.tileset}
+                tile={chosenTile}
+                family={tileFamily(family)}
+                depth={depth}
+                onChanged={() => void onMapImported(map)}
+                onError={onError}
+              />
+            )}
           </>
         )}
         {/* Where the cell's map comes from (binary or world) and the way to the other, from Bauen on. */}
-        {map !== null && depthAtLeast(depth, "bauen") && <MapSource map={map} revision={revision + mapRevision} onChanged={onMapImported} onError={onError} />}
+        {map !== null && isWorld !== null && (
+          <WorldSourceSection map={map} world={isWorld} textProject={textProject} revision={revision + mapRevision} onChanged={onMapImported} onError={onError} />
+        )}
         {/* The game's limits for the cell's map, from Bauen on. */}
         {map !== null && depthAtLeast(depth, "bauen") && <MapBudgetSection map={map} revision={revision + mapRevision} depth={depth} onError={onError} bake={painted?.bake} />}
         {depthAtLeast(depth, "tuefteln") && <RawRowSection matrix={matrix} x={x} y={y} />}
