@@ -926,10 +926,22 @@ impl Tx<'_> {
                 }
             }
         }
+        /// Swaps the store's own layout back when dropped, also when `f` panics.
+        struct Restore<'s> {
+            store: &'s mut Store,
+            staged: &'s mut [Staged],
+        }
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                swap(self.store, self.staged);
+            }
+        }
         swap(self.store, &mut self.staged);
-        let value = f(self.store);
-        swap(self.store, &mut self.staged);
-        value
+        let restore = Restore {
+            store: &mut *self.store,
+            staged: &mut self.staged,
+        };
+        f(&mut *restore.store)
     }
 
     /// Edits text archive `index`.

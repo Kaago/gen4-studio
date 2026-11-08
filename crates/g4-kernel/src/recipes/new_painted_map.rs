@@ -122,6 +122,9 @@ fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, Ke
         return Err(refused(crate::world::WORLD_NEEDS_TEXT_PROJECT));
     }
     check_name(&input.name)?;
+    if input.name.trim().is_empty() {
+        return Err(refused("Die Karte braucht einen Namen."));
+    }
     let matrix = input.matrix.unwrap_or(DEFAULT_MATRIX);
     check_member(store, AssetKind::Matrix, matrix, "matrix")?;
     let (x, y) = (input.x, input.y);
@@ -533,6 +536,41 @@ mod tests {
         assert_eq!(store.matrix(0).unwrap().maps[1], MATRIX_EMPTY);
         assert_eq!(store.world(n).unwrap(), None);
         assert_eq!(next_map(&store), n + 1);
+    }
+
+    /// The header cell is written: the neighbour's header 1 at (3, 0), an explicit header 1
+    /// at (1, 0); both cells store 0 before.
+    #[test]
+    fn apply_writes_the_header_cell() {
+        let (_fx, mut store) = ready();
+        assert_eq!(store.matrix(0).unwrap().headers.as_ref().unwrap()[3], 0);
+        let outcome = apply(&mut store, &at(3, 0)).unwrap();
+        assert_eq!(outcome.report.header, Some(1));
+        let m = store.matrix(0).unwrap();
+        assert_eq!(m.maps[3], outcome.report.map);
+        assert_eq!(m.headers.as_ref().unwrap()[3], 1);
+
+        let chosen = NewPaintedMapInput {
+            header: Some(1),
+            ..at(1, 0)
+        };
+        let outcome = apply(&mut store, &chosen).unwrap();
+        assert_eq!(outcome.report.header, Some(1));
+        let m = store.matrix(0).unwrap();
+        assert_eq!(m.maps[1], outcome.report.map);
+        assert_eq!(m.headers.as_ref().unwrap()[1], 1);
+    }
+
+    #[test]
+    fn an_empty_name_is_refused() {
+        let (_fx, mut store) = ready();
+        for name in ["", "  \t "] {
+            let input = NewPaintedMapInput {
+                name: name.to_owned(),
+                ..at(1, 0)
+            };
+            refused_both(&mut store, &input, "Die Karte braucht einen Namen.");
+        }
     }
 
     #[test]
