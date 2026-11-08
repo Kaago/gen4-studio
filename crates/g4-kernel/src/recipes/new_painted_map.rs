@@ -86,16 +86,27 @@ struct Resolved {
     painted: Option<DraftPainted>,
 }
 
+/// Header 0 (`EVERYWHERE`) of a filled cell in a header column marks landscape: filler that
+/// belongs to no area (the same notion as „Gebiet anlegen“ and the world map panel).
+const LANDSCAPE: u16 = 0;
+
 /// The first cell with a map next to (`x`, `y`) in the order north, west, east, south, with
-/// its header cell (`None` without header column).
+/// its header cell (`None` without header column). Landscape cells (header 0 in a header
+/// column) are skipped: they say nothing about where the new map belongs, so a cell with only
+/// landscape around it has no neighbour.
 fn neighbour(m: &g4_formats::matrix::Matrix, x: u8, y: u8) -> Option<(u16, Option<u16>)> {
     let (x, y) = (i32::from(x), i32::from(y));
+    let landscape = |i: usize| {
+        m.headers
+            .as_ref()
+            .is_some_and(|h| h.get(i) == Some(&LANDSCAPE))
+    };
     [(x, y - 1), (x - 1, y), (x + 1, y), (x, y + 1)]
         .into_iter()
         .filter_map(|(nx, ny)| Some((u8::try_from(nx).ok()?, u8::try_from(ny).ok()?)))
         .filter(|&(nx, ny)| nx < m.width && ny < m.height)
         .map(|(nx, ny)| cell_index(m.width, nx, ny))
-        .find(|&i| m.maps[i] != MATRIX_EMPTY)
+        .find(|&i| m.maps[i] != MATRIX_EMPTY && !landscape(i))
         .map(|i| {
             (
                 m.maps[i],
@@ -362,8 +373,9 @@ mod tests {
     use crate::world::WorldJson;
     use crate::world::grid::TileRef;
 
-    /// [`world_ready`] with matrix 0 as 4 × 1 with a header column — map 0 (header 0, package
-    /// 0), an empty cell, map 1 (header 1, area data 1: package 2), an empty cell — and a
+    /// [`world_ready`] with matrix 0 as 4 × 1 with a header column — map 0 (header 1), an
+    /// empty cell, map 1 (header 1; area data 1: package 2), an empty cell; header 0 would be
+    /// landscape, which the neighbour search skips — and a
     /// second matrix 0001 without header column (2 × 1: map 2, an empty cell); package 2 has a
     /// tileset file of two tiles. Saved, then opened in a fresh store (empty history).
     fn ready() -> (TextFixture, Store) {
@@ -384,7 +396,7 @@ mod tests {
                     m.width = 4;
                     m.height = 1;
                     m.maps = vec![0, MATRIX_EMPTY, 1, MATRIX_EMPTY];
-                    m.headers = Some(vec![0, 0, 1, 0]);
+                    m.headers = Some(vec![1, 0, 1, 0]);
                     m.altitudes = None;
                     Ok(())
                 })?;
@@ -459,18 +471,18 @@ mod tests {
         assert_eq!(
             draft.painted,
             Some(DraftPainted {
-                tileset: 0,
+                tileset: 2,
                 fill_tile: "0000".to_owned(),
                 height: 0,
-                header: Some(0),
+                header: Some(1),
             })
         );
         assert_eq!(
             draft.notes,
             [
                 "Neue Karte „Waldweg“ in Zelle x 1, y 0 der Weltkarte 0000.",
-                "Gebietsdaten von Header 0.",
-                "Boden aus Tileset 0000, Kachel 0000, Höhe 0.",
+                "Gebietsdaten von Header 1.",
+                "Boden aus Tileset 0002, Kachel 0000, Höhe 0.",
             ]
         );
         assert_eq!(draft.irreversible, [format!("Karte {n:04} wird angelegt")]);
@@ -483,7 +495,12 @@ mod tests {
         let (_fx, mut store) = ready();
         let n = next_map(&store);
         let before = store.history().0.len();
-        let outcome = apply(&mut store, &at(1, 0)).unwrap();
+        // Package 0 (the neighbour's header 1 names package 2, which has no textures to bake).
+        let input = NewPaintedMapInput {
+            tileset: Some(0),
+            ..at(1, 0)
+        };
+        let outcome = apply(&mut store, &input).unwrap();
         assert_eq!(
             outcome.created,
             [CreatedObject {
@@ -504,7 +521,7 @@ mod tests {
         );
         let m = store.matrix(0).unwrap();
         assert_eq!(m.maps[1], n);
-        assert_eq!(m.headers.as_ref().unwrap()[1], 0);
+        assert_eq!(m.headers.as_ref().unwrap()[1], 1);
         let report = &outcome.report;
         assert_eq!(
             (
@@ -519,7 +536,7 @@ mod tests {
         );
         assert_eq!(
             (report.header, report.tileset, report.base),
-            (Some(0), 0, 0)
+            (Some(1), 0, 0)
         );
         assert_eq!(report.name, "Waldweg");
         let bake = report.bake.as_ref().expect("a bake report");
@@ -588,7 +605,7 @@ mod tests {
         assert_eq!((m.width, m.height), (4, 2));
         let i = cell_index(4, 0, 1);
         assert_eq!(m.maps[i], n);
-        assert_eq!(m.headers.as_ref().unwrap()[i], 0);
+        assert_eq!(m.headers.as_ref().unwrap()[i], 1);
         assert_eq!(m.maps[..4], [0, MATRIX_EMPTY, 1, MATRIX_EMPTY]);
     }
 
@@ -723,6 +740,45 @@ mod tests {
             ..at(3, 0)
         };
         refused_both(&mut store, &high, "`70` liegt nicht in \u{2212}16 bis 62.");
+    }
+
+    /// Map 0's header cell made landscape (header 0), saved.
+    fn with_landscape_at_0(store: &mut Store) {
+        store
+            .transaction("Landschaft", |tx| {
+                tx.edit_matrix(0, |m| {
+                    m.headers.as_mut().unwrap()[0] = 0;
+                    Ok(())
+                })
+            })
+            .unwrap();
+    }
+
+    /// West of (1, 0) lies landscape (map 0, header 0), east map 1 (header 1): the recipe
+    /// skips the landscape and takes map 1 as the base, its header and its package.
+    #[test]
+    fn a_landscape_neighbour_is_skipped() {
+        let (_fx, mut store) = ready();
+        with_landscape_at_0(&mut store);
+        let draft = plan(&mut store, &at(1, 0)).unwrap();
+        assert_eq!(draft.cells[0].source_map, 1);
+        let painted = draft.painted.unwrap();
+        assert_eq!((painted.tileset, painted.header), (2, Some(1)));
+        let outcome = apply(&mut store, &at(1, 0)).unwrap();
+        assert_eq!((outcome.report.header, outcome.report.base), (Some(1), 1));
+        assert_eq!(store.matrix(0).unwrap().headers.as_ref().unwrap()[1], 1);
+    }
+
+    /// Only landscape next to (0, 1): no neighbour, the same refusal as an empty surrounding.
+    #[test]
+    fn only_landscape_around_is_no_neighbour() {
+        let (_fx, mut store) = ready();
+        with_landscape_at_0(&mut store);
+        refused_both(
+            &mut store,
+            &at(0, 1),
+            "Neben Zelle (0, 1) liegt keine Karte; `source_map` nennen.",
+        );
     }
 
     #[test]
