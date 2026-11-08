@@ -68,7 +68,7 @@ mit einem Leerzeichen.
 |---|---|---|
 | `tiles` | `.` | leere Zelle: keine Fläche, keine Wand |
 | | `0012` | Kachel 0x0012 des Tilesets (genau vier Hex-Ziffern) |
-| | `0012r1`, `r2`, `r3` | dazu 1 bis 3 Vierteldrehungen gegen den Uhrzeigersinn, von oben gesehen |
+| | `0012r1`, `r2`, `r3` | dazu 1 bis 3 Vierteldrehungen: von oben gesehen (Norden oben) dreht sich das Bild im Uhrzeigersinn, die Texturkoordinaten gegen ihn (Tabelle unter „Koordinaten und UV“) |
 | | `0012f`, `0012r2f` | dazu gespiegelt an der z-Achse, **nach** der Drehung |
 | `heights` | `0`, `-3`, `62` | Höhenstufe, ganze Zahl von −16 bis 62 (eine Stufe = 8 Welteinheiten) |
 | `ramps` | `.` | keine Rampe |
@@ -636,7 +636,7 @@ Karte als Quelle übernehmen“ mit dem Weg dorthin (`world_adopt`, „Karte als
   `world_get` und das Tileset neu, so rechnen Füllen und Höhe nie mit einem alten Stand.
 - **Vorschau:** bis zur Antwort liegt je berührter Zelle eine Platte knapp über dem Boden
   (`HEIGHT_LAYER_Y` + 0,01, Deckkraft 0,85): Pinsel, Rechteck und Füllen mit dem Bild der Kachel aus
-  dem Palettenspeicher (ohne Bild die Platzhalterfarbe ihrer Rolle), der Radierer und das Entfernen einer
+  dem Palettenspeicher, gedreht und gespiegelt wie im Netz (die UV der Platte aus `uv_of`, oben; ohne Bild die Platzhalterfarbe ihrer Rolle), der Radierer und das Entfernen einer
   Rampe schraffiert in `szene/gelaende/unbekannt`, Höhe und Rampe in der Farbe der Zielstufe; das Rechteck zeigt dazu den
   gestrichelten Rahmen des Entwurfs. Nach der Antwort kommen Netz, Höhen und Weltdokument neu, dann
   geht die Vorschau; eine Ablehnung nimmt die Vorschau weg und geht an den Fehlerweg, ohne
@@ -679,7 +679,7 @@ Strichen; jede Zeile ist **ein** Aufruf (Zellen gekürzt):
 
 Dieselbe Folge malen die Szenarien `pt-gemalt.yaml` und `hg-gemalt.yaml` über MCP und das Phasen-Gate
 über die Oberfläche (dort mit den Kacheln des Spiels und der Rampe in zwei Strichen, weil ein Zug
-eine Gerade ist). Für Agenten: [mcp.md](../mcp.md), „Malen (6.4a)“. Gestaltung:
+der Testumgebung, `left_click_drag`, nur von einem Punkt zu einem zweiten führt). Für Agenten: [mcp.md](../mcp.md), „Malen (6.4a)“. Gestaltung:
 [design-system/README.md](../../design-system/README.md), „Nachtrag 6.4a“.
 
 ## Was später kommt
