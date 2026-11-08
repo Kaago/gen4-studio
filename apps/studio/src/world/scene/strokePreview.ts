@@ -80,6 +80,14 @@ function previewMaterial(look: PreviewLook): THREE.MeshBasicMaterial {
   if ("texture" in look) {
     const texture = new THREE.Texture(look.texture as THREE.Texture["image"]);
     texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    // WebGL ignores flipY for an ImageBitmap (its first row lands at v = 0): mirror v so the first row lies at v = 1, as the meshes'
+    // textures store it (`toTexture`), i.e. towards the north edge of the plate.
+    texture.flipY = false;
+    texture.repeat.y = -1;
+    texture.offset.y = 1;
     texture.needsUpdate = true;
     material.map = texture;
   } else if ("erase" in look) {

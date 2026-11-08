@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TileJson, TileRole, TilesetDto } from "../../api.world";
 import type { Depth } from "../../ui/frame/shellState";
 import { resetSectionFolds } from "./foldState";
+import { resetTileImages } from "../../world/paint/paletteImages";
 import { TilePalette } from "./TilePalette";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -84,6 +85,31 @@ describe("TilePalette", () => {
     expect(button("0002").querySelector("canvas")).toBeNull();
     expect(button("0002").querySelector("[data-palette-color]")?.getAttribute("data-palette-color")).toBe("grass");
     expect(button("0001").querySelector("[data-palette-color]")?.getAttribute("data-palette-color")).toBe("water");
+  });
+
+  it("a_reset_of_the_store_asks_for_the_pictures_again", async () => {
+    const draw = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((() => ({ drawImage: draw, clearRect: vi.fn(), imageSmoothingEnabled: true })) as never);
+    const old = { name: "old" } as unknown as ImageBitmap;
+    const fresh = { name: "fresh" } as unknown as ImageBitmap;
+    let current = old;
+    const image = vi.fn(async (_pkg: number, texture: string) => (texture === "weg" ? current : null));
+    await show({ image });
+    expect(image).toHaveBeenCalledTimes(5);
+    expect(draw).toHaveBeenLastCalledWith(old, 0, 0, 32, 32);
+    // Another project (or the package written): the palette asks again and draws the new picture.
+    current = fresh;
+    await act(async () => resetTileImages());
+    await flush();
+    expect(image).toHaveBeenCalledTimes(10);
+    expect(draw).toHaveBeenLastCalledWith(fresh, 0, 0, 32, 32);
+    // Folding the section closed and open draws the current picture, never the old one.
+    draw.mockClear();
+    const head = container.querySelector<HTMLButtonElement>("[data-paint-palette] h3 button")!;
+    act(() => head.click());
+    act(() => head.click());
+    await flush();
+    expect(draw.mock.calls.every(([bitmap]) => bitmap === fresh)).toBe(true);
   });
 
   it("clicking_chooses_the_tile", async () => {

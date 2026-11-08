@@ -21,7 +21,7 @@ import type { PaintModel } from "../paint/PaintContext";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []), getMapBudget: vi.fn(), getMap: vi.fn(), worldBake: vi.fn() }));
 // The palette's pictures: none (the role colours), no kernel asked.
-vi.mock("../../world/paint/paletteImages", () => ({ tileImage: async () => null, peekTileImage: () => undefined, resetTileImages: () => {} }));
+vi.mock("../../world/paint/paletteImages", () => ({ tileImage: async () => null, peekTileImage: () => undefined, resetTileImages: () => {}, tileImagesGeneration: () => 0, onTileImagesReset: () => () => {} }));
 // The world model the editor names areas and world maps from (Bauen); null until a test sets one.
 const shownWorld: { world: World | null } = { world: null };
 vi.mock("../WorkbenchContext", async (importOriginal) => {

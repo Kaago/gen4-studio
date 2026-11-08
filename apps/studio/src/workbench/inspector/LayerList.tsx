@@ -21,6 +21,7 @@ export function LayerList({
   onToggle,
   onError,
   onChanged,
+  onRemoved,
   edit = (op) => worldLayers(map, op),
 }: {
   map: number;
@@ -32,6 +33,8 @@ export function LayerList({
   onError: (e: unknown) => void;
   /** A layer was added or removed. */
   onChanged?: (map: number) => void;
+  /** Layer `layer` was removed (called before `onChanged`): the owner moves its hidden marks and the active layer down. */
+  onRemoved?: (layer: number) => void;
   /** Where adding and removing go (the gallery writes nothing). */
   edit?: (op: LayerOp) => Promise<unknown>;
 }): JSX.Element {
@@ -46,6 +49,7 @@ export function LayerList({
     setBusy(true);
     try {
       await edit(op);
+      if ("remove" in op) onRemoved?.(op.remove.layer);
       onChanged?.(map);
     } catch (e) {
       onError(e);

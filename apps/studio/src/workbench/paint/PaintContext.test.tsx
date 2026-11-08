@@ -93,4 +93,27 @@ describe("PaintContext", () => {
     expect(seen!.state.ramp).toEqual({ dir: "n", steps: 2 });
     expect(seen!.state.layer).toBe(0);
   });
+
+  it("removing_a_layer_moves_hidden_marks_and_the_active_layer_down", async () => {
+    await show({ matrix: 4, x: 0, y: 0 }, true);
+    const layer = (name: string) => ({ name, role: "overlay" as const, tiles: [] });
+    const world = { version: 1, tileset: 3, layers: [{ ...layer("Boden"), role: "ground" as const }, layer("A"), layer("B"), layer("C")], permissions: { derive: true } };
+    act(() => seen!.publishWorld!({ map: 120, world, faces: 0, textures: 0, estimate: 0, share: 0, bake: null }));
+    act(() => seen!.set({ layer: 3 }));
+    act(() => seen!.toggleHidden!(1));
+    act(() => seen!.toggleHidden!(2));
+    expect([...seen!.hidden!]).toEqual([1, 2]);
+    // „A“ (1) goes: „B“ moves to 1 and stays hidden, „C“ (active) moves to 2.
+    act(() => seen!.layerRemoved!(1));
+    expect([...seen!.hidden!]).toEqual([1]);
+    expect(seen!.state.layer).toBe(2);
+    // The active layer itself goes: the one below it becomes active.
+    act(() => seen!.layerRemoved!(2));
+    expect(seen!.state.layer).toBe(1);
+    expect([...seen!.hidden!]).toEqual([1]);
+    // Another target forgets the hidden layers, coming back shows all.
+    await show({ matrix: 4, x: 1, y: 0 }, true);
+    await show({ matrix: 4, x: 0, y: 0 }, true);
+    expect(seen!.hidden!.size).toBe(0);
+  });
 });

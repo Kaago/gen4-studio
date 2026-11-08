@@ -12,6 +12,8 @@ const images = new Map<string, Promise<ImageBitmap | null>>();
 const settled = new Map<string, ImageBitmap | null>();
 /** Bumped by `resetTileImages`; a request started before it belongs to the previous project. */
 let generation = 0;
+/** Who wants to know of a reset (the palette asks for its pictures again). */
+const listeners = new Set<() => void>();
 
 const keyOf = (pkg: number, texture: string) => `${pkg}:${texture}`;
 
@@ -31,10 +33,7 @@ export function tileImage(pkg: number, texture: string): Promise<ImageBitmap | n
     .then((dto) => (dto ? bitmapOf(dto) : null))
     .then(
       (made) => {
-        if (started !== generation) {
-          made?.close();
-          return null;
-        }
+        if (started !== generation) return null;
         settled.set(key, made);
         return made;
       },
@@ -52,10 +51,25 @@ export function peekTileImage(pkg: number, texture: string): ImageBitmap | null 
   return settled.get(keyOf(pkg, texture));
 }
 
-/** Forgets every picture and frees the bitmaps (on project switch, like `resetWorldTextures`). */
+/**
+ * Forgets every picture (on project switch, like `resetWorldTextures`, and when the package's files were written) and tells the
+ * subscribers (`onTileImagesReset`), which ask anew. The bitmaps are not closed: a palette or a preview may still draw one until it has
+ * the new picture; the garbage collector frees them.
+ */
 export function resetTileImages(): void {
   generation++;
-  for (const bitmap of settled.values()) bitmap?.close();
   settled.clear();
   images.clear();
+  for (const listener of [...listeners]) listener();
+}
+
+/** The number of resets so far: a palette asks for its pictures again when it changes. */
+export function tileImagesGeneration(): number {
+  return generation;
+}
+
+/** Calls `listener` after every `resetTileImages`; returns the unsubscribe. */
+export function onTileImagesReset(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }

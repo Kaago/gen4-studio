@@ -51,6 +51,19 @@ describe("strokePreview", () => {
     expect(Math.max(...xs)).toBe(4);
   });
 
+  it("a_tile_texture_is_drawn_texel_for_texel_with_its_first_row_north", () => {
+    const h = host();
+    const picture = { width: 32, height: 32 } as unknown as CanvasImageSource;
+    setStrokePreview(h, 5, [[0, 0]], { texture: picture });
+    const map = (plates(h)[0].material as THREE.MeshBasicMaterial).map!;
+    expect(map.image).toBe(picture);
+    expect(map.magFilter).toBe(THREE.NearestFilter);
+    expect(map.minFilter).toBe(THREE.NearestFilter);
+    // The bitmap's first row lands at v = 1 (flipY is ignored for bitmaps): v is mirrored.
+    expect(map.flipY).toBe(false);
+    expect([map.repeat.y, map.offset.y]).toEqual([-1, 1]);
+  });
+
   it("clear_frees_the_geometry", () => {
     const h = host();
     setStrokePreview(h, 5, [[0, 0], [1, 0]], { color: szene.hoehe["1"] });

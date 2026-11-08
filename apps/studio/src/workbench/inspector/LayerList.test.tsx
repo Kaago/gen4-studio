@@ -33,12 +33,13 @@ describe("LayerList", () => {
   const onToggle = vi.fn();
   const onError = vi.fn();
   const onChanged = vi.fn();
+  const onRemoved = vi.fn();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
     resetSectionFolds();
-    for (const f of [onActive, onToggle, onError, onChanged]) f.mockReset();
+    for (const f of [onActive, onToggle, onError, onChanged, onRemoved]) f.mockReset();
     vi.mocked(worldLayers).mockReset().mockResolvedValue(REPORT);
   });
   afterEach(() => {
@@ -48,7 +49,7 @@ describe("LayerList", () => {
 
   async function show(hidden: ReadonlySet<number> = new Set(), active = 0) {
     await act(async () =>
-      root.render(<LayerList map={123} world={WORLD} active={active} hidden={hidden} onActive={onActive} onToggle={onToggle} onError={onError} onChanged={onChanged} />),
+      root.render(<LayerList map={123} world={WORLD} active={active} hidden={hidden} onActive={onActive} onToggle={onToggle} onError={onError} onChanged={onChanged} onRemoved={onRemoved} />),
     );
     await flush();
   }
@@ -66,6 +67,7 @@ describe("LayerList", () => {
     await act(async () => buttonIn(section, "Ebene hinzufügen")!.click());
     await flush();
     expect(worldLayers).toHaveBeenCalledWith(123, { add: { name: "Steine" } });
+    expect(onRemoved).not.toHaveBeenCalled();
     expect(onChanged).toHaveBeenCalledWith(123);
     expect(onError).not.toHaveBeenCalled();
 
@@ -93,7 +95,9 @@ describe("LayerList", () => {
     await act(async () => buttonIn(row(1), "Entfernen")!.click());
     await flush();
     expect(worldLayers).toHaveBeenCalledWith(123, { remove: { layer: 1 } });
+    expect(onRemoved).toHaveBeenCalledWith(1);
     expect(onChanged).toHaveBeenCalledWith(123);
+    expect(onRemoved.mock.invocationCallOrder[0]).toBeLessThan(onChanged.mock.invocationCallOrder[0]);
   });
 
   it("hiding_does_not_call_the_kernel", async () => {

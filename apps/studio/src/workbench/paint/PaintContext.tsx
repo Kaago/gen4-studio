@@ -31,6 +31,11 @@ export interface PaintModel {
   hidden?: ReadonlySet<number>;
   /** Hides a shown layer of `target` or shows a hidden one. */
   toggleHidden?: (layer: number) => void;
+  /**
+   * Layer `layer` of `target` was removed: the layers above it move down one, so do their hidden marks and the active layer; the active
+   * layer itself removed, the one below it becomes active.
+   */
+  layerRemoved?: (layer: number) => void;
 }
 
 const NO_LAYERS: ReadonlySet<number> = new Set();
@@ -102,8 +107,9 @@ export function PaintProvider({ children, bridge }: { children: ReactNode; bridg
   }, [layerCount, state.layer]);
   const [tilesetRead, publishTileset] = useState<TilesetDto | null>(null);
   const tileset = shownWorld?.world && tilesetRead?.package === shownWorld.world.tileset ? tilesetRead : null;
-  // The hidden layers belong to one map: another target shows every layer again.
+  // The hidden layers belong to one map: another target forgets them (coming back shows every layer).
   const [hiddenOf, setHiddenOf] = useState<{ map: number; layers: ReadonlySet<number> } | null>(null);
+  useEffect(() => setHiddenOf(null), [target]);
   const hidden = target !== null && hiddenOf?.map === target ? hiddenOf.layers : NO_LAYERS;
   const toggleHidden = useCallback(
     (layer: number) => {
@@ -116,9 +122,17 @@ export function PaintProvider({ children, bridge }: { children: ReactNode; bridg
     },
     [target],
   );
+  const layerRemoved = useCallback(
+    (removed: number) => {
+      const shift = (l: number) => (l > removed ? l - 1 : l);
+      setHiddenOf((h) => (h === null || h.map !== target ? h : { map: h.map, layers: new Set([...h.layers].filter((l) => l !== removed).map(shift)) }));
+      setState((s) => ({ ...s, layer: s.layer === removed ? Math.max(0, removed - 1) : shift(s.layer) }));
+    },
+    [target],
+  );
   const model = useMemo<PaintModel>(
-    () => ({ state, set, target, world: shownWorld, publishWorld, tileset, publishTileset, hidden, toggleHidden }),
-    [state, set, target, shownWorld, tileset, hidden, toggleHidden],
+    () => ({ state, set, target, world: shownWorld, publishWorld, tileset, publishTileset, hidden, toggleHidden, layerRemoved }),
+    [state, set, target, shownWorld, tileset, hidden, toggleHidden, layerRemoved],
   );
   useLayoutEffect(() => {
     if (!bridge) return;

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({ getTilesetTexture: vi.fn() }));
 vi.mock("../../api.world", () => api);
 
-import { peekTileImage, resetTileImages, tileImage } from "./paletteImages";
+import { onTileImagesReset, peekTileImage, resetTileImages, tileImage, tileImagesGeneration } from "./paletteImages";
 
 /** A stand-in bitmap: what `createImageBitmap` was handed, and whether it was closed. */
 class FakeBitmap {
@@ -46,9 +46,16 @@ describe("paletteImages", () => {
     await tileImage(3, "weg");
     expect(api.getTilesetTexture).toHaveBeenCalledTimes(3);
 
-    // Another project: the pictures go (closed) and are asked for anew.
+    // Another project: the pictures go and are asked for anew; the subscribers hear of it. The old bitmap is not closed (a palette may
+    // still draw it until its new picture is there).
+    const heard = vi.fn();
+    const off = onTileImagesReset(heard);
+    const before = tileImagesGeneration();
     resetTileImages();
-    expect((a as unknown as FakeBitmap).closed).toBe(true);
+    off();
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(tileImagesGeneration()).toBe(before + 1);
+    expect((a as unknown as FakeBitmap).closed).toBe(false);
     expect(peekTileImage(3, "gras_a")).toBeUndefined();
     await tileImage(3, "gras_a");
     expect(api.getTilesetTexture).toHaveBeenCalledTimes(4);

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { JSX } from "react";
 import type { TileJson, TileRole, TilesetDto } from "../../api.world";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Section, Tooltip } from "../../ui/primitives";
-import { tileImage } from "../../world/paint/paletteImages";
+import { onTileImagesReset, tileImage, tileImagesGeneration } from "../../world/paint/paletteImages";
 import { useSectionOpen } from "./foldState";
 import styles from "./TilePalette.module.css";
 
@@ -81,11 +81,13 @@ export function TilePalette({
   const tinker = depthAtLeast(depth, "tuefteln");
   const pkg = tileset.package;
   const tiles = tileset.tileset.tiles;
-  // The pictures of this package by texture name; a package switch starts empty.
+  // The pictures of this package by texture name; a package switch starts empty. A reset of the store (another project, the package's
+  // files written) asks for them again; until they come, the old pictures stay (never closed by the store).
+  const generation = useSyncExternalStore(onTileImagesReset, tileImagesGeneration);
   const [pictures, setPictures] = useState<{ pkg: number; byTexture: ReadonlyMap<string, ImageBitmap | null> }>({ pkg, byTexture: new Map() });
   useEffect(() => {
     let live = true;
-    setPictures({ pkg, byTexture: new Map() });
+    setPictures((shown) => (shown.pkg === pkg ? shown : { pkg, byTexture: new Map() }));
     for (const texture of new Set(tiles.map((t) => t.texture))) {
       void image(pkg, texture).then((bitmap) => {
         if (!live) return;
@@ -95,7 +97,7 @@ export function TilePalette({
     return () => {
       live = false;
     };
-  }, [pkg, tiles, image]);
+  }, [pkg, tiles, image, generation]);
   const groups = useMemo(
     () =>
       GROUPS.map((g) => ({ ...g, tiles: tiles.flatMap((t, index) => (t.role === g.role ? [{ tile: t, digits: digitsOf(index) }] : [])) })).filter(

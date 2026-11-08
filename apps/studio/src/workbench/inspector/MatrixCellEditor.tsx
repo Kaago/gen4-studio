@@ -346,6 +346,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
               onToggle={(layer) => paint.toggleHidden?.(layer)}
               onError={onError}
               onChanged={onMapImported}
+              onRemoved={(layer) => paint.layerRemoved?.(layer)}
             />
           </>
         )}
