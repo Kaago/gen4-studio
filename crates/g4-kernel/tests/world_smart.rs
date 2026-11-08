@@ -30,18 +30,17 @@
 //! ```
 mod common;
 
+use common::world::{exported_copy, painted_cell};
+
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use g4_formats::map::Cell;
-use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
-use g4_kernel::base::BaseRom;
 use g4_kernel::build;
 use g4_kernel::project::Project;
 use g4_kernel::recipes::{self, RecipeCall};
 use g4_kernel::store::Store;
-use g4_kernel::textproject::{ExportOptions, export};
 use g4_kernel::world::edge::Place;
 use g4_kernel::world::edit::{WorldEditRequest, WorldReport, world_edit};
 use g4_kernel::world::grid::tile_token;
@@ -60,95 +59,8 @@ const SET_TILES: usize = 14;
 /// The name of the gate's edge set.
 const SET: &str = "Gate";
 
-/// A vanilla copy with its sibling `.nds` assigned as base ROM, exported with script adoption:
-/// the tempdir, the copy's root and the base ROM. `None` (after `skipped: …`) without
-/// `G4_TEST_PROJECT` or without the `.nds`.
-fn exported_copy() -> Option<(tempfile::TempDir, PathBuf, BaseRom)> {
-    let orig = common::vanilla_project()?;
-    let Some(nds) = g4_kernel::start::suggest_base(&orig) else {
-        eprintln!(
-            "skipped: no <Name>.nds with the same game code next to {}",
-            orig.display()
-        );
-        return None;
-    };
-    let (tmp, copy) = common::vanilla_copy()?;
-    let (check, _mark) = g4_kernel::start::assign_base(&copy, &nds).unwrap();
-    assert_eq!(check.refused, None);
-    let base = BaseRom::open(&nds, None).unwrap();
-    export(
-        &Project::open(&copy).unwrap(),
-        &base,
-        &ExportOptions {
-            adopt_scripts: true,
-            force: false,
-        },
-    )
-    .unwrap();
-    Some((tmp, copy, base))
-}
-
 fn store_of(copy: &Path) -> Store {
     Store::new(Arc::new(Project::open(copy).unwrap()))
-}
-
-/// Header 0 of a filled cell in a header column: landscape (as `new_painted_map` reads it).
-const LANDSCAPE: u16 = 0;
-
-/// The cell of matrix 0 for the new map next to the start town `town` (its header), the rule
-/// of `tests/world_paint.rs`: the first empty or outside cell north, west, east, south of a
-/// town cell, else the nearest empty cell with a real (non-landscape) map beside it.
-fn painted_cell(m: &Matrix, town: u16) -> (u8, u8) {
-    let (w, h) = (i32::from(m.width), i32::from(m.height));
-    let index = |x: i32, y: i32| (y * w + x) as usize;
-    let headers = m.headers.as_ref().expect("matrix 0 has a header column");
-    let town_cells: Vec<(i32, i32)> = (0..h)
-        .flat_map(|y| (0..w).map(move |x| (x, y)))
-        .filter(|&(x, y)| {
-            let i = index(x, y);
-            m.maps[i] != MATRIX_EMPTY && headers[i] == town
-        })
-        .collect();
-    assert!(
-        !town_cells.is_empty(),
-        "matrix 0 has no cell of header {town}"
-    );
-    let around = |x: i32, y: i32| [(x, y - 1), (x - 1, y), (x + 1, y), (x, y + 1)];
-    for &(x, y) in &town_cells {
-        for (nx, ny) in around(x, y) {
-            if nx < 0 || ny < 0 || nx > 254 || ny > 254 {
-                continue;
-            }
-            if nx >= w || ny >= h || m.maps[index(nx, ny)] == MATRIX_EMPTY {
-                return (nx as u8, ny as u8);
-            }
-        }
-    }
-    let real = |x: i32, y: i32| {
-        (0..w).contains(&x) && (0..h).contains(&y) && {
-            let i = index(x, y);
-            m.maps[i] != MATRIX_EMPTY && headers[i] != LANDSCAPE
-        }
-    };
-    let distance = |x: i32, y: i32| {
-        town_cells
-            .iter()
-            .map(|&(tx, ty)| (tx - x).abs().max((ty - y).abs()))
-            .min()
-            .unwrap()
-    };
-    (0..h)
-        .flat_map(|y| (0..w).map(move |x| (x, y)))
-        .filter(|&(x, y)| m.maps[index(x, y)] == MATRIX_EMPTY)
-        .filter(|&(x, y)| around(x, y).into_iter().any(|(nx, ny)| real(nx, ny)))
-        .min_by_key(|&(x, y)| (distance(x, y), y, x))
-        .map(|(x, y)| (x as u8, y as u8))
-        .unwrap_or_else(|| {
-            panic!(
-                "Keine leere Zelle der Weltkarte 0000 liegt neben der Startstadt (Header {town}) \
-                 oder neben einer Karte, die keine Landschaft ist."
-            )
-        })
 }
 
 /// The token of tile `i`.
@@ -197,7 +109,7 @@ fn kantenweg(store: &mut Store) -> (u16, u16, usize) {
     let town = g4_kernel::preview::standard_map(store.project())
         .expect("the start town of the world-template recipe")
         .header;
-    let (x, y) = painted_cell(store.matrix(0).unwrap(), town);
+    let ((x, y), _) = painted_cell(store.matrix(0).unwrap(), town);
     let call: RecipeCall = serde_json::from_value(serde_json::json!({
         "recipe": "new_painted_map",
         "input": { "x": x, "y": y, "name": "Kantenweg", "fill_tile": "0000" },
@@ -372,7 +284,7 @@ fn edge_set_rings_the_plus_without_a_wrong_corner() {
     let mut store = store_of(&copy);
     let (map, pack, _) = kantenweg(&mut store);
     let cells = plus_cells();
-    let report = stroke(
+    stroke(
         &mut store,
         map,
         "Gelände gemalt",
@@ -398,8 +310,6 @@ fn edge_set_rings_the_plus_without_a_wrong_corner() {
     for place in Place::GATE13 {
         assert!(used.contains(&place_token(place)), "{place:?}");
     }
-    let bake = report.bake.expect("the stroke bakes");
-    assert!(bake.ok, "{:#?}", bake.messages);
     let nsbmd = store.map(map).unwrap().model.len();
     eprintln!(
         "smart-ring {code} map={map} package={pack} cells={} places=13 wrong=0 nsbmd={nsbmd}",

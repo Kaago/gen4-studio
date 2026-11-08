@@ -22,7 +22,9 @@
 //! ```
 mod common;
 
-use std::path::{Path, PathBuf};
+use common::world::exported_copy;
+
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -31,7 +33,6 @@ use g4_formats::game::Family;
 use g4_formats::map::{Cell, MapFile};
 use g4_formats::nsbtx::Nsbtx;
 use g4_kernel::bake::{Face, decode_quads};
-use g4_kernel::base::BaseRom;
 use g4_kernel::build::{self, StepStatus};
 use g4_kernel::error::KernelError;
 use g4_kernel::export::nsbmd_to_glb;
@@ -39,7 +40,7 @@ use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::Store;
 use g4_kernel::text::Severity;
 use g4_kernel::textproject::sync::{Keep, record_all, resolve};
-use g4_kernel::textproject::{ExportOptions, ImportOptions, check, export, import_with};
+use g4_kernel::textproject::{ImportOptions, check, import_with};
 use g4_kernel::world::doc::fixtures::gate_world;
 use g4_kernel::world::edit::{WorldCreateRequest, WorldEditRequest, world_create, world_edit};
 use g4_kernel::world::keep::world_field;
@@ -56,34 +57,6 @@ use common::glb::{
 
 /// Cells per row of a map.
 const N: usize = 32;
-
-/// A vanilla copy with its sibling `.nds` assigned as base ROM, exported with script adoption:
-/// the tempdir, the copy's root and the base ROM. `None` (after `skipped: …`) without
-/// `G4_TEST_PROJECT` or without the `.nds`.
-fn exported_copy() -> Option<(tempfile::TempDir, PathBuf, BaseRom)> {
-    let orig = common::vanilla_project()?;
-    let Some(nds) = g4_kernel::start::suggest_base(&orig) else {
-        eprintln!(
-            "skipped: no <Name>.nds with the same game code next to {}",
-            orig.display()
-        );
-        return None;
-    };
-    let (tmp, copy) = common::vanilla_copy()?;
-    let (check, _mark) = g4_kernel::start::assign_base(&copy, &nds).unwrap();
-    assert_eq!(check.refused, None);
-    let base = BaseRom::open(&nds, None).unwrap();
-    export(
-        &Project::open(&copy).unwrap(),
-        &base,
-        &ExportOptions {
-            adopt_scripts: true,
-            force: false,
-        },
-    )
-    .unwrap();
-    Some((tmp, copy, base))
-}
 
 fn ms(start: Instant) -> u128 {
     start.elapsed().as_millis()
