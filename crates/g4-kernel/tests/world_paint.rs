@@ -8,7 +8,7 @@
 //!   the label of `strokeLabel`: fill grass, brush, rectangle water, height twice, ramp,
 //!   height. Every stroke bakes within the limits, the project saves and builds a ROM and the
 //!   cheap check group finds no error.
-//! - Undo of every stroke leaves every file under `data/` and `project.json` as it was after
+//! - Undo of every stroke leaves every file under `data/` and the manifest `g4-project.json` as it was after
 //!   the recipe (SHA-1), no file added.
 //! - Every map texture package's tileset (as `tileset_get` derives it) and every tile's
 //!   texture (`tileset_texture`, a placeholder where it gives none).
@@ -42,7 +42,7 @@ use g4_kernel::checks::{
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::recipes::{self, RecipeCall};
 use g4_kernel::store::Store;
-use g4_kernel::textproject::{ExportOptions, export};
+use g4_kernel::textproject::{DATA_DIR, ExportOptions, MANIFEST_FILE, export};
 use g4_kernel::world::edit::{WorldEditRequest, WorldReport, world_edit};
 use g4_kernel::world::grid::{ramp_token, tile_token};
 use g4_kernel::world::tileset::tileset_texture;
@@ -356,7 +356,8 @@ fn paint_strokes(store: &mut Store, map: u16, pack: u16) -> Vec<(String, WorldRe
     out
 }
 
-/// SHA-1 of every file under `data/` and of `project.json`, by path relative to `root`.
+/// SHA-1 of every file under `data/` and of the manifest (`g4-project.json`, the plan's
+/// `project.json`), by path relative to `root`.
 fn hashes(root: &Path) -> BTreeMap<PathBuf, String> {
     fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<PathBuf, String>) {
         for entry in std::fs::read_dir(dir).unwrap() {
@@ -369,10 +370,10 @@ fn hashes(root: &Path) -> BTreeMap<PathBuf, String> {
         }
     }
     let mut out = BTreeMap::new();
-    walk(root, &root.join("data"), &mut out);
+    walk(root, &root.join(DATA_DIR), &mut out);
     out.insert(
-        PathBuf::from("project.json"),
-        sha1_of(&root.join("project.json")),
+        PathBuf::from(MANIFEST_FILE),
+        sha1_of(&root.join(MANIFEST_FILE)),
     );
     out
 }
