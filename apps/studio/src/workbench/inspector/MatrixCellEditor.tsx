@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { MATRIX_EMPTY, duplicateMap, getMap, setMatrixCell, tilesetEdit, worldAdopt } from "../../api";
+import { MATRIX_EMPTY, duplicateMap, getMap, setMatrixCell, worldAdopt } from "../../api";
 import type { EdgePlace } from "../../api.world";
 import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
@@ -21,7 +21,7 @@ import { usePaint } from "../paint/PaintContext";
 import { useWorld } from "../WorkbenchContext";
 import type { World } from "../worldModel";
 import styles from "./Editor.module.css";
-import { EdgeSetEditor } from "./EdgeSetEditor";
+import { EdgeSetEditor, useEdgeSetEdits } from "./EdgeSetEditor";
 import { PLACE_LABEL, withVariant } from "./edgeSets";
 import { ExportPartDialog } from "./ExportPartDialog";
 import { ImportPartsDialog } from "./ImportPartsDialog";
@@ -282,8 +282,8 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
   // The chosen place of the active edge set (section „Kantensätze“): while one is chosen, a palette click appends to it.
   const [edgePlace, setEdgePlace] = useState<EdgePlace | null>(null);
-  // An append in flight: a second click waits for it (it would put the set without the first tile).
-  const appending = useRef(false);
+  // The edits of the edge sets, shared by the palette's append and the section: one at a time, each building on the last set written.
+  const edgeEdits = useEdgeSetEdits(paint.tileset);
 
   const cell = `Zelle ${x}, ${y}`;
   // Bauen speaks of the world map and the area a cell belongs to; Tüfteln keeps the matrix ("Raster") and the header.
@@ -376,26 +376,28 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const chosenTile = Number.parseInt(paint.state.tile.slice(0, 4), 16);
   const choosePlain = (tile: string) => paint.set((s) => (s.sub === "brush" || s.sub === "rect" || s.sub === "fill" ? { tile } : { tile, sub: "brush" }));
   // The active edge set of the paint state in this tileset, and the place chosen in it (none without a file: nothing can be written).
-  const edgeSet = paint.tileset?.tileset.edge_sets?.find((s) => s.name === paint.state.edgeSet) ?? null;
-  const placing = edgeSet !== null && paint.tileset?.stored === true ? edgePlace : null;
-  // While a place is chosen, a palette click appends the clicked tile with the active turn and mirror (Z, X) to it: one `tileset_edit`;
-  // the token becomes the active tile, the sub-tool stays (T or K, painting with the set).
+  const edgeTileset = edgeEdits.shown;
+  const edgeSet = edgeTileset?.tileset.edge_sets?.find((s) => s.name === paint.state.edgeSet) ?? null;
+  const placing = edgeSet !== null && edgeTileset?.stored === true ? edgePlace : null;
+  // While a place is chosen, a palette click appends the clicked tile with the active turn and mirror (Z, X) to it: one `tileset_edit`
+  // built on the last set written; the token becomes the active tile, the sub-tool stays (T or K, painting with the set). While another
+  // edit of the sets runs the click does nothing (the palette's choice stays too).
   const chooseTile = (digits: string) => {
-    if (placing === null || edgeSet === null || !paint.tileset || map === null) return choosePlain(digits);
+    if (placing === null || edgeSet === null || map === null) return choosePlain(digits);
+    if (edgeEdits.running()) return;
     const turn = tileParts(paint.state.tile);
     const token = `${digits}${turn?.rotate ? `r${turn.rotate}` : ""}${turn?.flip ? "f" : ""}`;
     paint.set({ tile: token });
     const next = withVariant(edgeSet, placing, token);
-    if (next === edgeSet || appending.current) return;
-    appending.current = true;
-    void tilesetEdit(paint.tileset.package, [], [{ put: next }])
-      .then(
-        () => onMapImported(map),
-        (e: unknown) => onError(e),
-      )
-      .finally(() => {
-        appending.current = false;
-      });
+    if (next === edgeSet) return;
+    void (async () => {
+      try {
+        await edgeEdits.edit([], [{ put: next }]);
+        await onMapImported(map);
+      } catch (e) {
+        onError(e);
+      }
+    })();
   };
 
   return (
@@ -471,9 +473,11 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
                 onError={onError}
               />
             )}
-            {paint.tileset && (
+            {edgeTileset && (
               <EdgeSetEditor
-                tileset={paint.tileset}
+                tileset={edgeTileset}
+                busy={edgeEdits.busy}
+                edit={edgeEdits.edit}
                 active={paint.state.edgeSet}
                 place={placing}
                 tile={paint.state.tile}

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import { tilesetEdit, tilesetSave } from "../../api";
 import type { EdgePlace, EdgeSetJson, EdgeSetOp, TileChange, TilesetDto } from "../../api.world";
@@ -8,7 +8,7 @@ import { Button, InspectorRow, NumberField, Section, Segmented, TextField, Toolt
 import type { SegmentedOption } from "../../ui/primitives";
 import { tileImage } from "../../world/paint/paletteImages";
 import { tileParts } from "../../world/paint/ops";
-import { PLACE_GRID, PLACE_LABEL, completeness, newSet, placeTiles, withoutVariant } from "./edgeSets";
+import { PLACE_GRID, PLACE_LABEL, applyEdgeOps, completeness, newSet, placeTiles, withoutVariant } from "./edgeSets";
 import { useSectionOpen } from "./foldState";
 import { WallField } from "./TileEditor";
 import { TileFace, useTilePictures } from "./TilePalette";
@@ -45,6 +45,44 @@ function proposedName(sets: readonly EdgeSetJson[]): string {
 }
 
 /**
+ * One funnel for the edge set edits of a world map's tileset (the palette's append and the section's own changes): one edit at a time
+ * (`busy`; `edit` refuses a second one while the first runs), and until the tileset is read again after an edit, `shown` is the read
+ * tileset with the edits written since applied, so the next change builds on the last set written, never on the stale one (a quick
+ * second click would otherwise put the set without the first tile). A newly read tileset (refetch, undo, another package) drops them.
+ */
+export function useEdgeSetEdits(tileset: TilesetDto | null | undefined): {
+  shown: TilesetDto | null;
+  busy: boolean;
+  /** Whether an edit runs right now (also before `busy` reaches the next render). */
+  running: () => boolean;
+  edit: (changes: TileChange[], sets: EdgeSetOp[]) => Promise<unknown>;
+} {
+  const [written, setWritten] = useState<{ base: TilesetDto; ops: EdgeSetOp[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const running = useRef(false);
+  const current = useRef(tileset);
+  current.current = tileset;
+  const shown = useMemo(() => (tileset && written?.base === tileset ? applyEdgeOps(tileset, written.ops) : (tileset ?? null)), [tileset, written]);
+  const edit = useCallback(async (changes: TileChange[], sets: EdgeSetOp[]) => {
+    const base = current.current;
+    if (!base) return;
+    if (running.current) throw new Error("Die vorige Änderung am Kantensatz läuft noch.");
+    running.current = true;
+    setBusy(true);
+    try {
+      await tilesetEdit(base.package, changes, sets);
+      const now = current.current;
+      if (now) setWritten((w) => (w?.base === now ? { base: now, ops: [...w.ops, ...sets] } : { base: now, ops: sets }));
+    } finally {
+      running.current = false;
+      setBusy(false);
+    }
+  }, []);
+  const isRunning = useCallback(() => running.current, []);
+  return { shown, busy, running: isRunning, edit };
+}
+
+/**
  * The section „Kantensätze“ of a world map while painting (rule „Kantensatz-Editor: Ort und Bedienung“): the sets of the map's tileset
  * with the radio „Aktiv“ (the set T and K paint with, `onActive`) and their completeness, „Neuer Kantensatz“ (a name and the active
  * palette tile as its outside), the cliff's steps (state only) and the editor of the active set: the 13 + 2 places in their blocks, one
@@ -66,6 +104,7 @@ export function EdgeSetEditor({
   depth,
   rise = 2,
   onRise = () => {},
+  busy = false,
   edit = (changes, sets) => tilesetEdit(tileset.package, changes, sets),
   save = () => tilesetSave(tileset.package),
   image = tileImage,
@@ -83,6 +122,8 @@ export function EdgeSetEditor({
   /** The cliff's steps of the paint state and their change (1 to 8). */
   rise?: number;
   onRise?: (rise: number) => void;
+  /** Another edit of the sets runs (the palette's append): the changes wait. */
+  busy?: boolean;
   /** Where the changes go (the gallery writes nothing). */
   edit?: (changes: TileChange[], sets: EdgeSetOp[]) => Promise<unknown>;
   save?: () => Promise<unknown>;
@@ -97,7 +138,7 @@ export function EdgeSetEditor({
   const set = sets.find((s) => s.name === active) ?? null;
   const pictures = useTilePictures(tileset.package, tiles, image);
   const [working, setWorking] = useState(false);
-  const locked = !tileset.stored || working;
+  const locked = !tileset.stored || working || busy;
   const report = useRef(onError);
   report.current = onError;
 
@@ -111,7 +152,7 @@ export function EdgeSetEditor({
   }, [proposal]);
 
   async function run(op: () => Promise<unknown>, after?: () => void) {
-    if (working) return;
+    if (working || busy) return;
     setWorking(true);
     try {
       await op();

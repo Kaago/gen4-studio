@@ -1,4 +1,4 @@
-import type { EdgePlace, EdgeSetJson } from "../../api.world";
+import type { EdgePlace, EdgeSetJson, EdgeSetOp, TilesetDto } from "../../api.world";
 import { tileParts } from "../../world/paint/ops";
 
 /** The name of each place in the UI, as the kernel names it in its messages („Ecke innen NW“). */
@@ -81,4 +81,18 @@ export function placeTiles(set: EdgeSetJson): number[] {
     }
   }
   return [...tiles].sort((a, b) => a - b);
+}
+
+/** The tileset with edge set operations applied as the kernel applies them: `put` replaces the set of its name in place or appends, `remove` drops it. */
+export function applyEdgeOps(tileset: TilesetDto, ops: readonly EdgeSetOp[]): TilesetDto {
+  let sets = tileset.tileset.edge_sets ?? [];
+  for (const op of ops) {
+    if ("put" in op) {
+      const at = sets.findIndex((s) => s.name === op.put.name);
+      sets = at < 0 ? [...sets, op.put] : sets.map((s, i) => (i === at ? op.put : s));
+    } else {
+      sets = sets.filter((s) => s.name !== op.remove.name);
+    }
+  }
+  return { ...tileset, tileset: { ...tileset.tileset, edge_sets: sets } };
 }

@@ -344,6 +344,57 @@ describe("EdgeSetEditor", () => {
       await flush();
       expect(tilesetEdit).not.toHaveBeenCalled();
       expect(set).toHaveBeenCalledOnce();
+      // 6.4a: the plain tile, and from a tool that paints no tile back to the brush.
+      const patch = set.mock.calls[0][0];
+      expect(typeof patch === "function" ? patch({ ...INITIAL_PAINT, sub: "terrain" }) : patch).toEqual({ tile: "0007", sub: "brush" });
+      expect(typeof patch === "function" ? patch({ ...INITIAL_PAINT, sub: "fill" }) : patch).toEqual({ tile: "0007" });
+    });
+
+    const palette = (digits: string) => container.querySelector<HTMLButtonElement>(`[data-palette-tile="${digits}"]`)!;
+
+    it("a_quick_second_palette_click_keeps_the_first_tile", async () => {
+      let answer: (v: { package: number; tiles: number; change: number }) => void = () => {};
+      vi.mocked(tilesetEdit).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+      await showCell({ sub: "terrain", tile: "0003r1", edgeSet: "Weg" });
+      act(() => place("n").click());
+      act(() => palette("0007").click());
+      // While the first append runs, a second click does nothing, not even in the palette.
+      act(() => palette("0008").click());
+      expect(tilesetEdit).toHaveBeenCalledOnce();
+      expect(set).toHaveBeenCalledOnce();
+      await act(async () => answer({ package: 0, tiles: 0, change: 1 }));
+      await flush();
+      // The tileset is not read again yet: the next append builds on the set written, 0007r1 stays.
+      act(() => palette("0008").click());
+      await flush();
+      expect(tilesetEdit).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(tilesetEdit).mock.calls[1]).toEqual([0, [], [{ put: { ...WEG, places: { center: ["0006"], n: ["0007r1", "0008r1"] } } }]]);
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it("a_chip_removed_after_an_append_keeps_the_append", async () => {
+      await showCell({ sub: "terrain", tile: "0007r1", edgeSet: "Weg" }, [{ ...WEG, places: { center: ["0006", "000a"] } }]);
+      act(() => place("n").click());
+      act(() => palette("0007").click());
+      await flush();
+      act(() => place("center").click());
+      expect([...container.querySelectorAll("[data-edge-variant]")].map((c) => c.getAttribute("data-edge-variant"))).toEqual(["0006", "000a"]);
+      act(() => button("Entfernen", container.querySelector('[data-edge-variant="000a"]')!).click());
+      await flush();
+      expect(tilesetEdit).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(tilesetEdit).mock.calls[1]).toEqual([0, [], [{ put: { ...WEG, places: { center: ["0006"], n: ["0007r1"] } } }]]);
+      // The place shows the append before the tileset is read again.
+      expect(place("n").getAttribute("aria-label")).toBe("Kante N, 1 Kachel");
+    });
+
+    it("a_failing_refresh_after_an_append_goes_to_onError", async () => {
+      const failure = new Error("refetch");
+      onChanged.mockRejectedValueOnce(failure);
+      await showCell({ sub: "terrain", tile: "0007", edgeSet: "Weg" });
+      act(() => place("n").click());
+      act(() => palette("0007").click());
+      await flush();
+      expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
     });
 
     it("the_active_set_goes_to_the_paint_state", async () => {
