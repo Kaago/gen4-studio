@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Workbench from "./workbench/Workbench";
+import type { PaintModel } from "./workbench/paint/PaintContext";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
 import { DataStore, useDataLists } from "./data/dataStore";
 import type { DataArea } from "./data/dataModel";
@@ -106,6 +107,7 @@ import { useSceneLayers } from "./app/useSceneLayers";
 import { useShortcuts } from "./app/useShortcuts";
 import { useF6Ring } from "./app/useF6Ring";
 import { useStableCallback } from "./app/useStable";
+import { startPaintingWith } from "./workbench/recipes";
 import { useToastMirror } from "./app/useToastMirror";
 import { useWindowGuards } from "./app/useWindowGuards";
 import { useWizards } from "./app/useWizards";
@@ -788,6 +790,15 @@ function AppBody() {
   // panel shows, it is told again; that is listened for from the toast on (the dock may not exist before), once.
   const toolsToasted = useRef(false);
   const toolsReset = useRef<{ dispose: () => void } | null>(null);
+  // The paint state of „Gelände malen“ lives in the workbench (`PaintProvider`); the shortcuts read it through this ref.
+  const paintRef = useRef<PaintModel | null>(null);
+  // „Neue Karte malen“ and the step „Gelände anpassen“: the cell selected, the top view on, „Gelände malen“ with the brush.
+  const startPainting = useStableCallback((cell: { matrix: number; x: number; y: number }) =>
+    startPaintingWith(
+      { goTo: goToReference, setTopDown: shell.setTopDown, onTool, setPaint: (patch) => paintRef.current?.set(patch), frame: (c) => paintRef.current?.requestFrame?.(c) },
+      cell,
+    ),
+  );
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
@@ -818,6 +829,7 @@ function AppBody() {
     },
     placing: shell.pendingTrainer !== null,
     tool: shell.tool,
+    paint: () => paintRef.current,
     // The last use of Escape: a maximized group in the dock of the shown area gives way.
     onEscape: () => {
       const api = isDeckArea(area) ? docks[area].current : null;
@@ -1162,6 +1174,7 @@ function AppBody() {
     onDraft: setDraft,
     onOpenDialog: setDialogEditor,
     openStoryRecipe: storyRecipe.open,
+    startPainting,
     view: { showPermissions, setShowPermissions, showHeights, setShowHeights, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;
@@ -1607,7 +1620,7 @@ function AppBody() {
   const app = (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
-        <Workbench data={data} live={live} liveMode={liveMode}>
+        <Workbench data={data} live={live} liveMode={liveMode} paint={paintRef}>
           {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
           <TextAreaHost onShown={setTextShown}>
             <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>
@@ -1646,7 +1659,7 @@ function AppBody() {
                 pane={pane}
                 status={
                   <StatusLine
-                    left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
+                    left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} hover={pins.hover} depth={depth} /> : area === "texte" ? <TextHints /> : null}
                     middle={
                       showsWizard || startOpen ? (
                         <WizardStep />
@@ -1693,6 +1706,7 @@ function AppBody() {
         </Workbench>
         <WizardHost
           wizards={wizards}
+          startPainting={startPainting}
           world={live.world.world}
           headers={scene.headers}
           matrices={overview.matrices}

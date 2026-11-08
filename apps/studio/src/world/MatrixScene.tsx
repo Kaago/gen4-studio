@@ -1,4 +1,5 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { errorText } from "../api";
 import type { DraftDto, MatrixDto } from "../api";
 import type { Message } from "../app/message";
 import type { Tool } from "../ui/frame/shellState";
@@ -6,9 +7,14 @@ import type { InspectorModel } from "../workbench/Inspector";
 import { type CellRect, filledRect } from "../workbench/sceneScope";
 import type { EditBus } from "../bus/editBus";
 import { useBusQueue, useBusRevision } from "../bus/useBusEvent";
+import { usePaint } from "../workbench/paint/PaintContext";
+import { usePaintSession } from "./paint/usePaintSession";
+import { thumbnails } from "./thumbnailStore";
 import type { BuildingRef } from "./buildingLayer";
 import type { EventLock, EventRef } from "./events";
 import { eventsNote } from "./scene/eventFetch";
+import type { PaintCallbacks } from "./scene/strokes";
+import { setLayerVisible } from "./scene/worldMesh";
 import type { MapBuildings, ReportEvents, TileClick } from "./scene/types";
 import { useBuildingRefresh, useEventRefresh, useMapModelRefresh, useMapRefresh } from "./scene/useRefreshQueues";
 import { useDraft } from "./scene/useDraft";
@@ -17,7 +23,7 @@ import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
 import { useSceneTheme } from "./scene/useSceneTheme";
 import styles from "./MatrixScene.module.css";
-import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, useHeightVisibility, usePermissionVisibility, useTopDown } from "./scene/useSceneProps";
+import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, useHeightVisibility, usePermissionVisibility, useFrameRequest, useTopDown } from "./scene/useSceneProps";
 
 interface Props {
   /** The matrix the scene loads; its empty cells (null maps) are not loaded (see `scopedMatrix`). */
@@ -136,6 +142,47 @@ function MatrixScene({
   const buildingRefresh = useBusQueue(bus, "buildingsRefetch", (e) => ({ map: e.map, retryModel: e.retryModel }));
   const eventRefresh = useBusQueue(bus, "eventsRefetch", (e) => e.file);
   const modelsToken = useBusRevision(bus, "modelsReload");
+  // „Gelände malen“ on a world map: the session of the selected world map, read again whenever that map or the matrix moved behind
+  // its back (⌘Z, a world_edit over MCP); the refresh after its own stroke does not count (it reads the world itself).
+  const painting = usePaint();
+  const paintTarget = tool === "paint" ? painting.target : null;
+  const paintSub = paintTarget === null ? null : painting.state.sub;
+  const ownRefresh = useRef(false);
+  // `headerTable`: the undo of a tileset step (a file step on the header table) reaches the session this way, which reads its tileset again.
+  const paintRevision = useBusRevision(bus, (e) => !ownRefresh.current && (((e.topic === "mapModelReload" || e.topic === "mapRefetch") && e.map === paintTarget) || e.topic === "matrixData" || e.topic === "headerTable"));
+  const refreshPainted = useCallback(
+    (map: number) => {
+      ownRefresh.current = true;
+      try {
+        // The mesh (`mapModel`), the heights and colours (`get_map` through the map refresh queue, which rebuilds the layer „Höhen“).
+        bus.emit({ topic: "mapModelReload", map });
+        bus.emit({ topic: "mapRefetch", map });
+      } finally {
+        ownRefresh.current = false;
+      }
+      thumbnails.invalidate(map);
+      refs.callbacks.current.onEdited();
+    },
+    [bus],
+  );
+  const session = usePaintSession(paintTarget, paintRevision, refreshPainted, (e) => refs.callbacks.current.onError(errorText(e)), {
+    scene: () => refs.handle.current,
+    onNotice: (text) => refs.callbacks.current.onStatus({ kind: "info", text }),
+  });
+  // The status line (Tüfteln) names the tokens of the hovered cell from the world the session read last.
+  const publishWorld = painting.publishWorld;
+  useEffect(() => publishWorld?.(session.world), [publishWorld, session.world]);
+  // The inspector's palette shows the tiles of the tileset the session read.
+  const publishTileset = painting.publishTileset;
+  useEffect(() => publishTileset?.(session.tileset), [publishTileset, session.tileset]);
+  const paint: PaintCallbacks = {
+    sub: paintSub,
+    target: paintTarget,
+    onStroke: session.onStroke,
+    onPick: session.onPick,
+    onSelectCell: ({ col, row }) => onSelectCell({ x: col, y: row }),
+    look: session.look,
+  };
   const refs = useSceneRefs({
     showPermissions,
     showHeights,
@@ -143,7 +190,7 @@ function MatrixScene({
     eventFileId,
     destName,
     areaDataId,
-    callbacks: { paintEnabled, tool, onTileClick, onBuildings, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onSelectCell: ({ col, row }) => onSelectCell({ x: col, y: row }), onEventMoved, onEventsLocked },
+    callbacks: { paintEnabled, tool, onTileClick, onBuildings, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onSelectCell: ({ col, row }) => onSelectCell({ x: col, y: row }), onEventMoved, onEventsLocked, paint },
   });
   /** Shows (and reports upwards) what reading an event file gave: the note over the scene and its lock state. */
   const reportEvents: ReportEvents = (fetched) => {
@@ -165,12 +212,40 @@ function MatrixScene({
   useBuildingRefresh(refs, buildingRefresh, sceneBuilt);
   useEventSelection(refs, selectedEvent);
   useCellSelection(refs, matrix, selectedCell);
+  useFrameRequest(refs, painting.frame, matrix, topDown, paintTarget, sceneBuilt, () => painting.requestFrame?.(null));
   useFaultyEvents(refs, faultyEvents);
   useEventRefresh(refs, eventRefresh, reportEvents);
   usePermissionVisibility(refs, showPermissions);
   useHeightVisibility(refs, showHeights);
   useEventVisibility(refs, showEvents);
   const draftCount = useDraft(refs, draft, matrix, sceneBuilt);
+  // The canvas says which paint sub-tool paints (`data-paint-sub`) and how many strokes wait for their answer (`data-stroke-pending`);
+  // while one paints, the left button belongs to the strokes.
+  const pending = session.pending;
+  useEffect(() => {
+    const h = refs.handle.current;
+    if (!h) return;
+    h.setPaintPointer(paintSub !== null);
+    if (paintSub === null) delete h.canvas.dataset.paintSub;
+    else h.canvas.dataset.paintSub = paintSub;
+  }, [paintSub, sceneBuilt]);
+  useEffect(() => {
+    const h = refs.handle.current;
+    if (h) h.canvas.dataset.strokePending = String(pending);
+  }, [pending, sceneBuilt]);
+  // The eye of „Ebenen“: the layers hidden while painting the target map; leaving the map or the tool shows them again.
+  const hiddenLayers = paintTarget === null ? null : painting.hidden;
+  const layerCount = session.world?.world?.layers.length ?? 0;
+  const shownHidden = useRef<{ map: number; layers: number[] } | null>(null);
+  useEffect(() => {
+    const h = refs.handle.current;
+    if (!h) return;
+    const before = shownHidden.current;
+    const now = paintTarget === null || !hiddenLayers ? null : { map: paintTarget, layers: [...hiddenLayers].filter((l) => l < layerCount) };
+    if (before) for (const layer of before.layers) if (now?.map !== before.map || !now.layers.includes(layer)) setLayerVisible(h, before.map, layer, true);
+    if (now) for (const layer of now.layers) setLayerVisible(h, now.map, layer, false);
+    shownHidden.current = now;
+  }, [paintTarget, hiddenLayers, layerCount, sceneBuilt]);
 
   return (
     <div className={styles.scene} data-draft="" data-draft-count={draftCount}>

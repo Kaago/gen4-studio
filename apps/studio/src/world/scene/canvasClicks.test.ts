@@ -119,6 +119,19 @@ describe("attachCanvasClicks by tool", () => {
     expect(callbacks.onTileClick).not.toHaveBeenCalled();
   });
 
+  it("binary_maps_keep_collision_clicks", () => {
+    // A binary map: no paint sub-tool (`paint.sub` null), the click sets collision as before.
+    const binary = setup("paint");
+    binary.click();
+    expect(setPermission).toHaveBeenCalledOnce();
+    // A world map with a sub-tool: the canvas belongs to the strokes, the click neither paints collision nor selects.
+    const world = setup("paint", { marker: true, callbacks: { paint: { sub: "brush", target: MAP, onStroke: vi.fn(), onPick: vi.fn(), onSelectCell: vi.fn() } } });
+    world.click();
+    expect(setPermission).toHaveBeenCalledOnce();
+    expect(world.callbacks.onSelectEvent).not.toHaveBeenCalled();
+    expect(world.callbacks.onSelectCell).not.toHaveBeenCalled();
+  });
+
   it("paint_still_selects_a_marker_or_building_under_the_click_instead_of_painting", () => {
     const { callbacks, click } = setup("paint", { marker: true });
     click();

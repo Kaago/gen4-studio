@@ -111,6 +111,7 @@ export function fakeRefs(overrides: Partial<SceneCallbacks> = {}) {
     onSelectCell: vi.fn(),
     onEventMoved: vi.fn(),
     onEventsLocked: vi.fn(),
+    paint: { sub: null, target: null, onStroke: vi.fn(), onPick: vi.fn(), onSelectCell: vi.fn() },
     ...overrides,
   };
   const refs = {

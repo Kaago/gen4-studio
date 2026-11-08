@@ -561,7 +561,7 @@ export function FramePage() {
           <RecipeButton id="new_trainer_here" label="Neuer Trainer hier" icon="pokemon" area="pokemon" onClick={noop} size="s" />
           <RecipeButton id="story" label="Neue Geschichte" icon="stories" area="geschichten" onClick={noop} size="s" />
           <RecipeButton id="text" label="Neuer Text" icon="texts" area="texte" onClick={noop} size="s" />
-          <RecipeButton id="adjust_terrain" label="Gelände anpassen" icon="paint" area="welt" reason="Kommt mit Phase 6" onClick={noop} size="s" />
+          <RecipeButton id="adjust_terrain" label="Gelände anpassen" icon="paint" area="welt" onClick={noop} size="s" />
         </div>
       </section>
 

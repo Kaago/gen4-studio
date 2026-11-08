@@ -1,0 +1,100 @@
+# HeartGold DE, phase gate 6.4a: build and play the map painted in the browser on the copy of
+# hg-gemalt-buehne.yaml (the strokes of hg-gemalt.yaml with the tools of the surface, saved, door
+# warp and gift moved 32 tiles east with `call.sh update_event`). No edits (`mcp: []`, `edits: []`):
+# the run saves and builds (`build_rom`, step `world` bakes the painted map) and plays the steps of
+# hg-gemalt.yaml.
+#
+# Play (tiles absolute in the 2x1 matrix, the painted map from x 32): `clock 12:00`, down the stairs
+# to the door (44, 21) (the player steps west by itself to (43, 21)), the gift (46, 23) talked to
+# from (46, 22); the stair: 0 on (46, 21), 16 on the plateau (50, 21), back onto the upper stair
+# tile 12 (49, 21), up again; east on the plateau stops at (53, 21); down the stair and along row 25
+# to (52, 25), north against the plateau's wall stops at (52, 23): `shot tag`; `shot wasser` at (43,
+# 25), `shot wiese` at (48, 11); then into the grass for the battle. Then `clock 23:00`, `continue`
+# (the bedroom again, the save was never written), the same way to the wall and `shot nacht`. The
+# clock step: pt-gemalt.yaml of 6.3b (melonDS DS start time, `continue` after it).
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   NEUER_HEADER  the header of the area = the header count before the stage (540 on HeartGold DE)
+#   S_WILD L_WILD wild species and level (150 Mewtu, 5)
+# Example (from scripts/g4emu; docs/agent-gate.md, "Szenarien über MCP"):
+#   uv run g4emu scenario ../agent/scenarios/hg-gemalt-ui.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/6-4a-buehne-hg_DSPRE_contents \
+#     --out $W/target/agent/gate-$(date +%F)/6-4a/hg-gemalt-ui --set NEUER_HEADER=540 --set S_WILD=150 --set L_WILD=5
+game: IPKD
+mcp: []
+edits: []
+build: build/out.nds
+play:
+  # day: the clock at noon, the console restarts with it
+  - clock 12:00
+  - continue
+  - expect-map 64
+  - walk left 1
+  - walk down 1
+  - expect-map ${NEUER_HEADER}
+  - wait 150
+  - where
+  # the gift: past the door to (46, 22), face south, talk, through the text
+  - walk down 1
+  - walk-to 46 22
+  - press down:8
+  - press a
+  - mash a 300
+  - shot geschenk
+  # stair: ground 0, up the stair onto the plateau 16, back onto the upper stair tile 12, up again
+  - walk up 1
+  - expect-at 46 21
+  - expect-height 0
+  - walk right 4
+  - expect-at 50 21
+  - expect-height 16
+  - walk left 1
+  - expect-at 49 21
+  - expect-height 12 0.1
+  - walk right 1
+  - expect-at 50 21
+  - shot treppe
+  # east on the plateau: (54, 21) is blocked (16 E over (55, 21))
+  - walk-until-blocked right 8
+  - expect-at 53 21
+  - shot kante
+  # down the stair, along row 25 below the plateau; north, row 22 is blocked: the wall stops at
+  # (52, 23) after 2 steps (walk-until-blocked needs at least one step)
+  - walk left 6
+  - expect-at 47 21
+  - walk down 4
+  - walk right 5
+  - expect-at 52 25
+  - walk-until-blocked up 4
+  - expect-at 52 23
+  - shot tag
+  # the water (x 34-40, rows 24-29) west of (43, 25), the tall grass (x 48-60, rows 3-10) north of
+  # (48, 11); grass rate 100, every slot S_WILD
+  - walk down 2
+  - walk left 9
+  - expect-at 43 25
+  - shot wasser
+  - walk up 14
+  - walk right 5
+  - expect-at 48 11
+  - shot wiese
+  - walk-until-battle up 12 back-and-forth
+  - expect-battle ${S_WILD} ${L_WILD}
+  - wait 400
+  - shot gras
+  # night: the clock at 23:00, the console restarts (the bedroom of the save), the same place again
+  - clock 23:00
+  - continue
+  - expect-map 64
+  - walk left 1
+  - walk down 1
+  - expect-map ${NEUER_HEADER}
+  - wait 150
+  - walk down 1
+  - walk right 4
+  - walk down 3
+  - walk right 5
+  - expect-at 52 25
+  - walk-until-blocked up 4
+  - expect-at 52 23
+  - shot nacht

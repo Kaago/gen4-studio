@@ -27,6 +27,7 @@ pub enum RecipeId {
     FigureAppears,
     SceneOnEnter,
     RewardOnce,
+    NewPaintedMap,
 }
 
 impl RecipeId {
@@ -45,6 +46,7 @@ impl RecipeId {
             RecipeId::FigureAppears => "Figur erscheint/verschwindet ab Schritt",
             RecipeId::SceneOnEnter => "Szene beim Betreten",
             RecipeId::RewardOnce => "Belohnung einmalig",
+            RecipeId::NewPaintedMap => "Neue Karte malen",
         }
     }
 
@@ -63,6 +65,7 @@ impl RecipeId {
             RecipeId::FigureAppears,
             RecipeId::SceneOnEnter,
             RecipeId::RewardOnce,
+            RecipeId::NewPaintedMap,
         ]
     }
 }
@@ -151,6 +154,20 @@ pub struct Draft {
     pub notes: Vec<String>,
     /// What apply does that undo does not take back („Karte 0187 wird kopiert“).
     pub irreversible: Vec<String>,
+    /// The resolved ground of a painted map (`new_painted_map` without `source_map`), for the
+    /// dialog's tile choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub painted: Option<DraftPainted>,
+}
+
+/// The ground `new_painted_map` would paint: package, fill tile (its token, lowercase), height
+/// step and the header of the cell (`None`: a matrix without header column).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct DraftPainted {
+    pub tileset: u16,
+    pub fill_tile: String,
+    pub height: i8,
+    pub header: Option<u16>,
 }
 
 impl Draft {
@@ -210,18 +227,17 @@ impl<R: Serialize> Outcome<R> {
 
 /// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe or the
 /// step is no recipe the app runs (`edit_dialog` opens the dialog editor, `story_join` „Gespräch
-/// schaltet weiter“ with the figure set), else locked with `reason` „Kommt später“
-/// (`play_here`: „Kommt mit 3d.9“, `adjust_terrain`: „Kommt mit Phase 6“).
+/// schaltet weiter“ with the figure set, `adjust_terrain` the terrain painting of the new cell),
+/// else locked with `reason` „Kommt später“ (`play_here`: „Kommt mit 3d.9“).
 pub fn next_steps(ids: &[(&str, &str)]) -> Vec<NextStep> {
     ids.iter()
         .map(|&(id, label)| {
-            let known = matches!(id, "edit_dialog" | "story_join")
+            let known = matches!(id, "edit_dialog" | "story_join" | "adjust_terrain")
                 || serde_json::from_value::<RecipeId>(serde_json::Value::from(id))
                     .is_ok_and(|recipe| super::list().iter().any(|r| r.id == recipe));
             let reason = match id {
                 _ if known => None,
                 "play_here" => Some("Kommt mit 3d.9"),
-                "adjust_terrain" => Some("Kommt mit Phase 6"),
                 _ => Some("Kommt später"),
             };
             NextStep {
@@ -462,7 +478,7 @@ mod tests {
                 ("edit_dialog", true, None),
                 ("story_join", true, None),
                 ("play_here", false, Some("Kommt mit 3d.9")),
-                ("adjust_terrain", false, Some("Kommt mit Phase 6")),
+                ("adjust_terrain", true, None),
             ]
         );
     }

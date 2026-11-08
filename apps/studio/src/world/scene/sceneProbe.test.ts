@@ -48,4 +48,13 @@ describe("installSceneProbe", () => {
     expect(window.__g4SceneProbe?.tileToClient(20, 10)).toBeNull();
     none();
   });
+
+  it("stroke_pending_reads_the_canvas", () => {
+    const { h } = view();
+    const remove = installSceneProbe(h);
+    expect(window.__g4SceneProbe?.strokePending()).toBe(0);
+    h.canvas.dataset.strokePending = "2";
+    expect(window.__g4SceneProbe?.strokePending()).toBe(2);
+    remove();
+  });
 });

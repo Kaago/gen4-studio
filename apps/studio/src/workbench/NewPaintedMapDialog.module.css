@@ -1,0 +1,26 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-12);
+}
+
+/* „Boden“: the label above the palette, both the dialog's width. */
+.ground {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: var(--g4-raum-4);
+}
+
+.label {
+  margin: 0;
+  font: var(--g4-font-text-s-betont);
+  color: var(--g4-text-primaer);
+}
+
+/* The notes and a failed plan's notice take the dialog's width. */
+.form > [data-draft-notes],
+.form > [role="status"] {
+  align-self: stretch;
+}

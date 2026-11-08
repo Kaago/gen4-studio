@@ -8,11 +8,12 @@ import { createPicker } from "./picking";
 import { createHover } from "./pointerHover";
 import { installSceneProbe } from "./sceneProbe";
 import { SceneHost } from "./SceneHost";
+import { attachStrokes } from "./strokes";
 import type { ReportEvents, SceneRefs } from "./types";
 
 /**
  * Builds the scene host in `el` and wires the pointer interaction to it (hover, drags of the
- * selected building and event, clicks); all of it lives as long as the component. One effect on
+ * selected building and event, paint strokes, clicks); all of it lives as long as the component. One effect on
  * purpose: on unmount the interaction is detached first, then the host disposes the scene, as it
  * always did.
  */
@@ -33,6 +34,8 @@ export function useSceneSetup(el: RefObject<HTMLDivElement | null>, refs: SceneR
     const detachBuildingDrag = buildingDrag.attach();
     const eventDrag = createEventDrag(h, picker, surface, refs, report);
     const detachEventDrag = eventDrag.attach();
+    // Strokes go first: while a paint sub-tool paints a world map they take the press before the clicks and the drags.
+    const detachStrokes = attachStrokes(h, picker, refs);
     const detachClicks = attachCanvasClicks(h, picker, refs);
     const detachHover = hover.attach();
     // The agent gate's probe exists in the dev build only; the production build drops it with this branch.
@@ -41,6 +44,7 @@ export function useSceneSetup(el: RefObject<HTMLDivElement | null>, refs: SceneR
     return () => {
       detachBuildingDrag();
       detachEventDrag();
+      detachStrokes();
       detachClicks();
       detachHover();
       removeProbe?.();

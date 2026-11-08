@@ -1,0 +1,47 @@
+/* The section „Ebenen“ of a world map while painting: one row per layer, adding a layer below. */
+.body {
+  display: grid;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-4) var(--g4-raum-8) var(--g4-raum-8);
+}
+
+.rows {
+  display: grid;
+  gap: var(--g4-raum-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  min-height: var(--g4-dichte-steuer);
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.radio {
+  margin: 0;
+  accent-color: var(--g4-akzent-grund);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}

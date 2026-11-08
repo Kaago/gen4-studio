@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FloatingToolbar, isLowView, shownAnchor, toolbarMinHeight } from "../ui/frame/FloatingToolbar";
 import { RecipeBar } from "../ui/frame/RecipeBar";
 import { useShell } from "../ui/frame/ShellContext";
@@ -8,7 +8,10 @@ import type { RecipeEntry } from "./recipes";
 import { SceneBar } from "./SceneBar";
 import type { SceneBarProps } from "./SceneBar";
 import styles from "./SceneOverlays.module.css";
-import { TOOLS, eventToolsBlocked } from "./tools";
+import type { PaintSub } from "../world/paint/ops";
+import { usePaint } from "./paint/PaintContext";
+import { PAINT_TOOLS } from "./paintTools";
+import { eventToolsBlocked, toolsFor } from "./tools";
 import { useWorkbench } from "./WorkbenchContext";
 
 /**
@@ -21,25 +24,44 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
   const { tool, onTool, eventFileId, eventLock, selected, onOpenWizard } = useWorkbench();
   const { state, setToolbar, setTopDown, density, viewDepth } = useShell();
   const box = useRef<HTMLDivElement>(null);
+  // On a world map of the text project „Gelände malen“ paints tiles, heights and ramps: its sub-tools follow the tools while it is active.
+  const { state: paintState, set: setPaint, target } = usePaint();
+  const tools = toolsFor(target !== null);
+  const sub = tool === "paint" && target !== null ? paintState.sub : null;
+  const paint = useMemo(() => (sub === null ? null : { tools: PAINT_TOOLS, sub, onSub: (s: PaintSub) => setPaint({ sub: s }) }), [sub, setPaint]);
   const minHeight = toolbarMinHeight(density);
+  // The sub-tools make the upright bar longer: a view lower than this puts them as a second column beside the tools (the bar stays
+  // upright; it lies flat only below `minHeight`, as without them).
+  const stackedHeight = toolbarMinHeight(density, paint === null ? 0 : paint.tools.length);
   // Only whether the view is too low is kept, not its height, and the bars are memoised: dragging the splitter re-renders this component
-  // with every shell change, but the bars only when this flag, the anchor or their own props change. Measured before the first paint, so
-  // a low view never shows the upright bar for a frame; a view that is not measured (jsdom has no layout) is not low.
+  // with every shell change, but the bars only when these flags, the anchor or their own props change. Measured before the first paint,
+  // so a low view never shows the upright bar for a frame; a view that is not measured (jsdom has no layout) is not low.
   const [low, setLow] = useState(false);
+  const [beside, setBeside] = useState(false);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const measure = () => setLow(isLowView(el.getBoundingClientRect().height, minHeight));
+    const measure = () => {
+      const height = el.getBoundingClientRect().height;
+      setLow(isLowView(height, minHeight));
+      setBeside(isLowView(height, stackedHeight));
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [minHeight]);
+  }, [minHeight, stackedHeight]);
   const area = useCallback(() => box.current?.getBoundingClientRect() ?? null, []);
   // The four event tools wait for a shown place and an event file that may be written.
   const eventsBlocked = eventToolsBlocked(eventLock, eventFileId);
   const anchor = shownAnchor(state.toolbar, low);
+  // Height and ramp paint steps: choosing one shows the layer „Höhen“ (the rule of the layer bar hides „Gelände“ then); leaving them
+  // keeps the layer as it is.
+  const { onShowHeights } = layers;
+  useEffect(() => {
+    if (sub === "height" || sub === "ramp") onShowHeights(true);
+  }, [sub, onShowHeights]);
   // „Raum anlegen“ puts the door outside into the selected area or room.
   const onRecipe = useCallback(
     (id: RecipeEntry["id"]) => {
@@ -55,7 +77,7 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
         <RecipeBar entries={RECIPE_BAR} onRecipe={onRecipe} density={density} anchor={anchor} />
       ) : (
         <FloatingToolbar
-          tools={TOOLS}
+          tools={tools}
           tool={tool}
           onTool={onTool}
           eventsBlocked={eventsBlocked}
@@ -64,6 +86,8 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
           chosen={state.toolbar}
           onAnchor={setToolbar}
           area={area}
+          paint={paint}
+          paintBeside={beside}
         />
       )}
     </div>

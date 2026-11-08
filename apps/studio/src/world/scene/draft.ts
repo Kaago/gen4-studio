@@ -24,7 +24,7 @@ function cellHeight(matrix: MatrixDto, col: number, row: number): number {
  * A dashed rectangle (four segments) from (`x0`, `z0`) to (`x1`, `z1`) at height `y`, in the selection colour at half opacity: the
  * selection colour dashed says „geplant“. Drawn over everything (no depth test) after the tiles.
  */
-function dashedFrame(x0: number, z0: number, x1: number, z1: number, y: number): THREE.LineSegments {
+export function dashedFrame(x0: number, z0: number, x1: number, z1: number, y: number): THREE.LineSegments {
   const geometry = new THREE.BufferGeometry();
   // Four segments, each a pair of points: north, east, south, west.
   geometry.setAttribute("position", new THREE.Float32BufferAttribute([

@@ -535,6 +535,8 @@ export function InspectorPanel() {
         onError: d.onError,
         onMapImported: d.onMapImported,
         checks: d.checks,
+        painting: d.tool === "paint",
+        family: d.info?.family ?? null,
       }}
     />
   );

@@ -105,6 +105,16 @@ export const TOOLS: ToolSpec[] = [
   },
 ];
 
+/** The tooltip hint of „Gelände malen“ on a world map of the text project (6.4a); a binary map keeps the collision hint of `TOOLS`. */
+export const WORLD_PAINT_HINT = "Malt Kacheln, Höhen und Rampen auf die gewählte Welt-Karte.";
+
+const WORLD_TOOLS: ToolSpec[] = TOOLS.map((t) => (t.id === "paint" ? { ...t, hint: WORLD_PAINT_HINT } : t));
+
+/** The tools as the toolbar shows them for the selected map: on a world map „Gelände malen“ says that it paints tiles, heights and ramps. */
+export function toolsFor(worldMap: boolean): ToolSpec[] {
+  return worldMap ? WORLD_TOOLS : TOOLS;
+}
+
 /** The tool a typed letter switches to (upper or lower case), or null for any other key. */
 export function toolForKey(key: string): Tool | null {
   const upper = key.toUpperCase();

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextStep } from "../../api";
+import { nextStepsFor, startPaintingWith } from "../recipes";
 import { DoneResult } from "./WizardResult";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -52,5 +53,26 @@ describe("DoneResult", () => {
     expect(keys()).toEqual([]);
     expect(container.querySelector("[data-next-steps]")).toBeNull();
     expect(container.textContent).toContain("Als Nächstes");
+  });
+
+  it("adjust_terrain_starts_painting", () => {
+    // The step after „Neue Karte malen“ (and „Gebiet erweitern“) is free: it selects the map's cell, turns the top view on and paints
+    // with the brush. The app wires the same function (`App` → `startPainting`, `WizardHost.step` for a result with `Created.cell`).
+    const app = { goTo: vi.fn(), setTopDown: vi.fn(), onTool: vi.fn(), setPaint: vi.fn(), frame: vi.fn() };
+    const cell = { matrix: 0, x: 4, y: 27 };
+    act(() =>
+      root.render(
+        <DoneResult title="Karte gemalt" lines={[]} next={[]} steps={nextStepsFor("new_painted_map")} onStep={(id) => id === "adjust_terrain" && startPaintingWith(app, cell)} />,
+      ),
+    );
+    const key = keys()[0]!;
+    expect([key.getAttribute("data-recipe"), key.textContent, key.disabled]).toEqual(["adjust_terrain", "Gelände anpassen", false]);
+    act(() => key.click());
+    expect(app.goTo).toHaveBeenCalledExactlyOnceWith({ kind: "matrixCell", matrix: 0, x: 4, y: 27, show: "map" });
+    expect(app.setTopDown).toHaveBeenCalledExactlyOnceWith(true);
+    // The new cell is framed top-down (the scene does it once the refreshed matrix holds the map), also when the top view was on.
+    expect(app.frame).toHaveBeenCalledExactlyOnceWith({ matrix: 0, x: 4, y: 27 });
+    expect(app.onTool).toHaveBeenCalledExactlyOnceWith("paint");
+    expect(app.setPaint).toHaveBeenCalledExactlyOnceWith({ sub: "brush" });
   });
 });

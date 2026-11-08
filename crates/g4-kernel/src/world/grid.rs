@@ -4,8 +4,9 @@
 //! its path). The grid knows no tileset: tile indices against the package are checked by the
 //! text project check, the footprint of a piece against the edge by the mesher.
 //!
-//! Tokens: a tile is `.` or four hex digits (`0012`), optionally `r1` to `r3` (quarter turns
-//! counter-clockwise seen from above), then optionally `f` (mirrored at the z axis after the
+//! Tokens: a tile is `.` or four hex digits (`0012`), optionally `r1` to `r3` (quarter turns:
+//! seen from above with north up, the picture turns clockwise; its texture coordinates turn
+//! counter-clockwise, see `mesh::uv_of`), then optionally `f` (mirrored at the z axis after the
 //! turn); read in any case, written lowercase. A height is a whole number from −16 to 62
 //! (steps of [`STEP_UNITS`](super::doc::STEP_UNITS)). A ramp is `.` or a direction `n`, `e`,
 //! `s`, `w` (uphill) with 1 or 2 steps. An override is `.` or `kkcc` like the permissions.

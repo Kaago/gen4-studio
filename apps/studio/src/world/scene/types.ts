@@ -6,6 +6,7 @@ import type { InspectorModel } from "../../workbench/Inspector";
 import type { BuildingRef } from "../buildingLayer";
 import type { EventLock, EventRef } from "../events";
 import type { SceneHost } from "./SceneHost";
+import type { PaintCallbacks } from "./strokes";
 
 /** A map the scene has fetched (the scene mutates `map` as permissions and buildings change). */
 export interface Loaded {
@@ -54,6 +55,8 @@ export interface SceneCallbacks {
   onSelectCell: (cell: { col: number; row: number }) => void;
   onEventMoved: (eventFile: number) => void;
   onEventsLocked: (lock: EventLock | null) => void;
+  /** Painting a world map (6.4a): `sub` null while no paint sub-tool paints (another tool, a binary map); clicks then work as before. */
+  paint: PaintCallbacks;
 }
 
 /**

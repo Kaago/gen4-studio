@@ -252,6 +252,20 @@ describe("ExtendAreaDialog", () => {
     expect(onDraft).toHaveBeenLastCalledWith(null);
   });
 
+  it("paint_instead_only_in_the_text_project", async () => {
+    // The DSPRE layout has no world maps: no „Stattdessen neu malen“ without the switch.
+    show();
+    expect(dialog().querySelector("[data-paint-instead]")).toBeNull();
+    const onPaintInstead = vi.fn();
+    act(() => root.render(<ExtendAreaDialog matrix={matrix} x={2} y={0} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} onDraft={onDraft} onPaintInstead={onPaintInstead} />));
+    const paint = dialog().querySelector<HTMLButtonElement>("[data-paint-instead]")!;
+    expect(paint.textContent).toBe("Stattdessen neu malen");
+    await act(async () => paint.click());
+    expect(onPaintInstead).toHaveBeenCalledOnce();
+    expect(extendArea).not.toHaveBeenCalled();
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
   it("warns_when_the_plan_fails_and_still_creates", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.mocked(recipePlan).mockRejectedValue({ code: "error", message: "Karte 0011 fehlt", asset: null });

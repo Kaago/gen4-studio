@@ -9,9 +9,11 @@ import type { PanelHeadSwitcher } from "../ui/primitives";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { AreaGrid, cellKey } from "./AreaGrid";
+import { useTextProject } from "../textproject/TextProjectContext";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
 import type { HeaderIdentity } from "./headerIdentity";
 import { MoreAreas } from "./MoreAreas";
+import { NewPaintedMapDialog } from "./NewPaintedMapDialog";
 import type { NavTarget } from "./navigation";
 import type { CellRect } from "./sceneScope";
 import { buildPlaces, mapsText, placeColor } from "./places";
@@ -464,6 +466,10 @@ interface ExtendTarget {
   areaName: string | null;
   /** The header of that area or room: the dialog proposes it where the copied cell is landscape (header 0). */
   areaHeader: number | null;
+  /** „Stattdessen neu malen“ was pressed: „Neue Karte malen“ shows for the cell instead of the copy. */
+  painting?: boolean;
+  /** The cell may be painted anew instead (a „+“ of the world map or the room plan in a text project). */
+  paintable?: boolean;
 }
 
 /**
@@ -601,16 +607,18 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   const onPlanClick = useCallback((x: number, y: number) => plan && selectMap(plan, x, y, selected), [plan, selected, selectMap]);
 
   const [extendAt, setExtendAt] = useState<ExtendTarget | null>(null);
+  // The DSPRE layout has no world maps: only a text project paints a new map instead of copying one.
+  const textProject = useTextProject().active;
   // The dialog belongs to the matrix it was opened for: another view or matrix ends it.
   useEffect(() => setExtendAt(null), [shownIndex]);
   const onWorldExtend = useCallback(
     (x: number, y: number) => {
       if (!region) return;
       const prefer = firstNeighbour(region, x, y, (i) => areaCells.has(cellKey(i % region.width, Math.floor(i / region.width))));
-      // The copied cell lies in the selected area, so its own header is the area's.
-      setExtendAt({ matrix: region.index, x, y, prefer, areaName: selectedArea?.name ?? null, areaHeader: null });
+      // The copied cell lies in the selected area, so its own header is the area's. In a text project the cell may be painted instead.
+      setExtendAt({ matrix: region.index, x, y, prefer, areaName: selectedArea?.name ?? null, areaHeader: null, paintable: textProject });
     },
-    [region, areaCells, selectedArea],
+    [region, areaCells, selectedArea, textProject],
   );
   const onPlanExtend = useCallback(
     (x: number, y: number) => {
@@ -619,9 +627,10 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
       // The new map belongs to the room or area of the copied cell (the shown header without header section).
       const own = prefer && plan.headers ? plan.headers[prefer.y * plan.width + prefer.x] : undefined;
       const header = own === undefined || own === LANDSCAPE ? selectedHeader : headers.find((h) => h.id === own);
-      setExtendAt({ matrix: plan.index, x, y, prefer, areaName: header ? identify(header).name : null, areaHeader: header?.id ?? null });
+      // An area with its own map grows here too (the gate paints east of a 1x1 area): a text project may paint the cell instead.
+      setExtendAt({ matrix: plan.index, x, y, prefer, areaName: header ? identify(header).name : null, areaHeader: header?.id ?? null, paintable: textProject });
     },
-    [plan, selectedHeader, headers, identify],
+    [plan, selectedHeader, headers, identify, textProject],
   );
   /** The extend dialog is done: a created copy shows in the counts and the matrix; a failed attempt may have left a copy behind, so it refreshes the same. */
   const afterExtend = useCallback(
@@ -762,8 +771,27 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           <PlaceList places={places} depth={depth} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} identify={identify} />
         </div>
       )}
-      {extendAt && extendMatrix && (
+      {extendAt && extendMatrix && extendAt.painting && (
+        <NewPaintedMapDialog
+          matrix={extendMatrix}
+          x={extendAt.x}
+          y={extendAt.y}
+          depth={depth}
+          onDraft={onDraft}
+          onDone={(report) => {
+            // The dialog then starts painting the new cell (`startPainting`).
+            setExtendAt(null);
+            if (report) void afterExtend(extendMatrix.index);
+          }}
+          onError={(e) => {
+            onError(e);
+            void afterExtend(extendMatrix.index);
+          }}
+        />
+      )}
+      {extendAt && extendMatrix && !extendAt.painting && (
         <ExtendAreaDialog
+          onPaintInstead={extendAt.paintable ? () => setExtendAt({ ...extendAt, painting: true }) : undefined}
           matrix={extendMatrix}
           x={extendAt.x}
           y={extendAt.y}

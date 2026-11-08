@@ -88,6 +88,7 @@ pub use tmj::{
 };
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
+pub use edit::{LayerOp, WorldLayersRequest, world_layers};
 pub use freeform::{
     APICULA_UNIT, FREEFORM_LAYER, FREEFORM_UNIT, FreeformAddRequest, FreeformReport,
     SIDE_FILE_CODE, SIDE_NAME_MAX, SideModels, WorldFaces, freeform_file, freeform_label,

@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
 import type { HeaderPatchDto, MatrixDto } from "../../../api";
+import type { LayerOp, TileJson, TileRole, TilesetDto, WorldJson } from "../../../api.world";
+import { LayerList } from "../../../workbench/inspector/LayerList";
+import { TilePalette } from "../../../workbench/inspector/TilePalette";
+import { PAINT_TOOLS } from "../../../workbench/paintTools";
+import { toolsFor } from "../../../workbench/tools";
+import type { PaintSub } from "../../../world/paint/ops";
+import { FloatingToolbar } from "../../frame/FloatingToolbar";
+import type { Tool, ToolbarAnchor } from "../../frame/shellState";
 import { AreaGrid, cellKey } from "../../../workbench/AreaGrid";
 import { InspectorHead } from "../../../workbench/inspector/InspectorHead";
 import { placeColor } from "../../../workbench/places";
@@ -267,9 +275,100 @@ function Budgets() {
   );
 }
 
+/** „Gelände malen“ on a world map: the tools with the sub-tools as a second group, the brush pressed. */
+function PaintTools() {
+  const [tool, setTool] = useState<Tool>("paint");
+  const [sub, setSub] = useState<PaintSub>("brush");
+  const [at, setAt] = useState<ToolbarAnchor>("top");
+  return (
+    <div className={`${styles.toolbarView} ${styles.toolbarViewFlat} ${styles.paintToolbarView}`} data-depth="bauen">
+      <FloatingToolbar
+        tools={toolsFor(true)}
+        tool={tool}
+        onTool={setTool}
+        eventsBlocked={null}
+        density="komfort"
+        anchor={at}
+        chosen={at}
+        onAnchor={setAt}
+        paint={tool === "paint" ? { tools: PAINT_TOOLS, sub, onSub: setSub } : null}
+      />
+    </div>
+  );
+}
+
+const exampleTile = (texture: string, role: TileRole): TileJson => ({
+  texture,
+  texture_index: 0,
+  size: [32, 32],
+  role,
+  kind: 0,
+  collision: 0,
+  height: role === "ramp" ? "ramp" : role === "wall" ? "wall" : "flat",
+  origin: "synthetic",
+});
+/** A package of every role (no pictures: the gallery has no project, each tile shows the colour of its role). */
+const EXAMPLE_TILESET: TilesetDto = {
+  package: 65535,
+  stored: false,
+  tileset: {
+    version: 1,
+    package: 65535,
+    tiles: [
+      exampleTile("weg", "ground"),
+      exampleTile("erde", "ground"),
+      exampleTile("gras_a", "grass"),
+      exampleTile("wasser_a", "water"),
+      exampleTile("fels", "wall"),
+      exampleTile("treppe", "ramp"),
+      exampleTile("baum", "piece"),
+    ],
+  },
+};
+const NO_PICTURE = async () => null;
+
+/** The palette of a world map, the second ground tile chosen turned a quarter and mirrored. */
+function PaletteStill() {
+  const [tile, setTile] = useState("0001r1f");
+  return (
+    <div className={styles.inspectorWide} data-depth="bauen">
+      <TilePalette tileset={EXAMPLE_TILESET} tile={tile} onTile={setTile} depth="bauen" image={NO_PICTURE} />
+    </div>
+  );
+}
+
+const EXAMPLE_WORLD: WorldJson = {
+  version: 1,
+  tileset: 65535,
+  layers: [
+    { name: "Boden", role: "ground", tiles: [] },
+    { name: "Büsche", role: "overlay", tiles: [] },
+  ],
+  permissions: { derive: true },
+};
+/** The gallery writes nothing. */
+const NO_EDIT = async (_op: LayerOp) => undefined;
+
+/** The layers of a world map: the ground active, the overlay „Büsche“ to hide and remove. */
+function LayersStill() {
+  const [active, setActive] = useState(0);
+  const [hidden, setHidden] = useState<ReadonlySet<number>>(new Set());
+  const toggle = (layer: number) =>
+    setHidden((h) => {
+      const next = new Set(h);
+      if (!next.delete(layer)) next.add(layer);
+      return next;
+    });
+  return (
+    <div className={styles.inspectorWide} data-depth="bauen">
+      <LayerList map={667} world={EXAMPLE_WORLD} active={active} hidden={hidden} onActive={setActive} onToggle={toggle} onError={noop} edit={NO_EDIT} />
+    </div>
+  );
+}
+
 /**
  * Phase 3f „Weltmodell“: the world map with its views and the room plan, places, the patch line and the shared room, with example data;
- * phase 6.2 adds the budget and the height steps.
+ * phase 6.2 adds the budget and the height steps, phase 6.4a the paint tools, the palette and the layers.
  */
 export function WorldPage() {
   return (
@@ -320,6 +419,33 @@ export function WorldPage() {
           mit Stufenwechsel, auf der höheren Seite. „Höhen“ und „Gelände“ schließen sich aus.
         </p>
         <HeightSteps />
+      </section>
+
+      <section className={styles.block} data-gallery-state="malwerkzeuge">
+        <h2 className={styles.blockTitle}>Malwerkzeuge</h2>
+        <p className={styles.note}>
+          „Gelände malen“ auf einer Welt-Karte: die Unterwerkzeuge als zweite Gruppe der Leiste (Pinsel B, Rechteck P, Füllen G, Radierer E, Pipette I, Höhe H, Rampe R),
+          genau eins gedrückt.
+        </p>
+        <PaintTools />
+      </section>
+
+      <section className={styles.block} data-gallery-state="palette">
+        <h2 className={styles.blockTitle}>Palette</h2>
+        <p className={styles.note}>
+          Die Kacheln des Pakets nach Rolle, je eine Taste 32 × 32 mit der ganzen Textur; ohne Bild die Farbe der Rolle (hier überall: die Galerie hat kein Projekt). Die
+          gewählte Kachel zeigt Drehung und Spiegelung als kleine Marke.
+        </p>
+        <PaletteStill />
+      </section>
+
+      <section className={styles.block} data-gallery-state="ebenen">
+        <h2 className={styles.blockTitle}>Ebenen</h2>
+        <p className={styles.note}>
+          Je Ebene Name und Rolle, „Aktiv“ für die Ebene, die der Pinsel malt, das Auge nur für die Szene; „Entfernen“ nur bei Überlagerungen, darunter „Ebene
+          hinzufügen“.
+        </p>
+        <LayersStill />
       </section>
 
       <section className={styles.block} data-gallery-state="geteilt">

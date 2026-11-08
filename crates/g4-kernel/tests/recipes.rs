@@ -178,9 +178,9 @@ fn assert_untouched(store: &Store, root: &Path, before: &Untouched) {
     }
 }
 
-fn locked_step(next: &[NextStep], id: &str, reason: &str) -> bool {
+fn free_step(next: &[NextStep], id: &str) -> bool {
     next.iter()
-        .any(|s| s.id == id && !s.available && s.reason.as_deref() == Some(reason))
+        .any(|s| s.id == id && s.available && s.reason.is_none())
 }
 
 #[test]
@@ -545,11 +545,7 @@ fn extend_apply_keeps_its_label_and_report() {
     assert_eq!((r.map, r.width, r.height), (3, 3, 1));
     assert_eq!(store.undo_depth(), depth + 1);
     assert_eq!(store.history().0.last().unwrap(), "extend area");
-    assert!(locked_step(
-        &outcome.next,
-        "adjust_terrain",
-        "Kommt mit Phase 6"
-    ));
+    assert!(free_step(&outcome.next, "adjust_terrain"));
     let dto = outcome.into_dto().unwrap();
     assert_eq!(dto.report, json!({ "map": 3, "width": 3, "height": 1 }));
 

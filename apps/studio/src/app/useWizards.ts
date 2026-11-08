@@ -9,6 +9,8 @@ export interface Created {
   announcement: string;
   /** The name the wizard asked for: the world tree calls the header so (`namedByWizard`). */
   name?: string;
+  /** The cell of `matrix` a recipe made a map in: the step „Gelände anpassen“ paints it. */
+  cell?: { x: number; y: number };
 }
 
 interface WizardsParams {

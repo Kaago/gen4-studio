@@ -123,10 +123,10 @@ pub struct WorldChange {
     pub permission: Option<String>,
 }
 
-/// What `world_create`, `world_edit` or `world_to_binary` did: the map, its package, the cells
-/// it set (a new world: all 1024 of the ground; giving the world up: 0), the undo step (`None`:
-/// nothing recorded) and the bake of the step (`None` when it baked nothing: the world given
-/// up). A refused bake is in its messages, never an error of the call: the stroke stays.
+/// What `world_create`, `world_edit`, `world_layers` or `world_to_binary` did: the map, its
+/// package, the cells it set (a new world: all 1024 of the ground; a layer added or removed or
+/// the world given up: 0), the undo step (`None`: nothing recorded) and the bake of the step
+/// (`None` when it baked nothing: the world given up). A refused bake is in its messages, never an error of the call: the stroke stays.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorldReport {
     pub map: u16,
@@ -1404,5 +1404,346 @@ mod tests {
         let mut store = store(&fx);
         assert_eq!(refused(store.world(0)), WORLD_NEEDS_TEXT_PROJECT);
         assert!(!maps.exists());
+    }
+}
+
+/// `world_layers`: add an overlay named `name` or remove overlay `layer`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub enum LayerOp {
+    Add { name: String },
+    Remove { layer: u8 },
+}
+
+/// `world_layers`: the map and what to do with its layers.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldLayersRequest {
+    pub map: u16,
+    pub op: LayerOp,
+}
+
+/// The ground layer cannot go.
+const GROUND_STAYS: &str = "Die Bodenebene (0) bleibt.";
+/// A layer name that is empty after trimming.
+const LAYER_NEEDS_NAME: &str = "Eine Ebene braucht einen Namen.";
+
+/// „Ebene „Büsche“ gibt es schon.“
+fn layer_taken(name: &str) -> String {
+    format!("Ebene „{name}“ gibt es schon.")
+}
+
+/// One undo step: `Add` appends an overlay (role `overlay`, 32 rows of `.`) named `name`
+/// (trimmed), label „Ebene „Büsche“ angelegt: Karte 0123“; `Remove` drops overlay `layer`, label
+/// „Ebene 2 „Büsche“ entfernt: Karte 0123“.
+///
+/// Refused ([`KernelError::Refused`], nothing changed) as [`world_edit`] (outside a text
+/// project, a map without world, a locked map, a world that does not read into cells) and with
+/// „Die Bodenebene (0) bleibt.“, „Eine Ebene braucht einen Namen.“, „Ebene „Büsche“ gibt es
+/// schon.“ (names compared trimmed, case-sensitive) and a layer the world lacks
+/// ([`no_layer`]). [`WorldReport::cells`] is 0.
+pub fn world_layers(
+    store: &mut Store,
+    req: &WorldLayersRequest,
+) -> Result<WorldReport, KernelError> {
+    require_text_project(store)?;
+    let map = req.map;
+    let mut world = store
+        .world(map)?
+        .cloned()
+        .ok_or_else(|| refused(not_a_world_map(map)))?;
+    refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
+    first_error(&world)?;
+    let label = match &req.op {
+        LayerOp::Add { name } => {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err(refused(LAYER_NEEDS_NAME.to_owned()));
+            }
+            if world.layers.iter().any(|l| l.name.trim() == name) {
+                return Err(refused(layer_taken(name)));
+            }
+            world.layers.push(super::doc::LayerJson {
+                name: name.to_owned(),
+                role: super::doc::LayerRole::Overlay,
+                tiles: vec![vec![EMPTY; MAP_CELLS].join(" "); MAP_CELLS],
+                heights: None,
+                ramps: None,
+            });
+            format!("Ebene „{name}“ angelegt: Karte {map:04}")
+        }
+        LayerOp::Remove { layer } => {
+            if *layer == 0 {
+                return Err(refused(GROUND_STAYS.to_owned()));
+            }
+            let at = usize::from(*layer);
+            if at >= world.layers.len() {
+                return Err(refused(no_layer(*layer, map, world.layers.len())));
+            }
+            let removed = world.layers.remove(at);
+            format!("Ebene {layer} „{}“ entfernt: Karte {map:04}", removed.name)
+        }
+    };
+    first_error(&world)?;
+    let package = world.tileset;
+    let (bake, change) = store.transaction(&label, |tx| {
+        tx.edit_world(map, |w| {
+            *w = Some(world);
+            Ok(())
+        })?;
+        Ok(tx.bake_report(map))
+    })?;
+    Ok(WorldReport {
+        map,
+        tileset: package,
+        cells: 0,
+        change,
+        bake,
+    })
+}
+
+#[cfg(test)]
+mod layer_tests {
+    use std::sync::Arc;
+
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::test_support::TextFixture;
+    use crate::textproject::canon::to_canonical;
+    use crate::world::doc::LayerRole;
+    use crate::world::grid::WorldGrid;
+    use crate::world::tileset::{Tileset, tileset_rel};
+
+    /// A text project with the synthetic tileset as package 0, its store and the world of map 0.
+    fn fixture() -> (TextFixture, Store) {
+        let fx = TextFixture::exported();
+        let tileset = Tileset {
+            package: 0,
+            ..Tileset::synthetic()
+        };
+        fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&tileset));
+        let mut store = Store::new(Arc::new(fx.project()));
+        let req = serde_json::from_value(json!({"map": 0, "tileset": 0})).unwrap();
+        world_create(&mut store, &req).unwrap();
+        (fx, store)
+    }
+
+    fn layers(store: &mut Store, value: Value) -> Result<WorldReport, KernelError> {
+        world_layers(store, &serde_json::from_value(value).unwrap())
+    }
+
+    fn world(store: &mut Store) -> WorldJson {
+        store.world(0).unwrap().cloned().unwrap()
+    }
+
+    fn refused<T: std::fmt::Debug>(r: Result<T, KernelError>) -> String {
+        match r {
+            Err(KernelError::Refused(text)) => text,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Refused with `text`, nothing changed.
+    fn refuses(store: &mut Store, value: Value, text: &str) {
+        let before = world(store);
+        let history = store.history();
+        assert_eq!(refused(layers(store, value)), text);
+        assert_eq!(world(store), before);
+        assert_eq!(store.history(), history);
+    }
+
+    #[test]
+    fn adding_a_layer_is_one_step() {
+        let (_fx, mut store) = fixture();
+        let before = world(&mut store);
+        let report = layers(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": "  Büsche "}}}),
+        )
+        .unwrap();
+        assert_eq!((report.map, report.tileset, report.cells), (0, 0, 0));
+        assert!(report.change.is_some());
+        let now = world(&mut store);
+        assert_eq!(now.layers.len(), 2);
+        let added = &now.layers[1];
+        assert_eq!(added.name, "Büsche");
+        assert_eq!(added.role, LayerRole::Overlay);
+        assert_eq!(added.tiles, vec![vec!["."; 32].join(" "); 32]);
+        assert_eq!((&added.heights, &added.ramps), (&None, &None));
+        assert_eq!(now.layers[0], before.layers[0]);
+        assert_eq!(
+            store.history().0,
+            [
+                "Welt angelegt: Karte 0000",
+                "Ebene „Büsche“ angelegt: Karte 0000"
+            ]
+        );
+        store.undo().unwrap();
+        assert_eq!(world(&mut store).layers.len(), 1);
+        assert_eq!(world(&mut store), before);
+        store.redo().unwrap();
+        assert_eq!(world(&mut store), now);
+    }
+
+    #[test]
+    fn removing_an_overlay_is_one_step() {
+        let (_fx, mut store) = fixture();
+        let before = world(&mut store);
+        layers(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": "Büsche"}}}),
+        )
+        .unwrap();
+        layers(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": "Zaun"}}}),
+        )
+        .unwrap();
+        let two = world(&mut store);
+        let report = layers(
+            &mut store,
+            json!({"map": 0, "op": {"remove": {"layer": 1}}}),
+        )
+        .unwrap();
+        assert_eq!((report.map, report.tileset, report.cells), (0, 0, 0));
+        assert!(report.change.is_some());
+        let now = world(&mut store);
+        let names: Vec<&str> = now.layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["Boden", "Zaun"]);
+        assert_eq!(
+            store.history().0.last().unwrap(),
+            "Ebene 1 „Büsche“ entfernt: Karte 0000"
+        );
+        store.undo().unwrap();
+        assert_eq!(world(&mut store), two);
+        layers(
+            &mut store,
+            json!({"map": 0, "op": {"remove": {"layer": 2}}}),
+        )
+        .unwrap();
+        layers(
+            &mut store,
+            json!({"map": 0, "op": {"remove": {"layer": 1}}}),
+        )
+        .unwrap();
+        assert_eq!(world(&mut store), before);
+    }
+
+    #[test]
+    fn the_ground_stays() {
+        let (_fx, mut store) = fixture();
+        refuses(
+            &mut store,
+            json!({"map": 0, "op": {"remove": {"layer": 0}}}),
+            "Die Bodenebene (0) bleibt.",
+        );
+    }
+
+    #[test]
+    fn a_blank_or_taken_name_is_refused() {
+        let (_fx, mut store) = fixture();
+        refuses(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": "   "}}}),
+            "Eine Ebene braucht einen Namen.",
+        );
+        layers(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": "Büsche"}}}),
+        )
+        .unwrap();
+        refuses(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": " Büsche"}}}),
+            "Ebene „Büsche“ gibt es schon.",
+        );
+        refuses(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": "Boden"}}}),
+            "Ebene „Boden“ gibt es schon.",
+        );
+        // Names differ by case.
+        layers(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": "büsche"}}}),
+        )
+        .unwrap();
+        // Unknown fields are refused by serde.
+        assert!(
+            serde_json::from_value::<WorldLayersRequest>(
+                json!({"map": 0, "op": {"add": {"name": "A", "role": "ground"}}})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_missing_layer_is_refused() {
+        let (_fx, mut store) = fixture();
+        refuses(
+            &mut store,
+            json!({"map": 0, "op": {"remove": {"layer": 1}}}),
+            "Ebene 1 gibt es nicht (Karte 0000 hat 1).",
+        );
+        refuses(
+            &mut store,
+            json!({"map": 0, "op": {"remove": {"layer": 7}}}),
+            "Ebene 7 gibt es nicht (Karte 0000 hat 1).",
+        );
+    }
+
+    #[test]
+    fn layers_need_the_text_project() {
+        let fx = TextFixture::dspre();
+        let mut store = Store::new(Arc::new(fx.project()));
+        let add = json!({"map": 0, "op": {"add": {"name": "Büsche"}}});
+        assert_eq!(
+            refused(layers(&mut store, add.clone())),
+            WORLD_NEEDS_TEXT_PROJECT
+        );
+        assert!(store.history().0.is_empty());
+        // A map without world.
+        let (_fx, mut store) = fixture();
+        assert_eq!(
+            refused(layers(
+                &mut store,
+                json!({"map": 1, "op": {"add": {"name": "Büsche"}}})
+            )),
+            not_a_world_map(1)
+        );
+        // A locked map.
+        store
+            .lock(
+                crate::project::AssetId {
+                    kind: crate::project::AssetKind::Map,
+                    index: 0,
+                },
+                "gesperrt",
+            )
+            .unwrap();
+        refuses(&mut store, add, &super::super::keep::locked_map_refusal(0));
+    }
+
+    #[test]
+    fn painting_on_an_added_layer() {
+        let (_fx, mut store) = fixture();
+        layers(
+            &mut store,
+            json!({"map": 0, "op": {"add": {"name": "Büsche"}}}),
+        )
+        .unwrap();
+        let req = serde_json::from_value(
+            json!({"map": 0, "changes": [{"layer": 1, "cells": [[2, 5]], "tile": "0003"}]}),
+        )
+        .unwrap();
+        world_edit(&mut store, &req).unwrap();
+        let grid = WorldGrid::parse(&world(&mut store)).unwrap();
+        assert_eq!(grid.layers[1].tiles[5 * 32 + 2].unwrap().tile, 3);
+        assert_eq!(grid.layers[1].tiles[5 * 32 + 3], None);
+        assert_eq!(store.history().0.len(), 3);
+        store.undo().unwrap();
+        store.undo().unwrap();
+        assert_eq!(world(&mut store).layers.len(), 1);
     }
 }

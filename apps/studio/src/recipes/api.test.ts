@@ -12,6 +12,8 @@ import type {
   FigureAppearsReport,
   NewFigureInput,
   NewFigureReport,
+  NewPaintedMapInput,
+  NewPaintedMapReport,
   NewStoryInput,
   NewStoryReport,
   NewTrainerHereInput,
@@ -45,7 +47,7 @@ describe("recipes/api", () => {
       created: [{ kind: "Map", index: 3 }],
       change: 7,
       changed: [{ kind: "Matrix", index: 0 }],
-      next: [{ id: "adjust_terrain", label: "Gelände anpassen", available: false, reason: "Kommt mit Phase 6" }],
+      next: [{ id: "adjust_terrain", label: "Gelände anpassen", available: true, reason: null }],
     };
     invoke.mockResolvedValueOnce(outcome);
     await expect(recipeApply<{ map: number }>("extend_area", input)).resolves.toBe(outcome);
@@ -71,6 +73,7 @@ describe("recipes/api", () => {
       figure_appears: true,
       scene_on_enter: true,
       reward_once: true,
+      new_painted_map: true,
     } satisfies Record<RecipeId, true>;
     expect(Object.keys(every)).toEqual(Object.keys(RECIPE_TITLES));
     // The kernel's `RecipeId::title`, in the order of `all()`.
@@ -87,6 +90,7 @@ describe("recipes/api", () => {
       "Figur erscheint/verschwindet ab Schritt",
       "Szene beim Betreten",
       "Belohnung einmalig",
+      "Neue Karte malen",
     ]);
   });
 
@@ -166,6 +170,16 @@ describe("recipes/api", () => {
       },
     ];
     expect(reports.map((r) => Object.keys(r).length)).toEqual([7, 3, 8]);
+  });
+
+  it("new_painted_map_carries_the_rust_names_and_the_painted_draft", async () => {
+    const painted: DraftDto = { ...empty, cells: [{ matrix: 0, x: 4, y: 27, source_map: 3 }], irreversible: ["Karte 0667 wird angelegt"], painted: { tileset: 6, fill_tile: "0000", height: 0, header: 411 } };
+    invoke.mockResolvedValueOnce(painted);
+    const input: NewPaintedMapInput = { matrix: 0, x: 4, y: 27, name: "Waldweg", tileset: 6, fill_tile: "0003r1f", height: 2, header: 411 };
+    await expect(recipePlan("new_painted_map", input)).resolves.toBe(painted);
+    expect(invoke).toHaveBeenCalledWith("recipe_plan", { recipe: "new_painted_map", input });
+    const report: NewPaintedMapReport = { map: 667, name: "Waldweg", matrix: 0, x: 4, y: 27, width: 31, height: 30, header: 411, tileset: 6, base: 3, bake: null };
+    expect(Object.keys(report)).toEqual(["map", "name", "matrix", "x", "y", "width", "height", "header", "tileset", "base", "bake"]);
   });
 
   it("draft_count_counts_cells_tiles_and_events_of_the_matrix", () => {

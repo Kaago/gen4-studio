@@ -250,6 +250,7 @@ pub const COMMANDS: &[&str] = &[
     "world_export_tmj",
     "world_inspect_tmj",
     "world_import_tmj",
+    "world_layers",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1364,6 +1365,11 @@ pub fn dispatch(
                 world_import_tmj_impl(state, a.map, path_text(&path)?)
             }
         ),
+        "world_layers" => run!(
+            json, "world_layers", args,
+            { req: g4_kernel::world::WorldLayersRequest },
+            |a| world_layers_impl(state, a.req)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1886,6 +1892,11 @@ mod tests {
             ),
             ("world_inspect_tmj", json!({ "map": 0, "path": per_in })),
             ("world_import_tmj", json!({ "map": 0, "path": per_in })),
+            // Outside a text project: refused before anything is written.
+            (
+                "world_layers",
+                json!({ "req": { "map": 0, "op": { "add": { "name": "Brücke" } } } }),
+            ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -1955,7 +1966,8 @@ mod tests {
                 "talk_advances",
                 "figure_appears",
                 "scene_on_enter",
-                "reward_once"
+                "reward_once",
+                "new_painted_map"
             ]
         );
         let args = json!({ "recipe": "extend_area", "input": {

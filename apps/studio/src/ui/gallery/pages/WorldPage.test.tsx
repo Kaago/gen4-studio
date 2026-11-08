@@ -81,9 +81,34 @@ describe("WorldPage", () => {
     expect(state("hoehen").textContent).toContain("Isolinien");
   });
 
+  it("shows_the_paint_tools_the_palette_and_the_layers", async () => {
+    const tools = state("malwerkzeuge");
+    expect([...tools.querySelectorAll("[data-paint-tool]")].map((b) => b.getAttribute("data-paint-tool"))).toEqual(["brush", "rect", "fill", "erase", "pick", "height", "ramp"]);
+    expect(tools.querySelector('[data-paint-tool="brush"]')?.getAttribute("aria-pressed")).toBe("true");
+    act(() => tools.querySelector<HTMLButtonElement>('[data-paint-tool="fill"]')!.click());
+    expect(tools.querySelector('[data-paint-tool="fill"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    // Placeholders: no project, every tile in the colour of its role.
+    await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    const palette = state("palette").querySelector("[data-paint-palette]")!;
+    expect([...palette.querySelectorAll("[data-palette-role] h4")].map((h) => h.textContent)).toEqual(["Boden", "Gras", "Wasser", "Wand", "Rampe", "Teilmodell"]);
+    expect(palette.querySelector("canvas")).toBeNull();
+    const chosen = palette.querySelector('[aria-pressed="true"]')!;
+    expect(chosen.querySelector("[data-palette-mark]")).not.toBeNull();
+    act(() => palette.querySelector<HTMLButtonElement>('[data-palette-tile="0001"]')!.click());
+    expect(palette.querySelector('[data-palette-tile="0001"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    const layers = state("ebenen").querySelector("[data-paint-layers]")!;
+    expect(layers.querySelector('[data-layer-row="0"]')?.textContent).toContain("Boden · Boden");
+    expect(layers.querySelector('[data-layer-row="1"]')?.textContent).toContain("Büsche · Überlagerung");
+    const eye = layers.querySelector<HTMLButtonElement>('[data-layer-row="1"] button[aria-label="Verbergen"]')!;
+    act(() => eye.click());
+    expect(layers.querySelector('[data-layer-row="1"] button[aria-label="Zeigen"]')?.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("speaks_bauen_without_raster_matrix_or_header", () => {
     const bauen = [...container.querySelectorAll('[data-depth="bauen"]')];
-    expect(bauen.length).toBeGreaterThanOrEqual(7);
+    expect(bauen.length).toBeGreaterThanOrEqual(10);
     for (const part of bauen) expect(visibleWords(part)).not.toMatch(/Raster|Matrix|Header/);
   });
 });

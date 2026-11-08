@@ -1,5 +1,6 @@
 import { invoke } from "../platform/transport";
 import type { AssetId, AssetKind } from "../api";
+import type { WorldBakeReport } from "../api.world";
 
 /**
  * The recipes (phase 3d.2), mirroring `apps/studio/src-tauri/src/commands/recipes.rs` and `g4_kernel::recipes`. `api.ts`
@@ -19,7 +20,8 @@ export type RecipeId =
   | "talk_advances"
   | "figure_appears"
   | "scene_on_enter"
-  | "reward_once";
+  | "reward_once"
+  | "new_painted_map";
 
 /** The title of each recipe (the kernel's `RecipeId::title`), in the order of `RecipeId::all()`; what `recipeList` names without asking. */
 export const RECIPE_TITLES: Readonly<Record<RecipeId, string>> = {
@@ -35,6 +37,7 @@ export const RECIPE_TITLES: Readonly<Record<RecipeId, string>> = {
   figure_appears: "Figur erscheint/verschwindet ab Schritt",
   scene_on_enter: "Szene beim Betreten",
   reward_once: "Belohnung einmalig",
+  new_painted_map: "Neue Karte malen",
 };
 
 /** A recipe as `recipeList` names it: `irreversible` when applying it always does something undo does not take back. */
@@ -78,6 +81,8 @@ export interface DraftDto {
   messages: { archive: number | null; text: string }[];
   notes: string[];
   irreversible: string[];
+  /** A painted map (`new_painted_map`): its tileset, the tile and height of every ground cell and the header it copies (null: none). */
+  painted?: { tileset: number; fill_tile: string; height: number; header: number | null };
 }
 
 /** A recipe that makes sense next, as a button: `reason` says when a locked one comes („Kommt mit 3d.9“, „Kommt später“). */
@@ -347,4 +352,38 @@ export interface RewardOnceReport {
   previous_slot: number;
   archive: number;
   message: number;
+}
+
+/**
+ * The input of „Neue Karte malen“ (`g4_kernel::recipes::new_painted_map`, text project only): the cell (`x`, `y`) of world map
+ * `matrix` (absent: 0), the name (required), and what the kernel otherwise takes from the neighbour: the package (`tileset`), the
+ * ground tile (`fill_tile`, a token like `0003r1f`), the height in steps (−16 to 62, absent: 0), the header and a map whose world to
+ * copy (`source_map`).
+ */
+export interface NewPaintedMapInput {
+  matrix?: number;
+  x: number;
+  y: number;
+  name: string;
+  tileset?: number;
+  fill_tile?: string;
+  height?: number;
+  header?: number;
+  source_map?: number;
+}
+
+/** What „Neue Karte malen“ did: map `map` in cell (`x`, `y`) of `matrix` (its size afterwards), its header, package, the map it is a
+ * copy of without buildings (`base`) and the bake of its world (null: none). */
+export interface NewPaintedMapReport {
+  map: number;
+  name: string;
+  matrix: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  header: number | null;
+  tileset: number;
+  base: number;
+  bake: WorldBakeReport | null;
 }

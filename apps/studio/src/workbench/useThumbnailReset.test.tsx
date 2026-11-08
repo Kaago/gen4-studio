@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus } from "../bus/editBus";
+import * as paletteImages from "../world/paint/paletteImages";
 import * as tileNames from "../world/scene/tileNames";
 import * as sprites from "../world/sprites";
 import { ThumbnailCache } from "../world/thumbnails";
@@ -68,6 +69,18 @@ describe("useThumbnailReset", () => {
     expect(reset).not.toHaveBeenCalled();
     act(() => root.render(<Probe projectRoot="/b" />));
     expect(reset).toHaveBeenCalledTimes(1);
+    reset.mockRestore();
+  });
+
+  it("forgets_the_palette_pictures_with_another_project_and_on_models_reload", () => {
+    const reset = vi.spyOn(paletteImages, "resetTileImages");
+    act(() => root.render(<Probe projectRoot="/a" />));
+    act(() => root.render(<Probe projectRoot="/a" />));
+    expect(reset).not.toHaveBeenCalled();
+    act(() => root.render(<Probe projectRoot="/b" />));
+    expect(reset).toHaveBeenCalledTimes(1);
+    bus.emit({ topic: "modelsReload" });
+    expect(reset).toHaveBeenCalledTimes(2);
     reset.mockRestore();
   });
 

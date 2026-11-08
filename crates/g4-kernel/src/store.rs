@@ -907,10 +907,41 @@ impl Tx<'_> {
             return Err(mismatch(map_id));
         };
         let verbatim = Verbatim::of(&world, &base);
-        let baked = bake_world(self.store, map, &world, &base, &verbatim)?;
+        let baked =
+            self.with_staged_layout(|store| bake_world(store, map, &world, &base, &verbatim))?;
         self.bakes.retain(|r| r.map != map);
         self.bakes.push(baked.report);
         self.stage(map_id, Loaded::Map(baked.file))
+    }
+
+    /// Runs `f` on the store with this transaction's staged matrices and header table in place
+    /// of the store's, the store's own again afterwards: a bake finds the area of its map
+    /// through them, and a matrix cell set in the same step (`new_painted_map`) must count.
+    fn with_staged_layout<T>(&mut self, f: impl FnOnce(&mut Store) -> T) -> T {
+        fn swap(store: &mut Store, staged: &mut [Staged]) {
+            let layout = |kind| matches!(kind, AssetKind::Matrix | AssetKind::HeaderTable);
+            for s in staged.iter_mut().filter(|s| layout(s.asset.kind)) {
+                if let Some(asset) = store.assets.get_mut(&s.asset) {
+                    std::mem::swap(&mut asset.current, &mut s.edited);
+                }
+            }
+        }
+        /// Swaps the store's own layout back when dropped, also when `f` panics.
+        struct Restore<'s> {
+            store: &'s mut Store,
+            staged: &'s mut [Staged],
+        }
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                swap(self.store, self.staged);
+            }
+        }
+        swap(self.store, &mut self.staged);
+        let restore = Restore {
+            store: &mut *self.store,
+            staged: &mut self.staged,
+        };
+        f(&mut *restore.store)
     }
 
     /// Edits text archive `index`.
