@@ -468,7 +468,7 @@ interface ExtendTarget {
   areaHeader: number | null;
   /** „Stattdessen neu malen“ was pressed: „Neue Karte malen“ shows for the cell instead of the copy. */
   painting?: boolean;
-  /** The cell may be painted anew instead (a world map's „+“ in a text project). */
+  /** The cell may be painted anew instead (a „+“ of the world map or the room plan in a text project). */
   paintable?: boolean;
 }
 
@@ -627,9 +627,10 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
       // The new map belongs to the room or area of the copied cell (the shown header without header section).
       const own = prefer && plan.headers ? plan.headers[prefer.y * plan.width + prefer.x] : undefined;
       const header = own === undefined || own === LANDSCAPE ? selectedHeader : headers.find((h) => h.id === own);
-      setExtendAt({ matrix: plan.index, x, y, prefer, areaName: header ? identify(header).name : null, areaHeader: header?.id ?? null });
+      // An area with its own map grows here too (the gate paints east of a 1x1 area): a text project may paint the cell instead.
+      setExtendAt({ matrix: plan.index, x, y, prefer, areaName: header ? identify(header).name : null, areaHeader: header?.id ?? null, paintable: textProject });
     },
-    [plan, selectedHeader, headers, identify],
+    [plan, selectedHeader, headers, identify, textProject],
   );
   /** The extend dialog is done: a created copy shows in the counts and the matrix; a failed attempt may have left a copy behind, so it refreshes the same. */
   const afterExtend = useCallback(
