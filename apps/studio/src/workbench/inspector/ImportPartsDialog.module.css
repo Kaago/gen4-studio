@@ -77,3 +77,8 @@
   gap: var(--g4-raum-4);
   margin-top: var(--g4-raum-2);
 }
+
+/* One coordinate of „Lage“: three narrow number fields side by side. */
+.coordinate {
+  width: calc(var(--g4-raum-24) * 4);
+}

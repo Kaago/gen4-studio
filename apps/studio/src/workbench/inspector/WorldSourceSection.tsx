@@ -17,6 +17,13 @@ export function adoptedText(report: WorldAdoptReport): string {
   return n === 1 ? "Übernommen. 1 Kachel weicht von der Höhe ab." : `Übernommen. ${number(n)} Kacheln weichen von der Höhe ab.`;
 }
 
+/** The notice after „Als glTF übernehmen (Form 2)“: the polygons of the vanilla model and the faces the baker drew. */
+export function adoptedGltfText(report: WorldAdoptReport): string {
+  const f = report.form2;
+  if (f == null) return adoptedText(report);
+  return `Übernommen als glTF: ${number(f.vanilla.polygons)} Vanilla-Polygone, ${number(f.baked.faces)} gebackene Flächen.`;
+}
+
 /** The bake as read: the report, or the command's refusal (a world whose rows do not read). */
 type BakeRead = { map: number; revision: number; bake: WorldBakeReport | null; error: string | null };
 
@@ -49,7 +56,8 @@ function BakeLine({ read }: { read: BakeRead | undefined }) {
 
 /**
  * The section „Quelle“ of a map cell: a binary map (from the ROM or DSPRE) offers „Karte als Quelle übernehmen“ (Form 1, one undo step;
- * locked outside a text project with the reason), a world map shows its bake and offers „Als binäre Karte übernehmen“. The bake is read
+ * locked outside a text project with the reason) and „Als glTF übernehmen (Form 2)“ (its refusal is a notice here), a world map shows its
+ * bake and offers „Als binäre Karte übernehmen“. The bake is read
  * (`world_bake`, what the store holds) when the map or `revision` changes, never per render. After either command `onChanged` lets the
  * app catch up (scene, pictures, dirty count); a refusal goes to `onError`.
  */
@@ -72,6 +80,8 @@ export function WorldSourceSection({
   const [working, setWorking] = useState(false);
   // The notice of the last adoption, for the map it belongs to.
   const [adopted, setAdopted] = useState<{ map: number; text: string } | null>(null);
+  // The refusal of Form 2, for the map it belongs to (Form 1's refusal goes to `onError`).
+  const [refused, setRefused] = useState<{ map: number; text: string } | null>(null);
   const [read, setRead] = useState<BakeRead | undefined>();
   const reasonId = useId();
   const report = useRef(onError);
@@ -94,14 +104,15 @@ export function WorldSourceSection({
     if (!world) setAdopted(null);
   }, [world]);
 
-  async function run(op: () => Promise<unknown>) {
+  async function run(op: () => Promise<unknown>, refusal?: (e: unknown) => void) {
     if (working) return;
     setWorking(true);
+    setRefused(null);
     try {
       await op();
       await onChanged?.(map);
     } catch (e) {
-      report.current?.(e);
+      (refusal ?? report.current)?.(e);
     } finally {
       setWorking(false);
     }
@@ -112,6 +123,14 @@ export function WorldSourceSection({
       const done = await worldAdopt(map);
       setAdopted({ map, text: adoptedText(done) });
     });
+  const adoptGltf = () =>
+    run(
+      async () => {
+        const done = await worldAdopt(map, "gltf");
+        setAdopted({ map, text: adoptedGltfText(done) });
+      },
+      (e) => setRefused({ map, text: errorText(e) }),
+    );
   const toBinary = () =>
     run(async () => {
       await worldToBinary(map);
@@ -149,6 +168,17 @@ export function WorldSourceSection({
                 >
                   Karte als Quelle übernehmen
                 </Button>
+                <Button
+                  kind="secondary"
+                  size="s"
+                  data-world-adopt="gltf"
+                  disabled={!textProject}
+                  aria-disabled={(textProject && working) || undefined}
+                  aria-describedby={textProject ? undefined : reasonId}
+                  onClick={() => textProject && void adoptGltf()}
+                >
+                  Als glTF übernehmen (Form 2)
+                </Button>
               </div>
               {!textProject && (
                 <p id={reasonId} className={styles.note}>
@@ -158,6 +188,7 @@ export function WorldSourceSection({
             </>
           )}
           {notice !== null && <Notice kind="success">{notice}</Notice>}
+          {refused?.map === map && <Notice kind="error">{refused.text}</Notice>}
         </div>
       </Section>
     </div>

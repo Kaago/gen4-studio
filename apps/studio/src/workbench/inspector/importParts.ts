@@ -1,4 +1,4 @@
-import type { MapPart, PartMessage, PartReport } from "../../api";
+import type { BudgetState, MapPart, PartMessage, PartReport, TexturePreview, TmjError, TmjImportReport } from "../../api";
 import type { PickerItem } from "../../ui/primitives";
 import type { CheckState } from "../../ui/primitives/CheckList";
 import { id4 } from "../terms";
@@ -91,7 +91,27 @@ const IGNORED_WORDS: Readonly<Record<string, string>> = {
 /** What a part check says, as the dialog shows it: the German sentence of its code; the kernel's (English) sentence for a code it does not know. */
 export function partText({ code, args, message }: PartMessage): string {
   const text = PART_TEXTS[code];
-  if (text === undefined) return message;
+  return text === undefined ? message : fill(text, args);
+}
+
+/**
+ * The German sentence of the codes of world maps and the Tiled exchange (6.5b) that the import dialog and „Quelle“ show; apart from
+ * PART_TEXTS, which holds exactly `PartCode::ALL`. Placeholders as in PART_TEXTS.
+ */
+export const WORLD_TEXTS: Readonly<Record<string, string>> = {
+  "world.side-file": "Das Beifile {0} fehlt oder lässt sich nicht lesen. Füge das Modell neu hinzu.",
+  "world.adopt-texture": "Ein Material der Karte bindet keine Textur ihres Gebiets-Pakets; Form 2 geht für diese Karte nicht, Form 1 schon.",
+  "tmj.buildings-ignored": "Die Gebäude der Tiled-Datei weichen von denen der Karte ab und werden nicht übernommen; Gebäude bearbeitest du im Studio.",
+};
+
+/** A message of a world map or a TMJ import: its sentence from WORLD_TEXTS, else as a part check says it. */
+export function worldText(m: PartMessage): string {
+  const text = WORLD_TEXTS[m.code];
+  return text === undefined ? partText(m) : fill(text, m.args);
+}
+
+/** `text` with its placeholders filled from `args` (see PART_TEXTS). */
+function fill(text: string, args: readonly string[]): string {
   return text.replace(/\{(\d+)(?::(num|family|dec|ignored))?\}/g, (_, n: string, format?: string) => {
     const value = args[Number(n)] ?? "";
     if (format === "num" && /^\d+$/.test(value)) return Number(value).toLocaleString("de-DE");
@@ -119,11 +139,40 @@ export function previewLines(r: PartReport): string[] {
     const { format, stats, strips } = p.model;
     lines.push(`${FORMAT_WORDS[format] ?? format} · ${de(stats.quads)} Vierecke · ${de(stats.triangles)} Dreiecke · ${de(strips)} Streifen`);
   }
-  for (const t of p.textures) {
-    const size = `${t.width} × ${t.height}`;
-    lines.push(t.new ? `${t.name} · ${size} · ${t.colors} Farben · neu` : `${t.name} · ${size} · im Paket`);
-  }
+  lines.push(...textureLines(p.textures));
   lines.push(`VRAM des Gebiets ${de(p.vram_bytes)} B · Vanilla höchstens ${de(p.vram_limit)} B`);
+  return lines;
+}
+
+/** One line per texture: „g4_imp_cube · 16 × 16 · 16 Farben · neu“, a texture of the pack „g4_imp_cube · 16 × 16 · im Paket“. */
+export function textureLines(textures: readonly TexturePreview[]): string[] {
+  return textures.map((t) => {
+    const size = `${t.width} × ${t.height}`;
+    return t.new ? `${t.name} · ${size} · ${t.colors} Farben · neu` : `${t.name} · ${size} · im Paket`;
+  });
+}
+
+/** The game's limit of a map model (`world::MODEL_BUDGET`, 0xF000 bytes). */
+export const MODEL_BUDGET = 0xf000;
+
+/** A world bake's model against the limit as „Budget“ shows it: full above it, tight from 90 % (`terrain::budget_state`). */
+export function modelBudget(bytes: number): { used: number; max: number; state: BudgetState } {
+  const state: BudgetState = bytes > MODEL_BUDGET ? "full" : bytes * 10 >= MODEL_BUDGET * 9 ? "tight" : "calm";
+  return { used: bytes, max: MODEL_BUDGET, state };
+}
+
+/** What a TMJ would change: „2 Ebenen, 17 Zellen geändert“ (singular for one), „Keine Änderung.“ when the file equals the world (no bake). */
+export function tmjChangeText(r: TmjImportReport): string {
+  if (r.bake === null) return "Keine Änderung.";
+  const layers = r.layers === 1 ? "1 Ebene" : `${de(r.layers)} Ebenen`;
+  const cells = r.cells === 1 ? "1 Zelle" : `${de(r.cells)} Zellen`;
+  return `${layers}, ${cells} geändert`;
+}
+
+/** The errors of a TMJ as lines: the first three „path: message“, then „… und 2 weitere“. */
+export function tmjErrorLines(errors: readonly TmjError[]): string[] {
+  const lines = errors.slice(0, 3).map((e) => `${e.path}: ${e.message}`);
+  if (errors.length > 3) lines.push(`… und ${de(errors.length - 3)} weitere`);
   return lines;
 }
 

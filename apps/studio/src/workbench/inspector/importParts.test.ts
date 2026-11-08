@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImportPreview, PartReport } from "../../api";
-import { PART_TEXTS, isForeignWhole, partText, partView, previewLines, sourceMapItems } from "./importParts";
+import { PART_TEXTS, WORLD_TEXTS, isForeignWhole, partText, partView, previewLines, sourceMapItems, worldText } from "./importParts";
 
 const said = (code: string, args: string[]) => partText({ code, args, message: "the kernel's sentence" });
 
@@ -177,5 +177,20 @@ describe("importParts", () => {
     expect(items[0].disabled).toBe(false);
     expect(items[0].label).toBe("Karte 0000");
     expect(items[2].tech).toBe("2");
+  });
+  it("world_codes_have_sentences", () => {
+    // World and TMJ codes have their own map: PART_TEXTS stays exactly `PartCode::ALL`.
+    for (const code of ["world.side-file", "world.adopt-texture", "tmj.buildings-ignored"]) {
+      expect(WORLD_TEXTS[code], code).toBeDefined();
+      expect(PART_TEXTS[code], code).toBeUndefined();
+      const text = worldText({ code, args: ["data/maps/0003.haus.glb", "b", "c"], message: "the kernel's sentence" });
+      expect(text, code).not.toBe("the kernel's sentence");
+      expect(text, code).not.toMatch(/[{}]/);
+      expect(text, code).toMatch(/[.!]$/);
+    }
+    expect(worldText({ code: "world.side-file", args: ["data/maps/0003.haus.glb"], message: "x" })).toContain("data/maps/0003.haus.glb");
+    // A part code goes through PART_TEXTS, an unknown one keeps the kernel's sentence.
+    expect(worldText({ code: "model.too-big", args: ["65000", "61440"], message: "x" })).toBe("Das Modell ist 65.000 Byte groß, erlaubt sind 61.440. Wähle ein kleineres Modell.");
+    expect(worldText({ code: "world.someday", args: [], message: "the kernel's sentence" })).toBe("the kernel's sentence");
   });
 });
