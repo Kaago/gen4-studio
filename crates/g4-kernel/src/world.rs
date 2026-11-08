@@ -25,9 +25,12 @@
 //! `build.rs` the build step `world` after `textproject`, which bakes the world maps whose world
 //! changed into their members ([`build::bake_world_maps`]); `adopt.rs` „Karte als Quelle
 //! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]). `tileset.rs` also edits
-//! the tiles of a tileset file as one step ([`tileset::tileset_edit`]).
+//! the tiles of a tileset file as one step ([`tileset::tileset_edit`]) and sets the model of a
+//! piece tile ([`tileset::tileset_piece_set`]).
 //! `freeform.rs` the canonical side file of a free-form model (6.5b, [`freeform::side_glb`],
-//! [`freeform::side_faces`]) and the rules for side file names.
+//! [`freeform::side_faces`]), the rules for side file names, and adding and removing free-form
+//! models ([`freeform::world_freeform_add`], [`freeform::world_freeform_remove`]), each one undo
+//! step with the pack and the side file.
 
 pub mod adopt;
 pub mod bake;
@@ -66,15 +69,18 @@ pub use mesh::{PieceModels, mesh_with};
 pub use places::{maps_of_packages, packs_of_map};
 pub use record::{WorldSide, input_hash, member_hash, record_world, world_salt, world_side};
 pub use tileset::{
-    DEFAULT_RULE, Deriver, HeightBehavior, TILESET_VERSION, TILESETS_DIR, TileChange, TileJson,
-    TileOrigin, TileRole, Tileset, TilesetEditReport, TilesetEditRequest, TilesetSaveReport,
-    UNIQUE_SHARE, VoteRule, derive_tileset, read_tileset_file, save_tileset, textures_only,
-    tile_outside, tileset_edit, tileset_problems, tileset_rel, tileset_texture,
+    DEFAULT_RULE, Deriver, HeightBehavior, PieceSetReport, PieceSetRequest, TILESET_VERSION,
+    TILESETS_DIR, TileChange, TileJson, TileOrigin, TileRole, Tileset, TilesetEditReport,
+    TilesetEditRequest, TilesetSaveReport, UNIQUE_SHARE, VoteRule, derive_tileset, piece_set_label,
+    read_tileset_file, save_tileset, textures_only, tile_outside, tileset_edit, tileset_piece_set,
+    tileset_problems, tileset_rel, tileset_texture,
 };
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
 pub use freeform::{
-    APICULA_UNIT, FREEFORM_LAYER, FREEFORM_UNIT, SIDE_FILE_CODE, SIDE_NAME_MAX, SideModels,
-    WorldFaces, freeform_file, freeform_rel, load_side_models, piece_rel, side_faces, side_glb,
-    side_name, side_name_of, world_faces,
+    APICULA_UNIT, FREEFORM_LAYER, FREEFORM_UNIT, FreeformAddRequest, FreeformReport,
+    SIDE_FILE_CODE, SIDE_NAME_MAX, SideModels, WorldFaces, freeform_file, freeform_label,
+    freeform_rel, freeform_remove_label, load_side_models, piece_rel, side_faces, side_glb,
+    side_name, side_name_of, world_faces, world_freeform_add, world_freeform_inspect,
+    world_freeform_remove,
 };

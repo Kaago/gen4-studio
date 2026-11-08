@@ -21,6 +21,9 @@ use g4_formats::texconv::palette_name;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{KernelError, io_at};
+use crate::map_import::PartMessage;
+use crate::model_import::mesh::MeshStats;
+use crate::model_import::{ImportOptions, TexturePreview};
 use crate::project::{AssetKind, Project, SourceMode};
 use crate::store::{
     ChangeId, FileChange, FileStep, FileStepKind, HEADER_TABLE, Store, write_file_step,
@@ -32,7 +35,10 @@ use crate::textproject::codes::SCHEMA_CODE;
 use crate::textproject::locate::located;
 use crate::tiles::tile_behavior;
 use crate::world::WORLD_NEEDS_TEXT_PROJECT;
-use crate::world::freeform::{SIDE_NAME_MAX, is_side_name, named_piece_files, side_parts};
+use crate::world::freeform::{
+    SIDE_NAME_MAX, bind_model, file_step_at, in_one_step, is_side_name, named_piece_files,
+    new_side_name, piece_rel, side_parts,
+};
 
 /// The version of the tileset file this build reads and writes.
 pub const TILESET_VERSION: u32 = 1;
@@ -1031,6 +1037,173 @@ pub fn tileset_edit(
     Ok(TilesetEditReport {
         package,
         tiles: changed,
+        change,
+    })
+}
+
+/// `tileset_piece_set`: the package of the tileset file, the tile, the model file (OBJ or glTF),
+/// the footprint in cells (width, depth), the import options and the `<name>` of the side file
+/// (`None`: the file's stem, cleaned and numbered by [`super::freeform::side_name`]).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PieceSetRequest {
+    pub package: u16,
+    pub tile: u16,
+    pub path: PathBuf,
+    pub footprint: [u8; 2],
+    #[serde(default)]
+    pub options: ImportOptions,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// What [`tileset_piece_set`] did: the package, the tile, the model's `<name>`, the figures of the
+/// conversion, the textures it uses, the hints and the undo step.
+#[derive(Debug, Clone, Serialize)]
+pub struct PieceSetReport {
+    pub package: u16,
+    pub tile: u16,
+    pub model: String,
+    pub stats: MeshStats,
+    pub textures: Vec<TexturePreview>,
+    pub notes: Vec<PartMessage>,
+    pub change: ChangeId,
+}
+
+/// „Teilmodell gesetzt: Kachel 5 in Tileset 0006 (baum)“, the label of [`tileset_piece_set`].
+pub fn piece_set_label(package: u16, tile: u16, model: &str) -> String {
+    format!("Teilmodell gesetzt: Kachel {tile} in Tileset {package:04} ({model})")
+}
+
+/// One undo step „Teilmodell gesetzt: Kachel 5 in Tileset 0006 (baum)“: textures appended to
+/// `package`, side file `PPPP.<name>.glb`, tile set to role `piece`, `footprint`, `model`; needs
+/// the tileset file; then forget_world_bakes(package).
+///
+/// In order (R10): the new textures appended, the side file written as a file step, the tileset
+/// file as a file step (recording it bakes the clean world maps of the package anew, with the
+/// side file there), squashed into one step; any failure rolls back to the mark. The tile's old
+/// model file goes in the same step when no other tile names it. Refused
+/// ([`KernelError::Refused`], nothing written): outside a text project, without the tileset
+/// file ([`tileset_file_missing`]), a tile past the tileset, a footprint without a cell, a
+/// model the reader or the conversion refuses („Teilmodell nicht gesetzt: …“), a result with
+/// `tileset_problems`, a busy store.
+pub fn tileset_piece_set(
+    store: &mut Store,
+    req: &PieceSetRequest,
+) -> Result<PieceSetReport, KernelError> {
+    let project = store.project_arc();
+    project.editable()?;
+    if let Some(why) = store.busy() {
+        return Err(KernelError::Busy(why.to_owned()));
+    }
+    if *project.source_mode() != SourceMode::TextProject {
+        return Err(KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()));
+    }
+    let package = req.package;
+    let rel = tileset_rel(package);
+    let path = project.root.join(&rel);
+    let before = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(KernelError::Refused(tileset_file_missing(package)));
+        }
+        Err(e) => return Err(io_at(&path)(e)),
+    };
+    let old = read_tileset_file(&project, package)?
+        .ok_or_else(|| KernelError::Refused(tileset_file_missing(package)))?;
+    let count = old.tiles.len();
+    let Some(was) = old.tile(req.tile) else {
+        return Err(KernelError::Refused(tile_outside(
+            "tile", req.tile, package, count,
+        )));
+    };
+    if req.footprint.contains(&0) {
+        return Err(KernelError::Refused(format!(
+            "Ein Fußabdruck ist mindestens 1 × 1 Zelle ({} × {}).",
+            req.footprint[0], req.footprint[1]
+        )));
+    }
+    let bound = match bind_model(store, package, &old, &req.path, &req.options, 0)? {
+        Ok(bound) => bound,
+        Err(refusal) => {
+            return Err(KernelError::Refused(format!(
+                "Teilmodell nicht gesetzt: {} ({})",
+                refusal.reason.message,
+                refusal.reason.code.as_str()
+            )));
+        }
+    };
+    let own = was.model.clone();
+    // Names of the other tiles, and files in the folder but the tile's own (it may keep it).
+    let others: Vec<String> = old
+        .tiles
+        .iter()
+        .enumerate()
+        .filter(|(i, t)| *i != usize::from(req.tile) && t.role == TileRole::Piece)
+        .filter_map(|(_, t)| t.model.clone())
+        .collect();
+    let name = new_side_name(
+        &project.root,
+        Path::new(TILESETS_DIR),
+        package,
+        req.name.as_deref(),
+        &req.path,
+        others.clone(),
+        own.as_deref(),
+    );
+    let mut tileset = old.clone();
+    let tile = &mut tileset.tiles[usize::from(req.tile)];
+    tile.role = TileRole::Piece;
+    tile.footprint = Some(req.footprint);
+    tile.model = Some(name.clone());
+    tile.origin = TileOrigin::User;
+    if let Some(problem) = tileset_problems(&tileset, package, project.family)
+        .into_iter()
+        .next()
+    {
+        return Err(KernelError::Refused(format!(
+            "{}: {problem}",
+            crate::relpath::slash(&rel)
+        )));
+    }
+    let mut glb = file_step_at(
+        store,
+        HEADER_TABLE,
+        &piece_rel(package, &name),
+        Some(bound.glb),
+    )?;
+    // The tile's old model file, when it is another one and no other tile names it.
+    if let Some(old_name) = own.filter(|o| *o != name && !others.contains(o) && is_side_name(o))
+        && let Some(gone) = file_step_at(store, HEADER_TABLE, &piece_rel(package, &old_name), None)?
+    {
+        match &mut glb {
+            Some(step) => step.files.extend(gone.files),
+            None => glb = Some(gone),
+        }
+    }
+    let label = piece_set_label(package, req.tile, &name);
+    let json = FileStep {
+        asset: HEADER_TABLE,
+        files: vec![FileChange {
+            path: rel,
+            before: Some(before),
+            after: Some(to_canonical(&tileset)),
+        }],
+        rotom_entry: None,
+        kind: FileStepKind::Reset,
+    };
+    let change = in_one_step(store, &label, Some((package, &bound.new)), glb, |store| {
+        write_file_step(store.project(), &json)?;
+        // Recording the step bakes the clean world maps on the package anew, with the side file.
+        Ok(store.record_file_step(&label, json))
+    })?;
+    Ok(PieceSetReport {
+        package,
+        tile: req.tile,
+        model: name,
+        stats: bound.stats,
+        textures: bound.previews,
+        notes: bound.notes,
         change,
     })
 }
@@ -2267,5 +2440,157 @@ mod tests {
               löschen oder `model` setzen."
             ]
         );
+    }
+
+    // ---- Piece models (6.5b Task 4) ----
+
+    /// `world_ready` with the import samples in `import/` and map 0 a world map (saved) whose
+    /// world places piece tile 5 at (4, 4); a fresh store that has loaded map 0 (its bake).
+    fn piece_world() -> (TextFixture, Store) {
+        use crate::world::doc::PieceJson;
+        use crate::world::edit::{WorldCreateRequest, world_create};
+        use crate::world::keep::{world_field, world_parts};
+        let fx = crate::test_support::world_ready();
+        crate::model_import::samples::write_samples(&fx.root().join("import")).unwrap();
+        let mut store = store_of(&fx);
+        let req: WorldCreateRequest =
+            serde_json::from_value(json!({"map": 0, "tileset": 0})).unwrap();
+        world_create(&mut store, &req).unwrap();
+        store.save().unwrap();
+        let rel = "data/maps/0000.json";
+        let bytes = fx.read(rel);
+        let mut world = world_field(&bytes).unwrap().expect("a world");
+        world.pieces.push(PieceJson {
+            tile: 5,
+            at: [4, 4],
+            rotate: 0,
+        });
+        fx.write(rel, &world_parts(bytes, &world, &mut Vec::new()).unwrap());
+        let mut store = store_of(&fx);
+        store.map(0).unwrap();
+        (fx, store)
+    }
+
+    fn piece_req(fx: &TextFixture, value: Value) -> PieceSetRequest {
+        let mut v = json!({
+            "package": 0,
+            "tile": 5,
+            "path": fx.root().join("import").join(crate::model_import::samples::CUBE_OBJ),
+            "footprint": [2, 2],
+        });
+        if let (Some(v), Some(extra)) = (v.as_object_mut(), value.as_object()) {
+            v.extend(extra.clone());
+        }
+        serde_json::from_value(v).unwrap()
+    }
+
+    /// The textures the model of map 0's Map asset binds.
+    fn model_textures(store: &mut Store) -> Vec<String> {
+        material_texture_names(&store.map(0).unwrap().model).unwrap()
+    }
+
+    fn pack_of(fx: &TextFixture) -> Vec<u8> {
+        std::fs::read(fx.project().member_path(AssetKind::MapTexture, 0)).unwrap()
+    }
+
+    #[test]
+    fn piece_set_is_one_step_and_rebakes_the_maps_of_the_package() {
+        let (fx, mut store) = piece_world();
+        let json_path = fx.root().join(tileset_rel(0));
+        let json_before = std::fs::read(&json_path).unwrap();
+        let pack_before = pack_of(&fx);
+        // Without a model the piece is its footprint face.
+        let footprint = model_textures(&mut store);
+        assert!(
+            footprint.contains(&"syn_stueck".to_owned()),
+            "{footprint:?}"
+        );
+        assert!(!footprint.contains(&"g4_imp_cube".to_owned()));
+        let map_before = store.map(0).unwrap().write(Family::Pt);
+
+        let report =
+            tileset_piece_set(&mut store, &piece_req(&fx, json!({"name": "Baum"}))).unwrap();
+        assert_eq!(report.model, "baum");
+        assert_eq!(report.stats.quads, 6);
+        let label = "Teilmodell gesetzt: Kachel 5 in Tileset 0000 (baum)";
+        assert_eq!(piece_set_label(0, 5, "baum"), label);
+        assert_eq!(store.history().0, [label]);
+        let glb = fx.root().join("data/tilesets/0000.baum.glb");
+        assert!(glb.is_file());
+        let tile = store.tileset(0).unwrap().tiles[5].clone();
+        assert_eq!(tile.role, TileRole::Piece);
+        assert_eq!(tile.footprint, Some([2, 2]));
+        assert_eq!(tile.model.as_deref(), Some("baum"));
+        assert_eq!(tile.origin, TileOrigin::User);
+        assert!(
+            crate::bake::pack_textures(&pack_of(&fx))
+                .unwrap()
+                .iter()
+                .any(|t| t.name == "g4_imp_cube")
+        );
+        // The world map of the package bakes the piece with its geometry.
+        let shown = model_textures(&mut store);
+        assert!(shown.contains(&"g4_imp_cube".to_owned()), "{shown:?}");
+        assert!(!shown.contains(&"syn_stueck".to_owned()), "{shown:?}");
+
+        store.undo().unwrap();
+        assert!(!glb.exists());
+        assert_eq!(std::fs::read(&json_path).unwrap(), json_before);
+        assert_eq!(pack_of(&fx), pack_before);
+        assert_eq!(model_textures(&mut store), footprint);
+        assert_eq!(store.map(0).unwrap().write(Family::Pt), map_before);
+
+        store.redo().unwrap();
+        assert!(glb.is_file());
+        assert!(model_textures(&mut store).contains(&"g4_imp_cube".to_owned()));
+
+        // Set again under another name: the old model file goes in the same step.
+        let again =
+            tileset_piece_set(&mut store, &piece_req(&fx, json!({"name": "eiche"}))).unwrap();
+        assert_eq!(again.model, "eiche");
+        assert!(!glb.exists());
+        assert!(fx.root().join("data/tilesets/0000.eiche.glb").is_file());
+        store.undo().unwrap();
+        assert!(glb.is_file());
+        assert!(!fx.root().join("data/tilesets/0000.eiche.glb").exists());
+    }
+
+    #[test]
+    fn piece_set_refuses_without_tileset_file() {
+        let fx = crate::test_support::world_ready();
+        crate::model_import::samples::write_samples(&fx.root().join("import")).unwrap();
+        std::fs::remove_file(fx.root().join(tileset_rel(0))).unwrap();
+        let pack_before = pack_of(&fx);
+        let mut store = store_of(&fx);
+        assert_eq!(
+            refusal(tileset_piece_set(&mut store, &piece_req(&fx, json!({})))),
+            tileset_file_missing(0)
+        );
+        assert!(store.history().0.is_empty());
+        assert_eq!(pack_of(&fx), pack_before);
+        assert!(
+            !fx.root()
+                .join("data/tilesets/0000.g4_imp_cube.glb")
+                .exists()
+        );
+        // Past the tiles, or a footprint without a cell.
+        let fx = crate::test_support::world_ready();
+        crate::model_import::samples::write_samples(&fx.root().join("import")).unwrap();
+        let mut store = store_of(&fx);
+        assert_eq!(
+            refusal(tileset_piece_set(
+                &mut store,
+                &piece_req(&fx, json!({"tile": 9}))
+            )),
+            tile_outside("tile", 9, 0, 6)
+        );
+        assert_eq!(
+            refusal(tileset_piece_set(
+                &mut store,
+                &piece_req(&fx, json!({"footprint": [0, 2]}))
+            )),
+            "Ein Fußabdruck ist mindestens 1 × 1 Zelle (0 × 2)."
+        );
+        assert!(store.history().0.is_empty());
     }
 }

@@ -18,21 +18,30 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
+use g4_formats::nsbtx::NewTexture;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::bake::{WorldBakeMessage, bake_pack, baker_text};
-use super::doc::WorldJson;
+use super::bake::{
+    Verbatim, WorldBakeMessage, WorldBakeReport, bake_pack, bake_world_with, baker_text,
+    world_pack_textures,
+};
+use super::doc::{FreeformJson, WorldJson};
+use super::edit::{WorldReport, not_a_world_map, refuse_locked_map, require_text_project};
 use super::grid::WorldGrid;
+use super::keep::locked_map_refusal;
 use super::mesh::{MeshFace, PIECE_LAYER, PieceModels, mesh_textures, mesh_with};
 use super::tileset::{TILESETS_DIR, TileRole, Tileset};
-use crate::bake::{BakeCode, Face, PackTexture};
-use crate::error::KernelError;
+use crate::bake::{BakeCode, Face, Level, PackTexture, append_textures, appended_pack_or_refusal};
+use crate::error::{KernelError, io_at};
 use crate::export::write_glb;
-use crate::map_import::PartCode;
-use crate::model_import::mesh::{Binding, to_faces};
-use crate::model_import::read_model;
-use crate::project::{Project, SourceMode};
-use crate::store::Store;
+use crate::map_import::{PartCode, PartMessage, map_areas};
+use crate::model_import::mesh::{Binding, MeshStats, to_faces};
+use crate::model_import::{
+    ImportOptions, ModelRefusal, TexturePreview, from_bake, plan_textures, read_model,
+};
+use crate::project::{AssetId, AssetKind, Project, SourceMode};
+use crate::store::{ChangeId, FileChange, FileStep, FileStepKind, Store, write_file_step};
 use crate::textproject::arts::Art;
 
 /// World units per glTF unit in a side file (one glTF unit is one tile).
@@ -649,6 +658,479 @@ fn shown_path(path: &Path) -> String {
     }
 }
 
+/// `world_freeform_add` and `world_freeform_inspect`: the world map, the model file (OBJ or
+/// glTF, read by `read_model`), where it stands (`at`, world units), the import options and the
+/// `<name>` of the side file (`None`: the file's stem, [`side_name`] cleans and numbers it).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FreeformAddRequest {
+    pub map: u16,
+    pub path: PathBuf,
+    #[serde(default)]
+    pub at: [i32; 3],
+    #[serde(default)]
+    pub options: ImportOptions,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// What inspect or add of a free-form model found or did: the map, the side file's name, the
+/// figures of the conversion, the textures it uses (new ones planned or appended), the hints
+/// (reader, conversion, textures), the undo step (`None` for inspect) and the world's bake with
+/// the model.
+#[derive(Debug, Clone, Serialize)]
+pub struct FreeformReport {
+    pub map: u16,
+    pub glb: String,
+    pub stats: MeshStats,
+    pub textures: Vec<TexturePreview>,
+    pub notes: Vec<PartMessage>,
+    pub change: Option<ChangeId>,
+    pub bake: Option<WorldBakeReport>,
+}
+
+/// „Freiform hinzugefügt: Karte 0123 (0123.haus.glb)“, the label of [`world_freeform_add`].
+pub fn freeform_label(map: u16, glb: &str) -> String {
+    format!("Freiform hinzugefügt: Karte {map:04} ({glb})")
+}
+
+/// „Freiform entfernt: Karte 0123 (0123.haus.glb)“, the label of [`world_freeform_remove`].
+pub fn freeform_remove_label(map: u16, glb: &str) -> String {
+    format!("Freiform entfernt: Karte {map:04} ({glb})")
+}
+
+/// A model file bound against a package: the faces (world units, layer 0), the figures, the
+/// textures used, the textures to append, the hints, the package's bytes after appending
+/// (`None`: nothing new), the textures the bake binds from those bytes
+/// ([`world_pack_textures`]) and the side file written against them.
+pub(crate) struct BoundModel {
+    pub faces: Vec<Face>,
+    pub stats: MeshStats,
+    pub previews: Vec<TexturePreview>,
+    pub new: Vec<NewTexture>,
+    pub notes: Vec<PartMessage>,
+    pub pack_after: Option<Vec<u8>>,
+    pub textures: Vec<PackTexture>,
+    pub glb: Vec<u8>,
+}
+
+/// Model file `path` read (`read_model`: every file it names only from its folder), its
+/// textures planned against package `package` as the world bake binds it
+/// ([`world_pack_textures`] with `tileset`), new ones appended in memory
+/// (`appended_pack_or_refusal`, nothing written), its faces converted with `options.unit`, and
+/// the side file written against the pack after appending (D2: the names and sizes the bake
+/// binds). Inner error: the refusal with its code (`area` names the area of a VRAM or pack
+/// finding); outer: the package is missing or does not read, or the options are wrong.
+pub(crate) fn bind_model(
+    store: &Store,
+    package: u16,
+    tileset: &Tileset,
+    path: &Path,
+    options: &ImportOptions,
+    area: u8,
+) -> Result<Result<BoundModel, ModelRefusal>, KernelError> {
+    options.check()?;
+    let before = store
+        .project()
+        .map_tileset_member(package)?
+        .ok_or_else(|| {
+            KernelError::Refused(format!(
+                "Kartentextur-Paket {package:04} gibt es nicht im Archiv."
+            ))
+        })?;
+    let (mesh, read_notes) = match read_model(path) {
+        Ok(read) => read,
+        Err(reason) => return Ok(Err(reason.into())),
+    };
+    let refuse = |reason: PartMessage| {
+        Ok(Err(ModelRefusal {
+            reason,
+            notes: read_notes.clone(),
+        }))
+    };
+    let pack = world_pack_textures(&before, tileset)?;
+    let plan = match plan_textures(&mesh.materials, &pack, options.texconv_colors()) {
+        Ok(plan) => plan,
+        Err(reason) => return refuse(reason),
+    };
+    let (pack_after, textures) = if plan.new.is_empty() {
+        (None, pack)
+    } else {
+        let after = match appended_pack_or_refusal(&before, &plan.new)? {
+            Ok(after) => after,
+            Err(m) => return refuse(from_bake(&m, area, &[])),
+        };
+        let textures = world_pack_textures(&after, tileset)?;
+        (Some(after), textures)
+    };
+    let converted = match to_faces(&mesh, options.unit, &plan.bindings) {
+        Ok(converted) => converted,
+        Err(reason) => return refuse(reason),
+    };
+    let glb = side_glb(&converted.faces, &textures, FREEFORM_UNIT)?;
+    let mut notes = read_notes.clone();
+    notes.extend(converted.notes);
+    notes.extend(plan.notes);
+    Ok(Ok(BoundModel {
+        faces: converted.faces,
+        stats: converted.stats,
+        previews: plan.previews,
+        new: plan.new,
+        notes,
+        pack_after,
+        textures,
+        glb,
+    }))
+}
+
+/// The `<name>` a new side file of `stem` (`PPPP` or `NNNN`) in folder `dir` takes: [`side_name`]
+/// of `wanted` (the request's name, else `path`'s file stem), numbered past `taken` and past
+/// every side file of `stem` already in the folder but `own` (an orphan is not overwritten; the
+/// file the new one replaces may be).
+pub(crate) fn new_side_name(
+    root: &Path,
+    dir: &Path,
+    stem: u16,
+    wanted: Option<&str>,
+    path: &Path,
+    mut taken: Vec<String>,
+    own: Option<&str>,
+) -> String {
+    if let Ok(entries) = std::fs::read_dir(root.join(dir)) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry
+                .file_name()
+                .to_str()
+                .and_then(|f| side_name_of(f, stem))
+                && own != Some(name)
+            {
+                taken.push(name.to_owned());
+            }
+        }
+    }
+    let stem_of_path = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    side_name(wanted.unwrap_or(&stem_of_path), &taken)
+}
+
+/// A file step that writes `bytes` to `rel` (below the project root; `None` removes the file),
+/// with the bytes there now as `before`; `None` when the file already is so.
+pub(crate) fn file_step_at(
+    store: &Store,
+    asset: AssetId,
+    rel: &Path,
+    bytes: Option<Vec<u8>>,
+) -> Result<Option<FileStep>, KernelError> {
+    let path = store.project().root.join(rel);
+    let before = match std::fs::read(&path) {
+        Ok(b) => Some(b),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(io_at(&path)(e)),
+    };
+    if before == bytes {
+        return Ok(None);
+    }
+    Ok(Some(FileStep {
+        asset,
+        files: vec![FileChange {
+            path,
+            before,
+            after: bytes,
+        }],
+        rotom_entry: None,
+        kind: FileStepKind::Reset,
+    }))
+}
+
+/// One undo step labelled `label` of several recorded ones (R12): `textures` appended to their
+/// package (`append_textures`, when there are any), then the file step `files` written and
+/// recorded, then `then` (a transaction, another file step); [`Store::squash_since`] the mark
+/// before. Any error rolls every step since the mark back ([`Store::rollback_to`]) and is
+/// returned (a rollback that fails too: [`KernelError::Partial`] with both).
+pub(crate) fn in_one_step<T>(
+    store: &mut Store,
+    label: &str,
+    textures: Option<(u16, &[NewTexture])>,
+    files: Option<FileStep>,
+    then: impl FnOnce(&mut Store) -> Result<T, KernelError>,
+) -> Result<T, KernelError> {
+    let mark = store.undo_depth();
+    let result = (|| {
+        if let Some((package, new)) = textures
+            && !new.is_empty()
+        {
+            append_textures(store, package, new, label)?;
+        }
+        if let Some(step) = files {
+            write_file_step(store.project(), &step)?;
+            store.record_file_step(label, step);
+        }
+        then(store)
+    })();
+    match result {
+        Ok(value) => {
+            store.squash_since(mark, label);
+            Ok(value)
+        }
+        Err(e) => match store.rollback_to(mark) {
+            Ok(_) => Err(e),
+            Err(undo) => Err(KernelError::Partial(format!(
+                "{e}; zurückgenommen wurde nicht alles: {undo}"
+            ))),
+        },
+    }
+}
+
+/// What inspect binds and bakes for an add: the report (no change), the textures to append,
+/// the side file, its name and the world with the new entry.
+struct Prepared {
+    report: FreeformReport,
+    package: u16,
+    new: Vec<NewTexture>,
+    glb: Vec<u8>,
+    world: WorldJson,
+}
+
+/// Inspect's work for `req` (see [`world_freeform_inspect`]).
+fn prepare(
+    store: &mut Store,
+    req: &FreeformAddRequest,
+) -> Result<Result<Prepared, ModelRefusal>, KernelError> {
+    require_text_project(store)?;
+    let map = req.map;
+    let world = store
+        .world(map)?
+        .cloned()
+        .ok_or_else(|| KernelError::Refused(not_a_world_map(map)))?;
+    let package = world.tileset;
+    let tileset = store.tileset(package)?;
+    let area = map_areas(store, map)?.first().copied().unwrap_or(0);
+    let bound = match bind_model(store, package, &tileset, &req.path, &req.options, area)? {
+        Ok(bound) => bound,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    let taken: Vec<String> = named_side_files(&world)
+        .iter()
+        .filter_map(|f| side_name_of(f, map).map(str::to_owned))
+        .collect();
+    let name = new_side_name(
+        &store.project().root,
+        &Art::Maps.dir(),
+        map,
+        req.name.as_deref(),
+        &req.path,
+        taken,
+        None,
+    );
+    let glb = freeform_file(map, &name);
+    // The bake with the model: the side files there now, and the new one from memory.
+    let mut side = load_side_models(store.project(), map, &world, &tileset, &bound.textures);
+    side.freeform.push(Ok(bound
+        .faces
+        .iter()
+        .cloned()
+        .map(|f| {
+            moved(
+                Face {
+                    layer: FREEFORM_LAYER,
+                    ..f
+                },
+                req.at,
+            )
+        })
+        .collect()));
+    let mut after = world;
+    after.freeform.push(FreeformJson {
+        glb: Some(glb.clone()),
+        nsbmd: None,
+        at: req.at,
+    });
+    let base = store.map(map)?.clone();
+    let verbatim = Verbatim::of(&after, &base);
+    let baked = bake_world_with(
+        store,
+        map,
+        &after,
+        &base,
+        &verbatim,
+        bound.pack_after.as_deref(),
+        Some(&side),
+    )?;
+    Ok(Ok(Prepared {
+        report: FreeformReport {
+            map,
+            glb,
+            stats: bound.stats,
+            textures: bound.previews,
+            notes: bound.notes,
+            change: None,
+            bake: Some(baked.report),
+        },
+        package,
+        new: bound.new,
+        glb: bound.glb,
+        world: after,
+    }))
+}
+
+/// Reads and binds the model against the world's pack (new textures planned and appended in
+/// memory with `appended_pack_or_refusal`, nothing written) and bakes the world with it in
+/// memory (`report.bake`, also when it is refused). Inner Err: the model's refusal
+/// (ModelRefusal).
+///
+/// Refused ([`KernelError::Refused`]): outside a text project
+/// ([`super::edit::WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]),
+/// options out of range.
+pub fn world_freeform_inspect(
+    store: &mut Store,
+    req: &FreeformAddRequest,
+) -> Result<Result<FreeformReport, ModelRefusal>, KernelError> {
+    Ok(prepare(store, req)?.map(|p| p.report))
+}
+
+/// „Freiform nicht hinzugefügt: …“ with the first error of a bake (or the model's refusal).
+fn not_added(why: &str) -> KernelError {
+    KernelError::Refused(format!("Freiform nicht hinzugefügt: {why}"))
+}
+
+/// One undo step (squash_since, label freeform_label): new textures appended to `world.tileset`,
+/// the side file written as a file step, the entry appended to `world.freeform`; refused
+/// (Refused with the German sentence) when inspect refuses or its bake is not `ok`; any failure
+/// rolls back to the mark.
+///
+/// Refused besides, nothing written: a busy store, a map whose member is locked, what
+/// [`world_freeform_inspect`] refuses.
+pub fn world_freeform_add(
+    store: &mut Store,
+    req: &FreeformAddRequest,
+) -> Result<FreeformReport, KernelError> {
+    store.project().editable()?;
+    if let Some(why) = store.busy() {
+        return Err(KernelError::Busy(why.to_owned()));
+    }
+    require_text_project(store)?;
+    let map = req.map;
+    if store.world(map)?.is_none() {
+        return Err(KernelError::Refused(not_a_world_map(map)));
+    }
+    refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
+    let prepared = match prepare(store, req)? {
+        Ok(prepared) => prepared,
+        Err(refusal) => {
+            return Err(not_added(&format!(
+                "{} ({})",
+                refusal.reason.message,
+                refusal.reason.code.as_str()
+            )));
+        }
+    };
+    let bake = prepared.report.bake.as_ref();
+    if let Some(m) = bake.and_then(|b| b.messages.iter().find(|m| m.level == Level::Error)) {
+        return Err(not_added(&m.message));
+    }
+    let label = freeform_label(map, &prepared.report.glb);
+    let step = file_step_at(
+        store,
+        world_asset(map),
+        &freeform_rel(&prepared.report.glb),
+        Some(prepared.glb),
+    )?;
+    let world = prepared.world;
+    let (bake, change) = in_one_step(
+        store,
+        &label,
+        Some((prepared.package, &prepared.new)),
+        step,
+        |store| {
+            store.transaction(&label, |tx| {
+                tx.edit_world(map, |w| {
+                    *w = Some(world);
+                    Ok(())
+                })?;
+                Ok(tx.bake_report(map))
+            })
+        },
+    )?;
+    Ok(FreeformReport {
+        change,
+        bake,
+        ..prepared.report
+    })
+}
+
+/// One undo step „Freiform entfernt: Karte 0123 (0123.haus.glb)“: entry `index` removed, its side
+/// file removed as a file step when no other entry names it. Refused for a `nsbmd` entry and a
+/// past index.
+///
+/// Refused besides ([`KernelError::Refused`], nothing changed): outside a text project
+/// ([`super::edit::WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]), a
+/// busy store.
+pub fn world_freeform_remove(
+    store: &mut Store,
+    map: u16,
+    index: usize,
+) -> Result<WorldReport, KernelError> {
+    store.project().editable()?;
+    if let Some(why) = store.busy() {
+        return Err(KernelError::Busy(why.to_owned()));
+    }
+    require_text_project(store)?;
+    let mut world = store
+        .world(map)?
+        .cloned()
+        .ok_or_else(|| KernelError::Refused(not_a_world_map(map)))?;
+    let count = world.freeform.len();
+    let Some(entry) = world.freeform.get(index) else {
+        return Err(KernelError::Refused(format!(
+            "Karte {map:04} hat keine Freiform {index} ({count} Einträge)."
+        )));
+    };
+    let Some(glb) = entry.glb.clone() else {
+        return Err(KernelError::Refused(format!(
+            "Freiform {index} von Karte {map:04} ist das Originalmodell (Form 1); zurück zur \
+             binären Karte über „Als binäre Karte übernehmen“."
+        )));
+    };
+    world.freeform.remove(index);
+    let shared = world
+        .freeform
+        .iter()
+        .any(|f| f.glb.as_deref() == Some(glb.as_str()));
+    let step = if shared || side_name_of(&glb, map).is_none() {
+        None
+    } else {
+        file_step_at(store, world_asset(map), &freeform_rel(&glb), None)?
+    };
+    let label = freeform_remove_label(map, &glb);
+    let package = world.tileset;
+    let (bake, change) = in_one_step(store, &label, None, step, |store| {
+        store.transaction(&label, |tx| {
+            tx.edit_world(map, |w| {
+                *w = Some(world);
+                Ok(())
+            })?;
+            Ok(tx.bake_report(map))
+        })
+    })?;
+    Ok(WorldReport {
+        map,
+        tileset: package,
+        cells: 0,
+        change,
+        bake,
+    })
+}
+
+/// The world map asset of map `map`, the asset of its side files' steps.
+fn world_asset(map: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::WorldMap,
+        index: map,
+    }
+}
+
 /// Synthetic side-file geometry for tests (no ROM data).
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixtures {
@@ -687,6 +1169,9 @@ pub mod fixtures {
         box_faces([-8, 0, -8], [8, 16, 8], texture)
     }
 }
+
+#[cfg(all(test, feature = "test-support"))]
+mod store_tests;
 
 #[cfg(test)]
 mod tests {
