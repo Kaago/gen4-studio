@@ -7,8 +7,8 @@
 # --expert]`) instead of the bridge; no `world_create` on the area's own map, but the recipe
 # `new_painted_map` („Neue Karte malen“) in the cell EAST of the 1x1 area (the matrix grows to 2x1,
 # `report.width` 2), with the ground tile as `fill_tile`; the cells no longer as one list, but as
-# one curated `world_edit` per stroke with the label of the paint tool (fill, rectangle, three
-# height strokes, ramp, the door's hand value: seven history entries); `world_get` checks the bake
+# one curated `world_edit` per stroke with the label of the paint tool (brush, fill, rectangle, three
+# height strokes, ramp, the door's hand value: eight history entries); `world_get` checks the bake
 # (`bake.ok`) instead of `world_bake`; the door warp and the gift are added where 6.3b put them and
 # moved 32 tiles east by `update_event` into the painted map (as the agent does after painting in
 # the browser, pt-gemalt-ui.yaml); the play steps are those of 6.3b with x + 32.
@@ -28,6 +28,7 @@
 #   | ground                | rest  | rest  | GROUND | 0              | .    | derived        |
 #   | tall grass (fill)     | 16-28 | 3-10  | GRASS  | 0              | .    | derived [2, 0] |
 #   | water (rectangle)     | 2-8   | 24-29 | WATER  | 0              | .    | derived [21,0] |
+#   | brush line            | 25-30 | 27-29 | GRASS  | 0              | .    | derived [2, 0] |
 #   | stair, lower tile     | 16    | 20-22 | GROUND | 0              | e1   | derived        |
 #   | stair, upper tile     | 17    | 20-22 | GROUND | 1              | e1   | derived        |
 #   | plateau 16 E          | 18-22 | 20-22 | GROUND | 2 (+1, +1)     | .    | derived        |
@@ -187,7 +188,22 @@ edits:
   # the strokes as the paint tool sends them (apps/studio/src/world/paint/ops.ts strokeRequest and
   # strokeLabel; the label pads the map to four digits, the map index has three: "Karte 0${…}"),
   # one world_edit = one undo step and one history entry each, every one baked in its step
-  # fill: tall grass x 16-28, z 3-10
+  # (the label prefix "0" assumes a three-digit map index, 667 | 677 here; a four-digit map would
+  # need it dropped)
+  # brush: a short line of tall grass from (25, 27) to (30, 29), the cells of a Bresenham line, in
+  # the south-east corner away from every play path and checked permission
+  - - world_edit
+    - req:
+        map: "${p.report.map}"
+        label: "Gemalt: Karte 0${p.report.map} (6 Zellen)"
+        changes:
+          - layer: 0
+            tile: "0021"
+            cells: [[25, 27], [26, 27], [27, 28], [28, 28], [29, 29], [30, 29]]
+    - expect: {path: cells, equals: 6}
+  # fill: tall grass x 16-28, z 3-10. On a blank map the fill tool floods all 1024 cells; these 104
+  # cells stand for a fill of an enclosed region (the rectangle the 6.3b world has), sent as the
+  # tool would send that region
   - - world_edit
     - req:
         map: "${p.report.map}"

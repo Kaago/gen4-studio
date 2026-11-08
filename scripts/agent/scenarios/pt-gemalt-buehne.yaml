@@ -8,8 +8,11 @@
 # history entry each), ⌘S, `call.sh update_event` moves door warp and gift 32 tiles east;
 # pt-gemalt-ui.yaml builds the copy and plays it.
 #
-# After this scenario the copy may be committed as the starting point (outside: `git add -A && git
-# commit`). Place, tiles and the reasons: pt-gemalt.yaml.
+# The starting point for `git status` is not this scenario's end but the state after „Neue Karte
+# malen“ and ⌘S in the browser, committed as „Karte angelegt“ (outside: `git add -A && git commit`),
+# before the first stroke: the recipe lies behind an undo barrier, so ⌘Z over all strokes and ⌘S
+# leave `git status` empty only from there (decision „Ausgangsstand für git status“). Place, tiles
+# and the reasons: pt-gemalt.yaml.
 #
 # Placeholders (all required, passed with --set NAME=VALUE):
 #   BASIS         the .nds beside the copy, relative to the project folder (../<copy>.nds)
