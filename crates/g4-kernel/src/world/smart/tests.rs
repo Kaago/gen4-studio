@@ -623,3 +623,488 @@ fn one_seam_cell_is_noted_in_the_singular() {
     let r = paint_terrain(&flat(), 0, &weg13(), &[[0, 20]], true, 0, &other).unwrap();
     assert!(r.notes.is_empty());
 }
+
+// --- The cliff brush (Task 3) ---
+
+use g4_formats::game::Family;
+use g4_formats::map::Cell;
+
+use crate::world::bake::{tile_cells, world_permissions};
+use crate::world::edge::EdgeBlock;
+use crate::world::grid::{Ramp, parse_override};
+use crate::world::mesh::mesh;
+
+/// The cliff rectangle x 20–25, z 20–24.
+fn rect() -> Vec<[u8; 2]> {
+    rect_of(20..=25, 20..=24)
+}
+
+fn rect_of(xs: std::ops::RangeInclusive<u8>, zs: std::ops::RangeInclusive<u8>) -> Vec<[u8; 2]> {
+    zs.flat_map(|z| xs.clone().map(move |x| [x, z])).collect()
+}
+
+/// [`weg13`] with the edge rule „untere Zelle“.
+fn weg13_lower() -> EdgeSetJson {
+    EdgeSetJson {
+        block: EdgeBlock::Lower,
+        ..weg13()
+    }
+}
+
+/// Writes all of `r` into `grid`: tiles of the ground, heights, cleared ramps, overrides.
+fn apply_all(grid: &mut WorldGrid, r: &Resolved) {
+    apply(grid, 0, r);
+    for &([x, z], h) in &r.heights {
+        grid.heights[usize::from(z) * N + usize::from(x)] = h;
+    }
+    for &[x, z] in &r.ramps_cleared {
+        grid.ramps[usize::from(z) * N + usize::from(x)] = Ramp::None;
+    }
+    for ([x, z], t) in &r.overrides {
+        grid.overrides[usize::from(*z) * N + usize::from(*x)] = parse_override(t).unwrap();
+    }
+}
+
+/// Paints a cliff of `set` on `cells` to `height` and applies it; panics on a refusal.
+fn cliff(grid: &mut WorldGrid, set: &EdgeSetJson, cells: &[[u8; 2]], height: i8) -> Resolved {
+    let tileset = Tileset::synthetic_edges();
+    let r = paint_cliff(
+        grid,
+        &tileset,
+        Family::Pt,
+        set,
+        cells,
+        height,
+        0,
+        &Seams::default(),
+    )
+    .unwrap();
+    apply_all(grid, &r);
+    r
+}
+
+/// The permissions as the baker writes them: the derived ones with the overrides on top.
+fn baked_permissions(grid: &WorldGrid) -> Vec<Cell> {
+    let mut cells = world_permissions(grid, &Tileset::synthetic_edges(), Family::Pt);
+    for (cell, hand) in cells.iter_mut().zip(&grid.overrides) {
+        if let Some(hand) = hand {
+            *cell = *hand;
+        }
+    }
+    cells
+}
+
+/// The blocked cells (0x80) as (x, z), row-major.
+fn blocked(cells: &[Cell]) -> Vec<(usize, usize)> {
+    (0..N * N)
+        .filter(|&i| cells[i].collision & 0x80 != 0)
+        .map(|i| (i % N, i / N))
+        .collect()
+}
+
+/// The cells of the rectangle x `x0`–`x1`, z `z0`–`z1` on its border (the rim), row-major.
+fn border(x0: usize, x1: usize, z0: usize, z1: usize) -> Vec<(usize, usize)> {
+    (z0..=z1)
+        .flat_map(|z| (x0..=x1).map(move |x| (x, z)))
+        .filter(|&(x, z)| x == x0 || x == x1 || z == z0 || z == z1)
+        .collect()
+}
+
+/// Every cell in x `x0`–…, z `z0`–… is as `rows` say (legend of [`PLUS_EXPECTED`]), every
+/// other cell `0000`.
+fn assert_places(grid: &WorldGrid, set: &EdgeSetJson, x0: usize, z0: usize, rows: &[&str]) {
+    for z in 0..N {
+        for x in 0..N {
+            let inside = x >= x0 && z >= z0 && z - z0 < rows.len() && x - x0 < rows[0].len();
+            let want = if inside {
+                legend_token(set, rows[z - z0].as_bytes()[x - x0] as char)
+            } else {
+                "0000".to_owned()
+            };
+            assert_eq!(token(grid, 0, x, z), want, "cell ({x}, {z})");
+        }
+    }
+}
+
+/// The world coordinate of the cell edge `c` (16 units per cell, map centre at 0).
+fn edge_at(c: usize) -> i32 {
+    c as i32 * 16 - 256
+}
+
+/// The vertical faces of layer 0 as their bounding boxes ([x0, y0, z0], [x1, y1, z1]).
+fn walls(grid: &WorldGrid) -> Vec<([i32; 3], [i32; 3])> {
+    mesh(grid, &Tileset::synthetic_edges())
+        .into_iter()
+        .filter(|f| f.layer == 0)
+        .filter(|f| {
+            let same = |k: usize| f.corners.iter().all(|c| c[k] == f.corners[0][k]);
+            same(0) || same(2)
+        })
+        .map(|f| {
+            let lo = [0, 1, 2].map(|k| f.corners.iter().map(|c| c[k]).min().unwrap());
+            let hi = [0, 1, 2].map(|k| f.corners.iter().map(|c| c[k]).max().unwrap());
+            (lo, hi)
+        })
+        .collect()
+}
+
+/// Whether a wall covers the segment (x0, z0)–(x1, z1) (axis-aligned) from height `y0` to `y1`.
+fn covered(walls: &[([i32; 3], [i32; 3])], a: [i32; 2], b: [i32; 2], y0: i32, y1: i32) -> bool {
+    walls.iter().any(|(lo, hi)| {
+        lo[0] <= a[0].min(b[0])
+            && hi[0] >= a[0].max(b[0])
+            && lo[2] <= a[1].min(b[1])
+            && hi[2] >= a[1].max(b[1])
+            && lo[1] <= y0
+            && hi[1] >= y1
+    })
+}
+
+/// The 22 rim edges of the rectangle x 20–25, z 20–24 as world segments.
+fn rim_edges() -> Vec<([i32; 2], [i32; 2])> {
+    let mut edges = Vec::new();
+    for x in 20..=25 {
+        let (a, b) = (edge_at(x), edge_at(x + 1));
+        edges.push(([a, edge_at(20)], [b, edge_at(20)]));
+        edges.push(([a, edge_at(25)], [b, edge_at(25)]));
+    }
+    for z in 20..=24 {
+        let (a, b) = (edge_at(z), edge_at(z + 1));
+        edges.push(([edge_at(20), a], [edge_at(20), b]));
+        edges.push(([edge_at(26), a], [edge_at(26), b]));
+    }
+    edges
+}
+
+/// The 6 × 5 cliff with its rim on top, ring x 19–26, z 19–25.
+const CLIFF_EXPECTED: [&str; 7] = [
+    "........", ".1NNNN2.", ".WCCCCE.", ".WCCCCE.", ".WCCCCE.", ".3SSSS4.", "........",
+];
+
+#[test]
+fn the_cliff_counts_are_the_plan_s() {
+    let rim = border(20, 25, 20, 24);
+    assert_eq!(rim.len(), 18);
+    assert_eq!(rect().len() - rim.len(), 12);
+    let ring = border(19, 26, 19, 25);
+    assert_eq!(ring.len(), 26);
+    let corners = [(19, 19), (26, 19), (19, 25), (26, 25)];
+    assert_eq!(ring.iter().filter(|c| !corners.contains(c)).count(), 22);
+    assert_eq!(rim_edges().len(), 22);
+}
+
+#[test]
+fn a_cliff_raises_the_cells_with_the_rim_on_top() {
+    let tileset = Tileset::synthetic_edges();
+    let set = &tileset.edge_sets[0];
+    let mut grid = flat();
+    let r = cliff(&mut grid, set, &rect(), 2);
+    for z in 0..N {
+        for x in 0..N {
+            let up = (20..=25).contains(&x) && (20..=24).contains(&z);
+            assert_eq!(
+                grid.heights[z * N + x],
+                if up { 2 } else { 0 },
+                "({x}, {z})"
+            );
+        }
+    }
+    assert_places(&grid, set, 19, 19, &CLIFF_EXPECTED);
+    assert_eq!(wrong_corners(&grid, 0, set), Vec::<[u8; 2]>::new());
+    // Heights of the painted cells row-major; all 30 cells get the centre or the rim.
+    let want: Vec<([u8; 2], i8)> = rect().into_iter().map(|c| (c, 2)).collect();
+    assert_eq!(r.heights, want);
+    assert_eq!(r.tiles.len(), 30);
+    assert!(r.ramps_cleared.is_empty() && r.overrides.is_empty() && r.notes.is_empty());
+    // The same again changes nothing.
+    let again = paint_cliff(
+        &grid,
+        &tileset,
+        Family::Pt,
+        set,
+        &rect(),
+        2,
+        0,
+        &Seams::default(),
+    )
+    .unwrap();
+    assert_eq!(again, Resolved::default());
+}
+
+#[test]
+fn a_cliff_needing_an_empty_place_is_refused() {
+    let mut half = weg13();
+    half.places.n.clear();
+    let e = paint_cliff(
+        &flat(),
+        &Tileset::synthetic_edges(),
+        Family::Pt,
+        &half,
+        &rect(),
+        2,
+        0,
+        &Seams::default(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        e,
+        "Kantensatz „Weg“: der Platz „Kante N“ hat keine Kachel (Zelle (21, 20))."
+    );
+    let e = paint_cliff(
+        &flat(),
+        &Tileset::synthetic_edges(),
+        Family::Pt,
+        &weg13(),
+        &[[32, 1]],
+        2,
+        0,
+        &Seams::default(),
+    )
+    .unwrap_err();
+    assert_eq!(e, "Zelle (32, 1) liegt außerhalb der Karte (0 bis 31).");
+}
+
+#[test]
+fn a_cliff_bakes_walls_and_blocks_the_upper_cell() {
+    let mut grid = flat();
+    let r = cliff(&mut grid, &weg13(), &rect(), 2);
+    assert!(r.overrides.is_empty());
+    let walls = walls(&grid);
+    for (a, b) in rim_edges() {
+        assert!(covered(&walls, a, b, 0, 16), "edge {a:?}–{b:?}");
+    }
+    // Walls only on the rectangle's border.
+    let lines_x = [edge_at(20), edge_at(26)];
+    let lines_z = [edge_at(20), edge_at(25)];
+    for (lo, hi) in &walls {
+        let on_x = lo[0] == hi[0] && lines_x.contains(&lo[0]);
+        let on_z = lo[2] == hi[2] && lines_z.contains(&lo[2]);
+        assert!(on_x || on_z, "wall {lo:?}–{hi:?}");
+    }
+    let cells = world_permissions(&grid, &Tileset::synthetic_edges(), Family::Pt);
+    assert_eq!(blocked(&cells), border(20, 25, 20, 24));
+    for (x, z) in border(19, 26, 19, 25) {
+        assert_eq!(cells[z * N + x].collision, 0, "ring ({x}, {z})");
+    }
+}
+
+#[test]
+fn upper_rule_writes_no_overrides() {
+    let mut grid = flat();
+    let r = cliff(&mut grid, &weg13(), &rect(), 2);
+    assert!(r.overrides.is_empty() && r.notes.is_empty());
+    // Review Focus: „untere Zelle“ next to a door, then back to „obere“: the door and the
+    // first stroke's overrides stay, the new stroke writes none.
+    let mut grid = flat();
+    grid.overrides[22 * N + 19] = Some(Cell {
+        kind: 0x69,
+        collision: 0x80,
+    });
+    let lower = cliff(&mut grid, &weg13_lower(), &rect(), 2);
+    assert!(!lower.overrides.is_empty());
+    let before = grid.overrides.clone();
+    let r = cliff(&mut grid, &weg13(), &rect_of(20..=25, 20..=24), 4);
+    assert_eq!(r.heights.len(), 30);
+    assert!(r.overrides.is_empty() && r.notes.is_empty());
+    assert_eq!(grid.overrides, before);
+}
+
+#[test]
+fn lower_rule_blocks_the_ring_by_overrides() {
+    let mut grid = flat();
+    let r = cliff(&mut grid, &weg13_lower(), &rect(), 2);
+    let rim = border(20, 25, 20, 24);
+    let ring_corners = [(19, 19), (26, 19), (19, 25), (26, 25)];
+    let ring: Vec<(usize, usize)> = border(19, 26, 19, 25)
+        .into_iter()
+        .filter(|c| !ring_corners.contains(c))
+        .collect();
+    assert_eq!((rim.len(), ring.len()), (18, 22));
+    // Rim: the tile's value (synthetic tiles: kind 0, collision 0) without the edge bit; the
+    // ring at the edges: `| 0x80`. Row-major.
+    let mut want: Vec<((usize, usize), &str)> = rim
+        .iter()
+        .map(|&c| (c, "0000"))
+        .chain(ring.iter().map(|&c| (c, "0080")))
+        .collect();
+    want.sort_by_key(|&((x, z), _)| (z, x));
+    let want: Vec<([u8; 2], String)> = want
+        .into_iter()
+        .map(|((x, z), t)| ([x as u8, z as u8], t.to_owned()))
+        .collect();
+    assert_eq!(r.overrides, want);
+    assert!(r.notes.is_empty());
+    // The values come from the tiles (`tile_cells`), not from fixed numbers.
+    let cells = tile_cells(&grid, &Tileset::synthetic_edges(), Family::Pt);
+    assert_eq!(cells[20 * N + 20], Cell::default());
+    // Baked: exactly the ring at the edges is blocked.
+    let mut want = ring.clone();
+    want.sort_by_key(|&(x, z)| (z, x));
+    assert_eq!(blocked(&baked_permissions(&grid)), want);
+    // The same tiles as with the rule „obere Zelle“.
+    let mut upper = flat();
+    cliff(&mut upper, &weg13(), &rect(), 2);
+    assert_eq!(upper.layers, grid.layers);
+}
+
+#[test]
+fn lower_rule_keeps_existing_overrides() {
+    let mut grid = flat();
+    let door = Cell {
+        kind: 0x69,
+        collision: 0x80,
+    };
+    grid.overrides[22 * N + 19] = Some(door);
+    let r = cliff(&mut grid, &weg13_lower(), &rect(), 2);
+    assert_eq!(r.overrides.len(), 39);
+    assert!(r.overrides.iter().all(|(c, _)| *c != [19, 22]));
+    assert_eq!(
+        r.notes,
+        ["Zelle (19, 22) hat eine eigene Permission; die Klippe lässt sie stehen."]
+    );
+    assert_eq!(grid.overrides[22 * N + 19], Some(door));
+    assert_eq!(baked_permissions(&grid)[22 * N + 19], door);
+}
+
+#[test]
+fn lowering_digs_a_pit() {
+    // Controller ruling: rule „Klippenpinsel“ taken literally (the plan's test sentence about
+    // the rim on the painted cells is ambiguous). Height −2 on P, the rest at 0: every corner
+    // touching P has all its cells ≥ −2, so all of them go inside; P resolves to the centre,
+    // the ring around P (0 ≥ −2, touching changed corners) to the rim, which so lies on the
+    // higher ground around the pit; with block „upper“ `block_edges` blocks the ring cells
+    // that share an edge with P (the upper cells), not the ring's four corner cells.
+    let set = weg13();
+    let mut grid = flat();
+    let r = cliff(&mut grid, &set, &rect(), -2);
+    for z in 0..N {
+        for x in 0..N {
+            let down = (20..=25).contains(&x) && (20..=24).contains(&z);
+            assert_eq!(
+                grid.heights[z * N + x],
+                if down { -2 } else { 0 },
+                "({x}, {z})"
+            );
+        }
+    }
+    let pit = [
+        "1NNNNNN2", "WCCCCCCE", "WCCCCCCE", "WCCCCCCE", "WCCCCCCE", "WCCCCCCE", "3SSSSSS4",
+    ];
+    assert_places(&grid, &set, 19, 19, &pit);
+    assert_eq!(wrong_corners(&grid, 0, &set), Vec::<[u8; 2]>::new());
+    assert_eq!(r.tiles.len(), 30 + 26);
+    assert!(r.overrides.is_empty());
+    let ring_corners = [(19, 19), (26, 19), (19, 25), (26, 25)];
+    let want: Vec<(usize, usize)> = border(19, 26, 19, 25)
+        .into_iter()
+        .filter(|c| !ring_corners.contains(c))
+        .collect();
+    let cells = world_permissions(&grid, &Tileset::synthetic_edges(), Family::Pt);
+    assert_eq!(blocked(&cells), want);
+}
+
+#[test]
+fn a_second_cliff_next_to_the_first_merges() {
+    let set = weg13();
+    let mut grid = flat();
+    cliff(&mut grid, &set, &rect(), 2);
+    cliff(&mut grid, &set, &rect_of(26..=29, 20..=24), 2);
+    assert_places(
+        &grid,
+        &set,
+        19,
+        19,
+        &[
+            "............",
+            ".1NNNNNNNN2.",
+            ".WCCCCCCCCE.",
+            ".WCCCCCCCCE.",
+            ".WCCCCCCCCE.",
+            ".3SSSSSSSS4.",
+            "............",
+        ],
+    );
+    assert_eq!(wrong_corners(&grid, 0, &set), Vec::<[u8; 2]>::new());
+}
+
+#[test]
+fn one_step_cliffs_stay_walkable() {
+    let mut grid = flat();
+    cliff(&mut grid, &weg13(), &rect(), 1);
+    let walls = walls(&grid);
+    for (a, b) in rim_edges() {
+        assert!(covered(&walls, a, b, 0, 8), "edge {a:?}–{b:?}");
+    }
+    let cells = world_permissions(&grid, &Tileset::synthetic_edges(), Family::Pt);
+    assert_eq!(blocked(&cells), Vec::<(usize, usize)>::new());
+    // „untere Zelle“: a one-step edge is no high edge, so no overrides either.
+    let mut grid = flat();
+    let r = cliff(&mut grid, &weg13_lower(), &rect(), 1);
+    assert!(r.overrides.is_empty());
+}
+
+#[test]
+fn a_thin_cliff_is_outside_on_top() {
+    let set = weg13();
+    // One row: every corner touches a lower cell, mask 0 everywhere: the outside tile stays.
+    let mut grid = flat();
+    let r = cliff(&mut grid, &set, &rect_of(20..=25, 20..=20), 2);
+    assert_eq!(r.heights.len(), 6);
+    assert!(r.tiles.is_empty());
+    assert_eq!(grid.layers, flat().layers);
+    // On a terrain area, the row's cells become `outside`.
+    let mut grid = flat();
+    stroke(&mut grid, 0, &set, &rect_of(18..=27, 18..=22), true, 0);
+    let r = cliff(&mut grid, &set, &rect_of(20..=25, 20..=20), 2);
+    for x in 20..=25 {
+        assert_eq!(token(&grid, 0, x, 20), "0000", "({x}, 20)");
+    }
+    // Lower cells keep their tile.
+    assert_eq!(token(&grid, 0, 22, 19), "0006");
+    assert_eq!(token(&grid, 0, 22, 21), "0006");
+    assert_eq!(r.tiles.len(), 6);
+}
+
+#[test]
+fn cliff_ramps_are_cleared() {
+    let mut grid = flat();
+    grid.ramps[21 * N + 21] = Ramp::North(1);
+    grid.ramps[23 * N + 24] = Ramp::East(2);
+    grid.ramps[10 * N + 10] = Ramp::South(1);
+    let r = cliff(&mut grid, &weg13(), &rect(), 2);
+    assert_eq!(r.ramps_cleared, [[21, 21], [24, 23]]);
+    assert_eq!(grid.ramps[21 * N + 21], Ramp::None);
+    assert_eq!(grid.ramps[10 * N + 10], Ramp::South(1));
+    // A ramp on a cell already at the height: the height stays out of the list, the ramp goes.
+    let mut grid = flat();
+    grid.heights[20 * N + 20] = 2;
+    grid.ramps[20 * N + 20] = Ramp::West(1);
+    let r = cliff(&mut grid, &weg13(), &[[20, 20]], 2);
+    assert!(r.heights.is_empty());
+    assert_eq!(r.ramps_cleared, [[20, 20]]);
+}
+
+#[test]
+fn seam_heights_count_for_the_corners() {
+    // A neighbour to the west at height 0 is lower: the corners x 0 go outside, the cells at
+    // x 0 get the west edge. Without a readable neighbour the map border is no edge: the
+    // corners x 0 only see the map's cells, inside, the cells at x 0 are the centre.
+    let mut seams = Seams::default();
+    for z in -1..=32i8 {
+        seams.heights.insert((-1, z), 0);
+    }
+    let cells = rect_of(0..=3, 10..=12);
+    let tileset = Tileset::synthetic_edges();
+    let paint = |seams: &Seams| {
+        paint_cliff(&flat(), &tileset, Family::Pt, &weg13(), &cells, 2, 0, seams).unwrap()
+    };
+    let r = paint(&seams);
+    assert!(r.tiles.contains(&([0, 11], weg13().places.w[0].clone())));
+    let r = paint(&Seams::default());
+    assert!(r.tiles.contains(&([0, 11], "0006".to_owned())));
+    // A neighbour as high as the cliff continues it, like no neighbour.
+    for z in -1..=32i8 {
+        seams.heights.insert((-1, z), 2);
+    }
+    assert_eq!(paint(&seams), r);
+}

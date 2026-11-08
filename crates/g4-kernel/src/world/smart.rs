@@ -1,8 +1,8 @@
 //! Smart drawing (phase 6.4b): the terrain brush resolves the corners it paints into the
-//! places of an edge set ([`paint_terrain`]). The cliff brush (Task 3) and `world_edit`
-//! (Task 4) build on the same parts: the seam cells read from neighbour maps ([`Seams`]), the
-//! result of a smart change ([`Resolved`]), the corner grid ([`Corners`]) and the set read as a
-//! table token ⇄ place ([`SetTable`]).
+//! places of an edge set ([`paint_terrain`]); the cliff brush ([`paint_cliff`]) raises or lowers
+//! cells and puts the set's rim on top. Both and `world_edit` build on the same parts: the seam
+//! cells read from neighbour maps ([`Seams`]), the result of a smart change ([`Resolved`]), the
+//! corner grid ([`Corners`]) and the set read as a table token ⇄ place ([`SetTable`]).
 //!
 //! Gen 4 maps keep no corner colours; the tiles carry them (rule „Eckfarben lesen“): a cell is
 //! a **member** of the set when its token stands in a place (the place's mask), **outside**
@@ -16,8 +16,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::edge::{EdgeSetJson, NE, NW, Place, SE, SW, variant};
-use super::grid::{TileRef, WorldGrid, parse_tile, tile_token};
+use g4_formats::game::Family;
+use g4_formats::map::Cell;
+
+use super::bake::tile_cells;
+use super::edge::{EdgeBlock, EdgeSetJson, NE, NW, Place, SE, SW, variant};
+use super::grid::{Ramp, TileRef, WorldGrid, override_token, parse_tile, tile_token};
+use super::tileset::Tileset;
+use crate::terrain::high_edges;
 
 /// Cells and rows of a map.
 const CELLS: i32 = 32;
@@ -427,6 +433,165 @@ pub fn wrong_corners(grid: &WorldGrid, layer: usize, set: &EdgeSetJson) -> Vec<[
         }
     }
     wrong.into_iter().map(|(z, x)| [x as u8, z as u8]).collect()
+}
+
+/// The collision bit the edge rule sets.
+const BLOCKED: u8 = 0x80;
+
+/// „Zelle (12, 21) hat eine eigene Permission; die Klippe lässt sie stehen.“
+pub(crate) fn own_permission(x: i32, z: i32) -> String {
+    format!("Zelle ({x}, {z}) hat eine eigene Permission; die Klippe lässt sie stehen.")
+}
+
+/// The ground height of cell (x, z): from `grid` inside the map, from `seams` on the ring;
+/// `None` where nothing is read.
+fn ground_height(grid: &WorldGrid, seams: &Seams, x: i32, z: i32) -> Option<i8> {
+    if in_map(x, z) {
+        grid.heights.get((z * CELLS + x) as usize).copied()
+    } else {
+        seams.heights.get(&seam_key(x, z)?).copied()
+    }
+}
+
+/// The cliff brush: `cells` to `height` (ramps there cleared), the rim of `set` on top (rule „Klippenpinsel“), and for
+/// `set.block == Lower` the overrides of rule „Kollision der Klippe“. Err: a place without tile, or
+/// „Klippen gibt es nur auf der Bodenebene.“ is the caller's (layer) check.
+///
+/// A corner touching a painted cell is inside when every readable cell around it (the map's and
+/// the seam's) is at least `height` high, else outside; the painted cells and every cell at least
+/// `height` high that touches a changed corner are resolved as the terrain brush does, lower
+/// cells keep their tile. Heights and cleared ramps list only cells that change.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_cliff(
+    grid: &WorldGrid,
+    tileset: &Tileset,
+    family: Family,
+    set: &EdgeSetJson,
+    cells: &[[u8; 2]],
+    height: i8,
+    seed: u32,
+    seams: &Seams,
+) -> Result<Resolved, String> {
+    let painted: BTreeSet<(i32, i32)> = check_cells(grid, 0, cells)?
+        .into_iter()
+        .map(|(x, z)| (z, x))
+        .collect();
+    let mut raised = grid.clone();
+    let mut heights = Vec::new();
+    let mut ramps_cleared = Vec::new();
+    for &(z, x) in &painted {
+        let i = (z * CELLS + x) as usize;
+        let at = [x as u8, z as u8];
+        if let Some(h) = raised.heights.get_mut(i)
+            && *h != height
+        {
+            *h = height;
+            heights.push((at, height));
+        }
+        if let Some(r) = raised.ramps.get_mut(i)
+            && *r != Ramp::None
+        {
+            *r = Ramp::None;
+            ramps_cleared.push(at);
+        }
+    }
+    let high = |x: i32, z: i32| ground_height(&raised, seams, x, z).map(|h| h >= height);
+    let table = SetTable::new(set);
+    let before = Corners::read(grid, 0, &table, seams);
+    let mut after = before.clone();
+    let corners: BTreeSet<(i32, i32)> = painted
+        .iter()
+        .flat_map(|&(z, x)| Corners::of_cell(x, z).map(|(cx, cz, _)| (cz, cx)))
+        .collect();
+    let mut touched = painted.clone();
+    for (cz, cx) in corners {
+        let around = cells_of_corner(cx, cz);
+        let inside = around.iter().all(|&(x, z)| high(x, z) != Some(false));
+        if after.set(cx, cz, inside) {
+            touched.extend(
+                around
+                    .into_iter()
+                    .filter(|&(x, z)| high(x, z) == Some(true))
+                    .map(|(x, z)| (z, x)),
+            );
+        }
+    }
+    let tiles = resolve_cells(grid, 0, &table, &after, &touched, seed)?;
+    let mut notes = seam_notes(&table, 0, seams, &before, &after);
+    let overrides = if set.block == EdgeBlock::Lower {
+        if let Some(ground) = raised.layers.get_mut(0) {
+            for ([x, z], token) in &tiles {
+                let i = usize::from(*z) * CELLS as usize + usize::from(*x);
+                if let (Some(cell), Ok(tile)) = (ground.tiles.get_mut(i), parse_tile(token)) {
+                    *cell = tile;
+                }
+            }
+        }
+        lower_overrides(grid, &raised, tileset, family, &painted, &mut notes)
+    } else {
+        Vec::new()
+    };
+    Ok(Resolved {
+        tiles,
+        heights,
+        ramps_cleared,
+        overrides,
+        notes,
+    })
+}
+
+/// The overrides of rule „Kollision der Klippe“ for `block: lower` on the painted grid `raised`:
+/// for every high edge with a cell in `painted` (as (z, x)) or the ring of 8 around them, the
+/// upper cell gets its tile's value ([`tile_cells`]), the lower one that value `| 0x80` (lower
+/// wins for a cell that is both); a cell with an override in `grid` stays, with a note.
+fn lower_overrides(
+    grid: &WorldGrid,
+    raised: &WorldGrid,
+    tileset: &Tileset,
+    family: Family,
+    painted: &BTreeSet<(i32, i32)>,
+    notes: &mut Vec<String>,
+) -> Vec<([u8; 2], String)> {
+    let near: BTreeSet<usize> = painted
+        .iter()
+        .flat_map(|&(z, x)| (-1..=1).flat_map(move |dz| (-1..=1).map(move |dx| (x + dx, z + dz))))
+        .filter(|&(x, z)| in_map(x, z))
+        .map(|(x, z)| (z * CELLS + x) as usize)
+        .collect();
+    let values = tile_cells(raised, tileset, family);
+    let pairs: Vec<(usize, usize)> = high_edges(&raised.height_grid())
+        .into_iter()
+        .filter(|(upper, lower)| near.contains(upper) || near.contains(lower))
+        .collect();
+    // Row-major by index; uppers first, so a lower cell's bit wins.
+    let mut cells: BTreeMap<usize, Cell> = BTreeMap::new();
+    for &(upper, _) in &pairs {
+        if let Some(&value) = values.get(upper) {
+            cells.entry(upper).or_insert(value);
+        }
+    }
+    for &(_, lower) in &pairs {
+        if let Some(&value) = values.get(lower) {
+            cells.insert(
+                lower,
+                Cell {
+                    collision: value.collision | BLOCKED,
+                    ..value
+                },
+            );
+        }
+    }
+    let side = CELLS as usize;
+    let mut overrides = Vec::new();
+    for (i, cell) in cells {
+        let (x, z) = (i % side, i / side);
+        if grid.overrides.get(i).copied().flatten().is_some() {
+            notes.push(own_permission(x as i32, z as i32));
+        } else {
+            overrides.push(([x as u8, z as u8], override_token(Some(cell))));
+        }
+    }
+    overrides
 }
 
 /// The fixed gate pattern of the terrain brush (table „Fester gated Musterfall“).
