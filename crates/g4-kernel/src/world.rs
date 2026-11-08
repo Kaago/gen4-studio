@@ -26,7 +26,9 @@
 //! changed into their members ([`build::bake_world_maps`]); `adopt.rs` „Karte als Quelle
 //! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]). `tileset.rs` also edits
 //! the tiles and edge sets of a tileset file as one step ([`tileset::tileset_edit`]); `edge.rs`
-//! holds the edge sets of a tileset (6.4b: Wang corners, 13 + 2 places, [`edge::EdgeSetJson`]).
+//! holds the edge sets of a tileset (6.4b: Wang corners, 13 + 2 places, [`edge::EdgeSetJson`]);
+//! `smart.rs` resolves the smart brushes into cells (6.4b: the terrain brush,
+//! [`smart::paint_terrain`]).
 
 pub mod adopt;
 pub mod bake;
@@ -40,6 +42,7 @@ pub mod keep;
 pub mod mesh;
 pub mod places;
 pub mod record;
+pub mod smart;
 pub mod tileset;
 
 pub use adopt::{
