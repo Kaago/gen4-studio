@@ -22,8 +22,8 @@ const KEY_STEP: Record<Density, number> = { komfort: 44, kompakt: 36 };
 const SEPARATOR_STEP = 5;
 
 /**
- * The lowest view that still shows the upright toolbar; with `paintTools` sub-tools of „Gelände malen“ (a second group) the bar is that
- * much longer, so a view too low for it lies flat at the top, where the bar wraps inside the view instead of running past its bottom.
+ * The lowest view that still shows the upright toolbar; with `paintTools` sub-tools of „Gelände malen“ (a second group) the lowest view
+ * that shows them under the tools. Below that (and above the bar's own height) they stand as a second column beside it (`paintBeside`).
  */
 export function toolbarMinHeight(density: Density, paintTools = 0): number {
   return TOOLBAR_MIN_HEIGHT[density] + (paintTools > 0 ? SEPARATOR_STEP + paintTools * KEY_STEP[density] : 0);
@@ -69,6 +69,8 @@ export interface FloatingToolbarProps {
    * null or missing: none (another tool, a binary map).
    */
   paint?: { tools: readonly PaintToolSpec[]; sub: PaintSub; onSub: (sub: PaintSub) => void } | null;
+  /** The upright bar puts the sub-tools as a second column beside the tools (the view is too low for them under the tools). */
+  paintBeside?: boolean;
 }
 
 /**
@@ -78,7 +80,7 @@ export interface FloatingToolbarProps {
  * its sub-tools follow as a second group (`paint`). Base UI opens a menu on the press of its
  * trigger, so the grip cannot be the trigger and a drag handle at once.
  */
-export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, anchor, chosen, onAnchor, area, paint = null }: FloatingToolbarProps) {
+export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, anchor, chosen, onAnchor, area, paint = null, paintBeside = false }: FloatingToolbarProps) {
   const bar = useRef<HTMLDivElement>(null);
   const vertical = anchor === "left";
   useRovingList(bar, { orientation: vertical ? "vertical" : "horizontal" });
@@ -112,6 +114,7 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
       aria-orientation={vertical ? "vertical" : "horizontal"}
       data-anchor={anchor}
       data-dichte={density}
+      data-paint-beside={vertical && paint && paintBeside ? "" : undefined}
       className={styles.bar}
     >
       <span className={styles.handle}>
@@ -187,7 +190,7 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
       })}
       {paint && (
         <>
-          <span role="separator" aria-orientation={vertical ? "horizontal" : "vertical"} className={styles.separator} />
+          <span role="separator" aria-orientation={vertical ? "horizontal" : "vertical"} data-paint-separator="" className={styles.separator} />
           <div role="group" aria-label="Unterwerkzeuge" data-paint-tools="" className={styles.group}>
             {paint.tools.map((t) => (
               <Tooltip

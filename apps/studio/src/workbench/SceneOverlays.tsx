@@ -29,22 +29,29 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
   const tools = toolsFor(target !== null);
   const sub = tool === "paint" && target !== null ? paintState.sub : null;
   const paint = useMemo(() => (sub === null ? null : { tools: PAINT_TOOLS, sub, onSub: (s: PaintSub) => setPaint({ sub: s }) }), [sub, setPaint]);
-  // The sub-tools make the upright bar longer: the view must be that much higher for it (else it lies flat on top and wraps there).
-  const minHeight = toolbarMinHeight(density, paint === null ? 0 : paint.tools.length);
+  const minHeight = toolbarMinHeight(density);
+  // The sub-tools make the upright bar longer: a view lower than this puts them as a second column beside the tools (the bar stays
+  // upright; it lies flat only below `minHeight`, as without them).
+  const stackedHeight = toolbarMinHeight(density, paint === null ? 0 : paint.tools.length);
   // Only whether the view is too low is kept, not its height, and the bars are memoised: dragging the splitter re-renders this component
-  // with every shell change, but the bars only when this flag, the anchor or their own props change. Measured before the first paint, so
-  // a low view never shows the upright bar for a frame; a view that is not measured (jsdom has no layout) is not low.
+  // with every shell change, but the bars only when these flags, the anchor or their own props change. Measured before the first paint,
+  // so a low view never shows the upright bar for a frame; a view that is not measured (jsdom has no layout) is not low.
   const [low, setLow] = useState(false);
+  const [beside, setBeside] = useState(false);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const measure = () => setLow(isLowView(el.getBoundingClientRect().height, minHeight));
+    const measure = () => {
+      const height = el.getBoundingClientRect().height;
+      setLow(isLowView(height, minHeight));
+      setBeside(isLowView(height, stackedHeight));
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [minHeight]);
+  }, [minHeight, stackedHeight]);
   const area = useCallback(() => box.current?.getBoundingClientRect() ?? null, []);
   // The four event tools wait for a shown place and an event file that may be written.
   const eventsBlocked = eventToolsBlocked(eventLock, eventFileId);
@@ -80,6 +87,7 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
           onAnchor={setToolbar}
           area={area}
           paint={paint}
+          paintBeside={beside}
         />
       )}
     </div>

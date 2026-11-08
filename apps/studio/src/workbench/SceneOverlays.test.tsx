@@ -205,15 +205,38 @@ describe("SceneOverlays", () => {
     expect(flatGroup).toContain("min-width: 0");
   });
 
-  it("lays_the_toolbar_flat_where_the_upright_bar_with_sub_tools_would_run_past_the_bottom", () => {
-    // 600 px is high enough for the upright tools alone (460), not with the seven sub-tools (460 + 5 + 7 × 44 = 773 in komfort).
-    viewHeight(600);
+  it("keeps_the_upright_bar_and_puts_the_sub_tools_beside_it_where_they_do_not_fit_under_it", () => {
+    // 600 px is high enough for the upright tools alone (460), not with the seven sub-tools under them (460 + 5 + 7 × 44 = 773 in
+    // komfort): the bar stays upright, the sub-tools stand beside it.
     const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    const spy = viewHeight(600);
     show({ tool: "select" }, model);
     expect(overlays().getAttribute("data-anchor")).toBe("left");
     show({ tool: "paint" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
+    expect(toolbar().getAttribute("aria-orientation")).toBe("vertical");
+    expect(toolbar().hasAttribute("data-paint-beside")).toBe(true);
+    // High enough for both under each other: one column.
+    spy.mockRestore();
+    act(() => root.unmount());
+    root = createRoot(container);
+    viewHeight(800);
+    show({ tool: "paint" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
+    expect(toolbar().hasAttribute("data-paint-beside")).toBe(false);
+  });
+
+  it("lays_the_toolbar_flat_with_sub_tools_only_below_the_old_threshold", () => {
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    viewHeight(461);
+    show({ tool: "paint" }, model);
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
+    act(() => root.unmount());
+    root = createRoot(container);
+    viewHeight(459);
+    show({ tool: "paint" }, model);
     expect(overlays().getAttribute("data-anchor")).toBe("top");
-    expect(JSON.parse(localStorage.getItem(KEY) ?? '{"toolbar":"left"}').toolbar).toBe("left");
+    expect(toolbar().hasAttribute("data-paint-beside")).toBe(false);
   });
 
   it("locks_the_event_tools_with_the_locked_text_of_the_event_file", () => {

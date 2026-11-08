@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -35,7 +36,7 @@ describe("FloatingToolbar", () => {
   });
 
   const onSub = vi.fn();
-  const show = (opts: { tool?: Tool; eventsBlocked?: string | null; density?: Density; anchor?: ToolbarAnchor; chosen?: ToolbarAnchor; sub?: PaintSub | null } = {}) =>
+  const show = (opts: { tool?: Tool; eventsBlocked?: string | null; density?: Density; anchor?: ToolbarAnchor; chosen?: ToolbarAnchor; sub?: PaintSub | null; beside?: boolean } = {}) =>
     act(() =>
       root.render(
         <FloatingToolbar
@@ -49,6 +50,7 @@ describe("FloatingToolbar", () => {
           onAnchor={onAnchor}
           area={area}
           paint={opts.sub ? { tools: PAINT_TOOLS, sub: opts.sub, onSub } : null}
+          paintBeside={opts.beside}
         />,
       ),
     );
@@ -95,6 +97,27 @@ describe("FloatingToolbar", () => {
     act(() => subs[5]!.click());
     expect(onSub).toHaveBeenCalledWith("height");
     expect(onTool).not.toHaveBeenCalled();
+  });
+
+  it("puts_the_sub_tools_beside_the_upright_bar_only_when_asked_and_upright", () => {
+    show({ tool: "paint", sub: "brush" });
+    expect(bar().hasAttribute("data-paint-beside")).toBe(false);
+    show({ tool: "paint", sub: "brush", beside: true });
+    expect(bar().hasAttribute("data-paint-beside")).toBe(true);
+    // The group stays the bar's own (one roving list); the separator before it is marked so the column form can hide it.
+    const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
+    expect(group.parentElement).toBe(bar());
+    expect(group.previousElementSibling?.hasAttribute("data-paint-separator")).toBe(true);
+    // Flat bars wrap instead; without sub-tools there is nothing to put beside.
+    show({ tool: "paint", sub: "brush", beside: true, anchor: "top" });
+    expect(bar().hasAttribute("data-paint-beside")).toBe(false);
+    show({ tool: "paint", sub: null, beside: true });
+    expect(bar().hasAttribute("data-paint-beside")).toBe(false);
+    const css = readFileSync("src/ui/frame/FloatingToolbar.module.css", "utf8");
+    const column = /\.bar\[data-paint-beside\] > \.group \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(column).toContain("position: absolute");
+    expect(column).toContain("left: calc(100% + var(--g4-raum-4))");
+    expect(css).toMatch(/\.bar\[data-paint-beside\] > \[data-paint-separator\] \{\s*display: none;/);
   });
 
   it("switches_the_tool_on_a_click", () => {

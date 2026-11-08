@@ -105,6 +105,27 @@
   min-width: 0;
 }
 
+/* Upright in a view too low for the sub-tools under the tools: they stand as a second column beside the bar, level with its top and
+   drawn like it (the bar keeps its place and height; the separator is the gap between the two). */
+.bar[data-paint-beside] {
+  position: relative;
+}
+
+.bar[data-paint-beside] > [data-paint-separator] {
+  display: none;
+}
+
+.bar[data-paint-beside] > .group {
+  position: absolute;
+  top: calc(-1 * var(--g4-strich-standard));
+  left: calc(100% + var(--g4-raum-4));
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  box-shadow: var(--g4-schatten-schwebend);
+}
+
 /* A square key per tool: the symbol in the middle, the letter in the corner. */
 .tool {
   position: relative;
