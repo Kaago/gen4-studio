@@ -24,8 +24,8 @@ Vorgaben.
 
 `world_export_tmj {map, path}` schreibt die Welt als TMJ nach `path` und die Kachelbilder als PNG in
 den Ordner `<stem>.tiles/` daneben (`<stem>` der Dateiname ohne Endung); im Projekt ändert sich
-nichts. Erst die Bilder, dann die TMJ; angelegt wird nur der Ordner `<stem>.tiles`, nicht fehlende
-Ordner darüber. Bilder, die schon in `<stem>.tiles/` liegen, bleiben liegen, auch wenn die neue
+nichts. Erst die Bilder, dann die TMJ; der Ordner `<stem>.tiles` entsteht mit allen fehlenden Ordnern
+darüber (`create_dir_all`), also auch der Ordner der TMJ. Bilder, die schon in `<stem>.tiles/` liegen, bleiben liegen, auch wenn die neue
 Karte sie nicht mehr nennt. Antwort `{map, path, layers, images, pieces, overrides}` (die Zahl der
 Ebenen der TMJ, der geschriebenen Bilder, der Teilmodelle und der Überschreibungen). Abgelehnt:
 eine Karte ohne Welt („Karte 0123 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“),
@@ -82,7 +82,7 @@ Drei eingebettete Bildsammlungen (`columns` 0, `grid` 16 × 16 orthogonal, `marg
 |---|---|---|---|---|---|
 | „g4 Paket 0006“ | 1 | `tiles` | N = die Kacheln des Tilesets, Kachel `i` = GID `i + 1` | Texturname / Rolle der Kachel | `tile-XXXX.png` (`XXXX` der Index mit vier kleinen Hex-Ziffern, wie das Token): die Textur aus `tileset_texture` in ihrer dekodierten Größe (etwa 32 × 32), sonst ein Platzhalter 16 × 16 in der Farbe der Rolle |
 | „g4 Höhen“ | 1 + N | `heights` | 79 (`HEIGHT_TILES`, Stufen −16 bis 62) | Bildname / `height` | `height-m016.png` bis `height-p062.png`: die sieben cividis-Stufen von `szene/hoehe`, reihum wie die Höhenschicht der Szene |
-| „g4 Rampen“ | 1 + N + 79 | `ramps` | 8 (`RAMP_TILES`: `n1 n2 e1 e2 s1 s2 w1 w2`) | Bildname / `ramp` | `ramp-n1.png` bis `ramp-w2.png`: eine Farbe je Richtung, zwei Stufen dunkler |
+| „g4 Rampen“ | 1 + N + 79 | `ramps` | 8 (`RAMP_TILES`: `n1 n2 e1 e2 s1 s2 w1 w2`) | Bildname / `ramp` | `ramp-n1.png` bis `ramp-w2.png`: eine Farbe je Richtung, Stufe 2 dunkler (3/5 der Helligkeit) |
 
 Beide Hilfs-Tilesets stehen **immer** in der Datei, auch ohne Rampen; nur die Ebenen „Rampen“ und
 „Permissions“ hängen an der Welt. `tilewidth` und `tileheight` eines Tilesets sind die des
@@ -138,7 +138,7 @@ Pfad der Welt (`world.layers[0].tiles[3]: …`).
 
 **Welche Ebene was ist.**
 
-- Eine `tilelayer` **ohne** `g4.kind` ist eine Welt-Ebene, in Dateireihenfolge: die erste ist der
+- Jede `tilelayer`, deren `g4.kind` nicht `heights` oder `ramps` ist (auch ohne `g4.kind`), ist eine Welt-Ebene, in Dateireihenfolge: die erste ist der
   Boden, jede weitere eine Überlagerung, was `g4.role` auch sagt. Eine in Tiled neu angelegte Ebene
   ohne Eigenschaften wird so eine Überlagerung.
 - `g4.kind` `heights` und `ramps` sind die Hilfsebenen; ihre erste GID kommt aus dem Tileset mit

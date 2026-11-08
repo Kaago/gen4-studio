@@ -704,11 +704,11 @@ Ecken und UV des GLB sind die der gebackenen Flächen, BDHC und Permissions sind
 apicula; eine Karte zählt als ok, `bake.model-too-big`, `world.adopt-texture` oder anderes). Vor
 und nach Task 10b (Polygone ohne Textur weglassen, Paket nach Passung):
 
-| Spiel | Karten | vorher: ok / zu groß / Textur / anderes | nachher: ok / zu groß / Textur / anderes | Median Flächen : Polygone |
+| Spiel | Karten | vorher: ok / zu groß / Textur / anderes | nachher: ok / zu groß / Textur / anderes | Median Flächen : Polygone, vorher → nachher |
 |---|---|---|---|---|
-| Platin DE | 666 | 465 / 1 / 187 / 13 | 601 / 1 / 28 / 36 | 1,000 |
-| HeartGold DE | 676 | 518 / 14 / 131 / 13 | 607 / 14 / 8 / 47 | 0,997 |
-| HeartGold US | 676 | 518 / 14 / 131 / 13 | 607 / 14 / 8 / 47 | 0,997 |
+| Platin DE | 666 | 465 / 1 / 187 / 13 | 601 / 1 / 28 / 36 | 1,000 → 1,000 |
+| HeartGold DE | 676 | 518 / 14 / 131 / 13 | 607 / 14 / 8 / 47 | 0,999 → 0,997 |
+| HeartGold US | 676 | 518 / 14 / 131 / 13 | 607 / 14 / 8 / 47 | 0,999 → 0,997 |
 
 Nachher ließ Form 2 auf Platin DE in 126 Karten zusammen 2 785 Polygone ohne Textur weg, auf
 HeartGold DE und US in je 88 Karten 2 709; 8 Karten von Platin gelangen auf einem gesuchten Paket.
