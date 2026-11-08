@@ -1,5 +1,6 @@
 import { invoke } from "../platform/transport";
 import type { AssetId, AssetKind } from "../api";
+import type { WorldBakeReport } from "../api.world";
 
 /**
  * The recipes (phase 3d.2), mirroring `apps/studio/src-tauri/src/commands/recipes.rs` and `g4_kernel::recipes`. `api.ts`
@@ -351,4 +352,38 @@ export interface RewardOnceReport {
   previous_slot: number;
   archive: number;
   message: number;
+}
+
+/**
+ * The input of „Neue Karte malen“ (`g4_kernel::recipes::new_painted_map`, text project only): the cell (`x`, `y`) of world map
+ * `matrix` (absent: 0), the name (required), and what the kernel otherwise takes from the neighbour: the package (`tileset`), the
+ * ground tile (`fill_tile`, a token like `0003r1f`), the height in steps (−16 to 62, absent: 0), the header and a map whose world to
+ * copy (`source_map`).
+ */
+export interface NewPaintedMapInput {
+  matrix?: number;
+  x: number;
+  y: number;
+  name: string;
+  tileset?: number;
+  fill_tile?: string;
+  height?: number;
+  header?: number;
+  source_map?: number;
+}
+
+/** What „Neue Karte malen“ did: map `map` in cell (`x`, `y`) of `matrix` (its size afterwards), its header, package, the map it is a
+ * copy of without buildings (`base`) and the bake of its world (null: none). */
+export interface NewPaintedMapReport {
+  map: number;
+  name: string;
+  matrix: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  header: number | null;
+  tileset: number;
+  base: number;
+  bake: WorldBakeReport | null;
 }

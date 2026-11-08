@@ -20,7 +20,7 @@ describe("recipes", () => {
       ["new_figure", "Neue Figur hier", true, null],
     ]);
     expect(short("create_room")).toEqual([["new_figure", "Neue Figur hier", true, null]]);
-    expect(short("extend_area")).toEqual([["adjust_terrain", "Gelände anpassen", false, "Kommt mit Phase 6"]]);
+    expect(short("extend_area")).toEqual([["adjust_terrain", "Gelände anpassen", true, null]]);
     expect(short("empty_region")).toEqual([["create_area", "Gebiet anlegen", true, null]]);
     expect(short("connect_doors")).toEqual([["play_here", "Hier spielen", false, "Kommt mit 3d.9"]]);
     expect(short("new_trainer_here")).toEqual([["play_here", "Hier spielen", false, "Kommt mit 3d.9"]]);
@@ -45,6 +45,19 @@ describe("recipes", () => {
     for (const recipe of ["figure_appears", "scene_on_enter", "reward_once"] as const) {
       expect(short(recipe)).toEqual([["play_here", "Hier spielen", false, "Kommt mit 3d.9"]]);
     }
+  });
+
+  it("adjust_terrain_is_no_longer_locked", () => {
+    // Since 6.4a the app runs the step (`startPainting`): free after „Gebiet erweitern“ as after „Neue Karte malen“.
+    for (const recipe of ["extend_area", "new_painted_map"] as const) {
+      expect(nextStepsFor(recipe).find((s) => s.id === "adjust_terrain")).toEqual({ id: "adjust_terrain", label: "Gelände anpassen", available: true, reason: null });
+    }
+  });
+
+  it("new_painted_map_leads_to_adjust_terrain", () => {
+    expect(nextStepsFor("new_painted_map").map((s) => [s.id, s.label, s.available, s.reason])).toEqual([["adjust_terrain", "Gelände anpassen", true, null]]);
+    // No wizard: the app starts painting itself.
+    expect(recipeRequest("new_painted_map", 7)).toBeNull();
   });
 
   it("a_recipe_opens_its_wizard_and_the_room_gets_its_door_outside_in_the_given_header", () => {

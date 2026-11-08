@@ -107,6 +107,7 @@ import { useSceneLayers } from "./app/useSceneLayers";
 import { useShortcuts } from "./app/useShortcuts";
 import { useF6Ring } from "./app/useF6Ring";
 import { useStableCallback } from "./app/useStable";
+import { startPaintingWith } from "./workbench/recipes";
 import { useToastMirror } from "./app/useToastMirror";
 import { useWindowGuards } from "./app/useWindowGuards";
 import { useWizards } from "./app/useWizards";
@@ -791,6 +792,10 @@ function AppBody() {
   const toolsReset = useRef<{ dispose: () => void } | null>(null);
   // The paint state of „Gelände malen“ lives in the workbench (`PaintProvider`); the shortcuts read it through this ref.
   const paintRef = useRef<PaintModel | null>(null);
+  // „Neue Karte malen“ and the step „Gelände anpassen“: the cell selected, the top view on, „Gelände malen“ with the brush.
+  const startPainting = useStableCallback((cell: { matrix: number; x: number; y: number }) =>
+    startPaintingWith({ goTo: goToReference, setTopDown: shell.setTopDown, onTool, setPaint: (patch) => paintRef.current?.set(patch) }, cell),
+  );
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
@@ -1166,6 +1171,7 @@ function AppBody() {
     onDraft: setDraft,
     onOpenDialog: setDialogEditor,
     openStoryRecipe: storyRecipe.open,
+    startPainting,
     view: { showPermissions, setShowPermissions, showHeights, setShowHeights, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;

@@ -171,6 +171,11 @@ export interface WorkbenchData {
   onOpenDialog: (target: DialogTarget) => void;
   /** Opens a step recipe of 3d.7 as the app's dialog („Dialog anlegen…“ of a figure without a script); a stable function. Absent: none. */
   openStoryRecipe?: (request: StoryRecipeRequest) => void;
+  /**
+   * After „Neue Karte malen“ or the step „Gelände anpassen“: the cell selected, the top view on, the tool „Gelände malen“ with the brush
+   * (`startPaintingWith`); a stable function. Absent: nothing happens (tests, the gallery).
+   */
+  startPainting?: (cell: { matrix: number; x: number; y: number }) => void;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */
@@ -245,6 +250,13 @@ export function useWorkbench(): WorkbenchData {
   const data = useContext(WorkbenchContext);
   if (!data) throw new Error("panel rendered outside of the workbench");
   return data;
+}
+
+const NO_PAINTING = () => {};
+
+/** `startPainting` of the workbench; outside one (a dialog rendered alone) a function that does nothing. */
+export function useStartPainting(): (cell: { matrix: number; x: number; y: number }) => void {
+  return useContext(WorkbenchContext)?.startPainting ?? NO_PAINTING;
 }
 
 /** Changes with the selection; only the inspector reads it. */

@@ -1,5 +1,8 @@
 import type { NextStep, RecipeId } from "../api";
+import type { Tool } from "../ui/frame/shellState";
 import type { Area, IconName } from "../ui/primitives";
+import type { PaintPatch } from "./paint/PaintContext";
+import type { NavTarget } from "./navigation";
 import type { WizardRequest } from "./WorkbenchContext";
 
 /** A recipe of the bar that Erzählen shows instead of the tools. */
@@ -28,7 +31,7 @@ export const RECIPE_BAR: readonly RecipeEntry[] = [
 
 /**
  * The steps after each recipe, as the kernel's `next_steps` names them (`crates/g4-kernel/src/recipes/{area,room,extend,empty_region,
- * new_figure,connect_doors,new_trainer_here,new_story,talk_advances,figure_appears,scene_on_enter,reward_once}.rs`). The wizards of 3d.5 show the kernel's own `outcome.next`; this table is for the wizards
+ * new_figure,connect_doors,new_trainer_here,new_story,talk_advances,figure_appears,scene_on_enter,reward_once,new_painted_map}.rs`). The wizards of 3d.5 show the kernel's own `outcome.next`; this table is for the wizards
  * that still call the old commands and for the tests that hold both together.
  */
 const NEXT: Partial<Record<RecipeId, [id: string, label: string][]>> = {
@@ -56,6 +59,7 @@ const NEXT: Partial<Record<RecipeId, [id: string, label: string][]>> = {
   figure_appears: [["play_here", "Hier spielen"]],
   scene_on_enter: [["play_here", "Hier spielen"]],
   reward_once: [["play_here", "Hier spielen"]],
+  new_painted_map: [["adjust_terrain", "Gelände anpassen"]],
 };
 
 /** The recipes the kernel has (`recipes::list()`): a step to one of them runs. */
@@ -72,15 +76,15 @@ const KNOWN: readonly string[] = [
   "figure_appears",
   "scene_on_enter",
   "reward_once",
+  "new_painted_map",
 ] satisfies RecipeId[];
 
-/** Steps that are no recipe but always there (the app runs them): the dialog editor of the figure just made, and „Zu einer Geschichte“
- * („Gespräch schaltet weiter“ with that figure). */
-const ALWAYS: readonly string[] = ["edit_dialog", "story_join"];
+/** Steps that are no recipe but always there (the app runs them): the dialog editor of the figure just made, „Zu einer Geschichte“
+ * („Gespräch schaltet weiter“ with that figure) and „Gelände anpassen“ (painting the new map, `startPaintingWith`). */
+const ALWAYS: readonly string[] = ["edit_dialog", "story_join", "adjust_terrain"];
 
 /** Why a step the kernel does not run yet is locked (`types.rs` `next_steps`). */
 function lockReason(id: string): string {
-  if (id === "adjust_terrain") return "Kommt mit Phase 6";
   return id === "play_here" ? COMES_WITH_3D9 : COMES_LATER;
 }
 
@@ -105,4 +109,24 @@ export function recipeRequest(id: string, header: number | null, tile?: { x: num
   if (id === "new_trainer_here") return header === null ? { kind: "new_trainer_here" } : { kind: "new_trainer_here", prefill: { header, ...at } };
   if (id === "connect_doors") return header === null ? { kind: "connect_doors" } : { kind: "connect_doors", prefill: { a: { header, ...at } } };
   return null;
+}
+
+/** What the app does to start painting: follow a link, switch the top view, the tool and the paint state. */
+export interface PaintingStart {
+  goTo: (target: NavTarget) => void;
+  setTopDown: (on: boolean) => void;
+  onTool: (tool: Tool) => void;
+  setPaint: (patch: PaintPatch) => void;
+}
+
+/**
+ * „Gelände anpassen“ (after „Neue Karte malen“, or as the step of a result): selects the map in `cell` (the world map stays the view),
+ * turns the top view on, switches to „Gelände malen“ (which shows the terrain layer) and paints with the brush. The top view stays the
+ * user's choice afterwards; choosing the tool alone never switches the camera.
+ */
+export function startPaintingWith(app: PaintingStart, cell: { matrix: number; x: number; y: number }): void {
+  app.goTo({ kind: "matrixCell", matrix: cell.matrix, x: cell.x, y: cell.y, show: "map" });
+  app.setTopDown(true);
+  app.onTool("paint");
+  app.setPaint({ sub: "brush" });
 }
