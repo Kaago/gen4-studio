@@ -243,6 +243,13 @@ pub const COMMANDS: &[&str] = &[
     "world_to_binary",
     "world_bake",
     "tileset_edit",
+    "world_freeform_inspect",
+    "world_freeform_add",
+    "world_freeform_remove",
+    "tileset_piece_set",
+    "world_export_tmj",
+    "world_inspect_tmj",
+    "world_import_tmj",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1301,6 +1308,62 @@ pub fn dispatch(
             { req: g4_kernel::world::TilesetEditRequest },
             |a| tileset_edit_impl(state, a.req)
         ),
+        "world_freeform_inspect" => run!(
+            json, "world_freeform_inspect", args,
+            { req: g4_kernel::world::FreeformAddRequest },
+            |a| {
+                let mut req = a.req;
+                req.path = policy.read_path(&req.path.to_string_lossy())?;
+                world_freeform_inspect_impl(state, req)
+            }
+        ),
+        "world_freeform_add" => run!(
+            json, "world_freeform_add", args,
+            { req: g4_kernel::world::FreeformAddRequest },
+            |a| {
+                let mut req = a.req;
+                req.path = policy.read_path(&req.path.to_string_lossy())?;
+                world_freeform_add_impl(state, req)
+            }
+        ),
+        "world_freeform_remove" => run!(
+            json, "world_freeform_remove", args,
+            { map: u16, index: usize },
+            |a| world_freeform_remove_impl(state, a.map, a.index)
+        ),
+        "tileset_piece_set" => run!(
+            json, "tileset_piece_set", args,
+            { req: g4_kernel::world::PieceSetRequest },
+            |a| {
+                let mut req = a.req;
+                req.path = policy.read_path(&req.path.to_string_lossy())?;
+                tileset_piece_set_impl(state, req)
+            }
+        ),
+        "world_export_tmj" => run!(
+            json, "world_export_tmj", args,
+            { map: u16, path: String },
+            |a| {
+                let path = policy.write_path(&a.path)?;
+                world_export_tmj_impl(state, a.map, path_text(&path)?)
+            }
+        ),
+        "world_inspect_tmj" => run!(
+            json, "world_inspect_tmj", args,
+            { map: u16, path: String },
+            |a| {
+                let path = policy.read_path(&a.path)?;
+                world_inspect_tmj_impl(state, a.map, path_text(&path)?)
+            }
+        ),
+        "world_import_tmj" => run!(
+            json, "world_import_tmj", args,
+            { map: u16, path: String },
+            |a| {
+                let path = policy.read_path(&a.path)?;
+                world_import_tmj_impl(state, a.map, path_text(&path)?)
+            }
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1803,6 +1866,26 @@ mod tests {
                 "tileset_edit",
                 json!({ "req": { "package": 0, "changes": [{ "tile": 0, "kind": 2 }] } }),
             ),
+            // 6.5b, the DSPRE layout: every one refuses (the paths are checked first).
+            (
+                "world_freeform_inspect",
+                json!({ "req": { "map": 0, "path": per_in, "at": [0, 0, 0], "options": { "unit": 16, "colors": 16 }, "name": "haus" } }),
+            ),
+            (
+                "world_freeform_add",
+                json!({ "req": { "map": 0, "path": per_in, "at": [0, 0, 0], "name": null } }),
+            ),
+            ("world_freeform_remove", json!({ "map": 0, "index": 0 })),
+            (
+                "tileset_piece_set",
+                json!({ "req": { "package": 0, "tile": 0, "path": per_in, "footprint": [1, 1], "name": "baum" } }),
+            ),
+            (
+                "world_export_tmj",
+                json!({ "map": 0, "path": "build/0000.tmj" }),
+            ),
+            ("world_inspect_tmj", json!({ "map": 0, "path": per_in })),
+            ("world_import_tmj", json!({ "map": 0, "path": per_in })),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

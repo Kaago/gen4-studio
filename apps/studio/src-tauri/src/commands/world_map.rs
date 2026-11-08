@@ -9,6 +9,12 @@
 //! holds it (`world_bake`, also `world_get.bake`) and the tiles of a tileset file
 //! (`tileset_edit`), each writer one undo step.
 //!
+//! Phase 6.5b (over `g4_call` only): free-form models (`world_freeform_inspect`,
+//! `world_freeform_add`, `world_freeform_remove`), the model of a piece tile
+//! (`tileset_piece_set`), Form 2 of `world_adopt` through apicula and the exchange with Tiled
+//! (`world_export_tmj`, `world_inspect_tmj`, `world_import_tmj`). The mesh and `world_get`
+//! count the faces of free-form and piece models too.
+//!
 //! Painting is for text projects only: outside one the writers refuse with
 //! [`WORLD_NEEDS_TEXT_PROJECT`], while `world_get` answers `world: null` and `get_world_mesh`
 //! an empty mesh (the scene shows the map's model then); `tileset_get` derives the tileset in
@@ -19,10 +25,10 @@ use std::collections::HashMap;
 use g4_kernel::project::SourceMode;
 use g4_kernel::store::Store;
 use g4_kernel::world::edit::{self, WorldCreateRequest, WorldEditRequest, WorldReport};
-use g4_kernel::world::mesh::{MODEL_BUDGET, MeshFace, estimate_model_bytes, mesh, mesh_textures};
+use g4_kernel::world::mesh::{MODEL_BUDGET, estimate_model_bytes, mesh_textures};
 use g4_kernel::world::{
-    TileRole, Tileset, TilesetSaveReport, WorldGrid, WorldJson, derive_tileset, read_tileset_file,
-    save_tileset, tileset_texture,
+    TileRole, Tileset, TilesetSaveReport, WorldFaces, WorldJson, derive_tileset, read_tileset_file,
+    save_tileset, tileset_texture, world_faces,
 };
 use g4_kernel::world::{
     TilesetEditReport, TilesetEditRequest, WorldAdoptReport, WorldAdoptRequest, WorldBakeReport,
@@ -34,8 +40,11 @@ use super::{SpriteDto, lock, session};
 use crate::errors::CmdError;
 use crate::state::AppState;
 
-#[cfg(doc)]
-use g4_kernel::world::WORLD_NEEDS_TEXT_PROJECT;
+use g4_kernel::map_import::PartMessage;
+use g4_kernel::world::{
+    FreeformAddRequest, FreeformReport, PieceSetReport, PieceSetRequest, TmjExportReport,
+    TmjImportReport, WORLD_NEEDS_TEXT_PROJECT,
+};
 
 /// What `world_get` answers: the world of the map (`None`: none, or outside a text project),
 /// the faces and textures of its mesh, the estimated model size and its share of
@@ -102,17 +111,20 @@ fn world_of(store: &mut Store, map: u16) -> Result<Option<WorldJson>, CmdError> 
     Ok(store.world(map)?.cloned())
 }
 
-/// The faces of `world` with its tileset ([`Store::tileset`]) and the tileset; no faces for a
-/// world that does not read into cells (the check names its problems).
+/// The faces of world map `map` ([`world_faces`]: grid, piece geometry and free-form models)
+/// with the pack textures they bind, and the tileset of `world` ([`Store::tileset`]); no grid
+/// faces for a world that does not read into cells (the check names its problems).
 fn faces_of(
     store: &mut Store,
+    map: u16,
     world: &WorldJson,
-) -> Result<(Vec<MeshFace>, std::sync::Arc<Tileset>), CmdError> {
+) -> Result<(WorldFaces, std::sync::Arc<Tileset>), CmdError> {
     let tileset = store.tileset(world.tileset)?;
-    let faces = match WorldGrid::parse(world) {
-        Ok(grid) => mesh(&grid, &tileset),
-        Err(_) => Vec::new(),
-    };
+    let faces = world_faces(store, map)?.unwrap_or(WorldFaces {
+        faces: Vec::new(),
+        textures: Vec::new(),
+        messages: Vec::new(),
+    });
     Ok((faces, tileset))
 }
 
@@ -146,7 +158,7 @@ pub fn world_get_impl(state: &AppState, map: u16) -> Result<WorldGetDto, CmdErro
             bake: None,
         });
     };
-    let (faces, _) = faces_of(store, &world)?;
+    let (WorldFaces { faces, .. }, _) = faces_of(store, map, &world)?;
     let textures = mesh_textures(&faces).len();
     let estimate = estimate_model_bytes(faces.len(), textures);
     // A world whose rows do not parse has no bake (the check names its problems); the answer
@@ -167,14 +179,20 @@ pub fn world_get_impl(state: &AppState, map: u16) -> Result<WorldGetDto, CmdErro
     })
 }
 
-/// „Karte als Quelle übernehmen“ (Form 1) of `req.map`, one undo step.
+/// „Karte als Quelle übernehmen“ of `req.map` (Form 1, or Form 2 through the apicula the app
+/// finds), one undo step.
 pub fn world_adopt_impl(
     state: &AppState,
     req: WorldAdoptRequest,
 ) -> Result<WorldAdoptReport, CmdError> {
+    let apicula = super::models::find_apicula();
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    Ok(g4_kernel::world::world_adopt(&mut session.store, &req)?)
+    Ok(g4_kernel::world::world_adopt_with(
+        &mut session.store,
+        &req,
+        apicula.as_deref(),
+    )?)
 }
 
 /// „Als binäre Karte übernehmen“ without a conflict: the world of `map` goes, its bake stays as
@@ -244,7 +262,14 @@ pub fn get_world_mesh_impl(state: &AppState, map: u16) -> Result<WorldMeshDto, C
             layer: Vec::new(),
         });
     };
-    let (faces, tileset) = faces_of(store, &world)?;
+    let (
+        WorldFaces {
+            faces,
+            textures: packed,
+            ..
+        },
+        tileset,
+    ) = faces_of(store, map, &world)?;
     let names = mesh_textures(&faces);
     let index: HashMap<&str, u16> = names
         .iter()
@@ -254,16 +279,30 @@ pub fn get_world_mesh_impl(state: &AppState, map: u16) -> Result<WorldMeshDto, C
         .collect();
     let textures = names
         .iter()
-        .map(|name| {
-            let tile = tileset.tiles.iter().find(|t| &t.texture == name);
-            MeshTextureDto {
-                name: name.clone(),
-                width: tile.map_or(0, |t| t.size[0]),
-                height: tile.map_or(0, |t| t.size[1]),
-                role: tile.map_or(TileRole::Ground, |t| t.role),
-                palette: tile.and_then(|t| t.palette.clone()),
-            }
-        })
+        .map(
+            |name| match tileset.tiles.iter().find(|t| &t.texture == name) {
+                Some(tile) => MeshTextureDto {
+                    name: name.clone(),
+                    width: tile.size[0],
+                    height: tile.size[1],
+                    role: tile.role,
+                    palette: tile.palette.clone(),
+                },
+                // A texture no tile has (a free-form or piece model's): its size from the pack.
+                None => {
+                    let pack = packed.iter().find(|t| &t.name == name);
+                    MeshTextureDto {
+                        name: name.clone(),
+                        width: pack.map_or(0, |t| t.width),
+                        height: pack.map_or(0, |t| t.height),
+                        role: TileRole::Piece,
+                        palette: pack
+                            .filter(|t| !t.palette.is_empty())
+                            .map(|t| t.palette.clone()),
+                    }
+                }
+            },
+        )
         .collect();
     let mut corners = Vec::with_capacity(faces.len() * 12);
     let mut uv = Vec::with_capacity(faces.len() * 8);
@@ -287,7 +326,8 @@ pub fn get_world_mesh_impl(state: &AppState, map: u16) -> Result<WorldMeshDto, C
     })
 }
 
-/// The RGBA of `texture` in the tileset of `package` with its tile's palette; `None` when the
+/// The RGBA of `texture` in the tileset of `package` with its tile's palette (a texture no tile
+/// has, as a free-form model's, from the package with the palette of its name); `None` when the
 /// package has none to give (the synthetic tileset, a format without decoder).
 pub fn get_tileset_texture_impl(
     state: &AppState,
@@ -383,6 +423,206 @@ pub fn tileset_edit(
     tileset_edit_impl(&state, req)
 }
 
+// ---- Phase 6.5b: free-form models, piece models, Tiled exchange (over `g4_call` only) ----
+
+/// What `world_freeform_inspect` answers: the report (`ok`), or the model's refusal with the
+/// hints found before it (`ok: false`, `report: None`).
+#[derive(Debug, Serialize)]
+pub struct FreeformInspectDto {
+    pub ok: bool,
+    pub report: Option<FreeformReport>,
+    pub refusal: Option<PartMessage>,
+    pub notes: Vec<PartMessage>,
+}
+
+/// Refused with [`WORLD_NEEDS_TEXT_PROJECT`] outside a text project (the TMJ exchange would
+/// otherwise answer that the map has no world).
+fn require_text_project(store: &Store) -> Result<(), CmdError> {
+    if is_text_project(store) {
+        Ok(())
+    } else {
+        Err(g4_kernel::error::KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()).into())
+    }
+}
+
+/// Reads the model of `req` against the world of `req.map` and bakes the world with it in
+/// memory; nothing written.
+pub fn world_freeform_inspect_impl(
+    state: &AppState,
+    req: FreeformAddRequest,
+) -> Result<FreeformInspectDto, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(
+        match g4_kernel::world::world_freeform_inspect(&mut session.store, &req)? {
+            Ok(report) => FreeformInspectDto {
+                ok: true,
+                report: Some(report),
+                refusal: None,
+                notes: Vec::new(),
+            },
+            Err(refusal) => FreeformInspectDto {
+                ok: false,
+                report: None,
+                refusal: Some(refusal.reason),
+                notes: refusal.notes,
+            },
+        },
+    )
+}
+
+/// A free-form model added to the world of `req.map` with its side file and new pack textures,
+/// one undo step.
+pub fn world_freeform_add_impl(
+    state: &AppState,
+    req: FreeformAddRequest,
+) -> Result<FreeformReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(g4_kernel::world::world_freeform_add(
+        &mut session.store,
+        &req,
+    )?)
+}
+
+/// Free-form entry `index` of map `map` removed (its side file with it when no other entry
+/// names it), one undo step.
+pub fn world_freeform_remove_impl(
+    state: &AppState,
+    map: u16,
+    index: usize,
+) -> Result<WorldReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(g4_kernel::world::world_freeform_remove(
+        &mut session.store,
+        map,
+        index,
+    )?)
+}
+
+/// The model of a piece tile set with its side file and new pack textures, one undo step.
+pub fn tileset_piece_set_impl(
+    state: &AppState,
+    req: PieceSetRequest,
+) -> Result<PieceSetReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(g4_kernel::world::tileset_piece_set(
+        &mut session.store,
+        &req,
+    )?)
+}
+
+/// World map `map` written as a Tiled map to `path` (tile images next to it); the project does
+/// not change.
+pub fn world_export_tmj_impl(
+    state: &AppState,
+    map: u16,
+    path: String,
+) -> Result<TmjExportReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    require_text_project(&session.store)?;
+    Ok(g4_kernel::world::world_export_tmj(
+        &mut session.store,
+        map,
+        std::path::Path::new(&path),
+    )?)
+}
+
+/// The Tiled map `path` read against world map `map`, nothing changed.
+pub fn world_inspect_tmj_impl(
+    state: &AppState,
+    map: u16,
+    path: String,
+) -> Result<TmjImportReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    require_text_project(&session.store)?;
+    Ok(g4_kernel::world::world_inspect_tmj(
+        &mut session.store,
+        map,
+        std::path::Path::new(&path),
+    )?)
+}
+
+/// The world the Tiled map `path` describes as one undo step (none for an unchanged file).
+pub fn world_import_tmj_impl(
+    state: &AppState,
+    map: u16,
+    path: String,
+) -> Result<TmjImportReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    require_text_project(&session.store)?;
+    Ok(g4_kernel::world::world_import_tmj(
+        &mut session.store,
+        map,
+        std::path::Path::new(&path),
+    )?)
+}
+
+#[tauri::command]
+pub fn world_freeform_inspect(
+    state: State<'_, AppState>,
+    req: FreeformAddRequest,
+) -> Result<FreeformInspectDto, CmdError> {
+    world_freeform_inspect_impl(&state, req)
+}
+
+#[tauri::command]
+pub fn world_freeform_add(
+    state: State<'_, AppState>,
+    req: FreeformAddRequest,
+) -> Result<FreeformReport, CmdError> {
+    world_freeform_add_impl(&state, req)
+}
+
+#[tauri::command]
+pub fn world_freeform_remove(
+    state: State<'_, AppState>,
+    map: u16,
+    index: usize,
+) -> Result<WorldReport, CmdError> {
+    world_freeform_remove_impl(&state, map, index)
+}
+
+#[tauri::command]
+pub fn tileset_piece_set(
+    state: State<'_, AppState>,
+    req: PieceSetRequest,
+) -> Result<PieceSetReport, CmdError> {
+    tileset_piece_set_impl(&state, req)
+}
+
+#[tauri::command]
+pub fn world_export_tmj(
+    state: State<'_, AppState>,
+    map: u16,
+    path: String,
+) -> Result<TmjExportReport, CmdError> {
+    world_export_tmj_impl(&state, map, path)
+}
+
+#[tauri::command]
+pub fn world_inspect_tmj(
+    state: State<'_, AppState>,
+    map: u16,
+    path: String,
+) -> Result<TmjImportReport, CmdError> {
+    world_inspect_tmj_impl(&state, map, path)
+}
+
+#[tauri::command]
+pub fn world_import_tmj(
+    state: State<'_, AppState>,
+    map: u16,
+    path: String,
+) -> Result<TmjImportReport, CmdError> {
+    world_import_tmj_impl(&state, map, path)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -390,7 +630,7 @@ mod tests {
 
     use g4_kernel::test_support::TextFixture;
     use g4_kernel::world::doc::fixtures::busy_world;
-    use g4_kernel::world::{WORLD_NEEDS_TEXT_PROJECT, tileset_rel};
+    use g4_kernel::world::tileset_rel;
     use serde_json::{Value, json};
 
     use super::*;
@@ -793,15 +1033,19 @@ mod tests {
             })
         };
         let glb_before = glb();
-        assert_eq!(
-            refused(
-                &state,
-                &policy,
-                "world_adopt",
-                json!({ "req": { "map": 0, "form": "gltf" } })
-            ),
-            "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula)."
-        );
+        // Form 2 takes the apicula the app finds (`form2_over_dispatch_with_apicula`); without
+        // one it is refused and nothing changes.
+        if crate::commands::models::find_apicula().is_none() {
+            assert_eq!(
+                refused(
+                    &state,
+                    &policy,
+                    "world_adopt",
+                    json!({ "req": { "map": 0, "form": "gltf" } })
+                ),
+                "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula)."
+            );
+        }
         let report = call(
             &state,
             &policy,
@@ -1068,5 +1312,317 @@ mod tests {
         if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
             assert!(median <= 50.0, "median {median:.2} ms");
         }
+    }
+
+    // ---- Phase 6.5b: free-form models, piece models, form 2, Tiled ----
+
+    /// `world_ready` with the import samples in `import/` and map 0 a world map (package 0,
+    /// saved), open in a fresh state, with its policy.
+    fn world_with_samples() -> (TextFixture, AppState, UserPolicy) {
+        let fx = g4_kernel::test_support::world_ready();
+        g4_kernel::model_import::samples::write_samples(&fx.root().join("import")).unwrap();
+        let (state, policy) = open_as_is(&fx);
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0 } }),
+        );
+        call(&state, &policy, "save", json!({}));
+        (fx, state, policy)
+    }
+
+    fn import_path(fx: &TextFixture, file: &str) -> String {
+        fx.root()
+            .join("import")
+            .join(file)
+            .to_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    /// The layers of the faces of `get_world_mesh` for map 0.
+    fn mesh_layers(state: &AppState, policy: &UserPolicy) -> Vec<u64> {
+        call(state, policy, "get_world_mesh", json!({ "map": 0 }))["layer"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l.as_u64().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn freeform_commands_over_dispatch() {
+        use g4_kernel::model_import::samples::CUBE_OBJ;
+        let (fx, state, policy) = world_with_samples();
+        let req =
+            json!({ "req": { "map": 0, "path": import_path(&fx, CUBE_OBJ), "at": [16, 0, 16] } });
+        let inspected = call(&state, &policy, "world_freeform_inspect", req.clone());
+        assert_eq!(inspected["ok"], true, "{inspected}");
+        assert_eq!(inspected["refusal"], Value::Null, "{inspected}");
+        let report = &inspected["report"];
+        assert_eq!(report["glb"], "0000.g4_imp_cube.glb", "{inspected}");
+        assert_eq!(report["change"], Value::Null, "{inspected}");
+        assert_eq!(report["bake"]["ok"], true, "{inspected}");
+        assert!(labels(&state).iter().all(|l| !l.starts_with("Freiform")));
+        // A file without geometry is the model's refusal, no error of the call.
+        let empty = fx.root().join("import/leer.obj");
+        std::fs::write(&empty, "# nichts\n").unwrap();
+        let refused_model = call(
+            &state,
+            &policy,
+            "world_freeform_inspect",
+            json!({ "req": { "map": 0, "path": empty.to_str().unwrap() } }),
+        );
+        assert_eq!(refused_model["ok"], false, "{refused_model}");
+        assert_eq!(refused_model["report"], Value::Null, "{refused_model}");
+        assert!(
+            refused_model["refusal"]["code"].is_string(),
+            "{refused_model}"
+        );
+        assert!(refused_model["notes"].is_array(), "{refused_model}");
+
+        assert!(!mesh_layers(&state, &policy).contains(&254));
+        let added = call(&state, &policy, "world_freeform_add", req);
+        assert!(added["change"].is_number(), "{added}");
+        assert_eq!(added["bake"]["ok"], true, "{added}");
+        assert_eq!(
+            labels(&state).last().unwrap(),
+            "Freiform hinzugefügt: Karte 0000 (0000.g4_imp_cube.glb)"
+        );
+        let mesh = call(&state, &policy, "get_world_mesh", json!({ "map": 0 }));
+        assert_eq!(
+            mesh_layers(&state, &policy)
+                .iter()
+                .filter(|l| **l == 254)
+                .count(),
+            6,
+            "{mesh}"
+        );
+        let cube = mesh["textures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "g4_imp_cube")
+            .unwrap_or_else(|| panic!("no g4_imp_cube in {mesh}"));
+        assert_eq!((&cube["width"], &cube["height"]), (&json!(16), &json!(16)));
+        assert_eq!(cube["role"], "piece", "{cube}");
+        // world_get counts the free-form faces too.
+        let got = call(&state, &policy, "world_get", json!({ "map": 0 }));
+        assert_eq!(got["faces"], mesh["faces"], "{got}");
+        let bake = call(&state, &policy, "world_bake", json!({ "map": 0 }));
+        assert_eq!(bake["ok"], true, "{bake}");
+        assert_eq!(bake["freeform_faces"], 6, "{bake}");
+        // The texture shows through the pack, the tile it has none.
+        let rgba = call(
+            &state,
+            &policy,
+            "get_tileset_texture",
+            json!({ "package": 0, "texture": "g4_imp_cube" }),
+        );
+        assert_eq!((&rgba["width"], &rgba["height"]), (&json!(16), &json!(16)));
+
+        let removed = call(
+            &state,
+            &policy,
+            "world_freeform_remove",
+            json!({ "map": 0, "index": 0 }),
+        );
+        assert!(removed["change"].is_number(), "{removed}");
+        assert_eq!(
+            labels(&state).last().unwrap(),
+            "Freiform entfernt: Karte 0000 (0000.g4_imp_cube.glb)"
+        );
+        assert!(!mesh_layers(&state, &policy).contains(&254));
+        assert_eq!(
+            refused(
+                &state,
+                &policy,
+                "world_freeform_remove",
+                json!({ "map": 0, "index": 0 })
+            ),
+            "Karte 0000 hat keine Freiform 0 (0 Einträge)."
+        );
+        call(&state, &policy, "undo", json!({}));
+        assert!(mesh_layers(&state, &policy).contains(&254));
+        call(&state, &policy, "undo", json!({}));
+        assert!(!mesh_layers(&state, &policy).contains(&254));
+    }
+
+    /// With apicula (`G4_APICULA` or tools/apicula, else `skipped`): a model the baker made
+    /// (a world baked, saved, given up) adopted in form 2 has its glTF side file.
+    #[test]
+    fn form2_over_dispatch_with_apicula() {
+        if crate::commands::models::find_apicula().is_none() {
+            eprintln!("skipped: no apicula");
+            return;
+        }
+        let fx = g4_kernel::test_support::world_ready();
+        let (state, policy) = open_as_is(&fx);
+        call(
+            &state,
+            &policy,
+            "world_create",
+            json!({ "req": { "map": 0, "tileset": 0, "height": 1 } }),
+        );
+        call(&state, &policy, "save", json!({}));
+        call(&state, &policy, "world_to_binary", json!({ "map": 0 }));
+        call(&state, &policy, "save", json!({}));
+        let report = call(
+            &state,
+            &policy,
+            "world_adopt",
+            json!({ "req": { "map": 0, "form": "gltf" } }),
+        );
+        let form2 = &report["form2"];
+        assert_eq!(form2["glb"], "0000.model.glb", "{report}");
+        assert!(
+            form2["vanilla"]["polygons"].as_u64().unwrap() > 0,
+            "{report}"
+        );
+        assert_eq!(report["bake"]["ok"], true, "{report}");
+        assert!(report["change"].is_number(), "{report}");
+        assert_eq!(
+            labels(&state).last().unwrap(),
+            "Karte als Quelle übernommen: Karte 0000"
+        );
+        assert!(fx.root().join("data/maps/0000.model.glb").is_file());
+    }
+
+    #[test]
+    fn tmj_commands_over_dispatch() {
+        let (fx, state, policy) = world_with_samples();
+        let exported = call(
+            &state,
+            &policy,
+            "world_export_tmj",
+            json!({ "map": 0, "path": "build/0000.tmj" }),
+        );
+        assert_eq!(exported["map"], 0, "{exported}");
+        assert!(exported["layers"].as_u64().unwrap() > 0, "{exported}");
+        let file = fx.root().join("build/0000.tmj");
+        assert!(file.is_file());
+        assert!(fx.root().join("build/0000.tiles").is_dir());
+        let path = file.to_str().unwrap();
+        let undo = labels(&state).len();
+        let inspected = call(
+            &state,
+            &policy,
+            "world_inspect_tmj",
+            json!({ "map": 0, "path": path }),
+        );
+        assert_eq!(inspected["errors"], json!([]), "{inspected}");
+        assert_eq!(inspected["change"], Value::Null, "{inspected}");
+        let imported = call(
+            &state,
+            &policy,
+            "world_import_tmj",
+            json!({ "map": 0, "path": path }),
+        );
+        assert_eq!(imported["change"], Value::Null, "{imported}");
+        assert_eq!(imported["errors"], json!([]), "{imported}");
+        assert_eq!(labels(&state).len(), undo);
+    }
+
+    #[test]
+    fn world_export_tmj_outside_build_is_irreversible() {
+        use crate::mcp::access::{Class, classify};
+        let fx = g4_kernel::test_support::world_ready();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let allowed = [elsewhere.path().to_path_buf()];
+        let policy = UserPolicy::new(fx.root(), &allowed, None).unwrap();
+        let outside = elsewhere.path().join("0000.tmj");
+        let outside = outside.to_str().unwrap();
+        for command in ["world_export_tmj", "export_map_part"] {
+            assert_eq!(
+                classify(
+                    command,
+                    &json!({ "map": 0, "path": "build/0000.tmj" }),
+                    &policy
+                ),
+                Class::Write,
+                "{command}"
+            );
+            assert_eq!(
+                classify(command, &json!({ "map": 0, "path": outside }), &policy),
+                Class::Irreversible("Bauen außerhalb von build/".to_owned()),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn piece_set_over_dispatch() {
+        use g4_kernel::model_import::samples::CUBE_OBJ;
+        let (fx, state, policy) = world_with_samples();
+        let report = call(
+            &state,
+            &policy,
+            "tileset_piece_set",
+            json!({ "req": { "package": 0, "tile": 5, "path": import_path(&fx, CUBE_OBJ),
+                             "footprint": [2, 2], "name": "Baum" } }),
+        );
+        assert_eq!(
+            (&report["package"], &report["tile"], &report["model"]),
+            (&json!(0), &json!(5), &json!("baum")),
+            "{report}"
+        );
+        assert!(report["change"].is_number(), "{report}");
+        assert_eq!(
+            labels(&state).last().unwrap(),
+            "Teilmodell gesetzt: Kachel 5 in Tileset 0000 (baum)"
+        );
+        let tile =
+            call(&state, &policy, "tileset_get", json!({ "package": 0 }))["tileset"]["tiles"][5]
+                .clone();
+        assert_eq!(
+            (&tile["role"], &tile["model"]),
+            (&json!("piece"), &json!("baum"))
+        );
+        call(&state, &policy, "undo", json!({}));
+        let tile =
+            call(&state, &policy, "tileset_get", json!({ "package": 0 }))["tileset"]["tiles"][5]
+                .clone();
+        assert_eq!(tile.get("model"), None, "{tile}");
+    }
+
+    #[test]
+    fn new_commands_refuse_in_the_dspre_layout() {
+        use g4_kernel::model_import::samples::CUBE_OBJ;
+        let fx = TextFixture::dspre();
+        g4_kernel::model_import::samples::write_samples(&fx.root().join("import")).unwrap();
+        fx.write("import/0000.tmj", b"{}");
+        let (state, policy) = open(&fx);
+        let cube = import_path(&fx, CUBE_OBJ);
+        let tmj = import_path(&fx, "0000.tmj");
+        for (name, args) in [
+            (
+                "world_freeform_inspect",
+                json!({ "req": { "map": 0, "path": cube } }),
+            ),
+            (
+                "world_freeform_add",
+                json!({ "req": { "map": 0, "path": cube } }),
+            ),
+            ("world_freeform_remove", json!({ "map": 0, "index": 0 })),
+            (
+                "tileset_piece_set",
+                json!({ "req": { "package": 0, "tile": 0, "path": cube, "footprint": [1, 1] } }),
+            ),
+            (
+                "world_export_tmj",
+                json!({ "map": 0, "path": "build/0000.tmj" }),
+            ),
+            ("world_inspect_tmj", json!({ "map": 0, "path": tmj })),
+            ("world_import_tmj", json!({ "map": 0, "path": tmj })),
+        ] {
+            assert_eq!(
+                refused(&state, &policy, name, args),
+                WORLD_NEEDS_TEXT_PROJECT,
+                "{name}"
+            );
+        }
+        assert!(labels(&state).is_empty());
+        assert!(!fx.root().join("build/0000.tmj").exists());
     }
 }

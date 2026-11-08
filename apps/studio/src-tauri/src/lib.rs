@@ -76,6 +76,10 @@ use commands::{project_preview_get, project_preview_set};
 use commands::{recipe_apply, recipe_list, recipe_plan};
 use commands::{text_check, text_export};
 use commands::{tileset_edit, world_adopt, world_bake, world_to_binary};
+use commands::{
+    tileset_piece_set, world_export_tmj, world_freeform_add, world_freeform_inspect,
+    world_freeform_remove, world_import_tmj, world_inspect_tmj,
+};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{QuitAction, quit_action};
 use std::sync::Arc;
@@ -296,7 +300,14 @@ pub fn run() {
             world_adopt,
             world_to_binary,
             world_bake,
-            tileset_edit
+            tileset_edit,
+            world_freeform_inspect,
+            world_freeform_add,
+            world_freeform_remove,
+            tileset_piece_set,
+            world_export_tmj,
+            world_inspect_tmj,
+            world_import_tmj
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

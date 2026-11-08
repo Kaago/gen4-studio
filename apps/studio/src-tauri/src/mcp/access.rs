@@ -276,6 +276,16 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("world_to_binary", Kind::Write),
     ("world_bake", Kind::Read),
     ("tileset_edit", Kind::Write),
+    // Free-form models, piece models and the exchange with Tiled (6.5b, over `g4_call` only):
+    // inspect reads, add, remove, piece set and import are one undo step each; the TMJ export
+    // writes files, into `build/` a write, elsewhere irreversible (as `export_map_part`).
+    ("world_freeform_inspect", Kind::Read),
+    ("world_freeform_add", Kind::Write),
+    ("world_freeform_remove", Kind::Write),
+    ("tileset_piece_set", Kind::Write),
+    ("world_export_tmj", Kind::Depends),
+    ("world_inspect_tmj", Kind::Read),
+    ("world_import_tmj", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -310,8 +320,8 @@ impl From<Kind> for Class {
     }
 }
 
-/// What the call of `command` with `args` (keyed as `dispatch` takes them) does. A build or
-/// map part export lands in `build/` (a write; `build_rom` without `out` goes there too) or
+/// What the call of `command` with `args` (keyed as `dispatch` takes them) does. A build, a
+/// map part export or a TMJ export (`world_export_tmj`) lands in `build/` (a write; `build_rom` without `out` goes there too) or
 /// somewhere else the policy allows (irreversible); `apply_fix` with `create_script` creates
 /// a script, with `remove_hidden` moves a file to `.g4/backup/` (both irreversible);
 /// `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic Headers
@@ -339,7 +349,7 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         return kind.into();
     }
     match command {
-        "build_rom" | "export_map_part" => {
+        "build_rom" | "export_map_part" | "world_export_tmj" => {
             let key = if command == "build_rom" {
                 "out"
             } else {
@@ -592,7 +602,8 @@ mod tests {
                 "delete_entity",
                 "export_map_part",
                 "publish_patch",
-                "recipe_apply"
+                "recipe_apply",
+                "world_export_tmj"
             ]
         );
         // Every lister and getter only reads; a few writers by name.
@@ -1365,5 +1376,24 @@ mod tests {
         // One undo step (appending to the pack and the model import, squashed); the files
         // under `outDir` are build output under `build/`.
         assert_eq!(kind_of("bake_test"), Some(Kind::Write));
+    }
+
+    #[test]
+    fn freeform_and_tmj_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        for name in ["world_freeform_inspect", "world_inspect_tmj"] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        // One undo step each.
+        for name in [
+            "world_freeform_add",
+            "world_freeform_remove",
+            "tileset_piece_set",
+            "world_import_tmj",
+        ] {
+            assert_eq!(kind(name), Kind::Write, "{name}");
+        }
+        // Like `export_map_part`: a write into `build/`, irreversible elsewhere.
+        assert_eq!(kind("world_export_tmj"), Kind::Depends);
     }
 }
