@@ -90,6 +90,16 @@ Fußabdrücke), danach die Handwerte. `block_edges` setzt nur Bit 7 und lässt d
 Es nimmt genau die 1 024 Zellen einer Karte; eine kürzere Liste ist ein Fehler des Aufrufers (eine
 Debug-Assertion schlägt an), ein Release-Build übergeht die fehlenden Zellen.
 
+Seit 6.4b liefert `terrain::high_edges(grid)` die Paare selbst, die `block_edges` blockiert: jede
+Kante zwischen zwei Nachbarn innerhalb der Karte mit mindestens `edge.free_below` Unterschied, je Paar
+einmal in Zeilenfolge, als (obere Zelle, untere Zelle); `block_edges` setzt `| 0x80` auf die erste.
+Der Klippenpinsel eines Kantensatzes mit `block: lower` ([world_map.md](world_map.md), „Smart
+Drawing (6.4b)“, „Klippe“) nimmt dieselben Paare auf den neuen Höhen und kehrt die Regel als
+**Handwerte** (Schritt 4) um, nur für Kanten mit einer Zelle in den gemalten Zellen oder dem Ring um
+sie: die obere Zelle bekommt ihren Kachelwert ohne das Bit der Kante, die **untere Zelle** diesen Wert
+`| 0x80`. Die Ableitung selbst bleibt bei „obere Zelle“; eine Zelle mit schon vorhandenem Handwert
+behält ihn.
+
 ## Zeilenformat
 
 Wie die Permissions und das Weltformat (Gutachten C §5.2): **32 Zeilen** (Zeile `y`, ab 0) zu je

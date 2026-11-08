@@ -1,13 +1,15 @@
-# Tileset (Kacheln eines Kartentextur-Pakets, Phasen 6.3a, 6.3b und 6.4a)
+# Tileset (Kacheln eines Kartentextur-Pakets, Phasen 6.3a, 6.3b, 6.4a und 6.4b)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Ein Tileset sagt je Textur eines
 Kartentextur-Pakets (`map_tileset` der Gebietsdaten, Member von `mapTextures`), wie sie als Kachel
 einer [Welt-Karte](world_map.md) wirkt: Rolle auf dem Boden, Vorgaben der Permissions,
-Höhenverhalten, Wandtextur, Fußabdruck eines Teilmodells. Quelle: [Spezifikation Phase 6](../superpowers/specs/2026-11-05-phase-6-kartenerstellung-design.md)
+Höhenverhalten, Wandtextur, Fußabdruck eines Teilmodells; dazu die Kantensätze des Terrain- und
+Klippenpinsels (6.4b, „Kantensätze (6.4b)“). Quelle: [Spezifikation Phase 6](../superpowers/specs/2026-11-05-phase-6-kartenerstellung-design.md)
 §3.2, [Gutachten C](../research/2026-11-05-phase-6/gutachten-c-malen-import.md) §3.3 und §5.2,
 die Messung von Task 0 in [task0-6-3a-vorgaben.md](../research/2026-11-05-phase-6/task0-6-3a-vorgaben.md),
 Plan [2026-11-05-phase-6-3a-weltformat.md](../superpowers/plans/2026-11-05-phase-6-3a-weltformat.md)
-(„Entscheidungen“). Implementierung: `crates/g4-kernel/src/world/tileset.rs`, die Karten eines
+(„Entscheidungen“), für die Kantensätze Plan [2026-11-07-phase-6-4b-smart-drawing.md](../superpowers/plans/2026-11-07-phase-6-4b-smart-drawing.md).
+Implementierung: `crates/g4-kernel/src/world/tileset.rs`, die Kantensätze `world/edge.rs`, die Karten eines
 Pakets `world/places.rs`, der Zwischenspeicher `Store::tileset`. Texturen liest es über die
 bestehenden Leser (`g4_formats::nsbtx`, `nsbmd_header::material_texture_names`).
 
@@ -32,7 +34,7 @@ Manifest, siehe [text_project.md](text_project.md)).
 | `version` | Zahl | immer `1` (`TILESET_VERSION`) |
 | `package` | Zahl | das Paket; gleich dem Stamm der Datei |
 | `tiles` | Liste | eine Kachel je Textur des Pakets: Kachel `i` ist Textur `i` |
-| `edge_sets` | Liste | **reserviert** für die Kantensätze von 6.4b; muss leer sein, leer weggelassen |
+| `edge_sets` | Liste | die Kantensätze des Terrain- und Klippenpinsels (6.4b, „Kantensätze (6.4b)“); leer weggelassen |
 
 Je Kachel:
 
@@ -52,8 +54,9 @@ Je Kachel:
 | `model` | Text, weggelassen | **reserviert** für das Beifile des Teilmodells (6.5b, `NNNN.<name>.glb`); muss fehlen |
 | `origin` | `vanilla` \| `unclear` \| `synthetic` \| `user` | woher die Werte kommen: abgeleitet, nicht entscheidbar, synthetisch, vom Nutzer |
 
-Die reservierten Felder liest serde, damit eine spätere Datei ihr Problem nennt statt eines
-unbekannten Schlüssels; der Check lehnt sie ab.
+Das reservierte Feld `model` liest serde, damit eine spätere Datei ihr Problem nennt statt eines
+unbekannten Schlüssels; der Check lehnt es ab. `edge_sets` war bis 6.4a ebenso reserviert; eine
+Datei ohne den Schlüssel liest seit 6.4b unverändert (`TILESET_VERSION` bleibt 1, keine Migration).
 
 ## Prüfungen
 
@@ -65,8 +68,15 @@ Meldung `textproject.schema` mit Datei, Zeile und dem JSON-Pfad in der Datei:
 - eine Datei, die serde nicht liest (Pfad und Grund von serde);
 - `version`: „Version 2 kennt diese Fassung nicht (1).“; `package`: „Paket 0007 passt nicht zum
   Dateinamen 0006.json.“;
-- `edge_sets`: „Kantensätze kommen mit 6.4b.“; `tiles[i].model`: „Teilmodell-Dateien kommen mit
-  6.5b.“;
+- `tiles[i].model`: „Teilmodell-Dateien kommen mit 6.5b.“;
+- je Kantensatz (`edge_set_problems`, Pfad `edge_sets[i]`): ein leerer Name („edge_sets[0].name: Ein
+  Kantensatz braucht einen Namen.“), ein Name zweimal („edge_sets[1].name: Kantensatz „Weg“ gibt es
+  zweimal.“); je Token in `outside` und den Plätzen ein Token, das der Parser ablehnt (sein Satz:
+  „edge_sets[0].places.n[1]: `0g07` ist keine Kachel …“), `.` („`.` ist keine Kachel eines
+  Platzes.“), eine Kachel jenseits des Tilesets („edge_sets[0].places.center[0]: Kachel 0x0006 gibt
+  es im Tileset 0000 nicht (6 Kacheln).“) und dasselbe Token zweimal im Satz, auch als `outside`
+  („edge_sets[0].places.e[0]: Kachel 0007 steht zweimal im Satz („n“ und „e“).“); ein unbekannter
+  Platz oder ein `block` außer `upper`/`lower` ist ein Fehler von serde;
 - `tiles[i].wall` jenseits der Kacheln („Kachel 0x0120 gibt es im Tileset 0006 nicht (94
   Kacheln).“) oder ohne Rolle `wall` („Kachel 0x0002 ist keine Wand (Rolle `water`).“);
 - `tiles[i].footprint` auf einer Kachel, die kein Teilmodell ist („einen Fußabdruck haben nur
@@ -99,18 +109,20 @@ da ist („data/tilesets/0006.json gibt es schon.“), ein Paket, das es nicht g
 
 ## Kacheln ändern (`tileset_edit`, 6.3b)
 
-`tileset_edit {req: {package, changes: [{tile, role?, kind?, collision?, sound?, wall?}]}}` ändert
+`tileset_edit {req: {package, changes: [{tile, role?, kind?, collision?, sound?, wall?}], sets?}}` ändert
 Kacheln der vorhandenen Datei `data/tilesets/NNNN.json` als **einen** Dateischritt wie
 `tileset_save` (`FileStepKind::Reset`; Undo schreibt die Datei, wie sie war), Label „Tileset 0006
 geändert (2 Kacheln)“ („(1 Kachel)“). Ein fehlender Schlüssel lässt den Wert, `"wall": null`
 entfernt die Wandkachel. Gezählt und mit `origin: user` versehen werden nur Kacheln, deren Werte
 sich wirklich ändern; eine Rolle setzt kein `kind` mit (Gras mit abgeleiteter Begegnung braucht
-`role: "grass"` und `kind: 2` getrennt). Antwort `{package, tiles, change}`.
+`role: "grass"` und `kind: 2` getrennt). Antwort `{package, tiles, change}`. `changes` ist Pflicht und
+darf leer sein; seit 6.4b ändert dasselbe Kommando mit `sets` die Kantensätze im selben Schritt
+(„Kantensätze ändern“ unten).
 
 Abgelehnt (nichts geschrieben, Verlauf unverändert): im DSPRE-Layout („Boden malen gibt es im
 Textprojekt (Technik › Textprojekt).“), ohne Datei („Erst `tileset_save` für Paket 0006.“), eine
 Kachel jenseits des Tilesets („changes[0].tile: Kachel 0x0120 gibt es im Tileset 0006 nicht (94
-Kacheln).“), ein Aufruf, der nichts ändert („Nichts zu ändern.“), ein Ergebnis mit einem Problem der
+Kacheln).“), ein Aufruf, der weder eine Kachel noch einen Kantensatz ändert („Nichts zu ändern.“), ein Ergebnis mit einem Problem der
 Prüfungen oben (das erste, mit dem Pfad der Datei: „data/tilesets/0006.json: tiles[0].wall: …“),
 eine Datei, die sich nicht lesen lässt.
 
@@ -274,4 +286,141 @@ weggelassen):
     "…"
   ]
 }
+```
+
+## Kantensätze (6.4b)
+
+Ein **Kantensatz** sagt, welche Kacheln eine gemalte Fläche samt Rändern und Ecken bilden: Der
+Terrain-Pinsel und der Klippenpinsel ([world_map.md](world_map.md), „Smart Drawing (6.4b)“) setzen
+mit ihm die Kachel jeder Zelle nach den Farben ihrer vier Ecken. Quelle: Plan
+[2026-11-07-phase-6-4b-smart-drawing.md](../superpowers/plans/2026-11-07-phase-6-4b-smart-drawing.md)
+(„Entscheidungen“), [Gutachten C](../research/2026-11-05-phase-6/gutachten-c-malen-import.md) §3.4.
+Implementierung: `crates/g4-kernel/src/world/edge.rs` (Plätze, Masken, Prüfung, `variant`,
+`EdgeSetOp`), gelesen und aufgelöst in `world/smart.rs`. Datenmodell nach Tileds Wang-Ecken, Logik
+eigenständig; kein Code aus Tiled oder PDSMS.
+
+**Datei.** Je Satz ein Objekt in `edge_sets`, Schlüssel in dieser Reihenfolge:
+
+| Schlüssel | Typ | Inhalt |
+|---|---|---|
+| `name` | Text | Name des Satzes, im Tileset eindeutig; die Striche nennen ihn (`terrain.set`, `cliff.set`) |
+| `outside` | Token | Pflicht: die Kachel der reinen Außenfläche (Maske 0) |
+| `block` | `upper` \| `lower`, weggelassen bei `upper` | welche Zelle einer Klippenkante blockiert ([world_map.md](world_map.md), „Klippe“) |
+| `places` | Objekt | die 15 Plätze, je eine Liste von Kachel-Token; leere Plätze weggelassen |
+
+Ein Satz hat zwei Farben: **innen** (die gemalte Fläche) und **außen**. Jede Zelle hat vier Ecken
+mit den Bits `NW = 1`, `NE = 2`, `SW = 4`, `SE = 8` (gesetzt = innen); ihre **Maske** ist die Summe.
+Jede der 15 Masken ≠ 0 hat genau einen Platz, Maske 0 ist `outside`. Die Plätze in der Reihenfolge der
+Datei (`Place::ALL`), mit ihrem Namen in der App und in den Meldungen:
+
+| Platz | Maske | Name | liegt |
+|---|---|---|---|
+| `center` | 15 | Mitte | ganz innen |
+| `n` | 12 | Kante N | Kante, Norden außen |
+| `e` | 5 | Kante O | Kante, Osten außen |
+| `s` | 3 | Kante S | Kante, Süden außen |
+| `w` | 10 | Kante W | Kante, Westen außen |
+| `outer_nw` | 8 | Ecke außen NW | Außenecke im Nordwesten der Fläche (nur SE innen) |
+| `outer_ne` | 4 | Ecke außen NO | Außenecke im Nordosten (nur SW innen) |
+| `outer_sw` | 2 | Ecke außen SW | Außenecke im Südwesten (nur NE innen) |
+| `outer_se` | 1 | Ecke außen SO | Außenecke im Südosten (nur NW innen) |
+| `inner_nw` | 14 | Ecke innen NW | Innenecke, die Ecke NW liegt außen |
+| `inner_ne` | 13 | Ecke innen NO | Innenecke, die Ecke NE liegt außen |
+| `inner_sw` | 11 | Ecke innen SW | Innenecke, die Ecke SW liegt außen |
+| `inner_se` | 7 | Ecke innen SO | Innenecke, die Ecke SE liegt außen |
+| `diag_nwse` | 9 | Diagonale NW–SO | NW und SE innen |
+| `diag_nesw` | 6 | Diagonale NO–SW | NE und SW innen |
+
+Die ersten 13 (`Place::GATE13`) sind die Plätze von PDSMS; eine Fläche aus Rechtecken braucht nur
+sie, die Diagonalen erst zwei Flächen, die sich an einer Ecke berühren.
+
+- **Token:** jeder Eintrag ist ein vollständiges Kachel-Token wie im Weltdokument, mit Drehung und
+  Spiegelung (`"0007"`, `"0007r1"`, `"0007f"`); eine Kachel darf gedreht mehrere Plätze füllen.
+  **Dasselbe Token** (nach `parse_tile` verglichen, Groß- und Kleinschreibung zählt nicht) steht im
+  Satz nur einmal, auch nicht zugleich als `outside`: die Rückwärtssuche Token → Platz muss eindeutig
+  sein.
+- **Unvollständige Sätze** lassen sich speichern; erst ein Strich, der einen leeren Platz bräuchte,
+  lehnt ab („Kantensatz „Weg“: der Platz „Ecke innen NW“ hat keine Kachel (Zelle (6, 7)).“), und
+  nichts wird geschrieben.
+- **Eckfarben lesen:** Gen-4-Karten speichern keine Eckfarben, die Kacheln tragen sie. Eine Zelle ist
+  **Mitglied** des Satzes, wenn ihr Token in einem Platz steht (Maske des Platzes), **außen**, wenn
+  es `outside` ist (Maske 0), sonst **fremd** (sie liest nichts). Eine Ecke ist innen, sobald
+  mindestens eine der bis zu vier angrenzenden lesbaren Zellen sie innen meldet.
+- **Varianten:** hat ein Platz mehrere Einträge, wählt der Kernel für Zelle (x, z) den Eintrag
+  `variant(seed, z · 32 + x, n)`, gleich wahrscheinlich: `splitmix64((seed << 32) | Zelle) % n` mit
+  den Konstanten `0x9E3779B97F4A7C15`, `0xBF58476D1CE4E5B9`, `0x94D049BB133111EB` und den
+  Verschiebungen 30, 27, 31. `seed` steht im Strich (Vorgabe 0); derselbe Strich mit demselben Samen
+  gibt dieselben Kacheln. Gewichte gibt es nicht.
+- **Wände der Klippe:** keine eigene Regel. Das Backen zieht die Wand an einer Höhenkante wie seit 6.3a
+  mit der `wall` der oberen Kachel ([world_map.md](world_map.md), „Vernetzer“); der Rand einer Klippe
+  sind immer Kacheln der Plätze. Der Editor setzt mit „Wand“ darum die `wall` aller Kacheln der
+  15 Plätze (nicht die von `outside`, die meist Boden unten ist und oft zu mehreren Sätzen gehört).
+
+**Kantensätze ändern** (`tileset_edit` mit `sets`). `sets` ist eine Liste von Operationen
+(`EdgeSetOp`, Vorgabe leer), angewandt der Reihe nach vor den Kachel-Änderungen, alles zusammen
+**ein** Dateischritt wie oben:
+
+- `{"put": {name, outside, block?, places}}` ersetzt den Satz gleichen Namens an seiner Stelle oder
+  hängt ihn an;
+- `{"remove": {"name": "Weg"}}` entfernt ihn; einen Satz, den es nicht gibt: „Kantensatz „Weg“ gibt es
+  im Tileset 0006 nicht.“
+
+Mit `sets` heißt der Schritt nach der **ersten** Operation „Kantensatz „Weg“ angelegt: Tileset 0006“,
+„Kantensatz „Weg“ geändert: Tileset 0006“ oder „Kantensatz „Weg“ entfernt: Tileset 0006“, auch
+wenn `changes` zugleich Kacheln ändert; `origin: user` bekommen nur die Kacheln, deren Werte sich
+ändern, und `tiles` der Antwort zählt nur sie (bei reinen Satz-Operationen 0). Ein `put`, das den
+Satz nicht ändert, ist „Nichts zu ändern.“; ein Satz mit einem Problem der Prüfungen oben wird mit
+dem Pfad der Datei abgelehnt („data/tilesets/0000.json: edge_sets[0].places.e[0]: Kachel 0007 steht
+zweimal im Satz („n“ und „e“).“). Danach backen die sauberen Welt-Karten des Pakets neu wie nach jedem
+`tileset_edit`; ihr Bake ändert sich durch einen Satz allein nicht, erst ein Strich setzt Kacheln.
+`tileset_get` gibt die Sätze typisiert unter `tileset.edge_sets` mit aus; über MCP läuft
+`tileset_edit` mit `sets` über `g4_call` ([mcp.md](../mcp.md), „Smart Drawing (6.4b)“).
+
+**Editor in der App.** Der Abschnitt „Kantensätze“ (`apps/studio/src/workbench/inspector/EdgeSetEditor.tsx`,
+`edgeSets.ts`) steht im Inspector einer Welt-Karte beim Malen nach „Palette“, „Ebenen“ und „Kachel 0029“, vor
+„Quelle“: die Sätze mit dem Radio
+„Aktiv“ (mit ihm malen T und K) und dem Zähler „13 von 13 Plätzen · Diagonalen 0 von 2“, „Neuer
+Kantensatz“ (Name, `outside` = gewählte Palettenkachel), die „Stufen der Klippe“ und der Editor des
+aktiven Satzes: das Raster der Plätze (Block 3 × 3 `outer_nw n outer_ne / w center e / outer_sw s
+outer_se`, Block 2 × 2 der Innenecken, Zeile der Diagonalen), ein Platz per Klick gewählt, dann hängt
+ein Klick auf eine Palettenkachel ihr Token (mit der Drehung von Z und X) an; die Einträge des Platzes
+als Chips mit „Entfernen“, „Außen“ („Aktive Kachel übernehmen“), „Blockiert an der Klippe“ (Segment
+„Obere Zelle“/„Untere Zelle“ = `block`), „Wand“ und „Satz entfernen“. Jede bestätigte Änderung ist
+**ein** `tileset_edit` mit `sets: [{put}]` bzw. `[{remove}]`, „Wand“ dazu mit den `changes` der
+Kacheln. Ohne Datei (`stored: false`) ist alles gesperrt, darüber „Tileset im Projekt anlegen“. Die
+Gestaltung steht in [design-system/README.md](../../design-system/README.md), „Nachtrag 6.4b“.
+
+**Synthetische Sätze.** `Tileset::synthetic_edges()` (nur mit `test-support`) ist `synthetic()` plus
+16 Bodenkacheln 6 bis 21 (`syn_kante_00` bis `syn_kante_15`, 16 × 16, `origin: synthetic`) und der
+Satz `weg13` darauf; `synthetic()` selbst bleibt bei sechs Kacheln. Die Sätze stehen in
+`world::edge::fixtures`:
+
+| Platz | `weg13` („Weg“) | `weg15` („Weg15“) |
+|---|---|---|
+| `outside` | `0000` | `0000` |
+| `center` | `0006` | `0006`, `0015` |
+| `n`, `e`, `s`, `w` | `0007`, `0008`, `0009`, `000a` | wie `weg13` |
+| `outer_nw`, `outer_ne`, `outer_sw`, `outer_se` | `000b`, `000c`, `000d`, `000e` | wie `weg13` |
+| `inner_nw`, `inner_ne`, `inner_sw`, `inner_se` | `000f`, `0010`, `0011`, `0012` | wie `weg13` |
+| `diag_nwse`, `diag_nesw` | – | `0013`, `0014` |
+
+`weg13` als Datei (Ausschnitt von `edge_sets` in `data/tilesets/0000.json`; `block` fehlt, denn er ist
+`upper`, die Plätze nach `n` mit „…“ weggelassen):
+
+```json
+"edge_sets": [
+  {
+    "name": "Weg",
+    "outside": "0000",
+    "places": {
+      "center": [
+        "0006"
+      ],
+      "n": [
+        "0007"
+      ],
+      "…": "…"
+    }
+  }
+]
 ```
