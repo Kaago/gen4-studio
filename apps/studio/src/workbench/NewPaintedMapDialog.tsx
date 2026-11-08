@@ -91,6 +91,8 @@ export function NewPaintedMapDialog({ matrix, x, y, depth, onDone, onError, onDr
       onError(e);
       onDone(null);
       return;
+    } finally {
+      setWorking(false);
     }
     onDone(report);
     startPainting({ matrix: report.matrix, x: report.x, y: report.y });
@@ -122,7 +124,7 @@ export function NewPaintedMapDialog({ matrix, x, y, depth, onDone, onError, onDr
       ]}
     >
       <div className={styles.form} aria-busy={working}>
-        <TextField label="Name" showLabel hint="Pflicht" value={name} disabled={working} onCommit={setName} />
+        <TextField label="Name" showLabel hint="Pflicht" value={name} disabled={working} onCommit={setName} onChange={setName} />
         {palette && (
           <div className={styles.ground} role="group" aria-label="Boden" data-paint-ground="">
             <p className={styles.label}>Boden</p>

@@ -141,6 +141,19 @@ describe("NewPaintedMapDialog", () => {
     expect(button("Karte malen")?.disabled).toBe(false);
   });
 
+  it("the_name_counts_while_typing", async () => {
+    vi.mocked(recipeApply).mockResolvedValue({ report, created: [], change: 9, changed: [], next: [] });
+    show();
+    // Typed, never left: „Karte malen“ is free at once and the plan follows (debounced).
+    await act(async () => field("Name")!.focus());
+    typeInto(field("Name")!, "Malweg");
+    expect(button("Karte malen")?.disabled).toBe(false);
+    await settle();
+    expect(recipePlan).toHaveBeenLastCalledWith("new_painted_map", { matrix: 0, x: 2, y: 0, name: "Malweg", height: 0 });
+    await act(async () => button("Karte malen")?.click());
+    expect(recipeApply).toHaveBeenCalledExactlyOnceWith("new_painted_map", { matrix: 0, x: 2, y: 0, name: "Malweg", height: 0 });
+  });
+
   it("tinkering_offers_tileset_and_header", async () => {
     show("bauen");
     await commit("Name", "Waldweg");

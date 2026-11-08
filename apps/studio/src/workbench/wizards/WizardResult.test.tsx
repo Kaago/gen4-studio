@@ -57,7 +57,7 @@ describe("DoneResult", () => {
 
   it("adjust_terrain_starts_painting", () => {
     // The step after „Neue Karte malen“ (and „Gebiet erweitern“) is free: it selects the map's cell, turns the top view on and paints
-    // with the brush.
+    // with the brush. The app wires the same function (`App` → `startPainting`, `WizardHost.step` for a result with `Created.cell`).
     const app = { goTo: vi.fn(), setTopDown: vi.fn(), onTool: vi.fn(), setPaint: vi.fn() };
     const cell = { matrix: 0, x: 4, y: 27 };
     act(() =>

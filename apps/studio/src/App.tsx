@@ -1703,6 +1703,7 @@ function AppBody() {
         </Workbench>
         <WizardHost
           wizards={wizards}
+          startPainting={startPainting}
           world={live.world.world}
           headers={scene.headers}
           matrices={overview.matrices}
