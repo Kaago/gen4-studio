@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn a_glb_of_another_map_is_a_schema_error() {
+    fn a_glb_of_another_map_is_a_schema_problem() {
         use crate::world::doc::FreeformJson;
 
         let fx = fixture();
@@ -549,6 +549,17 @@ mod tests {
             "world.schema: world.freeform[1].glb: `glb` nennt ein Beifile dieser Karte: \
              `0000.<name>.glb` mit a\u{2013}z, 0\u{2013}9, `_`, `-`."
         );
+        // `0004.haus.glb` on map 3 names the map's own form.
+        w.freeform = vec![glb("0004.haus.glb")];
+        let errors = glb_map_errors(&w, 3);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].path, "world.freeform[0].glb");
+        assert_eq!(
+            errors[0].message,
+            "`glb` nennt ein Beifile dieser Karte: `0003.<name>.glb` mit a\u{2013}z, \
+             0\u{2013}9, `_`, `-`."
+        );
+        assert!(glb_map_errors(&w, 4).is_empty());
     }
 
     #[test]

@@ -17,6 +17,7 @@ use g4_formats::game::Family;
 use g4_formats::map::Cell;
 use g4_formats::nsbmd_header::material_texture_names;
 use g4_formats::nsbtx::{Nsbtx, Rgba};
+use g4_formats::texconv::palette_name;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{KernelError, io_at};
@@ -31,6 +32,7 @@ use crate::textproject::codes::SCHEMA_CODE;
 use crate::textproject::locate::located;
 use crate::tiles::tile_behavior;
 use crate::world::WORLD_NEEDS_TEXT_PROJECT;
+use crate::world::freeform::{SIDE_NAME_MAX, is_side_name, named_piece_files, side_parts};
 
 /// The version of the tileset file this build reads and writes.
 pub const TILESET_VERSION: u32 = 1;
@@ -83,7 +85,8 @@ pub struct TileJson {
     /// Width and depth in cells; exactly the tiles of role `piece` have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footprint: Option<[u8; 2]>,
-    /// Reserved for the model side files of 6.5b; must be left out.
+    /// The `<name>` of the tile's model side file `data/tilesets/PPPP.<name>.glb` (role
+    /// `piece` only; a–z, 0–9, `_`, `-`, at most 32 characters); left out: the footprint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     pub origin: TileOrigin,
@@ -225,8 +228,9 @@ pub fn read_tileset_file(project: &Project, package: u16) -> Result<Option<Tiles
 
 /// Problems of one tileset file beyond serde, each as `<path>: <text>` with the JSON path
 /// in the file (`tiles[3].wall`): `version` ≠ [`TILESET_VERSION`], `package` ≠ the stem,
-/// `edge_sets` not empty („Kantensätze kommen mit 6.4b.“), `model` set („Teilmodell-Dateien
-/// kommen mit 6.5b.“), `wall` past the tiles ([`tile_outside`]) or not of role `wall`,
+/// `edge_sets` not empty („Kantensätze kommen mit 6.4b.“), `model` on a tile that is not
+/// `piece` or with a name against the side file rule, `wall` past the tiles ([`tile_outside`])
+/// or not of role `wall`,
 /// `footprint` on a tile that is not `piece` or a `piece` without it, a texture name longer
 /// than 16 bytes, `sound` ≠ 0 outside HeartGold/SoulSilver or past bit 6 in it.
 pub fn tileset_problems(tileset: &Tileset, stem: u16, family: Family) -> Vec<String> {
@@ -292,11 +296,20 @@ pub fn tileset_problems(tileset: &Tileset, stem: u16, family: Family) -> Vec<Str
             )),
             _ => {}
         }
-        if tile.model.is_some() {
-            problems.push(format!(
-                "{}: Teilmodell-Dateien kommen mit 6.5b.",
-                at("model")
-            ));
+        if let Some(model) = &tile.model {
+            if tile.role != TileRole::Piece {
+                problems.push(format!(
+                    "{}: `model` haben nur Teilmodelle (`piece`).",
+                    at("model")
+                ));
+            }
+            if !is_side_name(model) {
+                problems.push(format!(
+                    "{}: `model` ist ein Name aus a\u{2013}z, 0\u{2013}9, `_`, `-`, \
+                     höchstens {SIDE_NAME_MAX} Zeichen.",
+                    at("model")
+                ));
+            }
         }
     }
     problems
@@ -315,14 +328,39 @@ pub fn tile_outside(path: &str, tile: u16, package: u16, tiles: usize) -> String
 
 /// The problems of the folder `data/tilesets/` (the file kind `tilesets` of
 /// [`check_files`](crate::textproject::kinds::check_files)), each `textproject.schema` with
-/// file and line: a file name that is no package number `NNNN.json`, a file that does not read
-/// as a [`Tileset`] (serde's path), and every one of [`tileset_problems`] of a file that does,
-/// at its JSON path.
+/// file and line: a model side file `PPPP.<name>.glb` no tile of `PPPP.json` names
+/// ([`named_piece_files`]; „löschen oder `model` setzen“), any other file name that is no
+/// package number `NNNN.json`, a file that does not read as a [`Tileset`] (serde's path), and
+/// every one of [`tileset_problems`] of a file that does, at its JSON path. A model side file
+/// of a `PPPP.json` that does not read is left to that file's problem.
 pub fn check_folder(project: &Project, problems: &mut Vec<Problem>) -> Result<(), KernelError> {
     let dir = Path::new(TILESETS_DIR);
-    for name in file_names(&project.root.join(dir))? {
-        let rel = dir.join(&name);
-        let Some(package) = package_of(&name) else {
+    let names = file_names(&project.root.join(dir))?;
+    for name in &names {
+        let rel = dir.join(name);
+        if let Some((package, _)) = side_parts(name) {
+            let tileset = rel.with_file_name(format!("{package:04}.json"));
+            let named = match std::fs::read(project.root.join(&tileset)) {
+                Ok(bytes) => match serde_json::from_slice::<Tileset>(&bytes) {
+                    Ok(t) => named_piece_files(&t).contains(name),
+                    Err(_) => true,
+                },
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                Err(e) => return Err(io_at(&project.root.join(&tileset))(e)),
+            };
+            if !named {
+                problems.push(problem(
+                    &rel,
+                    SCHEMA_CODE,
+                    format!(
+                        "Das Beifile {name} nennt keine Kachel von {package:04}.json; löschen \
+                         oder `model` setzen."
+                    ),
+                ));
+            }
+            continue;
+        }
+        let Some(package) = package_of(name) else {
             problems.push(problem(
                 &rel,
                 SCHEMA_CODE,
@@ -721,18 +759,18 @@ fn read_package(project: &Project, package: u16) -> Result<Nsbtx, KernelError> {
     read_package_file(&package_file(project, package)?, package)
 }
 
-/// RGBA of `texture` with its tile's palette (none: palette 0); `None` when the package or the
-/// texture is missing or the package does not read (synthetic tileset), when the tile names a
-/// palette the package lacks, when the package has no palette for a paletted texture or when
-/// the texture's format has no decoder (4 × 4 compressed, format 5).
+/// RGBA of `texture` with its tile's palette (none: palette 0); a texture no tile has (one
+/// appended to the package since the tileset was written) with the package's palette
+/// `palette_name(texture)`, else palette 0. `None` when the package or the texture is missing
+/// or the package does not read (synthetic tileset), when the tile names a palette the
+/// package lacks, when the package has no palette for a paletted texture or when the
+/// texture's format has no decoder (4 × 4 compressed, format 5).
 pub fn tileset_texture(
     project: &Project,
     tileset: &Tileset,
     texture: &str,
 ) -> Result<Option<Rgba>, KernelError> {
-    let Some(tile) = tileset.tiles.iter().find(|t| t.texture == texture) else {
-        return Ok(None);
-    };
+    let tile = tileset.tiles.iter().find(|t| t.texture == texture);
     let path = match package_file(project, tileset.package) {
         Ok(path) => path,
         Err(KernelError::Refused(_)) => return Ok(None),
@@ -747,12 +785,16 @@ pub fn tileset_texture(
     let Some(index) = btx.textures.iter().position(|t| t.name == texture) else {
         return Ok(None);
     };
-    let palette = match &tile.palette {
-        None => 0,
-        Some(name) => match btx.palettes.iter().position(|p| &p.name == name) {
+    let palette = match tile.map(|t| t.palette.as_ref()) {
+        Some(None) => 0,
+        Some(Some(name)) => match btx.palettes.iter().position(|p| &p.name == name) {
             Some(i) => i,
             None => return Ok(None),
         },
+        None => {
+            let own = palette_name(texture);
+            btx.palettes.iter().position(|p| p.name == own).unwrap_or(0)
+        }
     };
     match btx.decode(index, palette) {
         Ok(rgba) => Ok(Some(rgba)),
@@ -827,7 +869,7 @@ pub fn save_tileset(store: &mut Store, package: u16) -> Result<TilesetSaveReport
 }
 
 /// One change of `tileset_edit`: the tile and the values to set; a value left out stays.
-/// `wall: null` removes the tile's wall tile.
+/// `wall: null` removes the tile's wall tile, `model: null` the tile's model side file name.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TileChange {
@@ -842,6 +884,8 @@ pub struct TileChange {
     pub sound: Option<u8>,
     #[serde(default, deserialize_with = "present")]
     pub wall: Option<Option<u16>>,
+    #[serde(default, deserialize_with = "present")]
+    pub model: Option<Option<String>>,
 }
 
 /// A key that is there (`null` included) is `Some`; a key left out stays `None` (serde's
@@ -945,6 +989,9 @@ pub fn tileset_edit(
         }
         if let Some(wall) = change.wall {
             tile.wall = wall;
+        }
+        if let Some(model) = &change.model {
+            tile.model.clone_from(model);
         }
     }
     let mut changed = 0;
@@ -1184,7 +1231,7 @@ mod tests {
         );
         assert_eq!(
             problems(&|t| t.tiles[2].model = Some("baum".to_owned()), 0, pt),
-            ["tiles[2].model: Teilmodell-Dateien kommen mit 6.5b."]
+            ["tiles[2].model: `model` haben nur Teilmodelle (`piece`)."]
         );
         assert_eq!(
             problems(&|t| t.tiles[0].wall = Some(6), 0, pt),
@@ -1242,7 +1289,7 @@ mod tests {
             [
                 "package: Paket 0000 passt nicht zum Dateinamen 0001.json.",
                 "edge_sets: Kantensätze kommen mit 6.4b.",
-                "tiles[2].model: Teilmodell-Dateien kommen mit 6.5b.",
+                "tiles[2].model: `model` haben nur Teilmodelle (`piece`).",
                 "tiles[3].wall: Kachel 0x0120 gibt es im Tileset 0000 nicht (6 Kacheln).",
             ]
         );
@@ -1990,5 +2037,235 @@ mod tests {
         // Undoing the save of the tileset file too: the derived tileset again.
         store.undo().unwrap();
         assert_eq!(cell(&mut store), [0, 0]);
+    }
+
+    // ---- piece models (6.5b Task 3) ----
+
+    #[test]
+    fn model_is_allowed_on_pieces_only() {
+        let problems = |change: &dyn Fn(&mut Tileset)| {
+            let mut t = Tileset::synthetic();
+            change(&mut t);
+            tileset_problems(&t, 0, Family::Pt)
+        };
+        // Tile 5 is the synthetic piece.
+        assert_eq!(
+            problems(&|t| t.tiles[5].model = Some("turm".to_owned())),
+            Vec::<String>::new()
+        );
+        let longest = "a".repeat(32);
+        assert_eq!(
+            problems(&|t| t.tiles[5].model = Some(longest.clone())),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            problems(&|t| t.tiles[5].model = Some("turm_2-b".to_owned())),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            problems(&|t| t.tiles[0].model = Some("turm".to_owned())),
+            ["tiles[0].model: `model` haben nur Teilmodelle (`piece`)."]
+        );
+        let rule = "tiles[5].model: `model` ist ein Name aus a\u{2013}z, 0\u{2013}9, `_`, `-`, \
+                    höchstens 32 Zeichen.";
+        for bad in ["Turm", "", "tu rm", "turm.glb", "../turm", &"a".repeat(33)] {
+            assert_eq!(
+                problems(&|t| t.tiles[5].model = Some(bad.to_owned())),
+                [rule],
+                "{bad:?}"
+            );
+        }
+        // Both rules at once.
+        assert_eq!(
+            problems(&|t| t.tiles[1].model = Some("Turm".to_owned())),
+            [
+                "tiles[1].model: `model` haben nur Teilmodelle (`piece`).",
+                "tiles[1].model: `model` ist ein Name aus a\u{2013}z, 0\u{2013}9, `_`, `-`, \
+                 höchstens 32 Zeichen."
+            ]
+        );
+    }
+
+    #[test]
+    fn tileset_edit_sets_and_clears_model() {
+        let fx = crate::test_support::world_ready();
+        let mut store = store_of(&fx);
+        let path = fx.root().join(tileset_rel(0));
+        let report = tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [{"tile": 5, "model": "turm"}]})),
+        )
+        .unwrap();
+        assert_eq!(report.tiles, 1);
+        let mut want = Tileset::synthetic();
+        want.tiles[5].model = Some("turm".to_owned());
+        want.tiles[5].origin = TileOrigin::User;
+        assert_eq!(std::fs::read(&path).unwrap(), to_canonical(&want));
+        // Left out: stays.
+        tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [{"tile": 5, "kind": 3}]})),
+        )
+        .unwrap();
+        assert_eq!(
+            store.tileset(0).unwrap().tiles[5].model.as_deref(),
+            Some("turm")
+        );
+        // `model: null` clears it.
+        tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [{"tile": 5, "model": null}]})),
+        )
+        .unwrap();
+        assert_eq!(store.tileset(0).unwrap().tiles[5].model, None);
+        let file = std::fs::read(&path).unwrap();
+        // A model on a tile that is no piece, or a name against the rule: refused.
+        for (changes, want) in [
+            (
+                json!([{"tile": 0, "model": "turm"}]),
+                "data/tilesets/0000.json: tiles[0].model: `model` haben nur Teilmodelle \
+                 (`piece`).",
+            ),
+            (
+                json!([{"tile": 5, "model": "Turm"}]),
+                "data/tilesets/0000.json: tiles[5].model: `model` ist ein Name aus a\u{2013}z, \
+                 0\u{2013}9, `_`, `-`, höchstens 32 Zeichen.",
+            ),
+        ] {
+            let text = refusal(tileset_edit(
+                &mut store,
+                &edit_req(json!({"package": 0, "changes": changes})),
+            ));
+            assert_eq!(text, want, "{changes}");
+            assert_eq!(std::fs::read(&path).unwrap(), file, "{changes}");
+        }
+    }
+
+    #[test]
+    fn tileset_texture_falls_back_to_the_pack() {
+        use g4_formats::nsbtx::NewTexture;
+        use g4_formats::texconv::palette_name;
+
+        let fx = crate::test_support::world_ready();
+        let new = |name: &str, palette: String, color: u16| NewTexture {
+            name: name.to_owned(),
+            palette,
+            width: 8,
+            height: 8,
+            format: 3,
+            color0: false,
+            texels: vec![0x11; 32],
+            colors: vec![color; 16],
+        };
+        // world_ready's package with `neu` (palette `neu_pl`) and `ohne` (palette `fremd_pl`)
+        // appended after the tiles' textures.
+        let mut textures: Vec<NewTexture> = Tileset::synthetic()
+            .tiles
+            .iter()
+            .map(|t| new(&t.texture, palette_name(&t.texture), 0x03E0))
+            .collect();
+        textures.push(new("neu", palette_name("neu"), 0x001F));
+        textures.push(new("ohne", "fremd_pl".to_owned(), 0x7C00));
+        let pack = g4_formats::nsbtx::build(&textures).unwrap();
+        std::fs::write(fx.project().member_path(AssetKind::MapTexture, 0), &pack).unwrap();
+        let project = fx.project();
+        let btx = read_package(&project, 0).unwrap();
+        let texture_at = |name: &str| btx.textures.iter().position(|t| t.name == name).unwrap();
+        let palette_at = |name: &str| btx.palettes.iter().position(|p| p.name == name).unwrap();
+        // The tileset file has no tile `neu`: the pack's texture with palette `neu_pl`.
+        let tileset = Tileset::synthetic();
+        assert!(tileset.tiles.iter().all(|t| t.texture != "neu"));
+        let rgba = tileset_texture(&project, &tileset, "neu").unwrap().unwrap();
+        assert_eq!((rgba.width, rgba.height), (8, 8));
+        assert_eq!(
+            rgba,
+            btx.decode(texture_at("neu"), palette_at("neu_pl")).unwrap()
+        );
+        assert_ne!(rgba, btx.decode(texture_at("neu"), 0).unwrap());
+        // No palette by its name: palette 0.
+        let rgba = tileset_texture(&project, &tileset, "ohne")
+            .unwrap()
+            .unwrap();
+        assert_eq!(rgba, btx.decode(texture_at("ohne"), 0).unwrap());
+        // Neither tile nor pack texture: none.
+        assert_eq!(tileset_texture(&project, &tileset, "fehlt").unwrap(), None);
+    }
+
+    /// `data/tilesets/` with `0000.json` (tile 5 the piece) and the files `extra`.
+    fn piece_folder(model: Option<&str>, extra: &[&str]) -> TextFixture {
+        let fx = crate::test_support::world_ready();
+        let mut tileset = Tileset::synthetic();
+        tileset.tiles[5].model = model.map(str::to_owned);
+        fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&tileset));
+        for name in extra {
+            fx.write(&format!("data/tilesets/{name}"), b"glTF");
+        }
+        fx
+    }
+
+    fn folder_problems(fx: &TextFixture) -> Vec<Problem> {
+        let mut problems = Vec::new();
+        check_folder(&fx.project(), &mut problems).unwrap();
+        problems
+    }
+
+    #[test]
+    fn a_piece_model_file_is_no_schema_problem() {
+        let fx = piece_folder(Some("turm"), &["0000.turm.glb"]);
+        assert_eq!(folder_problems(&fx), Vec::new());
+    }
+
+    #[test]
+    fn an_unnamed_piece_model_file_is_a_schema_problem() {
+        // Named by no tile, of a package without tileset file, and no side file name at all.
+        let fx = piece_folder(
+            Some("turm"),
+            &[
+                "0000.turm.glb",
+                "0000.alt.glb",
+                "0003.turm.glb",
+                "0000.Haus.glb",
+            ],
+        );
+        let found: Vec<(String, String)> = folder_problems(&fx)
+            .into_iter()
+            .map(|p| (crate::relpath::slash(&p.file), p.message))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    "data/tilesets/0000.Haus.glb".to_owned(),
+                    "textproject.schema: Der Dateiname ist keine Paketnummer (`NNNN.json`); die \
+                     Datei gehört zu keinem Kartentextur-Paket."
+                        .to_owned()
+                ),
+                (
+                    "data/tilesets/0000.alt.glb".to_owned(),
+                    "textproject.schema: Das Beifile 0000.alt.glb nennt keine Kachel von \
+                     0000.json; löschen oder `model` setzen."
+                        .to_owned()
+                ),
+                (
+                    "data/tilesets/0003.turm.glb".to_owned(),
+                    "textproject.schema: Das Beifile 0003.turm.glb nennt keine Kachel von \
+                     0003.json; löschen oder `model` setzen."
+                        .to_owned()
+                ),
+            ]
+        );
+        // The tile names it no more: a problem too.
+        let fx = piece_folder(None, &["0000.turm.glb"]);
+        let found: Vec<String> = folder_problems(&fx)
+            .into_iter()
+            .map(|p| p.message)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "textproject.schema: Das Beifile 0000.turm.glb nennt keine Kachel von 0000.json; \
+              löschen oder `model` setzen."
+            ]
+        );
     }
 }

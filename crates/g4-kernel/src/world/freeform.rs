@@ -98,7 +98,76 @@ pub fn freeform_rel(file: &str) -> PathBuf {
 
 /// The path of the model side file `name` of package `package`: `data/tilesets/0006.<name>.glb`.
 pub fn piece_rel(package: u16, name: &str) -> PathBuf {
-    Path::new(TILESETS_DIR).join(format!("{package:04}.{name}.glb"))
+    Path::new(TILESETS_DIR).join(piece_file(package, name))
+}
+
+/// The file name of the model side file `name` of package `package`: `0006.<name>.glb`.
+fn piece_file(package: u16, name: &str) -> String {
+    format!("{package:04}.{name}.glb")
+}
+
+/// The side files `world` names (file names in data/maps/): each `freeform[].glb`, once, in
+/// document order. Writer and export keep these when they clear a map's other files.
+pub fn named_side_files(world: &WorldJson) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for file in world.freeform.iter().filter_map(|f| f.glb.as_deref()) {
+        if !names.iter().any(|n| n == file) {
+            names.push(file.to_owned());
+        }
+    }
+    names
+}
+
+/// The piece model side files `tileset` names (file names in data/tilesets/): `PPPP.<model>.glb`
+/// of each tile of role `piece` with a `model`, once, in tile order.
+pub fn named_piece_files(tileset: &Tileset) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for tile in tileset.tiles.iter().filter(|t| t.role == TileRole::Piece) {
+        if let Some(model) = tile.model.as_deref() {
+            let file = piece_file(tileset.package, model);
+            if !names.contains(&file) {
+                names.push(file);
+            }
+        }
+    }
+    names
+}
+
+/// The side files the map file `bytes` names: [`named_side_files`] of its world. A world that
+/// does not read (a hand-made typo the check reports) still names each string
+/// `world.freeform[].glb` of the JSON, so that writing the map never deletes a side file the
+/// user is about to fix the world for; no world (a binary map, no JSON): none.
+pub(crate) fn named_side_files_in(bytes: &[u8]) -> Vec<String> {
+    match super::keep::world_field(bytes) {
+        Ok(Some(world)) => named_side_files(&world),
+        Ok(None) => Vec::new(),
+        Err(_) => {
+            let value: serde_json::Value = serde_json::from_slice(bytes).unwrap_or_default();
+            let mut names: Vec<String> = Vec::new();
+            let entries = value
+                .get("world")
+                .and_then(|w| w.get("freeform"))
+                .and_then(serde_json::Value::as_array);
+            for file in entries
+                .into_iter()
+                .flatten()
+                .filter_map(|f| f.get("glb").and_then(serde_json::Value::as_str))
+            {
+                if !names.iter().any(|n| n == file) {
+                    names.push(file.to_owned());
+                }
+            }
+            names
+        }
+    }
+}
+
+/// Whether `name` is a `<name>` of a side file: 1 to SIDE_NAME_MAX of a–z, 0–9, `_`, `-`.
+pub(crate) fn is_side_name(name: &str) -> bool {
+    (1..=SIDE_NAME_MAX).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'))
 }
 
 /// The `<name>` of `file` when it is a side file of `stem` (`NNNN.<name>.glb` with the rule), else None.
@@ -115,11 +184,7 @@ pub(crate) fn side_parts(file: &str) -> Option<(u16, &str)> {
     let name = rest.strip_suffix(".glb")?;
     let n: u16 = number.parse().ok()?;
     let canonical = number.bytes().all(|b| b.is_ascii_digit()) && format!("{n:04}") == number;
-    let good = (1..=SIDE_NAME_MAX).contains(&name.len())
-        && name
-            .bytes()
-            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'));
-    (canonical && good).then_some((n, name))
+    (canonical && is_side_name(name)).then_some((n, name))
 }
 
 /// A corner as written: position in world units, uv in texels.
@@ -457,7 +522,7 @@ fn side_plan(map: u16, world: &WorldJson, tileset: Option<&Tileset>) -> Vec<Side
             shown: crate::relpath::slash(&rel),
             rel,
             kind: SideKind::Piece { tile: piece.tile },
-            refused: side_parts(&format!("{package:04}.{name}.glb"))
+            refused: side_parts(&piece_file(package, name))
                 .is_none()
                 .then(|| format!("kein Beifile-Name des Pakets {package:04}")),
         });
