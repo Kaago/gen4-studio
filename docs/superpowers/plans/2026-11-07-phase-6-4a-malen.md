@@ -454,8 +454,8 @@ Texte: Titel „Neue Karte malen“, Felder „Name“ (Pflicht), „Boden“ (P
   - `undo_to_the_start_leaves_the_files_as_they_were`: nach Rezept und `save` SHA-1 jeder Datei unter `data/` und `project.json`; Striche; `undo` × Striche; `save`; alle SHA-1 gleich, keine Datei dazu (der Beleg für `git status` leer ohne Git im Test); druckt `paint-undo <code> strokes=<n> files=<n> equal=<n>`.
   - `palette_textures_of_every_map_package`: je Kartentextur-Paket `tileset_get`-Ableitung, je Kachel `tileset_texture`; druckt `palette <code> packages=<n> tiles=<n> decoded=<n> placeholder=<n>`; verlangt nur `tiles > 0`.
 - [x] **Step 2: Kopien** `6-4a-pt`, `6-4a-hgde`, `6-4a-hgus` (je `_DSPRE_contents` mit `.nds` daneben).
-- [ ] **Step 3: Lauf** je Kopie nacheinander im Hintergrund: `G4_ROMS_DIR=$R G4_TEST_PROJECT=$K/6-4a-<k>_DSPRE_contents cargo test --release -p g4-kernel --all-features --test world_paint -- --nocapture --test-threads 1 > target/agent/6-4a/gated-<k>.log 2>&1` → PASS; dann `--test vanilla_checks` je Kopie (0 Fehler).
-- [ ] **Step 4: Commit** `test(world): painted map beside the start town bakes and builds, undo restores every file, palette pictures counted` (mit Trailer).
+- [x] **Step 3: Lauf** je Kopie nacheinander im Hintergrund: `G4_ROMS_DIR=$R G4_TEST_PROJECT=$K/6-4a-<k>_DSPRE_contents cargo test --release -p g4-kernel --all-features --test world_paint -- --nocapture --test-threads 1 > target/agent/6-4a/gated-<k>.log 2>&1` → PASS; dann `--test vanilla_checks` je Kopie (0 Fehler).
+- [x] **Step 4: Commit** `test(world): painted map beside the start town bakes and builds, undo restores every file, palette pictures counted` (mit Trailer).
 
 ### Task 11: Szenarien `pt-gemalt`/`hg-gemalt` über MCP, Phasen-Gate über die Oberfläche
 
