@@ -2,7 +2,9 @@
 //! places of an edge set ([`paint_terrain`]); the cliff brush ([`paint_cliff`]) raises or lowers
 //! cells and puts the set's rim on top. Both and `world_edit` build on the same parts: the seam
 //! cells read from neighbour maps ([`Seams`]), the result of a smart change ([`Resolved`]), the
-//! corner grid ([`Corners`]) and the set read as a table token ⇄ place ([`SetTable`]).
+//! corner grid ([`Corners`]) and the set read as a table token ⇄ place ([`SetTable`]). The
+//! store side reads the seam from the neighbour maps of the matrix ([`seams`]) and resolves the
+//! strokes of a `world_edit` call into its cell changes ([`expand`]).
 //!
 //! Gen 4 maps keep no corner colours; the tiles carry them (rule „Eckfarben lesen“): a cell is
 //! a **member** of the set when its token stands in a place (the place's mask), **outside**
@@ -20,9 +22,17 @@ use g4_formats::game::Family;
 use g4_formats::map::Cell;
 
 use super::bake::tile_cells;
-use super::edge::{EdgeBlock, EdgeSetJson, NE, NW, Place, SE, SW, variant};
-use super::grid::{Ramp, TileRef, WorldGrid, override_token, parse_tile, tile_token};
+use super::doc::WorldJson;
+use super::edge::{EdgeBlock, EdgeSetJson, NE, NW, Place, SE, SW, missing_set, variant};
+use super::edit::{WorldChange, apply_change, cell_outside, check_one_field, check_place};
+use super::grid::{
+    Ramp, TileRef, WorldGrid, override_token, parse_height, parse_tile, ramp_token, tile_token,
+};
+use super::places::{AROUND, neighbour_maps};
 use super::tileset::Tileset;
+use crate::error::KernelError;
+use crate::project::AssetKind;
+use crate::store::Store;
 use crate::terrain::high_edges;
 
 /// Cells and rows of a map.
@@ -66,15 +76,12 @@ pub struct Resolved {
     pub notes: Vec<String>,
 }
 
-/// „Zelle (32, 4) liegt außerhalb der Karte (0 bis 31).“
-pub(crate) fn cell_outside(x: u8, z: u8) -> String {
-    format!(
-        "Zelle ({x}, {z}) liegt außerhalb der Karte (0 bis {}).",
-        CELLS - 1
-    )
-}
+/// Why a cliff stroke names an overlay.
+pub const CLIFF_GROUND_ONLY: &str = "Klippen gibt es nur auf der Bodenebene.";
 
-/// „Ebene 2 gibt es nicht (die Karte hat 1).“
+/// „Ebene 2 gibt es nicht (die Karte hat 1).“: the pure brushes' own guard, which knows no map;
+/// `world_edit` checks the layer before ([`super::edit::check_place`], „… (Karte 0123 hat 1).“),
+/// so this one is never what its caller sees.
 fn no_layer(layer: usize, layers: usize) -> String {
     format!("Ebene {layer} gibt es nicht (die Karte hat {layers}).")
 }
@@ -592,6 +599,239 @@ fn lower_overrides(
         }
     }
     overrides
+}
+
+// --- The store side (Task 4): the seam read from neighbour maps, `world_edit`'s strokes ---
+
+/// The seam cells of `map` on `layer` (rule „Naht zu Nachbarkarten“).
+///
+/// The neighbours are those of the first matrix cell that shows `map` ([`neighbour_maps`]);
+/// only world maps on the package of `world` are read (tiles of `layer` by index, the ground's
+/// heights), each for the cells just past `map`'s edge on its side. Every other neighbour reads
+/// nothing: an empty cell, a binary map, a world on another package, a world or a member that
+/// does not read, a map past the archive and `map` itself (shown next to itself).
+pub fn seams(
+    store: &mut Store,
+    map: u16,
+    world: &WorldJson,
+    layer: usize,
+) -> Result<Seams, KernelError> {
+    let around = neighbour_maps(store, map)?;
+    let maps = store.member_count(AssetKind::Map)?;
+    let mut seams = Seams::default();
+    for ((dx, dz), neighbour) in AROUND.into_iter().zip(around) {
+        let Some(n) = neighbour.filter(|&n| n != map && usize::from(n) < maps) else {
+            continue;
+        };
+        let Some(grid) = neighbour_grid(store, n, world.tileset)? else {
+            continue;
+        };
+        let side = |d: i32| match d {
+            -1 => -1..=-1,
+            0 => 0..=CELLS - 1,
+            _ => CELLS..=CELLS,
+        };
+        for z in side(dz) {
+            for x in side(dx) {
+                let Some(key) = seam_key(x, z) else { continue };
+                // The cell in the neighbour's own coordinates.
+                let i = ((z - dz * CELLS) * CELLS + (x - dx * CELLS)) as usize;
+                seams.owner.insert(key, n);
+                if let Some(tile) = grid
+                    .layers
+                    .get(layer)
+                    .and_then(|l| l.tiles.get(i))
+                    .copied()
+                    .flatten()
+                {
+                    seams.tiles.insert((layer, key.0, key.1), tile);
+                }
+                if let Some(&h) = grid.heights.get(i) {
+                    seams.heights.insert(key, h);
+                }
+            }
+        }
+    }
+    Ok(seams)
+}
+
+/// The cells of neighbour map `n` when it is a world map on `package` that reads into cells.
+fn neighbour_grid(
+    store: &mut Store,
+    n: u16,
+    package: u16,
+) -> Result<Option<WorldGrid>, KernelError> {
+    let world = match store.world(n) {
+        Ok(Some(world)) if world.tileset == package => world,
+        Ok(_) => return Ok(None),
+        // A neighbour that does not read is not painted on: it reads nothing at the seam.
+        Err(KernelError::Compile(_) | KernelError::Format(_) | KernelError::Uxie(_)) => {
+            return Ok(None);
+        }
+        Err(e) => return Err(e),
+    };
+    Ok(WorldGrid::parse(world).ok())
+}
+
+/// `changes` with every terrain and cliff change replaced by its cell changes (tile on its layer, height, ramp ".",
+/// permission), resolved in order on a copy of `world`; the notes of all of them. Refused with the set's or the
+/// brush's sentence (missing set, place without tile, cliff off the ground, height outside −16 to 62).
+///
+/// Every change, smart or plain, is written into the working copy in turn
+/// ([`super::edit::apply_change`]), so a later change sees the earlier ones (rule
+/// „`world_edit`-Änderungen“); without a smart change `changes` come back as they are. A smart
+/// change is checked in this order: one field ([`super::edit::ONE_FIELD`]), a cliff off the
+/// ground ([`CLIFF_GROUND_ONLY`]), its layer and cells (the sentences of `world_edit`), the set
+/// ([`missing_set`]), the cliff's height, then the brush (a place without tile).
+pub fn expand(
+    store: &mut Store,
+    map: u16,
+    world: &WorldJson,
+    tileset: &Tileset,
+    changes: &[WorldChange],
+) -> Result<(Vec<WorldChange>, Vec<String>), KernelError> {
+    if !changes.iter().any(is_smart) {
+        return Ok((changes.to_vec(), Vec::new()));
+    }
+    let family = store.project().family;
+    let tiles = tileset.tiles.len();
+    let mut work = world.clone();
+    let mut out = Vec::new();
+    let mut notes = Vec::new();
+    for (i, change) in changes.iter().enumerate() {
+        let cells = if is_smart(change) {
+            let (cells, more) = resolve(store, map, &work, tileset, family, change)?;
+            notes.extend(more);
+            cells
+        } else {
+            vec![change.clone()]
+        };
+        for cell in &cells {
+            apply_change(&mut work, cell, i, map, tiles)?;
+        }
+        out.extend(cells);
+    }
+    Ok((out, notes))
+}
+
+fn is_smart(change: &WorldChange) -> bool {
+    change.terrain.is_some() || change.cliff.is_some()
+}
+
+/// The cell changes and notes of smart change `change` on the working copy `work`.
+fn resolve(
+    store: &mut Store,
+    map: u16,
+    work: &WorldJson,
+    tileset: &Tileset,
+    family: Family,
+    change: &WorldChange,
+) -> Result<(Vec<WorldChange>, Vec<String>), KernelError> {
+    let refused = KernelError::Refused;
+    check_one_field(change)?;
+    let layer = change.layer.unwrap_or(0);
+    if change.cliff.is_some() && layer != 0 {
+        return Err(refused(CLIFF_GROUND_ONLY.to_owned()));
+    }
+    check_place(change, map, work)?;
+    let name = match (&change.terrain, &change.cliff) {
+        (Some(t), _) => &t.set,
+        (None, Some(c)) => &c.set,
+        (None, None) => return Ok((Vec::new(), Vec::new())),
+    };
+    let set = tileset
+        .edge_sets
+        .iter()
+        .find(|s| &s.name == name)
+        .ok_or_else(|| refused(missing_set(name, work.tileset)))?;
+    let grid = WorldGrid::parse(work).map_err(|errors| {
+        refused(
+            errors
+                .first()
+                .map_or_else(|| "world: kaputt.".to_owned(), ToString::to_string),
+        )
+    })?;
+    let seams = seams(store, map, work, usize::from(layer))?;
+    let resolved = match (&change.terrain, &change.cliff) {
+        (Some(t), _) => paint_terrain(
+            &grid,
+            usize::from(layer),
+            set,
+            &change.cells,
+            t.inside,
+            t.seed,
+            &seams,
+        ),
+        (None, Some(c)) => {
+            parse_height(&c.height.to_string()).map_err(refused)?;
+            paint_cliff(
+                &grid,
+                tileset,
+                family,
+                set,
+                &change.cells,
+                c.height,
+                c.seed,
+                &seams,
+            )
+        }
+        (None, None) => Ok(Resolved::default()),
+    }
+    .map_err(refused)?;
+    Ok(cell_changes(layer, resolved))
+}
+
+/// A change of `cells` that sets nothing yet.
+fn change_of(cells: Vec<[u8; 2]>) -> WorldChange {
+    WorldChange {
+        layer: None,
+        cells,
+        tile: None,
+        height: None,
+        ramp: None,
+        permission: None,
+        terrain: None,
+        cliff: None,
+    }
+}
+
+/// `resolved` as cell changes (heights, cleared ramps, tiles on `layer`, overrides; cells of
+/// the same token in one change) and its notes.
+fn cell_changes(layer: u8, resolved: Resolved) -> (Vec<WorldChange>, Vec<String>) {
+    fn grouped<T: Ord>(cells: Vec<([u8; 2], T)>) -> BTreeMap<T, Vec<[u8; 2]>> {
+        let mut by: BTreeMap<T, Vec<[u8; 2]>> = BTreeMap::new();
+        for (cell, value) in cells {
+            by.entry(value).or_default().push(cell);
+        }
+        by
+    }
+    let mut out = Vec::new();
+    for (height, cells) in grouped(resolved.heights) {
+        out.push(WorldChange {
+            height: Some(height),
+            ..change_of(cells)
+        });
+    }
+    if !resolved.ramps_cleared.is_empty() {
+        out.push(WorldChange {
+            ramp: Some(ramp_token(Ramp::None)),
+            ..change_of(resolved.ramps_cleared)
+        });
+    }
+    for (token, cells) in grouped(resolved.tiles) {
+        out.push(WorldChange {
+            layer: Some(layer),
+            tile: Some(token),
+            ..change_of(cells)
+        });
+    }
+    for (token, cells) in grouped(resolved.overrides) {
+        out.push(WorldChange {
+            permission: Some(token),
+            ..change_of(cells)
+        });
+    }
+    (out, resolved.notes)
 }
 
 /// The fixed gate pattern of the terrain brush (table „Fester gated Musterfall“).

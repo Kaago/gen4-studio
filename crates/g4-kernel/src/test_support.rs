@@ -1048,10 +1048,20 @@ impl TextFixture {
 /// textures (16 colours, palettes `<name>_pl`) and `data/tilesets/0000.json` from
 /// `Tileset::synthetic()`.
 pub fn world_ready() -> TextFixture {
+    world_ready_with(crate::world::tileset::Tileset::synthetic())
+}
+
+/// [`world_ready`] with `Tileset::synthetic_edges()` (22 tiles, the set „Weg“) as package 0:
+/// the NSBTX of its 22 textures and its tileset file.
+pub fn world_ready_edges() -> TextFixture {
+    world_ready_with(crate::world::tileset::Tileset::synthetic_edges())
+}
+
+/// [`world_ready`] with `tileset` (package 0) instead of `Tileset::synthetic()`.
+fn world_ready_with(tileset: crate::world::tileset::Tileset) -> TextFixture {
     use crate::project::AssetKind;
-    use crate::world::tileset::{Tileset, tileset_rel};
+    use crate::world::tileset::tileset_rel;
     let fx = TextFixture::exported();
-    let tileset = Tileset::synthetic();
     let textures: Vec<g4_formats::nsbtx::NewTexture> = tileset
         .tiles
         .iter()
