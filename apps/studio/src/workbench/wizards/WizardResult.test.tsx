@@ -58,7 +58,7 @@ describe("DoneResult", () => {
   it("adjust_terrain_starts_painting", () => {
     // The step after „Neue Karte malen“ (and „Gebiet erweitern“) is free: it selects the map's cell, turns the top view on and paints
     // with the brush. The app wires the same function (`App` → `startPainting`, `WizardHost.step` for a result with `Created.cell`).
-    const app = { goTo: vi.fn(), setTopDown: vi.fn(), onTool: vi.fn(), setPaint: vi.fn() };
+    const app = { goTo: vi.fn(), setTopDown: vi.fn(), onTool: vi.fn(), setPaint: vi.fn(), frame: vi.fn() };
     const cell = { matrix: 0, x: 4, y: 27 };
     act(() =>
       root.render(
@@ -70,6 +70,8 @@ describe("DoneResult", () => {
     act(() => key.click());
     expect(app.goTo).toHaveBeenCalledExactlyOnceWith({ kind: "matrixCell", matrix: 0, x: 4, y: 27, show: "map" });
     expect(app.setTopDown).toHaveBeenCalledExactlyOnceWith(true);
+    // The new cell is framed top-down (the scene does it once the refreshed matrix holds the map), also when the top view was on.
+    expect(app.frame).toHaveBeenCalledExactlyOnceWith({ matrix: 0, x: 4, y: 27 });
     expect(app.onTool).toHaveBeenCalledExactlyOnceWith("paint");
     expect(app.setPaint).toHaveBeenCalledExactlyOnceWith({ sub: "brush" });
   });

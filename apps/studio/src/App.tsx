@@ -794,7 +794,10 @@ function AppBody() {
   const paintRef = useRef<PaintModel | null>(null);
   // „Neue Karte malen“ and the step „Gelände anpassen“: the cell selected, the top view on, „Gelände malen“ with the brush.
   const startPainting = useStableCallback((cell: { matrix: number; x: number; y: number }) =>
-    startPaintingWith({ goTo: goToReference, setTopDown: shell.setTopDown, onTool, setPaint: (patch) => paintRef.current?.set(patch) }, cell),
+    startPaintingWith(
+      { goTo: goToReference, setTopDown: shell.setTopDown, onTool, setPaint: (patch) => paintRef.current?.set(patch), frame: (c) => paintRef.current?.requestFrame?.(c) },
+      cell,
+    ),
   );
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,

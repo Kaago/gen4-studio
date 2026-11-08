@@ -52,3 +52,29 @@ export function frameCells(host: SceneHost, focus: CellRect, matrix: MatrixDto):
   host.controls.update();
   host.render();
 }
+
+/**
+ * The cell a paint frame request (`PaintModel.frame`) asks for, as a rect of one cell, once the scene can frame it: the request is for
+ * `matrix`, the scene is built for this very matrix (`sceneMatrix`), and the cell holds the paint target (the refreshed matrix has the
+ * new map and the paint provider found it a world map). Null: not yet (or not this matrix).
+ */
+export function requestedCell(
+  request: { matrix: number; x: number; y: number } | null | undefined,
+  matrix: MatrixDto,
+  sceneMatrix: MatrixDto | null | undefined,
+  target: number | null,
+): CellRect | null {
+  if (!request || target === null || request.matrix !== matrix.index || sceneMatrix !== matrix) return null;
+  if (request.x >= matrix.width || request.y >= matrix.height) return null;
+  if (matrix.maps[request.y * matrix.width + request.x] !== target) return null;
+  return { x: request.x, y: request.y, width: 1, height: 1 };
+}
+
+/**
+ * Frames `cell` of `matrix` in the top-down view: switches it on framing the cell, or, when it is on already, frames the cell there (the
+ * slanted camera waits above the cell for the way back). Renders.
+ */
+export function frameCellTopDown(host: SceneHost, cell: CellRect, matrix: MatrixDto): void {
+  if (host.topDown) frameCells(host, cell, matrix);
+  else host.setTopDown(true, cell, matrix);
+}

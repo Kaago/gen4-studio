@@ -1,7 +1,7 @@
 import type { NextStep, RecipeId } from "../api";
 import type { Tool } from "../ui/frame/shellState";
 import type { Area, IconName } from "../ui/primitives";
-import type { PaintPatch } from "./paint/PaintContext";
+import type { PaintFrame, PaintPatch } from "./paint/PaintContext";
 import type { NavTarget } from "./navigation";
 import type { WizardRequest } from "./WorkbenchContext";
 
@@ -111,22 +111,26 @@ export function recipeRequest(id: string, header: number | null, tile?: { x: num
   return null;
 }
 
-/** What the app does to start painting: follow a link, switch the top view, the tool and the paint state. */
+/** What the app does to start painting: follow a link, switch the top view, the tool and the paint state, frame the cell. */
 export interface PaintingStart {
   goTo: (target: NavTarget) => void;
   setTopDown: (on: boolean) => void;
   onTool: (tool: Tool) => void;
   setPaint: (patch: PaintPatch) => void;
+  /** Asks the scene to frame `cell` top-down once its map is the paint target (`PaintModel.requestFrame`). */
+  frame: (cell: PaintFrame) => void;
 }
 
 /**
  * „Gelände anpassen“ (after „Neue Karte malen“, or as the step of a result): selects the map in `cell` (the world map stays the view),
- * turns the top view on, switches to „Gelände malen“ (which shows the terrain layer) and paints with the brush. The top view stays the
- * user's choice afterwards; choosing the tool alone never switches the camera.
+ * turns the top view on and frames the cell in it (the scene does so once the refreshed matrix holds the map and the map is the paint
+ * target, also when the top view was on already), switches to „Gelände malen“ (which shows the terrain layer) and paints with the brush.
+ * The top view stays the user's choice afterwards; choosing the tool alone never switches the camera.
  */
 export function startPaintingWith(app: PaintingStart, cell: { matrix: number; x: number; y: number }): void {
   app.goTo({ kind: "matrixCell", matrix: cell.matrix, x: cell.x, y: cell.y, show: "map" });
   app.setTopDown(true);
+  app.frame({ matrix: cell.matrix, x: cell.x, y: cell.y });
   app.onTool("paint");
   app.setPaint({ sub: "brush" });
 }

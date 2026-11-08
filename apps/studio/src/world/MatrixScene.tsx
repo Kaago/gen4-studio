@@ -23,7 +23,7 @@ import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
 import { useSceneTheme } from "./scene/useSceneTheme";
 import styles from "./MatrixScene.module.css";
-import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, useHeightVisibility, usePermissionVisibility, useTopDown } from "./scene/useSceneProps";
+import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, useHeightVisibility, usePermissionVisibility, useFrameRequest, useTopDown } from "./scene/useSceneProps";
 
 interface Props {
   /** The matrix the scene loads; its empty cells (null maps) are not loaded (see `scopedMatrix`). */
@@ -212,6 +212,7 @@ function MatrixScene({
   useBuildingRefresh(refs, buildingRefresh, sceneBuilt);
   useEventSelection(refs, selectedEvent);
   useCellSelection(refs, matrix, selectedCell);
+  useFrameRequest(refs, painting.frame, matrix, topDown, paintTarget, sceneBuilt, () => painting.requestFrame?.(null));
   useFaultyEvents(refs, faultyEvents);
   useEventRefresh(refs, eventRefresh, reportEvents);
   usePermissionVisibility(refs, showPermissions);

@@ -3,6 +3,7 @@ import type { MatrixDto } from "../../api";
 import type { CellRect } from "../../workbench/sceneScope";
 import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
+import { frameCellTopDown, requestedCell } from "./camera";
 import { showCellFrame } from "./cellFrame";
 import { reportSelectedMarker } from "./content";
 import { setHeightsShown } from "./heightLayer";
@@ -65,6 +66,31 @@ export function useTopDown(refs: SceneRefs, topDown: boolean, matrix: MatrixDto,
   useEffect(() => {
     refs.handle.current?.setTopDown(topDown, focus, matrix);
   }, [topDown]);
+}
+
+/**
+ * „Gelände anpassen“ asked to frame a cell (`request`): once the top view is on (`topDown`, which the same step switches), the scene is
+ * built for `matrix` and that cell holds the paint `target` (after the matrix refresh of „Neue Karte malen“), the top-down view frames
+ * the cell, also when it was on already, and `done` clears the request. Runs after every build (`built`), so a full load that framed the
+ * area first is followed by the cell.
+ */
+export function useFrameRequest(
+  refs: SceneRefs,
+  request: { matrix: number; x: number; y: number } | null | undefined,
+  matrix: MatrixDto,
+  topDown: boolean,
+  target: number | null,
+  built: number,
+  done: () => void,
+) {
+  useEffect(() => {
+    const h = refs.handle.current;
+    if (!h || !topDown) return;
+    const cell = requestedCell(request, matrix, h.matrix, target);
+    if (!cell) return;
+    frameCellTopDown(h, cell, matrix);
+    done();
+  }, [request, matrix, topDown, target, built]);
 }
 
 /** Shows or hides the permission overlay. */

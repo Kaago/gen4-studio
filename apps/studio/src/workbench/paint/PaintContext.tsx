@@ -14,6 +14,13 @@ export interface PaintState extends PaintOptions {
 /** A change of the paint state: the fields to set, or a function of the current state giving them (never a stale snapshot). */
 export type PaintPatch = Partial<PaintState> | ((state: PaintState) => Partial<PaintState>);
 
+/** A cell „Gelände anpassen“ wants framed top-down: the cell of `matrix` at (`x`, `y`). */
+export interface PaintFrame {
+  matrix: number;
+  x: number;
+  y: number;
+}
+
 export interface PaintModel {
   state: PaintState;
   set(patch: PaintPatch): void;
@@ -36,6 +43,13 @@ export interface PaintModel {
    * layer itself removed, the one below it becomes active.
    */
   layerRemoved?: (layer: number) => void;
+  /**
+   * The cell the scene is to frame top-down (null: none). „Gelände anpassen“ asks for it before the refreshed matrix holds the new map;
+   * the scene frames it once that map is `target` and its scene is built, then clears the request.
+   */
+  frame?: PaintFrame | null;
+  /** Asks for `frame`, or (null) marks it done. */
+  requestFrame?: (cell: PaintFrame | null) => void;
 }
 
 const NO_LAYERS: ReadonlySet<number> = new Set();
@@ -130,9 +144,10 @@ export function PaintProvider({ children, bridge }: { children: ReactNode; bridg
     },
     [target],
   );
+  const [frame, requestFrame] = useState<PaintFrame | null>(null);
   const model = useMemo<PaintModel>(
-    () => ({ state, set, target, world: shownWorld, publishWorld, tileset, publishTileset, hidden, toggleHidden, layerRemoved }),
-    [state, set, target, shownWorld, tileset, hidden, toggleHidden, layerRemoved],
+    () => ({ state, set, target, world: shownWorld, publishWorld, tileset, publishTileset, hidden, toggleHidden, layerRemoved, frame, requestFrame }),
+    [state, set, target, shownWorld, tileset, hidden, toggleHidden, layerRemoved, frame],
   );
   useLayoutEffect(() => {
     if (!bridge) return;
