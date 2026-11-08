@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PAINT_TOOLS, paintKey, paintPatch, paintStatusHints } from "./paintTools";
 import { TOOLS } from "./tools";
 
-const BRUSH = { sub: "brush" as const, layer: 0, tile: "0041", ramp: { dir: "e" as const, steps: 1 as const }, lower: false };
+const BRUSH = { sub: "brush" as const, layer: 0, tile: "0041", ramp: { dir: "e" as const, steps: 1 as const }, lower: false, edgeSet: null, cliffRise: 2 };
 
 describe("paintTools", () => {
   it("keys_are_the_tiled_ones", () => {
@@ -14,6 +14,8 @@ describe("paintTools", () => {
       ["pick", "I", "Pipette", "eyedropper"],
       ["height", "H", "Höhe", "heights"],
       ["ramp", "R", "Rampe", "ramp"],
+      ["terrain", "T", "Terrain-Pinsel", "terrain"],
+      ["cliff", "K", "Klippenpinsel", "cliff"],
     ]);
     for (const t of PAINT_TOOLS) expect(paintKey(t.key.toLowerCase())).toEqual({ sub: t.id });
     // Shift is no obstacle: the upper case letter does the same.
@@ -37,12 +39,30 @@ describe("paintTools", () => {
     expect(paintPatch(BRUSH, { sub: "height" })).toEqual({ sub: "height" });
   });
 
-  it("no_paint_key_clashes_with_select_figure_door_trigger_sign", () => {
+  it("no_paint_key_clashes", () => {
     const kept = TOOLS.filter((t) => ["select", "figure", "door", "trigger", "sign"].includes(t.id)).map((t) => t.key);
     expect(kept.sort()).toEqual(["A", "F", "S", "T", "V"]);
     const ours = [...PAINT_TOOLS.map((t) => t.key), "Z", "X"];
-    expect(ours.filter((k) => kept.includes(k))).toEqual([]);
-    for (const k of kept) expect(paintKey(k)).toBeNull();
+    expect(ours.sort()).toEqual(["B", "E", "G", "H", "I", "K", "P", "R", "T", "X", "Z"]);
+    // B P G E I H R T K Z X ∩ {V, F, A, S} is empty; T beats „Tür“ only while painting (the shortcuts ask `paintKey` first then).
+    expect(ours.filter((k) => ["V", "F", "A", "S"].includes(k))).toEqual([]);
+    for (const k of ["V", "F", "A", "S"]) expect(paintKey(k)).toBeNull();
+    expect(paintKey("t")).toEqual({ sub: "terrain" });
+  });
+
+  it("t_and_k_are_the_smart_tools", () => {
+    expect(paintKey("t")).toEqual({ sub: "terrain" });
+    expect(paintKey("K")).toEqual({ sub: "cliff" });
+    const text = (hints: { keys: string; does: string }[]) => hints.map((h) => `${h.keys} ${h.does}`).join(" · ");
+    // Name and steps come from the state.
+    expect(text(paintStatusHints({ ...BRUSH, sub: "terrain", edgeSet: "Weg" }))).toBe("Ziehen malt „Weg“ · ⇧Ziehen nimmt es weg");
+    expect(text(paintStatusHints({ ...BRUSH, sub: "cliff", edgeSet: "Weg" }))).toBe("Ziehen hebt um 2 Stufen mit dem Rand „Weg“ · ⇧Ziehen senkt");
+    expect(text(paintStatusHints({ ...BRUSH, sub: "cliff", edgeSet: "Fels", cliffRise: 1 }))).toBe("Ziehen hebt um 1 Stufe mit dem Rand „Fels“ · ⇧Ziehen senkt");
+    // Without a set the status line asks for one.
+    expect(text(paintStatusHints({ ...BRUSH, sub: "terrain" }))).toBe("Ziehen malt (erst einen Kantensatz wählen) · ⇧Ziehen nimmt es weg");
+    expect(text(paintStatusHints({ ...BRUSH, sub: "cliff" }))).toBe("Ziehen hebt um 2 Stufen (erst einen Kantensatz wählen) · ⇧Ziehen senkt");
+    // Z and X still turn and mirror the palette's tile, the sub-tool stays.
+    expect(paintPatch({ ...BRUSH, sub: "terrain" }, { turn: true })).toEqual({ tile: "0041r1" });
   });
 
   it("status_hints_follow_the_sub_tool", () => {

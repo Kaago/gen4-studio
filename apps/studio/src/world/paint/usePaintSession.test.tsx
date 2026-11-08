@@ -293,4 +293,116 @@ describe("usePaintSession", () => {
     api.worldEdit.mockImplementation(async (req: WorldEditRequest) => report(req));
     onError.mockReset();
   });
+
+  /* ---- Terrain and cliff brushes (6.4b) ---- */
+
+  const notices: string[] = [];
+  function Smart({ revision }: { revision: number }) {
+    session = usePaintSession(MAP, revision, refresh, onError, { scene: () => host, onNotice: (t) => notices.push(t) });
+    return null;
+  }
+  const showSmart = async (over: Partial<PaintState>) => {
+    notices.length = 0;
+    const model: PaintModel = { state: { ...INITIAL_PAINT, ...over }, set, target: MAP };
+    await act(async () =>
+      root.render(
+        <PaintContext.Provider value={model}>
+          <Smart revision={0} />
+        </PaintContext.Provider>,
+      ),
+    );
+    await tick();
+  };
+  const nothing = { code: "refused", message: "Nichts zu ändern.", asset: null };
+
+  it("a_terrain_stroke_is_one_world_edit_with_seed", async () => {
+    const random = vi.spyOn(globalThis.crypto, "getRandomValues").mockImplementation(<T extends ArrayBufferView | null>(array: T): T => {
+      (array as unknown as Uint32Array)[0] = 4242;
+      return array;
+    });
+    await showSmart({ sub: "terrain", edgeSet: "Weg" });
+    act(() => session?.onStroke(stroke({ sub: "terrain", cells: [[3, 3], [4, 3]] })));
+    await tick();
+    expect(api.worldEdit).toHaveBeenCalledExactlyOnceWith({
+      map: MAP,
+      label: "Gelände gemalt: Karte 0005 (2 Zellen)",
+      changes: [{ layer: 0, cells: [[3, 3], [4, 3]], terrain: { set: "Weg", inside: true, seed: 4242 } }],
+    });
+    // A seed per stroke: the next one draws again.
+    act(() => session?.onStroke(stroke({ sub: "cliff", cells: [[3, 3]], lower: true })));
+    await tick();
+    expect(random).toHaveBeenCalledTimes(2);
+    expect(api.worldEdit.mock.calls[1][0].changes).toEqual([{ cells: [[3, 3]], cliff: { set: "Weg", height: -2, seed: 4242 } }]);
+    random.mockRestore();
+  });
+
+  it("nothing_to_change_from_a_smart_stroke_is_silent", async () => {
+    api.worldEdit.mockRejectedValue(nothing);
+    await showSmart({ sub: "terrain", edgeSet: "Weg" });
+    act(() => session?.onStroke(stroke({ sub: "terrain", preview: 7 })));
+    await tick();
+    expect(api.worldEdit).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    expect(preview.clearStrokePreview).toHaveBeenCalledWith(host, 7);
+    expect(session?.pending).toBe(0);
+    // The cliff too; another refusal of a smart stroke still reports.
+    act(() => session?.onStroke(stroke({ sub: "cliff", preview: 8 })));
+    await tick();
+    expect(onError).not.toHaveBeenCalled();
+    const empty = { code: "refused", message: "Kantensatz „Weg“: der Platz „Ecke innen NW“ hat keine Kachel (Zelle (6, 7)).", asset: null };
+    api.worldEdit.mockRejectedValue(empty);
+    act(() => session?.onStroke(stroke({ sub: "terrain", preview: 9 })));
+    await tick();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(empty);
+    api.worldEdit.mockImplementation(async (req: WorldEditRequest) => report(req));
+  });
+
+  it("notes_become_notices", async () => {
+    const notes = ["Naht zu Karte 0124: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die Nachbarkarte bleibt, wie sie ist."];
+    api.worldEdit.mockImplementation(async (req: WorldEditRequest) => ({ ...report(req), notes }));
+    await showSmart({ sub: "terrain", edgeSet: "Weg" });
+    act(() => session?.onStroke(stroke({ sub: "terrain" })));
+    await tick();
+    expect(notices).toEqual(notes);
+    expect(refresh).toHaveBeenCalledWith(MAP);
+    api.worldEdit.mockImplementation(async (req: WorldEditRequest) => report(req));
+  });
+
+  it("without_a_set_the_stroke_asks_for_one", async () => {
+    await showSmart({ sub: "cliff", edgeSet: null });
+    act(() => session?.onStroke(stroke({ sub: "cliff", preview: 4 })));
+    await tick();
+    expect(api.worldEdit).not.toHaveBeenCalled();
+    expect(notices).toEqual(["Erst einen Kantensatz wählen (Inspector › Kantensätze)."]);
+    expect(preview.clearStrokePreview).toHaveBeenCalledWith(host, 4);
+  });
+
+  it("a_cliff_at_the_limit_says_so", async () => {
+    const top = world();
+    top.layers[0].heights = Array.from({ length: 32 }, () => row(Array.from({ length: 32 }, () => "62")));
+    api.worldGet.mockResolvedValue(dto(top));
+    await showSmart({ sub: "cliff", edgeSet: "Weg" });
+    act(() => session?.onStroke(stroke({ sub: "cliff", cells: [[0, 0], [1, 0]] })));
+    await tick();
+    expect(api.worldEdit).not.toHaveBeenCalled();
+    expect(notices).toEqual(["2 Zellen schon an der Grenze (−16 bis 62)."]);
+  });
+
+  it("smart_previews_show_center_outside_and_the_target_step", async () => {
+    const tile = (role: "ground" | "grass" | "water") => ({ texture: role, texture_index: 0, size: [32, 32] as [number, number], role, kind: 0, collision: 0, height: "flat" as const, origin: "vanilla" as const });
+    const weg = { name: "Weg", outside: "0002", places: { center: ["0001r1", "0000"] } };
+    api.tilesetGet.mockResolvedValue({ package: 6, stored: true, tileset: { version: 1, package: 6, tiles: [tile("ground"), tile("grass"), tile("water")], edge_sets: [weg] } });
+    await showSmart({ sub: "terrain", edgeSet: "Weg", cliffRise: 3 });
+    expect(session!.look("terrain", false)).toEqual({ color: placeholderColor("grass") });
+    expect(session!.look("terrain", true)).toEqual({ color: placeholderColor("water") });
+    // The cliff: the colour of the first cell's height plus (minus) the steps, for every cell of the stroke.
+    const up = session!.look("cliff", false) as { color: (cell: [number, number]) => number };
+    const down = session!.look("cliff", true) as { color: (cell: [number, number]) => number };
+    const raised = session!.look("height", false) as { color: (cell: [number, number]) => number };
+    expect(typeof up.color).toBe("function");
+    expect(up.color([0, 0])).not.toBe(down.color([0, 0]));
+    expect(up.color([0, 0])).toBe(up.color([9, 9]));
+    expect(down.color([4, 4])).toBe(down.color([0, 0]));
+    expect(up.color([0, 0])).not.toBe(raised.color([0, 0]));
+  });
 });

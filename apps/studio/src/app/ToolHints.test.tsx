@@ -51,7 +51,7 @@ describe("ToolHints", () => {
 
   /** The hints while painting `target` (null: a binary map) with `state`. */
   const painting = (target: number | null, state: Partial<PaintState> = {}) => {
-    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, ...state }, set: () => {}, target };
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2, ...state }, set: () => {}, target };
     act(() =>
       root.render(
         <PaintContext.Provider value={model}>
@@ -92,7 +92,7 @@ describe("ToolHints", () => {
     };
     const hover = { kind: "tile", map: 120, x: 3, y: 4, absX: 3, absZ: 4, info: {} as never, units: 16 } as SceneHover;
     const show = (depth: Depth, over: Partial<PaintModel> = {}) => {
-      const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: () => {}, target: 120, world, ...over };
+      const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2 }, set: () => {}, target: 120, world, ...over };
       act(() =>
         root.render(
           <PaintContext.Provider value={model}>

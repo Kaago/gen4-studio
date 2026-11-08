@@ -89,7 +89,7 @@ describe("SceneOverlays", () => {
 
   it("shows_the_paint_sub_tools_while_painting_a_world_map", () => {
     const set = vi.fn();
-    const model = (target: number | null): PaintModel => ({ state: { sub: "rect", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set, target });
+    const model = (target: number | null): PaintModel => ({ state: { sub: "rect", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2 }, set, target });
     show({ tool: "paint" }, model(120));
     const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
     expect(group.querySelector('[data-paint-tool="rect"]')!.getAttribute("aria-pressed")).toBe("true");
@@ -103,7 +103,7 @@ describe("SceneOverlays", () => {
   });
 
   it("height_and_ramp_show_the_height_layer", () => {
-    const model = (sub: PaintModel["state"]["sub"]): PaintModel => ({ state: { sub, layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 });
+    const model = (sub: PaintModel["state"]["sub"]): PaintModel => ({ state: { sub, layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2 }, set: vi.fn(), target: 120 });
     show({ tool: "paint" }, model("brush"));
     expect(onShowHeights).not.toHaveBeenCalled();
     show({ tool: "paint" }, model("height"));
@@ -192,7 +192,7 @@ describe("SceneOverlays", () => {
     // Browser run 6.4a: a view about 340 px wide, low, so the toolbar lies flat; the sub-tools ran past the bar's edge behind the
     // inspector. They are a group of the toolbar itself, whose width stops at the view and whose flat row (and the group) wraps.
     viewHeight(300);
-    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2 }, set: vi.fn(), target: 120 };
     show({ tool: "paint" }, model);
     const group = container.querySelector<HTMLElement>("[data-paint-tools]")!;
     expect(group.parentElement).toBe(toolbar());
@@ -206,9 +206,9 @@ describe("SceneOverlays", () => {
   });
 
   it("keeps_the_upright_bar_and_puts_the_sub_tools_beside_it_where_they_do_not_fit_under_it", () => {
-    // 600 px is high enough for the upright tools alone (460), not with the seven sub-tools under them (460 + 5 + 7 × 44 = 773 in
+    // 600 px is high enough for the upright tools alone (460), not with the nine sub-tools under them (460 + 5 + 9 × 44 = 861 in
     // komfort): the bar stays upright, the sub-tools stand beside it.
-    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2 }, set: vi.fn(), target: 120 };
     const spy = viewHeight(600);
     show({ tool: "select" }, model);
     expect(overlays().getAttribute("data-anchor")).toBe("left");
@@ -220,14 +220,14 @@ describe("SceneOverlays", () => {
     spy.mockRestore();
     act(() => root.unmount());
     root = createRoot(container);
-    viewHeight(800);
+    viewHeight(900);
     show({ tool: "paint" }, model);
     expect(overlays().getAttribute("data-anchor")).toBe("left");
     expect(toolbar().hasAttribute("data-paint-beside")).toBe(false);
   });
 
   it("lays_the_toolbar_flat_with_sub_tools_only_below_the_old_threshold", () => {
-    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false }, set: vi.fn(), target: 120 };
+    const model: PaintModel = { state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2 }, set: vi.fn(), target: 120 };
     viewHeight(461);
     show({ tool: "paint" }, model);
     expect(overlays().getAttribute("data-anchor")).toBe("left");

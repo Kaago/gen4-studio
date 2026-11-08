@@ -70,8 +70,11 @@ export function frameStillWanted(
   return { wanted: !met, met };
 }
 
-/** The brush with the first tile of a package on the ground layer, a ramp of one step uphill to the east. The palette picks a real tile. */
-export const INITIAL_PAINT: PaintState = { sub: "brush", layer: 0, tile: "0000", ramp: { dir: "e", steps: 1 }, lower: false };
+/**
+ * The brush with the first tile of a package on the ground layer, a ramp of one step uphill to the east, no edge set and a cliff of two
+ * steps (16 E, the smallest edge the edge rule blocks). The palette picks a real tile, the section „Kantensätze“ the set.
+ */
+export const INITIAL_PAINT: PaintState = { sub: "brush", layer: 0, tile: "0000", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2 };
 
 const NONE: PaintModel = { state: INITIAL_PAINT, set: () => {}, target: null };
 

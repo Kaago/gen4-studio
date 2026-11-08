@@ -5,12 +5,14 @@ import {
   type PaintOptions,
   type WorldCells,
   cellsOf,
+  cliffTarget,
   fillCells,
   flipTile,
   heightSkipped,
   lineCells,
   pickedTile,
   rectCells,
+  strokeLabel,
   strokeRequest,
   turnRamp,
   turnTile,
@@ -40,6 +42,8 @@ const options = (o: Partial<PaintOptions> = {}): PaintOptions => ({
   tile: "0041",
   ramp: { dir: "e", steps: 1 },
   lower: false,
+  edgeSet: null,
+  cliffRise: 2,
   ...o,
 });
 
@@ -381,5 +385,70 @@ describe("paint ops", () => {
     expect(c.ramps[2].slice(0, 4)).toEqual(["e1", "n2", "w2", "."]);
     // A canonical ramp already there sends nothing.
     expect(strokeRequest(123, "ramp", [[0, 2]], c, options())).toBeNull();
+  });
+
+  it("terrain_request_sends_cells_set_and_seed", () => {
+    const c = world();
+    // Every painted cell goes (the kernel decides what changes), each once, the layer of the stroke, inside, the seed of the stroke.
+    const built = strokeRequest(123, "terrain", [[3, 4], [4, 4], [3, 4], [40, 4]], c, options({ edgeSet: "Weg", layer: 1 }), 77);
+    expect(built).toEqual({
+      req: { map: 123, label: "Gelände gemalt: Karte 0123 (2 Zellen)", changes: [{ layer: 1, cells: [[3, 4], [4, 4]], terrain: { set: "Weg", inside: true, seed: 77 } }] },
+      skipped: 0,
+    });
+    // Without a seed the kernel's default 0 is sent.
+    expect(strokeRequest(123, "terrain", [[3, 4]], c, options({ edgeSet: "Weg" }))?.req.changes[0].terrain?.seed).toBe(0);
+  });
+
+  it("shift_terrain_paints_outside", () => {
+    const built = strokeRequest(123, "terrain", [[3, 4]], world(), options({ edgeSet: "Weg", lower: true }), 5);
+    expect(built?.req.changes).toEqual([{ layer: 0, cells: [[3, 4]], terrain: { set: "Weg", inside: false, seed: 5 } }]);
+    expect(built?.req.label).toBe("Gelände entfernt: Karte 0123 (1 Zelle)");
+  });
+
+  it("cliff_targets_the_first_cell_plus_rise", () => {
+    // The first cell lies at 1, the second at 5: the target is the first cell's height plus the steps, for every cell of the stroke.
+    const c = world((w) => {
+      w.heights[4][3] = 1;
+      w.heights[4][4] = 5;
+    });
+    const up = strokeRequest(123, "cliff", [[3, 4], [4, 4]], c, options({ edgeSet: "Weg" }), 9);
+    expect(up).toEqual({ req: { map: 123, label: "Klippe gesetzt: Karte 0123 (2 Zellen)", changes: [{ cells: [[3, 4], [4, 4]], cliff: { set: "Weg", height: 3, seed: 9 } }] }, skipped: 0 });
+    const down = strokeRequest(123, "cliff", [[3, 4], [4, 4]], c, options({ edgeSet: "Weg", lower: true }), 9);
+    expect(down?.req.changes).toEqual([{ cells: [[3, 4], [4, 4]], cliff: { set: "Weg", height: -1, seed: 9 } }]);
+    expect(down?.req.label).toBe("Klippe gesenkt: Karte 0123 (2 Zellen)");
+    // The steps come from the state; a cell outside the map is not the first cell.
+    expect(strokeRequest(123, "cliff", [[-1, 4], [3, 4]], c, options({ edgeSet: "Weg", cliffRise: 5 }))?.req.changes[0].cliff?.height).toBe(6);
+  });
+
+  it("cliff_past_the_range_sends_nothing", () => {
+    // Past the range the target is clamped to −16 or 62; a first cell already at that limit sends nothing and counts every cell.
+    const c = world((w) => {
+      w.heights[0][0] = 61;
+      w.heights[0][1] = 62;
+      w.heights[0][2] = -16;
+    });
+    expect(strokeRequest(123, "cliff", [[0, 0]], c, options({ edgeSet: "Weg" }))?.req.changes[0].cliff?.height).toBe(62);
+    expect(cliffTarget([[0, 0]], c, options({ edgeSet: "Weg" }))).toBe(62);
+    expect(strokeRequest(123, "cliff", [[1, 0], [0, 0]], c, options({ edgeSet: "Weg" }))).toBeNull();
+    expect(cliffTarget([[1, 0], [0, 0]], c, options({ edgeSet: "Weg" }))).toBeNull();
+    expect(strokeRequest(123, "cliff", [[2, 0]], c, options({ edgeSet: "Weg", lower: true }))).toBeNull();
+    expect(strokeRequest(123, "cliff", [[2, 0]], c, options({ edgeSet: "Weg" }))?.req.changes[0].cliff?.height).toBe(-14);
+  });
+
+  it("no_edge_set_sends_nothing", () => {
+    const c = world();
+    expect(strokeRequest(123, "terrain", [[3, 4]], c, options({ edgeSet: null }), 1)).toBeNull();
+    expect(strokeRequest(123, "cliff", [[3, 4]], c, options({ edgeSet: null }), 1)).toBeNull();
+    // No cell in the map: nothing either.
+    expect(strokeRequest(123, "terrain", [[40, 4]], c, options({ edgeSet: "Weg" }), 1)).toBeNull();
+  });
+
+  it("smart_labels", () => {
+    expect(strokeLabel("terrain", 7, 3)).toBe("Gelände gemalt: Karte 0007 (3 Zellen)");
+    expect(strokeLabel("terrain", 7, 1, true)).toBe("Gelände entfernt: Karte 0007 (1 Zelle)");
+    expect(strokeLabel("cliff", 7, 3)).toBe("Klippe gesetzt: Karte 0007 (3 Zellen)");
+    expect(strokeLabel("cliff", 7, 3, true)).toBe("Klippe gesenkt: Karte 0007 (3 Zellen)");
+    // ⇧ changes nothing for the other sub-tools' words.
+    expect(strokeLabel("brush", 7, 3, true)).toBe("Gemalt: Karte 0007 (3 Zellen)");
   });
 });

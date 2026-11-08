@@ -85,10 +85,10 @@ describe("FloatingToolbar", () => {
     expect(group.getAttribute("role")).toBe("group");
     expect(group.getAttribute("aria-label")).toBe("Unterwerkzeuge");
     const subs = [...group.querySelectorAll<HTMLButtonElement>("button[data-paint-tool]")];
-    expect(subs.map((b) => b.getAttribute("aria-label"))).toEqual(["Pinsel", "Rechteck", "Füllen", "Radierer", "Pipette", "Höhe", "Rampe"]);
-    expect(subs.map((b) => b.textContent)).toEqual(["B", "P", "G", "E", "I", "H", "R"]);
+    expect(subs.map((b) => b.getAttribute("aria-label"))).toEqual(["Pinsel", "Rechteck", "Füllen", "Radierer", "Pipette", "Höhe", "Rampe", "Terrain-Pinsel", "Klippenpinsel"]);
+    expect(subs.map((b) => b.textContent)).toEqual(["B", "P", "G", "E", "I", "H", "R", "T", "K"]);
     // Exactly the active sub-tool is pressed; the main tool stays pressed too.
-    expect(subs.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false", "true", "false", "false", "false", "false"]);
+    expect(subs.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false", "true", "false", "false", "false", "false", "false", "false"]);
     expect(tool("Gelände malen").getAttribute("aria-pressed")).toBe("true");
     expect(subs[6]!.getAttribute("aria-keyshortcuts")).toBe("R");
     // The group follows the main tools, after a separator, inside the one roving list of the bar.

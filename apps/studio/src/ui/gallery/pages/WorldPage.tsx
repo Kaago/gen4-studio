@@ -424,7 +424,7 @@ export function WorldPage() {
       <section className={styles.block} data-gallery-state="malwerkzeuge">
         <h2 className={styles.blockTitle}>Malwerkzeuge</h2>
         <p className={styles.note}>
-          „Gelände malen“ auf einer Welt-Karte: die Unterwerkzeuge als zweite Gruppe der Leiste (Pinsel B, Rechteck P, Füllen G, Radierer E, Pipette I, Höhe H, Rampe R),
+          „Gelände malen“ auf einer Welt-Karte: die Unterwerkzeuge als zweite Gruppe der Leiste (Pinsel B, Rechteck P, Füllen G, Radierer E, Pipette I, Höhe H, Rampe R, Terrain-Pinsel T, Klippenpinsel K),
           genau eins gedrückt.
         </p>
         <PaintTools />

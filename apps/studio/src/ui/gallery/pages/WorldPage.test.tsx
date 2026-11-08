@@ -83,7 +83,7 @@ describe("WorldPage", () => {
 
   it("shows_the_paint_tools_the_palette_and_the_layers", async () => {
     const tools = state("malwerkzeuge");
-    expect([...tools.querySelectorAll("[data-paint-tool]")].map((b) => b.getAttribute("data-paint-tool"))).toEqual(["brush", "rect", "fill", "erase", "pick", "height", "ramp"]);
+    expect([...tools.querySelectorAll("[data-paint-tool]")].map((b) => b.getAttribute("data-paint-tool"))).toEqual(["brush", "rect", "fill", "erase", "pick", "height", "ramp", "terrain", "cliff"]);
     expect(tools.querySelector('[data-paint-tool="brush"]')?.getAttribute("aria-pressed")).toBe("true");
     act(() => tools.querySelector<HTMLButtonElement>('[data-paint-tool="fill"]')!.click());
     expect(tools.querySelector('[data-paint-tool="fill"]')?.getAttribute("aria-pressed")).toBe("true");

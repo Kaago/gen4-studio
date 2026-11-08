@@ -134,6 +134,8 @@ export interface WorldReport {
   cells: number;
   change: number | null;
   bake: WorldBakeReport | null;
+  /** Notes of a smart stroke (6.4b): the seam to a neighbour map, a cell's own permission kept; left out when there are none. */
+  notes?: string[];
 }
 
 /** „Karte als Quelle übernehmen“ (Form 1, verbatim): the binary map `map` becomes a world map that bakes byte-equal; one undo step. */
@@ -156,6 +158,10 @@ export interface WorldChange {
   height?: number;
   ramp?: string;
   permission?: string;
+  /** The terrain brush (6.4b): edge set `set`, the cells' corners inside (`inside`, default true) or outside, `seed` the variants' (default 0). */
+  terrain?: { set: string; inside?: boolean; seed?: number };
+  /** The cliff brush (6.4b): edge set `set`, the cells' absolute height `height` (−16 to 62, ground only), `seed` the variants' (default 0). */
+  cliff?: { set: string; height: number; seed?: number };
 }
 
 /** `world_edit`: the map, the history text (left out: „Welt geändert: Karte 0123 (37 Zellen)“) and the changes, one undo step. */
@@ -195,7 +201,7 @@ export interface TileJson {
 export interface TilesetDto {
   package: number;
   stored: boolean;
-  tileset: { version: number; package: number; tiles: TileJson[] };
+  tileset: { version: number; package: number; tiles: TileJson[]; edge_sets?: EdgeSetJson[] };
 }
 
 /** The tileset of map texture package `pkg` (the file, else derived). */
@@ -231,6 +237,59 @@ export interface TilesetEditReport {
   change: number;
 }
 
-/** Changes tiles of the tileset of package `pkg` as one undo step. */
-export const tilesetEdit = (pkg: number, changes: TileChange[]) =>
-  invoke<TilesetEditReport>("tileset_edit", { req: { package: pkg, changes } });
+/** Changes tiles of the tileset of package `pkg` and (6.4b) its edge sets as one undo step (`changes` may be empty when `sets` is not). */
+export const tilesetEdit = (pkg: number, changes: TileChange[], sets: EdgeSetOp[] = []) =>
+  invoke<TilesetEditReport>("tileset_edit", { req: { package: pkg, changes, sets } });
+
+/* ---- Smart drawing (6.4b): edge sets of a tileset, changed with `tileset_edit`. ---- */
+
+/** A place of an edge set: the corner mask its tile shows (see `docs/formats/tileset.md`, „Kantensätze“). */
+export type EdgePlace =
+  | "center"
+  | "n"
+  | "e"
+  | "s"
+  | "w"
+  | "outer_nw"
+  | "outer_ne"
+  | "outer_sw"
+  | "outer_se"
+  | "inner_nw"
+  | "inner_ne"
+  | "inner_sw"
+  | "inner_se"
+  | "diag_nwse"
+  | "diag_nesw";
+
+/** The 15 places in the order of the file. */
+export const EDGE_PLACES: EdgePlace[] = [
+  "center",
+  "n",
+  "e",
+  "s",
+  "w",
+  "outer_nw",
+  "outer_ne",
+  "outer_sw",
+  "outer_se",
+  "inner_nw",
+  "inner_ne",
+  "inner_sw",
+  "inner_se",
+  "diag_nwse",
+  "diag_nesw",
+];
+
+/**
+ * One edge set of a tileset (`Tileset.edge_sets`): its name, the tile token of the plain outside, which cell a cliff with it blocks
+ * (`upper`, the default, left out) and per place the tile tokens (variants) that fill it; empty places are left out.
+ */
+export interface EdgeSetJson {
+  name: string;
+  outside: string;
+  block?: "upper" | "lower";
+  places: Partial<Record<EdgePlace, string[]>>;
+}
+
+/** An edge set put (replacing the one of the same name in its place, else appended) or removed by name. */
+export type EdgeSetOp = { put: EdgeSetJson } | { remove: { name: string } };

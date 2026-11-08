@@ -121,6 +121,14 @@ describe("PaintContext", () => {
     expect(seen!.state.layer).toBe(0);
   });
 
+  it("edge_set_and_rise_default_to_none_and_two", async () => {
+    await show({ matrix: 4, x: 0, y: 0 }, true);
+    expect(seen!.state.edgeSet).toBeNull();
+    expect(seen!.state.cliffRise).toBe(2);
+    act(() => seen!.set({ sub: "cliff", edgeSet: "Weg", cliffRise: 4 }));
+    expect(seen!.state).toMatchObject({ sub: "cliff", edgeSet: "Weg", cliffRise: 4 });
+  });
+
   it("removing_a_layer_moves_hidden_marks_and_the_active_layer_down", async () => {
     await show({ matrix: 4, x: 0, y: 0 }, true);
     const layer = (name: string) => ({ name, role: "overlay" as const, tiles: [] });
