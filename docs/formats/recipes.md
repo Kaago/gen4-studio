@@ -1,7 +1,7 @@
 # Rezepte (`recipes.yaml`, `metadata/recipes/`)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Rezepte sind Aufgaben in den Worten
-des Spiels („Gebiet anlegen“, „Raum anlegen“, „Neue Figur“, „Tür verbinden“, „Neuer Trainer hier“ …). Implementierung:
+des Spiels („Gebiet anlegen“, „Raum anlegen“, „Neue Figur“, „Tür verbinden“, „Neuer Trainer hier“, „Neue Karte malen“ …). Implementierung:
 `crates/g4-kernel/src/recipes.rs` (Verteiler `plan`, `apply`, `list`, `is_irreversible`), je Rezept ein
 Modul unter `crates/g4-kernel/src/recipes/`, die gemeinsamen Typen in `recipes/types.rs`; Vorgaben in
 `crates/g4-kernel/metadata/recipes.yaml`, Scripts in `crates/g4-kernel/metadata/recipes/`. „Welt
@@ -19,8 +19,8 @@ leeren“ beschreibt `templates.md`.
 - `Outcome.next` nennt die Rezepte, die danach Sinn ergeben (`NextStep`): frei, wenn `list()` das
   Rezept hat oder der Schritt kein Rezept ist (`edit_dialog` öffnet den Dialog-Editor, seit 3d.7
   `story_join` „Gespräch schaltet weiter“ mit der Figur vorbelegt); sonst gesperrt mit Grund
-  „Kommt später“ (bis 3d.7 „Kommt mit 3d.7“; `play_here` „Kommt mit 3d.9“, `adjust_terrain` „Kommt
-  mit Phase 6“).
+  „Kommt später“ (bis 3d.7 „Kommt mit 3d.7“; `play_here` „Kommt mit 3d.9“; `adjust_terrain` „Gelände
+  anpassen“ war bis 6.4a „Kommt mit Phase 6“ und ist seitdem ein freier Schritt der App).
 
 ## Vorgaben (`recipes.yaml`)
 
@@ -215,3 +215,103 @@ Module `recipes/{new_story,talk_advances,figure_appears,scene_on_enter,reward_on
 | `figure_appears` | Figur erscheint/verschwindet ab Schritt | `{story, figure, step, appears, flag, step_name?}` | `a{flag}`, Wert k, `appearance` | „Level-Script-Datei anlegen“, wenn der Ort eine eigene braucht |
 | `scene_on_enter` | Szene beim Betreten | `{story, header, step, text, step_name?}` | `s{k+1}`, Wert k+1, `dialog` | „Level-Script-Datei anlegen“, wenn der Ort eine eigene braucht |
 | `reward_once` | Belohnung einmalig | `{story, figure, from_step, item, text, flag, step_name?}` | `r{flag}`, Wert k, `reward` | nie |
+
+## Neue Karte malen (`new_painted_map`, 6.4a)
+
+Modul `recipes/new_painted_map.rs`. Legt eine neue [Welt-Karte](world_map.md) in eine Zelle einer
+Weltkarte (Matrix): der Member ist eine Kopie einer Grundkarte ohne Gebäude, die Welt ist leer
+(eine Bodenkachel auf einer Höhe) oder die Kopie einer anderen Welt. Nur im Textprojekt. Quelle:
+Spezifikation Phase 6 §3.6, Gutachten C §7.1, Plan
+[2026-11-07-phase-6-4a-malen.md](../superpowers/plans/2026-11-07-phase-6-4a-malen.md) („Entscheidungen“,
+„Rezept: …“).
+
+**Eingabe** (`NewPaintedMapInput`, unbekannte Schlüssel lehnt das Rezept ab): `matrix` (fehlt: 0, die
+Weltkarte, `DEFAULT_MATRIX`), `x`, `y` (die Zelle, je `u8`), `name` (Pflicht), `tileset` (das
+Kartentextur-Paket der Welt), `fill_tile` (Token der Bodenkachel wie in der Datei, fehlt: `0000`),
+`height` (Höhenstufe, fehlt: 0), `header` (der Header der Zelle), `source_map` (eine Welt-Karte, deren
+Welt und Member die neue Karte übernimmt).
+
+**Nachbar:** die erste Zelle mit Karte in der Reihenfolge Norden, Westen, Osten, Süden; eine
+**Landschaftszelle** (Karte mit Header 0 in der Header-Spalte, wie „Gebiet anlegen“ und die
+Weltkarte sie zählen) gilt nicht als Nachbar. Liegt rundum nur Leere oder Landschaft, gibt es keinen
+Nachbarn.
+
+**Prüfungen** (in `plan` und `apply`, vor dem ersten Schreiben, in dieser Reihenfolge):
+
+1. Textprojekt („Boden malen gibt es im Textprojekt (Technik › Textprojekt).“);
+2. `name` höchstens 255 Byte („the name is 300 bytes long, at most 255 fit“) und nicht leer nach
+   dem Trimmen („Die Karte braucht einen Namen.“);
+3. die Matrix existiert; die Zelle liegt in der Matrix und ist leer („Zelle (0, 0) der Weltkarte 0000
+   ist nicht leer.“) oder liegt außerhalb, dann wächst die Matrix nach Osten bzw. Süden bis zur Zelle
+   (`resize_matrix`, wie „Gebiet erweitern“), höchstens auf 255 × 255 Zellen („Die Weltkarte würde
+   breiter als 255 Zellen.“, „… höher als 255 Zellen.“); die Matrix ist schreibbar;
+4. `header` nur auf einer Matrix mit Header-Spalte („Weltkarte 0001 hat keine Header-Spalte; die
+   Karte gehört zum Header der Weltkarte.“) und nur ein Header, den es gibt. Der Header der Zelle ist
+   `header`, sonst der des Nachbarn; ohne Header-Spalte gibt es keinen;
+5. mit `source_map`: weder `tileset` noch `fill_tile` noch `height` („Mit `source_map` kommt die Welt
+   aus der Karte; `tileset`, `fill_tile` und `height` weglassen.“), die Karte existiert und ist eine
+   Welt-Karte („Karte 0001 ist keine Welt-Karte; eine binäre Karte kopiert „Gebiet erweitern“.“).
+   Damit sind die Prüfungen fertig;
+6. ohne `source_map`: ein Nachbar („Neben Zelle (0, 1) liegt keine Karte; `source_map` nennen.“);
+7. das Paket: `tileset`, sonst das Paket aus den Gebietsdaten des Headers der Zelle
+   (`map_tileset_index`), auf einer Matrix ohne Header-Spalte das Paket des ersten Headers aus
+   `headers_of_map(Nachbar)`; sonst „Kein Header zeigt eine Nachbarkarte; Tileset angeben
+   (`tileset`).“;
+8. `fill_tile` liest sich als Kachel-Token (Grammatik wie in der Datei, kleingeschrieben
+   gespeichert: `0003R1F` wird `0003r1f`), ist nicht leer („`.` füllt keinen Boden; eine Kachel
+   angeben.“) und liegt im Tileset des Pakets („fill_tile: Kachel 0x0002 gibt es im Tileset 0002
+   nicht (2 Kacheln).“);
+9. `height` liegt in −16 bis 62 („`70` liegt nicht in −16 bis 62.“).
+
+**Grundkarte und Welt:** mit `source_map` ist sie die Grundkarte, und die neue Karte bekommt eine
+Kopie ihrer Welt; sonst ist der Nachbar die Grundkarte, und die Welt ist
+`WorldJson::blank(Paket, fill_tile, height)`: Bodenebene „Boden“ ganz `fill_tile` auf `height`,
+keine Rampe, kein Teilmodell, `permissions {derive: true}`.
+
+**Entwurf** (`plan`, schreibt nichts): eine Zelle `{matrix, x, y, source_map: <Grundkarte>}` (die App
+zeigt sie gestrichelt, `[data-draft]`); `notes` in dieser Reihenfolge: „Neue Karte „Waldweg“ in Zelle
+x 1, y 0 der Weltkarte 0000.“, mit Header „Gebietsdaten von Header 1.“, dann „Boden aus Tileset 0002,
+Kachel 0000, Höhe 0.“ (mit `source_map` stattdessen „Die Welt kommt aus Karte 0000.“), wenn die
+Matrix wächst „Die Weltkarte wächst auf 4 × 2 Zellen.“; `irreversible`: „Karte 0667 wird angelegt“
+(die nächste Kartennummer); `painted`: `{tileset, fill_tile, height, header}`, der aufgelöste Boden
+für den Dialog (fehlt mit `source_map`).
+
+**Unumkehrbar:** `list()` führt das Rezept als immer unumkehrbar, `is_irreversible` antwortet „Karte
+anlegen“; kopflos braucht `recipe_apply` `--allow-irreversible`, sonst antwortet es
+`needs_confirmation`.
+
+**Anwenden:** zuerst die Kopie der Grundkarte ohne Gebäude (`duplicate_map_with(Grundkarte, true)`:
+`buildings_tail` und der BGS-Block von HeartGold/SoulSilver bleiben), sofort auf der Platte und nicht
+rückgängig (`Outcome.created.maps`). Dahinter **ein** Undo-Schritt „Neue Karte gemalt: „Waldweg“
+(Karte 0667)“: die Matrix wächst bei Bedarf, die Zelle bekommt die neue Karte und (mit Header-Spalte)
+den Header, die neue Karte ihre Welt (`Tx::edit_world`); der Store backt Modell, BDHC und
+Permissions im selben Schritt über die Kopie, mit den im Schritt gestageten Matrizen und der
+Header-Tabelle (`Tx::with_staged_layout`, sonst fände das Backen die neue Zelle nicht:
+`world.no-area`). ⌘Z nimmt Matrix und Welt zurück; die Kopie bleibt als Karte ohne Zelle. Scheitert
+der Schritt hinter der Kopie, ist die Antwort `Partial` mit der angelegten Karte. Der Name wird nicht
+gespeichert (das Projekt kennt keinen Kartennamen): er steht im Verlaufseintrag, in der ersten Notiz
+des Entwurfs und in `report.name`.
+
+**Bericht** (`NewPaintedMapReport`): `map`, `name`, `matrix`, `x`, `y`, `width`, `height` (die Größe
+der Matrix danach), `header` (`null`: ohne Header-Spalte oder ohne Header), `tileset` (das Paket der
+neuen Welt, mit `source_map` das der Quellwelt), `base` (die Grundkarte), `bake` (das Backen des
+Schritts wie bei `world_edit`). **Danach:** `adjust_terrain` „Gelände anpassen“, frei: die App wählt
+die neue Zelle, schaltet Draufsicht, das Werkzeug „Gelände malen“ und den Pinsel ein und rahmt die
+Zelle von oben; weiter geht es mit Strichen (`world_edit`, [world_map.md](world_map.md) „Malen“).
+`extend_area` („Gebiet erweitern“) nennt denselben Schritt; auf seiner binären Kopie ist „Gelände
+malen“ das Kollisionsmalen mit der Notiz „Boden malen: Karte als Quelle übernehmen“.
+
+**In der App:** am „+“ einer Weltkarte oder eines Raumplans im Textprojekt bietet der Dialog „Gebiet
+erweitern“ („Karte bei x 1, y 0 anlegen?“) die Fuß-Taste „Stattdessen neu malen“
+(`[data-paint-instead]`); sie ersetzt ihn durch den Dialog „Neue Karte malen“ für dieselbe Zelle:
+„Name“ (Pflicht; ohne Namen kein Entwurf, „Karte malen“ gesperrt), „Boden“ (die Palette des Pakets aus
+`painted.tileset`, mit dem ersten Entwurf; gewählt ist die Kachel des Entwurfs, bis eine andere
+gewählt wird), „Höhe“ (Stufen, −16 bis 62, Vorgabe 0), in Tüfteln dazu „Tileset“ und „Header“ (eine
+Änderung setzt die Bodenkachel auf die des Entwurfs zurück); darunter die Notizen und die Plakette
+„Nicht rückgängig“ mit „Karte 0667 wird angelegt“. Gesendet werden nur gesetzte Werte (`tileset`,
+`fill_tile`, `header`), `height` immer. Ob die Zelle sich malen lässt, entscheidet der Entwurf des
+Rezepts. Gestaltung: [design-system/README.md](../../design-system/README.md), „Nachtrag 6.4a“.
+
+Die Beispiele oben sind die der Tests in `recipes/new_painted_map.rs` (synthetisches Projekt,
+synthetisches Tileset); `pt-gemalt.yaml` und `hg-gemalt.yaml` in `scripts/agent/scenarios/` legen die
+Karte über MCP an ([mcp.md](../mcp.md), „Neue Karte malen: `new_painted_map`“).

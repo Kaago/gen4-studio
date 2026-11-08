@@ -1,4 +1,4 @@
-# Welt-Karte (Weltdokument einer Karte, Phasen 6.3a und 6.3b)
+# Welt-Karte (Weltdokument einer Karte, Phasen 6.3a, 6.3b und 6.4a)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Eine Karte des Textprojekts kann
 statt nur ihrer Binärteile ein **Weltdokument** tragen, das Objekt `world` in
@@ -9,7 +9,7 @@ den Git zeilenweise vergleicht. Quelle: [Spezifikation Phase 6](../superpowers/s
 [entscheidungen.md](../research/2026-11-05-phase-6/entscheidungen.md) („Malen, Weltformat,
 Import, Tiled“, „Writer“, „BDHC“), Pläne [2026-11-05-phase-6-3a-weltformat.md](../superpowers/plans/2026-11-05-phase-6-3a-weltformat.md)
 und [2026-11-06-phase-6-3b-backen-build.md](../superpowers/plans/2026-11-06-phase-6-3b-backen-build.md)
-(je „Entscheidungen“). Implementierung: `crates/g4-kernel/src/world/` (`doc.rs` serde-Form, `grid.rs`
+(je „Entscheidungen“), das Malen in der App aus [2026-11-07-phase-6-4a-malen.md](../superpowers/plans/2026-11-07-phase-6-4a-malen.md). Implementierung: `crates/g4-kernel/src/world/` (`doc.rs` serde-Form, `grid.rs`
 Grammatik und Raster, `mesh.rs` Vernetzer, `bake.rs` Backen, `record.rs` Datensatz je Karte,
 `build.rs` Build-Schritt `world`, `adopt.rs` „Karte als Quelle übernehmen“, `edit.rs` Anlegen,
 Ändern und Aufgeben, `keep.rs` Mitnehmen beim Schreiben, `check.rs` Prüfungen, `places.rs` Paket
@@ -425,9 +425,9 @@ Permissions-Overlay und GLB der Szene der Welt ohne Sonderweg.
   0 Flächen). `world_bake` lehnt dann mit dem ersten Fehler ab („world.schema:
   world.layers[0].tiles[0]: 31 Zellen statt 32.“).
 
-Die Befehle für Agenten (über `g4_call`, kuratierte Werkzeuge erst mit 6.4a) stehen in
-[mcp.md](../mcp.md), Abschnitte „Welt-Karten (6.3a, über `g4_call`)“ und „Welt-Karten backen (6.3b,
-über `g4_call`)“.
+Die Befehle für Agenten stehen in [mcp.md](../mcp.md): seit 6.4a die kuratierten Werkzeuge
+`world_get`, `world_edit` und `tileset_get` („Malen (6.4a)“), die übrigen über `g4_call`
+(„Welt-Karten (6.3a, über `g4_call`)“, „Welt-Karten backen (6.3b, über `g4_call`)“).
 
 ## Karte als Quelle übernehmen (Form 1)
 
@@ -585,20 +585,121 @@ einer Kartenzelle zeigt der Abschnitt „Quelle“ binäre Karte oder Welt-Karte
 Backens und den Wegen „Karte als Quelle übernehmen“ und „Als binäre Karte übernehmen“; ein
 `world.member-changed` ist eine Zeile in Technik › Textprojekt mit „Neu backen“ und „Als binäre
 Karte übernehmen“. Gestaltung: [design-system/README.md](../../design-system/README.md),
-„Nachtrag 6.3a“ und „Nachtrag 6.3b“.
+„Nachtrag 6.3a“, „Nachtrag 6.3b“ und „Nachtrag 6.4a“.
+
+## Malen (6.4a)
+
+In der App malt das Werkzeug „Gelände malen“ (Taste B) eine Welt-Karte mit sieben Unterwerkzeugen.
+Jeder Strich wird zu **einem** `world_edit` mit eigenem `label`, also einem Undo-Schritt, der im
+selben Schritt backt. Quelle: Plan
+[2026-11-07-phase-6-4a-malen.md](../superpowers/plans/2026-11-07-phase-6-4a-malen.md) („Entscheidungen“).
+Implementierung: das reine Modell `apps/studio/src/world/paint/ops.ts` (Zellen, Token, `strokeRequest`,
+`strokeLabel`), die Sitzung `world/paint/session.ts` und `usePaintSession.ts` (Warteschlange,
+Neulesen), der Zeiger `world/scene/strokes.ts`, die Vorschau `world/scene/strokePreview.ts`, die
+Unterwerkzeuge `workbench/paintTools.ts` und der Zustand `workbench/paint/PaintContext.tsx`.
+
+**Ziel:** die gewählte Zelle der gezeigten Matrix, wenn ihre Karte eine Welt-Karte ist (Textprojekt).
+Ein Druck auf eine andere Karte wählt deren Zelle und malt nicht. In einen Strich gehen nur Zellen
+der Karte, auf der er begann (kartenlokal 0 bis 31); was über den Rand, in die Nachbarkarte oder ins
+Leere der Matrix geht, fällt still weg. Auf einer **binären** Karte bleibt „Gelände malen“ das
+Kollisionsmalen per Klick wie vor 6.4a; ohne Unterwerkzeuge, der Inspector zeigt oben „Boden malen:
+Karte als Quelle übernehmen“ mit dem Weg dorthin (`world_adopt`, „Karte als Quelle übernehmen (Form 1)“).
+
+| Unterwerkzeug | Taste | Geste | Zellen | Änderung (`changes`) | Verlaufstext |
+|---|---|---|---|---|---|
+| Pinsel | B | Ziehen | unter dem Zeiger, zwischen zwei Zeigerereignissen nach Bresenham ergänzt (8er-Nachbarschaft), jede einmal je Strich | `{layer: <aktiv>, cells, tile: <gewählt>}` | „Gemalt: Karte 0000 (6 Zellen)“ |
+| Rechteck | P | Ziehen | das Rechteck zwischen Start- und Endzelle, zeilenweise | wie Pinsel | „Rechteck gemalt: …“ |
+| Füllen | G | Klick | die 4er-Nachbarschaft gleichen Tokens (Drehung und Spiegelung zählen mit) in der aktiven Ebene ab der Zelle, aus dem zuletzt gelesenen Weltdokument | wie Pinsel | „Gefüllt: …“ |
+| Radierer | E | Ziehen | wie Pinsel | `{layer: <aktiv>, cells, tile: "."}` | „Radiert: …“ |
+| Pipette | I | Klick | eine | keine: die Kachel der aktiven Ebene, ist sie leer, die der obersten Ebene mit Kachel, wird die gewählte Kachel (mit Drehung und Spiegelung), danach gilt der Pinsel | – |
+| Höhe | H | Klick oder Ziehen | wie Pinsel | je Zielhöhe eine `{cells, height}`: Höhe zu Beginn + 1, mit ⇧ − 1; immer Ebene 0 | „Höhe geändert: …“ |
+| Rampe | R | Klick oder Ziehen | wie Pinsel | `{cells, ramp: "e1"}` (Richtung und Stufen der Werkzeugoption), mit ⇧ `"."`; Höhen setzt sie nicht; immer Ebene 0 | „Rampe gesetzt: …“ |
+
+- **Unveränderte Zellen** (Token schon das Ziel) lässt `strokeRequest` weg; bleibt keine, geht **kein**
+  Aufruf (kein Verlaufseintrag, kein „Nichts zu ändern.“). Die Zahl im Verlaufstext ist die der
+  gesendeten Zellen („(1 Zelle)“); ein Aufruf über MCP ohne `label` heißt weiter „Welt geändert: …“.
+- **Höhe an der Grenze:** eine Zelle, die schon auf 62 (bzw. mit ⇧ auf −16) steht, fällt weg; die
+  Statusleiste sagt „3 Zellen schon an der Grenze (−16 bis 62).“, auch wenn deshalb kein Aufruf
+  geht.
+- **Kachel drehen und spiegeln:** Z dreht die gewählte Kachel eine Vierteldrehung weiter (`0041` →
+  `0041r1` → … → `0041r3` → `0041`, die Spiegelung bleibt), X spiegelt (`f` an oder aus); im
+  Unterwerkzeug Rampe dreht Z die Richtung im Uhrzeigersinn (Norden → Osten → Süden → Westen), 1 und
+  2 wählen die Stufen. Die Tasten gelten, solange „Gelände malen“ eine Welt-Karte malt, vor den
+  Tasten der Werkzeuge (G ist dann „Füllen“, „Gebäude“ nur über seine Taste in der Leiste). Esc führt
+  zum Pinsel, ein zweites Esc zu „Auswählen“.
+- **Rechtsklick** nimmt in jedem Unterwerkzeug die Kachel auf wie die Pipette; nur die Pipette selbst
+  wechselt danach zum Pinsel. Mit ⌥ dreht bzw. verschiebt ein Druck die Kamera statt zu malen.
+- **Reihenfolge:** die Sitzung schickt Striche über eine serielle Warteschlange; ein Strich wartet auf
+  die Antwort des vorigen. Seine Anfrage entsteht beim Loslassen aus dem zuletzt gelesenen Dokument
+  mit den noch unbeantworteten Strichen darüber (zwei schnelle Höhe-Striche ergeben + 2). Nach jeder
+  Revision (Strich, ⌘Z, ein Agent auf derselben Sitzung, Speichern mit Abgleich) liest die Sitzung
+  `world_get` und das Tileset neu, so rechnen Füllen und Höhe nie mit einem alten Stand.
+- **Vorschau:** bis zur Antwort liegt je berührter Zelle eine Platte knapp über dem Boden
+  (`HEIGHT_LAYER_Y` + 0,01, Deckkraft 0,85): Pinsel, Rechteck und Füllen mit dem Bild der Kachel aus
+  dem Palettenspeicher (ohne Bild die Platzhalterfarbe ihrer Rolle), der Radierer und das Entfernen einer
+  Rampe schraffiert in `szene/gelaende/unbekannt`, Höhe und Rampe in der Farbe der Zielstufe; das Rechteck zeigt dazu den
+  gestrichelten Rahmen des Entwurfs. Nach der Antwort kommen Netz, Höhen und Weltdokument neu, dann
+  geht die Vorschau; eine Ablehnung nimmt die Vorschau weg und geht an den Fehlerweg, ohne
+  Verlaufseintrag.
+- **Zeit:** ein Strich über die Befehlsschicht (`world_edit` mit 37 Zellen auf `busy_world`,
+  `world_get`, `get_world_mesh` über `dispatch`, mit Backen) braucht im Debug-Build im Median aus 10
+  höchstens 300 ms (Test `world_stroke_over_the_command_path_is_fast` in
+  `apps/studio/src-tauri/src/commands/world_map.rs`, strikt mit `G4_TIMING_STRICT=1`, druckt
+  `world-stroke-bridge median_ms=<…> faces=<…>`; gemessen 49,74 ms bei Last etwa 20).
+
+**Ebenen** (`world_layers {req: {map, op}}`, `world/edit.rs`): die Liste „Ebenen“ im Inspector legt
+mit „Ebene hinzufügen“ eine Überlagerung an (`op: {add: {name}}`, Vorgabe des Namens „Ebene <n>“) und
+entfernt eine mit „Entfernen“ (`op: {remove: {layer}}`, nur Überlagerungen), je ein Undo-Schritt, der
+backt: „Ebene „Büsche“ angelegt: Karte 0000“ (die neue Ebene: Rolle `overlay`, 32 Zeilen `.`), „Ebene
+2 „Büsche“ entfernt: Karte 0000“. Abgelehnt wie `world_edit` (kein Textprojekt, keine Welt,
+gesperrte Karte, eine Welt, die sich nicht liest) und mit „Die Bodenebene (0) bleibt.“, „Eine Ebene
+braucht einen Namen.“ (leer nach dem Trimmen), „Ebene „Büsche“ gibt es schon.“ (getrimmte Namen,
+Groß- und Kleinschreibung zählt, auch gegen die Bodenebene) und „Ebene 3 gibt es nicht (Karte 0000
+hat 2).“. Der Bericht ist ein `WorldReport` mit `cells: 0`. Umbenennen und Umordnen gibt es nicht.
+Welche Ebene „Aktiv“ ist (der Pinsel malt dorthin) und welche in der Szene verborgen ist, merkt sich
+nur die App, nicht die Datei; wird die aktive Ebene entfernt, gilt die darunter.
+
+**Tüfteln:** dieselben Werkzeuge; die Statusleiste nennt die Token der Zelle unter dem Zeiger
+(„Kachel 0041r1 · Ebene 0 · Höhe 2 (16 E)“), Palette und Tileset-Editor zeigen Nummern und hex. Einen
+Editor für das JSON des Weltdokuments gibt es nicht.
+
+**Beispiel:** `fixtures::gate_world(0, "0000", "0001", "0002")` auf dem synthetischen Tileset (Boden
+`0000`, Gras `0001`, Wasser `0002`) entsteht aus einer leeren Welt `0000` auf Höhe 0 in sieben
+Strichen; jede Zeile ist **ein** Aufruf (Zellen gekürzt):
+
+| Strich | `changes` | Verlaufstext |
+|---|---|---|
+| Rechteck (16, 3)–(28, 10), Kachel `0001` | `[{layer: 0, cells: [[16, 3], …, [28, 10]], tile: "0001"}]` | „Rechteck gemalt: Karte 0000 (104 Zellen)“ |
+| Rechteck (2, 24)–(8, 29), Kachel `0002` | `[{layer: 0, cells: [[2, 24], …], tile: "0002"}]` | „Rechteck gemalt: Karte 0000 (42 Zellen)“ |
+| Höhe, im Zickzack über x 18–22, z 20–22 gezogen | `[{cells: [[18, 20], …], height: 1}]` | „Höhe geändert: Karte 0000 (15 Zellen)“ |
+| Höhe, derselbe Zug | `[{cells: […], height: 2}]` | „Höhe geändert: Karte 0000 (15 Zellen)“ |
+| Höhe, x 17, z 20–22 | `[{cells: [[17, 20], [17, 21], [17, 22]], height: 1}]` | „Höhe geändert: Karte 0000 (3 Zellen)“ |
+| Rampe „nach Osten, 1 Stufe“, über x 16–17, z 20–22 | `[{cells: [[16, 20], [17, 20], …], ramp: "e1"}]` | „Rampe gesetzt: Karte 0000 (6 Zellen)“ |
+| Tür-Handwert (kein Werkzeug, über MCP) | `[{cells: [[12, 21]], permission: "6980"}]` | „Welt geändert: Karte 0000 (1 Zelle)“ |
+
+Dieselbe Folge malen die Szenarien `pt-gemalt.yaml` und `hg-gemalt.yaml` über MCP und das Phasen-Gate
+über die Oberfläche (dort mit den Kacheln des Spiels und der Rampe in zwei Strichen, weil ein Zug
+eine Gerade ist). Für Agenten: [mcp.md](../mcp.md), „Malen (6.4a)“. Gestaltung:
+[design-system/README.md](../../design-system/README.md), „Nachtrag 6.4a“.
 
 ## Was später kommt
 
-- **6.4a:** Malwerkzeuge, Palette, Ebenen und Höhen-Overlay in der App, die kuratierten
-  MCP-Werkzeuge (`world_get`, `world_edit`, `tileset_get`), der Tileset-Editor (auf `tileset_edit`)
-  und das Rezept `new_painted_map`; Werkzeug-Ops (`paint`, `rect`, `fill`) rechnet 6.4a auf die
-  Zellen von `world_edit` herunter. Dazu: Texturen im Format 5 in der Szene dekodieren; der
-  Dateischritt von `tileset_save`/`tileset_edit` hängt noch am Asset `HEADER_TABLE`; die
-  VRAM-Schätzung `terrain::vram_bytes` zählt geteilte Texel doppelt (6.4a stellt `map_budget` auf
-  `bake::pack_vram` um). **Eine Welt-Karte kopieren:** `create_area` mit einer Welt-Karte als
-  Quelle kopiert heute die gebackene **binäre** Karte (die neue Karte ist keine Welt-Karte); das
-  Rezept von 6.4a übernimmt die Welt.
-- **6.4b:** Kantensätze (`edge_sets` im Tileset) und Wände zu Nachbarkarten.
+- **Seit 6.4a da:** Malwerkzeuge, Palette, Ebenen (`world_layers`) und Tileset-Editor in der App
+  („Malen (6.4a)“, [tileset.md](tileset.md) „Palette und Tileset-Editor (6.4a)“), die kuratierten MCP-Werkzeuge
+  (`world_get`, `world_edit`, `tileset_get`) und das Rezept `new_painted_map`
+  ([recipes.md](recipes.md)); die Werkzeug-Ops rechnet die App auf die Zellen von `world_edit`
+  herunter. **Eine Welt-Karte kopieren** geht über `new_painted_map` mit `source_map`; `create_area`
+  und „Gebiet erweitern“ mit einer Welt-Karte als Quelle kopieren weiter die gebackene **binäre**
+  Karte.
+- **Nicht in 6.4a, offen:** Texturen im Format 5 (4 × 4 komprimiert) in der Szene und in der Palette
+  dekodieren (bis dahin der Platzhalter der Rolle; ein eigener Posten nach 6.4b, wenn ein
+  Vanilla-Kartenpaket welche nutzt); der Dateischritt von `tileset_save`/`tileset_edit` hängt noch am
+  Asset `HEADER_TABLE`; die VRAM-Schätzung `terrain::vram_bytes` zählt geteilte Texel doppelt (für
+  eine Welt-Karte kommt das Budget aus dem Bake). Beides liegt in `world/tileset.rs` bzw. `terrain/`
+  und wird nach 6.4b neu bewertet. Pinselgröße über 1, Stempel aus einer Auswahl, Zufall und Formen
+  außer dem Rechteck gibt es nicht.
+- **6.4b:** Kantensätze (`edge_sets` im Tileset) mit Terrain-Pinsel, Wände zu Nachbarkarten und die
+  Muster-Shader der Schicht „Gelände“.
 - **6.5b:** Beifiles der Teilmodelle (`model`, `NNNN.<name>.glb`) und ihre Geometrie im Backen,
   glTF-Freiform und Form 2 von „Karte als Quelle übernehmen“ (`form: "gltf"`), ein Verbatim-Modell
   zusammen mit gemalten Kacheln (heute `world.verbatim-mixed`).

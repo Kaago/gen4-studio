@@ -1,4 +1,4 @@
-# Tileset (Kacheln eines Kartentextur-Pakets, Phasen 6.3a und 6.3b)
+# Tileset (Kacheln eines Kartentextur-Pakets, Phasen 6.3a, 6.3b und 6.4a)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Ein Tileset sagt je Textur eines
 Kartentextur-Pakets (`map_tileset` der Gebietsdaten, Member von `mapTextures`), wie sie als Kachel
@@ -120,7 +120,55 @@ vorher weg), schmutzige backt das nächste Speichern; dasselbe nach `tileset_sav
 Dateischritt der Kartentexturen des Pakets (`append_textures`) und nach Undo und Redo eines dieser
 Dateischritte (`Store::record_file_step` erkennt sie an der Tileset-Datei bzw. am Asset `MapTexture`). Der Build-Schritt `world` backt die Karten des Pakets beim
 nächsten Build, denn die Tileset-Datei gehört zu ihrem Eingabe-Hash ([build_state.md](build_state.md)).
-Der Tileset-Editor von 6.4a baut auf diesem Befehl.
+Der Tileset-Editor von 6.4a baut auf diesem Befehl (unten).
+
+## Palette und Tileset-Editor (6.4a)
+
+Solange das Werkzeug „Gelände malen“ eine Welt-Karte malt, zeigt der Inspector ihrer Zelle (Bauen und
+Tüfteln) vor „Quelle“ und „Budget“ drei Abschnitte: „Palette“, „Ebenen“ ([world_map.md](world_map.md),
+„Malen (6.4a)“) und „Kachel 0029“, den Tileset-Editor. Implementierung:
+`apps/studio/src/workbench/inspector/TilePalette.tsx`, `TileEditor.tsx` (im `MatrixCellEditor`), die
+Bilder `world/paint/paletteImages.ts`. Das Tileset liest die Malsitzung mit `tileset_get` für das
+Paket der gezeigten Welt, nach jeder Revision neu (auch nach Undo und Redo eines Tileset-Schritts, der
+am Asset `HEADER_TABLE` hängt).
+
+**Palette** (`[data-paint-palette]`): die Kacheln des Tilesets nach Rolle in der Reihenfolge Boden,
+Gras, Wasser, Wand, Rampe, Teilmodell (`[data-palette-role]`, leere Gruppen fehlen), je Kachel eine
+Taste 32 × 32 (`[data-palette-tile="0029"]`, die vier Hex-Ziffern wie im Weltdokument,
+`aria-pressed` für die gewählte). Das Bild ist die **ganze** Textur aus `get_tileset_texture`
+(RGBA → `ImageData` → `ImageBitmap`, ohne Glättung gezeichnet, je Paket und Textur
+zwischengespeichert; derselbe Speicher füttert die Strichvorschau); ohne Bild (`null`, etwa das
+synthetische Tileset oder eine Textur im Format 5) die Platzhalterfarbe der Rolle. Tooltip „Kachel
+0001 · syn_gras · 32 × 32 Texel · Gras“, in Tüfteln dazu „kind 0x02, Kollision 0x00“ und die Nummer
+unter der Taste. Ein Klick wählt die Kachel ohne Drehung und Spiegelung; aus Radierer, Pipette, Höhe
+und Rampe geht es dabei zum Pinsel, Rechteck und Füllen bleiben. Die gewählte Kachel trägt ihre
+Drehung und Spiegelung als kleine Marke („90°“, „⇆“).
+
+**Tileset-Editor** (`[data-tile-editor]`, Abschnitt „Kachel 0029“ für die Kachel der Palette, die
+Nummer wie dort): jede bestätigte Änderung eines Felds ist **ein** `tileset_edit` mit einer Änderung,
+also ein Dateischritt „Tileset 0000 geändert (1 Kachel)“, und gibt der Kachel `origin: user`.
+
+| Feld | Baustein | Änderung |
+|---|---|---|
+| „Rolle“ | Auswahl der sechs Rollen (Boden, Wand, Rampe, Wasser, Gras, Teilmodell) | `{tile, role}`; `kind` und `height` bleiben |
+| „Gelände“ | Bauen: Auswahl der Verhaltensnamen aus `tile_behaviors*.yaml` (dieselbe Quelle wie das Gelände-Overlay); Tüfteln: Zahlfeld hex mit dem Hinweis „0x02 <Name>“ | `{tile, kind}` |
+| „Blockiert“ | Kästchen, Bit 7 von `collision` | `{tile, collision}` mit gesetztem bzw. gelöschtem Bit 7, die übrigen Bits bleiben |
+| „Schrittgeräusch“ | nur HeartGold/SoulSilver, Zahlfeld, Hinweis „0 bis 127“ | `{tile, sound}` |
+| „Wand“ | Textfeld mit Hex-Ziffern wie die Palette, leer „keine“, Hinweis „Kachelnummer, leer = keine“; außerhalb: „Eine Kachel von 0000 bis 0005.“ | `{tile, wall}`, leer `{tile, wall: null}` |
+
+Darunter die Herkunft der Vorgaben: „Aus den Vanilla-Karten abgeleitet“ (`vanilla`), „Nicht eindeutig,
+Vorgabe Boden“ (`unclear`), „Von dir gesetzt“ (`user`); die synthetische Herkunft hat keinen Satz.
+**Ohne Datei** (`stored: false`, das abgeleitete Tileset) sind die Felder gesperrt, darüber steht die
+Taste „Tileset im Projekt anlegen“ (`[data-tileset-save]`, `tileset_save`, ein Dateischritt) mit dem
+Satz „Die Vorgaben stehen dann in data/tilesets/0006.json und gelten für alle Welt-Karten dieses
+Pakets.“ Eine Kachel, die das Tileset nicht hat: „Das Tileset hat keine Kachel 0029.“ Nach jeder
+Änderung frischt die App Netz, Bake und Budget der Karte auf; eine Ablehnung geht an den Fehlerweg des
+Inspectors.
+
+Beispiel auf dem synthetischen Tileset: „Blockiert“ an Kachel 1 (`syn_gras`) schickt
+`tileset_edit {req: {package: 0, changes: [{tile: 1, collision: 128}]}}`, „Wand“ = `0003` an
+Kachel 4 `{tile: 4, wall: 3}`, „Rolle“ Wasser an Kachel 0 `{tile: 0, role: "water"}`; jede ist ein
+eigener Verlaufseintrag „Tileset 0000 geändert (1 Kachel)“.
 
 ## Palette beim Backen (6.3b)
 
