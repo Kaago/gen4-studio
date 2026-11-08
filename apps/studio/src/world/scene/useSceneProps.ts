@@ -5,7 +5,7 @@ import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
 import { frameCellTopDown, requestedCell } from "./camera";
 import { showCellFrame } from "./cellFrame";
-import { reportSelectedMarker } from "./content";
+import { reportSelectedMarker, reportTerrainPatterns } from "./content";
 import { setHeightsShown } from "./heightLayer";
 import type { SceneRefs } from "./types";
 
@@ -100,6 +100,7 @@ export function usePermissionVisibility(refs: SceneRefs, showPermissions: boolea
     const h = refs.handle.current;
     if (h?.overlay) {
       h.overlay.visible = showPermissions;
+      reportTerrainPatterns(h);
       h.render();
     }
   }, [showPermissions]);

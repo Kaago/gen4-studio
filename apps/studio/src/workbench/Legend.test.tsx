@@ -51,4 +51,27 @@ describe("Legend", () => {
     const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
     expect(swatches).toEqual(colours.map(rgb));
   });
+
+  it("legend_shows_a_pattern_swatch", async () => {
+    act(() => root.render(<Legend />));
+    await act(async () => container.querySelector("button")!.click());
+    const { terrain } = legendEntries();
+    const items = [...document.body.querySelectorAll<HTMLElement>("[role=dialog] li")].slice(0, terrain.length);
+    const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
+    items.forEach((li, i) => {
+      const swatch = li.querySelector<HTMLElement>("[data-pattern]")!;
+      expect(swatch.getAttribute("data-pattern")).toBe(terrain[i].pattern);
+      const marks = [...swatch.querySelectorAll("svg *")];
+      if (terrain[i].pattern === "none") {
+        expect(swatch.querySelector("svg")).toBeNull();
+        return;
+      }
+      expect(marks.length).toBeGreaterThan(0);
+      // The lines in the shade the scene draws them in.
+      for (const mark of marks) expect([terrain[i].patternColor, rgb(terrain[i].patternColor!)]).toContain(mark.getAttribute("stroke") ?? mark.getAttribute("fill"));
+    });
+    // Events carry no pattern.
+    const events = [...document.body.querySelectorAll<HTMLElement>("[role=dialog] li")].slice(terrain.length);
+    for (const li of events) expect(li.querySelector("[data-pattern]")).toBeNull();
+  });
 });

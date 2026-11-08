@@ -126,6 +126,16 @@ describe("WorldPage", () => {
     expect(sets.querySelector("[data-edge-block]")?.textContent).toContain("Untere Zelle");
   });
 
+  it("shows_the_terrain_patterns_with_their_names", () => {
+    const block = state("gelaende-muster");
+    expect(block.querySelector("h2")?.textContent).toBe("Gelände-Muster");
+    const swatches = [...block.querySelectorAll("[data-pattern]")];
+    expect(swatches.map((s) => s.getAttribute("data-pattern"))).toEqual(["hatch", "waves", "dots", "arrow", "crosshatch"]);
+    for (const s of swatches) expect(s.querySelector("svg")).not.toBeNull();
+    const labels = [...block.querySelectorAll("li")].map((li) => li.textContent);
+    expect(labels).toEqual(["Blockiert · Schraffur", "Wasser · Wellen", "Hohes Gras · Punkte", "Vorsprung · Pfeil in Sprungrichtung", "Eis · Kreuzschraffur"]);
+  });
+
   it("speaks_bauen_without_raster_matrix_or_header", () => {
     const bauen = [...container.querySelectorAll('[data-depth="bauen"]')];
     expect(bauen.length).toBeGreaterThanOrEqual(10);

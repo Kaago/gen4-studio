@@ -11,7 +11,7 @@ import { buildingModelJob } from "./buildingModels";
 import { showCellFrame } from "./cellFrame";
 import { frameCells } from "./camera";
 import { createGround } from "../ground";
-import { addModel, buildContent, removeMapModel, removeModels, setMarkers } from "./content";
+import { addModel, buildContent, removeMapModel, removeModels, reportTerrainPatterns, setMarkers } from "./content";
 import { mapModel } from "./worldMesh";
 import { fetchEvents } from "./eventFetch";
 import { setHeightsShown } from "./heightLayer";
@@ -85,6 +85,7 @@ async function showMaps(
   h.bases = bases;
   h.names = names;
   overlay.visible = refs.showPermissions.current;
+  reportTerrainPatterns(h);
   // The old layer went with the old content; a new one is built only while „Höhen“ is on (else on its first switch-on).
   h.heights = null;
   setHeightsShown(h, refs.showHeights.current);

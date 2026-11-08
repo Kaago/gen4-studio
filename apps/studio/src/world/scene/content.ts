@@ -10,6 +10,7 @@ import type { MarkerSet } from "../markers";
 import { cloneModel, disposeTree } from "../sceneUtil";
 import { peekSprite, spriteTexture } from "../sprites";
 import { showHeightLayer } from "./heightLayer";
+import { countPatterns, patternOf, setPatternAt, withPatterns } from "./patterns";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
@@ -98,6 +99,8 @@ export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, nam
   const tiles = new THREE.InstancedMesh(plane, planeMaterial, cells.length * perCell);
   tiles.renderOrder = 10;
   tiles.frustumCulled = false;
+  // Each tile carries its terrain pattern (rule „Gelände-Muster“); a tile without one looks as before.
+  withPatterns(tiles);
   const m4 = new THREE.Matrix4();
   const bases = new Map<number, number[]>();
   let n = 0;
@@ -113,6 +116,7 @@ export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, nam
       m4.setPosition(x + 0.5, OVERLAY_Y + ground.y(x, z), z + 0.5);
       tiles.setMatrixAt(n, m4);
       tiles.setColorAt(n, overlayColor(kind, collision, names));
+      setPatternAt(tiles, n, patternOf(kind, collision, names.get(kind)));
       n++;
     }
   }
@@ -167,17 +171,30 @@ function loadSprites(h: SceneHost, set: MarkerSet, events: EventsDto) {
   }
 }
 
-/** Recolours every overlay instance of `mapId` from the map's current permissions. */
+/** Recolours every overlay instance of `mapId` from the map's current permissions, its pattern with it; the canvas counts the patterns anew. */
 export function recolourMap(h: SceneHost, mapId: number) {
   const data = h.loaded.get(mapId);
   const bases = h.bases.get(mapId);
-  if (!data || !bases || !h.tiles) return;
+  const tiles = h.tiles;
+  if (!data || !bases || !tiles) return;
   for (const base of bases) {
     data.map.permissions.forEach(([kind, collision], i) => {
-      h.tiles?.setColorAt(base + i, overlayColor(kind, collision, h.names));
+      tiles.setColorAt(base + i, overlayColor(kind, collision, h.names));
+      setPatternAt(tiles, base + i, patternOf(kind, collision, h.names.get(kind)));
     });
   }
-  if (h.tiles.instanceColor) h.tiles.instanceColor.needsUpdate = true;
+  if (tiles.instanceColor) tiles.instanceColor.needsUpdate = true;
+  tiles.geometry.getAttribute("aPattern").needsUpdate = true;
+  reportTerrainPatterns(h);
+}
+
+/**
+ * Says on the canvas how many overlay cells carry a terrain pattern (`data-terrain-patterns`) while the layer „Gelände“ is visible;
+ * hidden (or nothing loaded yet): the attribute goes.
+ */
+export function reportTerrainPatterns(h: SceneHost) {
+  if (h.tiles && h.overlay?.visible) h.canvas.dataset.terrainPatterns = String(countPatterns(h.tiles));
+  else delete h.canvas.dataset.terrainPatterns;
 }
 
 /**

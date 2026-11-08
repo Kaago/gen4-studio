@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { HeaderPatchDto, MatrixDto } from "../../../api";
 import type { EdgePlace, EdgeSetJson, LayerOp, TileJson, TileRole, TilesetDto, WorldJson } from "../../../api.world";
+import { PatternSwatch } from "../../../workbench/Legend";
 import { EdgeSetEditor } from "../../../workbench/inspector/EdgeSetEditor";
 import { LayerList } from "../../../workbench/inspector/LayerList";
 import { TilePalette } from "../../../workbench/inspector/TilePalette";
@@ -15,6 +16,8 @@ import { placeColor } from "../../../workbench/places";
 import { nameWarning, placeKeyOf } from "../../../workbench/places/placeChoices";
 import { SHARED_HINT, sharedText } from "../../../workbench/sharedRooms";
 import { PatchConsent, patchReady } from "../../../workbench/wizards/PatchConsent";
+import { legendEntries } from "../../../world/legend";
+import type { Pattern } from "../../../world/scene/patterns";
 import { ThumbnailCache } from "../../../world/thumbnails";
 import { Badge, Budget, Button, Checkbox, InspectorRow, Notice, PanelHead, TextField, Tooltip } from "../../primitives";
 import type { PanelHeadSwitcher } from "../../primitives";
@@ -265,6 +268,30 @@ function HeightSteps() {
   );
 }
 
+/** The names of the five patterns of the layer „Gelände“. */
+const PATTERN_NAMES: Record<Exclude<Pattern, "none">, string> = {
+  hatch: "Schraffur",
+  waves: "Wellen",
+  dots: "Punkte",
+  arrow: "Pfeil in Sprungrichtung",
+  crosshatch: "Kreuzschraffur",
+};
+
+/** The terrain classes with a pattern, each as the legend shows it: colour, pattern, name. */
+function TerrainPatterns() {
+  const entries = legendEntries().terrain.filter((t) => t.pattern !== "none");
+  return (
+    <ul className={styles.heightSteps} aria-label="Gelände-Muster">
+      {entries.map((t) => (
+        <li key={t.key} className={styles.heightStep}>
+          <PatternSwatch entry={t} />
+          {t.label} · {PATTERN_NAMES[t.pattern as Exclude<Pattern, "none">]}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** The budget in its three states, as the map inspector shows it. */
 function Budgets() {
   return (
@@ -474,6 +501,15 @@ export function WorldPage() {
           mit Stufenwechsel, auf der höheren Seite. „Höhen“ und „Gelände“ schließen sich aus.
         </p>
         <HeightSteps />
+      </section>
+
+      <section className={styles.block} data-gallery-state="gelaende-muster">
+        <h2 className={styles.blockTitle}>Gelände-Muster</h2>
+        <p className={styles.note}>
+          Die Schicht „Gelände“ zeichnet auf jede Zelle mit Muster dessen Linien in der Zellfarbe × 0,55 mit doppelter Deckkraft: Blockiert schraffiert, Wasser Wellen, Hohes
+          Gras Punkte, Vorsprung ein Pfeil in Sprungrichtung (hier nach Norden), Eis Kreuzschraffur; Spezial und Unbekannt ohne Muster. Die Legende zeigt dieselben Proben.
+        </p>
+        <TerrainPatterns />
       </section>
 
       <section className={styles.block} data-gallery-state="malwerkzeuge">

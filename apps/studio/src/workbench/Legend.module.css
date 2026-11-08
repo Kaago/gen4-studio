@@ -44,9 +44,17 @@
 }
 
 .swatch {
+  overflow: hidden;
   flex: none;
   width: 16px;
   height: 16px;
   border: var(--g4-strich-standard) solid var(--g4-linie-stark);
   border-radius: var(--g4-radius-taste);
+}
+
+/* The pattern of a terrain class fills its swatch. */
+.pattern {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
