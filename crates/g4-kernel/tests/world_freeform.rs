@@ -513,6 +513,8 @@ fn form2_sweep_over_every_map() {
     let (mut ok, mut too_big, mut texture, mut other) = (0, 0, 0, 0);
     // Texture refusals of maps no header shows (package 0 guessed).
     let mut texture_guessed = 0;
+    // Maps that baked with untextured faces left out, and on a package guessed by fit.
+    let (mut with_untextured, mut untextured_faces, mut ok_guessed) = (0, 0, 0);
     let mut ratios = Vec::new();
     let mut others: Vec<(u16, String)> = Vec::new();
     for map in 0..u16::try_from(maps).unwrap() {
@@ -520,10 +522,15 @@ fn form2_sweep_over_every_map() {
         match world_adopt_with(&mut store, &gltf_request(map), Some(&apicula)) {
             Ok(report) if report.bake.ok => {
                 ok += 1;
-                if let Some(form2) = report.form2
-                    && form2.vanilla.polygons > 0
-                {
-                    ratios.push(form2.baked.faces as f64 / f64::from(form2.vanilla.polygons));
+                ok_guessed += usize::from(report.tileset_guessed);
+                if let Some(form2) = report.form2 {
+                    if form2.baked.untextured > 0 {
+                        with_untextured += 1;
+                        untextured_faces += form2.baked.untextured;
+                    }
+                    if form2.vanilla.polygons > 0 {
+                        ratios.push(form2.baked.faces as f64 / f64::from(form2.vanilla.polygons));
+                    }
                 }
             }
             Ok(report) => {
@@ -553,6 +560,10 @@ fn form2_sweep_over_every_map() {
         eprintln!("form2 other: map {map:04}: {why}");
     }
     eprintln!("form2 texture refusals on a guessed package: {texture_guessed} of {texture}");
+    eprintln!(
+        "form2 ok with untextured polygons left out: {with_untextured} maps, \
+         {untextured_faces} polygons; ok on a guessed package: {ok_guessed}"
+    );
     eprintln!(
         "world-form2-sweep {code} maps={maps} ok={ok} too_big={too_big} texture={texture} \
          other={other} polys_ratio_median={:.3} ms={}",

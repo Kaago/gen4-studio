@@ -325,26 +325,47 @@ fn form2_binds_by_mdl0_material_then_by_image_stem() {
         bound_names(&bind_vanilla_materials(&mesh, &[1, 2, 3], &textures).unwrap()),
         [Some("syn_rampe")]
     );
+    // Neither an MDL0 texture nor an image: untextured, no error.
     let mesh = mesh_of(vec![material("boden_lm2", None)]);
     assert_eq!(
         bind_vanilla_materials(&mesh, &[1, 2, 3], &textures),
-        Err("boden_lm2".to_owned())
+        Ok(vec![None])
+    );
+    let mesh = mesh_of(vec![material("lambert1", None), material("gras_lm2", None)]);
+    assert_eq!(
+        bound_names(&bind_vanilla_materials(&mesh, &model, &textures).unwrap()),
+        [None, Some("syn_gras")]
     );
 }
 
+/// `nsbmd` with the texture `from` of its MDL0 pairings renamed `to`.
+fn repaired_model(nsbmd: &[u8], from: &str, to: &str) -> Vec<u8> {
+    let mut file = Nsbmd::read(nsbmd).unwrap();
+    for p in &mut file.models[0].1.textures {
+        if nitro_dict::name_text(&p.name) == from {
+            p.name = nitro_dict::name(to).unwrap();
+        }
+    }
+    file.write().unwrap()
+}
+
 #[test]
-fn form2_with_an_unbound_material_is_refused() {
-    let (fx, _) = fixture();
-    let path = apicula_glb(
-        &fx,
-        &vanilla_faces(),
-        &[("syn_boden", "boden_lm2"), ("syn_gras", "fremd_lm2")],
-    );
+fn form2_still_refuses_a_named_texture_missing_from_the_pack() {
+    // `gras_lm2` pairs the texture `fehlt` in MDL0, which no package has.
+    let (fx, model) = fixture();
+    let mut st = store(&fx);
+    st.edit_map(0, "Vanilla", |m| {
+        m.model = repaired_model(&model, "syn_gras", "fehlt");
+        Ok(())
+    })
+    .unwrap();
+    st.save().unwrap();
+    let path = apicula_glb(&fx, &vanilla_faces(), &MDL0);
     let mut st = store(&fx);
     let before = map_bytes(&mut st);
     assert_eq!(
         refused(world_adopt_glb(&mut st, &gltf(), &path)),
-        "Material „fremd_lm2“ der Karte 0000 bindet keine Textur des Pakets 0000; Form 2 geht \
+        "Material „gras_lm2“ der Karte 0000 bindet keine Textur des Pakets 0000; Form 2 geht \
          für diese Karte nicht, Form 1 schon. (world.adopt-texture)"
     );
     assert!(st.history().0.is_empty());
@@ -352,6 +373,140 @@ fn form2_with_an_unbound_material_is_refused() {
     assert_eq!(st.world(0).unwrap(), None);
     assert_eq!(map_bytes(&mut st), before);
     assert_eq!(ADOPT_TEXTURE_CODE, "world.adopt-texture");
+}
+
+#[test]
+fn form2_drops_untextured_faces_and_reports_them() {
+    // An extra box of the material `lambert1`: no image, no MDL0 material of that name (a
+    // vertex-colour material as Maya leaves it).
+    let (fx, _) = fixture();
+    let mut faces = vanilla_faces();
+    faces.extend(box_faces([-48, 8, -48], [-40, 16, -40], "syn_wand"));
+    let mut names = MDL0.to_vec();
+    names.push(("syn_wand", "lambert1"));
+    let path = apicula_glb(&fx, &faces, &names);
+    let (mesh, _) = read_model(&path).unwrap();
+    let lambert = mesh
+        .materials
+        .iter()
+        .position(|m| m.name == "lambert1")
+        .unwrap();
+    assert!(mesh.materials[lambert].image.is_none());
+    let polygons = mesh
+        .polygons
+        .iter()
+        .filter(|p| p.material == Some(lambert))
+        .count();
+    assert!(polygons > 0);
+    let mut st = store(&fx);
+    let report = adopt_glb(&mut st, &path);
+    assert!(report.bake.ok, "{:?}", report.bake.messages);
+    let form2 = report.form2.unwrap();
+    assert_eq!(form2.baked.untextured, polygons);
+    assert_eq!(form2.baked.dropped, polygons);
+    assert_eq!(form2.baked.faces, 12);
+    assert_eq!(form2.ignored, ["untextured:lambert1"]);
+    // The side file holds the textured faces only.
+    assert_eq!(
+        fx.read(SIDE),
+        side_glb(&vanilla_faces(), &pack(&fx), FREEFORM_UNIT).unwrap()
+    );
+    // Only untextured faces: nothing left to bake, refused, nothing changed.
+    let (fx, _) = fixture();
+    let only = box_faces([0, 0, 0], [8, 8, 8], "syn_wand");
+    let path = apicula_glb(&fx, &only, &[("syn_wand", "lambert1")]);
+    let mut st = store(&fx);
+    let why = refused(world_adopt_glb(&mut st, &gltf(), &path));
+    assert!(why.ends_with(" (model.no-geometry)"), "{why}");
+    assert!(st.history().0.is_empty());
+    assert!(!fx.root().join(SIDE).exists());
+    assert_eq!(st.world(0).unwrap(), None);
+}
+
+/// A package of one texture `name` (synthetic), as built by `world_ready`.
+fn foreign_pack(name: &str) -> Vec<u8> {
+    g4_formats::nsbtx::build(&[g4_formats::nsbtx::NewTexture {
+        name: name.to_owned(),
+        palette: format!("{name}_pl"),
+        width: 8,
+        height: 8,
+        format: 3,
+        color0: false,
+        texels: vec![0x5A; 32],
+        colors: (0..16u16).map(|c| c * 0x421).collect(),
+    }])
+    .unwrap()
+}
+
+/// [`fixture`] with map texture packages 0 to 2 (the synthetic archive has only 0; the header
+/// packages of map 0 are 0 and 2): the vanilla model's textures (package 0 as `world_ready`
+/// wrote it) in package `own`, a foreign texture in the others; the „apicula GLB“ of the
+/// vanilla faces (made before the packages move).
+fn packages_fixture(own: u16) -> (TextFixture, PathBuf) {
+    let (fx, _) = fixture();
+    let path = apicula_glb(&fx, &vanilla_faces(), &MDL0);
+    let project = fx.project();
+    let textures = std::fs::read(project.member_path(AssetKind::MapTexture, 0)).unwrap();
+    for package in 0..3u16 {
+        let bytes = if package == own {
+            textures.clone()
+        } else {
+            foreign_pack(&format!("fremd{package}"))
+        };
+        std::fs::write(project.member_path(AssetKind::MapTexture, package), &bytes).unwrap();
+        fx.write(&format!("data/map_textures/{package:04}.nsbtx"), &bytes);
+    }
+    (fx, path)
+}
+
+#[test]
+fn form2_picks_the_package_that_holds_the_textures() {
+    // The header packages in order: 0 holds the textures.
+    let (fx, path) = packages_fixture(0);
+    assert_eq!(packs_of_map(&mut store(&fx), 0).unwrap(), [0, 2]);
+    let report = adopt_glb(&mut store(&fx), &path);
+    assert!(report.bake.ok, "{:?}", report.bake.messages);
+    assert_eq!((report.tileset, report.tileset_guessed), (0, false));
+
+    // The first header package (0) holds a foreign texture, the second (2) the model's.
+    let (fx, path) = packages_fixture(2);
+    let mut st = store(&fx);
+    let report = adopt_glb(&mut st, &path);
+    assert!(report.bake.ok, "{:?}", report.bake.messages);
+    assert_eq!((report.tileset, report.tileset_guessed), (2, false));
+    st.save().unwrap();
+    assert_eq!(file_json(&fx)["world"]["tileset"], 2);
+
+    // No header package holds them, package 1 of the archive does: guessed.
+    let (fx, path) = packages_fixture(1);
+    let report = adopt_glb(&mut store(&fx), &path);
+    assert!(report.bake.ok, "{:?}", report.bake.messages);
+    assert_eq!((report.tileset, report.tileset_guessed), (1, true));
+
+    // A package asked for wins, fit or not.
+    let req: WorldAdoptRequest =
+        serde_json::from_value(json!({"map": 0, "form": "gltf", "tileset": 0})).unwrap();
+    let mut st = store(&fx);
+    let why = refused(world_adopt_glb(&mut st, &req, &path));
+    assert!(why.ends_with(" (world.adopt-texture)"), "{why}");
+
+    // No package holds them: the first header package, as before.
+    let (fx, path) = packages_fixture(3);
+    let why = refused(world_adopt_glb(&mut store(&fx), &gltf(), &path));
+    assert!(why.contains(" des Pakets 0000; "), "{why}");
+}
+
+#[test]
+fn form1_package_choice_is_unchanged() {
+    // The model's textures in package 1 only: Form 1 still takes the first header package.
+    let (fx, _) = packages_fixture(1);
+    let verbatim: WorldAdoptRequest = serde_json::from_value(json!({"map": 0})).unwrap();
+    let mut st = store(&fx);
+    let before = map_bytes(&mut st);
+    let report = world_adopt(&mut st, &verbatim).unwrap();
+    assert!(report.bake.ok && report.bake.verbatim_model);
+    assert_eq!((report.tileset, report.tileset_guessed), (0, false));
+    assert_eq!(map_bytes(&mut st), before);
 }
 
 #[test]

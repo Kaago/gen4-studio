@@ -796,13 +796,15 @@ pub(crate) fn bind_model(
 }
 
 /// One binding per material of `mesh` by the texture rule of Form 2 against the vanilla `model` and `pack`;
-/// Err(material name) for the first that binds nothing in the pack.
+/// Err(material name) for the first that names a texture but binds nothing in the pack.
 ///
 /// Per material: (1) the MDL0 material of the same name in the first model of `model` gives
 /// the texture that binds it (`Model.textures[*].materials`), when the pack has that texture;
 /// (2) else the stem of the material's image (apicula writes `<texture>.png`, a `.` in the
 /// name as `_`), when the pack has a texture of that name. A `model` that does not read has no
-/// MDL0 materials: only (2). The binding takes the pack texture's name and size.
+/// MDL0 materials: only (2). The binding takes the pack texture's name and size. A material
+/// with neither an MDL0 texture nor an image is untextured (`None`: a vertex-colour material
+/// such as Maya's `lambert1`), no error.
 pub fn bind_vanilla_materials(
     mesh: &Mesh,
     model: &[u8],
@@ -832,6 +834,9 @@ pub fn bind_vanilla_materials(
         .map(|material| {
             let by_mdl0 = mdl0_texture(&material.name);
             let by_stem = material.image.as_ref().map(|i| i.stem.as_str());
+            if by_mdl0.is_none() && by_stem.is_none() {
+                return Ok(None);
+            }
             by_mdl0
                 .as_deref()
                 .and_then(in_pack)

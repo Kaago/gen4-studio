@@ -22,8 +22,9 @@ use crate::bake::Level;
 use crate::error::KernelError;
 use crate::export::nsbmd_to_glb;
 use crate::map_import::PartCode;
-use crate::model_import::mesh::to_faces;
+use crate::model_import::mesh::{Binding, Mesh, to_faces};
 use crate::model_import::read_model;
+use crate::project::AssetKind;
 use crate::store::{ChangeId, Store};
 use crate::textproject::Part;
 
@@ -67,7 +68,8 @@ pub enum AdoptForm {
 }
 
 /// `world_adopt`: the map, the map texture package of the world (`None`: the first package of
-/// the headers that show the map, else 0) and the form (`verbatim` by default).
+/// the headers that show the map, else 0; Form 2 first looks for the package that holds the
+/// model's textures, [`adopt_package`]) and the form (`verbatim` by default).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldAdoptRequest {
@@ -102,7 +104,9 @@ pub struct VanillaGeometry {
 
 /// The model baked from the side file of Form 2: the faces of the bake, the quads and
 /// triangles the conversion gave the baker, the quad strips and single quads the model sends,
-/// the polygons the conversion dropped (no area once rounded) and the model's size in bytes.
+/// the polygons the conversion dropped (no area once rounded, or untextured), the model's size
+/// in bytes and the polygons of untextured materials left out (vertex-colour materials without
+/// a texture, [`bind_vanilla_materials`]; counted in `dropped` too).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct BakedGeometry {
     pub faces: usize,
@@ -112,11 +116,13 @@ pub struct BakedGeometry {
     pub single_quads: usize,
     pub dropped: usize,
     pub bytes: usize,
+    pub untextured: usize,
 }
 
 /// What Form 2 made of the map's model: both polygon counts (they differ: the baker draws
 /// quad strips where the vanilla model has its own lists), the parts of the glTF the reader
-/// left out (`model.parts-ignored`: `skins`, `vertex-colours` …) and the side file's name.
+/// left out (`model.parts-ignored`: `skins`, `vertex-colours` …, then `untextured:<material>`
+/// per untextured material whose polygons were left out) and the side file's name.
 #[derive(Debug, Clone, Serialize)]
 pub struct Form2Report {
     pub vanilla: VanillaGeometry,
@@ -200,11 +206,13 @@ struct Source {
 /// The checks both forms make (the map is no world map yet, its member is not locked and
 /// reads, the package is there) and the adopted world with `freeform` as its model: the ground
 /// layer „Boden“ all `.` with the heights sampled from the map's BDHC, no ramp, the BDHC as
-/// `terrain = {bdhc}`, permissions derived with every cell a hand value.
+/// `terrain = {bdhc}`, permissions derived with every cell a hand value. The package is
+/// `req.tileset`, else [`adopt_package`] (by fit when `by_fit`, Form 2).
 fn source(
     store: &mut Store,
     req: &WorldAdoptRequest,
     freeform: FreeformJson,
+    by_fit: bool,
 ) -> Result<Source, KernelError> {
     let map = req.map;
     if store.world(map)?.is_some() {
@@ -213,15 +221,12 @@ fn source(
     refuse_locked_map(store, map, |cause| {
         binary_map_refusal(map, "übernehmen", cause)
     })?;
+    let file = store.map(map)?.clone();
     let (package, guessed) = match req.tileset {
         Some(package) => (package, false),
-        None => match packs_of_map(store, map)?.first() {
-            Some(&package) => (package, false),
-            None => (0, true),
-        },
+        None => adopt_package(store, map, by_fit.then_some(file.model.as_slice()))?,
     };
     store.tileset(package)?;
-    let file = store.map(map)?.clone();
     let (steps, deviations) = sample_heights(&file.bdhc);
     // The BDHC part (and the model part of Form 1) is a placeholder here; the writer gives it
     // its form.
@@ -257,6 +262,68 @@ fn source(
     })
 }
 
+/// The package of map `map` adopted without one asked for, and whether it was guessed.
+///
+/// With `model` (Form 2) and textures paired in its MDL0 ([`model_textures`]): the first
+/// package of [`packs_of_map`] whose textures as the world bake binds them
+/// ([`super::bake::world_pack_textures`]) include every one of them, else the first such
+/// package of the archive (ascending, guessed). Otherwise, and without `model` (Form 1, whose
+/// choice stays as it was): the first package of [`packs_of_map`], else 0 (guessed).
+fn adopt_package(
+    store: &mut Store,
+    map: u16,
+    model: Option<&[u8]>,
+) -> Result<(u16, bool), KernelError> {
+    let shown = packs_of_map(store, map)?;
+    let wanted = model.map(model_textures).unwrap_or_default();
+    if !wanted.is_empty() {
+        if let Some(&package) = shown.iter().find(|&&p| holds(store, p, &wanted)) {
+            return Ok((package, false));
+        }
+        let count = store.member_count(AssetKind::MapTexture)?;
+        let archive = (0..count).filter_map(|p| u16::try_from(p).ok());
+        for package in archive {
+            if holds(store, package, &wanted) {
+                return Ok((package, true));
+            }
+        }
+    }
+    Ok(match shown.first() {
+        Some(&package) => (package, false),
+        None => (0, true),
+    })
+}
+
+/// The textures the first model of `model` pairs with a material (MDL0), in pairing order;
+/// none when it does not read.
+fn model_textures(model: &[u8]) -> Vec<String> {
+    let Ok(file) = Nsbmd::read(model) else {
+        return Vec::new();
+    };
+    file.models
+        .first()
+        .map(|(_, m)| {
+            m.textures
+                .iter()
+                .filter(|p| !p.materials.is_empty())
+                .map(|p| g4_formats::nitro_dict::name_text(&p.name))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether package `package` holds every texture of `wanted` as the world bake binds them; a
+/// package that is missing or does not read holds none.
+fn holds(store: &mut Store, package: u16, wanted: &[String]) -> bool {
+    let Ok(tileset) = store.tileset(package) else {
+        return false;
+    };
+    match bake_pack(store, package, &tileset, None) {
+        Ok((_, textures)) => wanted.iter().all(|w| textures.iter().any(|t| &t.name == w)),
+        Err(_) => false,
+    }
+}
+
 /// The transaction that makes `world` map `map`'s world, labelled `label`: its bake report and
 /// the change.
 fn set_world(
@@ -282,10 +349,10 @@ fn set_world(
 /// form `req.form`; Form 2 needs `apicula`.
 ///
 /// Form 1 (verbatim): a world on package `req.tileset` (else the first of [`packs_of_map`],
-/// else 0 with `tileset_guessed`), a ground layer „Boden“ all `.` with the heights sampled from
-/// the map's BDHC, no ramp, the map's model as `freeform = [{nsbmd}]` and its BDHC as `terrain =
-/// {bdhc}` (each part as a save writes it), permissions derived with every cell a hand value.
-/// The Map asset bakes to the same bytes.
+/// else 0 with `tileset_guessed`; Form 2 by fit first, [`adopt_package`]), a ground layer
+/// „Boden“ all `.` with the heights sampled from the map's BDHC, no ramp, the map's model as
+/// `freeform = [{nsbmd}]` and its BDHC as `terrain = {bdhc}` (each part as a save writes it),
+/// permissions derived with every cell a hand value. The Map asset bakes to the same bytes.
 ///
 /// Form 2 (glTF): apicula converts the map's model with the package's textures into
 /// `<root>/.g4/tmp/adopt-NNNN` (failing that, without them), then [`world_adopt_glb`]; the
@@ -319,6 +386,7 @@ pub fn world_adopt_with(
             nsbmd: Some(placeholder()),
             at: [0, 0, 0],
         },
+        false,
     )?;
     let map = source.map;
     let (bake, change) = set_world(store, map, &adopt_label(map), source.world)?;
@@ -349,7 +417,7 @@ fn adopt_through_apicula(
     req: &WorldAdoptRequest,
     apicula: &Path,
 ) -> Result<WorldAdoptReport, KernelError> {
-    let checked = source(store, req, form2_entry(req.map))?;
+    let checked = source(store, req, form2_entry(req.map), true)?;
     let model = checked.file.model.clone();
     let pack = store.project().map_tileset_member(checked.package)?;
     let dir = store
@@ -387,12 +455,14 @@ fn form2_refusal(sentence: &str, code: &str) -> KernelError {
 /// in world units, [`APICULA_UNIT`]), as one undo step ([`adopt_label`]): the world of Form 1
 /// with `freeform = [{glb: "NNNN.model.glb", at: [0, 0, 0]}]`; the side file is the canonical GLB
 /// ([`side_glb`]) of the faces converted with the bindings of [`bind_vanilla_materials`]
-/// against the package's textures as the world bake binds them; the step writes the side file,
-/// then sets the world ([`in_one_step`]). The report carries [`Form2Report`].
+/// against the package's textures as the world bake binds them, the polygons of untextured
+/// materials left out ([`BakedGeometry::untextured`]); the step writes the side file, then sets
+/// the world ([`in_one_step`]). The report carries [`Form2Report`].
 ///
 /// Refused (`„{sentence} ({code})“`, no step, no side file, the map stays binary): the GLB does
-/// not read or converts to nothing (its `model.*` code), a material binds no texture of the
-/// package ([`ADOPT_TEXTURE_CODE`]: „Material „lake_lm2“ der Karte 0123 bindet keine Textur des
+/// not read or converts to nothing (its `model.*` code; also when only untextured polygons were
+/// there), a material that names a texture (MDL0 or image) binds no texture of the package
+/// ([`ADOPT_TEXTURE_CODE`]: „Material „lake_lm2“ der Karte 0123 bindet keine Textur des
 /// Pakets 0006; Form 2 geht für diese Karte nicht, Form 1 schon.“), the bake reports an error
 /// (the first one, e.g. `bake.model-too-big`: the step is rolled back). Besides what Form 1
 /// refuses.
@@ -403,9 +473,9 @@ pub fn world_adopt_glb(
 ) -> Result<WorldAdoptReport, KernelError> {
     require_text_project(store)?;
     let map = req.map;
-    let source = source(store, req, form2_entry(map))?;
+    let source = source(store, req, form2_entry(map), true)?;
     let package = source.package;
-    let (mesh, notes) =
+    let (mut mesh, notes) =
         read_model(glb_path).map_err(|m| form2_refusal(&m.message, m.code.as_str()))?;
     let tileset = store.tileset(package)?;
     let (_, textures) = bake_pack(store, package, &tileset, None)?;
@@ -418,6 +488,7 @@ pub fn world_adopt_glb(
             ADOPT_TEXTURE_CODE,
         )
     })?;
+    let (untextured, untextured_names) = drop_untextured(&mut mesh, &bindings);
     let converted = to_faces(&mesh, APICULA_UNIT, &bindings)
         .map_err(|m| form2_refusal(&m.message, m.code.as_str()))?;
     let glb_name = freeform_file(map, FORM2_SIDE_NAME);
@@ -441,6 +512,7 @@ pub fn world_adopt_glb(
         .filter(|n| n.code == PartCode::ModelPartsIgnored)
         .flat_map(|n| n.args.first().map(|a| a.split(',').map(str::to_owned)))
         .flatten()
+        .chain(untextured_names)
         .collect();
     let form2 = Form2Report {
         vanilla: VanillaGeometry {
@@ -455,8 +527,9 @@ pub fn world_adopt_glb(
             triangles: converted.stats.triangles,
             strips: bake.strips,
             single_quads: bake.single_quads,
-            dropped: converted.stats.dropped,
+            dropped: converted.stats.dropped + untextured,
             bytes: bake.model_bytes,
+            untextured,
         },
         ignored,
         glb: glb_name,
@@ -470,6 +543,35 @@ pub fn world_adopt_glb(
         bake,
         form2: Some(form2),
     })
+}
+
+/// Leaves out the polygons of `mesh` whose material is untextured (its binding `None`): how many,
+/// and `untextured:<name>` per material that had any, in material order. A polygon without a
+/// material, or with one outside `bindings`, stays (`to_faces` refuses it).
+fn drop_untextured(mesh: &mut Mesh, bindings: &[Option<Binding>]) -> (usize, Vec<String>) {
+    let mut left_out = vec![false; mesh.materials.len()];
+    let before = mesh.polygons.len();
+    mesh.polygons.retain(|p| {
+        let untextured = p
+            .material
+            .filter(|&m| matches!(bindings.get(m), Some(None)))
+            .and_then(|m| left_out.get_mut(m));
+        match untextured {
+            Some(flag) => {
+                *flag = true;
+                false
+            }
+            None => true,
+        }
+    });
+    let names = mesh
+        .materials
+        .iter()
+        .zip(left_out)
+        .filter(|(_, out)| *out)
+        .map(|(m, _)| format!("untextured:{}", m.name))
+        .collect();
+    (before - mesh.polygons.len(), names)
 }
 
 #[cfg(all(test, feature = "test-support"))]

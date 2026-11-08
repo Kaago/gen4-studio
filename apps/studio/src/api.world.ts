@@ -157,7 +157,7 @@ export const worldBake = (map: number) => invoke<WorldBakeReport | null>("world_
 /** Form 2 of „übernehmen“: the polygons of the vanilla model and the faces the baker drew (they differ: it draws quad strips), the parts of the glTF left out, the side file. */
 export interface Form2Report {
   vanilla: { polygons: number; quads: number; triangles: number; bytes: number };
-  baked: { faces: number; quads: number; triangles: number; strips: number; single_quads: number; dropped: number; bytes: number };
+  baked: { faces: number; quads: number; triangles: number; strips: number; single_quads: number; dropped: number; bytes: number; untextured: number };
   ignored: string[];
   glb: string;
 }

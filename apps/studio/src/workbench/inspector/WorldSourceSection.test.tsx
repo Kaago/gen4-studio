@@ -198,7 +198,7 @@ describe("WorldSourceSection", () => {
       bake: bake({ verbatim_model: false, faces: 1234 }),
       form2: {
         vanilla: { polygons: 815, quads: 813, triangles: 2, bytes: 21740 },
-        baked: { faces: 1628, quads: 1600, triangles: 28, strips: 90, single_quads: 40, dropped: 0, bytes: 30000 },
+        baked: { faces: 1628, quads: 1600, triangles: 28, strips: 90, single_quads: 40, dropped: 0, bytes: 30000, untextured: 0 },
         ignored: [],
         glb: "0000.model.glb",
       },
