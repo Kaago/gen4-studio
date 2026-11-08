@@ -537,6 +537,21 @@ pub fn synthetic_pack_textures() -> Vec<PackTexture> {
         .collect()
 }
 
+#[cfg(any(test, feature = "test-support"))]
+/// Pack textures for `Tileset::synthetic_edges()` (22 tiles), as [`synthetic_pack_textures`].
+pub fn synthetic_edge_pack_textures() -> Vec<PackTexture> {
+    Tileset::synthetic_edges()
+        .tiles
+        .iter()
+        .map(|t| PackTexture {
+            name: t.texture.clone(),
+            palette: format!("{}_pl", t.texture),
+            width: t.size[0],
+            height: t.size[1],
+        })
+        .collect()
+}
+
 #[cfg(all(test, feature = "test-support"))]
 mod store_tests;
 #[cfg(test)]

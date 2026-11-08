@@ -436,6 +436,7 @@ fn painted_map_on_a_vanilla_pack_bakes_within_limits() {
                 tile(1, TileRole::Grass, 0x02),
                 tile(2, TileRole::Water, 0x15),
             ],
+            sets: Vec::new(),
         },
     )
     .unwrap();

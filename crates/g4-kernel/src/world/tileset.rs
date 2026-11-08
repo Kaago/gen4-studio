@@ -4,10 +4,14 @@
 //! height behaviour and optionally the tile of its walls (`wall`) and the footprint of a piece.
 //! Keys in the order of the structs, unknown keys refused, numbers as JSON numbers.
 //!
-//! `edge_sets` (6.4b) and `model` (6.5b, side file `NNNN.<name>.glb`) are reserved: serde
-//! reads them so a later file names its problem instead of an unknown key, and
-//! [`tileset_problems`] refuses them. The only tileset data in the repository is the
-//! synthetic test tileset of [`Tileset::synthetic`], made in code (names `syn_*`).
+//! `edge_sets` (6.4b) are the edge sets of the terrain and cliff brushes
+//! ([`super::edge::EdgeSetJson`]; left out when there are none, so files without them read and
+//! write unchanged); [`tileset_problems`] checks each one ([`super::edge::edge_set_problems`])
+//! and refuses two sets of one name. `model` (6.5b, side file `NNNN.<name>.glb`) is reserved:
+//! serde reads it so a later file names its problem instead of an unknown key, and
+//! [`tileset_problems`] refuses it. The only tileset data in the repository is the synthetic
+//! test tilesets of [`Tileset::synthetic`] and `Tileset::synthetic_edges`, made in code (names
+//! `syn_*`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -31,6 +35,7 @@ use crate::textproject::codes::SCHEMA_CODE;
 use crate::textproject::locate::located;
 use crate::tiles::tile_behavior;
 use crate::world::WORLD_NEEDS_TEXT_PROJECT;
+use crate::world::edge::{EdgeSetJson, EdgeSetOp, edge_set_label, edge_set_problems, missing_set};
 
 /// The version of the tileset file this build reads and writes.
 pub const TILESET_VERSION: u32 = 1;
@@ -52,9 +57,9 @@ pub struct Tileset {
     pub version: u32,
     pub package: u16,
     pub tiles: Vec<TileJson>,
-    /// Reserved for the edge sets of 6.4b; must be empty (left out).
+    /// The edge sets of the terrain and cliff brushes (6.4b); left out when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub edge_sets: Vec<serde_json::Value>,
+    pub edge_sets: Vec<EdgeSetJson>,
 }
 
 /// One tile: the texture `texture_index` of the package, named `texture`, with its palette
@@ -196,6 +201,35 @@ impl Tileset {
         }
     }
 
+    /// [`Tileset::synthetic`] plus 16 ground tiles 6 to 21 (`syn_kante_00` to `syn_kante_15`,
+    /// 16 × 16, `origin: synthetic`) and the edge set
+    /// [`weg13`](crate::world::edge::fixtures::weg13) on them.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn synthetic_edges() -> Tileset {
+        let mut tileset = Tileset::synthetic();
+        for i in 0..16u16 {
+            // After the six tiles of `synthetic()`.
+            let index = 6 + i;
+            tileset.tiles.push(TileJson {
+                texture: format!("syn_kante_{i:02}"),
+                texture_index: index,
+                palette: None,
+                size: [16, 16],
+                role: TileRole::Ground,
+                kind: 0,
+                collision: 0,
+                height: HeightBehavior::Flat,
+                sound: 0,
+                wall: None,
+                footprint: None,
+                model: None,
+                origin: TileOrigin::Synthetic,
+            });
+        }
+        tileset.edge_sets = vec![crate::world::edge::fixtures::weg13()];
+        tileset
+    }
+
     /// Tile `index`, `None` past the tiles.
     pub fn tile(&self, index: u16) -> Option<&TileJson> {
         self.tiles.get(usize::from(index))
@@ -225,10 +259,12 @@ pub fn read_tileset_file(project: &Project, package: u16) -> Result<Option<Tiles
 
 /// Problems of one tileset file beyond serde, each as `<path>: <text>` with the JSON path
 /// in the file (`tiles[3].wall`): `version` ≠ [`TILESET_VERSION`], `package` ≠ the stem,
-/// `edge_sets` not empty („Kantensätze kommen mit 6.4b.“), `model` set („Teilmodell-Dateien
-/// kommen mit 6.5b.“), `wall` past the tiles ([`tile_outside`]) or not of role `wall`,
-/// `footprint` on a tile that is not `piece` or a `piece` without it, a texture name longer
-/// than 16 bytes, `sound` ≠ 0 outside HeartGold/SoulSilver or past bit 6 in it.
+/// `model` set („Teilmodell-Dateien kommen mit 6.5b.“), `wall` past the tiles
+/// ([`tile_outside`]) or not of role `wall`, `footprint` on a tile that is not `piece` or a
+/// `piece` without it, a texture name longer than 16 bytes, `sound` ≠ 0 outside
+/// HeartGold/SoulSilver or past bit 6 in it; then per edge set its
+/// [`edge_set_problems`] and a name an earlier set has („edge_sets[1].name: Kantensatz „Weg“
+/// gibt es zweimal.“).
 pub fn tileset_problems(tileset: &Tileset, stem: u16, family: Family) -> Vec<String> {
     let mut problems = Vec::new();
     if tileset.version != TILESET_VERSION {
@@ -242,9 +278,6 @@ pub fn tileset_problems(tileset: &Tileset, stem: u16, family: Family) -> Vec<Str
             "package: Paket {:04} passt nicht zum Dateinamen {stem:04}.json.",
             tileset.package
         ));
-    }
-    if !tileset.edge_sets.is_empty() {
-        problems.push("edge_sets: Kantensätze kommen mit 6.4b.".to_owned());
     }
     let count = tileset.tiles.len();
     for (i, tile) in tileset.tiles.iter().enumerate() {
@@ -296,6 +329,15 @@ pub fn tileset_problems(tileset: &Tileset, stem: u16, family: Family) -> Vec<Str
             problems.push(format!(
                 "{}: Teilmodell-Dateien kommen mit 6.5b.",
                 at("model")
+            ));
+        }
+    }
+    for (i, set) in tileset.edge_sets.iter().enumerate() {
+        problems.extend(edge_set_problems(set, i, tileset.package, count));
+        if tileset.edge_sets[..i].iter().any(|s| s.name == set.name) {
+            problems.push(format!(
+                "edge_sets[{i}].name: Kantensatz „{}“ gibt es zweimal.",
+                set.name
             ));
         }
     }
@@ -854,12 +896,15 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
-/// `tileset_edit`: the package of the tileset file and its changes, all of them one step.
+/// `tileset_edit`: the package of the tileset file, its tile changes and its edge set
+/// operations (6.4b, default none), all of them one step.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TilesetEditRequest {
     pub package: u16,
     pub changes: Vec<TileChange>,
+    #[serde(default)]
+    pub sets: Vec<EdgeSetOp>,
 }
 
 /// What [`tileset_edit`] did: the package, the tiles it changed and the undo step.
@@ -887,6 +932,12 @@ pub fn tileset_edit_label(package: u16, tiles: usize) -> String {
 /// One file step „Tileset 0006 geändert (2 Kacheln)“; a changed tile gets `origin: user`; refused without the file
 /// („Erst `tileset_save` für Paket 0006.“), in the DSPRE layout, for a tile past the tileset and when the result has
 /// `tileset_problems`; then `Store::forget_world_bakes(package)` (by `Store::record_file_step`).
+///
+/// The edge set operations `sets` (6.4b) apply first, in order, on the working copy: `put`
+/// replaces the set of the same name in its place or appends it, `remove` of a set that is
+/// not there is refused ([`missing_set`]); then the tile changes. With `sets` the label is
+/// [`edge_set_label`] of the first operation („Kantensatz „Weg“ angelegt: Tileset 0006“);
+/// `origin: user` goes only to the tiles the changes change.
 ///
 /// The step is a file step as [`save_tileset`]'s (FileStepKind::Reset, asset HEADER_TABLE):
 /// undo writes the file as it was. Refused besides ([`KernelError::Refused`], nothing written):
@@ -918,6 +969,19 @@ pub fn tileset_edit(
     let old = read_tileset_file(&project, package)?
         .ok_or_else(|| KernelError::Refused(tileset_file_missing(package)))?;
     let mut tileset = old.clone();
+    for op in &req.sets {
+        let at = tileset.edge_sets.iter().position(|s| s.name == op.name());
+        match (op, at) {
+            (EdgeSetOp::Put(set), Some(at)) => tileset.edge_sets[at] = set.clone(),
+            (EdgeSetOp::Put(set), None) => tileset.edge_sets.push(set.clone()),
+            (EdgeSetOp::Remove { .. }, Some(at)) => {
+                tileset.edge_sets.remove(at);
+            }
+            (EdgeSetOp::Remove { name }, None) => {
+                return Err(KernelError::Refused(missing_set(name, package)));
+            }
+        }
+    }
     let count = tileset.tiles.len();
     for (i, change) in req.changes.iter().enumerate() {
         let tile = tileset
@@ -954,7 +1018,7 @@ pub fn tileset_edit(
             changed += 1;
         }
     }
-    if changed == 0 {
+    if changed == 0 && tileset.edge_sets == old.edge_sets {
         return Err(KernelError::Refused(
             super::edit::NOTHING_TO_CHANGE.to_owned(),
         ));
@@ -980,7 +1044,15 @@ pub fn tileset_edit(
     };
     write_file_step(&project, &step)?;
     // Recording the step bakes the clean world maps on the package anew.
-    let change = store.record_file_step(&tileset_edit_label(package, changed), step);
+    let label = match req.sets.first() {
+        Some(op) => edge_set_label(
+            op,
+            old.edge_sets.iter().any(|s| s.name == op.name()),
+            package,
+        ),
+        None => tileset_edit_label(package, changed),
+    };
+    let change = store.record_file_step(&label, step);
     Ok(TilesetEditReport {
         package,
         tiles: changed,
@@ -1014,6 +1086,7 @@ mod tests {
 
     use super::*;
     use crate::textproject::canon::to_canonical;
+    use crate::world::edge::fixtures::weg13;
 
     fn keys(v: &Value) -> Vec<&str> {
         v.as_object().unwrap().keys().map(String::as_str).collect()
@@ -1139,13 +1212,18 @@ mod tests {
         assert_eq!(v["tiles"][3]["height"], "wall");
         assert_eq!(v["tiles"][0]["origin"], "synthetic");
 
-        // The reserved keys read (the check names them), unknown keys do not.
+        // The reserved key reads (the check names it), unknown keys do not; edge sets read
+        // typed.
         let mut reserved = v.clone();
-        reserved["edge_sets"] = json!([{}]);
+        reserved["edge_sets"] = json!([serde_json::to_value(weg13()).unwrap()]);
         reserved["tiles"][0]["model"] = json!("baum");
         let r: Tileset = serde_json::from_value(reserved).unwrap();
-        assert_eq!(r.edge_sets.len(), 1);
+        assert_eq!(r.edge_sets, [weg13()]);
         assert_eq!(r.tiles[0].model.as_deref(), Some("baum"));
+        let mut bad_set = v.clone();
+        bad_set["edge_sets"] = json!([{}]);
+        let e = serde_json::from_value::<Tileset>(bad_set).unwrap_err();
+        assert!(e.to_string().contains("missing field `name`"), "{e}");
 
         let mut top = v.clone();
         top["tile"] = json!([]);
@@ -1177,10 +1255,6 @@ mod tests {
         assert_eq!(
             problems(&none, 6, pt),
             ["package: Paket 0000 passt nicht zum Dateinamen 0006.json."]
-        );
-        assert_eq!(
-            problems(&|t| t.edge_sets.push(json!({})), 0, pt),
-            ["edge_sets: Kantensätze kommen mit 6.4b."]
         );
         assert_eq!(
             problems(&|t| t.tiles[2].model = Some("baum".to_owned()), 0, pt),
@@ -1232,7 +1306,11 @@ mod tests {
         assert_eq!(
             problems(
                 &|t| {
-                    t.edge_sets.push(json!([]));
+                    let mut set = weg13();
+                    set.name = String::new();
+                    set.places = Default::default();
+                    set.places.center = vec!["0006".to_owned()];
+                    t.edge_sets.push(set);
                     t.tiles[3].wall = Some(0x0120);
                     t.tiles[2].model = Some("x".to_owned());
                 },
@@ -1241,9 +1319,11 @@ mod tests {
             ),
             [
                 "package: Paket 0000 passt nicht zum Dateinamen 0001.json.",
-                "edge_sets: Kantensätze kommen mit 6.4b.",
                 "tiles[2].model: Teilmodell-Dateien kommen mit 6.5b.",
                 "tiles[3].wall: Kachel 0x0120 gibt es im Tileset 0000 nicht (6 Kacheln).",
+                "edge_sets[0].name: Ein Kantensatz braucht einen Namen.",
+                "edge_sets[0].places.center[0]: Kachel 0x0006 gibt es im Tileset 0000 nicht \
+                 (6 Kacheln).",
             ]
         );
     }
@@ -1990,5 +2070,246 @@ mod tests {
         // Undoing the save of the tileset file too: the derived tileset again.
         store.undo().unwrap();
         assert_eq!(cell(&mut store), [0, 0]);
+    }
+    // ---- Edge sets (6.4b Task 1) ----
+
+    #[test]
+    fn synthetic_edges_adds_sixteen_ground_tiles_and_the_set() {
+        let t = Tileset::synthetic_edges();
+        assert_eq!(t.tiles.len(), 22);
+        assert_eq!(t.tiles[..6], Tileset::synthetic().tiles[..]);
+        for (i, tile) in t.tiles.iter().enumerate().skip(6) {
+            assert_eq!(tile.texture, format!("syn_kante_{:02}", i - 6));
+            assert_eq!(usize::from(tile.texture_index), i);
+            assert_eq!(tile.size, [16, 16]);
+            assert_eq!(tile.role, TileRole::Ground);
+            assert_eq!(tile.origin, TileOrigin::Synthetic);
+        }
+        assert_eq!(t.edge_sets, [weg13()]);
+        assert_eq!(Tileset::synthetic().tiles.len(), 6);
+        for family in [Family::Dp, Family::Pt, Family::Hgss] {
+            assert_eq!(
+                tileset_problems(&t, SYNTHETIC_PACKAGE, family),
+                Vec::<String>::new()
+            );
+        }
+        let pack = crate::world::bake::synthetic_edge_pack_textures();
+        assert_eq!(pack.len(), 22);
+        assert_eq!(pack[21].name, "syn_kante_15");
+        assert_eq!(pack[21].palette, "syn_kante_15_pl");
+        assert_eq!((pack[21].width, pack[21].height), (16, 16));
+    }
+
+    #[test]
+    fn edge_sets_read_and_check() {
+        let t = Tileset::synthetic_edges();
+        let bytes = to_canonical(&t);
+        let back: Tileset = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back, t);
+        assert_eq!(to_canonical(&back), bytes);
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(keys(&v), ["version", "package", "tiles", "edge_sets"]);
+        assert_eq!(keys(&v["edge_sets"][0]), ["name", "outside", "places"]);
+        assert_eq!(tileset_problems(&back, 0, Family::Pt), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_broken_set_is_a_schema_problem() {
+        let mut v = serde_json::to_value(Tileset::synthetic_edges()).unwrap();
+        v["edge_sets"][0]["places"]["n"] = json!(["0007", "0g07"]);
+        let mut second = serde_json::to_value(weg13()).unwrap();
+        second["outside"] = json!("0001");
+        second["places"] = json!({"center": ["0002"]});
+        v["edge_sets"].as_array_mut().unwrap().push(second);
+        let t: Tileset = serde_json::from_value(v).unwrap();
+        assert_eq!(
+            tileset_problems(&t, 0, Family::Pt),
+            [
+                "edge_sets[0].places.n[1]: `0g07` ist keine Kachel (`.` oder vier Hex-Ziffern, \
+                 dahinter `r1` bis `r3` und `f`).",
+                "edge_sets[1].name: Kantensatz „Weg“ gibt es zweimal.",
+            ]
+        );
+        // The check names it at its line in the file.
+        let fx = crate::test_support::world_ready();
+        fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&t));
+        let mut found = Vec::new();
+        check_folder(&fx.project(), &mut found).unwrap();
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(
+            found[0]
+                .message
+                .contains("edge_sets[0].places.n[1]: `0g07`"),
+            "{found:?}"
+        );
+        assert!(found[0].line > 1, "{found:?}");
+    }
+
+    /// The world_ready fixture with the tileset file of `synthetic_edges()` without its sets.
+    fn edges_fixture() -> (TextFixture, Store, PathBuf, Vec<u8>) {
+        let fx = crate::test_support::world_ready();
+        let mut t = Tileset::synthetic_edges();
+        t.edge_sets.clear();
+        let bytes = to_canonical(&t);
+        fx.write(tileset_rel(0).to_str().unwrap(), &bytes);
+        let store = store_of(&fx);
+        let path = fx.root().join(tileset_rel(0));
+        (fx, store, path, bytes)
+    }
+
+    fn put(set: &crate::world::edge::EdgeSetJson) -> Value {
+        json!({"put": serde_json::to_value(set).unwrap()})
+    }
+
+    #[test]
+    fn tileset_edit_puts_and_removes_a_set_as_one_step() {
+        let (fx, mut store, path, before) = edges_fixture();
+        let report = tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [], "sets": [put(&weg13())]})),
+        )
+        .unwrap();
+        assert_eq!((report.package, report.tiles), (0, 0));
+        assert_eq!(
+            store.history().0,
+            ["Kantensatz „Weg“ angelegt: Tileset 0000"]
+        );
+        let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
+        assert_eq!(now, Tileset::synthetic_edges());
+        assert_eq!(*store.tileset(0).unwrap(), now);
+        // A second set after it, then the first changed in its place.
+        let mut other = weg13();
+        other.name = "Wasser".to_owned();
+        *other.places.get_mut(crate::world::edge::Place::Center) = vec!["0002".to_owned()];
+        other.places.get_mut(crate::world::edge::Place::N).clear();
+        tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [], "sets": [put(&other)]})),
+        )
+        .unwrap();
+        let mut changed = weg13();
+        changed.block = crate::world::edge::EdgeBlock::Lower;
+        tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [], "sets": [put(&changed)]})),
+        )
+        .unwrap();
+        assert_eq!(
+            store.history().0.last().unwrap(),
+            "Kantensatz „Weg“ geändert: Tileset 0000"
+        );
+        let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
+        assert_eq!(now.edge_sets, [changed.clone(), other.clone()]);
+        // The same set again changes nothing.
+        assert_eq!(
+            refusal(tileset_edit(
+                &mut store,
+                &edit_req(json!({"package": 0, "changes": [], "sets": [put(&changed)]})),
+            )),
+            "Nichts zu ändern."
+        );
+        tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [], "sets": [{"remove": {"name": "Weg"}}]})),
+        )
+        .unwrap();
+        assert_eq!(
+            store.history().0.last().unwrap(),
+            "Kantensatz „Weg“ entfernt: Tileset 0000"
+        );
+        let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
+        assert_eq!(now.edge_sets, [other]);
+        assert_eq!(store.history().0.len(), 4);
+        for _ in 0..4 {
+            store.undo().unwrap();
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        // A set with a problem is refused with the file's path, nothing written.
+        let mut broken = weg13();
+        *broken.places.get_mut(crate::world::edge::Place::E) = vec!["0007".to_owned()];
+        assert_eq!(
+            refusal(tileset_edit(
+                &mut store,
+                &edit_req(json!({"package": 0, "changes": [], "sets": [put(&broken)]})),
+            )),
+            "data/tilesets/0000.json: edge_sets[0].places.e[0]: Kachel 0007 steht zweimal im \
+             Satz („n“ und „e“)."
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        // Neither changes nor sets: nothing to change.
+        assert_eq!(
+            refusal(tileset_edit(
+                &mut store,
+                &edit_req(json!({"package": 0, "changes": [], "sets": []})),
+            )),
+            "Nichts zu ändern."
+        );
+    }
+
+    #[test]
+    fn removing_a_missing_set_is_refused() {
+        let (_fx, mut store, path, before) = edges_fixture();
+        assert_eq!(
+            refusal(tileset_edit(
+                &mut store,
+                &edit_req(
+                    json!({"package": 0, "changes": [], "sets": [{"remove": {"name": "Weg"}}]})
+                ),
+            )),
+            "Kantensatz „Weg“ gibt es im Tileset 0000 nicht."
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(store.history().0.is_empty());
+        // Removing what an earlier operation of the same request put is fine.
+        tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": [], "sets": [
+                put(&weg13()), {"remove": {"name": "Weg"}}, put(&weg13())
+            ]})),
+        )
+        .unwrap();
+        assert_eq!(
+            store.history().0,
+            ["Kantensatz „Weg“ angelegt: Tileset 0000"]
+        );
+    }
+
+    #[test]
+    fn sets_and_wall_changes_are_one_step() {
+        let (fx, mut store, _path, _before) = edges_fixture();
+        let changes: Vec<Value> = (6..=0x12).map(|t| json!({"tile": t, "wall": 3})).collect();
+        let report = tileset_edit(
+            &mut store,
+            &edit_req(json!({"package": 0, "changes": changes, "sets": [put(&weg13())]})),
+        )
+        .unwrap();
+        assert_eq!(report.tiles, 13);
+        assert_eq!(
+            store.history().0,
+            ["Kantensatz „Weg“ angelegt: Tileset 0000"]
+        );
+        let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
+        assert_eq!(now.edge_sets, [weg13()]);
+        for (i, tile) in now.tiles.iter().enumerate() {
+            if (6..=0x12).contains(&i) {
+                assert_eq!((tile.wall, tile.origin), (Some(3), TileOrigin::User), "{i}");
+            } else {
+                assert_eq!(tile.origin, TileOrigin::Synthetic, "{i}");
+            }
+        }
+        // Without `sets` the request reads as before.
+        let req = edit_req(json!({"package": 0, "changes": []}));
+        assert!(req.sets.is_empty());
+    }
+
+    #[test]
+    fn files_without_edge_sets_read_unchanged() {
+        let fx = crate::test_support::world_ready();
+        let bytes = fx.read(tileset_rel(0).to_str().unwrap());
+        assert!(!String::from_utf8_lossy(&bytes).contains("edge_sets"));
+        let t: Tileset = serde_json::from_slice(&bytes).unwrap();
+        assert!(t.edge_sets.is_empty());
+        assert_eq!(to_canonical(&t), bytes);
+        assert_eq!(tileset_problems(&t, 0, Family::Pt), Vec::<String>::new());
     }
 }

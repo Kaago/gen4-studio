@@ -25,13 +25,15 @@
 //! `build.rs` the build step `world` after `textproject`, which bakes the world maps whose world
 //! changed into their members ([`build::bake_world_maps`]); `adopt.rs` „Karte als Quelle
 //! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]). `tileset.rs` also edits
-//! the tiles of a tileset file as one step ([`tileset::tileset_edit`]).
+//! the tiles and edge sets of a tileset file as one step ([`tileset::tileset_edit`]); `edge.rs`
+//! holds the edge sets of a tileset (6.4b: Wang corners, 13 + 2 places, [`edge::EdgeSetJson`]).
 
 pub mod adopt;
 pub mod bake;
 pub mod build;
 pub mod check;
 pub mod doc;
+pub mod edge;
 pub mod edit;
 pub mod grid;
 pub mod keep;
@@ -68,5 +70,9 @@ pub use tileset::{
     tile_outside, tileset_edit, tileset_problems, tileset_rel, tileset_texture,
 };
 
+pub use edge::{
+    EdgeBlock, EdgePlaces, EdgeSetJson, EdgeSetOp, Place, edge_set_label, edge_set_problems,
+    missing_set, variant,
+};
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
 pub use edit::{LayerOp, WorldLayersRequest, world_layers};
