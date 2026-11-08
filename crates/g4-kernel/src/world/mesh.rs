@@ -105,7 +105,7 @@ fn corners_of(h: i8, ramp: Ramp) -> Corners {
 
 /// The world-bound UV of the floor point (x, z) of a tile turned `rotate` quarter turns and
 /// mirrored after the turn with `flip`.
-fn uv_of(x: i32, z: i32, rotate: u8, flip: bool) -> [i32; 2] {
+pub(crate) fn uv_of(x: i32, z: i32, rotate: u8, flip: bool) -> [i32; 2] {
     let (u, v) = match rotate % 4 {
         0 => (x, z),
         1 => (z, -x),

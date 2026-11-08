@@ -32,6 +32,8 @@
 //! [`freeform::side_faces`]), the rules for side file names, and adding and removing free-form
 //! models ([`freeform::world_freeform_add`], [`freeform::world_freeform_remove`]), each one undo
 //! step with the pack and the side file.
+//! `tmj.rs` the exchange with Tiled (6.5b): a world map as a Tiled map (TMJ) with its tile
+//! images ([`tmj::to_tmj`], [`tmj::world_export_tmj`]); not a world format.
 
 pub mod adopt;
 pub mod bake;
@@ -46,6 +48,7 @@ pub mod mesh;
 pub mod places;
 pub mod record;
 pub mod tileset;
+pub mod tmj;
 
 pub use adopt::{
     ADOPT_NEEDS_APICULA, ADOPT_TEXTURE_CODE, ADOPT_TOLERANCE, AdoptForm, BakedGeometry,
@@ -76,6 +79,9 @@ pub use tileset::{
     TilesetEditRequest, TilesetSaveReport, UNIQUE_SHARE, VoteRule, derive_tileset, piece_set_label,
     read_tileset_file, save_tileset, textures_only, tile_outside, tileset_edit, tileset_piece_set,
     tileset_problems, tileset_rel, tileset_texture,
+};
+pub use tmj::{
+    TMJ_FORMAT, TMJ_VERSION, TmjExportReport, TmjMap, to_json as tmj_json, to_tmj, world_export_tmj,
 };
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
