@@ -1,4 +1,5 @@
-import { invoke } from "./platform/transport";
+import type { Effective } from "./i18n";
+import { inTauri, invoke } from "./platform/transport";
 import type { RomInfo, Template } from "./project/api.start";
 
 /**
@@ -73,4 +74,13 @@ export function formatBytes(n: number): string {
     unit += 1;
   }
   return `${value.toFixed(1).replace(".", ",")} ${UNITS[unit]}`;
+}
+
+/**
+ * Tells the backend the language of its own texts (`set_locale`, `de` or `en`). Only inside Tauri there is a backend to tell: the
+ * browser mode and the tests resolve at once.
+ */
+export async function setLocale(lang: Effective): Promise<void> {
+  if (!inTauri()) return;
+  await invoke<void>("set_locale", { lang });
 }
