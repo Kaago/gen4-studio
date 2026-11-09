@@ -231,7 +231,7 @@ Expected: PASS, keine Warnungen.
 - [ ] **Step 3: Probelauf**: frische Kopie `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-agent-probe` (nur wenn noch nicht vorhanden; sonst andere Endung), `preview_start` mit Namen `studio-web`, `http://127.0.0.1:1430/?project=<absoluter Pfad>` öffnen.
 Expected: Explorer zeigt Orte, Statusleiste zeigt „Browser-Modus (Brücke)“; Header 0415 wählen → 3D-Szene zeigt das Spielerzimmer (Screenshot nach `target/agent/probe/`).
 
-- [ ] **Step 4: Probelauf `call.sh`**: `scripts/agent/call.sh get_header '{"id":415}'` → JSON des Headers; `scripts/agent/call.sh open_project '{"path":"/Users/POLTEP/Projekte/lab/editor/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents"}'` → Exit 1, Meldung „Pfad liegt außerhalb …“.
+- [ ] **Step 4: Probelauf `call.sh`**: `scripts/agent/call.sh get_header '{"id":415}'` → JSON des Headers; `scripts/agent/call.sh open_project '{"path":"$HOME/Projekte/lab/editor/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents"}'` → Exit 1, Meldung „Pfad liegt außerhalb …“.
 
 - [ ] **Step 5: Probelauf Dialog**: in der Oberfläche „Öffnen“ → Pfad-Dialog erscheint, „Abbrechen“ schließt ihn; „Bauen“ → Feld mit `<kopie>/out.nds` vorbelegt, „OK“ → Meldung „ROM gebaut: …“, Datei existiert.
 

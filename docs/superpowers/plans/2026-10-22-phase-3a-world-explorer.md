@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Repository `/Users/POLTEP/Projekte/lab/editor/gen4-studio`, Branch `phase-3a-world-explorer` von `main` (Stand 077f025 oder neuer).
+- Repository `$HOME/Projekte/lab/editor/gen4-studio`, Branch `phase-3a-world-explorer` von `main` (Stand 077f025 oder neuer).
 - Testdaten: Vanilla-Projekte unter `../Roms/*_DSPRE_contents` werden nie beschrieben; gated Tests nutzen `g4_kernel::test_support::vanilla_copy()`. Das GUI wird nur auf Kopien unter `../Roms/_testkopien/` geöffnet.
 - Bezeichner im Code Englisch, UI-Texte und Dokumentation Deutsch, Commit-Messages Englisch (Conventional Commits). Fehlermeldungen des Backends Englisch (wie bisher), das Frontend übersetzt nicht, sondern zeigt sie.
 - Begriffe in der UI nur aus `workbench/terms.ts` (Ort, Header, Außen, Raum, Raster, Karte, Eingang/Ausgang, Eventdatei, Area-Data); technische IDs vierstellig (`0415`).

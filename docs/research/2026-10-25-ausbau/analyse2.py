@@ -1,6 +1,6 @@
 import json, os, sys, collections, struct
 S = "/private/tmp/claude-502/-Users-POLTEP-Projekte-lab-editor/9f273377-94af-440d-941f-e4c16f1f49e1/scratchpad/data"
-ROMS = "/Users/POLTEP/Projekte/lab/editor/Roms"
+ROMS = os.path.expanduser("~/Projekte/lab/editor/Roms")
 sys.path.insert(0, "")
 exec(open("/private/tmp/claude-502/-Users-POLTEP-Projekte-lab-editor/9f273377-94af-440d-941f-e4c16f1f49e1/scratchpad/analyse.py").read().split("for folder, fam")[0])
 for folder, tag in [("Pokemon - Platin-Edition (Germany)", "PokemonPlatinEditionGermany"), ("Pokemon - Goldene Edition HeartGold (Germany)", "PokemonGoldeneEditionHeartGoldGermany")]:

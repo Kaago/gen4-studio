@@ -147,5 +147,5 @@ Gate-Punkte Teil B:
 | (B4) `scripts/gate.sh` grün | Agent |
 | (B5) Gegenprobe: eine Original-Kopie hat in Zweiblattdorf Figuren und Wege hinaus | Agent |
 
-- [ ] **Step 1–4:** Durchläufe, `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms bash scripts/gate.sh > target/agent/gate.log 2>&1` im Hintergrund, Ergebnisse eintragen, Bilder nach `target/agent/gate-2026-10-25/`.
+- [ ] **Step 1–4:** Durchläufe, `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms bash scripts/gate.sh > target/agent/gate.log 2>&1` im Hintergrund, Ergebnisse eintragen, Bilder nach `target/agent/gate-2026-10-25/`.
 - [ ] **Step 5: Commit** `docs(3g.2): gate part B, design-system addendum, roadmap status`

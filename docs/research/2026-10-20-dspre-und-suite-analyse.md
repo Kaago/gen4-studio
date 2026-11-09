@@ -1,5 +1,7 @@
 # Von DSPRE zur Pokémon-Gen-4-Engine: Analyse und Architekturvorschlag
 
+> **Einordnung:** Dieses Dokument ist die interne Architekturbewertung vom Oktober 2026, geschrieben als Entscheidungsgrundlage für Gen4 Studio, und keine Kritik am Projekt DSPRE, das seither weitere Releases veröffentlicht hat und dessen heutigen Stand die Analyse nicht abbildet. Gen4 Studio teilt keinen Code mit DSPRE (DSPRE steht unter AGPL-3.0, Gen4 Studio unter MIT) und öffnet DSPRE-Projekte über das gemeinsame Ordnerformat.
+
 Stand: 20. Oktober 2026. Grundlage: Code-Analyse von DSPRE `main` (Release 2.3.4) und `feature/avalonia` (Commit 94455d89), GitHub-Org `DS-Pokemon-Rom-Editor`, Ökosystem-Recherche (pret-Decomps, hg-engine, Pokémon Studio, Plugin-Architekturen). Vier Subagenten haben die Rohdaten geliefert, zentrale Aussagen wurden stichprobenartig im Code nachgeprüft.
 
 ---

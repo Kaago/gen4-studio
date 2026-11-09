@@ -54,7 +54,7 @@ Stand 25.10.2026. `src/` meint `apps/studio/src-tauri/src/`, `web/` meint `apps/
 - Texte an Nutzer und Fehlermeldungen deutsch, Tool-Namen und Beschreibungen englisch (3h.4 ergänzt die deutschen Wörter in Klammern); `rmcp` bleibt `=3.7.0`.
 - Nur `127.0.0.1`, nie einstellbar; kein Netzzugriff durch den Server.
 - Oberfläche nur aus `web/ui`-Bausteinen und `--g4-`-Tokens: keine Inline-Styles, keine Hex-Farben (`scripts/check-styles.sh`, `scripts/check-tokens.sh`).
-- Testprojekte nur frische Kopien unter `$G4_ROMS_DIR/_testkopien/<name>` (`G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms`); Originale nie öffnen; keine ROM-Daten ins Repo.
+- Testprojekte nur frische Kopien unter `$G4_ROMS_DIR/_testkopien/<name>` (`G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms`); Originale nie öffnen; keine ROM-Daten ins Repo.
 - Vor jedem Commit grün (je nach Änderung): `cargo fmt --all`, `cargo clippy --workspace --all-features -- -D warnings`, `cargo test --workspace --all-features`; `pnpm exec vitest run` in `apps/studio`, `pnpm build`, `bash scripts/check-styles.sh`, `bash scripts/check-tokens.sh`.
 - Commit-Nachrichten englisch (`feat(studio): …`, `docs(3h.3): …`), letzte Zeile `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`; `tools` nie committen; nur Branch `phase-3h-app`.
 

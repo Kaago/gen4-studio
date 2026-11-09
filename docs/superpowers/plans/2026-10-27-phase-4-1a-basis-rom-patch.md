@@ -44,7 +44,7 @@ Stand 27.10.2026, `main` bei `4d87ee0`. Arbeit im eigenen Worktree (Branch `phas
 ## Global Constraints
 
 - Commits enden mit `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`; vor jedem cargo-Aufruf `export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"`.
-- Originale unter `/Users/POLTEP/Projekte/lab/editor/Roms` nie von Hand öffnen oder ändern; Testprojekte nur als frische Kopien unter `Roms/_testkopien/4-1a-<zweck>` (Ordner `4-1a-<zweck>_DSPRE_contents` und `.nds` `4-1a-<zweck>.nds` direkt unter `_testkopien`). Gated Tests lesen wie bisher `G4_TEST_PROJECT` (von `scripts/gate.sh` gesetzt) und arbeiten auf `vanilla_copy()`; die Basis-ROM finden sie über `suggest_base(vanilla_project())` und lesen sie nur.
+- Originale unter `$HOME/Projekte/lab/editor/Roms` nie von Hand öffnen oder ändern; Testprojekte nur als frische Kopien unter `Roms/_testkopien/4-1a-<zweck>` (Ordner `4-1a-<zweck>_DSPRE_contents` und `.nds` `4-1a-<zweck>.nds` direkt unter `_testkopien`). Gated Tests lesen wie bisher `G4_TEST_PROJECT` (von `scripts/gate.sh` gesetzt) und arbeiten auf `vanilla_copy()`; die Basis-ROM finden sie über `suggest_base(vanilla_project())` und lesen sie nur.
 - Keine ROM-Daten, keine `.nds`, keine Patches gebauter ROMs ins Repo. Die xdelta3-Quelle darf ins Repo (Apache-2.0 mit `NOTICE`).
 - Nur ein falscher Spielcode gegen `header.yaml` sperrt das Zuordnen; Titel, Version, unbekannte SHA-1, ARM7 und Banner warnen.
 - Fehlende Basis-ROM sperrt nie den Build; Export (in 4.1a das einzige Werkzeug, das sie braucht) ist aus und nennt den Grund; Ersatz nur mit gleicher SHA-1.

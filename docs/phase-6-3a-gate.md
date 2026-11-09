@@ -33,11 +33,11 @@ Namen in der Oberfläche (für die Prüfung):
 
 Durchgeführt 2026-11-05 bis 2026-11-06 (Befehle: [docs/agent-gate.md](agent-gate.md), „Phase 6.3a“):
 
-1. **Kopien** unter `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), die Originale nur gelesen:
+1. **Kopien** unter `$HOME/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), die Originale nur gelesen:
    - `6-3a-task0-pt`, `6-3a-task0-hgde`, `6-3a-task0-hgus` (ohne `_DSPRE_contents`, ohne `.nds`): Task 0 und die nur lesenden gated Tests von `tests/world.rs` (Task 5).
    - `6-3a-t8-pt_DSPRE_contents`, `6-3a-t8-hgde_DSPRE_contents`, `6-3a-t8-hgus_DSPRE_contents` je mit `6-3a-t8-<spiel>.nds` daneben: Round-Trip, Export und Migration (Task 8; geschrieben wird nur auf `vanilla_copy()`).
    - `6-3a-web_DSPRE_contents` (Platin DE) mit `6-3a-web.nds`: Browser-Teil (3), eingerichtet über `call.sh open_project`, `assign_base`, `adopt_text_project` (85 s, 6 577 Dateien).
-2. **Worktree:** `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; `tools/` (bzw. `tools/apicula`) als Symlink auf den Haupt-Checkout, nie einchecken; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"` vor jedem Cargo-Aufruf.
+2. **Worktree:** `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut; `tools/` (bzw. `tools/apicula`) als Symlink auf den Haupt-Checkout, nie einchecken; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"` vor jedem Cargo-Aufruf.
 3. **Test-Umgebung** für (3) auf **1460/1461**: `G4_VITE_PORT=1460 G4_BRIDGE_PORT=1461 bash scripts/agent/studio-web.sh` (Log `target/agent/6-3a-web.log`); andere Ports nicht anfassen.
 4. **Ausgaben** im Worktree (nicht im Repo): Logs `target/agent/6-3a-*.log`, Browser-Notiz und JSON-Stände unter `target/agent/gate-2026-11-06/6-3a/`. Den Ordner vor `git worktree remove` sichern.
 5. **Last:** `uptime` vor und nach den Läufen von Task 14 (`target/agent/6-3a-t14-load.log`). Die Maschine teilten sich während der Tasks bis zu drei Worktrees (6.1, 6.2, 6.3a); die Zeiten der Tasks sind unter Last gemessen, ihre Last ist nicht notiert. Zeitgrenzen gelten nur mit `G4_TIMING_STRICT=1`; ein roter Zeittest unter Last wird allein wiederholt, die Grenze nie gelockert.

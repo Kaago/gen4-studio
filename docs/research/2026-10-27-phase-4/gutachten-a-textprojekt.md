@@ -1,6 +1,6 @@
 # Gutachten A: Textprojekt (Phase 4.3)
 
-Stand: 26.10.2026. Gutachter: Architektur-Review (nur lesend am Code, mit Messungen). Repo: `/Users/POLTEP/Projekte/lab/editor/gen4-studio`, Branch `main` (`2c79058`).
+Stand: 26.10.2026. Gutachter: Architektur-Review (nur lesend am Code, mit Messungen). Repo: `$HOME/Projekte/lab/editor/gen4-studio`, Branch `main` (`2c79058`).
 Datenbasis: frische APFS-Klone der drei Vanilla-Projekte (Platin DE `CPUD`, HeartGold DE `IPKD`, HeartGold US `IPKE`) unter `Roms/_testkopien/4-gutachten-a-*`, nach der Messung gelöscht. Die Originale unter `Roms/` blieben unberührt.
 
 Werkzeuge in diesem Ordner (sie geben nur Zahlen aus, keine ROM-Inhalte):

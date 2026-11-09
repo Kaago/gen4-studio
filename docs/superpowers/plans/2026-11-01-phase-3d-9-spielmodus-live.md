@@ -10,7 +10,7 @@
 
 **Spec:** [2026-10-30-phase-3d-erzaehlen-design.md](../specs/2026-10-30-phase-3d-erzaehlen-design.md) (§2 „Spielstand im RAM“, **§3.6 Spielmodus live** wörtlich, §4 Zeile 3d.9 wörtlich, §6 „Fläche „Flags und Variablen“ mit Live-Spalte“, §7 „Spielmodus live“, §8); [entscheidungen.md](../../research/2026-10-30-phase-3d/entscheidungen.md) (Tabelle „Phasenschnitt“ Zeile 3d.9, Zeile „Spielmodus live“, offene Frage Z. 113 geklärt); [probe-gdb-stub.md](../../research/2026-10-30-phase-3d/probe-gdb-stub.md) (Messungen, Eigenheiten 1 bis 10, „Empfohlene Arbeitsweise der App“, „Was die App dem Nutzer sagen muss“); [gutachten-b-flags-variablen-live.md](../../research/2026-10-30-phase-3d/gutachten-b-flags-variablen-live.md) §4.2 (Lage im RAM), §4.3 (Schreiben: Platin Flag `0x173` Figur im Zimmer, Variable `0x40A5` Auslöser bei (4, 5); HeartGold Flags `0x2A9`–`0x2AB`), §4.4; Design-System `design-system/README.md` Z. 32, 79, 153, 192, 705 und `Audit-Design-System.md` Z. 70 („Scharnier in Bernstein, „Spielt in melonDS“, „Neu laden“, „Stoppen““).
 
-Stand 01.11.2026: `main` bei `79eb730` (3d.1, 3d.2, 3d.3 Teil A, 4.5 gemergt; Gate grün). Arbeit im Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-9`, Branch `phase-3d-9-spielmodus-live` (von main abgezweigt, wenn der Hauptorchestrator ihn anlegt; die Basis kann 3d.4/3d.5/3d.6 enthalten, das ändert für diesen Plan nichts). Parallel laufen 3d.4, 3d.5, 3d.6 (Teil A/B) und 3d.3 Teil B in eigenen Worktrees.
+Stand 01.11.2026: `main` bei `79eb730` (3d.1, 3d.2, 3d.3 Teil A, 4.5 gemergt; Gate grün). Arbeit im Worktree `$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-9`, Branch `phase-3d-9-spielmodus-live` (von main abgezweigt, wenn der Hauptorchestrator ihn anlegt; die Basis kann 3d.4/3d.5/3d.6 enthalten, das ändert für diesen Plan nichts). Parallel laufen 3d.4, 3d.5, 3d.6 (Teil A/B) und 3d.3 Teil B in eigenen Worktrees.
 
 ## Befunde vor dem Plan (01.11.2026, main `79eb730`)
 
@@ -50,10 +50,10 @@ Stand 01.11.2026: `main` bei `79eb730` (3d.1, 3d.2, 3d.3 Teil A, 4.5 gemergt; Ga
 
 ## Global Constraints
 
-- Arbeitsort ist der Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-9` auf dem Branch `phase-3d-9-spielmodus-live`: nie `cd` in die Hauptkopie, nie den Branch wechseln, nie nach main mergen, kein `git stash`. `tools/` ist dort ein Symlink (nie einchecken).
+- Arbeitsort ist der Worktree `$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-9` auf dem Branch `phase-3d-9-spielmodus-live`: nie `cd` in die Hauptkopie, nie den Branch wechseln, nie nach main mergen, kein `git stash`. `tools/` ist dort ein Symlink (nie einchecken).
 - Vor jedem cargo-Aufruf `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"`; `pnpm install` einmal in `apps/studio`.
 - Commits enden mit `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` (ASCII-`@`).
-- Originale unter `/Users/POLTEP/Projekte/lab/editor/Roms` nie öffnen oder ändern; Testkopien nur unter `Roms/_testkopien/3d-9-<zweck>` (`cp -cR` für Ordner, `cp -c` für `.nds`, beide nebeneinander); `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; Spielstände nur als Kopien aus `_testkopien/_saves/`. Keine ROM-Daten ins Repo; Fixtures synthetisch (ein 4-MiB-RAM-Abbild im Test entsteht aus Nullen plus gesetzten Bytes, nie aus einem Spiel).
+- Originale unter `$HOME/Projekte/lab/editor/Roms` nie öffnen oder ändern; Testkopien nur unter `Roms/_testkopien/3d-9-<zweck>` (`cp -cR` für Ordner, `cp -c` für `.nds`, beide nebeneinander); `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut; Spielstände nur als Kopien aus `_testkopien/_saves/`. Keine ROM-Daten ins Repo; Fixtures synthetisch (ein 4-MiB-RAM-Abbild im Test entsteht aus Nullen plus gesetzten Bytes, nie aus einem Spiel).
 - **Die Konfiguration des Nutzers** `~/Library/Preferences/melonDS/melonDS.toml` wird von Tests **nie** gelesen oder geschrieben: `melonds.rs` nimmt den Pfad als Parameter, Tests arbeiten in `tempfile`-Ordnern. Startet ein Test oder der UI-Test das echte melonDS, dann nur mit einer Testkopie und nach einer Sicherung der Datei, die am Ende byte-gleich zurückkommt (Muster `probe-gdb-stub.md` „Aufräumen“).
 - Der GDB-Port des `g4emu`-Stubs in Tests und im UI-Test ist **3390** (nie 3333/3334); Unit-Tests binden Port 0 und lesen den vergebenen Port.
 - Test-Umgebung nur auf `G4_VITE_PORT=1790 G4_BRIDGE_PORT=1791`; andere Ports nie anfassen.
@@ -332,7 +332,7 @@ Stand 01.11.2026: `main` bei `79eb730` (3d.1, 3d.2, 3d.3 Teil A, 4.5 gemergt; Ga
   6. repl `quit`.
   Record `took_ms` of status and set in the test output (printed), expect ≤ 100 ms only under `G4_TIMING_STRICT=1`.
 
-- [ ] **Step 6: Run** on a fresh copy: `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4K_BIN=$PWD/target/debug/g4k bash -c 'cd scripts/g4emu && uv run pytest -m integration -k live -q'` → PASS on the three games (note the result of step 2 per game in the ledger).
+- [ ] **Step 6: Run** on a fresh copy: `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms G4K_BIN=$PWD/target/debug/g4k bash -c 'cd scripts/g4emu && uv run pytest -m integration -k live -q'` → PASS on the three games (note the result of step 2 per game in the ledger).
 
 - [ ] **Step 7: Commit** `feat(g4emu): GDB stub server, repl and the live gate against g4k`
 

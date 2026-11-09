@@ -36,13 +36,13 @@ Namen in der Oberfläche (für die Prüfung):
 
 Durchgeführt 2026-11-07 bis 2026-11-09 (Befehle: [docs/agent-gate.md](agent-gate.md), „Phase 6.5b“):
 
-1. **Kopien** unter `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), das Ziel existierte vorher nicht, die Originale nur gelesen:
+1. **Kopien** unter `$HOME/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), das Ziel existierte vorher nicht, die Originale nur gelesen:
    - `6-5b-pt`, `6-5b-hgde`, `6-5b-hgus` (je `_DSPRE_contents` mit `.nds`): gated Tests (Tasks 10, 10b; geschrieben wird nur auf `vanilla_copy()`).
    - `6-5b-szen-pt2`, `6-5b-szen-hg2` mit `.nds`: Szenarien (Task 11, gebaut, verbraucht; `6-5b-szen-pt`/`-hg` sind vom ersten, gescheiterten Versuch ohne `KOPIE` verbraucht). Ein neuer Lauf braucht `6-5b-szen-pt3`/`-hg3`.
    - `6-5b-web` (Platin DE) mit `.nds`: Browser-Teil, eingerichtet mit `g4k import-samples <Kopie>/import`, `call.sh open_project`, `assign_base`, `adopt_text_project` (2 min 07 s), `world_create {"req":{"map":0}}`, `save`.
    - `6-5b-web2` (Platin DE) mit `.nds`: Browser-Nachprüfung nach der Fix-Welle (2026-11-09), eingerichtet wie `6-5b-web` (`adopt_text_project` 56 s).
    - `6-5b-probe`: Messungen der Tasks (apicula-Ausgabe für Vanilla-Karten), nicht Teil des Gates.
-2. **Worktree:** `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; `tools` als Symlink auf den Haupt-Checkout (nie einchecken); `G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula`; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"`.
+2. **Worktree:** `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut; `tools` als Symlink auf den Haupt-Checkout (nie einchecken); `G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula`; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"`.
 3. **Test-Umgebung** auf **1580/1581** (`G4_VITE_PORT=1580 G4_BRIDGE_PORT=1581 bash scripts/agent/studio-web.sh`); 6.4a lief parallel auf 1560/1561, andere Ports nicht angefasst.
 4. **Ausgaben** im Worktree (nicht im Repo): Logs `target/agent/6-5b/*.log`, Bilder und Browser-Notiz unter `target/agent/gate-2026-11-07/6-5b/` (Ordnername nach Vorgabe, Läufe 2026-11-08), die Nachprüfung nach der Fix-Welle unter `target/agent/gate-2026-11-09/6-5b/` (Notiz `browser-b1.md`, Bilder daneben). Den Ordner vor `git worktree remove` sichern.
 5. **Last:** die Maschine teilten sich zwei bis drei Worktrees (6.4a parallel); `uptime` steht am Kopf jedes Logs. Task 10: 1-Minuten-Last 5,7 bis 21,4; Task 10b: 6,4 bis 13,0; Task 11: 3,8 bis 20,5; Task 13: 15,8 bis 19,0; Fix-Welle (Workspace-Lauf): 2,0 vor, 10,8 danach, dazwischen um 18; Browser-Nachprüfung: 2,8 vor, 1,7 am Ende. Kein Zeittest riss; ein roter Zeittest unter Last wird allein wiederholt, die Grenze nie gelockert.
@@ -115,7 +115,7 @@ Kein Test riss unter Last; keine Wiederholung und kein Fix nötig. Dieselben Zah
 
 ## (4) Hand und Blick
 
-Was nur der Nutzer beurteilen kann, der Reihe nach (die Kopien liegen unter `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/`, die Bilder im Worktree unter `target/agent/gate-2026-11-07/6-5b/`):
+Was nur der Nutzer beurteilen kann, der Reihe nach (die Kopien liegen unter `$HOME/Projekte/lab/editor/Roms/_testkopien/`, die Bilder im Worktree unter `target/agent/gate-2026-11-07/6-5b/`):
 
 1. [ ] **Blick auf die Spielbilder** (Agent + Blick): `pt-freiform/freiform.png` und `hg-freiform/freiform.png` öffnen. Darauf achten: der Würfel steht zwei Kacheln breit nördlich des Spielers, Schachbrett orange-blau (nicht vertauscht), auf dem Boden (kein Schweben, kein Versinken), Oberseite heller als die Front; der gemalte Boden ringsum unverändert wie in den Bildern von `pt-gemalt`. Beim Nutzer offen.
 2. [ ] **Blick auf die Browser-Bilder** (Agent + Blick): `blick-freiform-szene-{hell,dunkel,kompakt}.png` und `blick-freiform-wuerfel-zoom-*.png` (Würfel in der Szene, Textur richtig orientiert), `blick-freiform-dialog-{hell,dunkel,kompakt}.png` (Zeile „Freiform (glTF)“, „Lage“, Budget lesbar), `blick-tmj-export-*.png` und `blick-tmj-keine-aenderung-{hell,dunkel}.png` (Wortlaut, Kontrast), `blick-form2-binaer-*.png` gegen `blick-form2-gltf-*.png` (der gebackene Raum gleicht dem Vanilla-Raum: Wände, Boden, Teppich an ihrem Platz, Texturen nicht verzogen). Beim Nutzer offen.

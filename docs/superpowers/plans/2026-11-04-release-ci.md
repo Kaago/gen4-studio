@@ -27,9 +27,9 @@
 - **Sprache:** Kommentare in Skripten und Rust auf Englisch, Dokumente und Ausgaben für Nutzer auf Deutsch, wie im Repo.
 - **Umgebung im Worktree:**
   - `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"` vor `cargo`;
-  - Symlink `tools -> /Users/POLTEP/Projekte/lab/editor/gen4-studio/tools`;
+  - Symlink `tools -> $HOME/Projekte/lab/editor/gen4-studio/tools`;
   - `pnpm install` in `apps/studio`;
-  - `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` für das volle Gate.
+  - `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` für das volle Gate.
 
 ## Review-Fokus
 

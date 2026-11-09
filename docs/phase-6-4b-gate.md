@@ -45,11 +45,11 @@ Namen in der Oberfläche (für die Prüfung):
 
 Durchgeführt 2026-11-08 (Befehle: [docs/agent-gate.md](agent-gate.md), „Phase 6.4b“):
 
-1. **Kopien** unter `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), die Ziele existierten vorher nicht, die Originale nur gelesen:
+1. **Kopien** unter `$HOME/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), die Ziele existierten vorher nicht, die Originale nur gelesen:
    - `6-4b-pt_DSPRE_contents`, `6-4b-hgde_DSPRE_contents`, `6-4b-hgus_DSPRE_contents` je mit `.nds` daneben: gated Tests (Task 9; geschrieben wird nur auf `vanilla_copy()`).
    - `6-4b-web` (Platin DE, `_DSPRE_contents` mit `.nds`): Browser-Teil (Task 8b), eingerichtet mit `g4k git init .` („Ausgangsstand“, 18 449 Dateien), `call.sh open_project`, `assign_base`, `adopt_text_project` (2:24 min), Commit „Textprojekt“, nach „Tileset im Projekt anlegen“ Commit „Tileset angelegt“ (`0a83246a`). Die Kopie bleibt als Beleg.
    - `6-4b-szen-pt`, `6-4b-szen-hg`: Szenarien `pt-klippe`/`hg-klippe` (Task 10); `6-4b-gemalt-pt`, `6-4b-gemalt-hg`: Regression `pt-gemalt`/`hg-gemalt`. Nach `build` ist eine Kopie verbraucht; ein weiterer Lauf braucht frische Namen (z. B. `-pt2`).
-2. **Worktree:** `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
+2. **Worktree:** `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut; `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
 3. **Test-Umgebung** auf **1600/1601**: `G4_VITE_PORT=1600 G4_BRIDGE_PORT=1601 bash scripts/agent/studio-web.sh`; andere Ports nicht angefasst (1580/1581 gehören 6.5b). Vite im Worktree bemerkt Dateiänderungen nicht: nach einer Codeänderung neu starten. Nach dem Lauf beendet (1600/1601 frei).
 4. **Ausgaben** im Worktree (nicht im Repo): Logs `target/agent/6-4b/*.log`, Notiz und Bilder unter `target/agent/gate-2026-11-08/6-4b/` (`browser.md`, 17 × `blick-*.png`; Szenarien `pt-klippe/`, `hg-klippe/`, `pt-gemalt/`, `hg-gemalt/`). Den Ordner vor `git worktree remove` sichern.
 5. **Last:** `uptime` vor jedem langen Lauf, in den Logs und den Tabellen unten notiert (1-Minuten-Last 5 bis 32; die Maschine teilten sich mehrere Worktrees). Ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.

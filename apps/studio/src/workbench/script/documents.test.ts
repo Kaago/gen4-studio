@@ -66,8 +66,8 @@ describe("scriptUri", () => {
   });
 
   it("encodes_spaces_but_not_parentheses_in_a_rom_project_path", () => {
-    expect(scriptUri("/Users/POLTEP/Projekte/lab/editor/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents", 1)).toBe(
-      "file:///Users/POLTEP/Projekte/lab/editor/Roms/Pokemon%20-%20Platin-Edition%20(Germany)_DSPRE_contents/expanded/scripts/0001.rotom",
+    expect(scriptUri("/Users/maker/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents", 1)).toBe(
+      "file:///Users/maker/Roms/Pokemon%20-%20Platin-Edition%20(Germany)_DSPRE_contents/expanded/scripts/0001.rotom",
     );
   });
 

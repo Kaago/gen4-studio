@@ -23,7 +23,7 @@ Namen in der Oberfläche (Rollen und `data-*` für die Prüfung):
 
 Wird beim Lauf ausgefüllt (Zeitpunkt, Stand, Last); die Anleitung dazu:
 
-1. **Frische Kopien** unter `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`) aus den Originalen (`ls /Users/POLTEP/Projekte/lab/editor/Roms`; die Originale werden nie geöffnet oder geändert); Ordner `3d-4-<zweck>_DSPRE_contents` und `.nds` `3d-4-<zweck>.nds` direkt nebeneinander:
+1. **Frische Kopien** unter `$HOME/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`) aus den Originalen (`ls $HOME/Projekte/lab/editor/Roms`; die Originale werden nie geöffnet oder geändert); Ordner `3d-4-<zweck>_DSPRE_contents` und `.nds` `3d-4-<zweck>.nds` direkt nebeneinander:
    - `3d-4-pt` (Platin DE, CPUD), `3d-4-hgde` (HeartGold DE, IPKD), `3d-4-hgus` (HeartGold US, IPKE) für (1); die Tests schreiben nur auf `vanilla_copy()`;
    - `3d-4-kpt`, `3d-4-khgde`, `3d-4-khgus` für (2), je als Textprojekt mit Basis-ROM eingerichtet (siehe unten, `g4k base assign`, `g4k text adopt`, dann `g4k git init`, Commit „Ausgangsstand“, damit `git status` etwas sagt);
    - `3d-4-web` (Platin DE) und `3d-4-hgweb` (HeartGold DE) für (3) und MCP über die Brücke, ebenso eingerichtet (vor dem Öffnen in der Seite; oder in der App „Textprojekt einrichten“ in Technik › Textprojekt, dann `g4k git init` von außen);
@@ -33,14 +33,14 @@ Wird beim Lauf ausgefüllt (Zeitpunkt, Stand, Last); die Anleitung dazu:
    **Einrichten als Textprojekt** (für (2) und (3), Kopien `3d-4-k*`, `3d-4-web`, `3d-4-hgweb`; ohne das lehnt `delete_entity` jeden Grabstein mit „Echtes Löschen gibt es im Textprojekt (Technik › Textprojekt).“ ab und `plan_delete` antwortet `base_missing`): `N=$K/3d-4-<zweck>.nds; P=$K/3d-4-<zweck>_DSPRE_contents; g4k base assign $P $N; g4k text adopt $P; g4k git init $P`; jeder `studio mcp`-Aufruf bekommt dazu `--base-rom $N`. Die Kopien `3d-4-tuer-*` der Szenarien brauchen das nicht: sie löschen nur Events über `delete_event` im DSPRE-Layout, ohne Grabstein und ohne Basis-ROM.
 
    Alle `3d-4-*`-Kopien nach dem Gate löschen (`Manual` und `_saves` bleiben).
-2. **Werkzeuge:** `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"`; `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio` (einzeln, nie zwei Bauten gleichzeitig). `tools/` im Worktree ist ein Symlink auf den Haupt-Checkout (nie einchecken). **`G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut** (der Standard `../Roms` existiert vom Worktree aus nicht).
+2. **Werkzeuge:** `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"`; `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio` (einzeln, nie zwei Bauten gleichzeitig). `tools/` im Worktree ist ein Symlink auf den Haupt-Checkout (nie einchecken). **`G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut** (der Standard `../Roms` existiert vom Worktree aus nicht).
 3. **Test-Umgebung** für (3) nur auf `G4_VITE_PORT=1740 G4_BRIDGE_PORT=1741` (andere Ports nie anfassen): `G4_ROMS_DIR=<absolut> G4_VITE_PORT=1740 G4_BRIDGE_PORT=1741 bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid`; Seite `http://127.0.0.1:1740/?project=<Roms>/_testkopien/3d-4-web_DSPRE_contents`; Chrome headless 1440 × 900, Hell und Dunkel über `prefers-color-scheme` in **einer** CDP-Verbindung mit dem Bild, Kompakt über die Taste der Statusleiste. Beenden: `kill $(cat target/agent/studio-web.pid)`, danach `lsof -iTCP:1740 -iTCP:1741 -sTCP:LISTEN` leer.
 4. **Last:** `uptime` vor und nach jedem Lauf; die Maschine teilen bis zu vier Orchestratoren. Alle Zeiten sind darum „unter Last“ und mit der 1-Minuten-Last zu nennen; Zeitgrenzen gelten nur mit `G4_TIMING_STRICT=1`, sonst druckt der Test.
 5. **Ausgaben** unter `target/agent/3d-4/` (und `target/agent/gate-<Datum>/3d-4/` für die Bilder) im Worktree, nicht im Repo; den Ordner vor `git worktree remove` sichern (auch `target/agent/gate-*`).
 
 ## (1) Automatik
 
-- [ ] 1. **`scripts/gate.sh` grün:** wird in 3d.4 nicht gestartet. Die Hauptsitzung führt es einmal auf main nach dem Merge der Welle aus (`G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms bash scripts/gate.sh > target/agent/gate-sh-3d-4.log 2>&1`, im Hintergrund, allein; unter paralleler Last scheitern seine Zeitgrenzen); die neuen gated Tests laufen dort im Schritt der gated Tests je Projekt mit. Stattdessen laufen die Schritte einzeln (2 bis 4).
+- [ ] 1. **`scripts/gate.sh` grün:** wird in 3d.4 nicht gestartet. Die Hauptsitzung führt es einmal auf main nach dem Merge der Welle aus (`G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms bash scripts/gate.sh > target/agent/gate-sh-3d-4.log 2>&1`, im Hintergrund, allein; unter paralleler Last scheitern seine Zeitgrenzen); die neuen gated Tests laufen dort im Schritt der gated Tests je Projekt mit. Stattdessen laufen die Schritte einzeln (2 bis 4).
 - [x] 2. **Schritte von `scripts/gate.sh`, die 3d.4 berührt**, einzeln aus dem Worktree:
 
   ```sh

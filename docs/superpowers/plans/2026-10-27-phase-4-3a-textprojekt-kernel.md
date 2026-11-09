@@ -57,7 +57,7 @@ Heißt etwas nach dem Merge anders, nimmt die Umsetzung den neuen Namen; ändert
 ## Global Constraints
 
 - Commits enden mit `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`; vor jedem cargo-Aufruf `export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"`.
-- Originale unter `/Users/POLTEP/Projekte/lab/editor/Roms` nie von Hand öffnen oder ändern; Kopien nur unter `Roms/_testkopien/4-3a-<zweck>` (Ordner `4-3a-<zweck>_DSPRE_contents`, `.nds` `4-3a-<zweck>.nds` daneben). Gated Tests lesen `G4_TEST_PROJECT` (von `scripts/gate.sh` gesetzt), arbeiten auf `vanilla_copy()` und finden die Basis-ROM über `suggest_base(vanilla_project())` (nur gelesen), wie `tests/base.rs`.
+- Originale unter `$HOME/Projekte/lab/editor/Roms` nie von Hand öffnen oder ändern; Kopien nur unter `Roms/_testkopien/4-3a-<zweck>` (Ordner `4-3a-<zweck>_DSPRE_contents`, `.nds` `4-3a-<zweck>.nds` daneben). Gated Tests lesen `G4_TEST_PROJECT` (von `scripts/gate.sh` gesetzt), arbeiten auf `vanilla_copy()` und finden die Basis-ROM über `suggest_base(vanilla_project())` (nur gelesen), wie `tests/base.rs`.
 - Keine ROM-Daten ins Repo: keine Member, keine Namen aus dem ROM, keine exportierten JSON echter Projekte. Fixtures sind synthetisch. Die Symboltabellen stammen aus PokeAPI (BSD-3-Clause, Namensnennung in `metadata/symbols/`), pret wird nicht kopiert.
 - Netz nur in Task 2 zum Erzeugen der Symboltabellen, und nur nach dem OK des Nutzers für den Download (Dateien, Quelle, Größe nennen).
 - `g4-formats` bekommt keine serde-Abhängigkeit; die serde-Typen leben in `textproject`. Jeder Entitätstyp trägt `#[serde(deny_unknown_fields)]`, der generische Abbilder prüft Schlüssel selbst gleich streng.

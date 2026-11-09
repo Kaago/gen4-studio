@@ -2,7 +2,7 @@
 
 Date: 2026-10-23. Everything under `Roms/` was only read. Abbreviations:
 `U` = `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uxie-0.9.7/src`,
-`K` = `gen4-studio/crates/g4-kernel/src`, `D` = `/Users/POLTEP/Projekte/lab/editor/DSPRE/DS_Map` (DSPRE main, commit e751187, 2026-10-13).
+`K` = `gen4-studio/crates/g4-kernel/src`, `D` = `$HOME/Projekte/lab/editor/DSPRE/DS_Map` (DSPRE main, commit e751187, 2026-10-13).
 PtDE = Platin DE (CPUD), HGDE = HeartGold DE (IPKD), HGUS = HeartGold US (IPKE).
 
 ## How this was verified

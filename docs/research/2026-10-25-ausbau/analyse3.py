@@ -1,6 +1,6 @@
 import json, os, collections
 S = "/private/tmp/claude-502/-Users-POLTEP-Projekte-lab-editor/9f273377-94af-440d-941f-e4c16f1f49e1/scratchpad/data"
-ROMS = "/Users/POLTEP/Projekte/lab/editor/Roms"
+ROMS = os.path.expanduser("~/Projekte/lab/editor/Roms")
 exec(open("/private/tmp/claude-502/-Users-POLTEP-Projekte-lab-editor/9f273377-94af-440d-941f-e4c16f1f49e1/scratchpad/analyse.py").read().split("for folder, fam")[0])
 for folder, tag in [("Pokemon - Platin-Edition (Germany)", "PokemonPlatinEditionGermany"), ("Pokemon - Goldene Edition HeartGold (Germany)", "PokemonGoldeneEditionHeartGoldGermany")]:
     d = json.load(open(os.path.join(S, tag + ".json"))); H = d["H"]; internal = {int(k): v for k, v in d["internal"].items()}; loc = {int(k): v for k, v in d["locname"].items()}
