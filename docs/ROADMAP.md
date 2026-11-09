@@ -438,7 +438,7 @@ Stand nach 3b.3a: Plan-Task 0 hat die Paletten-Tabelle bestätigt, die Pokémon-
 
 Das Release 1.0.0 (Open Source unter MIT, in Englisch und Deutsch bedienbar) hat einen bewusst engen Umfang; was danach kommt, steht in der Spezifikation [docs/superpowers/specs/2026-11-09-open-source-release-v1-design.md](superpowers/specs/2026-11-09-open-source-release-v1-design.md) (Abschnitt 2, „Nicht in diesem Vorhaben“) und hier:
 
-- **Landingpage `gen4studio.dev`:** Die Domain hat keine NS-Einträge (vermutlich frei); bis eine Landingpage steht, ist die Homepage des Repositories das README.
+- **Landingpage `gen4studio.dev`:** Die Domain hat keine NS-Einträge; bis eine Landingpage steht, ist die Homepage des Repositories das README.
 - **Linux-Build:** Linux ist heute Best-Effort und nicht Teil der Builds; ein Linux-Paket kommt später.
 - **Developer ID und Notarisierung:** Das macOS-DMG ist ad-hoc signiert und nicht notarisiert (Gatekeeper fragt beim ersten Start, siehe `docs/release.md`); die Schritte für die Developer-ID-Signatur und die Notarisierung sind vorbereitet (`scripts/release-local.sh`, `sign_notarize`). Dazu gehören ein Signaturzertifikat für Windows und Auto-Update.
 - **`docs/formats` auf Englisch:** Die 40 Format-Dokumente sind deutsch mit einem englischen Kopfabsatz; die vollständige englische Fassung folgt.

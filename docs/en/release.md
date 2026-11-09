@@ -6,7 +6,7 @@ Gen4 Studio ships as a DMG for macOS (arm64) and as an NSIS installer for Window
 hermetic sources: no ROM, no save game, no secret. `scripts/release-local.sh` builds the DMG on the maintainer's Mac, which also
 creates the tag and the draft release; only the installer is built by the `release.yml` workflow on a hosted Windows runner,
 started by hand. The CI workflow `ci.yml` runs on every pull request and every push to `main` (section "Workflows, tags and
-versions"). This document describes both bundles, the way from tag to release, the licence notices and the prepared signing step.
+versions"). This document describes both bundles, the way from tag to release, the license notices and the prepared signing step.
 The acceptance with a ROM and with the finished package is in `docs/release-ci-gate.md` (German).
 
 The bundle contains third-party components so that the app runs without the development tree:
@@ -46,10 +46,10 @@ In detail, `pnpm bundle` does this:
 1. `scripts/prepare-bundle.sh` runs `cargo build --release -p studio` (which produces `target/release/libnitroarc_ffi.dylib`)
    and copies apicula to `src-tauri/binaries/apicula-<target triple>`, `rotom-lsp` to
    `src-tauri/binaries/rotom-lsp-<target triple>` (with rpath, re-signed) and the dylib to
-   `src-tauri/frameworks/libnitroarc_ffi.dylib`. It also generates the licence notices (section "Licence notices").
+   `src-tauri/frameworks/libnitroarc_ffi.dylib`. It also generates the license notices (section "License notices").
    If a source is missing, the script aborts with an error message. The target folders are excluded by `.gitignore`.
 2. `tauri build` puts `externalBin` in `Contents/MacOS/`, `macOS.frameworks` in `Contents/Frameworks/` and the
-   licence notices in `Contents/Resources/licenses/`. The result is `target/release/bundle/macos/Gen4 Studio.app`.
+   license notices in `Contents/Resources/licenses/`. The result is `target/release/bundle/macos/Gen4 Studio.app`.
 
 The DMG is made by `scripts/release-local.sh` with `pnpm bundle -- --bundles app,dmg` and `CI=true`: Tauri's DMG script then skips
 styling the Finder window through AppleScript (on the runner this step was built for, it failed without a desktop session;
@@ -182,7 +182,7 @@ Procedure: `version.sh set`, add a section to `CHANGELOG.md`, `scripts/gate.sh`,
 `bash scripts/release-local.sh vX.Y.Z` (tag, push, draft with the DMG), `gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false`
 (adds the installer), check the draft and publish it.
 
-## Licence notices
+## License notices
 
 Every bundle contains the folder `licenses/` (macOS `Contents/Resources/licenses/`, Windows `<installation folder>\licenses\`):
 
@@ -190,13 +190,13 @@ Every bundle contains the folder `licenses/` (macOS `Contents/Resources/licenses
   `cargo-about` supplies the Rust crates (template `about.hbs`, allowlist `about.toml`, which matches the list in `deny.toml`
   exactly), followed by the production packages of `apps/studio` from `pnpm licenses`.
 - the GPL and LGPL texts of nitroarc and `nitroarc-AUSTAUSCH.txt` (the instructions below, in the package);
-- the licences of apicula (0BSD) and rotom (MIT).
+- the licenses of apicula (0BSD) and rotom (MIT).
 
-`cargo-about` is a build tool (licence MIT OR Apache-2.0), not a dependency of the product. Its version is
+`cargo-about` is a build tool (license MIT OR Apache-2.0), not a dependency of the product. Its version is
 `CARGO_ABOUT_VERSION` in `scripts/tool-versions.env`.
 
-The licence check stays strict: `cargo deny` (`deny.toml`) and `scripts/check-licenses-npm.sh` allow only the allowlist.
-The same holds for the GitHub Actions: `.github/actions-allowlist.txt` names every permitted action with its licence,
+The license check stays strict: `cargo deny` (`deny.toml`) and `scripts/check-licenses-npm.sh` allow only the allowlist.
+The same holds for the GitHub Actions: `.github/actions-allowlist.txt` names every permitted action with its license,
 and `scripts/check-actions.sh` checks that every `uses:` line is pinned to a 40-character SHA and is on the list.
 That is why there is no `Swatinem/rust-cache` (LGPL-3.0); the cache runs through `actions/cache` (MIT).
 

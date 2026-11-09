@@ -37,11 +37,14 @@ test_german_and_english_docs_link_each_other_in_line_one() {
 }
 
 test_every_format_doc_has_an_english_lead() {
-  local f n=0
+  local f lead n=0
   for f in "$REPO_ROOT"/docs/formats/*.md; do
     n=$((n + 1))
-    head -n "$LEAD_LINES" "$f" | grep -qF '**In English:**' ||
-      fail "docs/formats/$(basename "$f"): no '**In English:**' in the first $LEAD_LINES lines"
+    lead="$(head -n "$LEAD_LINES" "$f")"
+    case "$lead" in
+      *'**In English:**'*) ;;
+      *) fail "docs/formats/$(basename "$f"): no '**In English:**' in the first $LEAD_LINES lines" ;;
+    esac
   done
   [ "$n" -ge 40 ] || fail "docs/formats has $n files, expected at least 40"
 }
@@ -52,16 +55,25 @@ test_changelog_has_a_1_0_0_section() {
     fail "changelog-section.sh 1.0.0 failed"
   n="$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
   [ "$n" -ge 4 ] || fail "the 1.0.0 section has $n lines, expected at least 4"
-  grep -qF '## [1.0.0] - unreleased' "$REPO_ROOT/CHANGELOG.md" ||
-    fail "CHANGELOG.md: heading '## [1.0.0] - unreleased' is missing"
+  # Whatever follows the dash: "unreleased" now, the release date later.
+  grep -q '^## \[1\.0\.0\] - ' "$REPO_ROOT/CHANGELOG.md" ||
+    fail "CHANGELOG.md: heading '## [1.0.0] - ...' is missing"
+}
+
+# The body of the "## Nach 1.0.0" section of the roadmap (up to the next `## ` heading).
+roadmap_after_1_0_0() {
+  awk '/^## / { in_section = ($0 ~ /^## Nach 1\.0\.0/); next } in_section' "$REPO_ROOT/docs/ROADMAP.md"
 }
 
 test_roadmap_lists_the_work_after_1_0_0() {
-  local term
-  grep -q '^## .*Nach 1\.0\.0' "$REPO_ROOT/docs/ROADMAP.md" ||
-    fail "docs/ROADMAP.md: section 'Nach 1.0.0' is missing"
-  for term in gen4studio.dev Linux Notarisierung "Git LFS"; do
-    grep -qF "$term" "$REPO_ROOT/docs/ROADMAP.md" || fail "docs/ROADMAP.md: no mention of '$term'"
+  local section term
+  section="$(roadmap_after_1_0_0)"
+  [ -n "$section" ] || fail "docs/ROADMAP.md: section 'Nach 1.0.0' is missing or empty"
+  for term in gen4studio.dev Linux "Developer ID" Notarisierung "docs/formats" "Git LFS" Galerie OpenPencil; do
+    case "$section" in
+      *"$term"*) ;;
+      *) fail "docs/ROADMAP.md: the section 'Nach 1.0.0' does not mention '$term'" ;;
+    esac
   done
 }
 
@@ -69,7 +81,7 @@ test_roadmap_lists_the_work_after_1_0_0() {
 # right-click way second (macOS 14 and earlier), and keeps the xattr line. The German original uses
 # the German name of the button.
 line_of() { # line_of <file> <fixed text>: the first line number that contains the text, or empty
-  grep -nF -e "$2" "$REPO_ROOT/$1" | head -n 1 | cut -d: -f1
+  awk -v text="$2" 'index($0, text) { print NR; exit }' "$REPO_ROOT/$1"
 }
 
 check_gatekeeper_order() { # check_gatekeeper_order <file> <first text> <second text>

@@ -1,7 +1,7 @@
 # Tileset (Kacheln eines Kartentextur-Pakets, Phasen 6.3a, 6.3b, 6.4a, 6.5b und 6.4b)
 
 **In English:** Documents the tileset: for each texture of a map texture pack, how it acts as a tile
-of a world-format map (its role on the ground, default permissions, height behaviour, wall texture
+of a world-format map (its role on the ground, default permissions, height behavior, wall texture
 and the footprint of a partial model), plus the edge sets that the terrain and cliff brushes use. It
 is stored per pack as `data/tilesets/NNNN.json` or derived from the pack and the vanilla
 permissions; a tileset derived from a ROM contains texture names and is never checked in to the Gen4

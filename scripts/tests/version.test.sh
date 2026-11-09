@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/version.sh, on a copy of Cargo.toml, package.json and CHANGELOG.md.
+# Tests for scripts/version.sh, on a copy of Cargo.toml and package.json and a fixture changelog.
 set -euo pipefail
 
 . "$(dirname "$0")/lib.sh"

@@ -775,7 +775,7 @@ Ein Claude-Agent bedient die App und das Spiel selbst; die Anleitung dafür steh
 
 ## MCP (`studio mcp`)
 
-Seit 3h.1 gibt es einen MCP-Server für Coding-Agenten (seit 3h.2 liest und bearbeitet er kopflos), in der Programmdatei der App selbst: `studio mcp` (Unterbefehl vor dem Start von Tauri, `src/main.rs` ruft `studio_lib::mcp::main`). Er ist Produktcode ohne Cargo-Feature, nutzt dieselbe Befehlsschicht `dispatch` wie die Brücke und das Protokoll über stdio mit `rmcp` (3.7.0). Für Nutzer steht die Anleitung in [docs/mcp.md](mcp.md); hier steht, was Entwickler brauchen. Module in `apps/studio/src-tauri/src/mcp/`: `mod.rs` (Kommandozeile, Schutz von stdout), `catalog.rs` (die 41 Werkzeuge mit Schemas, Klasse je Befehl in `access.rs`), `tools.rs` (`Toolbox`: Aufruf, `g4_batch`, Ressourcen), `server.rs` (Abbildung auf rmcp), dazu `commands/policy.rs` (`UserPolicy`).
+Seit 3h.1 gibt es einen MCP-Server für Coding-Agenten (seit 3h.2 liest und bearbeitet er kopflos), in der Programmdatei der App selbst: `studio mcp` (Unterbefehl vor dem Start von Tauri, `src/main.rs` ruft `studio_lib::mcp::main`). Er ist Produktcode ohne Cargo-Feature, nutzt dieselbe Befehlsschicht `dispatch` wie die Brücke und das Protokoll über stdio mit `rmcp` (3.7.0). Für Nutzer steht die Anleitung in [docs/mcp.md](mcp.md); hier steht, was Entwickler brauchen. Module in `apps/studio/src-tauri/src/mcp/`: `mod.rs` (Kommandozeile, Schutz von stdout), `catalog.rs` (die 90 Werkzeuge mit Schemas, Klasse je Befehl in `access.rs`), `tools.rs` (`Toolbox`: Aufruf, `g4_batch`, Ressourcen), `server.rs` (Abbildung auf rmcp), dazu `commands/policy.rs` (`UserPolicy`).
 
 **Bauen und Aufrufen:**
 
