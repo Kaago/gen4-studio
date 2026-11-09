@@ -7,11 +7,11 @@
 //! `edge_sets` (6.4b) are the edge sets of the terrain and cliff brushes
 //! ([`super::edge::EdgeSetJson`]; left out when there are none, so files without them read and
 //! write unchanged); [`tileset_problems`] checks each one ([`super::edge::edge_set_problems`])
-//! and refuses two sets of one name. `model` (6.5b, side file `NNNN.<name>.glb`) is reserved:
-//! serde reads it so a later file names its problem instead of an unknown key, and
-//! [`tileset_problems`] refuses it. The only tileset data in the repository is the synthetic
-//! test tilesets of [`Tileset::synthetic`] and `Tileset::synthetic_edges`, made in code (names
-//! `syn_*`).
+//! and refuses two sets of one name. `model` (6.5b) names the side file `PPPP.<name>.glb` of a
+//! piece tile ([`tileset_piece_set`]); [`tileset_problems`] refuses it on a tile that is not
+//! `piece` or with a name against the side file rule. The only tileset data in the repository
+//! is the synthetic test tilesets of [`Tileset::synthetic`] and `Tileset::synthetic_edges`, made
+//! in code (names `syn_*`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

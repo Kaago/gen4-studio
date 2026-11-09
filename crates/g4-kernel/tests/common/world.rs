@@ -1,6 +1,6 @@
 //! Helpers of the gated world tests (`tests/world_bake.rs`, `tests/world_paint.rs`,
-//! `tests/world_smart.rs`): the exported vanilla copy and the cell for a painted map beside
-//! the start town.
+//! `tests/world_smart.rs`, `tests/world_freeform.rs`): the exported vanilla copy and the cell for
+//! a painted map beside the start town.
 #![allow(dead_code)]
 
 use std::path::PathBuf;
