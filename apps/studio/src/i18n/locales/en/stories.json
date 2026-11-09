@@ -24,7 +24,7 @@
     "flags": "Flags and variables",
     "noProject": "No project",
     "notReadable": "Not readable",
-    "reading": "Reading …"
+    "reading": "Reading…"
   },
   "threadsSurface": {
     "title": "Threads",
@@ -32,7 +32,7 @@
     "noProject": "No project open.",
     "noProjectWhy": "Open a project and its threads appear here.",
     "openProject": "Open project",
-    "reading": "Reading …",
+    "reading": "Reading…",
     "noThreads": "No threads.",
     "noThreadsWhy": "No variable has three values at two places.",
     "notAdopted": "No threads: the scripts are not adopted.",
@@ -50,7 +50,7 @@
     "count_one": "{{count, number}} thread",
     "count_other": "{{count, number}} threads",
     "graphHeading": "Graph: {{name}}",
-    "graphReading": "Reading graph …",
+    "graphReading": "Reading graph…",
     "graphLoading": "Loading graph…"
   },
   "storiesSurface": {
@@ -60,12 +60,12 @@
     "noProject": "No project open.",
     "noProjectWhy": "Open a project and its stories appear here.",
     "openProject": "Open project",
-    "reading": "Reading …",
+    "reading": "Reading…",
     "noTextProject": "No text project.",
     "noTextProjectWhy": "Stories live as files in the text project; the DSPRE layout has none. Technical › Text project sets it up.",
     "setUpTextProject": "Set up as a text project…",
     "noStories": "No stories yet.",
-    "noStoriesWhy": "\"New story…\" creates one: a name and the variable or flag that holds its progress.",
+    "noStoriesWhy": "“New story…” creates one: a name and the variable or flag that holds its progress.",
     "table": "Stories",
     "columns": {
       "name": "Name",
@@ -73,20 +73,20 @@
       "steps": "Steps"
     },
     "chooseOne": "Choose a story: its notes, its steps and its graph appear below.",
-    "storyReading": "Reading story …"
+    "storyReading": "Reading story…"
   },
   "storyDetail": {
     "noValues": "No values in the game yet",
-    "noSteps": "No steps yet. \"Create step\" creates them through recipes.",
+    "noSteps": "No steps yet. “Create step” creates them through recipes.",
     "storyLabel": "Story {{name}}",
     "name": "Name",
     "progress": "Progress",
     "deleteStory": "Delete story…",
     "notes": "Notes",
-    "saving": "Saving …",
+    "saving": "Saving…",
     "steps": "Steps",
     "graph": "Graph",
-    "graphReading": "Reading graph …",
+    "graphReading": "Reading graph…",
     "graphLoading": "Loading graph…",
     "columns": {
       "value": "Value",
@@ -94,13 +94,13 @@
       "name": "Name",
       "uses": "References"
     },
-    "madeBy": "Created by \"{{recipe}}\" (Studio {{studio}})",
+    "madeBy": "Created by “{{recipe}}” (Studio {{studio}})",
     "deleteDialog": {
-      "title": "Delete story \"{{name}}\"?",
+      "title": "Delete story “{{name}}”?",
       "text": "The story's file, its layout and its registry entry go. Undo with ⌘Z.",
       "cancel": "Cancel",
       "delete": "Delete",
-      "deleting": "Deleting …"
+      "deleting": "Deleting…"
     }
   },
   "newStoryDialog": {
@@ -113,11 +113,11 @@
     "progressKind": "Kind of progress",
     "stillFree": "{{free}} left",
     "notes": "Notes",
-    "creating": "Creating …"
+    "creating": "Creating…"
   },
   "storyHint": {
-    "story": "Story \"{{name}}\"",
-    "storyStep": "Story \"{{name}}\": {{step}}"
+    "story": "Story “{{name}}”",
+    "storyStep": "Story “{{name}}”: {{step}}"
   },
   "threadGraph": {
     "open": "Open",
@@ -170,7 +170,7 @@
     "label": "Create step"
   },
   "stepField": {
-    "reading": "Reading the steps …",
+    "reading": "Reading the steps…",
     "noStep": "The story has no step yet.",
     "fromStep": "From step",
     "step": "Step"
@@ -182,7 +182,7 @@
     "freeFlags_other": "{{count}} free flags left"
   },
   "figureField": {
-    "figureLabel": "Character {{id}} · Look {{look}}",
+    "figureLabel": "Character {{id}} · Appearance {{look}}",
     "figureShort": "Character {{id}}",
     "noFigureChosen": "None chosen",
     "noPlaceChosen": "None chosen",
@@ -221,13 +221,13 @@
     "cancel": "Cancel",
     "create": "Create",
     "story": "Story",
-    "storiesReading": "Reading the stories …",
+    "storiesReading": "Reading the stories…",
     "noVarStory": "No story with a variable as progress yet.",
     "newStory": "New story…",
     "stepName": "Step name",
-    "creating": "Creating …",
+    "creating": "Creating…",
     "whatItDoes": "What the recipe does",
     "chooseFirst": "Once everything is chosen, what the recipe creates appears here.",
-    "planning": "Planning …"
+    "planning": "Planning…"
   }
 }

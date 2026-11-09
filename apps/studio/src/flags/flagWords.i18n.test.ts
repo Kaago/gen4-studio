@@ -44,6 +44,6 @@ describe("flag words in English", () => {
     const many = flagList("flag", Array.from({ length: 4097 }, (_, i) => flagEntry(i)), { pool_free: 135 });
     expect(flagsSubtitle(many)).toBe("4,097 flags · 135 free");
     expect(flagsSubtitle(flagList("var", [flagEntry(0x4030)], { pool_free: 1 }))).toBe("1 variable · 1 free");
-    expect(flagsSubtitle(null)).toBe("Reading …");
+    expect(flagsSubtitle(null)).toBe("Reading…");
   });
 });

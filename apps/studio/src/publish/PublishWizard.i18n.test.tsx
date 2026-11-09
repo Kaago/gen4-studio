@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PublishWizard } from "./PublishWizard";
+import { dateText } from "./publishWords";
 import { publishReportOf, releasesOf } from "./publishTesting";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,5 +54,12 @@ describe("PublishWizard in English", () => {
     expect(container.querySelector('[aria-label="Version"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Change notes"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="File name"]')).not.toBeNull();
+  });
+
+  it("writes_a_release_day_the_American_way", async () => {
+    await act(() => i18next.changeLanguage("en"));
+    expect(dateText("2026-10-05T12:00:00")).toBe("Oct 5, 2026");
+    await act(() => i18next.changeLanguage("de"));
+    expect(dateText("2026-10-05T12:00:00")).toBe("05.10.2026");
   });
 });

@@ -34,7 +34,7 @@ describe("technik in English", () => {
 
   it("words_the_sync_in_English", async () => {
     await i18next.changeLanguage("en");
-    expect(syncProgressText({ done: 3, total: 40 })).toBe("Syncing with DSPRE … 3 of 40 files");
+    expect(syncProgressText({ done: 3, total: 40 })).toBe("Syncing with DSPRE… 3 of 40 files");
     expect(firstSyncNote()).toBe("The first time takes longer; after that it is quick.");
     expect(buildConflictsText()).toBe("Resolve the conflicts in Technical › Text project first.");
   });

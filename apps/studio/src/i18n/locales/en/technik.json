@@ -14,14 +14,14 @@
     "brokenListCount_other": "{{count}} broken files",
     "moreCount_one": "and {{count}} more difference",
     "moreCount_other": "and {{count}} more differences",
-    "progress": "Syncing with DSPRE … {{done}} of {{total}}\u00a0files",
+    "progress": "Syncing with DSPRE… {{done}} of {{total}}\u00a0files",
     "buildConflicts": "Resolve the conflicts in Technical › Text project first."
   },
   "shared": {
     "noProject": "No project open",
     "noProjectWhat": "No project open.",
     "openProject": "Open project",
-    "reading": "Reading …",
+    "reading": "Reading…",
     "notReadable": "Not readable",
     "cancel": "Cancel",
     "close": "Close",
@@ -145,7 +145,7 @@
       "unsaved_one": "{{count}} entry unsaved",
       "unsaved_other": "{{count}} entries unsaved",
       "baseMissing": "Base ROM missing",
-      "comparing": "Comparing …",
+      "comparing": "Comparing…",
       "notCompared": "Not compared yet",
       "compareFailed": "Comparison failed",
       "noDifference": "No differences",
@@ -163,7 +163,7 @@
       "assignHint": "You assign the base ROM in Technical › Publish.",
       "lead": "Compared with the base ROM {{label}}. The saved state is counted.",
       "compareAgain": "Compare again",
-      "progress": "Comparing {{done}} of {{total}} files …",
+      "progress": "Comparing {{done}} of {{total}} files…",
       "unbuilt": "Not built yet: {{folders}}. The comparison is faster after the next build."
     },
     "head": {
@@ -190,7 +190,7 @@
       "raw": "Raw data"
     },
     "choose": "Choose an entry in the list, then what changed is shown here.",
-    "loading": "Loading comparison …",
+    "loading": "Loading comparison…",
     "same": "No differences.",
     "deleted": "Deleted",
     "restored": "Restored",
@@ -224,7 +224,7 @@
   },
   "publishSurface": {
     "title": "Publish",
-    "lead": "A patch hands on your changes without the ROM: anyone with the same base ROM applies it with Rom Patcher JS or xdelta3.",
+    "lead": "A patch passes on your changes without the ROM: anyone with the same base ROM applies it with Rom Patcher JS or xdelta3.",
     "noProjectWhy": "Open a project, then publish it here.",
     "plaque": {
       "found": "Found",
@@ -272,13 +272,13 @@
   },
   "textProjectSurface": {
     "title": "Text project",
-    "agentSettingUp": "Being set up by an agent …",
+    "agentSettingUp": "Being set up by an agent…",
     "setUpLead": "The project is in the DSPRE layout. As a text project, every entry gets a readable file under data/, ready for Git; DSPRE keeps opening the folder.",
     "subtitle": {
-      "settingUp": "Being set up …",
+      "settingUp": "Being set up…",
       "dspre": "DSPRE layout",
       "older": "Schema outdated",
-      "syncing": "Syncing …",
+      "syncing": "Syncing…",
       "synced": "Synced"
     },
     "noProjectWhy": "Open a project, then Technical shows its text project here.",
@@ -309,7 +309,7 @@
       "dspre": "DSPRE"
     },
     "worldChanged": "This world map was changed outside Studio.",
-    "readingDifferences": "Reading the differences …",
+    "readingDifferences": "Reading the differences…",
     "differencesAriaLabel": "Differences: {{label}}",
     "discards": "“{{take}}” discards the unsaved changes to this entry.",
     "brokenTitle": "Broken files",
@@ -385,7 +385,7 @@
       "rebuildHint": "Deletes the build state and builds everything anew",
       "run": "Run",
       "runHint": "Build first, then run",
-      "building": "Building ROM …",
+      "building": "Building ROM…",
       "browserMode": "In browser mode the ROM is only built",
       "lastBuild": "Last build",
       "path": "Path",
@@ -393,7 +393,7 @@
       "noBuildYet": "No build in this session yet.",
       "problemsHeading": "Problems",
       "noProblems": "No problems. Errors and warnings from saving and building end up here.",
-      "checking": "Checking the project … The findings of the checks appear here as soon as they are done.",
+      "checking": "Checking the project… The findings of the checks appear here as soon as they are done.",
       "unchecked": "Not checked. {{why}}",
       "noProblemsChecks": "No problems. The checks run after every change; errors and warnings from saving and building end up here."
     },
@@ -414,12 +414,12 @@
       "noProjectWhy": "Open a project, then Technical shows its patches here.",
       "heading": "Dynamic headers",
       "text": "New places need headers of their own. The patch moves the headers into one file per header and changes bytes in the game code (arm9.bin) to do so. DSPRE knows it.",
-      "checking": "Checking the patch …",
+      "checking": "Checking the patch…",
       "brokenText": "The patch calls the wrong function in the game code: the game stays black after the intro. The repair changes 4 bytes in arm9.bin.",
       "apply": "Apply patch",
       "repair": "Repair patch",
-      "applying": "Applying …",
-      "repairing": "Repairing …",
+      "applying": "Applying…",
+      "repairing": "Repairing…",
       "snapshot": "Backup of the old folder: {{path}}",
       "dialogTitle": "Apply the “Dynamic headers” patch?",
       "dialogDescription": "The patch changes bytes in the game code (arm9.bin); the backup arm9.bin.backup is created. Unsaved changes to areas and rooms stay unsaved."

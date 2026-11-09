@@ -57,9 +57,9 @@
   },
   "header.wild-dangling": {
     "title": "Encounters missing",
-    "text": "Header {0:id} names encounter file {1:id}, but there are only {2}. Choose an encounter file in the header, or “none”.",
+    "text": "Header {0:id} names encounter file {1:id}, but there are only {2}. Choose an encounter file in the header, or “None”.",
     "building": {
-      "text": "Place {0:id} names encounter file {1:id}, but there are only {2}. Choose an encounter file for the place, or “none”."
+      "text": "Place {0:id} names encounter file {1:id}, but there are only {2}. Choose an encounter file for the place, or “None”."
     }
   },
   "header.text-split": {
@@ -114,7 +114,7 @@
   },
   "map.buildings-over-limit": {
     "title": "Too many buildings",
-    "text": "Map {0:id} has {1} buildings; the game loads at most {2}, and the rest are missing in the game. Delete buildings or spread them over neighbouring maps."
+    "text": "Map {0:id} has {1} buildings; the game loads at most {2}, and the rest are missing in the game. Delete buildings or spread them over neighboring maps."
   },
   "area.tileset-range": {
     "title": "Textures missing",
@@ -122,7 +122,7 @@
   },
   "place.name-too-long": {
     "title": "Place name too long",
-    "text": "The place name “{1}” is {2} characters long; the game shows at most 16. Shorten it in the inspector of an area (rename place)."
+    "text": "The place name “{1}” is {2} characters long; the game shows at most 16. Shorten it in the inspector of an area (Rename place)."
   },
   "place.index-out-of-bank": {
     "title": "Place missing from the place name bank",

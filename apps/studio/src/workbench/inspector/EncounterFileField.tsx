@@ -6,7 +6,7 @@ import { encounterRowLabel, rowUsers, usedByText } from "../../data/encounters/e
 import { Button, InspectorRow, Picker, Reference } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
 import type { NavTarget } from "../navigation";
-import { id4 } from "../terms";
+import { id4, inSentence } from "../terms";
 import styles from "./Editor.module.css";
 import type { FieldSpec } from "./fields";
 
@@ -73,7 +73,7 @@ export function EncounterFileField({
           ) : (
             <Reference area="pokemon" label={spec.label} tech={id4(value)} onOpen={() => goTo({ kind: "encounter", index: value })} />
           )}
-          <Button kind="quiet" size="s" aria-label={t("inspectorField.changeLabel", { label: spec.label })} disabled={disabled} onClick={() => setPicking(true)}>
+          <Button kind="quiet" size="s" aria-label={t("inspectorField.changeLabel", { label: inSentence(spec.label) })} disabled={disabled} onClick={() => setPicking(true)}>
             {t("inspectorField.change")}
           </Button>
         </div>

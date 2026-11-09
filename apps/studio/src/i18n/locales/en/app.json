@@ -41,14 +41,14 @@
     "expertHint": "Gives agents every command of the kernel, unchecked ones too"
   },
   "agentQuestion": {
-    "connectTitle": "An agent wants access",
+    "connectTitle": "Agent wants access",
     "connectOpenProject": "“{{client}}” wants to access the open project.",
     "connectProject": "“{{client}}” wants to access the project “{{project}}”.",
     "deny": "Deny",
     "read": "Read",
     "write": "Read and edit",
-    "confirmTitle": "An agent wants to do something irreversible",
-    "confirmText": "“{{client}}” wants to: {{what}} (this cannot be undone).",
+    "confirmTitle": "Agent wants to do something irreversible",
+    "confirmText": "“{{client}}” wants to: {{what}} (cannot be undone).",
     "somethingIrreversible": "something irreversible",
     "allow": "Allow"
   },
@@ -204,8 +204,8 @@
   "session": {
     "archives_one": "Text archive {{list}}",
     "archives_other": "Text archives {{list}}",
-    "saveConflict_one": "{{archives}} was changed as text and as game file. The next “Build” decides which version applies.",
-    "saveConflict_other": "{{archives}} were changed as text and as game file. The next “Build” decides which version applies.",
+    "saveConflict_one": "{{archives}} was changed as text and as game file. Choose which version applies at the next “Build”.",
+    "saveConflict_other": "{{archives}} were changed as text and as game file. Choose which version applies at the next “Build”.",
     "staleReload": "Reload (discard your change)",
     "staleReloaded": "Reloaded from disk.",
     "staleKeep": "Keep my version",

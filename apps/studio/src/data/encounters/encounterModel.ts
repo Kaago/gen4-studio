@@ -1,4 +1,5 @@
 import type { DataDocDto, DataPatch, DataRowDto, EncounterMethod, EncounterRowExtra, HeaderSummary, MethodDto, ReplacedByDto, SlotDto } from "../../api";
+import i18next from "i18next";
 import { t } from "../../i18n";
 import type { TableColumn } from "../../ui/primitives";
 import { id4, termLabel } from "../../workbench/terms";
@@ -154,10 +155,20 @@ const WHEN = {
   "at night": "night",
 } as const;
 
-/** When the game uses a replacement entry, in German („von 10 bis 19 Uhr“, „mit Rubin im GBA-Slot“); unknown words stay English. */
+/**
+ * An hour of the kernel's phrase as the language shown writes it: „19“ in German (the sentence says „Uhr“), "7 PM" in English, the
+ * 12-hour clock of `TIME_HOURS`.
+ */
+function hourText(hour: string): string {
+  if (i18next.language === "de") return hour;
+  // `Intl` puts a narrow no-break space before "PM"; the catalog's hours use a plain one.
+  return new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: true }).format(new Date(2000, 0, 1, Number(hour))).replace(/\s/g, " ");
+}
+
+/** When the game uses a replacement entry, in the language shown („von 10 bis 19 Uhr“, "from 10 AM to 7 PM"); unknown words stay English. */
 export function whenText(when: string): string {
   const hours = /^from (\d+) to (\d+) o'clock$/.exec(when);
-  if (hours) return t("data:encounterModel.when.hours", { from: hours[1], to: hours[2] });
+  if (hours) return t("data:encounterModel.when.hours", { from: hourText(hours[1]!), to: hourText(hours[2]!) });
   const gba = /^with (\w+) in the Game Boy Advance slot$/.exec(when);
   if (gba) {
     const game = (GBA as Readonly<Record<string, (typeof GBA)[keyof typeof GBA]>>)[gba[1]!];

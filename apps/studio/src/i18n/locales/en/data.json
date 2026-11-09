@@ -1,5 +1,5 @@
 {
-  "loading": "Loading …",
+  "loading": "Loading…",
   "trainer": {
     "placeholderText": "Placeholder for the sight script",
     "nameTooLong": "At most 7 characters; longer names need an arm9 patch",
@@ -385,7 +385,7 @@
   },
   "type": "Type",
   "uses": {
-    "searching": "Looking for uses …",
+    "searching": "Looking for uses…",
     "unreadable": "Uses cannot be read: {{error}}",
     "usedIn": "Used in"
   },
@@ -609,11 +609,11 @@
       "radar": "with the Poké Radar",
       "trophyGarden": "in the Trophy Garden",
       "greatMarsh": "in the Great Marsh during a Safari Game",
-      "radioHoenn": "with the Hoenn sound on the radio",
-      "radioSinnoh": "with the Sinnoh sound on the radio",
+      "radioHoenn": "with the Hoenn Sound on the radio",
+      "radioSinnoh": "with the Sinnoh Sound on the radio",
       "swarmHeaders": "during a swarm (only at the 20 swarm places)",
       "night": "at night",
-      "hours": "from {{from}}:00 to {{to}}:00",
+      "hours": "from {{from}} to {{to}}",
       "gba": "with {{game}} in the GBA slot"
     },
     "replaces": "{{method}} slot {{slots}}",
@@ -671,13 +671,13 @@
   "encounterList": {
     "usedByNone": "not used by any place",
     "sourceEmpty": "Empty",
-    "sourceCopy": "Copy of …",
+    "sourceCopy": "Copy of…",
     "createTitle": "Create encounter file {{id}}?",
     "createDescription": "It is created right away and used by no place; you can attach it in the inspector of an area or room (field “Encounters”).",
     "sourceLabel": "Content of the new file",
     "templateAria": "Choose a template, currently {{current}}",
     "templateNone": "none",
-    "chooseTemplate": "Choose a template …",
+    "chooseTemplate": "Choose a template…",
     "pickTemplate": "Choose a template",
     "pickPlaceholder": "Search by place or number",
     "created": "Encounter file {{id}} created.",
@@ -866,7 +866,7 @@
     "edit": "Edit {{name}}"
   },
   "pokedexView": {
-    "searching": "Looking for locations …",
+    "searching": "Looking for locations…",
     "placesUnreadable": "Locations cannot be read: {{error}}",
     "places": "Locations",
     "placesCount": "{{places}}, {{trainers}}",
@@ -930,7 +930,7 @@
     "targetLabel": "Target, evolution {{slot}}",
     "noTarget": "no target",
     "chooseTarget": "Choose a target",
-    "change": "Change …",
+    "change": "Change…",
     "methodLabel": "Method, evolution {{slot}}",
     "tableLabel": "Evolutions of {{name}}",
     "footer": "The methods with trade apply on a trade, those with “Use an item” when the item is used, all others on level-up."
@@ -977,7 +977,7 @@
     "toggleOff": "{{name}}: {{machine}} on → off",
     "copyLabel": "{{name}}: TM/HM and learnset like {{source}}",
     "count": "{{on}} of {{total}}",
-    "copyButton": "Copy from another species …",
+    "copyButton": "Copy from another species…",
     "unreadable": "The moves of the TMs and HMs cannot be read: {{error}}",
     "gridLabel": "TMs and HMs",
     "copyTitle": "Copy from another species",

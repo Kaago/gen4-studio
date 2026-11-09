@@ -65,11 +65,11 @@ export function filesLine(files: readonly PublishedFile[]): string {
   return t("publish:publishWords.filesLine", { count: files.length, size: formatBytes(size) });
 }
 
-/** „31.10.2026“ (German), „31 Oct 2026“ (English): the day of an RFC 3339 time, in local time. */
+/** „31.10.2026“ (German), „Oct 31, 2026“ (English): the day of an RFC 3339 time, in local time. */
 export function dateText(rfc3339: string): string {
   const date = new Date(rfc3339);
   if (i18next.language === "de") return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
-  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
 const two = (n: number) => String(n).padStart(2, "0");

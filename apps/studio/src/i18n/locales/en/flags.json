@@ -37,7 +37,7 @@
       "flag": "No free flag in the general range.",
       "var": "No free variable in the general range."
     },
-    "notATextProject": "No text project: IDs only exist after \"Set up as a text project…\".",
+    "notATextProject": "No text project: IDs only exist after “Set up as a text project…”.",
     "namingNeedsTextProject": "{{reason}} (Technical › Text project)",
     "outsideTheSave": "Lies outside the save game.",
     "liveTip": {
@@ -61,7 +61,7 @@
     "notTaken": "Value not accepted, try again.",
     "chooseOne": "Choose a flag or a variable on the left.",
     "noDescription": "No description",
-    "reading": "Reading …",
+    "reading": "Reading…",
     "rename": "Rename…",
     "describe": "Description…",
     "nameAsFlag": "Name as custom flag…",
@@ -81,12 +81,12 @@
     }
   },
   "flagList": {
-    "liveOff": "Available with \"Play here\" in melonDS",
+    "liveOff": "Available with “Play here” in melonDS",
     "live": "Live",
     "listFlags": "Flags",
     "listVars": "Variables",
     "empty": "Nothing matches the filter and search.",
-    "rowLimitNote": "The first {{limit, number}} rows; search and filters reach the rest.",
+    "rowLimitNote": "Showing the first {{limit, number}} rows; search or filter to find the rest.",
     "places_one": "at {{count, number}} place",
     "places_other": "at {{count, number}} places",
     "reserved": "reserved",
@@ -103,16 +103,16 @@
     "titleVar": "Choose variable",
     "placeholder": "Name or number",
     "all": "All",
-    "loading": "Loading …",
+    "loading": "Loading…",
     "takeFreeFlag": "Take free flag",
     "takeFreeVar": "Take free variable",
     "showInList": "Show in list",
-    "cutNote": "The first {{limit, number}} hits; search and range reach the rest."
+    "cutNote": "Showing the first {{limit, number}} hits; search or narrow the range to find the rest."
   },
   "flagsSurface": {
-    "scriptsNotAdopted": "Scripts are not adopted yet: script references are missing from the index, so \"free\" is only a hint.",
-    "ownNamesNote": "Custom names are available in a text project: Technical › Text project › \"Set up as a text project…\".",
-    "reading": "Reading …",
+    "scriptsNotAdopted": "Scripts are not adopted yet: script references are missing from the index, so “free” is only a hint.",
+    "ownNamesNote": "Custom names are available in a text project: Technical › Text project › “Set up as a text project…”.",
+    "reading": "Reading…",
     "flagsCount_one": "{{count, number}} flag · {{free, number}} free",
     "flagsCount_other": "{{count, number}} flags · {{free, number}} free",
     "varsCount_one": "{{count, number}} variable · {{free, number}} free",

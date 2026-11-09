@@ -56,7 +56,7 @@ describe("the data areas in English", () => {
     expect(sharedNote(21)).toBe("Shares data with 21 items");
     expect(methodTabs("Pt").map((t) => t.label)).toEqual(["Grass", "Surf", "Old Rod", "Good Rod", "Super Rod", "Replacements"]);
     expect(TIME_COLUMNS.map((c) => c.label)).toEqual(["Morning", "Day", "Night"]);
-    expect(replacedByText([{ list: "day", entry: 0, when: "from 10 to 19 o'clock", in_file: true }])).toBe("Day 1 (from 10:00 to 19:00)");
+    expect(replacedByText([{ list: "day", entry: 0, when: "from 10 to 19 o'clock", in_file: true }])).toBe("Day 1 (from 10 AM to 7 PM)");
     expect(usedByText(3)).toBe("used by 3 places");
     expect(shareText(25)).toBe("25%");
     expect(TYPE_OPTIONS.map((o) => o.value)).toEqual(Array.from({ length: 18 }, (_, i) => i));

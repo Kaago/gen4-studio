@@ -27,7 +27,7 @@ describe("gitWords in English", () => {
     expect(noGitForCommit()).toBe("Git is not installed.");
   });
 
-  it("recognises_the_kernel_sentence_in_either_language", async () => {
+  it("recognizes_the_kernel_sentence_in_either_language", async () => {
     // The kernel says `NOT_INSTALLED` in German: the dialog and the wizard must still tell „only the templates“ while the app speaks English.
     const german = notInstalledText();
     await i18next.changeLanguage("en");
