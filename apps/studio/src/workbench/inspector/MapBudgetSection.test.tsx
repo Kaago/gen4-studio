@@ -156,6 +156,9 @@ describe("MapBudgetSection", () => {
       verbatim_model: false,
       verbatim_terrain: false,
       messages: [],
+      freeform_faces: 0,
+      strips: 0,
+      single_quads: 0,
       ...over,
     });
     await show(10, 0, "bauen", bake());

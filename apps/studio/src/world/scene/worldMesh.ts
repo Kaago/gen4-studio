@@ -6,8 +6,10 @@ import { disposeTree, parseGlb } from "../sceneUtil";
 import { toTexture } from "../sprites";
 import type { SceneHost } from "./SceneHost";
 
-/** The layer of the footprints of the pieces (`g4_kernel::world::mesh::PIECE_LAYER`). */
+/** The layer of the pieces, footprints and model geometry (`g4_kernel::world::mesh::PIECE_LAYER`). */
 const PIECE_LAYER = 255;
+/** The layer of the free-form models (`g4_kernel::world::FREEFORM_LAYER`): solid geometry like the ground. */
+const FREEFORM_LAYER = 254;
 /** Opacity of the footprints: they say where a piece stands, the ground stays visible. */
 const FOOTPRINT_OPACITY = 0.6;
 
@@ -29,8 +31,9 @@ export function placeholderColor(role: MeshTextureDto["role"]): number {
 
 /**
  * One geometry per texture index: positions from `corners`, uv = (u / width, −v / height), indices 0 1 2, 0 2 3 per face (the corners
- * come counter-clockwise seen from the front, so both triangles face it). The faces of a geometry are ordered by layer, each run of a
- * layer one group; `userData.layers` holds the layer of each group (its material index).
+ * come counter-clockwise seen from the front, so both triangles face it). The faces of a geometry are ordered by layer (per layer the
+ * footprints and grid faces before the model geometry), each run of one layer and kind one group; `userData.layers` holds the layer of
+ * each group (its material index), `userData.models` whether it is model geometry (`dto.model`).
  */
 export function meshGeometries(dto: WorldMeshDto): Map<number, THREE.BufferGeometry> {
   const byTexture = new Map<number, number[]>();
@@ -42,14 +45,15 @@ export function meshGeometries(dto: WorldMeshDto): Map<number, THREE.BufferGeome
   }
   const out = new Map<number, THREE.BufferGeometry>();
   for (const [t, unsorted] of [...byTexture].sort(([a], [b]) => a - b)) {
-    // Stable: the faces of one layer keep the mesher's order.
-    const faces = [...unsorted].sort((a, b) => dto.layer[a] - dto.layer[b]);
+    // Stable: the faces of one layer and kind keep the mesher's order.
+    const faces = [...unsorted].sort((a, b) => dto.layer[a] - dto.layer[b] || Number(dto.model[a]) - Number(dto.model[b]));
     const { width, height } = dto.textures[t] ?? { width: 1, height: 1 };
     const positions = new Float32Array(faces.length * 12);
     const uv = new Float32Array(faces.length * 8);
     const index: number[] = [];
     const geometry = new THREE.BufferGeometry();
     const layers: number[] = [];
+    const models: boolean[] = [];
     faces.forEach((f, i) => {
       positions.set(dto.corners.slice(f * 12, f * 12 + 12), i * 12);
       for (let c = 0; c < 4; c++) {
@@ -59,8 +63,10 @@ export function meshGeometries(dto: WorldMeshDto): Map<number, THREE.BufferGeome
       const v = i * 4;
       index.push(v, v + 1, v + 2, v, v + 2, v + 3);
       const layer = dto.layer[f];
-      if (layers[layers.length - 1] !== layer) {
+      const model = dto.model[f] === true;
+      if (layers[layers.length - 1] !== layer || models[models.length - 1] !== model) {
         layers.push(layer);
+        models.push(model);
         geometry.addGroup(i * 6, 0, layers.length - 1);
       }
       geometry.groups[geometry.groups.length - 1].count += 6;
@@ -70,6 +76,7 @@ export function meshGeometries(dto: WorldMeshDto): Map<number, THREE.BufferGeome
     geometry.setIndex(index);
     geometry.computeVertexNormals();
     geometry.userData.layers = layers;
+    geometry.userData.models = models;
     out.set(t, geometry);
   }
   return out;
@@ -119,18 +126,24 @@ export function resetWorldTextures(): void {
   for (const request of all) void request.then((t) => t?.dispose());
 }
 
-/** The material of one layer: the texture where there is one (else the placeholder colour of `role`), overlays and footprints pulled to the front. */
-function layerMaterial(texture: THREE.Texture | null, role: MeshTextureDto["role"], layer: number, footprintOffset: number): THREE.MeshLambertMaterial {
+/** Whether faces of `layer` are solid geometry drawn like the ground: model geometry (`model`) and every free-form face. */
+const isSolid = (layer: number, model: boolean) => model || layer === FREEFORM_LAYER;
+
+/**
+ * The material of one layer: the texture where there is one (else the placeholder colour of `role`), overlays and footprints pulled to
+ * the front, the footprints half transparent. Solid geometry (`isSolid`) gets neither: an offset would draw it through the buildings.
+ */
+function layerMaterial(texture: THREE.Texture | null, role: MeshTextureDto["role"], layer: number, model: boolean, footprintOffset: number): THREE.MeshLambertMaterial {
   const material = new THREE.MeshLambertMaterial({ side: THREE.FrontSide, alphaTest: 0.5 });
   if (texture) material.map = texture;
   else material.color.setHex(placeholderColor(role));
-  if (layer > 0) {
+  if (layer > 0 && !isSolid(layer, model)) {
     const offset = layer === PIECE_LAYER ? footprintOffset : -layer;
     material.polygonOffset = true;
     material.polygonOffsetFactor = offset;
     material.polygonOffsetUnits = offset;
   }
-  if (layer === PIECE_LAYER) {
+  if (layer === PIECE_LAYER && !model) {
     material.transparent = true;
     material.opacity = FOOTPRINT_OPACITY;
   }
@@ -142,14 +155,15 @@ function layerMaterial(texture: THREE.Texture | null, role: MeshTextureDto["role
 export async function worldMeshModel(map: number): Promise<{ model: THREE.Group; faces: number }> {
   const dto = await getWorldMesh(map);
   const loaded = await Promise.all(dto.textures.map((t) => worldTexture(dto.tileset, t.name)));
-  // The footprints lie over the highest overlay.
-  const overlays = dto.layer.filter((l) => l !== PIECE_LAYER);
+  // The footprints lie over the highest overlay (solid geometry and the footprints themselves are none).
+  const overlays = dto.layer.filter((l, f) => l !== PIECE_LAYER && !isSolid(l, dto.model[f] === true));
   const footprintOffset = -(Math.max(0, ...overlays) + 1);
   const model = new THREE.Group();
   model.name = `world-mesh:${map}`;
   for (const [t, geometry] of meshGeometries(dto)) {
     const role = dto.textures[t]?.role ?? "ground";
-    const materials = (geometry.userData.layers as number[]).map((layer) => layerMaterial(loaded[t] ?? null, role, layer, footprintOffset));
+    const models = geometry.userData.models as boolean[];
+    const materials = (geometry.userData.layers as number[]).map((layer, g) => layerMaterial(loaded[t] ?? null, role, layer, models[g] === true, footprintOffset));
     const mesh = new THREE.Mesh(geometry, materials);
     mesh.name = dto.textures[t]?.name ?? `texture:${t}`;
     model.add(mesh);

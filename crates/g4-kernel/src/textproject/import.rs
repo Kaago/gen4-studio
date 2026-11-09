@@ -26,6 +26,7 @@ use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
 use crate::world::build::{BakeMode, BakeScope, bake_world_maps, member_changed_problems};
 use crate::world::check::WORLD_BAKE_CODE;
+use crate::world::freeform::side_parts;
 use crate::world::record::forget_world;
 
 use super::MANIFEST_FILE;
@@ -1117,12 +1118,13 @@ fn import_entity<E: EntitySchema>(
 }
 
 /// The unit of entity `n` in folder `rel_dir` (with the visible file `names`): its JSON and
-/// every side file with its stem `NNNN.`, relative to the root, sorted.
+/// every side file with its stem `NNNN.`, relative to the root, sorted. The free-form side
+/// files of world maps (`NNNN.<name>.glb`) are no member's part: not in it.
 fn unit_of(rel_dir: &Path, names: &[String], n: usize) -> Vec<PathBuf> {
     let stem = format!("{n:04}.");
     names
         .iter()
-        .filter(|name| name.starts_with(&stem))
+        .filter(|name| name.starts_with(&stem) && side_parts(name).is_none())
         .map(|name| rel_dir.join(name))
         .collect()
 }
@@ -2864,6 +2866,62 @@ mod tests {
             "{:#?}",
             plan.problems
         );
+    }
+
+    #[test]
+    fn side_files_are_no_members() {
+        use crate::world::doc::fixtures;
+
+        let (_s, p) = exported();
+        write_world_map(&p, "data/maps/0000.json", &fixtures::freeform_world(0));
+        // Map 1 binary with a changed permission cell: a member write with its unit.
+        let rel = "data/maps/0001.json";
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.root.join(rel)).unwrap()).unwrap();
+        let row = v["permissions"][0].as_str().unwrap().to_owned();
+        v["permissions"][0] = set_token_of(&row, "0180").into();
+        write_to(&p, rel, &serde_json::to_vec_pretty(&v).unwrap());
+        let mut tileset = crate::world::tileset::Tileset::synthetic();
+        tileset.tiles[5].model = Some("turm".to_owned());
+        write_to(
+            &p,
+            "data/tilesets/0000.json",
+            &crate::textproject::canon::to_canonical(&tileset),
+        );
+        let sides = [
+            "data/maps/0000.wuerfel.glb",
+            "data/maps/0000.alt.glb",
+            "data/maps/0001.haus.glb",
+            "data/tilesets/0000.turm.glb",
+        ];
+        for side in sides {
+            write_to(&p, side, b"glTF");
+        }
+        let member_1 = slash(&member_rel(&p, AssetKind::Map, 1));
+        for only in [None, Some(&sides[..])] {
+            let (plan, _) = plan(&p, only);
+            let named = |path: &Path| path.to_string_lossy().ends_with(".glb");
+            for write in plan.writes.iter().chain(&plan.raw) {
+                assert!(!named(&write.path), "{only:?}: {:?}", write.path);
+                assert!(
+                    write.unit.iter().all(|u| !named(u)),
+                    "{only:?}: {:?}",
+                    write.unit
+                );
+            }
+            assert!(
+                plan.writes.iter().any(|w| slash(&w.path) == member_1),
+                "{only:?}: map 1 is written"
+            );
+            assert!(plan.removals.iter().all(|r| !named(r)), "{only:?}");
+            let about: Vec<&Problem> = plan
+                .problems
+                .iter()
+                .filter(|p| named(&p.file) || p.message.contains(".glb"))
+                .collect();
+            assert!(about.is_empty(), "{only:?}: {about:#?}");
+            assert_eq!(plan.world_maps, [0], "{only:?}");
+        }
     }
 
     /// Makes the map file `rel` a world map with `world`, without the derived parts.

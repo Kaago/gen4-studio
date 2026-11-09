@@ -36,6 +36,9 @@ const bake = (over: Partial<WorldBakeReport> = {}): WorldBakeReport => ({
   verbatim_model: true,
   verbatim_terrain: true,
   messages: [],
+  freeform_faces: 0,
+  strips: 0,
+  single_quads: 0,
   ...over,
 });
 
@@ -46,6 +49,7 @@ const adopted = (deviations: number): WorldAdoptReport => ({
   deviations: Array.from({ length: deviations }, (_, i) => ({ x: i, z: 0, height: 4.5, step: 1 })),
   change: 1,
   bake: bake(),
+  form2: null,
 });
 
 describe("WorldSourceSection", () => {
@@ -186,5 +190,48 @@ describe("WorldSourceSection", () => {
     await click(button("Als binäre Karte übernehmen"));
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("adopt_as_gltf_shows_the_polygon_counts", async () => {
+    vi.mocked(worldAdopt).mockResolvedValue({
+      ...adopted(0),
+      bake: bake({ verbatim_model: false, faces: 1234 }),
+      form2: {
+        vanilla: { polygons: 815, quads: 813, triangles: 2, bytes: 21740 },
+        baked: { faces: 1628, quads: 1600, triangles: 28, strips: 90, single_quads: 40, dropped: 0, bytes: 30000, untextured: 0 },
+        ignored: [],
+        glb: "0000.model.glb",
+      },
+    });
+    await show(false);
+    // Form 1 stays the first `[data-world-adopt]`; Form 2 follows it.
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>("[data-world-adopt]")];
+    expect(buttons.map((b) => [b.dataset.worldAdopt, b.textContent])).toEqual([
+      ["", "Karte als Quelle übernehmen"],
+      ["gltf", "Als glTF übernehmen (Form 2)"],
+    ]);
+    await click(container.querySelector("[data-world-adopt='gltf']"));
+    expect(worldAdopt).toHaveBeenCalledExactlyOnceWith(0, "gltf");
+    expect(onChanged).toHaveBeenCalledExactlyOnceWith(0);
+    expect(section()?.querySelector("[role=status]")?.textContent).toBe("Übernommen als glTF: 815 Vanilla-Polygone, 1.628 gebackene Flächen.");
+    // Outside a text project Form 2 is locked like Form 1.
+    await act(async () => root.render(<div />));
+    await show(false, false);
+    expect(container.querySelector<HTMLButtonElement>("[data-world-adopt='gltf']")?.disabled).toBe(true);
+  });
+
+  it("adopt_as_gltf_refusal_is_a_notice", async () => {
+    const sentence = "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula).";
+    vi.mocked(worldAdopt).mockRejectedValue({ code: "error", message: sentence, asset: null });
+    await show(false);
+    await click(container.querySelector("[data-world-adopt='gltf']"));
+    expect(worldAdopt).toHaveBeenCalledExactlyOnceWith(0, "gltf");
+    expect(section()?.querySelector("[role=alert]")?.textContent).toBe(sentence);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+    // Form 1 afterwards: the refusal goes.
+    vi.mocked(worldAdopt).mockResolvedValue(adopted(0));
+    await click(container.querySelector("[data-world-adopt='']"));
+    expect(section()?.querySelector("[role=alert]")).toBeNull();
   });
 });

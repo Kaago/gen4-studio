@@ -1,4 +1,4 @@
-# Tileset (Kacheln eines Kartentextur-Pakets, Phasen 6.3a, 6.3b und 6.4a)
+# Tileset (Kacheln eines Kartentextur-Pakets, Phasen 6.3a, 6.3b, 6.4a und 6.5b)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Ein Tileset sagt je Textur eines
 Kartentextur-Pakets (`map_tileset` der Gebietsdaten, Member von `mapTextures`), wie sie als Kachel
@@ -49,11 +49,13 @@ Je Kachel:
 | `sound` | Zahl, weggelassen bei 0 | nur HeartGold/SoulSilver: Schrittgeräusch, Bits 0 bis 6 des Kollisionsbytes |
 | `wall` | Zahl, weggelassen | die Kachel (Rolle `wall`), deren Textur die Wände unter einer Zelle mit dieser Kachel tragen |
 | `footprint` | `[b, t]`, weggelassen | Breite und Tiefe in Zellen; genau die Kacheln der Rolle `piece` haben einen |
-| `model` | Text, weggelassen | **reserviert** für das Beifile des Teilmodells (6.5b, `NNNN.<name>.glb`); muss fehlen |
+| `model` | Text, weggelassen | seit 6.5b: der `<name>` des Modell-Beifiles `data/tilesets/PPPP.<name>.glb` (`PPPP` das Paket) eines Teilmodells; nur bei Rolle `piece`, 1 bis 32 Zeichen aus a–z, 0–9, `_`, `-`; fehlt: das Teilmodell ist seine Fußabdruck-Fläche (unten „Teilmodell setzen (6.5b)“) |
 | `origin` | `vanilla` \| `unclear` \| `synthetic` \| `user` | woher die Werte kommen: abgeleitet, nicht entscheidbar, synthetisch, vom Nutzer |
 
-Die reservierten Felder liest serde, damit eine spätere Datei ihr Problem nennt statt eines
-unbekannten Schlüssels; der Check lehnt sie ab.
+Das reservierte Feld `edge_sets` liest serde, damit eine spätere Datei ihr Problem nennt statt eines
+unbekannten Schlüssels; der Check lehnt es ab. `model` war bis 6.5b ebenso reserviert und ist seitdem
+erlaubt (`TILESET_VERSION` bleibt 1); ob das Beifile da ist, prüft erst das Backen
+(`world.side-file`, [world_map.md](world_map.md) „Freiform und Beifiles (6.5b)“).
 
 ## Prüfungen
 
@@ -65,8 +67,15 @@ Meldung `textproject.schema` mit Datei, Zeile und dem JSON-Pfad in der Datei:
 - eine Datei, die serde nicht liest (Pfad und Grund von serde);
 - `version`: „Version 2 kennt diese Fassung nicht (1).“; `package`: „Paket 0007 passt nicht zum
   Dateinamen 0006.json.“;
-- `edge_sets`: „Kantensätze kommen mit 6.4b.“; `tiles[i].model`: „Teilmodell-Dateien kommen mit
-  6.5b.“;
+- `edge_sets`: „Kantensätze kommen mit 6.4b.“;
+- `tiles[i].model` (seit 6.5b) auf einer Kachel, die kein Teilmodell ist („`model` haben nur
+  Teilmodelle (`piece`).“), oder ein Name außerhalb der Regel („`model` ist ein Name aus a–z, 0–9,
+  `_`, `-`, höchstens 32 Zeichen.“); beides wird getrennt gemeldet;
+- ein Modell-Beifile `PPPP.<name>.glb` im Ordner, das keine Kachel von `PPPP.json` als `model`
+  nennt (auch ohne `PPPP.json`): „Das Beifile 0006.baum.glb nennt keine Kachel von 0006.json;
+  löschen oder `model` setzen.“ Lässt sich `PPPP.json` nicht lesen, bleibt es bei deren Problem.
+  Jede andere Datei, die kein `NNNN.json` ist, hat weiter den Satz „Der Dateiname ist keine
+  Paketnummer …“;
 - `tiles[i].wall` jenseits der Kacheln („Kachel 0x0120 gibt es im Tileset 0006 nicht (94
   Kacheln).“) oder ohne Rolle `wall` („Kachel 0x0002 ist keine Wand (Rolle `water`).“);
 - `tiles[i].footprint` auf einer Kachel, die kein Teilmodell ist („einen Fußabdruck haben nur
@@ -121,6 +130,46 @@ Dateischritt der Kartentexturen des Pakets (`append_textures`) und nach Undo und
 Dateischritte (`Store::record_file_step` erkennt sie an der Tileset-Datei bzw. am Asset `MapTexture`). Der Build-Schritt `world` backt die Karten des Pakets beim
 nächsten Build, denn die Tileset-Datei gehört zu ihrem Eingabe-Hash ([build_state.md](build_state.md)).
 Der Tileset-Editor von 6.4a baut auf diesem Befehl (unten).
+
+## Teilmodell setzen (6.5b)
+
+Ein Teilmodell (Rolle `piece`) kann statt seiner Fußabdruck-Fläche die Geometrie eines Modells
+tragen: `model: "<name>"` an der Kachel nennt das **Modell-Beifile** `data/tilesets/PPPP.<name>.glb`
+neben `PPPP.json`, in der kanonischen Form der Beifiles ([world_map.md](world_map.md) „Freiform und
+Beifiles (6.5b)“); wo es auf der Karte steht und wie es sich dreht, steht in world_map.md
+„Teilmodelle mit Geometrie (6.5b)“. Implementierung: `tileset_piece_set` in `world/tileset.rs`.
+
+`tileset_piece_set {req: {package, tile, path, footprint: [Breite, Tiefe], options?, name?}}` liest
+das Modell (OBJ oder glTF, `read_model`, `options` wie beim Import von 6.5a, Vorgabe `unit` 16), plant
+seine Texturen gegen das Paket und macht **einen** Undo-Schritt „Teilmodell gesetzt: Kachel 5 in
+Tileset 0006 (baum)“: neue Texturen ans Paket (`append_textures`), das Beifile als Dateischritt,
+dann die Tileset-Datei als Dateischritt mit Rolle `piece`, `footprint`, `model` und `origin: user`;
+das Aufzeichnen dieses Schritts backt die sauberen geladenen Welt-Karten des Pakets neu
+(`Store::forget_world_bakes`, schon mit dem Beifile), Undo und Redo ebenso. Der Name kommt aus
+`name`, sonst aus dem Dateistamm (`side_name`, nummeriert an den Namen der anderen Kacheln und an
+Beifiles des Pakets vorbei, die schon im Ordner liegen; die Kachel darf ihren eigenen behalten).
+Das bisherige Modell-Beifile der Kachel geht im selben Schritt, wenn keine andere Kachel es nennt
+(sonst meldete der Check eine verwaiste Datei). Antwort `{package, tile, model, stats, textures,
+notes, change}`.
+
+Abgelehnt (nichts geschrieben): außerhalb eines Textprojekts („Boden malen gibt es im Textprojekt
+(Technik › Textprojekt).“), ohne Tileset-Datei („Erst `tileset_save` für Paket 0006.“), eine Kachel
+jenseits des Tilesets („tile: Kachel 0x0120 gibt es im Tileset 0006 nicht (94 Kacheln).“), ein
+Fußabdruck mit einer 0 („Ein Fußabdruck ist mindestens 1 × 1 Zelle (0 × 2).“), ein Modell, das der
+Leser oder die Umwandlung ablehnt („Teilmodell nicht gesetzt: <Satz> (<Code>)“), ein Ergebnis mit
+einem Problem der Prüfungen oben („data/tilesets/0006.json: …“), ein beschäftigter Store.
+Scheitert ein Teil des Schritts, nimmt er alles zurück.
+
+**Beifile-Ordner.** Neben `PPPP.json` liegen die Modell-Beifiles `PPPP.<name>.glb`, die eine Kachel
+nennt. Ein Beifile, das keine Kachel nennt, meldet der Check als `textproject.schema` („Prüfungen“);
+**gelöscht wird im Ordner nichts** von selbst, auch nicht beim Speichern, beim Export oder mit
+`tileset_edit` (eine verwaiste Datei bleibt, bis der Nutzer sie löscht oder wieder nennt). Speichern,
+Export und `tileset_edit` lassen die genannten Beifiles byte-gleich stehen.
+
+`tileset_edit` nimmt seit 6.5b auch `model` (`{tile, model: "<name>"}`, `"model": null` entfernt
+den Namen; das Beifile bleibt liegen). Ein Befehl in der App, der ein Teilmodell setzt, fehlt noch;
+der Weg ist `tileset_piece_set` über `g4_call` ([mcp.md](../mcp.md) „Freiform, Form 2, Tiled (6.5b,
+über `g4_call`)“).
 
 ## Palette und Tileset-Editor (6.4a)
 
@@ -234,6 +283,9 @@ fehlt, sich das Paket nicht lesen lässt (das synthetische Testprojekt), die Kac
 nennt, die das Paket nicht hat, oder das Format keinen Decoder hat: Texturen im **Format 5**
 (4 × 4 komprimiert) dekodiert der Kernel noch nicht, die Szene zeigt dort den Platzhalter der Rolle
 ([world_map.md](world_map.md), „Vorschau in der Szene“).
+Seit 6.5b dekodiert es auch eine Textur, die keine Kachel nennt (von einem Modell an das Paket
+angehängt, nachdem die Tileset-Datei geschrieben wurde), mit der Palette `palette_name(<Textur>)` des
+Pakets, sonst Palette 0.
 
 ## Synthetisches Tileset
 

@@ -823,8 +823,29 @@ mod tests {
                 "*.yml text eol=lf",
                 "*.toml text eol=lf",
                 "*.md text eol=lf",
+                "*.png binary",
+                "*.glb binary",
             ]
         );
-        assert!(block.contains("# Platz für große Binärquellen (Phase 6)"));
+        assert!(block.contains(
+            "# Beifiles der Phase 6 (Modelle, Bilder): ohne Diff und Merge; LFS erst ab 1 MB je \
+             Datei, etwa: *.glb filter=lfs"
+        ));
+    }
+
+    #[test]
+    fn the_project_attributes_mark_png_and_glb_binary() {
+        let block = gitattributes_block();
+        let lines: Vec<&str> = block.lines().collect();
+        for rule in ["*.png binary", "*.glb binary"] {
+            let at = lines.iter().position(|l| *l == rule);
+            // After `* -text`: the later rule wins in Git.
+            assert!(at > lines.iter().position(|l| *l == "* -text"), "{rule}");
+        }
+        assert!(!block.contains("Platz für große Binärquellen"));
+        // The repository marks them the same way.
+        let repo = include_str!("../../../../.gitattributes");
+        assert!(repo.lines().any(|l| l == "*.png binary"));
+        assert!(repo.lines().any(|l| l == "*.glb binary"));
     }
 }

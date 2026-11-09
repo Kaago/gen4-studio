@@ -1393,3 +1393,75 @@ fn the_map_unit_holds_map_and_world() {
     std::fs::remove_file(fx.root().join(MAP)).unwrap();
     assert_eq!(source.read(&p, id(AssetKind::WorldMap, 0)).unwrap(), None);
 }
+
+/// The canonical side file of a cube of `syn_boden` on `world_ready`'s package 0.
+fn cube_glb(fx: &TextFixture) -> Vec<u8> {
+    use crate::world::freeform::fixtures::cube_faces;
+    use crate::world::freeform::{FREEFORM_UNIT, side_glb};
+    let pack = member(fx, AssetKind::MapTexture, 0);
+    let textures = crate::bake::pack_textures(&pack).unwrap();
+    side_glb(&cube_faces("syn_boden"), &textures, FREEFORM_UNIT).unwrap()
+}
+
+#[test]
+fn saving_a_world_map_keeps_its_side_files() {
+    use crate::store::Store;
+    use crate::world::doc::fixtures::freeform_world;
+    use crate::world::edit::{WorldCreateRequest, WorldEditRequest, world_create, world_edit};
+    use crate::world::keep::{world_field, world_parts};
+    const MAP: &str = "data/maps/0000.json";
+    const SIDE: &str = "data/maps/0000.wuerfel.glb";
+    const ORPHAN: &str = "data/maps/0000.alt.glb";
+    const OTHER: &str = "data/maps/0001.wuerfel.glb";
+
+    let fx = crate::test_support::world_ready();
+    let mut st = Store::new(std::sync::Arc::new(fx.project()));
+    let req: WorldCreateRequest =
+        serde_json::from_value(serde_json::json!({"map": 0, "tileset": 0})).unwrap();
+    world_create(&mut st, &req).unwrap();
+    st.save().unwrap();
+    // As Git would: the world names its side file; an orphan beside it and one of map 1.
+    let world = freeform_world(0);
+    fx.write(
+        MAP,
+        &world_parts(fx.read(MAP), &world, &mut Vec::new()).unwrap(),
+    );
+    let glb = cube_glb(&fx);
+    fx.write(SIDE, &glb);
+    fx.write(ORPHAN, b"glTF");
+    fx.write(OTHER, b"glTF");
+
+    // A stroke and save: the named side file stays byte-equal, the orphan of the map goes.
+    let mut st = Store::new(std::sync::Arc::new(fx.project()));
+    let req: WorldEditRequest = serde_json::from_value(serde_json::json!(
+        {"map": 0, "changes": [{"cells": [[3, 3]], "tile": "0001"}]}
+    ))
+    .unwrap();
+    let report = world_edit(&mut st, &req).unwrap();
+    assert!(report.bake.as_ref().unwrap().ok, "{report:?}");
+    let saved = st.save().unwrap();
+    assert!(
+        saved.written.contains(&id(AssetKind::WorldMap, 0)),
+        "{:?}",
+        saved.written
+    );
+    assert_eq!(fx.read(SIDE), glb);
+    assert!(!fx.root().join(ORPHAN).exists());
+    assert_eq!(fx.read(OTHER), b"glTF");
+    let now = world_field(&fx.read(MAP)).unwrap().unwrap();
+    assert_eq!(now.freeform, world.freeform);
+
+    // `freeform` emptied and saved: the side file goes.
+    st.transaction("Welt", |tx| {
+        tx.edit_world(0, |w| {
+            if let Some(w) = w {
+                w.freeform.clear();
+            }
+            Ok(())
+        })
+    })
+    .unwrap();
+    st.save().unwrap();
+    assert!(!fx.root().join(SIDE).exists());
+    assert_eq!(fx.read(OTHER), b"glTF");
+}

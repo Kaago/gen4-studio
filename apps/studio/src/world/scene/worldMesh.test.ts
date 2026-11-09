@@ -23,7 +23,7 @@ function floor(cx: number, cz: number, y = 0) {
   return { corners, uv };
 }
 
-function dto(faces: { cx: number; cz: number; texture: number; layer: number }[], textures: MeshTextureDto[]): WorldMeshDto {
+function dto(faces: { cx: number; cz: number; texture: number; layer: number; model?: boolean }[], textures: MeshTextureDto[]): WorldMeshDto {
   const quads = faces.map((f) => floor(f.cx, f.cz));
   return {
     map: 12,
@@ -34,6 +34,7 @@ function dto(faces: { cx: number; cz: number; texture: number; layer: number }[]
     uv: quads.flatMap((q) => q.uv),
     texture: faces.map((f) => f.texture),
     layer: faces.map((f) => f.layer),
+    model: faces.map((f) => f.model ?? false),
   };
 }
 
@@ -154,6 +155,83 @@ describe("worldMesh", () => {
     expect(footprint.polygonOffsetFactor).toBeLessThan(-2);
     expect(footprint.transparent).toBe(true);
     expect(footprint.opacity).toBe(0.6);
+  });
+
+  it("free_form_faces_are_solid_and_leave_the_footprint_offset", async () => {
+    api.getWorldMesh.mockResolvedValue(
+      dto(
+        [
+          { cx: 0, cz: 0, texture: 0, layer: 0 },
+          { cx: 0, cz: 0, texture: 0, layer: 1 },
+          { cx: 2, cz: 2, texture: 1, layer: 254, model: true },
+          { cx: 1, cz: 1, texture: 1, layer: 255 },
+        ],
+        [small, large],
+      ),
+    );
+    api.getTilesetTexture.mockResolvedValue(null);
+    const all = materials((await worldMeshModel(12)).model);
+    const freeform = all.find((m) => m.userData.layer === 254)!;
+    // A free-form model is solid geometry like the ground: no offset that would draw it through buildings.
+    expect(freeform.polygonOffset).toBe(false);
+    expect(freeform.transparent).toBe(false);
+    expect(freeform.opacity).toBe(1);
+    // The footprints lie just over the highest overlay (1), not over the free-form layer.
+    const footprint = all.find((m) => m.userData.layer === 255)!;
+    expect([footprint.polygonOffsetFactor, footprint.polygonOffsetUnits]).toEqual([-2, -2]);
+    // The layer alone decides for a free-form face, marked or not.
+    api.getWorldMesh.mockResolvedValue(dto([{ cx: 2, cz: 2, texture: 0, layer: 254 }], [small]));
+    const [unmarked] = materials((await worldMeshModel(12)).model);
+    expect(unmarked.polygonOffset).toBe(false);
+  });
+
+  it("piece_models_are_solid_footprints_stay_see_through", async () => {
+    api.getWorldMesh.mockResolvedValue(
+      dto(
+        [
+          { cx: 0, cz: 0, texture: 0, layer: 0 },
+          { cx: 1, cz: 1, texture: 1, layer: 255 },
+          { cx: 3, cz: 3, texture: 1, layer: 255, model: true },
+          { cx: 4, cz: 3, texture: 0, layer: 255, model: true },
+        ],
+        [small, large],
+      ),
+    );
+    api.getTilesetTexture.mockResolvedValue(null);
+    const all = materials((await worldMeshModel(12)).model).filter((m) => m.userData.layer === 255);
+    const footprints = all.filter((m) => m.transparent);
+    const models = all.filter((m) => !m.transparent);
+    expect(footprints).toHaveLength(1);
+    expect(footprints[0]!.opacity).toBe(0.6);
+    expect(footprints[0]!.polygonOffset).toBe(true);
+    // The geometry of a piece's side file (one material per texture) is drawn like the ground.
+    expect(models).toHaveLength(2);
+    for (const m of models) {
+      expect(m.opacity).toBe(1);
+      expect(m.polygonOffset).toBe(false);
+    }
+    // The eye of the layer still reaches both.
+    expect(all).toHaveLength(3);
+  });
+
+  it("geometry_groups_split_a_layer_into_footprints_and_models", () => {
+    const geometry = meshGeometries(
+      dto(
+        [
+          { cx: 3, cz: 3, texture: 0, layer: 255, model: true },
+          { cx: 1, cz: 1, texture: 0, layer: 255 },
+          { cx: 0, cz: 0, texture: 0, layer: 0 },
+        ],
+        [small],
+      ),
+    ).get(0)!;
+    expect(geometry.groups.map((g) => [g.start, g.count, g.materialIndex])).toEqual([
+      [0, 6, 0],
+      [6, 6, 1],
+      [12, 6, 2],
+    ]);
+    expect(geometry.userData.layers).toEqual([0, 255, 255]);
+    expect(geometry.userData.models).toEqual([false, false, true]);
   });
 
   it("map_model_takes_the_glb_for_binary_maps", async () => {

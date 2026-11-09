@@ -10,6 +10,7 @@ use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::split_pair;
 use crate::world::WorldJson;
+use crate::world::freeform::named_side_files_in;
 use crate::world::keep::{carry_world_parts, with_world, world_field, world_parts};
 
 use super::super::MANIFEST_FILE;
@@ -71,13 +72,15 @@ impl BasePart for NoBase {
 }
 
 /// Writes `files` (name → bytes) into folder `dir` (relative), each only when it changes, and
-/// deletes the other files of the entities `stems` there (old side files); every path written
-/// or deleted lands in `out.sources`. With `dry` the files only land there.
+/// deletes the other files of the entities `stems` there (old side files) but those in `keep`
+/// (the side files a world map names, which no member holds); every path written or deleted
+/// lands in `out.sources`. With `dry` the files only land there.
 fn put_files(
     root: &Path,
     dir: &Path,
     stems: &[u32],
     files: &[(String, Vec<u8>)],
+    keep: &[String],
     out: &mut SourceWrite,
     dry: Option<&mut BTreeMap<PathBuf, Vec<u8>>>,
 ) -> Result<(), KernelError> {
@@ -95,7 +98,10 @@ fn put_files(
     }
     let prefixes: Vec<String> = stems.iter().map(|s| format!("{s:04}.")).collect();
     for name in file_names(&root.join(dir))? {
-        if prefixes.iter().any(|p| name.starts_with(p)) && !files.iter().any(|(n, _)| *n == name) {
+        if prefixes.iter().any(|p| name.starts_with(p))
+            && !files.iter().any(|(n, _)| *n == name)
+            && !keep.contains(&name)
+        {
             let path = root.join(dir).join(&name);
             std::fs::remove_file(&path).map_err(io_at(&path))?;
             out.sources.push(dir.join(name));
@@ -269,11 +275,17 @@ impl EntitySource {
             entity.egg_moves = field;
             *json = to_canonical(&entity);
         }
+        // The side files a world map names are the user's (no member holds them): kept.
+        let keep = match files.first() {
+            Some((_, json)) if art == Art::Maps => named_side_files_in(json),
+            _ => Vec::new(),
+        };
         put_files(
             &self.root,
             &art.dir(),
             &[u32::from(index)],
             &files,
+            &keep,
             out,
             self.dry.as_mut(),
         )
@@ -331,6 +343,7 @@ impl EntitySource {
             &Art::Items.dir(),
             &ids,
             &files,
+            &[],
             out,
             self.dry.as_mut(),
         )

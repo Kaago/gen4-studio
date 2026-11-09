@@ -24,8 +24,17 @@
 //! record of each world map's last bake in `.g4/build/state.json` ([`record::world_side`]);
 //! `build.rs` the build step `world` after `textproject`, which bakes the world maps whose world
 //! changed into their members ([`build::bake_world_maps`]); `adopt.rs` „Karte als Quelle
-//! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]). `tileset.rs` also edits
-//! the tiles of a tileset file as one step ([`tileset::tileset_edit`]).
+//! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]; Form 2: the model as a
+//! glTF side file through apicula, [`adopt::world_adopt_with`]). `tileset.rs` also edits
+//! the tiles of a tileset file as one step ([`tileset::tileset_edit`]) and sets the model of a
+//! piece tile ([`tileset::tileset_piece_set`]).
+//! `freeform.rs` the canonical side file of a free-form model (6.5b, [`freeform::side_glb`],
+//! [`freeform::side_faces`]), the rules for side file names, and adding and removing free-form
+//! models ([`freeform::world_freeform_add`], [`freeform::world_freeform_remove`]), each one undo
+//! step with the pack and the side file.
+//! `tmj.rs` the exchange with Tiled (6.5b): a world map as a Tiled map (TMJ) with its tile
+//! images ([`tmj::to_tmj`], [`tmj::world_export_tmj`]) and back ([`tmj::from_tmj`],
+//! [`tmj::world_import_tmj`] as one undo step); not a world format.
 
 pub mod adopt;
 pub mod bake;
@@ -33,16 +42,19 @@ pub mod build;
 pub mod check;
 pub mod doc;
 pub mod edit;
+pub mod freeform;
 pub mod grid;
 pub mod keep;
 pub mod mesh;
 pub mod places;
 pub mod record;
 pub mod tileset;
+pub mod tmj;
 
 pub use adopt::{
-    ADOPT_TOLERANCE, AdoptForm, HeightDeviation, WorldAdoptReport, WorldAdoptRequest, adopt_label,
-    world_adopt,
+    ADOPT_NEEDS_APICULA, ADOPT_TEXTURE_CODE, ADOPT_TOLERANCE, AdoptForm, BakedGeometry,
+    FORM2_SIDE_NAME, Form2Report, HeightDeviation, VanillaGeometry, WorldAdoptReport,
+    WorldAdoptRequest, adopt_label, world_adopt, world_adopt_glb, world_adopt_with,
 };
 pub use bake::{
     BakeEnv, EMPTY_CELL, FLOOR_TOLERANCE, GridBake, Verbatim, WORLD_BAKE_REV, WorldBake,
@@ -59,14 +71,28 @@ pub use grid::{
     parse_override, parse_ramp, parse_tile, ramp_token, set_token, tile_token,
 };
 pub use keep::world_parts;
+pub use mesh::{PieceModels, mesh_with};
 pub use places::{maps_of_packages, packs_of_map};
 pub use record::{WorldSide, input_hash, member_hash, record_world, world_salt, world_side};
 pub use tileset::{
-    DEFAULT_RULE, Deriver, HeightBehavior, TILESET_VERSION, TILESETS_DIR, TileChange, TileJson,
-    TileOrigin, TileRole, Tileset, TilesetEditReport, TilesetEditRequest, TilesetSaveReport,
-    UNIQUE_SHARE, VoteRule, derive_tileset, read_tileset_file, save_tileset, textures_only,
-    tile_outside, tileset_edit, tileset_problems, tileset_rel, tileset_texture,
+    DEFAULT_RULE, Deriver, HeightBehavior, PieceSetReport, PieceSetRequest, TILESET_VERSION,
+    TILESETS_DIR, TileChange, TileJson, TileOrigin, TileRole, Tileset, TilesetEditReport,
+    TilesetEditRequest, TilesetSaveReport, UNIQUE_SHARE, VoteRule, derive_tileset, piece_set_label,
+    read_tileset_file, save_tileset, textures_only, tile_outside, tileset_edit, tileset_piece_set,
+    tileset_problems, tileset_rel, tileset_texture,
+};
+pub use tmj::{
+    BUILDINGS_IGNORED_CODE, TMJ_CODE, TMJ_FORMAT, TMJ_VERSION, TmjError, TmjExportReport,
+    TmjImportReport, TmjMap, from_tmj, import_label, to_json as tmj_json, to_tmj, world_export_tmj,
+    world_import_tmj, world_inspect_tmj,
 };
 
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
 pub use edit::{LayerOp, WorldLayersRequest, world_layers};
+pub use freeform::{
+    APICULA_UNIT, FREEFORM_LAYER, FREEFORM_UNIT, FreeformAddRequest, FreeformReport,
+    SIDE_FILE_CODE, SIDE_NAME_MAX, SideModels, WorldFaces, freeform_file, freeform_label,
+    freeform_rel, freeform_remove_label, load_side_models, piece_rel, side_faces, side_glb,
+    side_name, side_name_of, world_faces, world_freeform_add, world_freeform_inspect,
+    world_freeform_remove,
+};

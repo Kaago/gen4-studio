@@ -132,12 +132,20 @@ Hex-Ziffern (`build::state::WorldRecord`, `world/record.rs`):
 
 - `input`: der xxh3 über alles, was das Backen der Karte liest, je Stück mit Name und Länge davor:
   das Salz `world#<WORLD_BAKE_REV>+bake#<BAKE_REV>+bdhc#<GENERATOR_REV>` (heute
-  `world#1+bake#1+bdhc#1`), die Familie, die Bytes von `data/maps/NNNN.json` auf der Platte (nicht
+  `world#2+bake#1+bdhc#1`; `WORLD_BAKE_REV` ist seit 6.5b 2), die Familie, die Bytes von `data/maps/NNNN.json` auf der Platte (nicht
   der ungespeicherte Stand des Stores), die aufgelösten Verbatim-Bytes (Modell, BDHC), die
   Tileset-Datei `data/tilesets/NNNN.json` (fehlt sie, gilt `textures_only` des Pakets, das die
   Paket-Bytes decken), der Member des Pakets `world.tileset` und das erste Gebiet der Karte
-  (`map_areas`) mit seinem Stil. Gebäudepakete (VRAM) zählen nicht: sie ändern nur die Warnung
-  `bake.vram-high`, nicht die Bytes.
+  (`map_areas`) mit seinem Stil, seit 6.5b danach jedes Beifile, das das Backen liest, mit seinem
+  Pfad (Name `side data/maps/0123.haus.glb`) und seinen Bytes, für eine fehlende Datei eine Marke wie bei jedem fehlenden Stück: erst die
+  Freiform-Beifiles in der Reihenfolge von `world.freeform`, dann einmal je Teilmodell-Kachel, die
+  die Karte setzt und die ein `model` hat, `data/tilesets/PPPP.<name>.glb`
+  (`world::freeform::side_file_rels`, dieselbe Liste wie das Laden). Ein Name, der kein
+  Beifile-Name ist, wird nicht gelesen und zählt nicht; ohne Teilmodelle wird das Tileset dafür nicht
+  gelesen, ein Tileset, das sich nicht parsen lässt, lässt die Teilmodelle aus (seine Bytes zählen
+  schon), ein Lesefehler lässt den Hash scheitern. Ein geändertes, neues oder gelöschtes Beifile
+  backt die Karte also im nächsten Build neu. Gebäudepakete (VRAM) zählen nicht: sie ändern nur die
+  Warnung `bake.vram-high`, nicht die Bytes.
 - `member`: der xxh3 des Members, den das Backen schrieb.
 
 Gegen den Datensatz steht eine Welt-Karte so (`world::record::world_side`):

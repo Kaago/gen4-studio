@@ -3,13 +3,26 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { exportMapPart } from "../../api";
+import { exportMapPart, worldExportTmj, worldGet } from "../../api";
+import type { WorldGetDto } from "../../api";
 import { typeInto } from "../../ui/primitives/testUtils";
 import { ExportPartDialog } from "./ExportPartDialog";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), exportMapPart: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), exportMapPart: vi.fn(), worldGet: vi.fn(), worldExportTmj: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const worldDto = (world: boolean): WorldGetDto => ({
+  map: 6,
+  world: world ? { version: 2, tileset: 6, layers: [], permissions: { derive: true } } : null,
+  faces: 0,
+  textures: 0,
+  estimate: 0,
+  share: 0,
+  bake: null,
+});
+
+const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
 describe("ExportPartDialog", () => {
   let container: HTMLElement;
@@ -19,6 +32,8 @@ describe("ExportPartDialog", () => {
     document.body.append(container);
     root = createRoot(container);
     vi.mocked(exportMapPart).mockReset().mockResolvedValue(undefined);
+    vi.mocked(worldGet).mockReset().mockResolvedValue(worldDto(false));
+    vi.mocked(worldExportTmj).mockReset().mockResolvedValue({ map: 6, path: "build/0006.tmj", layers: 2, images: 40, pieces: 0, overrides: 0 });
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -109,5 +124,38 @@ describe("ExportPartDialog", () => {
     await typePath("/etc/k.nsbmd");
     await act(async () => button("Exportieren").click());
     expect(dialog().querySelector("[role=alert]")!.textContent).toBe("Pfad liegt außerhalb der erlaubten Ordner: /etc/k.nsbmd");
+  });
+
+  it("a_world_map_exports_tmj", async () => {
+    vi.mocked(worldGet).mockResolvedValue(worldDto(true));
+    await act(async () => root.render(<ExportPartDialog map={6} open onClose={() => {}} />));
+    await flush();
+    expect(worldGet).toHaveBeenCalledWith(6);
+    const labels = [...dialog().querySelectorAll("[aria-label='Teil'] button")].map((b) => b.textContent);
+    expect(labels).toContain("Tiled (TMJ)");
+    await act(async () => button("Tiled (TMJ)").click());
+    expect(dialog().querySelector("[data-export-part='tmj']")).not.toBeNull();
+    expect(pathField().placeholder).toBe("/Pfad/0006.tmj");
+    expect(dialog().textContent).toContain("Kachelbilder kommen in den Ordner 0006.tiles daneben.");
+    // A folder alone gets the default name when the part is chosen.
+    await act(async () => button("Modell").click());
+    await typePath("build/");
+    await act(async () => button("Tiled (TMJ)").click());
+    expect(pathField().value).toBe("build/0006.tmj");
+    await act(async () => button("Exportieren").click());
+    expect(worldExportTmj).toHaveBeenCalledExactlyOnceWith(6, "build/0006.tmj");
+    expect(exportMapPart).not.toHaveBeenCalled();
+    expect(dialog().textContent).toContain("Tiled (TMJ) exportiert nach build/0006.tmj");
+    // Back to a map part: the path takes its ending again.
+    await act(async () => button("Kollision").click());
+    expect(pathField().value).toBe("build/0006.per");
+    expect(dialog().textContent).not.toContain("Kachelbilder");
+
+    // A binary map has no TMJ.
+    vi.mocked(worldGet).mockResolvedValue(worldDto(false));
+    await act(async () => root.render(<ExportPartDialog map={6} open={false} onClose={() => {}} />));
+    await act(async () => root.render(<ExportPartDialog map={6} open onClose={() => {}} />));
+    await flush();
+    expect([...dialog().querySelectorAll("[aria-label='Teil'] button")].map((b) => b.textContent)).not.toContain("Tiled (TMJ)");
   });
 });

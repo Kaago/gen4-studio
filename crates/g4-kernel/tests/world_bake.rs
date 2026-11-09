@@ -427,6 +427,7 @@ fn painted_map_on_a_vanilla_pack_bakes_within_limits() {
         collision: None,
         sound: None,
         wall: None,
+        model: None,
     };
     tileset_edit(
         &mut store,

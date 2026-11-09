@@ -10,11 +10,13 @@ use g4_formats::bdhc::GENERATOR_REV;
 use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
 use super::bake::WORLD_BAKE_REV;
+use super::freeform::side_file_rels;
 use crate::bake::{AreaStyle, BAKE_REV};
 use crate::build::state::{BuildState, WorldRecord};
 use crate::error::{KernelError, io_at};
 use crate::map_import::map_areas;
 use crate::project::{AssetKind, Project};
+use crate::relpath::slash;
 use crate::store::Store;
 use crate::textproject::Art;
 
@@ -52,7 +54,9 @@ fn feed(h: &mut Xxh3, tag: &str, bytes: Option<&[u8]>) {
 }
 
 /// xxh3 of what baking `map` reads (salt, family, map JSON, resolved verbatim bytes, tileset file
-/// or package bytes, package bytes, area id and style); `None` when the map is no world map.
+/// or package bytes, package bytes, area id and style, then each side file the bake reads with its
+/// path: the free-form models, then the models of the pieces the map places, bytes or missing);
+/// `None` when the map is no world map.
 ///
 /// Everything comes from disk as the bake of a fresh store reads it: the JSON as it is on disk
 /// (not the store's unsaved world), the tileset file (without one the tileset is the package's
@@ -64,6 +68,17 @@ pub fn input_hash(store: &mut Store, map: u16) -> Result<Option<String>, KernelE
         return Ok(None);
     };
     let package = source.world.tileset;
+    // The side files of the pieces need the tileset; without pieces none is read. A tileset that
+    // does not parse fails the bake, whose input its file bytes already are; I/O fails the hash.
+    let tileset = match source.world.pieces.is_empty() {
+        true => None,
+        false => match store.tileset(package) {
+            Ok(tileset) => Some(tileset),
+            Err(e @ (KernelError::Io(_) | KernelError::IoAt { .. })) => return Err(e),
+            Err(_) => None,
+        },
+    };
+    let sides = side_file_rels(map, &source.world, tileset.as_deref());
     let project = store.project();
     let root = project.root.clone();
     let family = project.family;
@@ -93,6 +108,10 @@ pub fn input_hash(store: &mut Store, map: u16) -> Result<Option<String>, KernelE
     feed(&mut h, "tileset", tileset.as_deref());
     feed(&mut h, "package", pack.as_deref());
     feed(&mut h, "area", area.as_deref().map(str::as_bytes));
+    for rel in &sides {
+        let bytes = read_optional(&root.join(rel))?;
+        feed(&mut h, &format!("side {}", slash(rel)), bytes.as_deref());
+    }
     Ok(Some(format!("{:016x}", h.digest())))
 }
 

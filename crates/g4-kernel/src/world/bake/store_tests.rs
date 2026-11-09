@@ -681,3 +681,97 @@ fn a_tile_bakes_with_the_palette_its_tileset_names() {
     assert_eq!(names(&m.textures), ["syn_boden"]);
     assert_eq!(names(&m.palettes), ["pboden"]);
 }
+
+#[test]
+fn world_faces_show_grid_pieces_and_freeform() {
+    use crate::world::doc::PieceJson;
+    use crate::world::doc::fixtures::freeform_world;
+    use crate::world::freeform::fixtures::cube_faces;
+    use crate::world::freeform::{FREEFORM_LAYER, FREEFORM_UNIT, side_glb, world_faces};
+    use crate::world::keep::{world_field, world_parts};
+    use crate::world::mesh::{PIECE_LAYER, PieceModels, mesh_with};
+
+    let fx = world_ready();
+    let mut st = store(&fx);
+    create(&mut st, 0);
+    st.save().unwrap();
+    // As Git would: a piece with a model side file and a free-form model.
+    let mut world = freeform_world(0);
+    world.pieces.push(PieceJson {
+        tile: 5,
+        at: [4, 4],
+        rotate: 0,
+    });
+    let bytes = fx.read(JSON);
+    assert!(world_field(&bytes).unwrap().is_some());
+    fx.write(JSON, &world_parts(bytes, &world, &mut Vec::new()).unwrap());
+    let mut tileset = Tileset::synthetic();
+    tileset.tiles[5].model = Some("turm".to_owned());
+    fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&tileset));
+    let textures = ready_textures(&fx);
+    let cube = cube_faces("syn_boden");
+    let turm = cube_faces("syn_gras");
+    fx.write(
+        "data/maps/0000.wuerfel.glb",
+        &side_glb(&cube, &textures, FREEFORM_UNIT).unwrap(),
+    );
+    fx.write(
+        "data/tilesets/0000.turm.glb",
+        &side_glb(&turm, &textures, FREEFORM_UNIT).unwrap(),
+    );
+
+    let mut st = store(&fx);
+    let shown = world_faces(&mut st, 0).unwrap().expect("a world map");
+    assert_eq!(shown.messages, Vec::new());
+    let grid = WorldGrid::parse(&world).unwrap();
+    let pieces = PieceModels {
+        by_tile: std::collections::BTreeMap::from([(5, turm.clone())]),
+    };
+    let expected = mesh_with(&grid, &tileset, &pieces);
+    assert_eq!(shown.faces[..expected.len()], expected[..]);
+    // Grid 1, piece 6, free-form 6.
+    assert_eq!(shown.faces.len(), 13);
+    assert_eq!(
+        shown
+            .faces
+            .iter()
+            .filter(|f| f.layer == PIECE_LAYER)
+            .count(),
+        6
+    );
+    assert_eq!(
+        shown
+            .faces
+            .iter()
+            .filter(|f| f.layer == FREEFORM_LAYER)
+            .count(),
+        6
+    );
+    // Model geometry (the piece's and the free-form's side file) is marked, grid faces are not.
+    assert_eq!(shown.model.len(), shown.faces.len());
+    assert_eq!(shown.model, [vec![false], vec![true; 12]].concat());
+    let names: Vec<&str> = shown.textures.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["syn_boden", "syn_gras"]);
+    // The bake through the store reads the same side files.
+    let base = st.map(0).unwrap().clone();
+    let baked = bake_world(&mut st, 0, &world, &base, &Verbatim::default()).unwrap();
+    assert!(baked.report.ok, "{:?}", baked.report.messages);
+    assert_eq!(baked.report.freeform_faces, 6);
+    assert_eq!(baked.report.faces, 13);
+
+    // Without the piece's side file: the footprint and the message, the free-form stays.
+    std::fs::remove_file(fx.root().join("data/tilesets/0000.turm.glb")).unwrap();
+    let shown = world_faces(&mut st, 0).unwrap().expect("a world map");
+    let codes: Vec<&str> = shown.messages.iter().map(|m| m.code.as_str()).collect();
+    assert_eq!(codes, ["world.side-file"]);
+    assert_eq!(shown.messages[0].args, ["data/tilesets/0000.turm.glb"]);
+    assert_eq!(shown.faces.len(), 1 + 1 + 6);
+    assert!(shown.faces.iter().any(|f| f.texture == "syn_stueck"));
+    // The footprint face is no model geometry.
+    assert_eq!(shown.model, [vec![false, false], vec![true; 6]].concat());
+    let baked = bake_world(&mut st, 0, &world, &base, &Verbatim::default()).unwrap();
+    assert!(!baked.report.ok && baked.report.model_kept);
+
+    // A binary map shows nothing.
+    assert!(world_faces(&mut st, 2).unwrap().is_none());
+}

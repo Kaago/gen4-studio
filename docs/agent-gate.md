@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) [phase-6-1-gate.md](phase-6-1-gate.md) (Writer: Modelle und Texturen), [phase-6-2-gate.md](phase-6-2-gate.md) (BDHC und Gelände) und [phase-6-3a-gate.md](phase-6-3a-gate.md) (Weltformat und Vorschau) sowie [phase-6-3b-gate.md](phase-6-3b-gate.md) (Backen und Build) und [phase-6-5a-gate.md](phase-6-5a-gate.md) (PNG und Modelle) sowie [phase-6-4a-gate.md](phase-6-4a-gate.md) (Malen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) und [phase-3d-6-gate.md](phase-3d-6-gate.md) (Geschichten lesen) sowie [phase-3d-gate.md](phase-3d-gate.md) (Phasen-Gate 3d) [phase-6-1-gate.md](phase-6-1-gate.md) (Writer: Modelle und Texturen), [phase-6-2-gate.md](phase-6-2-gate.md) (BDHC und Gelände) und [phase-6-3a-gate.md](phase-6-3a-gate.md) (Weltformat und Vorschau) sowie [phase-6-3b-gate.md](phase-6-3b-gate.md) (Backen und Build) und [phase-6-5a-gate.md](phase-6-5a-gate.md) (PNG und Modelle) sowie [phase-6-4a-gate.md](phase-6-4a-gate.md) (Malen) und [phase-6-5b-gate.md](phase-6-5b-gate.md) (Freiform und Austausch) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -2331,3 +2331,88 @@ Erwartet: Rückgabe 0, `"ok": true`, Header 415, 593 bzw. 64, 540; 17 Zeilen „
 3. ⌘S; Technik › „Prüfen und Bauen“ › „Bauen“ → „Speichern unter“ `<Kopie>/out.nds` → Zeile „Karten backen“ direkt nach „Textprojekt“; Zeit stoppen.
 4. ⌘Z × 11 → nur das Rezept; ⌘S → `git status --porcelain` leer, `call.sh dirty` `[]`; ⇧⌘Z stellt wieder her.
 5. Blick in Hell/Komfort, Dunkel, Kompakt (Thema- und Dichte-Schalter): Dialog, Palette, Ebenen, Kachel, Quelle, Budget, Statusleiste lesbar. Notiz nach `target/agent/gate-<datum>/6-4a/browser.md`; danach die Test-Umgebung beenden (`kill $(cat target/agent/6-4a/studio-web.pid)`, `lsof -iTCP:1560 -iTCP:1561 -sTCP:LISTEN` leer).
+
+## Phase 6.5b ([phase-6-5b-gate.md](phase-6-5b-gate.md))
+
+6.5b bringt Freiform und Austausch: 3D-Modelle (OBJ, glTF, GLB) als Freiform einer Welt-Karte (kanonisches Beifile `data/maps/NNNN.<name>.glb`, `world.freeform`) und als Teilmodell einer Kachel (`data/tilesets/PPPP.<name>.glb`), beide vom Bäcker mit dem Raster gebacken; „Karte als Quelle übernehmen“ in Form 2 (das Vanilla-Modell über apicula als glTF-Beifile `NNNN.model.glb`, Terrain verbatim); Export und Import einer Welt-Karte als Tiled-Karte (TMJ, [tmj.md](formats/tmj.md)); im Studio die Zeilen „Freiform (glTF)“ und „Tiled (TMJ)“ im Dialog „Teile importieren…“, das Segment „Tiled (TMJ)“ im Dialog „Teil exportieren“, die Taste „Als glTF übernehmen (Form 2)“ im Abschnitt „Quelle“; in `g4emu` die Szenarien `pt-freiform`/`hg-freiform`. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien** (unter `$G4_ROMS_DIR/_testkopien`, `cp -cR` für den Ordner, `cp -c` für die `.nds`, das Ziel existiert vorher nicht): `6-5b-pt`, `6-5b-hgde`, `6-5b-hgus` (je `_DSPRE_contents` mit `.nds`) für die gated Tests (geschrieben wird nur auf `vanilla_copy()`); `6-5b-szen-pt*`, `6-5b-szen-hg*` mit `.nds` für die Szenarien (nach `build` verbraucht; benutzt sind `-pt`, `-hg`, `-pt2`, `-hg2`, der nächste Lauf braucht `-pt3`/`-hg3`); `6-5b-web` (Platin DE) mit `.nds` für den Browser-Teil (verbraucht sind `-web` und `-web2`, die Nachprüfung nach der Fix-Welle; der nächste Lauf nimmt `-web3`), eingerichtet mit `target/debug/g4k import-samples <Kopie>/import`, `call.sh open_project`, `assign_base '{"nds":"../6-5b-web.nds"}'`, `adopt_text_project` (etwa 2 min), `world_create '{"req":{"map":0}}'`, `save`.
+
+**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula` (Form 2 und die apicula-Prüfungen brauchen es; ohne `G4_APICULA` überspringt der Form-2-Gate-Test), Test-Umgebung auf `G4_VITE_PORT=1580 G4_BRIDGE_PORT=1581` (andere Ports gehören anderen Sitzungen). Vite in einem Worktree unter `.claude/` bemerkt Dateiänderungen nicht: nach einer Codeänderung die Test-Umgebung neu starten. Lange Läufe im Hintergrund mit Log unter `target/agent/6-5b/<zweck>.log`, `uptime` davor; die Bilder unter `target/agent/gate-<datum>/6-5b/`. Ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+
+**Wo was ist:** Karte wählen (Platin: Zweiblattdorf › Karte 0000 als Welt; binär Zweiblattdorf › Haus 1 › Karte 0184), Inspector-Kopf „Aktionen“ (`aria-label="Aktionen"`) mit „Teile importieren…“ und „Teile exportieren…“. Der Import-Dialog `[data-import-dialog="<Karte>"]` öffnet auf „Karte im Projekt“; nach „Datei“ das Feld „Pfade, eine je Zeile“ (Pfade **absolut**, Übernahme beim Verlassen). Eine Welt-Karte zeigt für `.obj`/`.gltf`/`.glb` die Zeile `[data-import-part="freeform"]` „Freiform (glTF) · <Datei>“ mit „Lage“ (x, y, z in Welteinheiten von der Kartenmitte) und „Umwandeln“ (Farben, Einheit 16 = eine Kachel), für `.tmj` die Zeile `[data-import-part="tmj"]` „Tiled (TMJ) · <Datei>“ (unverändert: „Keine Änderung.“, Kästchen gesperrt). Der Export-Dialog hat das Segment „Tiled (TMJ)“ mit `[data-export-part="tmj"]`; die Bilder kommen nach `<stem>.tiles/` neben die Datei, `build/` wird angelegt. Abschnitt „Quelle“ einer binären Karte (`[data-world-source="binary"]`): `[data-world-adopt=""]` „Karte als Quelle übernehmen“ (Form 1), `[data-world-adopt="gltf"]` „Als glTF übernehmen (Form 2)“ mit der Notiz „Übernommen als glTF: N Vanilla-Polygone, M gebackene Flächen.“ Szene: `canvas[data-world-mesh="<Karte>"]`, `[data-world-mesh-faces]`. Befehle über `g4_call --expert` bzw. `call.sh`: `world_freeform_inspect`, `world_freeform_add`, `world_freeform_remove`, `tileset_piece_set` (Anfrage unter `req`), `world_export_tmj`, `world_inspect_tmj`, `world_import_tmj` (`map`, `path`), `world_adopt` mit `form: "gltf"` ([mcp.md](mcp.md), „Freiform, Form 2, Tiled (6.5b, über `g4_call`)“).
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent | läuft in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; `tests/world_freeform.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert (der Sweep läuft dort nicht) |
+| (1) gated `world_freeform` | Agent | je Kopie im Release-Profil mit `G4_APICULA`, nacheinander, `--nocapture --test-threads 1`; die Zeilen `world-freeform`, `world-piece`, `world-form2`, `world-tmj` in die Zahlentabelle |
+| (1) Sweep Form 2 | Agent | je Kopie mit `G4_FORM2_SWEEP=1`, Zeile `world-form2-sweep` (ohne Schwelle) |
+| (1) `world_bake`, `textproject`, `vanilla_checks` | Agent | je Kopie; Form 1 bleibt byte-gleich, `vanilla_checks` 0 Fehler |
+| (1) Automatik ohne ROM | Agent | Befehle unten |
+| (2) Szenarien `pt-freiform`, `hg-freiform` | Agent + Blick | `g4emu scenario` kopflos über die Brücke, Befehle unten; Bild `freiform` |
+| (3) Browser | Agent | Test-Umgebung auf 1580/1581, Ablauf unten; Bilder `blick-*` über Chrome headless |
+| (4) Blick auf die Bilder, melonDS, eigene Blender-Datei, Tiled 1.10, DSPRE, `scripts/gate.sh` auf main | Agent + Blick, Hand | Gate-Datei, „(4) Hand und Blick“ |
+
+**Automatik (1)**, aus der Wurzel des Worktrees (`<k>` = `pt`, `hgde`, `hgus`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms; K=$G4_ROMS_DIR/_testkopien
+export G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+G4_TEST_PROJECT=$K/6-5b-<k>_DSPRE_contents \
+  cargo test --release --workspace --all-features --test world_freeform -- --nocapture --test-threads 1
+#   5/5 je Spiel (7 bis 24 min unter Last)
+G4_FORM2_SWEEP=1 G4_TEST_PROJECT=$K/6-5b-<k>_DSPRE_contents \
+  cargo test --release --workspace --all-features --test world_freeform -- form2_sweep_over_every_map --nocapture --test-threads 1
+for t in world_bake textproject vanilla_checks; do G4_TEST_PROJECT=$K/6-5b-<k>_DSPRE_contents \
+  cargo test --release --workspace --all-features --test $t -- --nocapture --test-threads 1; done
+cargo deny --locked check licenses advisories
+cargo fmt --all --check
+cargo clippy --workspace --all-features --all-targets -- -D warnings
+env -u G4_TEST_PROJECT cargo test --workspace --all-features --no-fail-fast
+(cd apps/studio && pnpm test && pnpm build)
+bash scripts/check-styles.sh; bash scripts/check-tokens.sh; bash scripts/check-depth.sh; bash scripts/check-no-rom-data.sh
+(cd scripts/g4emu && uv run pytest -m "not integration" -q)
+```
+
+Erwartet: `world-freeform CPUD map=0 faces=25 freeform_faces=6 nsbmd=1972 share=0.032 apicula=ok` (HeartGold `IPKD`/`IPKE` dieselben Zahlen); `world-piece CPUD pack=6 tile=3 faces=25 nsbmd=1972` (HeartGold `pack=2`); `world-form2 CPUD map=0 vanilla_polys=815 vanilla_quads=813 vanilla_tris=2 baked_faces=816 baked_quads=812 baked_tris=4 strips=4 dropped=0 vanilla_bytes=38876 baked_bytes=38224 share=0.622 ignored=skins,vertex-colours`, HeartGold `vanilla_polys=336 … baked_faces=332 baked_quads=322 baked_tris=10 strips=24 … vanilla_bytes=16604 baked_bytes=16248 share=0.264`; `world-tmj CPUD painted=equal maps=665 equal=665`, HeartGold `maps=675 equal=675`; Sweep `world-form2-sweep CPUD maps=666 ok=601 too_big=1 texture=28 other=36`, HeartGold `maps=676 ok=607 too_big=14 texture=8 other=47` (ohne Schwelle; „andere“ sind `world.no-area`, `model.out-of-range`, `model.no-geometry`); `world_bake` 5/5 mit `world-adopt … equal=666` bzw. `676`; `textproject` 64/64; `vanilla_checks` 3/3, jeder Fehlercode 0 (266 / 201 / 209 Befunde); `cargo deny` `advisories ok, licenses ok` (bekannte Warnung `no-license-field` für `chatot`), keine neue Abhängigkeit; die Zahlen der Automatik ohne ROM in der Gate-Datei, (1) 4.
+
+**Szenarien (2)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-5b`), nacheinander, je eine frische Kopie mit `.nds`. `KOPIE` ist der **absolute** Ordner der Kopie (die Brücke löst den relativen Modellpfad gegen ihren eigenen Arbeitsordner auf):
+
+```sh
+R=/Users/POLTEP/Projekte/lab/editor/Roms
+export G4_ROMS_DIR=$R G4_BRIDGE_BIN=$W/target/debug/studio-bridge G4K_BIN=$W/target/debug/g4k G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+K=$G4_ROMS_DIR/_testkopien
+cp -cR "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$K/6-5b-szen-pt3_DSPRE_contents"
+cp -c "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds" "$K/6-5b-szen-pt3.nds"
+cp -cR "$G4_ROMS_DIR/Pokemon - Goldene Edition HeartGold (Germany)_DSPRE_contents" "$K/6-5b-szen-hg3_DSPRE_contents"
+cp -c "$G4_ROMS_DIR/Pokemon - Goldene Edition HeartGold (Germany).nds" "$K/6-5b-szen-hg3.nds"
+uv run g4emu scenario ../agent/scenarios/pt-freiform.yaml --project $K/6-5b-szen-pt3_DSPRE_contents --out $O/pt-freiform \
+  --set BASIS=../6-5b-szen-pt3.nds --set KOPIE=$K/6-5b-szen-pt3_DSPRE_contents \
+  --set NEUER_HEADER=593 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445 > $W/target/agent/6-5b/pt-freiform.log 2>&1
+uv run g4emu scenario ../agent/scenarios/hg-freiform.yaml --project $K/6-5b-szen-hg3_DSPRE_contents --out $O/hg-freiform \
+  --set BASIS=../6-5b-szen-hg3.nds --set KOPIE=$K/6-5b-szen-hg3_DSPRE_contents \
+  --set NEUER_HEADER=540 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445 > $W/target/agent/6-5b/hg-freiform.log 2>&1
+```
+
+Erwartet: Rückgabe 0, `"ok": true`, Header `[415, 593]` bzw. `[64, 540]`; `tileset_edit` tiles = 4, `world_edit` cells = 171, `world_freeform_add` `bake.freeform_faces = 6`, `world_bake` ok, `style = "outdoor"`, `freeform_faces = 6`; `get_map` Permissions `112 [2, 0]`, `770 [21, 0]`, `694 [0, 128]`, `684 [105, 128]`; Bake 25 Flächen, Modell 2 144 B, Textur `g4_imp_cube` neu (Platin mit der Warnung `bake.vram-high`, 110 800 B); `expect-at` (13, 21) bzw. (11, 21); im Bild `freiform` der orange-blaue Würfel zwei Kacheln breit nördlich des Spielers (Zelle (13, 19) bzw. (11, 19)). Ohne `KOPIE` scheitert `world_freeform_add` mit „Pfad nicht lesbar: import/g4_imp_cube.obj“.
+
+**Browser (3)**, Test-Umgebung (`R=$G4_ROMS_DIR`), aus der Wurzel des Worktrees:
+
+```sh
+cp -cR "$R/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$R/_testkopien/6-5b-web3_DSPRE_contents"
+cp -c "$R/Pokemon - Platin-Edition (Germany).nds" "$R/_testkopien/6-5b-web3.nds"
+cargo build --workspace --all-features
+target/debug/g4k import-samples "$R/_testkopien/6-5b-web3_DSPRE_contents/import"
+G4_ROMS_DIR=$R G4_VITE_PORT=1580 G4_BRIDGE_PORT=1581 bash scripts/agent/studio-web.sh > target/agent/6-5b/web.log 2>&1 & echo $! > target/agent/6-5b/web.pid
+```
+
+Abwarten, bis das Log „Brücke läuft auf 127.0.0.1:1581“ meldet; einrichten mit `call.sh open_project`, `assign_base '{"nds":"../6-5b-web3.nds"}'`, `adopt_text_project`, `world_create '{"req":{"map":0}}'`, `save`; Seite `http://127.0.0.1:1580/?project=$R/_testkopien/6-5b-web3_DSPRE_contents`, 1440 × 900, Bauen (`D=<Kopie>`):
+
+1. Zweiblattdorf › Karte 0000, „Aktionen“ › „Teile importieren…“, „Datei“, `$D/import/g4_imp_cube.obj`, Lage 0, 0, 0 → „Freiform (glTF) · g4_imp_cube.obj“, „Neue Textur g4_imp_cube: 16 × 16, 16 Farben, mittlerer Farbfehler 2,5.“, „Modell 908 von 61.440 B“.
+2. „1 Teil übernehmen“ → `data-world-mesh-faces` 1 → 7, Würfel in der Kartenmitte, Verlauf „Freiform hinzugefügt: Karte 0000 (0000.g4_imp_cube.glb)“; ⌘Z → 1, ⇧⌘Z → 7 (echte Tasten).
+3. „Teile exportieren…“ › „Tiled (TMJ)“, `$D/build/0000.tmj` → „Tiled (TMJ) exportiert nach …“, `0000.tmj` (etwa 103 kB) und `0000.tiles/` (166 Bilder).
+4. „Teile importieren…“, dieselbe Datei → „Keine Änderung.“, „0 Teile übernehmen“, Verlauf unverändert, SHA-1 der TMJ gleich; „Abbrechen“.
+5. Haus 1 › Karte 0184 (binär), „Als glTF übernehmen (Form 2)“ → „Übernommen als glTF: 115 Vanilla-Polygone, 113 gebackene Flächen.“, `data-world-mesh="184"`, Faces 113, Modell 4 884 B; ⌘Z → binär. Dabei die Möbel ansehen (Befund B1 der Gate-Datei, geschlossen mit der Fix-Welle `78892ccc`): nach Form 2 stehen alle 13 Möbel auf dem gebackenen Raum, ⌘Z und ⇧⌘Z geben dieselben Bilder wie vorher bzw. nachher (`cmp`), `get_map {"index":184}` nennt 13 `buildings`; dunkel ebenso auf 0186 (110 → 109).
+6. Nachprüfung der Fix-Welle (wie am 2026-11-09, Notiz `target/agent/gate-2026-11-09/6-5b/browser-b1.md`): mit dem Würfel auf Karte 0000 die Kamera (linke Taste auf freiem Boden, kein Verlaufsschritt) drehen, bis ein Haus vor dem Würfel steht → der Würfel ist verdeckt, das Haus nicht überzeichnet (I1). Im Dialog „Lage“ x = 600 → „höchstens 511“, z = −600 → „mindestens -512“, der Wert bleibt stehen, keine neue Prüfung (M3; dabei bleibt „übernehmen“ frei, Befund N2). `.obj` und eine gültige TMJ (über `world_export_tmj`, eine Zelle geändert) prüfen, die TMJ vor „2 Teile übernehmen“ auf der Platte durch den Inhalt der `.obj` ersetzen → Notiz „expected value at line 1 column 1 (1 Fehler)“ ohne vorangestelltes „: “, die Freiform genau einmal im Verlauf, Faces 1 → 7, ihr Kästchen abgewählt, eine Wiederholung fügt keinen zweiten Würfel hinzu (I4, M1). Eine `.obj`, als `.tmj` umbenannt, erreicht I4 nicht (die Zeile ist schon bei der Prüfung gesperrt); eine TMJ von vor dem Hinzufügen der Freiform lehnt der Import mit `tilesets[0].tilecount` ab (Befund N3), für die gültige Wiederholung neu exportieren.
+7. Hell/Komfort, Dunkel und Kompakt (Thema- und Dichte-Schalter): Dialoge, Szene, Notiz lesbar. Bilder `blick-<zustand>-<hell|dunkel|kompakt>.png` mit Chrome headless über CDP (ein Node-Skript ohne Pakete im Scratchpad, wie in 6.5a beschrieben). Notiz nach `target/agent/gate-<datum>/6-5b/browser.md`; danach die Test-Umgebung beenden (`kill $(cat target/agent/6-5b/web.pid)`, `lsof -iTCP:1580 -iTCP:1581 -sTCP:LISTEN` leer).
