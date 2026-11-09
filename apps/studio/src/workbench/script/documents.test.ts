@@ -61,7 +61,7 @@ describe("ScriptDocuments", () => {
 
 describe("scriptUri", () => {
   it("builds_file_uri_with_padded_number_and_unchanged_case", () => {
-    expect(scriptUri("/Users/Poltep/Roms/Proj", 42)).toBe("file:///Users/Poltep/Roms/Proj/expanded/scripts/0042.rotom");
+    expect(scriptUri("/Users/Maker/Roms/Proj", 42)).toBe("file:///Users/Maker/Roms/Proj/expanded/scripts/0042.rotom");
     expect(scriptUri("/r/", 7)).toBe("file:///r/expanded/scripts/0007.rotom");
   });
 

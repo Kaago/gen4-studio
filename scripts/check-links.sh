@@ -7,9 +7,10 @@
 #   check-links.sh <md>...     the given Markdown files; paths are relative to the cwd, and a file
 #                              that does not exist is an error
 #
-# Targets are resolved relative to the folder of the Markdown file. External links (containing
-# `://`, or starting with `mailto:`) are not checked, and neither are anchors: only the existence
-# of the target counts.
+# Targets are resolved relative to the folder of the Markdown file, and the letter case must match
+# exactly (GitHub is case-sensitive, macOS and Windows are not). External links (containing `://`,
+# or starting with `mailto:`) are not checked, and neither are anchors: only the existence of the
+# target counts.
 #
 # Output: `link? <file>: <target>` per dead link and exit status 1; otherwise the last line is
 # `links: <n> ok` (n = checked links). Needs python3 (standard library only); runs on macOS bash
@@ -43,6 +44,41 @@ def is_external(target):
     return "://" in target or target.startswith("mailto:")
 
 
+_listings = {}
+
+
+def entries(folder):
+    """The exact names in a folder (cached); empty when it cannot be listed."""
+    if folder not in _listings:
+        try:
+            _listings[folder] = set(os.listdir(folder))
+        except OSError:
+            _listings[folder] = set()
+    return _listings[folder]
+
+
+def exists_exact(base, target):
+    """True when `target` (relative to the folder `base`) exists with exactly this letter case.
+
+    macOS and Windows would find README.md for [x](readme.md); GitHub, which renders the docs, is
+    case-sensitive. So every component of the target is compared with the names of its folder."""
+    path = os.path.normpath(target)
+    if os.path.isabs(path):
+        cur = os.path.splitdrive(path)[0] + os.sep
+    else:
+        cur = base or "."
+    for part in path.split(os.sep):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            cur = os.path.join(cur, "..")
+            continue
+        if part not in entries(cur):
+            return False
+        cur = os.path.join(cur, part)
+    return os.path.exists(cur)
+
+
 def main(files):
     checked = 0
     dead = 0
@@ -59,7 +95,7 @@ def main(files):
             if is_external(target):
                 continue
             checked += 1
-            if not os.path.exists(os.path.normpath(os.path.join(base, target))):
+            if not exists_exact(base, target):
                 print("link? %s: %s" % (name, target))
                 dead += 1
     sys.stdout.flush()

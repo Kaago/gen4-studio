@@ -53,6 +53,30 @@ test_targets_resolve_relative_to_the_file() {
   [ "$out" = "link? docs/a.md: top.md" ] || fail "unexpected output: $out"
 }
 
+# macOS and Windows find B.md for b.md, GitHub (Linux) does not: the letter case must be exact,
+# in the file name and in every folder of the path.
+test_link_case_must_match_exactly() {
+  local d out
+  d="$(tmpdir)"
+  mkdir -p "$d/docs/sub"
+  printf '# b\n' >"$d/b.md"
+  printf '# c\n' >"$d/docs/sub/c.md"
+  printf '[b](B.md)\n' >"$d/a.md"
+  assert_status 1 in_dir "$d" a.md
+  out="$(in_dir "$d" a.md || true)"
+  [ "$out" = "link? a.md: B.md" ] || fail "unexpected output: $out"
+
+  printf '[c](Sub/c.md)\n[c](sub/C.md)\n[up](../b.md)\n[up](../B.md)\n[ok](sub/c.md)\n' >"$d/docs/a.md"
+  out="$(in_dir "$d" docs/a.md || true)"
+  [ "$out" = "link? docs/a.md: Sub/c.md
+link? docs/a.md: sub/C.md
+link? docs/a.md: ../B.md" ] || fail "unexpected output: $out"
+
+  printf '[b](b.md)\n[c](docs/sub/c.md)\n[folder](docs/sub/)\n' >"$d/a.md"
+  out="$(in_dir "$d" a.md)"
+  [ "$out" = "links: 3 ok" ] || fail "unexpected output: $out"
+}
+
 test_missing_file_argument_is_an_error() {
   local d out
   d="$(tmpdir)"

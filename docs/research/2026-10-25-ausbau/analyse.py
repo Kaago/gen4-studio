@@ -1,7 +1,8 @@
 import struct, os, sys, collections, json
 
 ROMS = os.path.expanduser("~/Projekte/lab/editor/Roms")
-S = "/private/tmp/claude-502/-Users-POLTEP-Projekte-lab-editor/9f273377-94af-440d-941f-e4c16f1f49e1/scratchpad/data"
+SCRATCH = "/private/tmp/claude-502/" + os.path.expanduser("~/Projekte/lab/editor").replace("/", "-") + "/9f273377-94af-440d-941f-e4c16f1f49e1/scratchpad"
+S = SCRATCH + "/data"
 GAMES = [
     ("Pokemon - Platin-Edition (Germany)", "pt", 0xE6074, 433),
     ("Pokemon - Goldene Edition HeartGold (Germany)", "hg", 0xF6B94, 279),

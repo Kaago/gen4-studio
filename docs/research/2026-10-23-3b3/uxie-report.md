@@ -10,7 +10,7 @@ PtDE = Platin DE (CPUD), HGDE = HeartGold DE (IPKD), HGUS = HeartGold US (IPKE).
 Beyond reading the code, I ran every uxie codec over every vanilla member of all three projects
 (read-only), with a small scratch crate pinned to `uxie =0.9.7` / `chatot =0.8.1` (gen4-studio's
 Cargo.lock): parse, write, compare byte for byte. Tools are in
-`/private/tmp/claude-502/-Users-POLTEP-Projekte-lab-editor/e1c6e331-c44c-4ea7-ac35-509b47402793/scratchpad/research-3b3/tools/`
+`/private/tmp/claude-502/-Users-<user>-Projekte-lab-editor/e1c6e331-c44c-4ea7-ac35-509b47402793/scratchpad/research-3b3/tools/`
 (`rt/` Rust round trip, `inv.py` NARC inventory, `enc.py` encounter/trainer layout checks,
 `itemtbl.py`, `tm.py`). Build needs `CFLAGS=-D_POSIX_C_SOURCE=200809L` (same as `gen4-studio/.cargo/config.toml`)
 and `PATH=$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH` (no `cargo` shim on PATH).
