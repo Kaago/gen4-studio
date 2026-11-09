@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataRowDto, ProjectInfo } from "../api";
 import type { EditBus } from "../bus/editBus";
 import { headerMarks } from "../checks/FindingMark";
@@ -222,6 +223,7 @@ function useFaultyEvents(rows: readonly ProblemRow[]): readonly EventRef[] {
 }
 
 export function WorldPanel() {
+  const { t } = useTranslation("workbench");
   const d = useWorkbench();
   const first = d.headers[0];
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
@@ -258,9 +260,9 @@ export function WorldPanel() {
     return (
       <div className={styles.empty}>
         <EmptyState
-          what="Noch kein Ort gewählt."
-          why="Wähle links einen Ort, dann zeigt die Schau seine Karten."
-          action={first ? { label: "Ersten Ort zeigen", onClick: () => d.onSelect(first) } : undefined}
+          what={t("worldPanel.empty.what")}
+          why={t("worldPanel.empty.why")}
+          action={first ? { label: t("worldPanel.empty.showFirst"), onClick: () => d.onSelect(first) } : undefined}
         />
       </div>
     );
@@ -389,12 +391,13 @@ export function WorldMapTab() {
 }
 
 export function ScriptTab() {
+  const { t } = useTranslation("workbench");
   const d = useWorkbench();
   const { info, scripts, problems, bus, depth, onError } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes (`scripts` with its revision).
   const context = useMemo<ScriptPanelContext>(() => ({ project: info, scripts, problems, bus, depth, onError }), [info, scripts, problems, bus, depth, onError]);
   return (
-    <Suspense fallback={<p className={styles.loading}>Editor wird geladen …</p>}>
+    <Suspense fallback={<p className={styles.loading}>{t("scriptTab.loading")}</p>}>
       <ScriptPanel context={context} />
     </Suspense>
   );

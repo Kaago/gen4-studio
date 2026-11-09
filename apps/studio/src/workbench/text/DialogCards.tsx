@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useId, useMemo } from "react";
 import type { MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { FigureDialog } from "../../api";
 import { Button, DSScreen, EmptyState, Notice, PanelHead } from "../../ui/primitives";
 import { figureKey, figureSummary, speakersText } from "../dialog/dialogModel";
@@ -24,6 +25,7 @@ const FigureCard = memo(function FigureCard({
   onEdit: (figure: FigureDialog) => void;
   onTrainer: (id: number) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const lineId = useId();
   const first = useMemo(() => (figure.first_text === null ? [] : pages(figure.first_text).slice(0, 1)), [figure.first_text]);
   const source = figure.source;
@@ -59,14 +61,14 @@ const FigureCard = memo(function FigureCard({
       {source.kind === "local" && (
         <div className={styles.actions}>
           <Button kind="quiet" size="s" data-card-action="" onClick={onAction}>
-            Dialog bearbeiten…
+            {t("dialogCards.edit")}
           </Button>
         </div>
       )}
       {source.kind === "trainer" && (
         <div className={styles.actions}>
           <Button kind="quiet" size="s" icon="forward" data-card-action="" onClick={onAction}>
-            Trainer öffnen
+            {t("dialogCards.openTrainer")}
           </Button>
         </div>
       )}
@@ -79,6 +81,7 @@ const FigureCard = memo(function FigureCard({
  * shows its messages); a double click or „Dialog bearbeiten…“ opens the dialog editor, a trainer's card leads to the trainer instead.
  */
 export function DialogCards() {
+  const { t } = useTranslation("workbench");
   const { project, places, dialogHeader, dialogs, dialogFigure, headers, figureTitle, selectFigure, openDialogEditor, goTo, needTrainers } = useTextArea();
   const figures = dialogs.dialogs?.figures;
   const hasTrainer = figures?.some((f) => f.source.kind === "trainer") ?? false;
@@ -89,8 +92,8 @@ export function DialogCards() {
   const onTrainer = useCallback((id: number) => goTo({ kind: "trainer", index: id }), [goTo]);
 
   let empty: { what: string; why: string } | null = null;
-  if (project === null) empty = { what: "Kein Projekt geöffnet.", why: "Öffne ein Projekt, dann zeigt die Schau die Figuren seiner Orte." };
-  else if (dialogHeader === null || header === undefined) empty = { what: "Wähle links einen Ort.", why: "Die Schau zeigt dann seine Figuren mit dem, was sie sagen." };
+  if (project === null) empty = { what: t("dialogCards.noProject.what"), why: t("dialogCards.noProject.why") };
+  else if (dialogHeader === null || header === undefined) empty = { what: t("dialogCards.noPlace.what"), why: t("dialogCards.noPlace.why") };
   if (empty !== null || header === undefined) {
     return (
       <div className={styles.empty}>
@@ -101,16 +104,16 @@ export function DialogCards() {
 
   let body;
   if (figures === undefined) {
-    body = dialogs.error !== null ? <Notice kind="error">{dialogs.error}</Notice> : <p className={styles.note}>Lade …</p>;
+    body = dialogs.error !== null ? <Notice kind="error">{dialogs.error}</Notice> : <p className={styles.note}>{t("dialogCards.loading")}</p>;
   } else if (figures.length === 0) {
     body = (
       <div className={styles.empty}>
-        <EmptyState what="Keine Figuren an diesem Ort" why="Hier steht keine Figur und kein Schild, das etwas sagt." />
+        <EmptyState what={t("dialogCards.noFigures.what")} why={t("dialogCards.noFigures.why")} />
       </div>
     );
   } else {
     body = (
-      <ul className={styles.grid} aria-label="Figuren">
+      <ul className={styles.grid} aria-label={t("dialogCards.figures")}>
         {figures.map((f) => (
           <FigureCard
             key={figureKey(f)}
@@ -126,7 +129,7 @@ export function DialogCards() {
     );
   }
   return (
-    <section className={styles.view} aria-label="Figuren des Orts" data-dialog-cards="">
+    <section className={styles.view} aria-label={t("dialogCards.label")} data-dialog-cards="">
       <PanelHead title={headerIdentity(places, header).name} subtitle={figures === undefined ? undefined : speakersText(figures)} />
       <div className={styles.body}>{body}</div>
     </section>

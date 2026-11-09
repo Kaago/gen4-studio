@@ -4,7 +4,7 @@ import type { Area, Room, World } from "./worldModel";
 
 export type { ListSort, TreeSort };
 
-/** Names as a person sorts them: "Route 2" before "Route 10", "Äther" between "Achtung" and "Bach". */
+/** Names as a person sorts them: „Route 2“ before „Route 10“, „Äther“ between „Achtung“ and „Bach“. */
 export const compareNames = (a: string, b: string) => a.localeCompare(b, "de", { numeric: true, sensitivity: "base" });
 
 const MAX_RECENT_AREAS = 50;

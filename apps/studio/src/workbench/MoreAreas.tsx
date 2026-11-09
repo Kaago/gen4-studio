@@ -1,10 +1,12 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary, MatrixSummary } from "../api";
 import type { Depth } from "../ui/frame/shellState";
 import { EmptyState } from "../ui/primitives";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { AreaGrid } from "./AreaGrid";
 import styles from "./MoreAreas.module.css";
+import { termLabel, termPlural } from "./terms";
 import { useMatrix } from "./useMatrix";
 import { useVisible } from "./useVisible";
 import type { Area } from "./worldModel";
@@ -27,7 +29,7 @@ export interface MoreAreasProps {
   onSelect: (area: Area) => void;
 }
 
-const mapsLabel = (n: number) => (n === 1 ? "1 Karte" : `${n} Karten`);
+const mapsLabel = (n: number) => `${n} ${n === 1 ? termLabel("map") : termPlural("map")}`;
 
 interface TileProps extends Omit<MoreAreasProps, "areas" | "matrices" | "onSelect"> {
   area: Area;
@@ -58,7 +60,8 @@ function Tile({ area, filled, headers, areaFallback, revision, cache, colorOf, d
 
 /** „Weitere Gebiete“: the areas with a map of their own as tiles; a tile selects its area. Memoised with the world map panel. */
 export const MoreAreas = memo(function MoreAreas({ areas, matrices, onSelect, ...rest }: MoreAreasProps) {
-  if (areas.length === 0) return <EmptyState what="Keine weiteren Gebiete." why="Jedes Gebiet liegt auf einer Weltkarte." />;
+  const { t } = useTranslation("workbench");
+  if (areas.length === 0) return <EmptyState what={t("moreAreas.empty.what")} why={t("moreAreas.empty.why")} />;
   return (
     <div className={styles.tiles}>
       {areas.map((area) => (

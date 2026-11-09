@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { t } from "../../i18n";
 import { createTextArchive, editTextArchive, errorText, searchText } from "../../api";
 import type { DataRowDto, FigureDialog, HeaderSummary, MatrixSummary, MemberCounts, ProjectInfo, TextEdit, TextHit } from "../../api";
 import type { EditBus } from "../../bus/editBus";
@@ -79,9 +81,9 @@ export interface TextAreaProps {
 }
 
 /** What a link to a message tells when no figure of the places that use its archive says it. */
-const NO_FIGURE_SAYS = "Keine Figur spricht diese Nachricht – in Bauen geöffnet";
+const noFigureSays = () => t("workbench:textArea.noFigureSays");
 /** What a link to an archive tells when no place uses the archive (a game-wide one). */
-const NO_PLACE_USES = "Kein Ort nutzt dieses Archiv – in Bauen geöffnet";
+const noPlaceUses = () => t("workbench:textArea.noPlaceUses");
 
 /** „Trainer Wanderer Jens“; a trainer the rows do not (yet) have, or one without a name, is „Trainer“ (Erzählen names no numbers). */
 function trainerTitle(rows: readonly DataRowDto[] | null | undefined, id: number): string {
@@ -203,7 +205,7 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
       toast.info(why);
     };
     if (users[0] === undefined) {
-      toBauen(NO_PLACE_USES);
+      toBauen(noPlaceUses());
       return;
     }
     if (message === null) {
@@ -222,7 +224,7 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
           return;
         }
       }
-      toBauen(NO_FIGURE_SAYS);
+      toBauen(noFigureSays());
     })();
     return () => {
       current = false;
@@ -392,6 +394,7 @@ export const overlongCount = (widths: readonly number[]) => widths.filter((w) =>
  * the place, how many figures speak there and the chosen figure ("Zweiblattdorf, 2 Figuren sprechen, Objekt 3").
  */
 export function TextStatus() {
+  const { t } = useTranslation("workbench");
   const { archive, loaded, widths, narrating, dialogPlace, dialogs, dialogFigure, figureTitle } = useTextArea();
   if (narrating) {
     if (dialogPlace === null) return null;
@@ -401,18 +404,19 @@ export function TextStatus() {
     return <>{parts.join(", ")}</>;
   }
   if (archive === null) return null;
-  const parts = [`Archiv ${id4(archive)}`];
+  const parts = [t("textArea.status.archive", { archive: id4(archive) })];
   if (loaded) {
     const n = loaded.messages.length;
     parts.push(`${n} ${n === 1 ? termLabel("message") : termPlural("message")}`);
     const long = overlongCount(widths);
-    if (long > 0) parts.push(`${long} zu lang`);
+    if (long > 0) parts.push(t("textArea.status.tooLong", { long }));
   }
   return <>{parts.join(", ")}</>;
 }
 
 /** The left of the status line while the texts show: the keys of the message field while it has the focus. */
 export function TextHints() {
+  const { t } = useTranslation("workbench");
   const { editorFocused } = useTextArea();
-  return editorFocused ? <>↵ neue Zeile, ⇧↵ neue Seite</> : null;
+  return editorFocused ? <>{t("textArea.hints")}</> : null;
 }

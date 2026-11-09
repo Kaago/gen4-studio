@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataRowDto, EventsDto, HeaderSummary, MatrixDto } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
@@ -64,7 +65,6 @@ export interface SceneHierarchyProps {
 /** The tools „+“ offers, in the toolbar's order. */
 const ADDS: readonly Tool[] = ["figure", "door", "trigger", "sign", "building"];
 const EVENT_GROUPS: ReadonlySet<SceneGroup> = new Set(["object", "warp", "coord", "bg"]);
-const FOLLOW_HINT = "Doppelklick oder Enter folgt der Tür zum Ziel";
 
 /**
  * „In dieser Szene“: what the shown area or room holds, as a tree (the rows come from `sceneRows`). A click selects like a click
@@ -74,6 +74,7 @@ const FOLLOW_HINT = "Doppelklick oder Enter folgt der Tür zum Ziel";
 export function SceneHierarchy(props: SceneHierarchyProps) {
   const { header, headers, matrix, events, buildings, trainers, depth, identify, selected, marks, faultyEvents, locked, loading } = props;
   const { onSelect, onFollow, onOpenScript, onTool, toolsBlocked, onConnectRoom, onNewPlace, placesBlocked = null, onBack, onForward, canBack, canForward, focusGroup, buildingModel = null } = props;
+  const { t } = useTranslation("workbench");
   const reset = useReset();
   const [open, setOpen] = useState<ReadonlySet<string>>(SCENE_OPEN);
   const [query, setQuery] = useState("");
@@ -97,8 +98,8 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
   // The jump of „Zurück“ or „Vor“ moves no focus itself. The pressed button may be disabled by it (the end of the history): the focus then
   // goes to the other button, or to the root row of the tree, instead of dropping to the page.
   const panel = useRef<HTMLDivElement>(null);
-  const stepped = useRef<"Zurück" | "Vor" | null>(null);
-  const step = (button: "Zurück" | "Vor", jump: () => void) => {
+  const stepped = useRef<"back" | "forward" | null>(null);
+  const step = (button: "back" | "forward", jump: () => void) => {
     stepped.current = button;
     jump();
   };
@@ -106,9 +107,9 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
     const pressed = stepped.current;
     if (pressed === null) return;
     stepped.current = null;
-    const button = (label: string) => panel.current?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    const button = (which: "back" | "forward") => panel.current?.querySelector<HTMLButtonElement>(`button[aria-label="${t(`sceneHierarchy.${which}`)}"]`);
     if (!button(pressed)?.disabled) return;
-    const next = button(pressed === "Zurück" ? "Vor" : "Zurück");
+    const next = button(pressed === "back" ? "forward" : "back");
     if (next && !next.disabled) next.focus();
     else {
       const root = tree.current?.querySelector<HTMLElement>('[data-scene-group="header"]');
@@ -156,19 +157,19 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
 
   const adds: MenuEntry[] = [
     ...ADDS.map((id) => {
-      const tool = TOOLS.find((t) => t.id === id)!;
+      const tool = TOOLS.find((spec) => spec.id === id)!;
       const blocked = isEventTool(id) ? toolsBlocked : null;
       return { label: blocked ? `${tool.label}, ${blocked}` : tool.label, icon: tool.icon, disabled: blocked !== null, onSelect: () => onTool(id) };
     }),
     "separator",
-    { label: "Raum hier anbinden…", icon: "room", onSelect: onConnectRoom },
-    { label: placesBlocked ? `Neuer Ort…, ${placesBlocked}` : "Neuer Ort…", icon: "place", disabled: placesBlocked !== null, onSelect: onNewPlace },
+    { label: t("sceneHierarchy.connectRoom"), icon: "room", onSelect: onConnectRoom },
+    { label: placesBlocked ? `${t("sceneHierarchy.newPlace")}, ${placesBlocked}` : t("sceneHierarchy.newPlace"), icon: "place", disabled: placesBlocked !== null, onSelect: onNewPlace },
   ];
 
   // „… auf Original zurücksetzen…“ in the rows' context menus: the header at the root, the event file at its groups and events, a script's
   // file, a building's model (from the archive the scene takes it from). Maps have none: they are reset in the cell's inspector.
   const resetMenu = (target: Parameters<typeof resetEntry>[0], label: string, known = true): MenuEntry[] => [resetEntry(target, known ? reset.status : null, reset.open, label)];
-  const eventFileMenu = events === null ? undefined : resetMenu({ kind: "event_file", index: events.event_file_id }, "Eventdatei auf Original zurücksetzen…");
+  const eventFileMenu = events === null ? undefined : resetMenu({ kind: "event_file", index: events.event_file_id }, t("resetMenu.eventFile"));
   const modelOf = (ref: { map: number; index: number }) => buildings.find((b) => b.map === ref.map)?.models[ref.index];
 
   const renderRow = (row: SceneRow) => {
@@ -184,7 +185,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
             selected={isSelected}
             onSelect={() => row.ref && onSelect(row.ref)}
             dataAttrs={{ "data-scene-group": "header", "data-header-id": header?.id }}
-            contextMenu={header === null ? undefined : resetMenu({ kind: "header", id: header.id }, "Header auf Original zurücksetzen…")}
+            contextMenu={header === null ? undefined : resetMenu({ kind: "header", id: header.id }, t("resetMenu.header"))}
             trailing={mark ? <FindingMark severity={mark} /> : undefined}
           />
         );
@@ -216,7 +217,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
             selected={false}
             onSelect={() => onOpenScript(file)}
             dataAttrs={{ "data-script-file": file }}
-            contextMenu={resetMenu({ kind: "script", file }, "Scriptdatei auf Original zurücksetzen…")}
+            contextMenu={resetMenu({ kind: "script", file }, t("resetMenu.scriptFile"))}
           />
         );
       }
@@ -227,9 +228,9 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
         const model = ref.kind === "building" ? modelOf(ref) : undefined;
         const contextMenu =
           ref.kind === "event"
-            ? resetMenu({ kind: "event_file", index: ref.file }, "Eventdatei auf Original zurücksetzen…")
+            ? resetMenu({ kind: "event_file", index: ref.file }, t("resetMenu.eventFile"))
             : model !== undefined
-              ? resetMenu({ kind: buildingModel ?? "building_model", index: model }, "Gebäudemodell auf Original zurücksetzen…", buildingModel !== null)
+              ? resetMenu({ kind: buildingModel ?? "building_model", index: model }, t("resetMenu.buildingModel"), buildingModel !== null)
               : undefined;
         const item = (
           <TreeRow
@@ -238,7 +239,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
             selected={isSelected}
             onSelect={() => onSelect(ref)}
             dataAttrs={dataAttrs}
-            title={typeof row.dest === "number" ? FOLLOW_HINT : undefined}
+            title={typeof row.dest === "number" ? t("sceneHierarchy.followHint") : undefined}
             contextMenu={contextMenu}
             trailing={faulty(ref) ? <FindingMark severity="error" /> : undefined}
           />
@@ -268,34 +269,32 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
   return (
     <div ref={panel} className={styles.panel}>
       <PanelHead
-        title="In dieser Szene"
+        title={t("sceneHierarchy.title")}
         actions={
           <>
-            <IconButton label="Zurück" icon="back" shortcut="⌥⌘←" disabled={!canBack} onClick={() => step("Zurück", onBack)} />
-            <IconButton label="Vor" icon="forward" shortcut="⌥⌘→" disabled={!canForward} onClick={() => step("Vor", onForward)} />
-            {header !== null && <Menu label="Hinzufügen" trigger={<Icon name="plus" />} items={adds} />}
+            <IconButton label={t("sceneHierarchy.back")} icon="back" shortcut="⌥⌘←" disabled={!canBack} onClick={() => step("back", onBack)} />
+            <IconButton label={t("sceneHierarchy.forward")} icon="forward" shortcut="⌥⌘→" disabled={!canForward} onClick={() => step("forward", onForward)} />
+            {header !== null && <Menu label={t("sceneHierarchy.add")} trigger={<Icon name="plus" />} items={adds} />}
           </>
         }
       />
       {header === null ? (
-        <EmptyState what="Noch keine Szene gezeigt." why="Wähle oben ein Gebiet oder einen Raum, dann steht hier, was die Szene enthält." />
+        <EmptyState what={t("sceneHierarchy.empty.what")} why={t("sceneHierarchy.empty.why")} />
       ) : (
         <>
           <div className={styles.top}>
-            <TextField type="search" label="In dieser Szene suchen" placeholder="Name oder Nummer suchen" value={query} onChange={setQuery} onCommit={setQuery} />
+            <TextField type="search" label={t("sceneHierarchy.search.label")} placeholder={t("sceneHierarchy.search.placeholder")} value={query} onChange={setQuery} onCommit={setQuery} />
             {locked !== null && (
-              <Notice kind="warning" title="Eventdatei gesperrt">
+              <Notice kind="warning" title={t("sceneHierarchy.locked")}>
                 {lockedText(locked)}
               </Notice>
             )}
           </div>
-          <div ref={tree} role="tree" aria-label="In dieser Szene" className={styles.host}>
+          <div ref={tree} role="tree" aria-label={t("sceneHierarchy.title")} className={styles.host}>
             {rows.map(renderRow)}
-            {query.trim() !== "" && rows.length <= 1 && <p className={styles.note}>Nichts in dieser Szene passt zur Suche.</p>}
-            {waiting && <p className={styles.note}>Lade …</p>}
-            {nothing && query.trim() === "" && (
-              <p className={styles.note}>Hier ist noch nichts. Mit „+“ oder den Werkzeugen setzt du eine Figur, eine Tür, einen Auslöser, ein Schild oder ein Gebäude.</p>
-            )}
+            {query.trim() !== "" && rows.length <= 1 && <p className={styles.note}>{t("sceneHierarchy.noMatch")}</p>}
+            {waiting && <p className={styles.note}>{t("sceneHierarchy.loading")}</p>}
+            {nothing && query.trim() === "" && <p className={styles.note}>{t("sceneHierarchy.nothing")}</p>}
           </div>
         </>
       )}

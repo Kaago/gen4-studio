@@ -1,4 +1,5 @@
 import { MATRIX_EMPTY, type HeaderSummary, type MatrixDto } from "../api";
+import { t } from "../i18n";
 import { cellKey } from "./AreaGrid";
 import type { CellRect } from "./sceneScope";
 import type { Area, World, WorldMap } from "./worldModel";
@@ -26,11 +27,11 @@ export function worldViews(world: World, planShown: boolean): WorldViewItem[] {
     views.push({ key: map.key, label: map.name, matrix: map.matrix });
     const halves = world.worldMaps.filter((m) => m.matrix === map.matrix && m.filter !== null);
     if (map.filter !== null && halves.length > 1 && world.worldMaps[i + 1]?.matrix !== map.matrix) {
-      views.push({ key: `w${map.matrix}all`, label: halves.map((m) => m.name).join(" und "), matrix: map.matrix });
+      views.push({ key: `w${map.matrix}all`, label: halves.map((m) => m.name).join(t("workbench:worldMapView.and")), matrix: map.matrix });
     }
   });
-  if (world.moreAreas.length > 0) views.push({ key: "more", label: "Weitere Gebiete", matrix: null });
-  if (planShown) views.push({ key: "plan", label: "Raumplan", matrix: null });
+  if (world.moreAreas.length > 0) views.push({ key: "more", label: t("workbench:worldTree.groups.more"), matrix: null });
+  if (planShown) views.push({ key: "plan", label: t("workbench:worldMapView.plan"), matrix: null });
   return views;
 }
 

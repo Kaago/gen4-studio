@@ -1,5 +1,7 @@
 import { HAND_DEFAULT, depthAtLeast } from "../ui/frame/shellState";
 import type { AreaId, Depth } from "../ui/frame/shellState";
+import { t } from "../i18n";
+import { termLabel, termPlural } from "./terms";
 
 /** The panels of the docks. `headers` (the explorer) is not among them: it is the shell's list column and only a navigation target. */
 export type PanelId =
@@ -24,13 +26,43 @@ export const isDeckArea = (area: AreaId): area is DeckArea => (DECK_AREAS as rea
 
 /**
  * A panel of an area's dock; `schau` marks the view panels (3D, Raster, Weltkarte, the previews): they stay docked in the view group.
- * `tinkerOnly` marks a panel the dock has only in Tüfteln (the Raster): Bauen works without it.
+ * `tinkerOnly` marks a panel the dock has only in Tüfteln (the Raster): Bauen works without it. `title` is the dock tab's word in the
+ * language shown, read when the dock adds the panel.
  */
 export interface PanelSpec {
   id: PanelId;
-  title: string;
+  readonly title: string;
   schau?: true;
   tinkerOnly?: true;
+}
+
+/** The dock tab's word of a panel: a term where the panel shows one, else `layout.panels.<id>`. */
+function panelTitle(id: Exclude<PanelId, "headers">): string {
+  switch (id) {
+    case "matrix":
+      return termLabel("matrix");
+    case "worldmap":
+      return termLabel("worldMap");
+    case "script":
+      return termLabel("script");
+    case "problems":
+      return termPlural("problem");
+    case "textEdit":
+      return termPlural("message");
+    default:
+      return t(`workbench:layout.panels.${id}`);
+  }
+}
+
+/** A dock panel whose title is looked up each time it is read: the module loads before i18next has a language. */
+function panel(id: Exclude<PanelId, "headers">, flags: { schau?: true; tinkerOnly?: true } = {}): PanelSpec {
+  return {
+    id,
+    get title() {
+      return panelTitle(id);
+    },
+    ...flags,
+  };
 }
 
 /** The two arrangements of a dock, as building plans: „Werkbank“ (the inspector beside the view) and „Doppeldeck“ (the edit group below it). */
@@ -42,27 +74,10 @@ export type Arrangement = "werkbank" | "doppeldeck";
  * the ids do not clash.
  */
 export const AREA_PANELS: Record<DeckArea, PanelSpec[]> = {
-  welt: [
-    { id: "world", title: "3D", schau: true },
-    { id: "matrix", title: "Raster", schau: true, tinkerOnly: true },
-    { id: "worldmap", title: "Weltkarte", schau: true },
-    { id: "inspector", title: "Inspector" },
-    { id: "script", title: "Script" },
-    { id: "problems", title: "Probleme" },
-  ],
-  texte: [
-    { id: "textView", title: "Vorschau", schau: true },
-    { id: "textEdit", title: "Nachrichten" },
-    { id: "problems", title: "Probleme" },
-  ],
-  pokemon: [
-    { id: "pokemonView", title: "Übersicht", schau: true },
-    { id: "pokemonEdit", title: "Bearbeiten" },
-  ],
-  gegenstaende: [
-    { id: "itemView", title: "Übersicht", schau: true },
-    { id: "itemEdit", title: "Bearbeiten" },
-  ],
+  welt: [panel("world", { schau: true }), panel("matrix", { schau: true, tinkerOnly: true }), panel("worldmap", { schau: true }), panel("inspector"), panel("script"), panel("problems")],
+  texte: [panel("textView", { schau: true }), panel("textEdit"), panel("problems")],
+  pokemon: [panel("pokemonView", { schau: true }), panel("pokemonEdit")],
+  gegenstaende: [panel("itemView", { schau: true }), panel("itemEdit")],
 };
 
 /** The panels of the dock of `area` in `depth`: all of them in Tüfteln, in Bauen and Erzählen those not only for Tüfteln (the world without the Raster). */

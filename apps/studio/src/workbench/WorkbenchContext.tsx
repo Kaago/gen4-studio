@@ -92,7 +92,7 @@ export interface WorkbenchData {
   tool: Tool;
   /** Switches the tool; switching to painting also shows the terrain layer. */
   onTool: (tool: Tool) => void;
-  /** A click in the scene with one of the adding tools landed on this tile: the app adds what the tool makes there and returns to "Auswählen". */
+  /** A click in the scene with one of the adding tools landed on this tile: the app adds what the tool makes there and returns to „Auswählen“. */
   onTileClick: (tile: TileClick) => void;
   /** The buildings of the shown maps as the scene reports them (maps without buildings are left out). */
   buildings: MapBuildings[];

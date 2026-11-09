@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { gameLabel } from "../app/gameLabel";
 import { ListPane } from "../ui/frame/ListPane";
 import { useShell } from "../ui/frame/ShellContext";
@@ -39,6 +40,7 @@ function bounds(height: number, share: number): { value: number; min: number; ma
  * column (a drag, an arrow, Home and End size it, a double click halves it).
  */
 export function WorldList({ listOpen, onToggleList, scene, ...places }: WorldListProps) {
+  const { t } = useTranslation("workbench");
   const { state, setWorldListSplit, setPlacesFolded } = useShell();
   const share = state.worldListSplit;
   const folded = state.placesFolded;
@@ -63,7 +65,7 @@ export function WorldList({ listOpen, onToggleList, scene, ...places }: WorldLis
   };
 
   return (
-    <ListPane title="Welt" subtitle={places.info ? gameLabel(places.info) : undefined} open={listOpen} onToggle={onToggleList}>
+    <ListPane title={t("worldList.title")} subtitle={places.info ? gameLabel(places.info) : undefined} open={listOpen} onToggle={onToggleList}>
       <div ref={column} className={styles.column} data-world-list="">
         <div
           id={placesId}
@@ -77,7 +79,7 @@ export function WorldList({ listOpen, onToggleList, scene, ...places }: WorldLis
           <Splitter
             orientation="horizontal"
             grows="down"
-            label="Höhe der Orte"
+            label={t("worldList.splitter.label")}
             controls={placesId}
             value={value}
             min={min}
@@ -86,11 +88,11 @@ export function WorldList({ listOpen, onToggleList, scene, ...places }: WorldLis
             onDoubleClick={() => setWorldListSplit(WORLD_SPLIT_DEFAULT)}
             // The places grow as the pointer goes down; the splitter only takes differences.
             measure={(e) => e.clientY}
-            title="Ziehen ändert die Höhe der Orte, Doppelklick halbiert"
+            title={t("worldList.splitter.title")}
             dataAttrs={{ "data-splitter": "world-list" }}
           />
         )}
-        <section className={styles.scene} aria-label="In dieser Szene">
+        <section className={styles.scene} aria-label={t("sceneHierarchy.title")}>
           <SceneHierarchy {...scene} />
         </section>
       </div>

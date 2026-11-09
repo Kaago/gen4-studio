@@ -1,11 +1,13 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { DraftDto, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../api";
 import type { Message } from "../app/message";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { PanelHead } from "../ui/primitives";
 import type { PanelHeadSwitcher } from "../ui/primitives";
+import { t } from "../i18n";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { AreaGrid, cellKey } from "./AreaGrid";
@@ -45,7 +47,7 @@ export interface WorldMapContext {
   onLoadStatus: (message: Message | null) => void;
   /** Default: the app-wide cache. */
   cache?: ThumbnailCache;
-  /** Bauen calls an outside header "Gebiet", Tüfteln "Header". */
+  /** Bauen calls an outside header „Gebiet“, Tüfteln „Header“. */
   depth: Depth;
   /** The world model; null until it is read (the panel then draws the region alone, without views). */
   world: World | null;
@@ -112,7 +114,7 @@ function useCacheProgress(cache: ThumbnailCache, onLoadStatus: (message: Message
         peak = 0;
         return;
       }
-      const text = `Kartenbilder ${peak - pending}/${peak}`;
+      const text = t("workbench:worldMapPanel.progress", { done: peak - pending, total: peak });
       if (text === shown) return;
       shown = text;
       report.current({ kind: "info", text });
@@ -139,6 +141,7 @@ const sameLines = (a: Line[], b: Line[]) =>
  * number.
  */
 function RoomCard({ entry, name, depth, link, selected, onOpen }: { entry: PlaceHeader; name: string; depth: Depth; link: RoomLink | undefined; selected: boolean; onOpen: (id: number) => void }) {
+  const { t } = useTranslation("workbench");
   const h = entry.header;
   const tinker = depthAtLeast(depth, "tuefteln");
   const grey = [tinker ? id4(h.id) : null, mapsText(entry)].filter((part) => part !== null).join(" · ");
@@ -148,13 +151,13 @@ function RoomCard({ entry, name, depth, link, selected, onOpen }: { entry: Place
       type="button"
       data-room-id={h.id}
       aria-current={selected ? "true" : undefined}
-      title={unplaced ? `ohne Eingang: ${link.reason}` : undefined}
+      title={unplaced ? t("worldMapPanel.noEntranceWhy", { reason: link.reason }) : undefined}
       onClick={() => onOpen(h.id)}
       className={`${styles.card} ${selected ? styles.current : ""} ${unplaced ? styles.unplaced : ""}`}
     >
       <span className={styles.cardName}>{tinker ? h.internal_name : name}</span>
       {grey && <span className={styles.grey}>{grey}</span>}
-      {unplaced && <span className={styles.grey}>ohne Eingang</span>}
+      {unplaced && <span className={styles.grey}>{t("worldMapPanel.noEntrance")}</span>}
       {unplaced && <span className={`${styles.grey} ${styles.reason}`}>{link.reason}</span>}
     </button>
   );
@@ -390,7 +393,7 @@ interface PlaceListProps {
  */
 function outsideLabel(entry: PlaceHeader, section: number, sections: number, depth: Depth): string {
   if (depthAtLeast(depth, "tuefteln")) return `${termFor("header", depth, "area")} · ${id4(entry.header.id)}`;
-  return sections > 1 ? `${termLabel("area")}, Abschnitt ${section}` : termLabel("area");
+  return sections > 1 ? `${termLabel("area")}, ${t("workbench:worldTree.section", { n: section })}` : termLabel("area");
 }
 
 /** The places as one `details` each, a card per room. Memoised: pan and zoom of the map do not reach it. */
@@ -506,12 +509,14 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     draft,
     onDraft,
   } = context;
+  const { t } = useTranslation("workbench");
   useCacheProgress(cache, onLoadStatus);
 
   // The view: a choice in the menu while the selection stays, else the one that shows the selection, else the one shown last.
   const selectedHeader = useMemo(() => (selected === null ? null : (headers.find((h) => h.id === selected) ?? null)), [headers, selected]);
   const followed = useMemo(() => viewFor(world, selectedHeader), [world, selectedHeader]);
-  const views = useMemo(() => (world ? worldViews(world, followed === "plan") : []), [world, followed]);
+  // `t`: the switcher's words follow the language.
+  const views = useMemo(() => (world ? worldViews(world, followed === "plan") : []), [world, followed, t]);
   const [choice, setChoice] = useState<{ key: WorldViewKey; selected: number | null } | null>(null);
   // The next selection ends a choice (the check below already ignores it for the render in between).
   useEffect(() => setChoice(null), [selected]);
@@ -660,13 +665,13 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           extendable={world ? extendable : undefined}
           window={half?.rect}
           foreign={half?.foreign}
-          label={!depthAtLeast(depth, "tuefteln") ? `Weltkarte, ${region.height} Zeilen, ${region.width} Spalten` : undefined}
+          label={!depthAtLeast(depth, "tuefteln") ? t("worldMapPanel.gridLabel", { name: termLabel("worldMap"), rows: region.height, columns: region.width }) : undefined}
           cache={cache}
           depth={depth}
           draftCells={draftCells}
         />
       ),
-    [region, headers, areaDataId, marked, colorOf, onCellClick, onCellDoubleClick, onWorldExtend, extendable, half, world, cache, depth, draftCells],
+    [region, headers, areaDataId, marked, colorOf, onCellClick, onCellDoubleClick, onWorldExtend, extendable, half, world, cache, depth, draftCells, t],
   );
   const planSelected = useMemo(() => (plan && pinnedCell?.matrix === plan.index ? new Set([cellKey(pinnedCell.x, pinnedCell.y)]) : NO_CELLS), [plan, pinnedCell]);
   const planExtendable = useMemo(() => (plan ? planExtendTargets(plan) : NO_CELLS), [plan]);
@@ -708,8 +713,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   const listLayout = useMemo(() => ({}), [places, links, selected, openKeys]);
   const rootBox = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
-  const none = depthAtLeast(depth, "tuefteln") ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : "Keine Region gefunden (keine Weltkarte mit Gebieten).";
-  const noRegion = matricesLoaded ? none : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
+  const none = depthAtLeast(depth, "tuefteln") ? t("worldMapPanel.noRegionTinker") : t("worldMapPanel.noRegion");
+  const noRegion = matricesLoaded ? none : matricesFailed ? t("worldTree.overviewUnavailable") : t("worldTree.loadingOverview");
   const extendMatrix = extendAt && shown?.index === extendAt.matrix ? shown : null;
 
   return (
@@ -741,13 +746,13 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
               onCellClick={onPlanClick}
               onExtend={onPlanExtend}
               extendable={planExtendable}
-              label={!depthAtLeast(depth, "tuefteln") ? `Raumplan, ${plan.height} Zeilen, ${plan.width} Spalten` : undefined}
+              label={!depthAtLeast(depth, "tuefteln") ? t("worldMapPanel.gridLabel", { name: t("worldMapView.plan"), rows: plan.height, columns: plan.width }) : undefined}
               cache={cache}
               depth={depth}
               draftCells={draftCells}
             />
           ) : (
-            <p className={styles.message}>Lade Raumplan …</p>
+            <p className={styles.message}>{t("worldMapPanel.loadingPlan")}</p>
           )}
         </div>
       ) : (
@@ -758,7 +763,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
             grid={grid}
             window={half?.rect ?? null}
             hasRegion={region !== null}
-            message={shownIndex === null ? noRegion : "Lade Region …"}
+            message={shownIndex === null ? noRegion : t("worldMapPanel.loadingRegion")}
             labels={cellsOfPlaces}
             lineLinks={(selectedPlace !== undefined && links.get(selectedPlace)) || NO_LINKS}
             cardsShown={selectedPlace !== undefined && openKeys.has(selectedPlace)}

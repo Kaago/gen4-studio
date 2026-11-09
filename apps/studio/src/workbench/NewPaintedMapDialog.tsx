@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { recipeApply, tilesetGet } from "../api";
 import type { DraftDto, MatrixDto, NewPaintedMapInput, NewPaintedMapReport, TilesetDto } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
@@ -54,6 +55,7 @@ function useTileset(pkg: number | null): TilesetDto | null {
  * once there is a name and again with every change. „Karte malen“ applies it, then the app selects the cell and starts painting.
  */
 export function NewPaintedMapDialog({ matrix, x, y, depth, onDone, onError, onDraft, image }: Props): JSX.Element {
+  const { t } = useTranslation("workbench");
   const tinker = depthAtLeast(depth, "tuefteln");
   const [name, setName] = useState("");
   const [fill, setFill] = useState<string | null>(null);
@@ -117,21 +119,21 @@ export function NewPaintedMapDialog({ matrix, x, y, depth, onDone, onError, onDr
       onOpenChange={(open) => {
         if (!open) leave();
       }}
-      title="Neue Karte malen"
+      title={t("newPaintedMapDialog.title")}
       actions={[
-        { label: "Abbrechen", onClick: leave },
-        { label: "Karte malen", kind: "primary", onClick: () => void paint(), disabled: input === null || working },
+        { label: t("newPaintedMapDialog.cancel"), onClick: leave },
+        { label: t("newPaintedMapDialog.paint"), kind: "primary", onClick: () => void paint(), disabled: input === null || working },
       ]}
     >
       <div className={styles.form} aria-busy={working}>
-        <TextField label="Name" showLabel hint="Pflicht" value={name} disabled={working} onCommit={setName} onChange={setName} />
+        <TextField label={t("newPaintedMapDialog.name")} showLabel hint={t("newPaintedMapDialog.required")} value={name} disabled={working} onCommit={setName} onChange={setName} />
         {palette && (
-          <div className={styles.ground} role="group" aria-label="Boden" data-paint-ground="">
-            <p className={styles.label}>Boden</p>
+          <div className={styles.ground} role="group" aria-label={t("newPaintedMapDialog.ground")} data-paint-ground="">
+            <p className={styles.label}>{t("newPaintedMapDialog.ground")}</p>
             <TilePalette tileset={palette} tile={fill ?? painted?.fill_tile ?? ""} onTile={setFill} depth={depth} image={image} />
           </div>
         )}
-        <NumberField label="Höhe" showLabel hint="Stufen, −16 bis 62" min={HEIGHT_MIN} max={HEIGHT_MAX} value={height} disabled={working} onCommit={setHeight} />
+        <NumberField label={t("newPaintedMapDialog.height")} showLabel hint={t("newPaintedMapDialog.heightHint")} min={HEIGHT_MIN} max={HEIGHT_MAX} value={height} disabled={working} onCommit={setHeight} />
         {tinker && (
           <>
             <NumberField label="Tileset" showLabel min={0} value={tileset ?? painted?.tileset ?? null} disabled={working} onCommit={chooseTileset} />

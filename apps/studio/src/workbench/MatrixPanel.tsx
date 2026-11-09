@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ask } from "../platform/dialogs";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
 import type { DraftDto, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
@@ -47,6 +48,7 @@ function sectionHasValues(m: MatrixDto, section: "headers" | "altitudes"): boole
 
 /** Memoised: renders when `context` changes (the owner keeps it, see `MatrixTab`), not for every render of the panel host. */
 export const MatrixPanel = memo(function MatrixPanel({ context }: { context: MatrixPanelContext }) {
+  const { t } = useTranslation("workbench");
   const { info, headers, areaDataId, counts, sceneMatrix, revision, selection, depth, goTo, onEdited, onCountsChanged, onError, onDraft } = context;
   // A freshly created matrix is shown here although no header uses it yet; the choice of header
   // (or project) ends that.
@@ -103,7 +105,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
 
   async function onNew() {
     try {
-      const made = await createMatrix("neu");
+      const made = await createMatrix(t("matrixPanel.newName"));
       setCreated(made);
       await onCountsChanged();
       goTo({ kind: "matrixCell", matrix: made, x: 0, y: 0 });
@@ -125,7 +127,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
     if (width === m.width && height === m.height) return;
     const { lostCells } = resizePreview(width, height, m);
     if (lostCells > 0) {
-      const text = `${lostCells} belegte Zelle(n) liegen außerhalb von ${width} × ${height} und gehen verloren. Fortfahren?`;
+      const text = t("matrixPanel.lostCells", { count: lostCells, width, height });
       if (!(await ask(text, { kind: "warning" }))) return;
     }
     await edit(m.index, () => resizeMatrix(m.index, width, height));
@@ -133,8 +135,8 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
 
   async function onSection(m: MatrixDto, section: "headers" | "altitudes", on: boolean) {
     if (!on && sectionHasValues(m, section)) {
-      const what = section === "headers" ? "Header-Werte" : "Höhenwerte";
-      if (!(await ask(`Der Abschnitt enthält Werte ungleich 0. Beim Entfernen gehen die ${what} verloren. Fortfahren?`, { kind: "warning" }))) return;
+      const text = section === "headers" ? t("matrixPanel.dropHeaders") : t("matrixPanel.dropAltitudes");
+      if (!(await ask(text, { kind: "warning" }))) return;
     }
     const headers = section === "headers" ? on : m.headers != null;
     const altitudes = section === "altitudes" ? on : m.altitudes != null;
@@ -144,7 +146,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
   if (!info) {
     return (
       <div className={styles.panel}>
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann zeigt das Raster seine Karten." />
+        <EmptyState what={t("matrixPanel.noProject.what")} why={t("matrixPanel.noProject.why")} />
       </div>
     );
   }
@@ -156,27 +158,27 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
         subtitle={matrix ? `${id4(matrix.index)} · ${TERMS.matrix.tech}` : undefined}
         actions={
           <Button kind="quiet" size="s" icon="plus" onClick={() => void onNew()}>
-            Neue Matrix
+            {t("matrixPanel.new")}
           </Button>
         }
       />
       {matrix ? (
         <>
           <div className={styles.fields} title={termShort("matrix")}>
-            <TextField label="Name der Matrix" showLabel value={matrix.name} onCommit={(name) => void edit(matrix.index, () => renameMatrix(matrix.index, name))} />
-            <NumberField label="Breite" showLabel min={1} max={255} hint="1 bis 255" value={matrix.width} onCommit={(w) => void onResize(matrix, w, matrix.height)} />
-            <NumberField label="Höhe" showLabel min={1} max={255} hint="1 bis 255" value={matrix.height} onCommit={(h) => void onResize(matrix, matrix.width, h)} />
-            <Switch label="Header" checked={matrix.headers != null} onChange={(on) => void onSection(matrix, "headers", on)} />
-            <Switch label="Höhen" checked={matrix.altitudes != null} onChange={(on) => void onSection(matrix, "altitudes", on)} />
+            <TextField label={t("matrixPanel.name")} showLabel value={matrix.name} onCommit={(name) => void edit(matrix.index, () => renameMatrix(matrix.index, name))} />
+            <NumberField label={t("matrixPanel.width")} showLabel min={1} max={255} hint={t("matrixPanel.sizeHint")} value={matrix.width} onCommit={(w) => void onResize(matrix, w, matrix.height)} />
+            <NumberField label={t("matrixPanel.height")} showLabel min={1} max={255} hint={t("matrixPanel.sizeHint")} value={matrix.height} onCommit={(h) => void onResize(matrix, matrix.width, h)} />
+            <Switch label={t("matrixPanel.headers")} checked={matrix.headers != null} onChange={(on) => void onSection(matrix, "headers", on)} />
+            <Switch label={t("matrixPanel.altitudes")} checked={matrix.altitudes != null} onChange={(on) => void onSection(matrix, "altitudes", on)} />
           </div>
           {created !== null && created !== sceneMatrix && (
             <div className={styles.notes}>
-              <Notice kind="warning">Diese Matrix gehört noch zu keinem Header. Im Header-Editor einem Header als Matrix zuweisen, dann zeigt die Schau sie.</Notice>
+              <Notice kind="warning">{t("matrixPanel.unassigned")}</Notice>
             </div>
           )}
         </>
       ) : (
-        index === null && <EmptyState what="Noch kein Ort gewählt." why="Wähle links einen Ort, dann zeigt das Raster seine Karten." />
+        index === null && <EmptyState what={t("matrixPanel.noPlace.what")} why={t("matrixPanel.noPlace.why")} />
       )}
       <div className={styles.grid}>
         {matrix && (
@@ -195,10 +197,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
             />
             {/* After the grid, so the cells get the room. */}
             <div className={styles.note}>
-              <Notice kind="info">
-                Neue Matrix und Kartenkopie werden sofort angelegt; Anlegen lässt sich nicht rückgängig machen. Höhen lassen sich bearbeiten; eine Stufe hebt die Zelle
-                in der 3D-Ansicht um eine halbe Kachel.
-              </Notice>
+              <Notice kind="info">{t("matrixPanel.note")}</Notice>
             </div>
           </>
         )}

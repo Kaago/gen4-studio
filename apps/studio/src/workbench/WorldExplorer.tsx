@@ -1,14 +1,16 @@
 import { memo, useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary, ProjectInfo } from "../api";
 import type { MarkSeverity } from "../checks/FindingMark";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth, WorldSort } from "../ui/frame/shellState";
 import { Icon, IconButton, Menu, PanelHead, Picker, Segmented } from "../ui/primitives";
 import type { IconName, MenuEntry, PickerItem } from "../ui/primitives";
+import { t } from "../i18n";
 import { HeaderList } from "./HeaderList";
 import type { HeaderIdentity } from "./headerIdentity";
 import type { RenameTarget } from "./RoomActions";
-import { id4 } from "./terms";
+import { id4, termPlural } from "./terms";
 import type { WizardRequest } from "./WorkbenchContext";
 import { readRecent, touchRecent } from "./worldSort";
 import type { ListSort, TreeSort } from "./worldSort";
@@ -72,16 +74,9 @@ function writeMode(mode: Mode): void {
   }
 }
 
-const TREE_SORTS: readonly { value: TreeSort; label: string }[] = [
-  { value: "game", label: "Spielreihenfolge" },
-  { value: "name", label: "Name A–Z" },
-  { value: "recent", label: "Zuletzt gewählt" },
-];
-const LIST_SORTS: readonly { value: ListSort; label: string }[] = [
-  { value: "id", label: "Nummer" },
-  { value: "name", label: "Name" },
-  { value: "code", label: "Kürzel" },
-];
+/** The sorts of each mode; their words are `worldExplorer.sort.<mode>.<value>`. */
+const TREE_SORTS: readonly TreeSort[] = ["game", "name", "recent"];
+const LIST_SORTS: readonly ListSort[] = ["id", "name", "code"];
 const NO_RECENT: readonly string[] = [];
 
 /** The area keys chosen last in the open project (`g4.world.recent.<path>`), read again for another project; and the touch that puts one first. */
@@ -99,9 +94,9 @@ function useRecent(project: string | null): [readonly string[], (areaKey: string
 }
 
 /** The groups of the picker of the folded row, as the tree has them. */
-const MORE = "Weitere Gebiete";
-const UNCONNECTED = "Nicht verbunden";
-const OTHER = "Sonstiges";
+const more = () => t("workbench:worldTree.groups.more");
+const unconnected = () => t("workbench:worldTree.groups.unconnected");
+const other = () => t("workbench:worldTree.groups.other");
 
 /**
  * What the picker „Ort oder Raum wählen“ lists: the areas and their rooms of every world map, „Weitere Gebiete“, „Nicht verbunden“ and
@@ -116,15 +111,15 @@ function placeItems(world: World | null, headers: readonly HeaderSummary[], tink
   const areas = (list: readonly Area[], group: string) => list.flatMap((a) => [header(a.headers[0]!, a.name, "outside", group), ...rooms(a.rooms, group)]);
   return [
     ...world.worldMaps.flatMap((m) => areas(m.areas, m.name)),
-    ...areas(world.moreAreas, MORE),
-    ...rooms(world.unconnected, UNCONNECTED),
-    ...(tinker ? world.other.map((h) => header(h, h.location_name || h.internal_name, "tinker", OTHER)) : []),
+    ...areas(world.moreAreas, more()),
+    ...rooms(world.unconnected, unconnected()),
+    ...(tinker ? world.other.map((h) => header(h, h.location_name || h.internal_name, "tinker", other())) : []),
   ];
 }
 
 /** The shown place as the folded row names it: an area by its name, a room after its place („Zweiblattdorf › Haus 1“). */
 function shownPlace(identity: HeaderIdentity | null, header: HeaderSummary | undefined): { label: string; icon: IconName } {
-  if (header === undefined) return { label: "Ort oder Raum wählen", icon: "place" };
+  if (header === undefined) return { label: t("workbench:worldExplorer.choose"), icon: "place" };
   if (identity === null) return { label: header.location_name || header.internal_name, icon: "place" };
   if (identity.kind === "room") return { label: identity.place === identity.name ? identity.name : `${identity.place} › ${identity.name}`, icon: "room" };
   return { label: identity.name, icon: identity.kind === "area" ? "outside" : "place" };
@@ -140,6 +135,7 @@ function FoldedPlaces({
   onSelect,
   onTouch,
 }: Pick<WorldExplorerProps, "world" | "headers" | "selected" | "depth" | "identify" | "onSelect"> & { onTouch: (areaKey: string) => void }) {
+  const { t } = useTranslation("workbench");
   const [open, setOpen] = useState(false);
   const header = headers.find((h) => h.id === selected);
   const { label, icon } = shownPlace(header && identify ? identify(header) : null, header);
@@ -155,12 +151,12 @@ function FoldedPlaces({
   };
   return (
     <>
-      <button type="button" className={styles.foldedRow} data-places-row="" title="Ort oder Raum wählen" onClick={() => setOpen(true)}>
+      <button type="button" className={styles.foldedRow} data-places-row="" title={t("worldExplorer.choose")} onClick={() => setOpen(true)}>
         <Icon name={icon} />
         <span className={styles.foldedLabel}>{label}</span>
         <Icon name="caretDown" />
       </button>
-      <Picker open={open} onOpenChange={setOpen} title="Ort oder Raum wählen" items={items} onPick={pick} placeholder="Gebiet, Raum oder Nummer suchen" emptyText="Kein Ort passt zur Suche." />
+      <Picker open={open} onOpenChange={setOpen} title={t("worldExplorer.choose")} items={items} onPick={pick} placeholder={t("worldExplorer.pickPlaceholder")} emptyText={t("worldTree.noMatch")} />
     </>
   );
 }
@@ -173,6 +169,7 @@ function FoldedPlaces({
  * must keep their identity for that.
  */
 export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, folded, onFold, sort, onSort, identify, ...tree }: WorldExplorerProps) {
+  const { t } = useTranslation("workbench");
   const [mode, setMode] = useState<Mode>(readMode);
   // „Gelöschte zeigen“, the same for the tree and the list; off by default.
   const [showDeleted, setShowDeleted] = useState(false);
@@ -183,8 +180,8 @@ export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, folded,
   const [recent, touch] = useRecent(tree.info?.root ?? null);
   const sortItems: MenuEntry[] =
     mode === "tree"
-      ? TREE_SORTS.map(({ value, label }) => ({ label, checked: sort.tree === value, onSelect: () => onSort({ tree: value }) }))
-      : LIST_SORTS.map(({ value, label }) => ({ label, checked: sort.list === value, onSelect: () => onSort({ list: value }) }));
+      ? TREE_SORTS.map((value) => ({ label: t(`worldExplorer.sort.tree.${value}`), checked: sort.tree === value, onSelect: () => onSort({ tree: value }) }))
+      : LIST_SORTS.map((value) => ({ label: t(`worldExplorer.sort.list.${value}`), checked: sort.list === value, onSelect: () => onSort({ list: value }) }));
   const actions = (
     <>
       {!folded && (
@@ -192,31 +189,31 @@ export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, folded,
           <Segmented<Mode>
             size="s"
             iconOnly
-            ariaLabel="Ansicht"
+            ariaLabel={t("worldExplorer.mode.label")}
             value={mode}
             onChange={changeMode}
             options={[
-              { value: "tree", label: "Baum", icon: "tree" },
-              { value: "list", label: "Liste", icon: "list" },
+              { value: "tree", label: t("worldExplorer.mode.tree"), icon: "tree" },
+              { value: "list", label: t("worldExplorer.mode.list"), icon: "list" },
             ]}
           />
-          <Menu label="Sortierung" trigger={<Icon name="sort" />} items={sortItems} />
+          <Menu label={t("worldExplorer.sort.label")} trigger={<Icon name="sort" />} items={sortItems} />
         </>
       )}
       <Menu
-        label="Neu anlegen"
+        label={t("worldExplorer.create.label")}
         trigger={<Icon name="plus" />}
         items={[
-          { label: "Gebiet anlegen…", onSelect: () => onOpenWizard({ kind: "area" }) },
-          { label: "Raum anlegen…", onSelect: () => onOpenWizard({ kind: "room" }) },
+          { label: t("worldExplorer.create.area"), onSelect: () => onOpenWizard({ kind: "area" }) },
+          { label: t("worldExplorer.create.room"), onSelect: () => onOpenWizard({ kind: "room" }) },
         ]}
       />
-      <IconButton label={folded ? "Orte ausklappen" : "Orte einklappen"} icon={folded ? "caretRight" : "caretDown"} onClick={() => onFold(!folded)} />
+      <IconButton label={folded ? t("worldExplorer.expand") : t("worldExplorer.collapse")} icon={folded ? "caretRight" : "caretDown"} onClick={() => onFold(!folded)} />
     </>
   );
   return (
-    <section className={folded ? `${styles.section} ${styles.folded}` : styles.section} aria-label="Orte">
-      <PanelHead title="Orte" actions={actions} />
+    <section className={folded ? `${styles.section} ${styles.folded}` : styles.section} aria-label={termPlural("place")}>
+      <PanelHead title={termPlural("place")} actions={actions} />
       {folded && <FoldedPlaces world={tree.world} headers={tree.headers} selected={tree.selected} depth={tree.depth} identify={identify} onSelect={tree.onSelect} onTouch={touch} />}
       <div className={styles.body} hidden={folded}>
         {mode === "list" ? (

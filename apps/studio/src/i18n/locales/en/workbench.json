@@ -1,1 +1,706 @@
-{}
+{
+  "adoptBox": {
+    "adopt": "Adopt",
+    "intro": "The studio creates <code>rotom.toml</code> and <code>.rotom/</code> in the project and decompiles all {{files}} script files to <code>expanded/scripts/</code>. DSPRE then uses the same sources and switches its old script editor off.",
+    "next": "Next",
+    "progress": "Adoption progress",
+    "report": "{{decompiled}} script files decompiled, {{skipped}} empty ones skipped.",
+    "reportFailed": "{{decompiled}} script files decompiled, {{skipped}} empty ones skipped, {{failed}} failed.",
+    "staysBinary": "These files stay binary:",
+    "title": "Adopt scripts"
+  },
+  "areaGrid": {
+    "altitude": "Height {{altitude}}",
+    "create": "Create map at x {{x}}, y {{y}}",
+    "createNotUndoable": "Create map at x {{x}}, y {{y}} (cannot be undone)",
+    "draft": "Planned: map at x {{x}}, y {{y}}",
+    "label": "{{matrix}} {{index}}, {{rows}} rows, {{columns}} columns",
+    "number": "Number {{id}}",
+    "pictureFailed": "Picture failed: {{reason}}"
+  },
+  "breadcrumb": {
+    "archive": "Archive {{archive}}",
+    "archiveAt": "Archive {{archive}}, {{place}}",
+    "building": "Building {{n}}",
+    "cell": "Cell {{x}}, {{y}}",
+    "emptyCell": "Empty cell",
+    "eventWord": {
+      "bg": "Background event",
+      "coord": "Trigger",
+      "object": "Object",
+      "warp": "Warp"
+    },
+    "items": "Items",
+    "noPlace": "No place chosen",
+    "noProject": "No project",
+    "pokemon": "Pokémon",
+    "texts": "Texts"
+  },
+  "dialogCards": {
+    "edit": "Edit dialog…",
+    "figures": "Characters",
+    "label": "Characters of the place",
+    "loading": "Loading …",
+    "noFigures": {
+      "what": "No characters at this place",
+      "why": "No character and no sign here says anything."
+    },
+    "noPlace": {
+      "what": "Choose a place on the left.",
+      "why": "The view then shows its characters with what they say."
+    },
+    "noProject": {
+      "what": "No project open.",
+      "why": "Open a project, then the view shows the characters of its places."
+    },
+    "openTrainer": "Open trainer"
+  },
+  "dialogList": {
+    "filter": "Filter places",
+    "noMatch": "No place matches the filter.",
+    "noProject": {
+      "what": "No project open.",
+      "why": "Open a project, then its places with their characters show here."
+    },
+    "reading": "Reading …",
+    "title": "Dialogs",
+    "unreadable": "Not readable"
+  },
+  "eventKinds": {
+    "bg": {
+      "plural": "Signs",
+      "singular": "Sign"
+    },
+    "coord": {
+      "plural": "Triggers",
+      "singular": "Trigger"
+    },
+    "object": {
+      "plural": "Characters",
+      "singular": "Character"
+    },
+    "trainerTitle": "Object {{index}} · {{trainer}}",
+    "warp": {
+      "plural": "Doors",
+      "singular": "Door"
+    }
+  },
+  "extendAreaDialog": {
+    "areaNumber": "Area number",
+    "belongs": "The new map belongs to “{{name}}”.",
+    "cancel": "Cancel",
+    "create": "Create map",
+    "description": "Creating cannot be undone.",
+    "headerCell": "Header cell",
+    "neighbour": "Copy of map {{map}} (neighbouring cell)",
+    "noBuildings": "without buildings",
+    "paintInstead": "Paint a new one instead",
+    "pick": "Choose a map",
+    "range": "0 to {{max}}",
+    "size": {
+      "gridGrows": "The grid grows to {{width}} × {{height}}.",
+      "gridStays": "The grid stays {{width}} × {{height}}.",
+      "mapGrows": "The map grows: {{width}} × {{height}}.",
+      "mapStays": "The size stays {{width}} × {{height}}."
+    },
+    "source": "Source of the copy",
+    "title": "Create a map at x {{x}}, y {{y}}?"
+  },
+  "headerList": {
+    "searchHeaders": "Search headers",
+    "searchPlaceholder": "Search for a place, room or code",
+    "searchPlaces": "Search places",
+    "title": "{{name}} · Number {{id}} · {{code}}"
+  },
+  "inspectorPanel": {
+    "empty": {
+      "what": "Nothing selected.",
+      "why": "Choose a place on the left or click a marker in the view."
+    }
+  },
+  "keyWords": {
+    "click": "Click",
+    "drag": "Drag",
+    "esc": "Esc",
+    "rightClick": "Right click",
+    "shiftClick": "⇧Click",
+    "shiftDrag": "⇧Drag"
+  },
+  "layout": {
+    "panels": {
+      "inspector": "Inspector",
+      "itemEdit": "Edit",
+      "itemView": "Overview",
+      "pokemonEdit": "Edit",
+      "pokemonView": "Overview",
+      "textView": "Preview",
+      "world": "3D"
+    }
+  },
+  "legend": {
+    "events": "Events",
+    "terrain": "Terrain",
+    "title": "Legend"
+  },
+  "matrixPanel": {
+    "altitudes": "Heights",
+    "dropAltitudes": "The section holds values other than 0. Removing it loses the height values. Continue?",
+    "dropHeaders": "The section holds values other than 0. Removing it loses the header values. Continue?",
+    "headers": "Headers",
+    "height": "Height",
+    "lostCells_one": "{{count}} occupied cell lies outside {{width}} × {{height}} and is lost. Continue?",
+    "lostCells_other": "{{count}} occupied cells lie outside {{width}} × {{height}} and are lost. Continue?",
+    "name": "Matrix name",
+    "new": "New matrix",
+    "newName": "new",
+    "noPlace": {
+      "what": "No place chosen yet.",
+      "why": "Choose a place on the left, then the grid shows its maps."
+    },
+    "noProject": {
+      "what": "No project open.",
+      "why": "Open a project, then the grid shows its maps."
+    },
+    "note": "A new matrix and a map copy are created at once; creating cannot be undone. Heights can be edited; one step raises the cell by half a tile in the 3D view.",
+    "sizeHint": "1 to 255",
+    "unassigned": "This matrix belongs to no header yet. Assign it to a header as its matrix in the header editor, then the view shows it.",
+    "width": "Width"
+  },
+  "messageEditor": {
+    "codes": "Codes of the message",
+    "label": "Text of the message",
+    "warning": "Line {{line}}: {{message}}",
+    "warnings": "Warnings"
+  },
+  "moreAreas": {
+    "empty": {
+      "what": "No more areas.",
+      "why": "Every area lies on a world map."
+    }
+  },
+  "newPaintedMapDialog": {
+    "cancel": "Cancel",
+    "ground": "Ground",
+    "height": "Height",
+    "heightHint": "Steps, −16 to 62",
+    "name": "Name",
+    "paint": "Paint map",
+    "required": "Required",
+    "title": "Paint a new map"
+  },
+  "paintTools": {
+    "brush": {
+      "hint": "Dragging paints the chosen tile onto the cells under the pointer.",
+      "label": "Brush"
+    },
+    "cliff": {
+      "hint": "Dragging raises the cells by the steps with the edge of the active edge set on top, Shift-dragging lowers them.",
+      "label": "Cliff brush"
+    },
+    "dir": {
+      "e": "east",
+      "n": "north",
+      "s": "south",
+      "w": "west"
+    },
+    "does": {
+      "acrossSeveral": "across several",
+      "erases": "erases",
+      "fillsArea": "fills the area",
+      "fillsRect": "fills a rectangle",
+      "flips": "flips",
+      "lowers": "lowers",
+      "paints": "paints",
+      "picks": "picks up",
+      "picksTile": "picks up the tile",
+      "raises": "raises",
+      "removes": "removes",
+      "setsRamp": "sets a ramp",
+      "steps": "steps",
+      "takesAway": "takes it away",
+      "turns": "turns"
+    },
+    "erase": {
+      "hint": "Dragging clears the cells of the active layer.",
+      "label": "Eraser"
+    },
+    "fill": {
+      "hint": "A click fills the connected area of equal tiles with the chosen tile.",
+      "label": "Fill"
+    },
+    "height": {
+      "hint": "A click raises the cell by one step, Shift-click lowers it.",
+      "label": "Height"
+    },
+    "pick": {
+      "hint": "A click picks up the cell's tile as the chosen tile.",
+      "label": "Eyedropper"
+    },
+    "ramp": {
+      "hint": "A click sets a ramp in the chosen direction, Shift-click removes it.",
+      "label": "Ramp"
+    },
+    "rect": {
+      "hint": "Dragging spans a rectangle and fills it with the chosen tile.",
+      "label": "Rectangle"
+    },
+    "status": {
+      "cliff": "raises by {{steps}} with the edge “{{set}}”",
+      "cliffNoSet": "raises by {{steps}} (choose an edge set first)",
+      "ramp": "sets a ramp to the {{dir}}, {{steps}}",
+      "terrain": "paints “{{set}}”",
+      "terrainNoSet": "paints (choose an edge set first)"
+    },
+    "steps_one": "{{count}} step",
+    "steps_other": "{{count}} steps",
+    "terrain": {
+      "hint": "Dragging paints the area of the active edge set with edges and corners, Shift-dragging takes it away.",
+      "label": "Terrain brush"
+    }
+  },
+  "placeNames": {
+    "unnamed": "No place name"
+  },
+  "recipeBar": {
+    "comesLater": "Coming later",
+    "comesWith3d9": "Coming with 3d.9",
+    "connect_doors": {
+      "hint": "Connects two doors in both directions.",
+      "label": "Connect doors"
+    },
+    "create_area": {
+      "hint": "Copies maps to a new area with a place of its own.",
+      "label": "Create area"
+    },
+    "create_room": {
+      "hint": "Copies a room and connects it with a door to the outside.",
+      "label": "Create room"
+    },
+    "new_figure": {
+      "hint": "Puts a character with a look and a text on a spot.",
+      "label": "New character"
+    },
+    "new_trainer_here": {
+      "hint": "Puts a trainer with a team on a spot.",
+      "label": "New trainer here"
+    },
+    "next": {
+      "adjust_terrain": "Adjust terrain",
+      "connect_doors": "Connect doors",
+      "create_area": "Create area",
+      "edit_dialog": "Edit dialog",
+      "figure_appears": "Character appears from step",
+      "new_figure": "New character here",
+      "play_here": "Play here",
+      "scene_on_enter": "Scene on entering",
+      "story_join": "Add to a story",
+      "talk_advances": "Talk advances"
+    }
+  },
+  "resetMenu": {
+    "buildingModel": "Reset building model to original…",
+    "eventFile": "Reset event file to original…",
+    "header": "Reset header to original…",
+    "scriptFile": "Reset script file to original…"
+  },
+  "roomActions": {
+    "cancel": "Cancel",
+    "emptyFor": "Leave empty for “{{suggestion}}”.",
+    "emptyForSuggested": "Leave empty for the suggested name.",
+    "more": "More actions for {{name}}",
+    "name": "Name",
+    "noArea": "No area matches the search.",
+    "owner": "Belongs to area",
+    "ownerMenu": "Belongs to area…",
+    "rename": "Rename",
+    "renameMenu": "Rename…",
+    "renameRoom": "Rename room",
+    "renameWorldMap": "Rename world map",
+    "resetOwner": "Reset assignment",
+    "searchArea": "Search for an area …"
+  },
+  "roomNames": {
+    "floor": ", floor {{n}}",
+    "gym": "Gym",
+    "gymRoom": "Gym, room {{n}}",
+    "house": "House {{n}}{{floor}}",
+    "level": "Level {{n}}",
+    "pokeMart": "Poké Mart{{floor}}",
+    "pokemonCenter": "Pokémon Center{{floor}}",
+    "room": "Room {{n}}"
+  },
+  "sceneBar": {
+    "events": "Events",
+    "heights": "Heights",
+    "label": "Layers of the view",
+    "terrain": "Terrain",
+    "topDown": "Top-down view"
+  },
+  "sceneHierarchy": {
+    "add": "Add",
+    "back": "Back",
+    "connectRoom": "Connect a room here…",
+    "empty": {
+      "what": "No scene shown yet.",
+      "why": "Choose an area or a room above, then what the scene holds shows here."
+    },
+    "followHint": "Double click or Enter follows the door to its destination",
+    "forward": "Forward",
+    "loading": "Loading …",
+    "locked": "Event file locked",
+    "newPlace": "New place…",
+    "noMatch": "Nothing in this scene matches the search.",
+    "nothing": "Nothing here yet. With “+” or the tools you place a character, a door, a trigger, a sign or a building.",
+    "search": {
+      "label": "Search this scene",
+      "placeholder": "Search for a name or number"
+    },
+    "title": "In this scene"
+  },
+  "sceneModel": {
+    "building": "Building {{n}} · Model {{model}}",
+    "cell": "Cell {{x}}, {{y}}",
+    "unknownDest": "→ unknown destination {{id}}"
+  },
+  "scriptPanel": {
+    "addScript": "Add script",
+    "addScriptHint": "Appends an empty script to the file",
+    "checking": "Checking scripts …",
+    "closeTab": "Close {{name}}",
+    "discard": "Discard the changes to {{name}}?",
+    "empty": {
+      "what": "No script open.",
+      "why": "A script file opens from its place, an event or a problem.",
+      "whyTinker": "A script file opens from its header, an event or a problem."
+    },
+    "lsp": {
+      "notAdopted": "Runs once the project's scripts are adopted.",
+      "notRunning": "rotom-lsp is not running",
+      "running": "rotom-lsp is running",
+      "starting": "Language service starting …"
+    },
+    "lspShort": {
+      "missing": "rotom-lsp missing",
+      "running": "rotom-lsp running",
+      "starting": "rotom-lsp starting",
+      "stopped": "rotom-lsp stopped"
+    },
+    "noProject": "No project open.",
+    "noScriptDetail": "No script open",
+    "openScripts": "Open scripts",
+    "outline": {
+      "empty": "No scripts in the file",
+      "loading": "Loading outline …",
+      "needsLsp": "Needs rotom-lsp",
+      "symbol": "{{name}}, line {{line}}",
+      "title": "Outline",
+      "unavailable": "Outline not available"
+    },
+    "restart": "Restart",
+    "save": "Save"
+  },
+  "scriptTab": {
+    "loading": "Loading editor …"
+  },
+  "sharedRooms": {
+    "hint": "These maps belong to other rooms too. What you change here changes them all.",
+    "shared_one": "Shared with {{count}} room",
+    "shared_other": "Shared with {{count}} rooms"
+  },
+  "shownMark": {
+    "label": "{{matrix}} is shown"
+  },
+  "textArea": {
+    "hints": "↵ new line, ⇧↵ new page",
+    "noFigureSays": "No character says this message – opened in Build",
+    "noPlaceUses": "No place uses this archive – opened in Build",
+    "status": {
+      "archive": "Archive {{archive}}",
+      "tooLong": "{{long}} too long"
+    }
+  },
+  "textHand": {
+    "addMessage": "Add message",
+    "columns": {
+      "archive": "Archive",
+      "longestLine": "Longest line",
+      "number": "No.",
+      "text": "Text"
+    },
+    "dialog": {
+      "edit": "Edit dialog…",
+      "noFigure": {
+        "what": "Choose a character.",
+        "why": "Its messages then show here; a double click on the card opens the dialog editor."
+      },
+      "noMessage": "This character's script shows no message.",
+      "noProjectWhy": "Open a project, then the messages of its characters show here.",
+      "openTrainer": "Open trainer"
+    },
+    "editor": {
+      "archive": "Archive {{archive}}",
+      "label": "Edit message",
+      "noHeader": "no header",
+      "noPlace": "no place",
+      "removeLast": "Remove last message",
+      "usedIn": "Used in"
+    },
+    "emptyArchive": {
+      "what": "This archive has no message.",
+      "why": "Add one, then you can write it here."
+    },
+    "hitsLabel": "Hits in all archives",
+    "lineWidth": "{{width}} of {{limit}}",
+    "loading": "Loading …",
+    "messagesLabel": "Messages of archive {{archive}}",
+    "noArchive": {
+      "what": "Choose an archive on the left.",
+      "why": "Its messages then show here; the search above searches all archives."
+    },
+    "noProject": {
+      "what": "No project open.",
+      "why": "Open a project, then the messages of its text archives show here."
+    },
+    "nothingFound": {
+      "what": "Nothing found for “{{query}}”",
+      "why": "Check the spelling or search all archives."
+    },
+    "refs": {
+      "label": "Message used in",
+      "line": "Line {{line}}",
+      "none": "no script"
+    },
+    "reset": {
+      "archive": "Reset whole text archive to original…",
+      "message": "Reset message to original…",
+      "noMessage": "No message chosen"
+    },
+    "scope": {
+      "all": "All",
+      "archive": "This archive"
+    },
+    "search": {
+      "inAll": "Search all archives",
+      "inArchive": "Search this archive",
+      "label": "Search texts",
+      "scope": "Search scope"
+    },
+    "searching": "Searching …"
+  },
+  "textList": {
+    "archiveCount_one": "{{count}} archive",
+    "archiveCount_other": "{{count}} archives",
+    "checkedArchives_one": "{{count}} checked archive",
+    "checkedArchives_other": "{{count}} checked archives",
+    "create": "Create text archive",
+    "filter": {
+      "label": "Filter text archives",
+      "placeholder": "Place or archive number"
+    },
+    "gameWide": "Game-wide",
+    "noMatch": "No archive matches the filter.",
+    "noProject": {
+      "what": "No project open.",
+      "why": "Open a project, then its text archives show here."
+    },
+    "overlongSum": "{{texts}}, in {{archives}}",
+    "overlong_one": "{{count}} text too long",
+    "overlong_other": "{{count}} texts too long"
+  },
+  "textView": {
+    "archive": "Archive {{archive}}",
+    "archiveAt": "Archive {{archive}}, {{place}}",
+    "back": "Back",
+    "facts": "Page {{page}} of {{pages}}, {{width}} × {{height}}, {{scale}}×",
+    "label": "Preview",
+    "lineWidth": "{{width}} of {{limit}}",
+    "loading": {
+      "what": "Loading …",
+      "why": "The archive is being read."
+    },
+    "nextPage": "Next page",
+    "noArchive": {
+      "what": "Choose an archive on the left.",
+      "why": "The preview then shows its messages on the DS screen."
+    },
+    "noMessage": {
+      "what": "This archive has no message.",
+      "why": "Add a message below, then the preview shows it."
+    },
+    "noProject": {
+      "what": "No project open.",
+      "why": "Open a project, then the preview shows its texts."
+    },
+    "page": "Page {{page}}",
+    "pageCount_one": "{{count}} page",
+    "pageCount_other": "{{count}} pages",
+    "pages": "Pages",
+    "unreadable": {
+      "what": "This archive cannot be read.",
+      "why": "The messages below give the reason."
+    }
+  },
+  "tools": {
+    "building": {
+      "does1": "places a building",
+      "does2": "cancels",
+      "hint": "A click on a tile places a building there and switches back to Select.",
+      "label": "Building"
+    },
+    "door": {
+      "does1": "adds a door",
+      "does2": "cancels",
+      "hint": "A click on a tile adds a door there (a warp) and switches back to Select.",
+      "label": "Door"
+    },
+    "figure": {
+      "does1": "places a character",
+      "does2": "cancels",
+      "hint": "A click on a tile places a character there and switches back to Select.",
+      "label": "Character"
+    },
+    "noPlace": "Choose a place first.",
+    "paint": {
+      "does1": "sets collision",
+      "does2": "clears",
+      "hint": "A click sets the tile's collision, Shift-click clears it.",
+      "label": "Paint terrain"
+    },
+    "select": {
+      "does1": "selects",
+      "does2": "moves",
+      "hint": "Selects markers, buildings and maps in the scene. Dragging moves the selection. Never paints.",
+      "label": "Select"
+    },
+    "sign": {
+      "does1": "puts up a sign",
+      "does2": "cancels",
+      "hint": "A click on a tile puts up a sign there (a background event) and switches back to Select.",
+      "label": "Sign"
+    },
+    "trigger": {
+      "does1": "adds a trigger",
+      "does2": "cancels",
+      "hint": "A click on a tile adds a trigger there and switches back to Select.",
+      "label": "Trigger"
+    },
+    "worldPaintHint": "Paints tiles, heights and ramps onto the chosen world map."
+  },
+  "trainerScript": {
+    "placed": "Trainer {{name}} placed"
+  },
+  "useLsp": {
+    "notResponding": "rotom-lsp is not responding"
+  },
+  "useScripts": {
+    "binary": "{{name}} is binary ({{size}} bytes) and cannot be edited",
+    "changedOutside_one": "{{names}} was changed outside the editor; your unsaved changes overwrite that when you save",
+    "changedOutside_other": "{{names}} were changed outside the editor; your unsaved changes overwrite that when you save",
+    "gone_one": "After reopening, {{names}} is missing; its unsaved text stays in the editor.",
+    "gone_other": "After reopening, {{names}} are missing; their unsaved text stays in the editor.",
+    "invalidJson": "{{name}}: invalid JSON ({{reason}})",
+    "notAnObject": "{{name}}: invalid JSON (an object is expected)"
+  },
+  "useWorldModel": {
+    "broken": "{{file}} is damaged: {{why}}. Repair or delete the file."
+  },
+  "warpTile": {
+    "doesNotFire": "{{what}}: a {{warp}} does not fire here in the game ({{why}}).",
+    "doorNeedsCollision": "a door only fires with collision 0x80",
+    "fires": "{{what}}: a {{warp}} fires here.",
+    "noWarpTile": "not a door or warp tile",
+    "what": "Behaviour {{kind}}, collision {{collision}}",
+    "whatNamed": "Behaviour {{kind}} {{name}}, collision {{collision}}"
+  },
+  "worldExplorer": {
+    "choose": "Choose a place or room",
+    "collapse": "Collapse places",
+    "create": {
+      "area": "Create area…",
+      "label": "Create new",
+      "room": "Create room…"
+    },
+    "expand": "Expand places",
+    "mode": {
+      "label": "View",
+      "list": "List",
+      "tree": "Tree"
+    },
+    "pickPlaceholder": "Search for an area, room or number",
+    "sort": {
+      "label": "Sort",
+      "list": {
+        "code": "Code",
+        "id": "Number",
+        "name": "Name"
+      },
+      "tree": {
+        "game": "Game order",
+        "name": "Name A–Z",
+        "recent": "Recently chosen"
+      }
+    }
+  },
+  "worldList": {
+    "splitter": {
+      "label": "Height of the places",
+      "title": "Drag to change the height of the places, double click to halve"
+    },
+    "title": "World"
+  },
+  "worldMap": {
+    "noExit": "no exit",
+    "noPairedWarp": "destination warp missing",
+    "notOnWorldMap": "destination is not on the world map",
+    "outsideRegion": "destination outside the region"
+  },
+  "worldMapPanel": {
+    "gridLabel": "{{name}}, {{rows}} rows, {{columns}} columns",
+    "loadingPlan": "Loading room plan …",
+    "loadingRegion": "Loading region …",
+    "noEntrance": "no entrance",
+    "noEntranceWhy": "no entrance: {{reason}}",
+    "noRegion": "No region found (no world map with areas).",
+    "noRegionTinker": "No region found (no grid with a header section).",
+    "progress": "Map pictures {{done}}/{{total}}"
+  },
+  "worldMapView": {
+    "and": " and ",
+    "plan": "Room plan"
+  },
+  "worldPanel": {
+    "empty": {
+      "showFirst": "Show first place",
+      "what": "No place chosen yet.",
+      "why": "Choose a place on the left, then the view shows its maps."
+    }
+  },
+  "worldTree": {
+    "groups": {
+      "more": "More areas",
+      "other": "Other",
+      "unconnected": "Not connected"
+    },
+    "loading": "Loading …",
+    "loadingOverview": "Loading overview …",
+    "manual": "{{name}} (assigned by hand)",
+    "noMatch": "No place matches the search.",
+    "overviewUnavailable": "Overview not available",
+    "scripts": {
+      "adoptFirst": "Adopt the scripts first (panel “Script”)",
+      "binary": "binary",
+      "line": "line {{line}}",
+      "noHeader": "no header",
+      "noHits": "No hits.",
+      "noPlace": "no place",
+      "search": "Search scripts",
+      "searchPlaceholder": "Search for a number or text",
+      "searching": "Searching …",
+      "size": "{{size}} bytes"
+    },
+    "search": "Search the world",
+    "searchPlaceholder": "Search for an area, room or code",
+    "section": "Section {{n}}",
+    "shared": "shared"
+  }
+}
