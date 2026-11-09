@@ -5,6 +5,72 @@
     "refsCount_one": "{{count}} Verweis",
     "refsCount_other": "{{count}} Verweise",
     "moreCount_one": "und {{count}} weitere",
-    "moreCount_other": "und {{count}} weitere"
+    "moreCount_other": "und {{count}} weitere",
+    "renamed": "ID umbenannt: {{old}} → {{new}}. ⌘Z nimmt es zurück.",
+    "title": "ID umbenennen",
+    "cancel": "Abbrechen",
+    "rename": "Umbenennen",
+    "newId": "Neue ID",
+    "searching": "Verweise werden gesucht …",
+    "sentence": "{{refs}} in {{files}} werden nachgezogen.",
+    "renaming": "Wird umbenannt …"
+  },
+  "adoptDialog": {
+    "reopen": "Die Dateien sind umgestellt, aber die offene Sitzung wurde inzwischen geändert und bleibt, wie sie ist; das Projekt bitte neu öffnen.",
+    "unsaved_one": "Erst speichern: {{count}} ungespeicherte Änderung.",
+    "unsaved_other": "Erst speichern: {{count}} ungespeicherte Änderungen.",
+    "progress": {
+      "scripts": "Scripts übernehmen …",
+      "scriptsCount": "Scripts übernehmen … {{done}} von {{total}}",
+      "baseLayer": "Basisschicht anlegen …",
+      "entities": "Einträge schreiben …",
+      "entitiesCount": "Einträge schreiben … {{done}} von {{total}} Arten",
+      "sync": "Abgleich vorbereiten …"
+    },
+    "done_one": "Textprojekt eingerichtet: {{count, number}}\u00a0Dateien in {{seconds}}\u00a0s.",
+    "done_other": "Textprojekt eingerichtet: {{count, number}}\u00a0Dateien in {{seconds}}\u00a0s.",
+    "allSaved": "Alles gespeichert",
+    "baseFound": "Basis-ROM gefunden: {{label}}",
+    "baseSearching": "Basis-ROM wird gesucht …",
+    "scriptsAdopted": "Scripts übernommen",
+    "scriptsAdoptedAlong": "Scripts werden dabei übernommen",
+    "close": "Schließen",
+    "cancel": "Abbrechen",
+    "setUp": "Einrichten",
+    "title": "Als Textprojekt einrichten?",
+    "description": "Schreibt g4-project.json und rund 6 500 Dateien unter data/. Die Spieldateien bleiben, wie sie sind; zurücknehmen geht in Technik › Textprojekt.",
+    "beforeSetUp": "Vor dem Einrichten",
+    "settingUp": "Wird eingerichtet …"
+  },
+  "entityIdLine": {
+    "noClipboard": "Die Zwischenablage ist hier nicht verfügbar. Markiere die ID und kopiere sie selbst.",
+    "copied": "ID kopiert: {{id}}",
+    "copyFailed": "Die ID ließ sich nicht kopieren. Markiere sie und kopiere sie selbst.",
+    "copy": "ID kopieren"
+  },
+  "migrateDialog": {
+    "lifted": "Textprojekt angehoben: Schema-Version {{from}} → {{to}}.",
+    "title": "Textprojekt anheben?",
+    "description": "Dieses Textprojekt hat Schema-Version {{schema}}; diese Fassung von Gen4 Studio schreibt Version {{current}}. Anheben sichert die geänderten Dateien vorher in .g4/backup/.",
+    "cancel": "Abbrechen",
+    "lift": "Anheben"
+  },
+  "renameEntry": {
+    "label": "ID umbenennen…"
+  },
+  "revertDialog": {
+    "reverted": "Textprojekt zurückgenommen. Sicherung: {{backup}}",
+    "revertedWithNote": "Textprojekt zurückgenommen. Sicherung: {{backup}}.{{note}}",
+    "title": "Textprojekt zurücknehmen?",
+    "description": "Das Studio arbeitet danach wieder direkt mit den DSPRE-Dateien. g4-project.json und data/ wandern nach .g4/backup/; die Spieldateien bleiben, wie sie sind.",
+    "cancel": "Abbrechen",
+    "revert": "Zurücknehmen",
+    "saveFirst": "Erst speichern."
+  },
+  "textProjectHint": {
+    "noDp": "Kein Textprojekt für Diamant/Perl in Phase 4.",
+    "lead": "Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git.",
+    "opensFolder": "DSPRE öffnet den Ordner weiter.",
+    "needsBase": "Dafür braucht es die Basis\u2060-\u2060ROM."
   }
 }

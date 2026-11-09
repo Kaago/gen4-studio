@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TextProjectStatus } from "../api";
-import { NO_DP, dismissHint, hintOf, shouldHint } from "./textProjectHint";
+import { dismissHint, hintOf, noDp, shouldHint } from "./textProjectHint";
 
 const DSPRE: TextProjectStatus = { state: "dspre", adoptable: true, reason: null };
 const NO_BASE: TextProjectStatus = { state: "dspre", adoptable: false, reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." };
@@ -43,7 +43,7 @@ describe("textProjectHint", () => {
     expect(shouldHint("/a", { state: "older", schema: 0 })).toBe(false);
     expect(shouldHint("/a", { state: "newer", schema: 2 })).toBe(false);
     expect(shouldHint("/a", { state: "broken", reason: "g4-project.json:1:1: kaputt" })).toBe(false);
-    expect(shouldHint("/dp", { state: "dspre", adoptable: false, reason: NO_DP })).toBe(false);
+    expect(shouldHint("/dp", { state: "dspre", adoptable: false, reason: noDp() })).toBe(false);
   });
 
   it("storage_errors_do_not_break_the_hint", () => {

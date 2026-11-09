@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { formatBytes } from "../api";
 import type { BaseCheck, BaseStatus, ReleaseEntry, ReleasesDto } from "../api";
+import { t } from "../i18n";
 import { openPath } from "../platform/dialogs";
 import { dateText, publishLocked } from "../publish/publishWords";
 import { Badge, Button, Dialog, EmptyState, IconButton, Notice, Table } from "../ui/primitives";
@@ -11,19 +13,11 @@ import type { BaseApi } from "./useBase";
 
 type BaseState = BaseStatus["state"];
 
-const PLAQUE: Record<BaseState, { kind: BadgeKind; text: string }> = {
-  found: { kind: "success", text: "Gefunden" },
-  missing: { kind: "warning", text: "Fehlt" },
-  unassigned: { kind: "neutral", text: "Nicht zugeordnet" },
-  unreadable: { kind: "error", text: "Nicht lesbar" },
-};
+/** The colour of the plaque of each state of the base ROM; its word is `publishSurface.plaque.<state>`. */
+const PLAQUE_KIND: Record<BaseState, BadgeKind> = { found: "success", missing: "warning", unassigned: "neutral", unreadable: "error" };
 
-const SUBTITLE: Record<BaseState, string> = {
-  unassigned: "Keine Basis-ROM zugeordnet",
-  missing: "Basis-ROM fehlt",
-  unreadable: "Basismarke nicht lesbar",
-  found: "Bereit zum Veröffentlichen",
-};
+/** The line under „Veröffentlichen“ for a state of the base ROM. */
+const subtitleOf = (state: BaseState): string => t(`technik:publishSurface.subtitle.${state}`);
 
 /**
  * The line under „Veröffentlichen“ in the list of Technik: the base's state while it is not found (it locks publishing first, as
@@ -31,16 +25,16 @@ const SUBTITLE: Record<BaseState, string> = {
  * „Bereit zum Veröffentlichen“.
  */
 export function publishSubtitle(base: BaseApi | null): string {
-  if (base === null) return "Kein Projekt geöffnet";
-  if (base.status === null) return base.error === null ? "Wird gelesen …" : "Nicht lesbar";
-  if (base.status.state !== "found") return SUBTITLE[base.status.state];
-  if (base.releasesError !== null) return "Nicht lesbar";
+  if (base === null) return t("technik:shared.noProject");
+  if (base.status === null) return base.error === null ? t("technik:shared.reading") : t("technik:shared.notReadable");
+  if (base.status.state !== "found") return subtitleOf(base.status.state);
+  if (base.releasesError !== null) return t("technik:shared.notReadable");
   const list = base.releases?.releases ?? [];
   const last = list[list.length - 1];
-  return last !== undefined ? `Veröffentlicht v${last.version}` : SUBTITLE.found;
+  return last !== undefined ? t("technik:publishSurface.subtitle.published", { version: last.version }) : subtitleOf("found");
 }
 
-const PICK = { directory: false, title: "Basis-ROM wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] };
+const pickOptions = () => ({ directory: false, title: t("technik:publishSurface.pickTitle"), filters: [{ name: t("technik:publishSurface.pickFilter"), extensions: ["nds"] }] });
 
 /** The last part of a path, `/` or `\` separated. */
 function fileName(path: string): string {
@@ -80,10 +74,11 @@ type PublishSurfaceProps = {
  * button that started the step. A dialog returns it there when it closes.
  */
 export function PublishSurface({ base, building, onOpenProject, onPublish, onReveal }: PublishSurfaceProps) {
+  const { t } = useTranslation("technik");
   if (base === null) {
     return (
       <Surface>
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann veröffentlichst du es hier." action={{ label: "Projekt öffnen", onClick: onOpenProject }} />
+        <EmptyState what={t("shared.noProjectWhat")} why={t("publishSurface.noProjectWhy")} action={{ label: t("shared.openProject"), onClick: onOpenProject }} />
       </Surface>
     );
   }
@@ -91,14 +86,15 @@ export function PublishSurface({ base, building, onOpenProject, onPublish, onRev
 }
 
 function Surface({ children }: { children: ReactNode }) {
+  const { t } = useTranslation("technik");
   const id = useId();
   return (
     <section className={styles.surface} data-technik="veroeffentlichen" aria-labelledby={id}>
       <header className={styles.head}>
         <h1 id={id} className={styles.title}>
-          Veröffentlichen
+          {t("publishSurface.title")}
         </h1>
-        <p className={styles.lead}>Ein Patch gibt deine Änderungen weiter, ohne die ROM: wer dieselbe Basis-ROM hat, wendet ihn mit Rom Patcher JS oder xdelta3 an.</p>
+        <p className={styles.lead}>{t("publishSurface.lead")}</p>
       </header>
       {children}
     </section>
@@ -109,6 +105,7 @@ function Surface({ children }: { children: ReactNode }) {
 type Asking = { nds: string; check: BaseCheck };
 
 function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; building: boolean; onPublish: () => void; onReveal: (path: string) => Promise<void> }) {
+  const { t } = useTranslation("technik");
   const { status, busy } = base;
   const [asking, setAsking] = useState<Asking | null>(null);
   // „Basis-ROM zugeordnet“ shows after an assignment until the next step starts.
@@ -150,7 +147,7 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
     else setSettled(true);
   };
   const pickAndAsk = async () => {
-    const nds = await openPath(PICK);
+    const nds = await openPath(pickOptions());
     if (nds !== null) await ask(nds);
     else setSettled(true);
   };
@@ -162,7 +159,7 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
   };
   const search = async () => {
     setAssigned(false);
-    const path = await openPath(PICK);
+    const path = await openPath(pickOptions());
     if (path !== null) await base.register(path);
     setSettled(true);
   };
@@ -178,7 +175,7 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
   // „Veröffentlichen…“ needs a found base ROM and a readable list; the note beside it says why it waits.
   const canPublish = status?.state === "found" && base.releasesError === null;
   const lock = publishLocked(status, base.releasesError);
-  const plaque = status === null ? null : PLAQUE[status.state];
+  const plaque = status === null ? null : { kind: PLAQUE_KIND[status.state], text: t(`publishSurface.plaque.${status.state}`) };
   // After an assignment that went through: the status names the ROM.
   const assignedLabel = assigned && baseError === null && status !== null && (status.state === "found" || status.state === "missing") ? status.label : null;
 
@@ -187,26 +184,26 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
       <section className={styles.card} aria-labelledby={baseHeading} data-base-state={status?.state ?? "loading"}>
         <div className={styles.cardHead}>
           <h2 id={baseHeading} className={styles.heading}>
-            Basis-ROM
+            {t("publishSurface.baseTitle")}
           </h2>
           {plaque && <Badge kind={plaque.kind}>{plaque.text}</Badge>}
         </div>
-        <p className={styles.text}>Ein Patch beschreibt den Unterschied zu deiner Basis-ROM. Die ROM bleibt außerhalb des Projekts; Gen4 Studio merkt sich nur, wo sie liegt.</p>
-        {status === null && baseError === null && <p className={styles.note}>Wird gelesen …</p>}
+        <p className={styles.text}>{t("publishSurface.baseText")}</p>
+        {status === null && baseError === null && <p className={styles.note}>{t("shared.reading")}</p>}
         {status?.state === "found" && (
           <dl className={styles.facts}>
             <div className={styles.fact}>
-              <dt>ROM</dt>
+              <dt>{t("publishSurface.factRom")}</dt>
               <dd>{status.label}</dd>
             </div>
             <div className={styles.fact}>
-              <dt>SHA-1</dt>
+              <dt>{t("publishSurface.factSha1")}</dt>
               <dd className={styles.mono} title={status.mark.sha1}>
                 {status.mark.sha1.slice(0, 8)}
               </dd>
             </div>
             <div className={`${styles.fact} ${styles.wide}`}>
-              <dt>Datei</dt>
+              <dt>{t("shared.file")}</dt>
               <dd className={styles.path} title={status.path}>
                 {status.path}
               </dd>
@@ -216,22 +213,22 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
         {status?.state === "unassigned" &&
           (status.suggestion !== null ? (
             <>
-              <Notice kind="info">Neben dem Projekt liegt „{fileName(status.suggestion)}“.</Notice>
+              <Notice kind="info">{t("publishSurface.suggestion", { name: fileName(status.suggestion) })}</Notice>
               <div className={styles.actions}>
                 <Button kind="primary" aria-disabled={running || undefined} onClick={begin(() => void ask(status.suggestion!))}>
-                  Zuordnen…
+                  {t("publishSurface.assign")}
                 </Button>
                 <Button kind="secondary" aria-disabled={running || undefined} onClick={begin(() => void pickAndAsk())}>
-                  Andere Datei wählen…
+                  {t("publishSurface.chooseOther")}
                 </Button>
               </div>
             </>
           ) : (
             <>
-              <p className={styles.text}>Diesem Projekt ist keine Basis-ROM zugeordnet.</p>
+              <p className={styles.text}>{t("publishSurface.noBaseAssigned")}</p>
               <div className={styles.actions}>
                 <Button kind="primary" aria-disabled={running || undefined} onClick={begin(() => void pickAndAsk())}>
-                  Basis-ROM zuordnen…
+                  {t("publishSurface.assignBase")}
                 </Button>
               </div>
             </>
@@ -241,23 +238,23 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
             <Notice kind="warning">{status.reason}</Notice>
             <div className={styles.actions}>
               <Button kind="primary" aria-disabled={running || undefined} onClick={begin(() => void search())}>
-                Basis-ROM suchen…
+                {t("publishSurface.findBase")}
               </Button>
             </div>
           </>
         )}
         {status?.state === "unreadable" && <Notice kind="error">{status.reason}</Notice>}
-        {assignedLabel !== null && busy === null && <Notice kind="success">Basis-ROM zugeordnet: {assignedLabel}.</Notice>}
+        {assignedLabel !== null && busy === null && <Notice kind="success">{t("publishSurface.assigned", { label: assignedLabel })}</Notice>}
         {baseError !== null && <Notice kind="error">{baseError}</Notice>}
       </section>
 
       <section className={styles.card} aria-labelledby={publishHeading} data-publish-card="">
         <div className={styles.cardHead}>
           <h2 id={publishHeading} className={styles.heading}>
-            Veröffentlichen
+            {t("publishSurface.title")}
           </h2>
         </div>
-        <p className={styles.text}>Der Assistent fragt Version und Änderungsnotizen, baut die ROM und schreibt den Patch mit Begleitdatei an den Ort, den du wählst.</p>
+        <p className={styles.text}>{t("publishSurface.publishText")}</p>
         <div className={styles.actions}>
           <Button
             ref={publishButton}
@@ -267,7 +264,7 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
             aria-describedby={lock !== null ? noteId : undefined}
             onClick={publish}
           >
-            Veröffentlichen…
+            {t("publishSurface.publishButton")}
           </Button>
           {lock !== null && (
             <span id={noteId} className={styles.note}>
@@ -275,13 +272,13 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
             </span>
           )}
         </div>
-        <h3 className={styles.subheading}>Bisherige Veröffentlichungen</h3>
+        <h3 className={styles.subheading}>{t("publishSurface.previousReleases")}</h3>
         {base.releasesError !== null ? (
           <Notice kind="error">{base.releasesError}</Notice>
         ) : base.releases === null ? (
-          <p className={styles.note}>Wird gelesen …</p>
+          <p className={styles.note}>{t("shared.reading")}</p>
         ) : base.releases.releases.length === 0 ? (
-          <p className={styles.note}>Noch keine Veröffentlichung.</p>
+          <p className={styles.note}>{t("publishSurface.noRelease")}</p>
         ) : (
           <Releases list={base.releases} onReveal={onReveal} />
         )}
@@ -292,13 +289,13 @@ function Publish({ base, building, onPublish, onReveal }: { base: BaseApi; build
   );
 }
 
-const RELEASE_COLUMNS: readonly TableColumn[] = [
-  { key: "version", label: "Version", width: 88 },
-  { key: "date", label: "Datum", width: 96 },
-  { key: "file", label: "Datei" },
-  { key: "size", label: "Größe", width: 88, align: "end" },
-  { key: "notes", label: "Notizen" },
-  { key: "reveal", label: "Aktion", width: 44, hideLabel: true },
+const releaseColumns = (): readonly TableColumn[] => [
+  { key: "version", label: t("technik:publishSurface.columns.version"), width: 88 },
+  { key: "date", label: t("technik:publishSurface.columns.date"), width: 96 },
+  { key: "file", label: t("technik:shared.file") },
+  { key: "size", label: t("technik:shared.size"), width: 88, align: "end" },
+  { key: "notes", label: t("technik:publishSurface.columns.notes") },
+  { key: "reveal", label: t("technik:publishSurface.columns.action"), width: 44, hideLabel: true },
 ];
 
 /** A release's row: the file's name (its full path as the title), the notes' first line (the rest as the title) and „Im Finder zeigen“. */
@@ -319,15 +316,16 @@ function releaseRow(list: ReleasesDto, entry: ReleaseEntry, onReveal: (path: str
       size: formatBytes(entry.size),
       notes: more === "" ? first : <span title={more}>{first}</span>,
       // Each row's button is named by its version, so a screen reader tells them apart.
-      reveal: <IconButton label={`Im Finder zeigen: v${entry.version}`} icon="open" onClick={() => void onReveal(entry.file)} />,
+      reveal: <IconButton label={t("technik:publishSurface.revealRelease", { version: entry.version })} icon="open" onClick={() => void onReveal(entry.file)} />,
     },
   };
 }
 
 /** „Bisherige Veröffentlichungen“, newest first. */
 function Releases({ list, onReveal }: { list: ReleasesDto; onReveal: (path: string) => Promise<void> }) {
+  const { t } = useTranslation("technik");
   const rows = [...list.releases].reverse().map((entry) => releaseRow(list, entry, onReveal));
-  return <Table columns={RELEASE_COLUMNS} rows={rows} ariaLabel="Bisherige Veröffentlichungen" />;
+  return <Table columns={releaseColumns()} rows={rows} ariaLabel={t("publishSurface.previousReleases")} />;
 }
 
 /**
@@ -347,27 +345,28 @@ function AssignDialog({
   onAssign: (nds: string) => void;
   finalFocus: () => HTMLElement | null;
 }) {
+  const { t } = useTranslation("technik");
   const info = asking?.check.info;
   const refused = asking?.check.refused ?? null;
   return (
     <Dialog
       open={asking !== null}
       onOpenChange={(open) => !open && !assigning && onClose()}
-      title="Basis-ROM zuordnen?"
+      title={t("publishSurface.assignDialog.title")}
       finalFocus={finalFocus}
       description={info ? `${info.title} · ${info.game_code} · SHA-1 ${info.sha1.slice(0, 8)}` : undefined}
       actions={
         refused !== null
-          ? [{ label: "Schließen", onClick: onClose }]
+          ? [{ label: t("shared.close"), onClick: onClose }]
           : [
-              { label: "Abbrechen", onClick: onClose, disabled: assigning },
-              { label: "Zuordnen", kind: "primary", onClick: () => asking && onAssign(asking.nds), disabled: assigning },
+              { label: t("shared.cancel"), onClick: onClose, disabled: assigning },
+              { label: t("publishSurface.assignDialog.assign"), kind: "primary", onClick: () => asking && onAssign(asking.nds), disabled: assigning },
             ]
       }
     >
       {asking && (
         <div className={styles.dialogBody}>
-          {info?.known_base && <p className={styles.text}>Bekannte Basis-ROM: {info.known_base}</p>}
+          {info?.known_base && <p className={styles.text}>{t("publishSurface.assignDialog.known", { name: info.known_base })}</p>}
           {refused !== null ? (
             <Notice kind="error">{refused}</Notice>
           ) : (
@@ -378,7 +377,7 @@ function AssignDialog({
                 </Notice>
               ))}
               <div className={styles.actions}>
-                <span className={styles.text}>Schreibt die Basismarke .g4/base.json ins Projekt.</span>
+                <span className={styles.text}>{t("publishSurface.assignDialog.writes")}</span>
                 <Badge kind="irreversible" />
               </div>
             </>

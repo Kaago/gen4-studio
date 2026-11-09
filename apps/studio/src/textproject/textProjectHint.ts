@@ -1,10 +1,8 @@
 import type { TextProjectStatus } from "../api";
-import { WJ } from "../words";
+import { t } from "../i18n";
 
-/** The kernel's reason a Diamond or Pearl folder cannot be set up (`textproject::NO_DP`): no hint for it. */
-export const NO_DP = "Kein Textprojekt für Diamant/Perl in Phase 4.";
-
-const LEAD = "Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git.";
+/** The kernel's reason a Diamond or Pearl folder cannot be set up (`textproject::NO_DP`) in the language that is shown: no hint for it. */
+export const noDp = (): string => t("textproject:textProjectHint.noDp");
 
 /** Where „Nicht mehr fragen“ is kept, per project folder: a convenience of the user, no project file. */
 const key = (root: string) => `g4.textProjectHint.${root}`;
@@ -15,7 +13,7 @@ const key = (root: string) => `g4.textProjectHint.${root}`;
  */
 export function shouldHint(root: string, status: TextProjectStatus): boolean {
   if (status.state !== "dspre") return false;
-  if (!status.adoptable && status.reason === NO_DP) return false;
+  if (!status.adoptable && status.reason === noDp()) return false;
   try {
     return localStorage.getItem(key(root)) === null;
   } catch {
@@ -35,5 +33,5 @@ export function dismissHint(root: string): void {
 /** The hint's sentence and whether it offers „Einrichten…“ (`setUp`) or, without the base ROM, „Basis-ROM zuordnen…“. */
 export function hintOf(status: TextProjectStatus): { text: string; setUp: boolean } {
   const setUp = status.state === "dspre" && status.adoptable;
-  return { text: `${LEAD} ${setUp ? "DSPRE öffnet den Ordner weiter." : `Dafür braucht es die Basis${WJ}-${WJ}ROM.`}`, setUp };
+  return { text: `${t("textproject:textProjectHint.lead")} ${setUp ? t("textproject:textProjectHint.opensFolder") : t("textproject:textProjectHint.needsBase")}`, setUp };
 }

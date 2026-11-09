@@ -1,32 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, gitInit } from "../api";
 import type { GitStatus, InitPhase, InitReport } from "../api";
 import { toast } from "../ui/frame/toasts";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
-import { NOT_INSTALLED, TEMPLATES_ONLY_TEXT, gitFoundText, initDoneText } from "./gitWords";
+import { gitFoundText, initDoneText, notInstalledText, templatesOnlyText } from "./gitWords";
 import styles from "./GitInitDialog.module.css";
 
-/** Always in the dialog: the project holds the game's data, so it does not belong in a public repository. */
-export const LEGAL_NOTE = "Dein Projekt enthält Daten aus dem Spiel. Lade es nicht öffentlich hoch; zum Teilen gibt es den Patch (Technik › Veröffentlichen).";
-
-const DESCRIPTION =
-  "Legt in diesem Projektordner ein lokales Git-Repository an: .gitignore und .gitattributes, dann einen ersten Commit „Ausgangsstand“. Gen4 Studio richtet kein Remote ein und lädt nichts hoch.";
-
-/** What the `.gitignore` of each layout keeps out. */
-const IGNORED: Record<GitStatus["layout"], string> = {
-  dspre: "Ignoriert: ROMs, Patches, build/, Spielstände und die Archive, die der Build packt",
-  text_project: "Ignoriert: ROMs, Patches, build/, Spielstände und die Spieldateien (sie entstehen aus der Basis-ROM)",
-};
-
-/** The progress line of each phase. */
-const PHASE_TEXT: Record<InitPhase, string> = {
-  unpack: "Archive auspacken …",
-  templates: "Vorlagen schreiben …",
-  init: "Repository anlegen …",
-  add: "Dateien aufnehmen … (bei DSPRE-Ordnern rund 10 s)",
-  commit: "Erster Commit …",
-};
+/** What the `.gitignore` of each layout keeps out: the key of its line in the catalog. */
+const IGNORED = { dspre: "gitInitDialog.ignored.dspre", text_project: "gitInitDialog.ignored.textProject" } as const satisfies Record<GitStatus["layout"], string>;
 
 export type GitInitDialogProps = {
   open: boolean;
@@ -51,6 +34,7 @@ export type GitInitDialogProps = {
  * repository and the templates are there.
  */
 export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusive = (work) => work(), finalFocus }: GitInitDialogProps) {
+  const { t } = useTranslation("git");
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<InitPhase | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,14 +53,14 @@ export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusiv
   const layout = status?.layout ?? "dspre";
   const git = status === null ? undefined : status.cli;
   const rows: CheckRow[] = [
-    unsaved ? { id: "saved", state: "error", text: "Erst speichern" } : { id: "saved", state: "ok", text: "Alles gespeichert" },
+    unsaved ? { id: "saved", state: "error", text: t("shared.saveFirst") } : { id: "saved", state: "ok", text: t("shared.allSaved") },
     git === undefined
-      ? { id: "git", state: "info", text: "Git wird gesucht …" }
+      ? { id: "git", state: "info", text: t("shared.lookingForGit") }
       : git === null
-        ? { id: "git", state: "warning", text: "Git ist nicht installiert: nur die Vorlagen werden geschrieben" }
+        ? { id: "git", state: "warning", text: t("gitInitDialog.gitMissingTemplatesOnly") }
         : { id: "git", state: "ok", text: gitFoundText(git.version) },
-    { id: "ignored", state: "info", text: IGNORED[layout] },
-    ...(status?.templates ?? []).map((file): CheckRow => ({ id: `template-${file}`, state: "info", text: `${file} vorhanden: der Block von Gen4 Studio kommt dazu` })),
+    { id: "ignored", state: "info", text: t(IGNORED[layout]) },
+    ...(status?.templates ?? []).map((file): CheckRow => ({ id: `template-${file}`, state: "info", text: t("gitInitDialog.templateExists", { file }) })),
   ];
   const ready = !unsaved && git !== undefined;
 
@@ -92,11 +76,11 @@ export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusiv
       if (report.committed) {
         toast.info(initDoneText(report));
         onClose();
-      } else if (report.reason === NOT_INSTALLED) {
-        toast.info(TEMPLATES_ONLY_TEXT);
+      } else if (report.reason === notInstalledText()) {
+        toast.info(templatesOnlyText());
         onClose();
       } else {
-        setFailed(report.reason ?? "Der erste Commit ist gescheitert.");
+        setFailed(report.reason ?? t("gitInitDialog.failed"));
       }
     } catch (e) {
       setError(errorText(e));
@@ -109,10 +93,10 @@ export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusiv
   const actions: DialogAction[] = running
     ? []
     : failed !== null
-      ? [{ label: "Schließen", onClick: onClose }]
+      ? [{ label: t("shared.close"), onClick: onClose }]
       : [
-          { label: "Abbrechen", onClick: onClose },
-          { label: git === null ? "Vorlagen schreiben" : "Einrichten", kind: "primary", onClick: () => void run(), disabled: !ready },
+          { label: t("shared.cancel"), onClick: onClose },
+          { label: git === null ? t("gitInitDialog.writeTemplates") : t("gitInitDialog.setUp"), kind: "primary", onClick: () => void run(), disabled: !ready },
         ];
   // Before the first phase reports (always in the dev bridge): the first phase of the layout.
   const shownPhase = phase ?? (layout === "dspre" ? "unpack" : "templates");
@@ -124,18 +108,18 @@ export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusiv
         if (!next && !busy.current) onClose();
       }}
       dismissible={!running}
-      title="Git einrichten?"
-      description={DESCRIPTION}
+      title={t("gitInitDialog.title")}
+      description={t("gitInitDialog.description")}
       data={{ "data-git-init-dialog": "" }}
       finalFocus={finalFocus}
       actions={actions}
     >
       <div className={styles.content}>
-        <Notice kind="warning">{LEGAL_NOTE}</Notice>
-        {failed === null && <CheckList ariaLabel="Vor dem Einrichten" rows={rows} />}
+        <Notice kind="warning">{t("gitInitDialog.legalNote")}</Notice>
+        {failed === null && <CheckList ariaLabel={t("gitInitDialog.beforeSetUp")} rows={rows} />}
         {running && (
           <p role="status" className={styles.progress} data-git-init-progress="">
-            {PHASE_TEXT[shownPhase]}
+            {t(`gitInitDialog.phase.${shownPhase}`)}
           </p>
         )}
         {failed !== null && <Notice kind="warning">{failed}</Notice>}

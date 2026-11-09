@@ -1,1 +1,102 @@
-{}
+{
+  "shared": {
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "saveFirst": "Erst speichern",
+    "allSaved": "Alles gespeichert",
+    "lookingForGit": "Git wird gesucht …"
+  },
+  "gitWords": {
+    "noChange": "keine Änderung",
+    "changesCount_one": "{{count}} Änderung",
+    "changesCount_other": "{{count}} Änderungen",
+    "statusText": {
+      "noCommit": "noch kein Commit",
+      "detached": "{{id}} (losgelöst)"
+    },
+    "statusTooltip": {
+      "noCommit": "Git: noch kein Commit.",
+      "none": "Git: keine geänderte Datei seit dem letzten Commit „{{summary}}“. Klick öffnet Technik › Änderungen.",
+      "changed_one": "Git: {{count}} geänderte Datei seit dem letzten Commit „{{summary}}“. Klick zeigt sie in Technik › Änderungen.",
+      "changed_other": "Git: {{count}} geänderte Dateien seit dem letzten Commit „{{summary}}“. Klick zeigt sie in Technik › Änderungen."
+    },
+    "found": "Git gefunden: {{version}}",
+    "initDone_one": "Git eingerichtet: {{count, number}}\u00a0Dateien im ersten Commit „Ausgangsstand“.",
+    "initDone_other": "Git eingerichtet: {{count, number}}\u00a0Dateien im ersten Commit „Ausgangsstand“.",
+    "studioIdentity": "Autor ist „Gen4 Studio“, weil Git deinen Namen noch nicht kennt.",
+    "notInstalled": "Git ist nicht installiert. Die Vorlagen sind geschrieben; das Repository legst du an, sobald Git da ist (git-scm.com/downloads).",
+    "templatesOnly": "Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.",
+    "templatesNote": {
+      "textProject": "Die .gitignore von Gen4 Studio versioniert jetzt das Textprojekt.",
+      "dspre": "Die .gitignore von Gen4 Studio versioniert jetzt den DSPRE-Ordner."
+    },
+    "changedFiles": {
+      "none": "Keine Änderung seit dem letzten Commit",
+      "first_one": "{{count, number}}\u00a0Datei für den ersten Commit",
+      "first_other": "{{count, number}}\u00a0Dateien für den ersten Commit",
+      "since_one": "{{count, number}} geänderte Datei seit dem letzten Commit",
+      "since_other": "{{count, number}} geänderte Dateien seit dem letzten Commit"
+    },
+    "commitDone": {
+      "files_one": "{{count, number}}\u00a0Datei",
+      "files_other": "{{count, number}}\u00a0Dateien",
+      "text": "Stand gesichert: {{where}}„{{subject}}“ ({{files}})."
+    },
+    "noGitForCommit": "Git ist nicht installiert."
+  },
+  "commitDialog": {
+    "title": "Stand sichern?",
+    "description": "Legt einen Commit mit allen Änderungen im lokalen Repository an (git add -A, git commit). Nichts wird hochgeladen.",
+    "phase": {
+      "templates": "Vorlagen prüfen …",
+      "add": "Dateien aufnehmen …",
+      "commit": "Commit …"
+    },
+    "gitNotInstalled": "Git ist nicht installiert",
+    "checkingChanges": "Änderungen werden geprüft …",
+    "failed": "Der Commit ist gescheitert.",
+    "save": "Sichern",
+    "beforeSaving": "Vor dem Sichern",
+    "subject": "Betreff",
+    "note": "Notiz",
+    "noteHint": "Optional; steht im Commit unter dem Betreff."
+  },
+  "gitInitDialog": {
+    "title": "Git einrichten?",
+    "legalNote": "Dein Projekt enthält Daten aus dem Spiel. Lade es nicht öffentlich hoch; zum Teilen gibt es den Patch (Technik › Veröffentlichen).",
+    "description": "Legt in diesem Projektordner ein lokales Git-Repository an: .gitignore und .gitattributes, dann einen ersten Commit „Ausgangsstand“. Gen4 Studio richtet kein Remote ein und lädt nichts hoch.",
+    "ignored": {
+      "dspre": "Ignoriert: ROMs, Patches, build/, Spielstände und die Archive, die der Build packt",
+      "textProject": "Ignoriert: ROMs, Patches, build/, Spielstände und die Spieldateien (sie entstehen aus der Basis-ROM)"
+    },
+    "phase": {
+      "unpack": "Archive auspacken …",
+      "templates": "Vorlagen schreiben …",
+      "init": "Repository anlegen …",
+      "add": "Dateien aufnehmen … (bei DSPRE-Ordnern rund 10 s)",
+      "commit": "Erster Commit …"
+    },
+    "gitMissingTemplatesOnly": "Git ist nicht installiert: nur die Vorlagen werden geschrieben",
+    "templateExists": "{{file}} vorhanden: der Block von Gen4 Studio kommt dazu",
+    "failed": "Der erste Commit ist gescheitert.",
+    "writeTemplates": "Vorlagen schreiben",
+    "setUp": "Einrichten",
+    "beforeSetUp": "Vor dem Einrichten"
+  },
+  "restoreDialog": {
+    "pickTitle": "Basis-ROM wählen",
+    "pickFilter": "DS-ROM",
+    "progress": {
+      "extract": "Basis-ROM auspacken …",
+      "merge": "Spieldateien einsetzen …",
+      "import": "Textprojekt einspielen …",
+      "importCount": "Textprojekt einspielen … {{done}} von {{total}}",
+      "sync": "Abgleich vorbereiten …"
+    },
+    "restored": "Textprojekt vervollständigt in {{seconds}}\u00a0s.",
+    "title": "Textprojekt vervollständigen?",
+    "description": "{{message}} Gen4 Studio legt die Spieldateien aus deiner Basis-ROM an; deine Dateien bleiben, wie sie sind.",
+    "complete": "Vervollständigen",
+    "chooseBase": "Basis-ROM wählen…"
+  }
+}

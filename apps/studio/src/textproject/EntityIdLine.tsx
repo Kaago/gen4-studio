@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { t } from "../i18n";
 import { IconButton } from "../ui/primitives";
 import { toast } from "../ui/frame/toasts";
 import styles from "./EntityIdLine.module.css";
@@ -6,23 +8,24 @@ import styles from "./EntityIdLine.module.css";
 function copy(id: string) {
   const clipboard = navigator.clipboard as Clipboard | undefined;
   if (clipboard === undefined) {
-    toast.error("Die Zwischenablage ist hier nicht verfügbar. Markiere die ID und kopiere sie selbst.");
+    toast.error(t("textproject:entityIdLine.noClipboard"));
     return;
   }
   clipboard.writeText(id).then(
-    () => toast.info(`ID kopiert: ${id}`),
-    () => toast.error("Die ID ließ sich nicht kopieren. Markiere sie und kopiere sie selbst."),
+    () => toast.info(t("textproject:entityIdLine.copied", { id })),
+    () => toast.error(t("textproject:entityIdLine.copyFailed")),
   );
 }
 
 /** The quiet id line of a head in a text project: the entity's id in mono, and a small button that copies it. */
 export function EntityIdLine({ id }: { id: string }) {
+  const { t } = useTranslation("textproject");
   return (
     <span className={styles.line}>
       <code className={styles.id} data-entity-id="">
         {id}
       </code>
-      <IconButton label="ID kopieren" icon="copy" onClick={() => copy(id)} />
+      <IconButton label={t("entityIdLine.copy")} icon="copy" onClick={() => copy(id)} />
     </span>
   );
 }

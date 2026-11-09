@@ -5,6 +5,72 @@
     "refsCount_one": "{{count}} reference",
     "refsCount_other": "{{count}} references",
     "moreCount_one": "and {{count}} more",
-    "moreCount_other": "and {{count}} more"
+    "moreCount_other": "and {{count}} more",
+    "renamed": "ID renamed: {{old}} → {{new}}. ⌘Z takes it back.",
+    "title": "Rename ID",
+    "cancel": "Cancel",
+    "rename": "Rename",
+    "newId": "New ID",
+    "searching": "Looking for references …",
+    "sentence": "{{refs}} in {{files}} will be updated.",
+    "renaming": "Renaming …"
+  },
+  "adoptDialog": {
+    "reopen": "The files are converted, but the open session was changed in the meantime and stays as it is; please reopen the project.",
+    "unsaved_one": "Save first: {{count}} unsaved change.",
+    "unsaved_other": "Save first: {{count}} unsaved changes.",
+    "progress": {
+      "scripts": "Adopting scripts …",
+      "scriptsCount": "Adopting scripts … {{done}} of {{total}}",
+      "baseLayer": "Creating the base layer …",
+      "entities": "Writing entries …",
+      "entitiesCount": "Writing entries … {{done}} of {{total}} kinds",
+      "sync": "Preparing the sync …"
+    },
+    "done_one": "Text project set up: {{count, number}}\u00a0file in {{seconds}}\u00a0s.",
+    "done_other": "Text project set up: {{count, number}}\u00a0files in {{seconds}}\u00a0s.",
+    "allSaved": "Everything saved",
+    "baseFound": "Base ROM found: {{label}}",
+    "baseSearching": "Looking for the base ROM …",
+    "scriptsAdopted": "Scripts adopted",
+    "scriptsAdoptedAlong": "Scripts are adopted along the way",
+    "close": "Close",
+    "cancel": "Cancel",
+    "setUp": "Set up",
+    "title": "Set up as text project?",
+    "description": "Writes g4-project.json and about 6,500 files under data/. The game files stay as they are; you can revert in Technical › Text project.",
+    "beforeSetUp": "Before setting up",
+    "settingUp": "Setting up …"
+  },
+  "entityIdLine": {
+    "noClipboard": "The clipboard is not available here. Select the ID and copy it yourself.",
+    "copied": "ID copied: {{id}}",
+    "copyFailed": "The ID could not be copied. Select it and copy it yourself.",
+    "copy": "Copy ID"
+  },
+  "migrateDialog": {
+    "lifted": "Text project upgraded: schema version {{from}} → {{to}}.",
+    "title": "Upgrade the text project?",
+    "description": "This text project has schema version {{schema}}; this version of Gen4 Studio writes version {{current}}. Upgrading first backs up the changed files to .g4/backup/.",
+    "cancel": "Cancel",
+    "lift": "Upgrade"
+  },
+  "renameEntry": {
+    "label": "Rename ID…"
+  },
+  "revertDialog": {
+    "reverted": "Text project reverted. Backup: {{backup}}",
+    "revertedWithNote": "Text project reverted. Backup: {{backup}}.{{note}}",
+    "title": "Revert the text project?",
+    "description": "Afterwards Studio works with the DSPRE files directly again. g4-project.json and data/ move to .g4/backup/; the game files stay as they are.",
+    "cancel": "Cancel",
+    "revert": "Revert",
+    "saveFirst": "Save first."
+  },
+  "textProjectHint": {
+    "noDp": "No text project for Diamond/Pearl in phase 4.",
+    "lead": "This project can be set up as a text project: one readable file per entry, ready for Git.",
+    "opensFolder": "DSPRE keeps opening the folder.",
+    "needsBase": "It needs the base ROM for that."
   }
 }
