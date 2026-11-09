@@ -1,3 +1,5 @@
+*English: [docs/en/release.md](en/release.md)*
+
 # Release: macOS-DMG und Windows-Installer
 
 Gen4 Studio erscheint als DMG für macOS (arm64) und als NSIS-Installer für Windows (x64). Beide Pakete entstehen aus den
@@ -65,8 +67,9 @@ der Entitlement `com.apple.security.cs.disable-library-validation` oder einer mi
 Binary die Linker-Signatur; ein heruntergeladenes DMG galt dann als „beschädigt“ statt „nicht verifiziert“ (Gate G5, Befund B1).
 Beim ersten Start verlangt Gatekeeper deshalb eine Freigabe:
 
-- Rechtsklick auf die App, dann Öffnen (und im Dialog noch einmal Öffnen); oder Systemeinstellungen, Datenschutz & Sicherheit,
-  Trotzdem öffnen.
+- Systemeinstellungen, Datenschutz & Sicherheit: nach dem ersten blockierten Start die Meldung zu Gen4 Studio suchen und
+  „Trotzdem öffnen“ wählen.
+- Unter macOS 14 und älter geht auch Rechtsklick auf die App, dann Öffnen (und im Dialog noch einmal Öffnen).
 - Oder im Terminal: `xattr -dr com.apple.quarantine "/Applications/Gen4 Studio.app"`.
 
 Nur die Architektur des Build-Rechners (`aarch64-apple-darwin`); ein Universal-Binary ist nicht vorgesehen. Mindestsystem

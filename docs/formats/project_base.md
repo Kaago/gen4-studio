@@ -1,5 +1,12 @@
 # Basismarke `.g4/base.json`
 
+**In English:** Documents `.g4/base.json`, the base mark: a file in the tool folder of a project
+that names the project's base ROM. The kernel writes it when it creates a project from an `.nds`
+file and when a base ROM is assigned to a DSPRE-compatible project folder. The document describes
+the four states of the mark (missing, unreadable, newer, present), its fields and how the CRCs of
+the ROM header are restored when a ROM is rebuilt. This is about Gen4 Studio itself, not a game
+format. The code is `crates/g4-kernel/src/start.rs`.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Die Datei `.g4/base.json` im
 Werkzeugordner eines Projekts nennt seine Basis-ROM. Der Kernel schreibt sie, wenn er ein Projekt aus
 einer `.nds`-Datei anlegt (`g4_kernel::start::create_project`, `g4k create`, `origin: "extracted"`),

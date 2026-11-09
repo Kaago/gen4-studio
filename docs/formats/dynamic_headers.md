@@ -1,5 +1,14 @@
 # Dynamic Headers (ARM9-Patch)
 
+**In English:** Documents the "Dynamic headers" patch to `arm9.bin`. Without it the map header table
+(24 bytes per header) is fixed inside the ARM9 binary; with it, a small routine loads each header as
+a member of an NARC, so that new headers are simply new members. The document lists the patch data
+and file offsets and the NARC that holds the headers, per game family (Platinum and
+HeartGold/SoulSilver); these are facts about the game binaries, written down in our own words. The
+data is in `crates/g4-kernel/metadata/dynamic_headers.yaml` and the code in
+`crates/g4-kernel/src/dynamic_headers.rs`. All offsets refer to the decompressed `arm9/arm9.bin`,
+and values are little endian.
+
 Quelle: DSPRE `DS_Map/Resources/ROMToolboxDB/ToolboxDB.cs` (`DynamicHeadersPatchData`,
 Z. 272-390) und `DS_Map/PatchToolboxDialog.cs` (`dynamicHeadersButton_Click`,
 Z. 1210-1345). Es sind Tatsachen über die Spielbinaries (Offsets, Maschinencode), keine

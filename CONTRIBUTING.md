@@ -17,7 +17,7 @@ Do not attach a ROM, a save game, or any file derived from one (extracted game f
 
 ## Set up
 
-The setup is described in [docs/dev-setup.md](docs/dev-setup.md) (currently in German). In short, you need:
+The setup is described in [docs/en/dev-setup.md](docs/en/dev-setup.md); the German version is [docs/dev-setup.md](docs/dev-setup.md). In short, you need:
 
 - Rust: the toolchain of `rust-toolchain.toml` (install it with `rustup toolchain install`).
 - Node and pnpm for the app in `apps/studio` (`cd apps/studio && pnpm install`).
@@ -59,7 +59,7 @@ Common types: `feat`, `fix`, `docs`, `test`, `refactor`, `build`, `ci`, `chore`.
 ## Language
 
 - Code comments, commit messages, issues and new documentation are in English.
-- Every user-facing string goes into both `de` and `en` catalogs, on the frontend and in Rust. English is the default and the fallback; German is complete. Never add a literal user-facing string to the code.
+- Every user-facing string goes into both the `de` and the `en` catalog. On the frontend the catalogs are `apps/studio/src/i18n/locales/{de,en}/<namespace>.json`; in Rust they are `crates/g4-kernel/locales/{en,de}.yml` and `apps/studio/src-tauri/locales/{en,de}.yml`. English is the default and the fallback; German is complete. Never add a literal user-facing string to the code.
 - Codes are identifiers, not text, and are not translated: `CmdError.code`, check codes, MCP tool names, `schemaVersion`.
 
 ## Code and dependencies

@@ -1,6 +1,6 @@
 # Gen4 Studio: Roadmap
 
-Stand: 2026-11-05. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
+Stand: 2026-11-09. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
 
 Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phase beginnt, bevor das Gate der vorherigen bestanden ist. Zeitangaben sind bewusst weggelassen; die Reihenfolge und die Gates sind die Zusage.
 
@@ -78,7 +78,7 @@ Offene Reste von Phase 2, erledigt in Phase 3b.1 (siehe dort):
 - Neue Header per Patch (erledigt: DSPRE-kompatibel über „Dynamic Headers“, angeboten im Assistenten).
 - Kachelverhalten-Namen je Spielfamilie (erledigt: HGSS-Satz aus pokeheartgold).
 - apicula mit Timeout aufrufen und von `spawn_blocking` ausführen (erledigt).
-- Gated Vanilla-Tests statt CI (erledigt: `scripts/gate.sh`; das private Remote auf GitHub hat keine automatische CI, siehe Querschnitt).
+- Gated Vanilla-Tests statt CI (erledigt: `scripts/gate.sh`; die CI `ci.yml` fährt die hermetischen Schritte bei jedem Pull Request und jedem Push auf `main`, siehe Querschnitt).
 - Modell-Cache-Schlüssel um die apicula-Version erweitern, damit auch `.fail`-Marker bei einem apicula-Update ungültig werden (erledigt).
 
 ## Phase 3a: Welt-Explorer, Assistenten, Weltkarte
@@ -434,10 +434,22 @@ Aus Phase 3b.3 (Spec 3b.3 §1, „Später“; die Tabelle gilt wörtlich, damit 
 
 Stand nach 3b.3a: Plan-Task 0 hat die Paletten-Tabelle bestätigt, die Pokémon-Menüsymbole kamen mit 3b.3a (Pokédex-Liste, Auswahl der Arten).
 
+## Nach 1.0.0
+
+Das Release 1.0.0 (Open Source unter MIT, in Englisch und Deutsch bedienbar) hat einen bewusst engen Umfang; was danach kommt, steht in der Spezifikation [docs/superpowers/specs/2026-11-09-open-source-release-v1-design.md](superpowers/specs/2026-11-09-open-source-release-v1-design.md) (Abschnitt 2, „Nicht in diesem Vorhaben“) und hier:
+
+- **Landingpage `gen4studio.dev`:** Die Domain hat keine NS-Einträge (vermutlich frei); bis eine Landingpage steht, ist die Homepage des Repositories das README.
+- **Linux-Build:** Linux ist heute Best-Effort und nicht Teil der Builds; ein Linux-Paket kommt später.
+- **Developer ID und Notarisierung:** Das macOS-DMG ist ad-hoc signiert und nicht notarisiert (Gatekeeper fragt beim ersten Start, siehe `docs/release.md`); die Schritte für die Developer-ID-Signatur und die Notarisierung sind vorbereitet (`scripts/release-local.sh`, `sign_notarize`). Dazu gehören ein Signaturzertifikat für Windows und Auto-Update.
+- **`docs/formats` auf Englisch:** Die 40 Format-Dokumente sind deutsch mit einem englischen Kopfabsatz; die vollständige englische Fassung folgt.
+- **Git LFS für die `.fig`:** `design-system/Editor_DesignSystem.fig` ist eine Binärdatei von rund 6 MB und wächst mit jedem Nachtrag; jede Fassung bleibt dauerhaft im Verlauf, Git LFS hält ihn klein.
+- **Galerie und OpenPencil-Datei auf Englisch:** Die Seiten der Galerie (`apps/studio/src/ui/gallery`, ein Entwicklungswerkzeug) und die OpenPencil-Datei (`.fig`) sind deutsch.
+- **Vollständige englische Übersetzung aller Docs (Ziel von 1.1):** Neben `docs/en/` (MCP, Entwicklungs-Setup, Release) betrifft das `docs/formats`, die Gate-Dokumente, Pläne und Spezifikationen sowie die Research-Berichte; die Entwicklungsgeschichte bleibt als Arbeitsprotokoll erhalten.
+
 ## Querschnitt (laufend ab Phase 1)
 
-- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, die Token-Prüfung (`scripts/check-tokens.sh`), die Stilprüfung (`scripts/check-styles.sh`: keine Hex-Farben, keine Primitive, keine Inline-Styles), `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt ein privates Remote auf GitHub, aber keine automatische CI mehr (Grund: Kosten der gehosteten Minuten): vor einem Merge läuft `scripts/gate.sh` voll lokal, das ist die Prüfung; `.github/workflows/ci.yml` fährt die hermetischen Schritte (`G4_GATE_HERMETIC=1`) nur, wenn man es von Hand startet. Linux ist Best-Effort und nicht Teil der Builds.
-- Releases: Tauri-Bundles (DMG, NSIS-Installer), ad-hoc signiert; Developer ID und Auto-Update später. Ohne automatische CI (Kosten): das DMG, den Tag und den Release-Entwurf macht `scripts/release-local.sh` auf dem Mac, den Windows-Installer `release.yml` von Hand (`gh workflow run release.yml -f tag=… -f dry_run=false`, siehe `docs/release.md`).
+- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, die Token-Prüfung (`scripts/check-tokens.sh`), die Stilprüfung (`scripts/check-styles.sh`: keine Hex-Farben, keine Primitive, keine Inline-Styles), `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). `.github/workflows/ci.yml` fährt die hermetischen Schritte (`G4_GATE_HERMETIC=1`) bei jedem Pull Request gegen `main` und bei jedem Push auf `main` (für öffentliche Repositories sind die Standard-Runner von GitHub Actions kostenlos); vor einem Merge läuft zusätzlich `scripts/gate.sh` voll lokal mit den ROM-gebundenen Schritten, das ist die Abnahme; `gate-windows` startet man von Hand. Linux ist Best-Effort und nicht Teil der Builds.
+- Releases: Tauri-Bundles (DMG, NSIS-Installer), ad-hoc signiert; Developer ID und Auto-Update später. Das DMG, den Tag und den Release-Entwurf macht `scripts/release-local.sh` auf dem Mac, den Windows-Installer `release.yml` von Hand (`gh workflow run release.yml -f tag=… -f dry_run=false`, siehe `docs/release.md`); ein Tag startet keinen Workflow.
 - Release und CI: **Stand 2026-11-05:** Gate vom Agenten bestanden, auf main gemergt (`ebf44628`, `933cf092`, `09cb649a`, `1a7c112c` ohne automatische CI); Entwurf `v0.1.0-rc.2` mit DMG und Installer; Hand beim Nutzer offen (frisches macOS-Konto, Windows-PC, Entwürfe `rc.1` und `rc.2`), [docs/release-ci-gate.md](release-ci-gate.md).
 - Dokumentation: `docs/formats/` für jedes Format mit Byte-Layout und Quelle der Information.
 - Lizenz-Audit bei jeder neuen Abhängigkeit (`cargo deny`).

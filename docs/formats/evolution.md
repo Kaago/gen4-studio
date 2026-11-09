@@ -1,5 +1,12 @@
 # Entwicklungen (`evolutions/NNNN`)
 
+**In English:** Documents the evolution file of one species (`evolutions/NNNN`), a member of exactly
+44 bytes. It holds seven entries of 6 bytes each (method, parameter and target species), followed by
+2 bytes of padding. What the parameter means depends on the method, and the document lists this for
+the vanilla data and states the limits of the codec. The layout was checked on Platinum DE (member
+397, Staravia, level 34 to Staraptor). The code is `crates/g4-formats/src/data/evolution.rs`; all
+values are little endian.
+
 Quelle: DSPRE `ROMFiles/EvolutionFile.cs`; Recherche
 `docs/research/2026-10-23-3b3/dspre-report.md` §1.4 „Evolutionen“. Die Werte sind
 an Platin DE Member 0397 (Staravia, Stufe 34 zu Staraptor) geprüft.

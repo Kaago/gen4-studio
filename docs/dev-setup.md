@@ -1,3 +1,5 @@
+*English: [docs/en/dev-setup.md](en/dev-setup.md)*
+
 # Entwicklungs-Setup
 
 ## apicula (NSBMD zu GLB)

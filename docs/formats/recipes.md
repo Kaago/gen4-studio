@@ -1,5 +1,14 @@
 # Rezepte (`recipes.yaml`, `metadata/recipes/`)
 
+**In English:** Documents recipes: tasks in the words of the game, such as "Create area", "Create
+room", "New character", "Connect doors", "New trainer here" and "Paint a new map"; this is about
+Gen4 Studio itself. A recipe is first planned (a draft with cells, tiles, events and messages,
+nothing written) and then applied as one undo step, with new members that cannot be undone created
+first. The document covers this frame, the individual recipes and their inputs. The code is
+`crates/g4-kernel/src/recipes.rs` with one module per recipe under `crates/g4-kernel/src/recipes/`;
+defaults are in `crates/g4-kernel/metadata/recipes.yaml` and scripts in
+`crates/g4-kernel/metadata/recipes/`.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Rezepte sind Aufgaben in den Worten
 des Spiels („Gebiet anlegen“, „Raum anlegen“, „Neue Figur“, „Tür verbinden“, „Neuer Trainer hier“, „Neue Karte malen“ …). Implementierung:
 `crates/g4-kernel/src/recipes.rs` (Verteiler `plan`, `apply`, `list`, `is_irreversible`), je Rezept ein

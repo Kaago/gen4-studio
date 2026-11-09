@@ -1,5 +1,14 @@
 # Weltvorlagen (`templates.yaml`, `metadata/templates/`)
 
+**In English:** Documents world templates, recipes that rebuild a vanilla world; this is about Gen4
+Studio itself. There is one today, "Empty region with a start town" (`empty_region`), which turns
+the vanilla region into an empty one around a start town and adds a start script. The document
+describes the recipe file, its fields per game family, the preconditions and the start script;
+Diamond/Pearl is refused. The code is `crates/g4-kernel/src/templates.rs` and
+`crates/g4-kernel/src/recipes/empty_region.rs`, with the recipe in
+`crates/g4-kernel/metadata/templates.yaml` and the start scripts in
+`crates/g4-kernel/metadata/templates/`.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Weltvorlagen sind Rezepte, die eine
 Vanilla-Welt umbauen. Heute gibt es eine, die **Leere Region mit Startstadt** (`empty_region`).
 Implementierung: `crates/g4-kernel/src/templates.rs` (`region_recipe`, `plan_empty_region`,

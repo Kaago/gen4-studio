@@ -1,5 +1,13 @@
 # Begegnungen (`encounters/NNNN`)
 
+**In English:** Documents the wild encounter files (`encounters/NNNN`): per area, the encounter
+rates and the species and levels of each slot for grass, surfing, rock smash and the rods, plus the
+special slots the games add (time of day in HeartGold/SoulSilver, replacement lists such as swarms
+in Platinum). Platinum DE has 183 members of 424 bytes, HeartGold DE and US have 142 members of 196
+bytes each. Diamond and Pearl are read with the Platinum layout, which could not be checked against
+data. The layouts follow the pret decompilations and were checked on the three vanilla projects; the
+code is `crates/g4-formats/src/data/encounter.rs`. All values are little endian.
+
 Quelle: pret `pokeplatinum` (`WildEncounters`), pret `pokeheartgold`
 (`EncounterData`), DSPRE `ROMFiles/EncounterFile.cs`; Recherche
 `docs/research/2026-10-23-3b3/dspre-report.md` §1.1 (Platin) und §1.2

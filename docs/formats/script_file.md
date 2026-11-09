@@ -1,5 +1,12 @@
 # Scriptdateien (`scr_seq`) und Level-Scripts
 
+**In English:** Documents the script archive (`scr_seq`) and its members: script files (bytecode
+with a jump table), level scripts (the init script of a map, without bytecode) and shared scripts.
+It explains script numbers, the shared scripts, and how the dialog of a character is found from its
+script. The archive is `files/fielddata/script/scr_seq.narc` in Platinum and `files/a/0/1/2` in
+HeartGold/SoulSilver. The format knowledge comes from rotom v0.7.0 and uxie 0.9.7. The code is
+`crates/g4-kernel/src/scripts.rs`; all numbers are little endian.
+
 Quelle: rotom v0.7.0 (`src/compiler/codegen.rs` `emit_script_file`, `src/decompiler/disassembler.rs`
 `detect_script_type`, `parse_jump_table`, `src/decompiler/levelscript.rs` `LevelScript::from_bytes`,
 `to_bytes`) und uxie 0.9.7 (`src/script_file/global_script_table.rs`, `script_resolution.rs`).

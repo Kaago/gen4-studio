@@ -1,5 +1,12 @@
 # Trainer: Eigenschaften und Party (`trainerProperties/NNNN`, `trainerParty/NNNN`)
 
+**In English:** Documents the trainer files: the properties (`trainerProperties/NNNN`, 20 bytes with
+flags for own moves and held items, the class, the party size, items, AI flags and the battle type)
+and the party (`trainerParty/NNNN`) in its four formats with or without own moves and items. All 928
+(Platinum) and 738 (HeartGold/SoulSilver) trainers read and write back byte-identically. The layouts
+follow the pret decompilations and were checked on Platinum DE and both HeartGold projects. The
+codec is `crates/g4-formats/src/data/trainer.rs`; all values are little endian.
+
 Quelle: DSPRE `ROMFiles/TrainerFile.cs`, pret `pokeplatinum`
 `include/struct_defs/trainer_data.h`, pret `pokeheartgold`
 `include/trainer_data.h`; Recherche

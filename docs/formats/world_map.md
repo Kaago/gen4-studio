@@ -1,5 +1,14 @@
 # Welt-Karte (Weltdokument einer Karte, Phasen 6.3a, 6.3b, 6.4a, 6.5b und 6.4b)
 
+**In English:** Documents the world document of a map in a text project: the object `world` in
+`data/maps/NNNN.json` with `source: "world"`; this is about Gen4 Studio itself. It describes the
+ground as a grid of tiles of a map texture pack, with heights, ramps, overlays, partial models,
+freeform models and permissions, as text that Git can compare line by line. From it Gen4 Studio
+bakes the NSBMD model, the BDHC terrain and the permissions into the map member. The document covers
+the grammar, meshing, baking, adopting an existing map as a source and the checks (phases 6.3a to
+6.5b). The code is in `crates/g4-kernel/src/world/`, and the tiles refer to the tileset described in
+`tileset.md`.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Eine Karte des Textprojekts kann
 statt nur ihrer Binärteile ein **Weltdokument** tragen, das Objekt `world` in
 `data/maps/NNNN.json` mit `source: "world"`. Es beschreibt den Boden als Raster aus Kacheln eines

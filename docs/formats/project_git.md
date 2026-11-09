@@ -1,5 +1,13 @@
 # Projekt in Git: `.gitignore` und `.gitattributes`
 
+**In English:** Documents the `.gitignore` and `.gitattributes` that Gen4 Studio writes into a
+project so that it can live in a local Git repository; this is about Gen4 Studio itself, not a game
+format. There are templates per layout (DSPRE-compatible folder or text project), kept as metadata
+in the kernel and merged into existing files as a delimited block. The document lists what is
+ignored, how line endings are handled and what `g4k git templates` prints. The code is
+`crates/g4-kernel/src/git/templates.rs`; the reasoning and measurements are in an expert report
+under `docs/research/2026-10-27-phase-4/`.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Ein Projekt (DSPRE-Ordner oder
 Textprojekt) lässt sich als lokales Git-Repository führen. Der Kernel schreibt dafür eine
 `.gitignore` und eine `.gitattributes` in die Projektwurzel, aus Vorlagen je Layout. Die Vorlagen

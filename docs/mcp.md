@@ -1,3 +1,5 @@
+*English: [docs/en/mcp.md](en/mcp.md)*
+
 # Gen4 Studio für Coding-Agenten (MCP)
 
 Gen4 Studio spricht das Model Context Protocol (MCP): Ein Coding-Agent wie Claude Code kann ein Projekt über dieselben Befehle lesen und bearbeiten, die auch die Oberfläche benutzt. Der Agent sieht rund 40 kuratierte Werkzeuge mit englischen Namen und Schemas („Tools“), einige Ressourcen und drei Beispiele („Prompts“). Alles läuft lokal: kopflos über stdio, in der laufenden App über HTTP nur auf `127.0.0.1`.

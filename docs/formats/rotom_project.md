@@ -1,5 +1,13 @@
 # rotom-Projekt (`rotom.toml`, `.rotom/`)
 
+**In English:** Documents the rotom project layout that Gen4 Studio reads and writes so that scripts
+can be compiled: `rotom.toml`, the command database and the compile state under `.rotom/`, and the
+script sources under `expanded/scripts/`. It follows rotom v0.7.0, the script compiler and
+decompiler that Gen4 Studio uses, and the same layout that `rotom init` creates, so that several
+tools can work on one project. The document covers adopting scripts, the configuration, the command
+database, `compile-state.json` and the text archives. The code is `crates/g4-kernel/src/scripts.rs`
+and `crates/g4-kernel/src/scripts/project_compile.rs`.
+
 Quelle: rotom v0.7.0 (`src/project/config.rs`, `src/project/compile.rs`, `src/compile_state.rs`,
 `src/project/init.rs`). Das Studio liest und schreibt dasselbe Layout wie `rotom init` und DSPRE,
 damit beide Werkzeuge dasselbe Projekt benutzen können. Die Implementierung steht in

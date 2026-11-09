@@ -1,5 +1,12 @@
 # Geschichten
 
+**In English:** Documents how Gen4 Studio stores a story in a text project; this is about Gen4
+Studio itself, not a game format. A story assigns what the game already has (scripts, objects,
+trainers, flags, variables) to the steps of a thread: it owns one progress variable (or flag), and
+each step stands for one value of it. The build creates nothing from a story, so the ROM stays
+byte-identical. The code is `crates/g4-kernel/src/stories.rs` with `stories/schema.rs` and
+`stories/entities.rs`; stories are the third data kind of the text project.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: wie das Studio eine Geschichte im
 Textprojekt ablegt. Eine Geschichte ordnet, was das Spiel schon hat (Scripts, Objekte, Trainer,
 Flags, Variablen), zu den Schritten eines Fadens; sie belegt **eine** Fortschrittsvariable (oder

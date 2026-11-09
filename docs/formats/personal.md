@@ -1,5 +1,12 @@
 # Personal (`personalPokeData/NNNN`)
 
+**In English:** Documents the personal data file of a species (`personalPokeData/NNNN`): one member
+of exactly 44 bytes with the base stats, types, catch rate, base experience, EV yield, held items,
+gender ratio, egg data, abilities and the TM/HM compatibility bits. The document explains how the EV
+yield and the TM/HM bits are packed and what limits the codec has. The values were checked on
+Platinum DE (member 397, Staravia). The codec is `crates/g4-formats/src/data/personal.rs`; all
+values are little endian.
+
 Quelle: DSPRE `ROMFiles/PokemonPersonalData.cs`, pret `pokeplatinum`
 `include/struct_defs/species.h` (`SpeciesData`); Recherche
 `docs/research/2026-10-23-3b3/dspre-report.md` §1.4. Die Werte sind an Platin DE

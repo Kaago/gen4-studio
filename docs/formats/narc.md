@@ -1,5 +1,11 @@
 # NARC (Nitro Archive)
 
+**In English:** Documents the NARC (Nitro Archive), the container the games use for most of their
+data: one file holding numbered members. The document gives the byte layout of the 16-byte header
+and of the BTAF (allocation table), BTNF (name table) and GMIF (file image) blocks. The sources are
+the public GBATEK description of the NDS file formats. The code is `crates/g4-formats/src/narc.rs`;
+all values are little endian.
+
 Quelle: gbatek (NDS File Formats, "NARC") und DSPRE `Narc.cs` (Zeilen 87 bis 129).
 Implementierung: `crates/g4-formats/src/narc.rs`. Alle Werte Little Endian.
 

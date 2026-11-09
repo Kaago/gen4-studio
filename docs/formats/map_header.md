@@ -1,5 +1,14 @@
 # Karten-Header und Ortsnamen
 
+**In English:** Documents the map header, a 24-byte entry of the header table that ties together the
+matrix, script file, text archive, music, encounters, event file and place name of an area or room.
+The document gives the layouts for Diamond/Pearl, Platinum and HeartGold/SoulSilver and the vanilla
+counts (593 headers in Platinum, 540 in HeartGold/SoulSilver, equal to the number of 16-byte names
+in `mapname.bin`). Where the table lives, fixed in `arm9.bin` or as files with the dynamic headers
+patch, is described in `dynamic_headers.md`. The layout follows uxie 0.9.7; on the Studio side,
+places are in `crates/g4-kernel/src/places.rs` and the checks in
+`crates/g4-kernel/src/checks/world.rs`. All values are little endian.
+
 Quelle: Das Layout folgt uxie 0.9.7 (`map_header/binary.rs`, `map_header/types.rs`:
 `MapHeaderDP`, `MapHeaderPt`, `MapHeaderHGSS`); Zahlen und Werte zu den Vanilla-Daten stammen
 aus dem Gutachten A (`docs/research/2026-10-25-ausbau/gutachten-a-weltmodell.md`, §1 und §3

@@ -1,5 +1,13 @@
 # Kampf-Scriptdatei der Trainer (Platin `1114`, HGSS `0953`)
 
+**In English:** Documents the battle script file that all trainers of a game share (script file 1114
+in Platinum, 953 in HeartGold/SoulSilver). The script of a trainer is not a file of its own but a
+number in this file: script `3000 + ID - 1` starts the battle against trainer `ID`. The document
+gives the binary layout (a jump table ended by `0xFD13`) and how Gen4 Studio extends the file when
+it creates a trainer. The general script file format is in `script_file.md`. The code is
+`crates/g4-kernel/src/scripts.rs` and `crates/g4-kernel/src/data/trainer_create.rs`, with metadata
+in `crates/g4-kernel/metadata/trainer_scripts.yaml`; all values are little endian.
+
 Quelle: Spike [docs/research/2026-10-23-3b3/trainer-script-extension-3b3b.md](../research/2026-10-23-3b3/trainer-script-extension-3b3b.md)
 §1 und §2 (pret `pokeplatinum` `be36a9db`, `pokeheartgold` `6988158`; gemessen auf Platin DE und HeartGold DE mit
 `g4emu`), dazu [trainer-mechanics-3b3b.md](../research/2026-10-23-3b3/trainer-mechanics-3b3b.md) §1 und §4.
