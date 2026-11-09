@@ -1,13 +1,15 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, nameFlag } from "../api";
 import type { FlagKind, NameReport } from "../api";
+import { t as translate } from "../i18n";
 import { Dialog, Notice, TextField } from "../ui/primitives";
 import styles from "./FlagsSurface.module.css";
 
 /** The message after the dialog: a new own name is one step in the history; a description is saved. */
 export function namedText(report: NameReport): string {
-  return report.created ? `${report.id} benannt (ein Schritt im Verlauf).` : "Beschreibung gespeichert.";
+  return report.created ? translate("flags:nameDialog.named", { id: report.id }) : translate("flags:nameDialog.described");
 }
 
 export type NameFlagDialogProps = {
@@ -28,6 +30,7 @@ export type NameFlagDialogProps = {
  * (the id's form, an id taken, the DSPRE layout) stands under the field and the dialog stays.
  */
 export function NameFlagDialog({ kind, number, name, current, onClose, onDone }: NameFlagDialogProps) {
+  const { t } = useTranslation("flags");
   const naming = current.id === null;
   const [id, setId] = useState(kind === "flag" ? "FLAG_" : "VAR_");
   const [description, setDescription] = useState(current.description ?? "");
@@ -62,8 +65,8 @@ export function NameFlagDialog({ kind, number, name, current, onClose, onDone }:
     void submit();
   };
 
-  const title = !naming ? "Beschreibung" : kind === "flag" ? "Als eigenes Flag benennen" : "Als eigene Variable benennen";
-  const hint = name === null ? "A–Z, 0–9 und _." : `A–Z, 0–9 und _; der pret-Name ${name} bleibt gültig.`;
+  const title = !naming ? t("nameDialog.titleDescribe") : kind === "flag" ? t("nameDialog.titleFlag") : t("nameDialog.titleVar");
+  const hint = name === null ? t("nameDialog.hint") : t("nameDialog.hintWithPret", { name });
   return (
     <Dialog
       open
@@ -74,18 +77,18 @@ export function NameFlagDialog({ kind, number, name, current, onClose, onDone }:
       title={title}
       data={{ "data-name-flag-dialog": "" }}
       actions={[
-        { label: "Abbrechen", onClick: onClose, disabled: running },
-        { label: naming ? "Benennen" : "Speichern", kind: "primary", onClick: () => void submit(), disabled: running || (naming && id.trim() === "") },
+        { label: t("nameDialog.cancel"), onClick: onClose, disabled: running },
+        { label: naming ? t("nameDialog.name") : t("nameDialog.save"), kind: "primary", onClick: () => void submit(), disabled: running || (naming && id.trim() === "") },
       ]}
     >
       <div className={styles.dialog}>
         {naming && (
           <div onKeyDown={onEnter}>
-            <TextField label="Eigener Name" showLabel value={id} onCommit={setId} onChange={setId} hint={hint} disabled={running} />
+            <TextField label={t("nameDialog.ownName")} showLabel value={id} onCommit={setId} onChange={setId} hint={hint} disabled={running} />
           </div>
         )}
         {naming && refusal !== null && <Notice kind="error">{refusal}</Notice>}
-        <TextField label="Beschreibung" showLabel multiline value={description} onCommit={setDescription} onChange={setDescription} disabled={running} />
+        <TextField label={t("nameDialog.description")} showLabel multiline value={description} onCommit={setDescription} onChange={setDescription} disabled={running} />
         {!naming && refusal !== null && <Notice kind="error">{refusal}</Notice>}
       </div>
     </Dialog>

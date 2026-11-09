@@ -1,1 +1,31 @@
-{}
+{
+  "deleteDialog": {
+    "title": "{{label}} löschen",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "delete": "Löschen",
+    "deleteAndFree": "Löschen und Nummer freigeben",
+    "freeNumber": "Nummer freigeben (nicht rückgängig)",
+    "checking": "Prüfe Verweise …",
+    "deleting": "Lösche …",
+    "alreadyDeleted": "{{label}} ist schon gelöscht.",
+    "originalWarning": "Original aus der Basis-ROM: der Eintrag bleibt im ROM; „Auf Original zurücksetzen“ holt ihn zurück.",
+    "tombstoneKeeps": "Inhalt und Member bleiben; ⌘Z holt den Eintrag zurück.",
+    "notATextProject": "Echtes Löschen gibt es im Textprojekt (Technik › Textprojekt).",
+    "clearHint": "Leeren geht als gewöhnliche Bearbeitung: Eventdatei leeren im Inspector, Begegnungen auf 0.",
+    "referencesLocked_one": "{{count}} Verweis: zuerst umhängen.",
+    "referencesLocked_other": "{{count}} Verweise: zuerst umhängen.",
+    "referencesLabel": "Verweise",
+    "softReferencesLabel": "Weiche Verweise",
+    "removes_one": "Entfernt {{count}} Datei: {{files}}",
+    "removes_other": "Entfernt {{count}} Dateien: {{files}}",
+    "mentionsTitle": "Erwähnt in Geschichten",
+    "mentionsHint": "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen."
+  },
+  "deleteContext": {
+    "restore": "Wiederherstellen"
+  },
+  "showDeleted": {
+    "label": "Gelöschte zeigen"
+  }
+}

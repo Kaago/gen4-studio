@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OriginalStatus, ResetTarget } from "../api";
-import { RESET_LABEL, resetEntry } from "./resetEntry";
+import { resetEntry, resetLabel } from "./resetEntry";
 
 const ready: OriginalStatus = { state: "ready", label: "Platin DE (Testprojekt)", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", counts: { map: 4, text_archive: 10, header: 20 } };
 
@@ -37,6 +37,6 @@ describe("resetEntry", () => {
     expect(entry.label).toBe("Nachricht auf Original zurücksetzen…");
     entry.onSelect();
     expect(open).toHaveBeenCalledWith(target);
-    expect(RESET_LABEL).toBe("Auf Original zurücksetzen…");
+    expect(resetLabel()).toBe("Auf Original zurücksetzen…");
   });
 });

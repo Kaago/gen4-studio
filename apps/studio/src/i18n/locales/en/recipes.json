@@ -1,1 +1,17 @@
-{}
+{
+  "titles": {
+    "createArea": "Create area",
+    "createRoom": "Create room",
+    "extendArea": "Extend area",
+    "emptyRegion": "Empty world",
+    "newFigure": "New character",
+    "connectDoors": "Connect doors",
+    "newTrainerHere": "New Trainer here",
+    "newStory": "New story",
+    "talkAdvances": "Conversation advances",
+    "figureAppears": "Character appears/disappears from step",
+    "sceneOnEnter": "Scene on entering",
+    "rewardOnce": "One-time reward",
+    "newPaintedMap": "Paint new map"
+  }
+}

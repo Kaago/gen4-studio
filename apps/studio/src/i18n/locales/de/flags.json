@@ -1,1 +1,150 @@
-{}
+{
+  "words": {
+    "kind": {
+      "flag": "Flag",
+      "var": "Variable"
+    },
+    "none": "Keins",
+    "noneItem": "Keins (0)",
+    "area": {
+      "mapLocal": "kartenlokal",
+      "general": "allgemein",
+      "hiddenItems": "versteckte Items",
+      "trainer": "Trainer",
+      "system": "System",
+      "daily": "Tagesflags",
+      "temp": "temporär",
+      "objectGfx": "Objektgrafik",
+      "scriptLocal": "Script-lokal",
+      "outside": "außerhalb"
+    },
+    "access": {
+      "read": "prüft",
+      "write": "setzt",
+      "readWrite": "setzt und prüft",
+      "unknown": "unklar"
+    },
+    "usage": {
+      "unused": "unbenutzt",
+      "long": "gesetzt {{write}} · geprüft {{read}}",
+      "longUnclear": "gesetzt {{write}} · geprüft {{read}} · unklar {{unknown}}"
+    },
+    "scriptsNotIndexed": {
+      "flag": "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Flags Scripts benutzen.",
+      "var": "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Variablen Scripts benutzen."
+    },
+    "poolEmpty": {
+      "flag": "Kein freies Flag im allgemeinen Bereich.",
+      "var": "Keine freie Variable im allgemeinen Bereich."
+    },
+    "notATextProject": "Kein Textprojekt: IDs gibt es erst nach „Als Textprojekt einrichten…“.",
+    "namingNeedsTextProject": "{{reason}} (Technik › Textprojekt)",
+    "outsideTheSave": "Liegt außerhalb des Spielstands.",
+    "liveTip": {
+      "var": "Live {{value}} · ändern im Detail",
+      "flagSet": "Live: gesetzt · Klick löscht",
+      "flagClear": "Live: 0 · Klick setzt"
+    }
+  },
+  "flagFilter": {
+    "headerNone": "Ohne Header",
+    "headerUnnamed": "Header {{id}}"
+  },
+  "flagField": {
+    "choose": "Wählen…",
+    "chooseLabel": "{{label}} wählen…"
+  },
+  "flagDetail": {
+    "busy": "Erst Speichern oder Bauen abwarten",
+    "readNotSet": "Gelesen, aber nirgends gesetzt: die Engine oder ein Script über eine Variable setzt es, oder nie.",
+    "mapReload": "Sichtbarkeits-Flags wirken beim nächsten Betreten der Karte.",
+    "notTaken": "Wert nicht übernommen, noch einmal versuchen.",
+    "chooseOne": "Wähle links ein Flag oder eine Variable.",
+    "noDescription": "Keine Beschreibung",
+    "reading": "Wird gelesen …",
+    "rename": "Umbenennen…",
+    "describe": "Beschreibung…",
+    "nameAsFlag": "Als eigenes Flag benennen…",
+    "nameAsVar": "Als eigene Variable benennen…",
+    "live": {
+      "title": "Live",
+      "setInGame": "Im Spiel gesetzt",
+      "valueInGame": "Wert im Spiel",
+      "set": "Setzen"
+    },
+    "uses": {
+      "whereSet": "Wo gesetzt",
+      "whereChecked": "Wo geprüft",
+      "unclear": "Unklar",
+      "neverSet": "Nirgends gesetzt.",
+      "neverChecked": "Nirgends geprüft."
+    }
+  },
+  "flagList": {
+    "liveOff": "Kommt mit „Hier spielen“ in melonDS",
+    "live": "Live",
+    "listFlags": "Flags",
+    "listVars": "Variablen",
+    "empty": "Nichts passt zu Filter und Suche.",
+    "rowLimitNote": "Die ersten {{limit, number}} Zeilen; Suche und Filter erreichen die übrigen.",
+    "places_one": "an {{count, number}} Ort",
+    "places_other": "an {{count, number}} Orten",
+    "reserved": "reserviert",
+    "free": "frei",
+    "foot": {
+      "counted": "{{matching, number}} von {{total, number}}",
+      "cut": "{{rendered, number}} von {{total, number}} gezeigt",
+      "cutFiltered": "{{rendered, number}} von {{matching, number}} gezeigt, {{total, number}} insgesamt",
+      "summary": "{{shown}} · Script-lokale Variablen {{scriptLocal, number}} Vorkommen, Flags aus Variablen {{dynamic, number}} (nicht im Index)"
+    }
+  },
+  "flagPicker": {
+    "titleFlag": "Flag wählen",
+    "titleVar": "Variable wählen",
+    "placeholder": "Name oder Nummer",
+    "all": "Alle",
+    "loading": "Lädt …",
+    "takeFreeFlag": "Freies Flag nehmen",
+    "takeFreeVar": "Freie Variable nehmen",
+    "showInList": "Im Verzeichnis zeigen",
+    "cutNote": "Die ersten {{limit, number}} Treffer; Suche und Bereich erreichen die übrigen."
+  },
+  "flagsSurface": {
+    "scriptsNotAdopted": "Scripts sind noch nicht übernommen: Script-Verweise fehlen im Index, „frei“ ist darum nur ein Hinweis.",
+    "ownNamesNote": "Eigene Namen gibt es im Textprojekt: Technik › Textprojekt › „Als Textprojekt einrichten…“.",
+    "reading": "Wird gelesen …",
+    "flagsCount_one": "{{count, number}} Flag · {{free, number}} frei",
+    "flagsCount_other": "{{count, number}} Flags · {{free, number}} frei",
+    "varsCount_one": "{{count, number}} Variable · {{free, number}} frei",
+    "varsCount_other": "{{count, number}} Variablen · {{free, number}} frei",
+    "kindFlags": "Flags",
+    "kindVars": "Variablen",
+    "all": "Alle",
+    "title": "Flags und Variablen",
+    "intro": "Welche Flags und Variablen das Spiel kennt und wo Scripts, Figuren, Auslöser, Level-Scripts und Trainer sie setzen oder prüfen.",
+    "noProject": "Kein Projekt geöffnet.",
+    "noProjectWhy": "Öffne ein Projekt, dann stehen hier seine Flags und Variablen.",
+    "openProject": "Projekt öffnen",
+    "kindLabel": "Art",
+    "rangeLabel": "Bereich",
+    "unusedOnly": "nur unbenutzt",
+    "freeOnly": "nur frei",
+    "ownOnly": "nur mit eigenem Namen",
+    "search": "Name oder Nummer suchen",
+    "notTakenFor": "{{name}}: {{reason}}"
+  },
+  "nameDialog": {
+    "titleFlag": "Als eigenes Flag benennen",
+    "titleVar": "Als eigene Variable benennen",
+    "titleDescribe": "Beschreibung",
+    "hint": "A–Z, 0–9 und _.",
+    "hintWithPret": "A–Z, 0–9 und _; der pret-Name {{name}} bleibt gültig.",
+    "cancel": "Abbrechen",
+    "name": "Benennen",
+    "save": "Speichern",
+    "ownName": "Eigener Name",
+    "description": "Beschreibung",
+    "named": "{{id}} benannt (ein Schritt im Verlauf).",
+    "described": "Beschreibung gespeichert."
+  }
+}

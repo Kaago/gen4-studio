@@ -1,7 +1,9 @@
-import { RECIPE_TITLES } from "../api";
+import { RECIPE_IDS, recipeTitleOf } from "../api";
 import type { FlagKind, FlagListDto, Progress, RecipeId, StepKind, StoryUse, ThreadDto } from "../api";
 import { displayName } from "../flags/flagWords";
+import { t } from "../i18n";
 import { storyKindWord } from "../ui/primitives";
+import { termLabel } from "../workbench/terms";
 
 /** From this many values the overview names only the first and the last. */
 const LIST_VALUES_BELOW = 9;
@@ -9,29 +11,28 @@ const LIST_VALUES_BELOW = 9;
 const NAMED_PLACES = 3;
 
 /** The name of a thread: its own name, else its pret name, else kind and number („Variable 0x4030“). */
-export function threadName(t: ThreadDto): string {
-  return displayName(t, "var", t.var);
+export function threadName(thread: ThreadDto): string {
+  return displayName(thread, "var", thread.var);
 }
 
 /** „3 Werte: 0, 1, 2“; from nine values the first and the last („16 Werte: 0 … 15“); „1 Wert: 5“, „Keine Werte“. */
 export function valuesText(values: readonly number[]): string {
   const n = values.length;
-  if (n === 0) return "Keine Werte";
-  const count = n === 1 ? "1 Wert" : `${n} Werte`;
+  if (n === 0) return t("stories:storyWords.valuesNone");
   const shown = n < LIST_VALUES_BELOW ? values.join(", ") : `${values[0]} … ${values[n - 1]}`;
-  return `${count}: ${shown}`;
+  return t("stories:storyWords.values", { count: n, shown });
 }
 
 /**
  * „3 Orte: Zweiblattdorf, Route 201, …“: the count and the names of the places' headers (a name two headers share once, at most three);
  * more named places than shown end in „+ 4“ (the places not named), places without a header in „…“. Without any header the count alone.
  */
-export function placesText(t: ThreadDto): string {
-  const count = t.places === 1 ? "1 Ort" : `${t.places} Orte`;
-  const names = [...new Set(t.header_names)];
+export function placesText(thread: ThreadDto): string {
+  const count = t("stories:storyWords.placesCount", { count: thread.places });
+  const names = [...new Set(thread.header_names)];
   if (names.length === 0) return count;
   const shown = names.slice(0, NAMED_PLACES);
-  const rest = t.places - shown.length;
+  const rest = thread.places - shown.length;
   const tail = rest <= 0 ? "" : names.length > shown.length ? ` + ${rest}` : ", …";
   return `${count}: ${shown.join(", ")}${tail}`;
 }
@@ -48,18 +49,18 @@ export function progressLabel(p: Progress): { kind: FlagKind; id: string } {
 
 /** „2 Geschichten“, „1 Geschichte“, „Keine Geschichten“: the count of the list (and of the entry in the list of Geschichten). */
 export function storiesCount(n: number): string {
-  return n === 0 ? "Keine Geschichten" : n === 1 ? "1 Geschichte" : `${n.toLocaleString("de-DE")} Geschichten`;
+  return t("stories:storyWords.storiesCount", { count: n });
 }
 
 /** „20 Variablen frei“, „1 Variable frei“, „Keine Variable frei“: the free variables of the pool. */
 export function freeVarsText(n: number): string {
-  return n === 0 ? "Keine Variable frei" : n === 1 ? "1 Variable frei" : `${n.toLocaleString("de-DE")} Variablen frei`;
+  return t("stories:storyWords.freeVars", { count: n });
 }
 
 /** The title of the recipe a step was made by (`made.recipe`, its serde name): „Gespräch schaltet weiter“; an id the app does not know
  * (a newer studio's recipe) as it is. */
 export function recipeTitle(id: string): string {
-  return Object.prototype.hasOwnProperty.call(RECIPE_TITLES, id) ? RECIPE_TITLES[id as RecipeId] : id;
+  return (RECIPE_IDS as readonly string[]).includes(id) ? recipeTitleOf(id as RecipeId) : id;
 }
 
 const PREFIX: Record<FlagKind, string> = { flag: "FLAG", var: "VAR" };
@@ -92,8 +93,8 @@ export function useText(use: StoryUse): string {
   if ("map" in use) return use.map;
   if ("flag" in use) return use.flag;
   if ("var" in use) return use.var;
-  if ("script" in use) return `Scriptdatei ${pad4(use.script.file)} · Script ${use.script.slot}`;
-  if ("message" in use) return `Textarchiv ${pad4(use.message.archive)} · Text ${use.message.index}`;
-  if ("levelScript" in use) return `Level-Script ${pad4(use.levelScript.file)} · Bedingung ${use.levelScript.condition}`;
-  return `Objekt ${use.object.local_id} · Eventdatei ${pad4(use.object.file)}`;
+  if ("script" in use) return `${termLabel("scriptFile")} ${pad4(use.script.file)} · ${termLabel("script")} ${use.script.slot}`;
+  if ("message" in use) return `${termLabel("textArchive")} ${pad4(use.message.archive)} · ${t("stories:storyWords.use.text")} ${use.message.index}`;
+  if ("levelScript" in use) return `${termLabel("levelScript")} ${pad4(use.levelScript.file)} · ${t("stories:storyWords.use.condition")} ${use.levelScript.condition}`;
+  return `${t("stories:storyWords.use.object")} ${use.object.local_id} · ${termLabel("eventFile")} ${pad4(use.object.file)}`;
 }

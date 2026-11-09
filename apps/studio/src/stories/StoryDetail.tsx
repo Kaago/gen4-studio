@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { JSX, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, storyDelete } from "../api";
 import type { EntityKind, FlagKind, FlagListDto, Layout, ProjectInfo, Step, StoryDto, StoryReport, StoryUse, storyUpdate } from "../api";
 import { useStableCallback } from "../app/useStable";
@@ -43,21 +44,10 @@ export type StoryDetailProps = {
   textProject?: boolean;
 };
 
-const COLUMNS: readonly TableColumn[] = [
-  { key: "value", label: "Wert", width: 64, align: "end" },
-  { key: "kind", label: "Art", width: 200 },
-  { key: "name", label: "Name" },
-  { key: "uses", label: "Verweise" },
-];
-
-/** Said in place of the graph when the game has no value of the progress (a free variable, a flag, an id that names nothing). */
-export const NO_VALUES = "Noch keine Werte im Spiel";
 
 /** How long after a drag's end the graph's layout is written (one undo step per drag; a drag within it starts the wait anew). */
 const LAYOUT_DELAY_MS = 500;
 
-/** Said in place of the steps: the step recipes above them create them. */
-export const NO_STEPS = "Noch keine Schritte. „Schritt anlegen“ legt sie über Rezepte an.";
 
 /**
  * The numbers of the ids of `kind` (trainers, maps by header) from the text project's id cache, read only when `wanted`; null meanwhile
@@ -147,6 +137,7 @@ function Uses({ uses, at, goTo }: { uses: readonly StoryUse[]; at: Lookups; goTo
  * ({@link DeleteStoryDialog}).
  */
 export function StoryDetail({ story, depth, goTo, onUpdate, onDeleted, project, revision, onRecipe, textProject = true }: StoryDetailProps): JSX.Element {
+  const { t } = useTranslation("stories");
   const { id, name, notes = "", progress, steps = [] } = story.story;
   const tech = depthAtLeast(depth, "bauen");
   const progressOf = progressLabel(progress);
@@ -230,26 +221,33 @@ export function StoryDetail({ story, depth, goTo, onUpdate, onDeleted, project, 
   const [node, setNode] = useState<string | null>(null);
   const number = story.progress_number;
 
+  const columns: readonly TableColumn[] = [
+    { key: "value", label: t("storyDetail.columns.value"), width: 64, align: "end" },
+    { key: "kind", label: t("storyDetail.columns.kind"), width: 200 },
+    { key: "name", label: t("storyDetail.columns.name") },
+    { key: "uses", label: t("storyDetail.columns.uses") },
+  ];
+
   let graphBody: ReactNode;
   if (variable === null) graphBody = <EmptyGraph />;
   else if (graphError !== null) graphBody = <Notice kind="error">{graphError}</Notice>;
-  else if (graph === null) graphBody = <p className={styles.note}>Graph wird gelesen …</p>;
+  else if (graph === null) graphBody = <p className={styles.note}>{t("storyDetail.graphReading")}</p>;
   else if (graph.nodes.length === 0) graphBody = <EmptyGraph />;
   else
     graphBody = (
       <div className={styles.graphBox}>
-        <Suspense fallback={<p className={styles.note}>Graph wird geladen…</p>}>
+        <Suspense fallback={<p className={styles.note}>{t("storyDetail.graphLoading")}</p>}>
           <ThreadGraph graph={graph} selected={node} onSelect={setNode} onOpenPlace={goTo} onLayout={onLayout} />
         </Suspense>
       </div>
     );
 
   return (
-    <section className={styles.detail} data-story-detail={id} aria-label={`Geschichte ${shownName}`}>
+    <section className={styles.detail} data-story-detail={id} aria-label={t("storyDetail.storyLabel", { name: shownName })}>
       <div className={styles.detailHead}>
         <div className={styles.nameField}>
           <TextField
-            label="Name"
+            label={t("storyDetail.name")}
             showLabel
             value={shownName}
             disabled={saving}
@@ -260,7 +258,7 @@ export function StoryDetail({ story, depth, goTo, onUpdate, onDeleted, project, 
           />
         </div>
         <div className={styles.progressChip}>
-          <span className={styles.label}>Fortschritt</span>
+          <span className={styles.label}>{t("storyDetail.progress")}</span>
           <Reference
             area="geschichten"
             label={progressOf.id}
@@ -270,11 +268,11 @@ export function StoryDetail({ story, depth, goTo, onUpdate, onDeleted, project, 
             dataAttrs={{ "data-story-progress": progressOf.kind }}
           />
         </div>
-        <HeadActions items={[{ label: "Geschichte löschen…", onSelect: () => setDeleting(true), disabled: saving }]} />
+        <HeadActions items={[{ label: t("storyDetail.deleteStory"), onSelect: () => setDeleting(true), disabled: saving }]} />
       </div>
       <div data-story-notes="">
         <TextField
-          label="Notizen"
+          label={t("storyDetail.notes")}
           showLabel
           multiline
           value={shownNotes}
@@ -284,15 +282,15 @@ export function StoryDetail({ story, depth, goTo, onUpdate, onDeleted, project, 
       </div>
       {saving && (
         <p className={styles.note} role="status">
-          Wird gespeichert …
+          {t("storyDetail.saving")}
         </p>
       )}
       {refusal !== null && <Notice kind="error">{refusal}</Notice>}
-      <Section title="Schritte" count={steps.length} open={open.steps} onToggle={() => setOpen((o) => ({ ...o, steps: !o.steps }))}>
+      <Section title={t("storyDetail.steps")} count={steps.length} open={open.steps} onToggle={() => setOpen((o) => ({ ...o, steps: !o.steps }))}>
         {onRecipe && <StepRecipes story={story} textProject={textProject} onRecipe={onRecipe} />}
-        {steps.length === 0 ? <p className={styles.note}>{NO_STEPS}</p> : <Table columns={COLUMNS} rows={rows} ariaLabel="Schritte" />}
+        {steps.length === 0 ? <p className={styles.note}>{t("storyDetail.noSteps")}</p> : <Table columns={columns} rows={rows} ariaLabel={t("storyDetail.steps")} />}
       </Section>
-      <Section title="Graph" open={open.graph} onToggle={() => setOpen((o) => ({ ...o, graph: !o.graph }))}>
+      <Section title={t("storyDetail.graph")} open={open.graph} onToggle={() => setOpen((o) => ({ ...o, graph: !o.graph }))}>
         {graphBody}
       </Section>
       {deleting && <DeleteStoryDialog id={id} name={name} onClose={() => setDeleting(false)} onDeleted={onDeleted} />}
@@ -302,13 +300,14 @@ export function StoryDetail({ story, depth, goTo, onUpdate, onDeleted, project, 
 
 /** The kind of a step as a badge; a step a recipe made says which in its tooltip („Angelegt von „Neue Geschichte“ (Studio 0.3.0)“). */
 function StepKindBadge({ step }: { step: Step }) {
+  const { t } = useTranslation("stories");
   const badge = (
     <span data-story-kind={step.kind} {...(step.made && { "data-story-made": step.made.recipe })}>
       <Badge kind="neutral">{stepKindWord(step.kind)}</Badge>
     </span>
   );
   if (!step.made) return badge;
-  return <Tooltip content={`Angelegt von „${recipeTitle(step.made.recipe)}“ (Studio ${step.made.studio})`}>{badge}</Tooltip>;
+  return <Tooltip content={t("storyDetail.madeBy", { recipe: recipeTitle(step.made.recipe), studio: step.made.studio })}>{badge}</Tooltip>;
 }
 
 /** The name of a step, its notes under it. */
@@ -324,8 +323,6 @@ function StepName({ step }: { step: Step }) {
   );
 }
 
-/** What the dialog „Geschichte „X“ löschen?“ says: what goes, and that ⌘Z brings it back. */
-export const DELETE_STORY_TEXT = "Die Datei der Geschichte, ihr Layout und ihr Registereintrag gehen. Rückgängig mit ⌘Z.";
 
 /**
  * „Geschichte „X“ löschen?“: no plan to ask (nothing points at a story, it has no tombstone), only „Abbrechen“ and „Löschen“. „Löschen“
@@ -333,6 +330,7 @@ export const DELETE_STORY_TEXT = "Die Datei der Geschichte, ihr Layout und ihr R
  * dialog with the kernel's sentence and „Löschen“ goes again.
  */
 function DeleteStoryDialog({ id, name, onClose, onDeleted }: { id: string; name: string; onClose: () => void; onDeleted: (r: StoryReport, name: string) => void }) {
+  const { t } = useTranslation("stories");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Read by a click that comes before the render of the one before (a double click).
@@ -359,17 +357,17 @@ function DeleteStoryDialog({ id, name, onClose, onDeleted }: { id: string; name:
       onOpenChange={(next) => {
         if (!next && !busy.current) onClose();
       }}
-      title={`Geschichte „${name}“ löschen?`}
-      description={DELETE_STORY_TEXT}
+      title={t("storyDetail.deleteDialog.title", { name })}
+      description={t("storyDetail.deleteDialog.text")}
       data={{ "data-story-delete-dialog": "" }}
       actions={[
-        { label: "Abbrechen", onClick: onClose, disabled: running },
-        { label: "Löschen", kind: "primary", onClick: () => void remove(), disabled: running },
+        { label: t("storyDetail.deleteDialog.cancel"), onClick: onClose, disabled: running },
+        { label: t("storyDetail.deleteDialog.delete"), kind: "primary", onClick: () => void remove(), disabled: running },
       ]}
     >
       {running ? (
         <p role="status" className={styles.note}>
-          Lösche …
+          {t("storyDetail.deleteDialog.deleting")}
         </p>
       ) : error !== null ? (
         <Notice kind="error">{error}</Notice>
@@ -379,9 +377,10 @@ function DeleteStoryDialog({ id, name, onClose, onDeleted }: { id: string; name:
 }
 
 function EmptyGraph() {
+  const { t } = useTranslation("stories");
   return (
     <p className={styles.note} data-story-empty-graph="">
-      {NO_VALUES}
+      {t("storyDetail.noValues")}
     </p>
   );
 }

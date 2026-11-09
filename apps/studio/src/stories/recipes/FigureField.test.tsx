@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents } from "../../api";
 import type { EventsDto, HeaderSummary, ObjectDto } from "../../api";
 import { FigureField, isTrainerFigure } from "./FigureField";
-import { TRAINERS_TALK } from "./storyRecipeModel";
+import { trainersTalk } from "./storyRecipeModel";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn() }));
 vi.mock("../../world/thumbnailStore", () => ({
@@ -58,7 +58,7 @@ describe("FigureField", () => {
     // A trainer carries its badge and cannot be picked for talk or a reward: it speaks through its battle texts.
     expect(trainer?.textContent).toContain("Figur 2 · Aussehen 12");
     expect(trainer?.textContent).toContain("Trainer");
-    expect(trainer?.textContent).toContain(TRAINERS_TALK);
+    expect(trainer?.textContent).toContain(trainersTalk());
     expect(trainer?.getAttribute("aria-disabled") ?? trainer?.getAttribute("data-disabled")).not.toBeNull();
     await act(async () => trainer!.click());
     expect(onChange).not.toHaveBeenCalled();
@@ -91,7 +91,7 @@ describe("FigureField", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Figur wählen…"]')!.click());
     await flush();
     const [seer, partner] = options();
-    expect(seer?.textContent).toContain(TRAINERS_TALK);
+    expect(seer?.textContent).toContain(trainersTalk());
     expect(seer?.getAttribute("aria-disabled") ?? seer?.getAttribute("data-disabled")).not.toBeNull();
     expect(partner?.textContent).not.toContain("Trainer");
     expect(partner?.getAttribute("aria-disabled")).not.toBe("true");

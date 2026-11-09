@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { FigureRef, HeaderSummary, ObjectDto } from "../../api";
+import { t as translate } from "../../i18n";
 import { Button, Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
 import { headerLabel } from "../../workbench/headers";
 import { HeaderPicker } from "../../workbench/inspector/HeaderPicker";
 import { trainerOfScript } from "../../workbench/trainerScript";
 import { useEvents } from "../../workbench/useEvents";
-import { TRAINERS_TALK } from "./storyRecipeModel";
+import { trainersTalk } from "./storyRecipeModel";
 import styles from "./StoryRecipeDialog.module.css";
 
 export type FigureFieldProps = {
@@ -32,7 +34,8 @@ export type FigureFieldProps = {
 export const isTrainerFigure = (o: Pick<ObjectDto, "script" | "trainer_type">): boolean => o.trainer_type !== 0 || trainerOfScript(o.script)?.partner === false;
 
 /** „Figur 3 · Aussehen 97“: a figure by its local id and its look. */
-export const figureLabel = (o: Pick<ObjectDto, "local_id" | "graphics_id">): string => `Figur ${o.local_id} · Aussehen ${o.graphics_id}`;
+export const figureLabel = (o: Pick<ObjectDto, "local_id" | "graphics_id">): string =>
+  translate("stories:figureField.figureLabel", { id: o.local_id, look: o.graphics_id });
 
 /**
  * The figure of a step recipe: its place (the header picker) and the figure among the objects of the place's event file (a picker, „Figur
@@ -40,6 +43,7 @@ export const figureLabel = (o: Pick<ObjectDto, "local_id" | "graphics_id">): str
  * speak through their battle texts). Choosing another place clears the figure.
  */
 export function FigureField({ header, localId, onChange, headers, revision, lockTrainers = false, disabled, onError }: FigureFieldProps) {
+  const { t } = useTranslation("stories");
   // The place chosen here, until the owner names another one (a figure picked in another place).
   const [place, setPlace] = useState(header);
   const [seen, setSeen] = useState(header);
@@ -63,41 +67,43 @@ export function FigureField({ header, localId, onChange, headers, revision, lock
               id: o.index,
               label: figureLabel(o),
               area: "welt",
-              count: trainer ? "Trainer" : undefined,
-              countTitle: trainer && lockTrainers ? TRAINERS_TALK : undefined,
-              description: locked ? TRAINERS_TALK : undefined,
+              count: trainer ? t("figureField.trainer") : undefined,
+              countTitle: trainer && lockTrainers ? trainersTalk() : undefined,
+              description: locked ? trainersTalk() : undefined,
               disabled: locked,
             };
           }),
-    [picking, objects, lockTrainers],
+    // `t` changes with the language: the rows are made again then.
+    [picking, objects, lockTrainers, t],
   );
-  const figureText = chosen !== undefined ? figureLabel(chosen) : localId !== null && place === header ? `Figur ${localId}` : "Keine gewählt";
+  const figureText =
+    chosen !== undefined ? figureLabel(chosen) : localId !== null && place === header ? t("figureField.figureShort", { id: localId }) : t("figureField.noFigureChosen");
   return (
     <>
       <div className={styles.field}>
-        <span className={styles.label}>Ort</span>
+        <span className={styles.label}>{t("figureField.place")}</span>
         <div className={styles.line}>
-          <span data-figure-place="">{shown === undefined ? "Keiner gewählt" : headerLabel(shown)}</span>
-          <Button kind="quiet" size="s" aria-label="Ort wählen…" disabled={disabled} onClick={() => setPicking("place")}>
-            Wählen…
+          <span data-figure-place="">{shown === undefined ? t("figureField.noPlaceChosen") : headerLabel(shown)}</span>
+          <Button kind="quiet" size="s" aria-label={t("figureField.choosePlaceLabel")} disabled={disabled} onClick={() => setPicking("place")}>
+            {t("figureField.choose")}
           </Button>
         </div>
       </div>
       <div className={styles.field}>
-        <span className={styles.label}>Figur</span>
+        <span className={styles.label}>{t("figureField.figure")}</span>
         <div className={styles.line}>
           <span data-figure-pick="">{figureText}</span>
-          <Button kind="quiet" size="s" aria-label="Figur wählen…" disabled={disabled || shown === undefined} onClick={() => setPicking("figure")}>
-            Wählen…
+          <Button kind="quiet" size="s" aria-label={t("figureField.chooseFigureLabel")} disabled={disabled || shown === undefined} onClick={() => setPicking("figure")}>
+            {t("figureField.choose")}
           </Button>
         </div>
-        {shown !== undefined && events !== null && objects.length === 0 && <p className={styles.note}>Der Ort hat keine Figuren.</p>}
+        {shown !== undefined && events !== null && objects.length === 0 && <p className={styles.note}>{t("figureField.placeHasNone")}</p>}
       </div>
       <HeaderPicker
         open={picking === "place"}
         onOpenChange={(open) => !open && setPicking(null)}
         headers={headers}
-        title="Ort wählen"
+        title={t("figureField.choosePlaceTitle")}
         onPick={(id) => {
           if (id === place) return;
           setPlace(id);
@@ -107,10 +113,10 @@ export function FigureField({ header, localId, onChange, headers, revision, lock
       <Picker
         open={picking === "figure"}
         onOpenChange={(open) => !open && setPicking(null)}
-        title="Figur wählen"
+        title={t("figureField.chooseFigureTitle")}
         items={items}
-        placeholder="Figur oder Nummer suchen"
-        emptyText="Keine Figur an diesem Ort."
+        placeholder={t("figureField.searchFigure")}
+        emptyText={t("figureField.noFigureHere")}
         onPick={(item) => {
           const object = objects.find((o) => o.index === Number(item.id));
           if (object !== undefined && place !== null) onChange({ header: place, local_id: object.local_id });

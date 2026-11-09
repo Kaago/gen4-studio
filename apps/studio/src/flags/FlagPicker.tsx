@@ -1,9 +1,10 @@
 import { useId, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, freeFlag } from "../api";
 import type { FlagArea, FlagKind, ProjectInfo } from "../api";
 import { Button, Picker, Tooltip } from "../ui/primitives";
-import { NONE_ITEM, areaWord, flagRows, poolEmptyText, scriptsNotIndexedText } from "./flagWords";
+import { areaWord, flagRows, noneItem, poolEmptyText, scriptsNotIndexedText } from "./flagWords";
 import { useFlagList } from "./useFlagList";
 import styles from "./FlagPicker.module.css";
 
@@ -12,9 +13,6 @@ const AREA_ORDER: readonly FlagArea[] = ["map_local", "general", "hidden_items",
 
 /** At most this many rows are listed; a search or an area reaches every number (a full list has 4 097 flags). */
 const ROW_LIMIT = 1000;
-
-/** What the picker says under the list while `ROW_LIMIT` cuts it. */
-const CUT_NOTE = `Die ersten ${ROW_LIMIT.toLocaleString("de-DE")} Treffer; Suche und Bereich erreichen die übrigen.`;
 
 export type FlagPickerProps = {
   open: boolean;
@@ -36,6 +34,7 @@ export type FlagPickerProps = {
  * while the scripts are not adopted or the pool is empty) and leads to the list of flags and variables. Reads the list only while open.
  */
 export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDirectory, project, revision }: FlagPickerProps) {
+  const { t } = useTranslation("flags");
   // Read anew on every opening: the lock of „Freies Flag nehmen“ and the pool follow an adoption of the scripts or a save at once.
   const { list, error } = useFlagList(kind, { project: open ? project : null, revision, fresh: true });
   const [area, setArea] = useState<FlagArea | "all">("all");
@@ -54,12 +53,13 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
 
   // „Keins (0)“ first in every area, then the numbers; the picker's search filters both (the first hit is what Enter picks).
   const items = useMemo(() => {
-    if (list === null) return [NONE_ITEM];
-    return [NONE_ITEM, ...flagRows(area === "all" ? list : { ...list, entries: list.entries.filter((e) => e.area === area) })];
-  }, [list, area]);
+    if (list === null) return [noneItem()];
+    return [noneItem(), ...flagRows(area === "all" ? list : { ...list, entries: list.entries.filter((e) => e.area === area) })];
+    // `t` changes with the language: the rows (the „None“ row, the areas) are built again then.
+  }, [list, area, t]);
   const filters = useMemo(
-    () => [{ value: "all", label: "Alle" }, ...AREA_ORDER.filter((a) => list?.entries.some((e) => e.area === a)).map((a) => ({ value: a, label: areaWord(a) }))],
-    [list],
+    () => [{ value: "all", label: t("flagPicker.all") }, ...AREA_ORDER.filter((a) => list?.entries.some((e) => e.area === a)).map((a) => ({ value: a, label: areaWord(a) }))],
+    [list, t],
   );
 
   const locked = list === null ? null : !list.scripts_indexed ? scriptsNotIndexedText(kind) : list.pool_free === 0 ? poolEmptyText(kind) : null;
@@ -81,21 +81,21 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
     // On the tick after the close request, so the dialog's focus return does not run into the list it opens.
     setTimeout(() => show(value), 0);
   };
-  const status = refusal ?? error ?? (list === null && project !== null ? "Lädt …" : null);
+  const status = refusal ?? error ?? (list === null && project !== null ? t("flagPicker.loading") : null);
 
   return (
     <Picker
       open={open}
       onOpenChange={onOpenChange}
-      title={kind === "flag" ? "Flag wählen" : "Variable wählen"}
-      placeholder="Name oder Nummer"
+      title={kind === "flag" ? t("flagPicker.titleFlag") : t("flagPicker.titleVar")}
+      placeholder={t("flagPicker.placeholder")}
       items={items}
       onPick={(item) => onPick(Number(item.id))}
       filters={filters.length > 1 ? filters : undefined}
       filter={area}
       onFilter={(next) => setArea(next as FlagArea | "all")}
       limitPerGroup={ROW_LIMIT}
-      cutNote={() => CUT_NOTE}
+      cutNote={() => t("flagPicker.cutNote", { limit: ROW_LIMIT })}
       footer={
         <div className={styles.footer} data-flag-picker={kind}>
           {status !== null && (
@@ -105,11 +105,11 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
           )}
           <div className={styles.buttons}>
             <LockableButton why={why} waiting={list === null || busy} onClick={() => void take()}>
-              {kind === "flag" ? "Freies Flag nehmen" : "Freie Variable nehmen"}
+              {kind === "flag" ? t("flagPicker.takeFreeFlag") : t("flagPicker.takeFreeVar")}
             </LockableButton>
             {onShowInDirectory && (
               <Button kind="quiet" size="s" onClick={() => showInDirectory(onShowInDirectory)}>
-                Im Verzeichnis zeigen
+                {t("flagPicker.showInList")}
               </Button>
             )}
           </div>

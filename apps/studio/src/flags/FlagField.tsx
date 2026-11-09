@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { FlagKind, ProjectInfo } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { Button, InspectorRow, NumberField, Reference } from "../ui/primitives";
 import { FlagPicker } from "./FlagPicker";
-import { NONE, displayName, hex4 } from "./flagWords";
+import { displayName, hex4, noneText } from "./flagWords";
 import { useFlagList } from "./useFlagList";
 import styles from "./FlagField.module.css";
 
@@ -36,11 +37,12 @@ export type FlagFieldProps = {
  * in mono), which opens the picker like „Wählen…“ next to it; in Tüfteln the number field with Dez | Hex below. 0 shows „Keins“.
  */
 export function FlagField({ kind, label, value, onCommit, disabled, depth, project, revision, onShowInDirectory, field, hint, bare, source }: FlagFieldProps) {
+  const { t } = useTranslation("flags");
   const [picking, setPicking] = useState(false);
   // 0 needs no name: a figure without a flag does not build the reference index (the picker reads when it opens).
   const { list } = useFlagList(kind, { project: value === 0 ? null : project, revision, source });
   const entry = value === 0 ? undefined : list?.entries.find((e) => e.number === value);
-  const name = value === 0 ? NONE : displayName(entry ?? { name: null, own_id: null }, kind, value);
+  const name = value === 0 ? noneText() : displayName(entry ?? { name: null, own_id: null }, kind, value);
   const control = (
     <div className={styles.field}>
       <div className={styles.line}>
@@ -52,8 +54,8 @@ export function FlagField({ kind, label, value, onCommit, disabled, depth, proje
           disabled={disabled}
           dataAttrs={{ "data-flag-field": field ?? kind }}
         />
-        <Button kind="quiet" size="s" aria-label={`${label} wählen…`} disabled={disabled} onClick={() => setPicking(true)}>
-          Wählen…
+        <Button kind="quiet" size="s" aria-label={t("flagField.chooseLabel", { label })} disabled={disabled} onClick={() => setPicking(true)}>
+          {t("flagField.choose")}
         </Button>
       </div>
       {depthAtLeast(depth, "tuefteln") && <NumberField label={label} value={value} max={0xffff} bits={16} disabled={disabled} onCommit={onCommit} showBase />}

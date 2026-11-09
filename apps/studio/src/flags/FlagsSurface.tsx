@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import type { FlagArea, FlagKind, FlagListDto, NameReport, ProjectInfo } from "../api";
 import type { Live } from "../app/useLive";
 import { useStableCallback } from "../app/useStable";
+import { t as translate } from "../i18n";
 import { useTextProject } from "../textproject/TextProjectContext";
 import type { Depth } from "../ui/frame/shellState";
 import { Checkbox, EmptyState, FilterChips, Notice, TextField } from "../ui/primitives";
 import type { FilterChipOption } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { FlagDetail, NOT_TAKEN } from "./FlagDetail";
+import { FlagDetail } from "./FlagDetail";
 import type { FlagLive } from "./FlagDetail";
 import { DEFAULT_FILTER, areasOf, filterEntries } from "./flagFilter";
 import type { FlagFilter } from "./flagFilter";
@@ -22,20 +24,13 @@ import styles from "./FlagsSurface.module.css";
 /** What the surface and the entry of Geschichten read under: one read of the flags for both (the name stayed from Technik, 3d.1). */
 export const FLAGS_SOURCE = "technik";
 
-/** Why the list's „frei“ is only a hint while the scripts are not adopted (ruling R15). */
-export const SCRIPTS_NOT_ADOPTED_NOTE = "Scripts sind noch nicht übernommen: Script-Verweise fehlen im Index, „frei“ ist darum nur ein Hinweis.";
-
-/** Where own names come from in the DSPRE layout. */
-export const OWN_NAMES_NOTE = "Eigene Namen gibt es im Textprojekt: Technik › Textprojekt › „Als Textprojekt einrichten…“.";
-
-const de = (n: number) => n.toLocaleString("de-DE");
-
 /** The line under „Flags und Variablen“ in the list of Geschichten: „4.097 Flags · 135 frei“, „Wird gelesen …“ while the list is read. */
 export function flagsSubtitle(list: FlagListDto | null): string {
-  if (list === null) return "Wird gelesen …";
-  const n = list.entries.length;
-  const what = list.kind === "flag" ? (n === 1 ? "Flag" : "Flags") : n === 1 ? "Variable" : "Variablen";
-  return `${de(n)} ${what} · ${de(list.pool_free)} frei`;
+  if (list === null) return translate("flags:flagsSurface.reading");
+  const count = list.entries.length;
+  return list.kind === "flag"
+    ? translate("flags:flagsSurface.flagsCount", { count, free: list.pool_free })
+    : translate("flags:flagsSurface.varsCount", { count, free: list.pool_free });
 }
 
 export type FlagsSurfaceProps = {
@@ -59,11 +54,6 @@ export type FlagsSurfaceProps = {
   live?: Live;
 };
 
-const KINDS: readonly FilterChipOption[] = [
-  { value: "flag", label: "Flags" },
-  { value: "var", label: "Variablen" },
-];
-
 /** The naming dialog the detail opened: naming a number or describing its own name. */
 type Naming = { kind: FlagKind; number: number; name: string | null; current: { id: string | null; description: string | null } };
 
@@ -75,6 +65,7 @@ type Naming = { kind: FlagKind; number: number; name: string | null; current: { 
  * filter that would hide it.
  */
 export function FlagsSurface({ project, revision, selected, onSelect, goTo, depth, readOnly, onError, onNamed, onOpenProject, live }: FlagsSurfaceProps): JSX.Element {
+  const { t } = useTranslation("flags");
   const titleId = useId();
   const text = useTextProject();
   const [filter, setFilter] = useState<FlagFilter>(() => ({ ...DEFAULT_FILTER, kind: selected?.kind ?? DEFAULT_FILTER.kind }));
@@ -106,8 +97,12 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
   const select = useCallback((n: number) => onSelect({ kind, number: n }), [onSelect, kind]);
   const [naming, setNaming] = useState<Naming | null>(null);
   const change = (next: Partial<FlagFilter>) => setFilter((f) => ({ ...f, ...next }));
+  const kinds: readonly FilterChipOption[] = [
+    { value: "flag", label: t("flagsSurface.kindFlags") },
+    { value: "var", label: t("flagsSurface.kindVars") },
+  ];
   const areas: FilterChipOption[] = [
-    { value: "all", label: "Alle" },
+    { value: "all", label: t("flagsSurface.all") },
     ...areasOf(kind)
       .filter((a) => a !== "temp" || list?.entries.some((e) => e.area === "temp"))
       .map((a) => ({ value: a, label: areaWord(a) })),
@@ -163,25 +158,25 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
     <section ref={surface} className={styles.surface} data-technik="flags" aria-labelledby={titleId}>
       <header className={styles.head}>
         <h1 id={titleId} className={styles.title}>
-          Flags und Variablen
+          {t("flagsSurface.title")}
         </h1>
-        <p className={styles.text}>Welche Flags und Variablen das Spiel kennt und wo Scripts, Figuren, Auslöser, Level-Scripts und Trainer sie setzen oder prüfen.</p>
+        <p className={styles.text}>{t("flagsSurface.intro")}</p>
       </header>
       {project === null ? (
         <EmptyState
-          what="Kein Projekt geöffnet."
-          why="Öffne ein Projekt, dann stehen hier seine Flags und Variablen."
-          action={onOpenProject && { label: "Projekt öffnen", onClick: onOpenProject }}
+          what={t("flagsSurface.noProject")}
+          why={t("flagsSurface.noProjectWhy")}
+          action={onOpenProject && { label: t("flagsSurface.openProject"), onClick: onOpenProject }}
         />
       ) : (
         <>
-          {list !== null && !list.text_project && <Notice kind="info">{OWN_NAMES_NOTE}</Notice>}
-          {list !== null && !list.scripts_indexed && <Notice kind="info">{SCRIPTS_NOT_ADOPTED_NOTE}</Notice>}
+          {list !== null && !list.text_project && <Notice kind="info">{t("flagsSurface.ownNamesNote")}</Notice>}
+          {list !== null && !list.scripts_indexed && <Notice kind="info">{t("flagsSurface.scriptsNotAdopted")}</Notice>}
           <div className={styles.filters} data-flag-filter="">
             <FilterChips
               single
-              ariaLabel="Art"
-              options={KINDS}
+              ariaLabel={t("flagsSurface.kindLabel")}
+              options={kinds}
               value={new Set([kind])}
               onChange={(next) => {
                 const picked = [...next][0] as FlagKind | undefined;
@@ -192,22 +187,22 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
             />
             <FilterChips
               single
-              ariaLabel="Bereich"
+              ariaLabel={t("flagsSurface.rangeLabel")}
               options={areas}
               visible={areas.length}
               value={new Set([filter.area])}
               onChange={(next) => change({ area: ([...next][0] ?? "all") as FlagArea | "all" })}
             />
             <div className={styles.boxes}>
-              <Checkbox label="nur unbenutzt" checked={filter.unusedOnly} onChange={(on) => change({ unusedOnly: on })} />
-              <Checkbox label="nur frei" checked={filter.freeOnly} onChange={(on) => change({ freeOnly: on })} />
-              <Checkbox label="nur mit eigenem Namen" checked={filter.ownOnly} onChange={(on) => change({ ownOnly: on })} />
+              <Checkbox label={t("flagsSurface.unusedOnly")} checked={filter.unusedOnly} onChange={(on) => change({ unusedOnly: on })} />
+              <Checkbox label={t("flagsSurface.freeOnly")} checked={filter.freeOnly} onChange={(on) => change({ freeOnly: on })} />
+              <Checkbox label={t("flagsSurface.ownOnly")} checked={filter.ownOnly} onChange={(on) => change({ ownOnly: on })} />
             </div>
             <div className={styles.search}>
               <TextField
                 type="search"
-                label="Name oder Nummer suchen"
-                placeholder="Name oder Nummer suchen"
+                label={t("flagsSurface.search")}
+                placeholder={t("flagsSurface.search")}
                 value={filter.query}
                 onChange={(query) => change({ query })}
                 onCommit={(query) => change({ query })}
@@ -217,11 +212,11 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
           {error !== null && <Notice kind="error">{error}</Notice>}
           {notTakenElsewhere && (
             <div data-flag-live-warning="">
-              <Notice kind="warning">{`${writtenName}: ${NOT_TAKEN}`}</Notice>
+              <Notice kind="warning">{t("flagsSurface.notTakenFor", { name: writtenName, reason: t("flagDetail.notTaken") })}</Notice>
             </div>
           )}
           {list === null ? (
-            error === null && <p className={styles.note}>Wird gelesen …</p>
+            error === null && <p className={styles.note}>{t("flagsSurface.reading")}</p>
           ) : (
             <div className={styles.split} data-flag-split="">
               <div className={styles.columns}>

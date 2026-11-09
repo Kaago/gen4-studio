@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import type { ProjectInfo, StoryReport } from "../api";
 import { FLAGS_SOURCE, FlagsSurface, flagsSubtitle } from "../flags/FlagsSurface";
 import type { FlagsSurfaceProps } from "../flags/FlagsSurface";
@@ -8,6 +9,7 @@ import { ListPane } from "../ui/frame/ListPane";
 import type { Depth } from "../ui/frame/shellState";
 import { ListRow, useRovingList } from "../ui/primitives";
 import type { IconName } from "../ui/primitives";
+import type { TFunction } from "i18next";
 import type { NavTarget } from "../workbench/navigation";
 import { StoriesSurface } from "./StoriesSurface";
 import type { StoryRecipeRequest } from "./recipes/storyRecipeModel";
@@ -62,17 +64,23 @@ export interface GeschichtenAreaProps {
   onStoryDeleted?: (r: StoryReport, name: string) => void;
 }
 
-const ENTRIES: readonly { id: GeschichtenEntry; label: string; icon: IconName }[] = [
-  { id: "threads", label: "Fäden", icon: "thread" },
-  { id: "stories", label: "Geschichten", icon: "story" },
-  { id: "flags", label: "Flags und Variablen", icon: "flag" },
+/** The entries in the order of the list; the labels come from the catalog (`geschichtenArea.<id>`). */
+const ENTRIES: readonly { id: GeschichtenEntry; icon: IconName }[] = [
+  { id: "threads", icon: "thread" },
+  { id: "stories", icon: "story" },
+  { id: "flags", icon: "flag" },
 ];
 
 /** The line under an entry: no project, still reading, not readable, or the count. */
-function subtitleOf<T>(info: ProjectInfo | null, read: { list: T | null; error: string | null }, count: (list: T) => string): string {
-  if (info === null) return "Kein Projekt";
-  if (read.error !== null) return "Nicht lesbar";
-  return read.list === null ? "Wird gelesen …" : count(read.list);
+function subtitleOf<T>(
+  t: TFunction<"stories">,
+  info: ProjectInfo | null,
+  read: { list: T | null; error: string | null },
+  count: (list: T) => string,
+): string {
+  if (info === null) return t("geschichtenArea.noProject");
+  if (read.error !== null) return t("geschichtenArea.notReadable");
+  return read.list === null ? t("geschichtenArea.reading") : count(read.list);
 }
 
 /**
@@ -81,6 +89,7 @@ function subtitleOf<T>(info: ProjectInfo | null, read: { list: T | null; error: 
  * here, for the list and the surfaces together; the flags as the flags surface reads them.
  */
 export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
+  const { t } = useTranslation("stories");
   const { entry, onEntry, listOpen, onToggleList, depth, revision, goTo } = props;
   const info = props.flags?.project ?? null;
   const list = useRef<HTMLDivElement>(null);
@@ -89,16 +98,16 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
   const stories = useStories({ project: info, revision });
   const flagList = useFlagList("flag", { project: info, revision: props.flags?.revision ?? 0, source: FLAGS_SOURCE });
   const subtitles: Record<GeschichtenEntry, string> = {
-    threads: subtitleOf(info, threads, (l) => threadsCount(l.threads.length)),
-    stories: subtitleOf(info, stories, (l) => storiesCount(l.stories.length) + (l.free_vars === null ? "" : ` · ${freeVarsText(l.free_vars)}`)),
-    flags: subtitleOf(info, flagList, flagsSubtitle),
+    threads: subtitleOf(t, info, threads, (l) => threadsCount(l.threads.length)),
+    stories: subtitleOf(t, info, stories, (l) => storiesCount(l.stories.length) + (l.free_vars === null ? "" : ` · ${freeVarsText(l.free_vars)}`)),
+    flags: subtitleOf(t, info, flagList, flagsSubtitle),
   };
   return (
     <div className={styles.area} data-geschichten={entry}>
-      <ListPane title="Geschichten" open={listOpen} onToggle={onToggleList}>
-        <div ref={list} role="listbox" aria-label="Geschichten" className={styles.list}>
+      <ListPane title={t("geschichtenArea.title")} open={listOpen} onToggle={onToggleList}>
+        <div ref={list} role="listbox" aria-label={t("geschichtenArea.title")} className={styles.list}>
           {ENTRIES.map((e) => (
-            <ListRow key={e.id} label={e.label} icon={e.icon} subtitle={subtitles[e.id]} selected={e.id === entry} onSelect={() => onEntry(e.id)} />
+            <ListRow key={e.id} label={t(`geschichtenArea.${e.id}`)} icon={e.icon} subtitle={subtitles[e.id]} selected={e.id === entry} onSelect={() => onEntry(e.id)} />
           ))}
         </div>
       </ListPane>

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FLAGS, flagEntry, flagList } from "./flagTesting";
-import { NOT_A_TEXT_PROJECT, accessWord, areaWord, displayName, hex4, kindWord, liveCellText, liveCellTip, numberText, pickerItems, usageShort, usageText } from "./flagWords";
+import { accessWord, areaWord, displayName, hex4, kindWord, liveCellText, liveCellTip, notATextProject, numberText, pickerItems, usageShort, usageText } from "./flagWords";
 
 describe("flag words", () => {
   it("numbers_show_hex_and_decimal", () => {
@@ -79,6 +79,6 @@ describe("flag words", () => {
     // The lock of naming in the DSPRE layout says what `name_flag` would answer: a change in the kernel must show here.
     const rename = readFileSync("../../crates/g4-kernel/src/textproject/rename.rs", "utf8");
     const rust = /pub const NOT_A_TEXT_PROJECT: &str =\s*"((?:[^"\\]|\\.)*)";/.exec(rename);
-    expect(rust?.[1]).toBe(NOT_A_TEXT_PROJECT);
+    expect(rust?.[1]).toBe(notATextProject());
   });
 });

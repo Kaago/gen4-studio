@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { JSX } from "react";
-import { RECIPE_TITLES, errorText, recipeApply } from "../../api";
+import { useTranslation } from "react-i18next";
+import { errorText, recipeApply, recipeTitleOf } from "../../api";
 import type { DraftDto, HeaderSummary, ProjectInfo, RecipeOutcome, StoryRowDto } from "../../api";
 import { Button, Dialog, Notice, SelectField, TextField } from "../../ui/primitives";
 import { useDraftPlan } from "../../workbench/wizards/useDraftPlan";
@@ -9,7 +10,7 @@ import { FigureAppearsForm } from "./FigureAppearsForm";
 import { RewardOnceForm } from "./RewardOnceForm";
 import { SceneOnEnterForm } from "./SceneOnEnterForm";
 import { TalkAdvancesForm } from "./TalkAdvancesForm";
-import { RECIPE_DESCRIPTIONS, defaultStep, defaultStepName, formOf, inputOf } from "./storyRecipeModel";
+import { defaultStep, defaultStepName, formOf, inputOf, recipeDescription } from "./storyRecipeModel";
 import type { StepRecipeId, StepRecipeInput, StoryRecipeForm, StoryRecipeRequest } from "./storyRecipeModel";
 import styles from "./StoryRecipeDialog.module.css";
 
@@ -56,6 +57,7 @@ function placeOf(input: StepRecipeInput): number {
  * there and while the plan refuses; while the recipe runs (seconds) it is busy and the dialog stays; a refusal stays in it as an error.
  */
 export function StoryRecipeDialog(props: StoryRecipeDialogProps): JSX.Element {
+  const { t } = useTranslation("stories");
   const { request, stories, storiesError = null, project, revision, headers, onApplied, onClose, onError, beforeApply, onNewStory, newStory = null, hidden = false } = props;
   const [form, setForm] = useState<StoryRecipeForm>(() => formOf(request));
   const [running, setRunning] = useState(false);
@@ -131,36 +133,36 @@ export function StoryRecipeDialog(props: StoryRecipeDialogProps): JSX.Element {
       }}
       dismissible={!running}
       size="wide"
-      title={RECIPE_TITLES[form.recipe]}
-      description={RECIPE_DESCRIPTIONS[form.recipe]}
+      title={recipeTitleOf(form.recipe)}
+      description={recipeDescription(form.recipe)}
       data={{ "data-story-recipe-dialog": form.recipe }}
       actions={[
-        { label: "Abbrechen", onClick: onClose, disabled: running },
-        { label: "Anlegen", kind: "primary", onClick: () => void apply(), disabled: running || !ready, data: { "data-story-recipe-apply": "" } },
+        { label: t("storyRecipeDialog.cancel"), onClick: onClose, disabled: running },
+        { label: t("storyRecipeDialog.create"), kind: "primary", onClick: () => void apply(), disabled: running || !ready, data: { "data-story-recipe-apply": "" } },
       ]}
     >
       <div className={styles.body}>
         <div className={styles.fields}>
           <div className={styles.field}>
-            <span className={styles.label}>Geschichte</span>
+            <span className={styles.label}>{t("storyRecipeDialog.story")}</span>
             <div className={styles.line}>
               {form.story === null && storiesError !== null ? (
                 <Notice kind="error">{storiesError}</Notice>
               ) : form.story === null ? (
-                <span className={styles.note}>{stories === null ? "Die Geschichten werden gelesen …" : "Noch keine Geschichte mit einer Variable als Fortschritt."}</span>
+                <span className={styles.note}>{stories === null ? t("storyRecipeDialog.storiesReading") : t("storyRecipeDialog.noVarStory")}</span>
               ) : (
-                <SelectField label="Geschichte" value={form.story} options={storyOptions} onChange={(id) => setForm({ ...form, story: id, step: null })} disabled={running} />
+                <SelectField label={t("storyRecipeDialog.story")} value={form.story} options={storyOptions} onChange={(id) => setForm({ ...form, story: id, step: null })} disabled={running} />
               )}
               {onNewStory !== undefined && (
                 <Button kind="quiet" size="s" onClick={onNewStory} disabled={running}>
-                  Neue Geschichte…
+                  {t("storyRecipeDialog.newStory")}
                 </Button>
               )}
             </div>
           </div>
           {fields}
           <TextField
-            label="Name des Schritts"
+            label={t("storyRecipeDialog.stepName")}
             showLabel
             value={form.stepName ?? ""}
             placeholder={defaultStepName(form, names)}
@@ -170,17 +172,17 @@ export function StoryRecipeDialog(props: StoryRecipeDialogProps): JSX.Element {
           />
           {running && (
             <p className={styles.note} role="status">
-              Wird angelegt …
+              {t("storyRecipeDialog.creating")}
             </p>
           )}
           {refusal !== null && <Notice kind="error">{refusal}</Notice>}
         </div>
         <div className={styles.notes} data-story-recipe-notes="">
-          <p className={styles.notesTitle}>Was das Rezept tut</p>
+          <p className={styles.notesTitle}>{t("storyRecipeDialog.whatItDoes")}</p>
           {plan.error !== null ? (
             <Notice kind="error">{plan.error}</Notice>
           ) : plan.draft === null ? (
-            <p>{input === null ? "Sobald alles gewählt ist, steht hier, was das Rezept anlegt." : "Wird geplant …"}</p>
+            <p>{input === null ? t("storyRecipeDialog.chooseFirst") : t("storyRecipeDialog.planning")}</p>
           ) : (
             <>
               {plan.draft.notes.length > 0 && (

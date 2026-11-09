@@ -28,7 +28,7 @@ import type {
   TalkAdvancesInput,
   TalkAdvancesReport,
 } from "../api";
-import { RECIPE_TITLES } from "../api";
+import { RECIPE_IDS, recipeTitleOf } from "../api";
 
 const empty: DraftDto = { cells: [], tiles: [], events: [], messages: [], notes: [], irreversible: [] };
 
@@ -75,9 +75,9 @@ describe("recipes/api", () => {
       reward_once: true,
       new_painted_map: true,
     } satisfies Record<RecipeId, true>;
-    expect(Object.keys(every)).toEqual(Object.keys(RECIPE_TITLES));
+    expect(Object.keys(every)).toEqual([...RECIPE_IDS]);
     // The kernel's `RecipeId::title`, in the order of `all()`.
-    expect(Object.values(RECIPE_TITLES)).toEqual([
+    expect(RECIPE_IDS.map((id) => recipeTitleOf(id))).toEqual([
       "Gebiet anlegen",
       "Raum anlegen",
       "Gebiet erweitern",

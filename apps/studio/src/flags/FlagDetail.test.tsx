@@ -9,7 +9,7 @@ import { EntityIdCache, TextProjectProvider } from "../textproject/TextProjectCo
 import { FLAGS, flagEntry, flagRef, flagUsageOf } from "./flagTesting";
 import { FlagDetail } from "./FlagDetail";
 import type { FlagDetailProps, FlagLive } from "./FlagDetail";
-import { OUTSIDE_THE_SAVE } from "./flagWords";
+import { outsideTheSave } from "./flagWords";
 import { typeInto } from "../ui/primitives/testUtils";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), entityIds: vi.fn() }));
@@ -232,7 +232,7 @@ describe("FlagDetail", () => {
       // A number outside the save takes no live value.
       onSet.mockReset();
       await show({ entry: { ...MEDAILLE, in_save: false }, usage: null, live: live() });
-      expect(liveSection()!.textContent).toContain(OUTSIDE_THE_SAVE);
+      expect(liveSection()!.textContent).toContain(outsideTheSave());
       expect(liveSection()!.querySelector("[role=switch]")).toBeNull();
     });
 

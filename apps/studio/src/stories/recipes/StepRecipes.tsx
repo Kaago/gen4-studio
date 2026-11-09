@@ -1,5 +1,6 @@
 import { Fragment, useId } from "react";
-import { RECIPE_TITLES } from "../../api";
+import { useTranslation } from "react-i18next";
+import { recipeTitleOf } from "../../api";
 import type { StoryDto } from "../../api";
 import { Button, Tooltip } from "../../ui/primitives";
 import type { IconName } from "../../ui/primitives";
@@ -23,11 +24,12 @@ const ICONS: Readonly<Record<StepRecipeId, IconName>> = { talk_advances: "texts"
  * description).
  */
 export function StepRecipes({ story, textProject, onRecipe }: StepRecipesProps) {
+  const { t } = useTranslation("stories");
   const reasonId = useId();
   const lock = recipesLock(story, textProject);
   return (
-    <div className={styles.bar} role="group" aria-label="Schritt anlegen" data-step-recipes="">
-      <span className={styles.label}>Schritt anlegen</span>
+    <div className={styles.bar} role="group" aria-label={t("stepRecipes.label")} data-step-recipes="">
+      <span className={styles.label}>{t("stepRecipes.label")}</span>
       {STEP_RECIPES.map((id) => {
         const button = (
           <Button
@@ -39,7 +41,7 @@ export function StepRecipes({ story, textProject, onRecipe }: StepRecipesProps) 
             aria-describedby={lock !== null ? reasonId : undefined}
             onClick={() => onRecipe({ recipe: id, prefill: { story: story.story.id } })}
           >
-            {RECIPE_TITLES[id]}
+            {recipeTitleOf(id)}
           </Button>
         );
         return lock === null ? (

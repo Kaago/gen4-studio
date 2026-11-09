@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteEntity, planDelete } from "../api";
 import type { DeletePlan, DeleteResult, StoryMention } from "../api";
 import { pressKey } from "../ui/primitives/testUtils";
-import { DeleteDialog, MENTIONS_HINT } from "./DeleteDialog";
+import { DeleteDialog } from "./DeleteDialog";
 import type { DeleteDialogProps } from "./DeleteDialog";
 import { TRAINER_901, deletePlan, deleteResult, figureRef } from "./deleteTesting";
 
@@ -21,6 +21,7 @@ vi.mock("../api", async (importOriginal) => ({
 const ORIGINAL_WARNING = "Original aus der Basis-ROM: der Eintrag bleibt im ROM; „Auf Original zurücksetzen“ holt ihn zurück.";
 const KEEPS = "Inhalt und Member bleiben; ⌘Z holt den Eintrag zurück.";
 const FREE = "Nummer freigeben (nicht rückgängig)";
+const MENTIONS_HINT = "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.";
 
 /** A promise and the function that settles it, for a step the test lets go on. */
 function deferred<T>() {
@@ -229,9 +230,6 @@ describe("DeleteDialog", () => {
     expect(chips().map((c) => c.textContent)).toEqual(["Testfaden › Kampf gegen Kai", "Testfaden"]);
     expect(chips().map((c) => c.dataset.deleteMention)).toEqual(["STORY_TESTFADEN", "STORY_TESTFADEN"]);
     expect(mentions()?.textContent).toContain(MENTIONS_HINT);
-    expect(MENTIONS_HINT).toBe(
-      "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.",
-    );
     expect(notices("alert")).toEqual([]);
     expect(notices("status")).toEqual([KEEPS]);
     expect(button("Löschen")?.disabled).toBe(false);

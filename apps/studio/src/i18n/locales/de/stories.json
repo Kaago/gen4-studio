@@ -1,1 +1,233 @@
-{}
+{
+  "storyWords": {
+    "valuesNone": "Keine Werte",
+    "values_one": "{{count}} Wert: {{shown}}",
+    "values_other": "{{count}} Werte: {{shown}}",
+    "placesCount_one": "{{count}} Ort",
+    "placesCount_other": "{{count}} Orte",
+    "storiesCount_zero": "Keine Geschichten",
+    "storiesCount_one": "{{count, number}} Geschichte",
+    "storiesCount_other": "{{count, number}} Geschichten",
+    "freeVars_zero": "Keine Variable frei",
+    "freeVars_one": "{{count, number}} Variable frei",
+    "freeVars_other": "{{count, number}} Variablen frei",
+    "use": {
+      "text": "Text",
+      "condition": "Bedingung",
+      "object": "Objekt"
+    }
+  },
+  "geschichtenArea": {
+    "title": "Geschichten",
+    "threads": "Fäden",
+    "stories": "Geschichten",
+    "flags": "Flags und Variablen",
+    "noProject": "Kein Projekt",
+    "notReadable": "Nicht lesbar",
+    "reading": "Wird gelesen …"
+  },
+  "threadsSurface": {
+    "title": "Fäden",
+    "intro": "Variablen, mit denen das Spiel eine Geschichte erzählt: drei Werte oder mehr, gesetzt oder geprüft an zwei Orten oder mehr.",
+    "noProject": "Kein Projekt geöffnet.",
+    "noProjectWhy": "Öffne ein Projekt, dann stehen hier seine Fäden.",
+    "openProject": "Projekt öffnen",
+    "reading": "Wird gelesen …",
+    "noThreads": "Keine Fäden.",
+    "noThreadsWhy": "Keine Variable hat drei Werte an zwei Orten.",
+    "notAdopted": "Keine Fäden: die Scripts sind nicht übernommen.",
+    "notAdoptedWhy": "Ohne Script-Quellen sieht der Index nicht, welche Werte Scripts setzen und prüfen.",
+    "adoptScripts": "Scripts übernehmen…",
+    "chooseOne": "Wähle einen Faden: darunter erscheint sein Graph, links die Orte, die einen Wert setzen, rechts die, die ihn prüfen.",
+    "table": "Fäden",
+    "columns": {
+      "thread": "Faden",
+      "values": "Werte",
+      "places": "Orte",
+      "story": "Geschichte"
+    },
+    "count_zero": "Keine Fäden",
+    "count_one": "{{count, number}} Faden",
+    "count_other": "{{count, number}} Fäden",
+    "graphHeading": "Graph: {{name}}",
+    "graphReading": "Graph wird gelesen …",
+    "graphLoading": "Graph wird geladen…"
+  },
+  "storiesSurface": {
+    "title": "Geschichten",
+    "intro": "Geschichten erzählen mit einer Variable oder einem Flag, Schritt für Schritt, was im Spiel geschieht.",
+    "newStory": "Neue Geschichte…",
+    "noProject": "Kein Projekt geöffnet.",
+    "noProjectWhy": "Öffne ein Projekt, dann stehen hier seine Geschichten.",
+    "openProject": "Projekt öffnen",
+    "reading": "Wird gelesen …",
+    "noTextProject": "Kein Textprojekt.",
+    "noTextProjectWhy": "Geschichten liegen als Dateien im Textprojekt; im DSPRE-Layout gibt es keine. Technik › Textprojekt richtet es ein.",
+    "setUpTextProject": "Als Textprojekt einrichten…",
+    "noStories": "Noch keine Geschichten.",
+    "noStoriesWhy": "„Neue Geschichte…“ legt eine an: ein Name und die Variable oder das Flag, das ihren Fortschritt hält.",
+    "table": "Geschichten",
+    "columns": {
+      "name": "Name",
+      "progress": "Fortschritt",
+      "steps": "Schritte"
+    },
+    "chooseOne": "Wähle eine Geschichte: darunter erscheinen ihre Notizen, ihre Schritte und ihr Graph.",
+    "storyReading": "Geschichte wird gelesen …"
+  },
+  "storyDetail": {
+    "noValues": "Noch keine Werte im Spiel",
+    "noSteps": "Noch keine Schritte. „Schritt anlegen“ legt sie über Rezepte an.",
+    "storyLabel": "Geschichte {{name}}",
+    "name": "Name",
+    "progress": "Fortschritt",
+    "deleteStory": "Geschichte löschen…",
+    "notes": "Notizen",
+    "saving": "Wird gespeichert …",
+    "steps": "Schritte",
+    "graph": "Graph",
+    "graphReading": "Graph wird gelesen …",
+    "graphLoading": "Graph wird geladen…",
+    "columns": {
+      "value": "Wert",
+      "kind": "Art",
+      "name": "Name",
+      "uses": "Verweise"
+    },
+    "madeBy": "Angelegt von „{{recipe}}“ (Studio {{studio}})",
+    "deleteDialog": {
+      "title": "Geschichte „{{name}}“ löschen?",
+      "text": "Die Datei der Geschichte, ihr Layout und ihr Registereintrag gehen. Rückgängig mit ⌘Z.",
+      "cancel": "Abbrechen",
+      "delete": "Löschen",
+      "deleting": "Lösche …"
+    }
+  },
+  "newStoryDialog": {
+    "title": "Neue Geschichte",
+    "description": "Eine Geschichte hält ihren Fortschritt in einer Variable oder einem Flag; ihre Schritte legen die Rezepte an.",
+    "cancel": "Abbrechen",
+    "create": "Geschichte anlegen",
+    "name": "Name",
+    "progress": "Fortschritt",
+    "progressKind": "Art des Fortschritts",
+    "stillFree": "Noch {{free}}",
+    "notes": "Notizen",
+    "creating": "Wird angelegt …"
+  },
+  "storyHint": {
+    "story": "Geschichte „{{name}}“",
+    "storyStep": "Geschichte „{{name}}“: {{step}}"
+  },
+  "threadGraph": {
+    "open": "Öffnen",
+    "selectNode": "Enter oder Leertaste wählt einen Knoten.",
+    "selectEdge": "Enter oder Leertaste wählt eine Kante.",
+    "handle": "Anschluss",
+    "movable": "Enter oder Leertaste wählt einen Knoten; die Pfeiltasten verschieben den gewählten, mit Umschalt weiter.",
+    "moved": "Knoten nach {{direction}} verschoben, jetzt bei x {{x}}, y {{y}}",
+    "direction": {
+      "up": "oben",
+      "down": "unten",
+      "left": "links",
+      "right": "rechts"
+    }
+  },
+  "graphModel": {
+    "value": "Wert {{value}}",
+    "trigger": "Auslöser {{slot}}",
+    "object": "Objekt {{slot}}",
+    "condition": "Bedingung {{number}}",
+    "line": "Zeile {{line}} · {{field}}"
+  },
+  "storyRecipeModel": {
+    "trainersTalk": "Trainer sprechen über ihre Kampftexte",
+    "needsVar": "Rezepte brauchen eine Variable als Fortschritt",
+    "descriptions": {
+      "talkAdvances": "Die Figur bekommt einen Gesprächszweig: ab dem gewählten Schritt sagt sie den Text und schaltet die Geschichte weiter.",
+      "figureAppears": "Die Figur erscheint oder verschwindet ab dem gewählten Schritt; ein Flag aus dem Pool hält, ob sie da ist.",
+      "sceneOnEnter": "Wer den Ort beim gewählten Schritt betritt, sieht den Text; danach schaltet die Geschichte weiter.",
+      "rewardOnce": "Die Figur gibt ab dem gewählten Schritt einmal einen Gegenstand; ein Flag aus dem Pool merkt sich, dass er gegeben ist."
+    },
+    "rewardText": "Du erhältst {{item}}!",
+    "defaultStepName": {
+      "talk": "Gespräch",
+      "talkWithFigure": "Gespräch mit Figur {{id}}",
+      "figure": "Figur",
+      "figureWithId": "Figur {{id}}",
+      "appears": "{{who}} erscheint",
+      "appearsFromStep": "{{who}} erscheint ab Schritt {{step}}",
+      "disappears": "{{who}} verschwindet",
+      "disappearsFromStep": "{{who}} verschwindet ab Schritt {{step}}",
+      "scene": "Szene beim Betreten",
+      "sceneAt": "Szene beim Betreten von {{place}}",
+      "reward": "Belohnung",
+      "rewardFromFigure": "Belohnung von Figur {{id}}",
+      "rewardItem": "Belohnung: {{item}}"
+    }
+  },
+  "stepRecipes": {
+    "label": "Schritt anlegen"
+  },
+  "stepField": {
+    "reading": "Die Schritte werden gelesen …",
+    "noStep": "Die Geschichte hat noch keinen Schritt.",
+    "fromStep": "Ab Schritt",
+    "step": "Schritt"
+  },
+  "recipeFields": {
+    "text": "Text",
+    "hint": "Enter: neue Zeile; Umschalt+Enter: neue Seite (▼).",
+    "freeFlags_one": "Noch {{count}} Flag frei",
+    "freeFlags_other": "Noch {{count}} Flags frei"
+  },
+  "figureField": {
+    "figureLabel": "Figur {{id}} · Aussehen {{look}}",
+    "figureShort": "Figur {{id}}",
+    "noFigureChosen": "Keine gewählt",
+    "noPlaceChosen": "Keiner gewählt",
+    "trainer": "Trainer",
+    "place": "Ort",
+    "figure": "Figur",
+    "choose": "Wählen…",
+    "choosePlaceLabel": "Ort wählen…",
+    "chooseFigureLabel": "Figur wählen…",
+    "choosePlaceTitle": "Ort wählen",
+    "chooseFigureTitle": "Figur wählen",
+    "searchFigure": "Figur oder Nummer suchen",
+    "noFigureHere": "Keine Figur an diesem Ort.",
+    "placeHasNone": "Der Ort hat keine Figuren."
+  },
+  "figureAppearsForm": {
+    "appears": "erscheint",
+    "disappears": "verschwindet",
+    "theFigure": "Die Figur",
+    "way": "Erscheint oder verschwindet",
+    "visibilityFlag": "Sichtbarkeits-Flag"
+  },
+  "rewardOnceForm": {
+    "item": "Gegenstand",
+    "noItemChosen": "Keiner gewählt",
+    "rewardFlag": "Flag der Belohnung"
+  },
+  "sceneOnEnterForm": {
+    "place": "Ort",
+    "noPlaceChosen": "Keiner gewählt",
+    "choose": "Wählen…",
+    "choosePlaceLabel": "Ort wählen…",
+    "choosePlaceTitle": "Ort wählen"
+  },
+  "storyRecipeDialog": {
+    "cancel": "Abbrechen",
+    "create": "Anlegen",
+    "story": "Geschichte",
+    "storiesReading": "Die Geschichten werden gelesen …",
+    "noVarStory": "Noch keine Geschichte mit einer Variable als Fortschritt.",
+    "newStory": "Neue Geschichte…",
+    "stepName": "Name des Schritts",
+    "creating": "Wird angelegt …",
+    "whatItDoes": "Was das Rezept tut",
+    "chooseFirst": "Sobald alles gewählt ist, steht hier, was das Rezept anlegt.",
+    "planning": "Wird geplant …"
+  }
+}

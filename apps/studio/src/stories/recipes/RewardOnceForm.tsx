@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary, ProjectInfo, Step } from "../../api";
 import { itemName } from "../../data/pokedex/pokedexModel";
 import { PickField } from "../../data/pokedex/pickers";
@@ -25,17 +26,18 @@ export type RewardOnceFormProps = {
  * {Gegenstand}!“ until one is typed) and the flag from the pool that keeps the reward given.
  */
 export function RewardOnceForm({ form, onChange, steps, headers, project, revision, disabled, onError }: RewardOnceFormProps) {
+  const { t } = useTranslation("stories");
   const { names } = useDataArea("pokemon");
   return (
     <>
       <FigureField header={form.figure?.header ?? null} localId={form.figure?.local_id ?? null} onChange={(figure) => onChange({ ...form, figure })} headers={headers} revision={revision} lockTrainers disabled={disabled} onError={onError} />
-      <StepField label="Ab Schritt" steps={steps} value={form.step} onChange={(step) => onChange({ ...form, step })} disabled={disabled} />
+      <StepField label={t("stepField.fromStep")} steps={steps} value={form.step} onChange={(step) => onChange({ ...form, step })} disabled={disabled} />
       <div className={styles.field}>
-        <span className={styles.label}>Gegenstand</span>
-        <PickField label="Gegenstand" text={form.itemName ?? "Keiner gewählt"} choice="item" disabled={disabled} onPick={(item) => onChange({ ...form, item, itemName: itemName(names.items, item) })} />
+        <span className={styles.label}>{t("rewardOnceForm.item")}</span>
+        <PickField label={t("rewardOnceForm.item")} text={form.itemName ?? t("rewardOnceForm.noItemChosen")} choice="item" disabled={disabled} onPick={(item) => onChange({ ...form, item, itemName: itemName(names.items, item) })} />
       </div>
       <SaysField value={rewardSays(form)} onChange={(text) => onChange({ ...form, text })} disabled={disabled} />
-      <PoolFlagField label="Flag der Belohnung" value={form.flag} onChange={(flag) => onChange({ ...form, flag })} project={project} revision={revision} disabled={disabled} />
+      <PoolFlagField label={t("rewardOnceForm.rewardFlag")} value={form.flag} onChange={(flag) => onChange({ ...form, flag })} project={project} revision={revision} disabled={disabled} />
     </>
   );
 }

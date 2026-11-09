@@ -1,7 +1,9 @@
 import { Suspense, lazy, useId, useMemo, useState } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import type { ProjectInfo, StoryRowDto, ThreadDto, ThreadListDto } from "../api";
 import { hex4 } from "../flags/flagWords";
+import { t as translate } from "../i18n";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { EmptyState, Notice, Reference, Table } from "../ui/primitives";
@@ -36,16 +38,9 @@ export type ThreadsSurfaceProps = {
   stories?: readonly StoryRowDto[] | null;
 };
 
-const COLUMNS: readonly TableColumn[] = [
-  { key: "name", label: "Faden" },
-  { key: "values", label: "Werte" },
-  { key: "places", label: "Orte" },
-  { key: "story", label: "Geschichte", width: 200 },
-];
-
 /** „3 Fäden“, „1 Faden“, „Keine Fäden“: the count of the list (and of the entry in the list of Geschichten). */
 export function threadsCount(n: number): string {
-  return n === 0 ? "Keine Fäden" : n === 1 ? "1 Faden" : `${n.toLocaleString("de-DE")} Fäden`;
+  return translate("stories:threadsSurface.count", { count: n });
 }
 
 /**
@@ -55,75 +50,83 @@ export function threadsCount(n: number): string {
  * the way to adopt them; without a project it offers to open one.
  */
 export function ThreadsSurface({ threads, error, depth, selected, onSelect, goTo, project, revision, onOpenTextProject, onOpenProject, stories }: ThreadsSurfaceProps): JSX.Element {
+  const { t } = useTranslation("stories");
   const titleId = useId();
+  const columns: readonly TableColumn[] = [
+    { key: "name", label: t("threadsSurface.columns.thread") },
+    { key: "values", label: t("threadsSurface.columns.values") },
+    { key: "places", label: t("threadsSurface.columns.places") },
+    { key: "story", label: t("threadsSurface.columns.story"), width: 200 },
+  ];
   const tech = depthAtLeast(depth, "bauen");
-  const chosen = threads?.threads.find((t) => t.var === selected) ?? null;
+  const chosen = threads?.threads.find((thread) => thread.var === selected) ?? null;
   const rows = useMemo(
     (): TableRow[] =>
-      (threads?.threads ?? []).map((t) => ({
-        key: String(t.var),
-        attrs: { "data-thread-row": String(t.var) },
+      (threads?.threads ?? []).map((thread) => ({
+        key: String(thread.var),
+        attrs: { "data-thread-row": String(thread.var) },
         cells: {
           name: (
             <span className={styles.name}>
-              <span data-thread-name="">{threadName(t)}</span>
+              <span data-thread-name="">{threadName(thread)}</span>
               {tech && (
                 <span className={styles.tech} data-thread-tech="">
-                  {hex4(t.var)}
+                  {hex4(thread.var)}
                 </span>
               )}
             </span>
           ),
-          values: valuesText(t.values),
-          places: placesText(t),
-          story: <StoryChip thread={t} stories={stories ?? null} tech={tech} goTo={goTo} />,
+          values: valuesText(thread.values),
+          places: placesText(thread),
+          story: <StoryChip thread={thread} stories={stories ?? null} tech={tech} goTo={goTo} />,
         },
       })),
-    [threads, tech, stories, goTo],
+    // `t` changes with the language: the texts of the cells (values, places) are made again then.
+    [threads, tech, stories, goTo, t],
   );
 
   return (
     <section className={styles.surface} data-geschichten-surface="threads" aria-labelledby={titleId}>
       <header className={styles.head}>
         <h1 id={titleId} className={styles.title}>
-          Fäden
+          {t("threadsSurface.title")}
         </h1>
-        <p className={styles.text}>Variablen, mit denen das Spiel eine Geschichte erzählt: drei Werte oder mehr, gesetzt oder geprüft an zwei Orten oder mehr.</p>
+        <p className={styles.text}>{t("threadsSurface.intro")}</p>
       </header>
       {project === null ? (
         <EmptyState
-          what="Kein Projekt geöffnet."
-          why="Öffne ein Projekt, dann stehen hier seine Fäden."
-          action={onOpenProject && { label: "Projekt öffnen", onClick: onOpenProject }}
+          what={t("threadsSurface.noProject")}
+          why={t("threadsSurface.noProjectWhy")}
+          action={onOpenProject && { label: t("threadsSurface.openProject"), onClick: onOpenProject }}
         />
       ) : threads === null ? (
         error === null ? (
-          <p className={styles.note}>Wird gelesen …</p>
+          <p className={styles.note}>{t("threadsSurface.reading")}</p>
         ) : (
           <Notice kind="error">{error}</Notice>
         )
       ) : threads.threads.length === 0 ? (
         threads.scripts_adopted ? (
-          <EmptyState what="Keine Fäden." why="Keine Variable hat drei Werte an zwei Orten." />
+          <EmptyState what={t("threadsSurface.noThreads")} why={t("threadsSurface.noThreadsWhy")} />
         ) : (
           <EmptyState
-            what="Keine Fäden: die Scripts sind nicht übernommen."
-            why="Ohne Script-Quellen sieht der Index nicht, welche Werte Scripts setzen und prüfen."
-            action={{ label: "Scripts übernehmen…", onClick: onOpenTextProject }}
+            what={t("threadsSurface.notAdopted")}
+            why={t("threadsSurface.notAdoptedWhy")}
+            action={{ label: t("threadsSurface.adoptScripts"), onClick: onOpenTextProject }}
           />
         )
       ) : (
         <>
           <Table
-            columns={COLUMNS}
+            columns={columns}
             rows={rows}
-            ariaLabel="Fäden"
+            ariaLabel={t("threadsSurface.table")}
             selected={selected === null ? undefined : String(selected)}
             onSelect={(key) => onSelect(Number(key))}
             footer={threadsCount(threads.threads.length)}
           />
           {chosen === null ? (
-            <p className={styles.note}>Wähle einen Faden: darunter erscheint sein Graph, links die Orte, die einen Wert setzen, rechts die, die ihn prüfen.</p>
+            <p className={styles.note}>{t("threadsSurface.chooseOne")}</p>
           ) : (
             <ThreadGraphBox key={chosen.var} thread={chosen} project={project} revision={revision} goTo={goTo} />
           )}
@@ -154,21 +157,22 @@ function StoryChip({ thread, stories, tech, goTo }: { thread: ThreadDto; stories
 
 /** The graph of the chosen thread (with its story's steps), its title above; a node chosen in it is kept while the thread stays. */
 function ThreadGraphBox({ thread, project, revision, goTo }: { thread: ThreadDto; project: ProjectInfo | null; revision: number; goTo: (t: NavTarget) => void }) {
+  const { t } = useTranslation("stories");
   const headingId = useId();
   const { graph, error } = useThreadGraph(thread.var, thread.story, { project, revision });
   const [node, setNode] = useState<string | null>(null);
   return (
     <section className={styles.graphSection} data-thread-graph-box="" aria-labelledby={headingId}>
       <h2 id={headingId} className={styles.heading}>
-        Graph: {threadName(thread)}
+        {t("threadsSurface.graphHeading", { name: threadName(thread) })}
       </h2>
       {error !== null ? (
         <Notice kind="error">{error}</Notice>
       ) : graph === null ? (
-        <p className={styles.note}>Graph wird gelesen …</p>
+        <p className={styles.note}>{t("threadsSurface.graphReading")}</p>
       ) : (
         <div className={styles.graphBox}>
-          <Suspense fallback={<p className={styles.note}>Graph wird geladen…</p>}>
+          <Suspense fallback={<p className={styles.note}>{t("threadsSurface.graphLoading")}</p>}>
             <ThreadGraph graph={graph} selected={node} onSelect={setNode} onOpenPlace={goTo} />
           </Suspense>
         </div>

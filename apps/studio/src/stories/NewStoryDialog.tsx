@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, freeFlag, isCmdError, recipeApply, storyCreate } from "../api";
 import type { FlagKind, NewStoryInput, NewStoryReport, Progress, ProjectInfo, StoryReport } from "../api";
 import { FlagField } from "../flags/FlagField";
+import { kindWord } from "../flags/flagWords";
 import { useFlagList } from "../flags/useFlagList";
 import { Dialog, Notice, Segmented, TextField } from "../ui/primitives";
 import { flagIdOf, freeVarsText } from "./storyWords";
@@ -31,6 +33,9 @@ export async function createStory(request: NewStoryRequest): Promise<{ report: S
  * nothing to give, the recipe cannot run). */
 type Free = { number: number; poolFree: number } | { refusal: string; empty: boolean };
 
+/** The kinds of progress, in the order the switch offers them; the words come from `kindWord`. */
+const KINDS = ["var", "flag"] as const;
+
 export type NewStoryDialogProps = {
   open: boolean;
   onClose: () => void;
@@ -40,10 +45,6 @@ export type NewStoryDialogProps = {
   revision: number;
 };
 
-const KINDS = [
-  { value: "var", label: "Variable" },
-  { value: "flag", label: "Flag" },
-] as const;
 
 /**
  * „Neue Geschichte“: the name (required), the progress as a variable or a flag (the field of 3d.1 with its picker and „Freie Variable
@@ -54,6 +55,7 @@ const KINDS = [
  * else its pret name, else its fallback id: each resolves to the number in the kernel).
  */
 export function NewStoryDialog({ open, onClose, onCreate, project, revision }: NewStoryDialogProps): JSX.Element {
+  const { t } = useTranslation("stories");
   const [name, setName] = useState("");
   const [kind, setKind] = useState<FlagKind>("var");
   const [number, setNumber] = useState(0);
@@ -130,23 +132,23 @@ export function NewStoryDialog({ open, onClose, onCreate, project, revision }: N
         if (!next && !busy.current) onClose();
       }}
       dismissible={!running}
-      title="Neue Geschichte"
-      description="Eine Geschichte hält ihren Fortschritt in einer Variable oder einem Flag; ihre Schritte legen die Rezepte an."
+      title={t("newStoryDialog.title")}
+      description={t("newStoryDialog.description")}
       data={{ "data-new-story-dialog": "" }}
       actions={[
-        { label: "Abbrechen", onClick: onClose, disabled: running },
-        { label: "Geschichte anlegen", kind: "primary", onClick: () => void submit(), disabled: running || !ready },
+        { label: t("newStoryDialog.cancel"), onClick: onClose, disabled: running },
+        { label: t("newStoryDialog.create"), kind: "primary", onClick: () => void submit(), disabled: running || !ready },
       ]}
     >
       <div className={styles.dialog}>
-        <TextField label="Name" showLabel value={name} onCommit={setName} onChange={setName} disabled={running} />
-        <div className={styles.progress} role="group" aria-label="Fortschritt">
-          <span className={styles.label}>Fortschritt</span>
+        <TextField label={t("newStoryDialog.name")} showLabel value={name} onCommit={setName} onChange={setName} disabled={running} />
+        <div className={styles.progress} role="group" aria-label={t("newStoryDialog.progress")}>
+          <span className={styles.label}>{t("newStoryDialog.progress")}</span>
           <div data-progress-kind={kind}>
             <Segmented
-              ariaLabel="Art des Fortschritts"
+              ariaLabel={t("newStoryDialog.progressKind")}
               size="s"
-              options={KINDS.map((k) => ({ ...k, disabled: running }))}
+              options={KINDS.map((k) => ({ value: k, label: kindWord(k), disabled: running }))}
               value={kind}
               onChange={(next) => {
                 setKind(next);
@@ -155,17 +157,17 @@ export function NewStoryDialog({ open, onClose, onCreate, project, revision }: N
               }}
             />
           </div>
-          <FlagField bare kind={kind} label="Fortschritt" value={number} onCommit={setNumber} disabled={running} depth="bauen" project={project} revision={revision} field="progress" />
+          <FlagField bare kind={kind} label={t("newStoryDialog.progress")} value={number} onCommit={setNumber} disabled={running} depth="bauen" project={project} revision={revision} field="progress" />
           {kind === "var" && free !== null && (
             <p className={styles.note} data-pool-free="">
-              {"number" in free ? `Noch ${freeVarsText(free.poolFree)}` : free.refusal}
+              {"number" in free ? t("newStoryDialog.stillFree", { free: freeVarsText(free.poolFree) }) : free.refusal}
             </p>
           )}
         </div>
-        <TextField label="Notizen" showLabel multiline value={notes} onCommit={setNotes} onChange={setNotes} disabled={running} />
+        <TextField label={t("newStoryDialog.notes")} showLabel multiline value={notes} onCommit={setNotes} onChange={setNotes} disabled={running} />
         {running && (
           <p className={styles.note} role="status">
-            Wird angelegt …
+            {t("newStoryDialog.creating")}
           </p>
         )}
         {refusal !== null && <Notice kind="error">{refusal}</Notice>}
