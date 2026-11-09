@@ -1077,12 +1077,13 @@ pub fn piece_set_label(package: u16, tile: u16, model: &str) -> String {
 
 /// One undo step „Teilmodell gesetzt: Kachel 5 in Tileset 0006 (baum)“: textures appended to
 /// `package`, side file `PPPP.<name>.glb`, tile set to role `piece`, `footprint`, `model`; needs
-/// the tileset file; then forget_world_bakes(package).
+/// the tileset file.
 ///
 /// In order (R10): the new textures appended, the side file written as a file step, the tileset
-/// file as a file step (recording it bakes the clean world maps of the package anew, with the
-/// side file there), squashed into one step; any failure rolls back to the mark. The tile's old
-/// model file goes in the same step when no other tile names it. Refused
+/// file as a file step (recording it with [`Store::record_file_step`] bakes the clean world maps
+/// of the package anew, with the side file there), squashed into one step; any failure rolls
+/// back to the mark. The tile's old model file goes in the same step when no other tile names
+/// it. Refused
 /// ([`KernelError::Refused`], nothing written): outside a text project, without the tileset
 /// file ([`tileset_file_missing`]), a tile past the tileset, a footprint without a cell, a
 /// model the reader or the conversion refuses („Teilmodell nicht gesetzt: …“), a result with

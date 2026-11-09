@@ -10,8 +10,9 @@
 //! texture of the upper cell's tile (without one, the tile's own); collinear wall pieces of one
 //! wall tile (its index) and facing merge. No wall at the map border, next to an empty cell or where the
 //! profiles cross. Every piece leaves one footprint face on [`PIECE_LAYER`], or with [`mesh_with`]
-//! the faces of its model side file in its place ([`PieceModels`]). Order: layer
-//! ascending; per layer the floors by start cell (row, then column), then the walls (north
+//! the faces of its model side file in its place ([`PieceModels`]; [`mesh_with_marks`] marks
+//! them for the scene). Order: layer ascending; per layer the floors by start cell (row, then
+//! column), then the walls (north
 //! edges row by row, then west edges column by column); the footprints once after all layers,
 //! in list order.
 //!
@@ -154,6 +155,17 @@ pub fn mesh(grid: &WorldGrid, tileset: &Tileset) -> Vec<MeshFace> {
 /// seen from above, `(x, z) → (−z, x)` per quarter, on whole world units; its faces take layer
 /// [`PIECE_LAYER`], their uvs and textures stay.
 pub fn mesh_with(grid: &WorldGrid, tileset: &Tileset, pieces: &PieceModels) -> Vec<MeshFace> {
+    mesh_with_marks(grid, tileset, pieces).0
+}
+
+/// [`mesh_with`] and per face whether it is model geometry (a face of a piece's side file), not
+/// a grid face or a footprint: the scene draws model geometry solid, a footprint see-through,
+/// though both are on [`PIECE_LAYER`].
+pub fn mesh_with_marks(
+    grid: &WorldGrid,
+    tileset: &Tileset,
+    pieces: &PieceModels,
+) -> (Vec<MeshFace>, Vec<bool>) {
     let corners: Vec<Corners> = grid
         .heights
         .iter()
@@ -174,8 +186,9 @@ pub fn mesh_with(grid: &WorldGrid, tileset: &Tileset, pieces: &PieceModels) -> V
             walls(&layer.tiles, &corners, tileset, &mut faces);
         }
     }
-    footprints(grid, &corners, tileset, pieces, &mut faces);
-    faces
+    let mut models = vec![false; faces.len()];
+    footprints(grid, &corners, tileset, pieces, &mut faces, &mut models);
+    (faces, models)
 }
 
 /// The merged floors of one layer: greedy row by row over (tile token, height, ramp), first
@@ -423,13 +436,15 @@ pub(crate) fn footprint_of(
 
 /// One horizontal face per piece over its footprint (clipped to the map) at the highest
 /// corner of the ground cells below it, or the piece's model from `pieces` placed there; a
-/// footprint of width or depth 0 leaves none.
+/// footprint of width or depth 0 leaves none. `models` gets one mark per face pushed: `true`
+/// for a model's face, `false` for a footprint.
 fn footprints(
     grid: &WorldGrid,
     corners: &[Corners],
     tileset: &Tileset,
     pieces: &PieceModels,
     faces: &mut Vec<MeshFace>,
+    models: &mut Vec<bool>,
 ) {
     for piece in &grid.pieces {
         let Some((w, d, texture)) = footprint_of(tileset, piece.tile, piece.rotate) else {
@@ -460,8 +475,10 @@ fn footprints(
                 texture: f.texture.clone(),
                 layer: PIECE_LAYER,
             }));
+            models.resize(faces.len(), true);
             continue;
         }
+        models.push(false);
         faces.push(floor_face(
             (x0, x1),
             (z0, z1),
@@ -981,6 +998,16 @@ mod tests {
         // The rest of the mesh is the same.
         let plain = mesh(&g, &t);
         assert_eq!(faces[..faces.len() - 6], plain[..plain.len() - 1]);
+        // Marked: the model's faces, not the grid's.
+        let (marked, models) = mesh_with_marks(&g, &t, &piece_model(cube));
+        assert_eq!(marked, faces);
+        assert_eq!(
+            models,
+            [vec![false; faces.len() - 6], vec![true; 6]].concat()
+        );
+        // A footprint face is no model.
+        let (_, models) = mesh_with_marks(&g, &t, &PieceModels::default());
+        assert_eq!(models, vec![false; plain.len()]);
     }
 
     #[test]

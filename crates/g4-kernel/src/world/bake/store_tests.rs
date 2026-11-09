@@ -747,6 +747,9 @@ fn world_faces_show_grid_pieces_and_freeform() {
             .count(),
         6
     );
+    // Model geometry (the piece's and the free-form's side file) is marked, grid faces are not.
+    assert_eq!(shown.model.len(), shown.faces.len());
+    assert_eq!(shown.model, [vec![false], vec![true; 12]].concat());
     let names: Vec<&str> = shown.textures.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(names, ["syn_boden", "syn_gras"]);
     // The bake through the store reads the same side files.
@@ -764,6 +767,8 @@ fn world_faces_show_grid_pieces_and_freeform() {
     assert_eq!(shown.messages[0].args, ["data/tilesets/0000.turm.glb"]);
     assert_eq!(shown.faces.len(), 1 + 1 + 6);
     assert!(shown.faces.iter().any(|f| f.texture == "syn_stueck"));
+    // The footprint face is no model geometry.
+    assert_eq!(shown.model, [vec![false, false], vec![true; 6]].concat());
     let baked = bake_world(&mut st, 0, &world, &base, &Verbatim::default()).unwrap();
     assert!(!baked.report.ok && baked.report.model_kept);
 

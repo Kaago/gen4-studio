@@ -462,7 +462,7 @@ Diese sieben Befehle gehen über `g4_call` (Expertenmodus, `--expert`); seit 6.4
 | `world_get` | Lesen | `map` | `{map, world, faces, textures, estimate, share}`: das Weltobjekt (`null` ohne Welt), Flächen und Texturen des Netzes, die geschätzte Modellgröße in Byte und ihr Anteil an 0xF000 |
 | `tileset_get` | Lesen | `package` | `{package, stored, tileset}`: die Datei `data/tilesets/NNNN.json` (`stored: true`) oder aus dem Paket und den Vanilla-Permissions abgeleitet (`stored: false`) |
 | `tileset_save` | Schreiben (ein Undo-Schritt) | `package` | `{package, file, tiles, vanilla, unclear, change}`: schreibt das abgeleitete Tileset als Datei |
-| `get_world_mesh` | Lesen | `map` | `{map, tileset, faces, textures: [{name, width, height, role, palette?}], corners, uv, texture, layer}`: je Fläche 12 Koordinaten, 8 UV-Werte, der Index der Textur und die Ebene; ohne Welt `faces: 0` und leere Felder |
+| `get_world_mesh` | Lesen | `map` | `{map, tileset, faces, textures: [{name, width, height, role, palette?}], corners, uv, texture, layer, model}`: je Fläche 12 Koordinaten, 8 UV-Werte, der Index der Textur, die Ebene und ob sie Modellgeometrie aus einem Beifile ist (Freiform oder Teilmodell, `true`; Raster und Fußabdrücke `false`); ohne Welt `faces: 0` und leere Felder |
 | `get_tileset_texture` | Lesen | `package, texture` | `{width, height, rgba}` mit der Palette der Kachel, oder `null` (Textur oder Paket fehlt, das Paket liest sich nicht, Format ohne Decoder) |
 
 Ablehnungen (`error` mit dem Text, nichts geändert):

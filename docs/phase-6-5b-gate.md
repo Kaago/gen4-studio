@@ -148,6 +148,6 @@ Die Freiform-Zahlen sind auf allen drei Spielen gleich: dieselbe gemalte Welt (`
 
 - B1 (Fix-Welle) und danach die Automatik (1) 4 erneut (Zahlen hier nachführen).
 - `scripts/gate.sh` als Ganzes auf main (Hauptsitzung, nach dem Merge); die gated Läufe dieses Gates liegen vor dem Merge von 6.4a (`7c5f7163`, 6.4a änderte den Kernel um `tests/world_paint.rs` und das Malen).
-- Hand und Blick (4) 1 bis 8 beim Nutzer.
+- Hand und Blick (4): 1 bis 8 beim Nutzer, 9 (`scripts/gate.sh` auf main) in der Hauptsitzung nach dem Merge.
 - Form 2 deckt nicht jede Vanilla-Karte ab: Karten ohne Matrixzelle mit Header (`world.no-area`), Modelle über −512..511 (`model.out-of-range`), dichte Modelle über 0xF000 (`bake.model-too-big`: 1 / 14 / 14) und Texturen in keinem Paket bleiben bei Form 1 (Plan „Offen“: „Form 1 bleibt für diese Karten der Weg“).
 - Kachelbilder mit Format 5 (4 × 4) sind im TMJ und in der Szene Platzhalter, bis der Dekoder kommt (6.4a zählte auf Vanilla `placeholder=0`).

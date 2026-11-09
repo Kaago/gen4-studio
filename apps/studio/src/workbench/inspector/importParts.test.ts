@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImportPreview, PartReport } from "../../api";
-import { PART_TEXTS, WORLD_TEXTS, isForeignWhole, partText, partView, previewLines, sourceMapItems, worldText } from "./importParts";
+import { PART_TEXTS, WORLD_TEXTS, isForeignWhole, partText, partView, previewLines, sourceMapItems, tmjErrorLines, worldText } from "./importParts";
 
 const said = (code: string, args: string[]) => partText({ code, args, message: "the kernel's sentence" });
 
@@ -192,5 +192,11 @@ describe("importParts", () => {
     // A part code goes through PART_TEXTS, an unknown one keeps the kernel's sentence.
     expect(worldText({ code: "model.too-big", args: ["65000", "61440"], message: "x" })).toBe("Das Modell ist 65.000 Byte groß, erlaubt sind 61.440. Wähle ein kleineres Modell.");
     expect(worldText({ code: "world.someday", args: [], message: "the kernel's sentence" })).toBe("the kernel's sentence");
+  });
+
+  it("tmj_error_lines_leave_out_an_empty_path", () => {
+    // A file that is no JSON or no TMJ has an error without a path: the message alone, no leading „: “.
+    expect(tmjErrorLines([{ path: "", message: "Die Datei ist kein JSON." }])).toEqual(["Die Datei ist kein JSON."]);
+    expect(tmjErrorLines([{ path: "layers[0]", message: "Ebene fehlt." }])).toEqual(["layers[0]: Ebene fehlt."]);
   });
 });

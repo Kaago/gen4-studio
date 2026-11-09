@@ -32,7 +32,7 @@ use super::doc::{FreeformJson, WorldJson};
 use super::edit::{WorldReport, not_a_world_map, refuse_locked_map, require_text_project};
 use super::grid::WorldGrid;
 use super::keep::locked_map_refusal;
-use super::mesh::{MeshFace, PIECE_LAYER, PieceModels, mesh_textures, mesh_with};
+use super::mesh::{MeshFace, PIECE_LAYER, PieceModels, mesh_textures, mesh_with_marks};
 use super::tileset::{TILESETS_DIR, TileRole, Tileset};
 use crate::bake::{BakeCode, Face, Level, PackTexture, append_textures, appended_pack_or_refusal};
 use crate::error::{KernelError, io_at};
@@ -614,20 +614,25 @@ fn moved(face: Face, at: [i32; 3]) -> Face {
     }
 }
 
-/// What the scene shows of world map `map`: grid, piece geometry and free-form faces, the pack textures
-/// they bind, the messages of the side files. `None` without world.
+/// What the scene shows of world map `map`: grid, piece geometry and free-form faces, per face
+/// whether it is model geometry (`model`: a face of a piece's or a free-form model's side file,
+/// not a grid face or a footprint), the pack textures they bind, the messages of the side files.
+/// `None` without world.
 #[derive(Debug, Clone)]
 pub struct WorldFaces {
     pub faces: Vec<MeshFace>,
+    pub model: Vec<bool>,
     pub textures: Vec<PackTexture>,
     pub messages: Vec<WorldBakeMessage>,
 }
 
-/// The faces of world map `map` as the bake sees them: [`mesh_with`] the piece models (no grid
-/// faces for a world that does not read into cells, the check names its problems), then the
-/// free-form models that read, from the side files bound to the package's
-/// [`world_pack_textures`]; `textures` are the pack textures of the faces in order of first use
-/// (a texture the pack lacks is left out). `None` outside a text project or without world.
+/// The faces of world map `map` as the bake sees them: [`mesh_with`](super::mesh::mesh_with)
+/// the piece models (no grid faces for a world that does not read into cells, the check names
+/// its problems), then the free-form models that read, from the side files bound to the
+/// package's [`world_pack_textures`]; `model` marks the faces of the side files
+/// ([`mesh_with_marks`] and every free-form face); `textures` are the pack textures of the
+/// faces in order of first use (a texture the pack lacks is left out). `None` outside a text
+/// project or without world.
 pub fn world_faces(store: &mut Store, map: u16) -> Result<Option<WorldFaces>, KernelError> {
     if *store.project().source_mode() != SourceMode::TextProject {
         return Ok(None);
@@ -638,17 +643,19 @@ pub fn world_faces(store: &mut Store, map: u16) -> Result<Option<WorldFaces>, Ke
     let tileset = store.tileset(world.tileset)?;
     let (_, pack) = bake_pack(store, world.tileset, &tileset, None)?;
     let side = load_side_models(store.project(), map, &world, &tileset, &pack);
-    let mut faces = match WorldGrid::parse(&world) {
-        Ok(grid) => mesh_with(&grid, &tileset, &side.pieces),
-        Err(_) => Vec::new(),
+    let (mut faces, mut model) = match WorldGrid::parse(&world) {
+        Ok(grid) => mesh_with_marks(&grid, &tileset, &side.pieces),
+        Err(_) => (Vec::new(), Vec::new()),
     };
     faces.extend(side.freeform_faces().cloned().map(MeshFace::from));
+    model.resize(faces.len(), true);
     let textures = mesh_textures(&faces)
         .iter()
         .filter_map(|name| pack.iter().find(|t| &t.name == name).cloned())
         .collect();
     Ok(Some(WorldFaces {
         faces,
+        model,
         textures,
         messages: side.messages,
     }))
@@ -1136,7 +1143,7 @@ pub fn world_freeform_add(
 ///
 /// Refused besides ([`KernelError::Refused`], nothing changed): outside a text project
 /// ([`super::edit::WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]), a
-/// busy store.
+/// map whose member is locked ([`locked_map_refusal`]), a busy store.
 pub fn world_freeform_remove(
     store: &mut Store,
     map: u16,
@@ -1151,6 +1158,7 @@ pub fn world_freeform_remove(
         .world(map)?
         .cloned()
         .ok_or_else(|| KernelError::Refused(not_a_world_map(map)))?;
+    refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
     let count = world.freeform.len();
     let Some(entry) = world.freeform.get(index) else {
         return Err(KernelError::Refused(format!(

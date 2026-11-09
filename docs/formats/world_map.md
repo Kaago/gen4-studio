@@ -273,7 +273,8 @@ data/maps/0123.haus.glb fehlt oder lässt sich nicht lesen. Füge das Modell neu
   (0123.haus.glb)“: der Eintrag geht, sein Beifile im selben Schritt, wenn kein anderer Eintrag es
   nennt. Abgelehnt: ein Index jenseits der Liste („Karte 0123 hat keine Freiform 3 (1 Einträge).“)
   und das Verbatim-Modell („Freiform 0 von Karte 0123 ist das Originalmodell (Form 1); zurück zur
-  binären Karte über „Als binäre Karte übernehmen“.“). In der App gibt es das Entfernen nicht (nur
+  binären Karte über „Als binäre Karte übernehmen“.“), dazu eine Karte ohne Welt, eine gesperrte
+  Karte, außerhalb eines Textprojekts. In der App gibt es das Entfernen nicht (nur
   über `g4_call`, oder ⌘Z).
 - In der App ist das Hinzufügen die Zeile „Freiform (glTF)“ im Dialog „Teile importieren…“ einer
   Welt-Karte (`.obj`, `.gltf`, `.glb`), mit dem Feld „Lage“ (x, y, z in Welteinheiten; „16 = eine
@@ -313,7 +314,8 @@ Beifile bleibt die Fläche. Die Permissions folgen weiter dem Fußabdruck.
 
 Gesetzt wird das Modell mit `tileset_piece_set` (ein Undo-Schritt, [tileset.md](tileset.md)
 „Teilmodell setzen (6.5b)“); die sauberen Welt-Karten des Pakets backen danach neu. In der Szene
-liegt die Geometrie wie die Fußabdrücke halbdurchsichtig (Deckkraft 0,6).
+ist die Geometrie deckend wie der Boden (`model` im Netz, „Vorschau in der Szene“), nur ein
+Fußabdruck ohne Modell bleibt halbdurchsichtig.
 
 Gate-Messung (gated Test `piece_model_on_the_copy`): der Würfel als Modell von Kachel 3 mit
 Fußabdruck 1 × 1, ein Stück auf der gemalten Startkarte: 25 Flächen, Modell 1 972 Byte, auf allen
@@ -846,7 +848,8 @@ Tilesets und leere Zellen ergeben keine Fläche.
 
 `get_world_mesh(map)` gibt das Netz als flache Felder (`WorldMeshDto`: `faces`, `textures` je
 `{name, width, height, role, palette?}`, `corners` 12 Werte je Fläche, `uv` 8, `texture` Index in
-`textures`, `layer`); `get_tileset_texture(package, texture)` das RGBA einer Textur mit der Palette
+`textures`, `layer`, `model`: ob die Fläche Modellgeometrie aus einem Beifile ist, einer Freiform
+oder eines Teilmodells); `get_tileset_texture(package, texture)` das RGBA einer Textur mit der Palette
 ihrer Kachel oder `null`. Seit 6.5b liefert `get_world_mesh` die Flächen von
 `world::freeform::world_faces` (Raster, Teilmodell-Geometrie, dann die Freiform-Flächen auf Ebene
 254); eine Textur, die keine Kachel des Tilesets ist (von einem Modell angehängt), trägt die Größe
@@ -860,7 +863,10 @@ gebackene Modell (über apicula aus dem Map-Asset). Das Netz: eine Geometrie je 
 Format 5, die noch keinen Decoder hat) steht ein Platzhalter in der Farbe der Rolle aus
 `szene/gelaende` (`grass` `hohes-gras`, `water` `wasser`, `wall` `blockiert`, `piece` `spezial`,
 sonst `unbekannt`). Überlagerungen bekommen `polygonOffset −Ebene`, Fußabdrücke `−(höchste
-Überlagerung + 1)` statt −255 und sind halbdurchsichtig (Deckkraft 0,6). Das Canvas trägt
+Überlagerung + 1)` statt −255 und sind halbdurchsichtig (Deckkraft 0,6). Die Freiform-Flächen
+(Ebene 254) und die Teilmodell-Geometrie (`model`) sind fest wie der Boden: kein `polygonOffset`,
+deckend, und sie zählen nicht als Überlagerung (ein Offset −254 zöge einen Form-2-Raum vor die
+Möbel darin). Das Canvas trägt
 `data-world-mesh="<Karten aufsteigend, Komma>"` und `data-world-mesh-faces="<Summe>"`, solange es
 mindestens eine Welt-Karte zeigt.
 
@@ -994,6 +1000,6 @@ der Testumgebung, `left_click_drag`, nur von einem Punkt zu einem zweiten führt
 - **Nicht in 6.5b, offen:** Ursache C von `world.adopt-texture` (Palette, die `pack_textures` nicht
   findet) und Vanilla-Modelle über ±512 (`model.out-of-range`) in Form 2; eine Freiform verschieben
   oder skalieren (heute entfernen und neu hinzufügen), sie in der App entfernen; Kollision oder BDHC
-  aus Polygonen; die Teilmodell-Geometrie zeigt die Szene halbdurchsichtig wie einen Fußabdruck.
+  aus Polygonen.
   Vanilla-Teilmodelle herauslösen, Vanilla-NSBMD zurück ins Raster, Bearbeiten von
   Vanilla-Modellen über den Codec, eine Tiled-Erweiterung und Automapping sind nicht in Phase 6.

@@ -169,9 +169,9 @@ export function tmjChangeText(r: TmjImportReport): string {
   return `${layers}, ${cells} geändert`;
 }
 
-/** The errors of a TMJ as lines: the first three „path: message“, then „… und 2 weitere“. */
+/** The errors of a TMJ as lines: the first three „path: message“ (the message alone without a path: no JSON, no TMJ), then „… und 2 weitere“. */
 export function tmjErrorLines(errors: readonly TmjError[]): string[] {
-  const lines = errors.slice(0, 3).map((e) => `${e.path}: ${e.message}`);
+  const lines = errors.slice(0, 3).map((e) => (e.path ? `${e.path}: ${e.message}` : e.message));
   if (errors.length > 3) lines.push(`… und ${de(errors.length - 3)} weitere`);
   return lines;
 }

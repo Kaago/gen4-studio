@@ -89,9 +89,9 @@ const WORLD_FILES = [{ ...PART_FILES[0]!, extensions: [...PART_FILES[0]!.extensi
 const WORLD_NAME: Record<WorldPart, string> = { freeform: "Freiform (glTF)", tmj: "Tiled (TMJ)" };
 const WORLD_ONLY_BAKES = "Bei Welt-Karten entstehen Modell, Terrain und Permissions beim Backen.";
 const AT_AXES = ["x", "y", "z"] as const;
-/** The bounds of a coordinate of „Lage“ in world units. */
-const AT_MIN = -32768;
-const AT_MAX = 32767;
+/** The bounds of a coordinate of „Lage“ in world units: those of `at` of a free-form entry in the world (`FREEFORM_AT` in grid.rs). */
+const AT_MIN = -512;
+const AT_MAX = 511;
 
 const extension = (path: string) => /\.([^.\\/]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
 const MODEL_EXTENSIONS: ReadonlySet<string> = new Set(["obj", "gltf", "glb"]);
@@ -338,31 +338,44 @@ export function ImportPartsDialog({
       return next;
     });
 
+  /**
+   * Takes the chosen parts over, one command after the other (map parts, free-form, TMJ). When one fails, the parts before it went
+   * through: they leave the choice (another „übernehmen“ does not take them a second time) and the app still hears of the change.
+   */
   async function run() {
     if (source === null || count === 0) return;
     setWorking(true);
     setFailure(null);
+    const finished: Choice[] = [];
+    let taken = 0;
     try {
       const parts = (reports ?? [])
         .map((r) => r.part)
         .filter((p) => chosen.has(p));
       const keep = foreignWhole && keepBuildings;
-      let taken = 0;
       if (parts.length > 0 && partSource !== null) {
         const changed = await (partOptions === undefined
           ? importMapParts(map, partSource, parts, keep)
           : importMapParts(map, partSource, parts, keep, partOptions));
+        finished.push(...parts);
         if (changed.length > 0) taken += parts.length;
       }
       if (chosen.has("freeform") && freeformPath !== null) {
         await worldFreeformAdd({ map, path: freeformPath, at, options });
+        finished.push("freeform");
         taken++;
       }
       if (chosen.has("tmj") && tmjPath !== null) {
         const imported = await worldImportTmj(map, tmjPath);
+        finished.push("tmj");
         if (imported.change !== null) taken++;
       }
       setDone(taken);
+    } catch (e) {
+      setFailure(errorText(e));
+      setChosen((prev) => new Set([...prev].filter((c) => !finished.includes(c))));
+    }
+    try {
       if (taken > 0) {
         // Asked before the import's edit is announced (`onImported`): the run after its pause is the one that counts.
         const next = checks?.nextReport();

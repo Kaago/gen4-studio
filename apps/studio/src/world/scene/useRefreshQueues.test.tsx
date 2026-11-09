@@ -24,7 +24,7 @@ vi.mock("../../api", async (importOriginal) => ({
   getMapModelGlb: vi.fn(),
   mapModelTextureStatus: vi.fn(),
   // A model refresh asks for the mesh first: these maps have no world (an empty mesh), so they take their GLB.
-  getWorldMesh: vi.fn(async (map: number) => ({ map, tileset: 0, faces: 0, textures: [], corners: [], uv: [], texture: [], layer: [] })),
+  getWorldMesh: vi.fn(async (map: number) => ({ map, tileset: 0, faces: 0, textures: [], corners: [], uv: [], texture: [], layer: [], model: [] })),
 }));
 vi.mock("../sceneUtil", async (importOriginal) => ({ ...(await importOriginal<typeof import("../sceneUtil")>()), parseGlb: vi.fn() }));
 

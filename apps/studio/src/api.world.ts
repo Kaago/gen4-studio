@@ -20,8 +20,9 @@ export interface MeshTextureDto {
 
 /**
  * The mesh of a world map as flat arrays: per face 12 corner coordinates (four corners `x, y, z` in world units around the map
- * centre, counter-clockwise seen from the front), 8 UV values (texels), the index of its texture in `textures` and its layer
- * (0 the ground, overlays from 1, 255 the footprints of the pieces). A map without a world has no faces.
+ * centre, counter-clockwise seen from the front), 8 UV values (texels), the index of its texture in `textures`, its layer
+ * (0 the ground, overlays from 1, 254 the free-form models, 255 the pieces) and whether it is model geometry (`model`: a free-form
+ * model's or a piece's side file, not a grid face or a footprint). A map without a world has no faces.
  */
 export interface WorldMeshDto {
   map: number;
@@ -32,6 +33,7 @@ export interface WorldMeshDto {
   uv: number[];
   texture: number[];
   layer: number[];
+  model: boolean[];
 }
 
 /** One layer of a world: `tiles` 32 rows of 32 tile tokens; only the ground layer has `heights` (and `ramps` with a ramp). */

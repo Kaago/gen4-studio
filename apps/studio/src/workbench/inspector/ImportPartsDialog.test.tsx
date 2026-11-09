@@ -540,6 +540,44 @@ describe("ImportPartsDialog", () => {
       expect(dialog().textContent).toContain("1 Teil übernommen");
     });
 
+    it("lage_takes_only_the_bounds_of_the_world_schema", async () => {
+      vi.mocked(worldFreeformInspect).mockResolvedValue(freeform);
+      await showWorldFiles("/p/haus.glb");
+      const calls = vi.mocked(worldFreeformInspect).mock.calls.length;
+      // −512 to 511 per axis, like `at` of a free-form entry in the world.
+      await typeAt("x", "512");
+      expect(dialog().textContent).toContain("höchstens 511");
+      await typeAt("z", "-513");
+      expect(dialog().textContent).toContain("mindestens -512");
+      expect(worldFreeformInspect).toHaveBeenCalledTimes(calls);
+      await typeAt("x", "511");
+      await typeAt("z", "-512");
+      expect(worldFreeformInspect).toHaveBeenLastCalledWith({ map: 5, path: "/p/haus.glb", at: [511, 0, -512], options: { unit: 16, colors: 16 } });
+    });
+
+    it("a_failing_tmj_after_the_freeform_keeps_the_freeform_taken_and_announces_it", async () => {
+      vi.mocked(worldFreeformInspect).mockResolvedValue(freeform);
+      vi.mocked(worldFreeformAdd).mockResolvedValue({ ...freeform.report!, change: 9 });
+      vi.mocked(worldInspectTmj).mockResolvedValue(tmj());
+      vi.mocked(worldImportTmj).mockRejectedValueOnce(new Error("Die Karte ist gesperrt."));
+      await showWorldFiles("/p/haus.obj\n/p/0005.tmj");
+      expect(button("2 Teile übernehmen")!.disabled).toBe(false);
+      await act(async () => button("2 Teile übernehmen")!.click());
+      await flush();
+      expect(worldFreeformAdd).toHaveBeenCalledTimes(1);
+      expect(dialog().textContent).toContain("Die Karte ist gesperrt.");
+      // The free-form went in: the scene and the inspector hear of it.
+      expect(onImported).toHaveBeenCalledExactlyOnceWith(5);
+      // It is no longer chosen: a retry imports only the TMJ, not the free-form a second time.
+      expect(box("Freiform (glTF)").getAttribute("aria-checked")).toBe("false");
+      vi.mocked(worldImportTmj).mockResolvedValue(tmj({ change: 10 }));
+      await act(async () => button("1 Teil übernehmen")!.click());
+      await flush();
+      expect(worldFreeformAdd).toHaveBeenCalledTimes(1);
+      expect(worldImportTmj).toHaveBeenCalledTimes(2);
+      expect(onImported).toHaveBeenCalledTimes(2);
+    });
+
     it("tmj_shows_changes_or_errors", async () => {
       vi.mocked(worldInspectTmj).mockResolvedValue(tmj({ notes: ["tmj.buildings-ignored"] }));
       vi.mocked(worldImportTmj).mockResolvedValue(tmj({ change: 4 }));

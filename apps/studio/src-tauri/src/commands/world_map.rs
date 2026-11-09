@@ -87,8 +87,9 @@ pub struct MeshTextureDto {
 }
 
 /// The mesh of a world map as flat arrays: per face 12 corner coordinates (four corners
-/// `x, y, z`, world units), 8 UV values (texels), the index of its texture in `textures` and
-/// its layer.
+/// `x, y, z`, world units), 8 UV values (texels), the index of its texture in `textures`, its
+/// layer and whether it is model geometry (`model`: a face of a piece's or a free-form model's
+/// side file, drawn solid; not a grid face or a footprint).
 #[derive(Debug, Serialize)]
 pub struct WorldMeshDto {
     pub map: u16,
@@ -99,6 +100,7 @@ pub struct WorldMeshDto {
     pub uv: Vec<i32>,
     pub texture: Vec<u16>,
     pub layer: Vec<u8>,
+    pub model: Vec<bool>,
 }
 
 /// Whether the store's project is a text project of the current schema (worlds exist only
@@ -126,6 +128,7 @@ fn faces_of(
     let tileset = store.tileset(world.tileset)?;
     let faces = world_faces(store, map)?.unwrap_or(WorldFaces {
         faces: Vec::new(),
+        model: Vec::new(),
         textures: Vec::new(),
         messages: Vec::new(),
     });
@@ -274,11 +277,13 @@ pub fn get_world_mesh_impl(state: &AppState, map: u16) -> Result<WorldMeshDto, C
             uv: Vec::new(),
             texture: Vec::new(),
             layer: Vec::new(),
+            model: Vec::new(),
         });
     };
     let (
         WorldFaces {
             faces,
+            model,
             textures: packed,
             ..
         },
@@ -337,6 +342,7 @@ pub fn get_world_mesh_impl(state: &AppState, map: u16) -> Result<WorldMeshDto, C
         uv,
         texture,
         layer,
+        model,
     })
 }
 
@@ -746,6 +752,7 @@ mod tests {
         assert_eq!(mesh["uv"].as_array().unwrap().len(), 8 * faces);
         assert_eq!(mesh["texture"].as_array().unwrap().len(), faces);
         assert_eq!(mesh["layer"].as_array().unwrap().len(), faces);
+        assert_eq!(mesh["model"].as_array().unwrap().len(), faces);
         let textures = mesh["textures"].as_array().unwrap();
         let names: Vec<&str> = textures
             .iter()
@@ -1405,6 +1412,15 @@ mod tests {
         assert!(refused_model["notes"].is_array(), "{refused_model}");
 
         assert!(!mesh_layers(&state, &policy).contains(&254));
+        let before = call(&state, &policy, "get_world_mesh", json!({ "map": 0 }));
+        assert!(
+            before["model"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|m| m == false),
+            "{before}"
+        );
         let added = call(&state, &policy, "world_freeform_add", req);
         assert!(added["change"].is_number(), "{added}");
         assert_eq!(added["bake"]["ok"], true, "{added}");
@@ -1419,6 +1435,19 @@ mod tests {
                 .filter(|l| **l == 254)
                 .count(),
             6,
+            "{mesh}"
+        );
+        // The free-form faces are model geometry, the grid's are not: one flag per face.
+        let flags: Vec<bool> = mesh["model"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m.as_bool().unwrap())
+            .collect();
+        let layers = mesh_layers(&state, &policy);
+        assert_eq!(flags.len(), layers.len(), "{mesh}");
+        assert!(
+            flags.iter().zip(&layers).all(|(m, l)| *m == (*l == 254)),
             "{mesh}"
         );
         let cube = mesh["textures"]

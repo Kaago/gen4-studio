@@ -399,6 +399,29 @@ fn remove_drops_the_entry_and_the_unshared_side_file() {
 }
 
 #[test]
+fn remove_refuses_a_locked_map() {
+    let (fx, mut st) = ready();
+    world_freeform_add(&mut st, &req(&fx, 0, CUBE_OBJ, json!({}))).unwrap();
+    st.lock(
+        crate::project::AssetId {
+            kind: AssetKind::Map,
+            index: 0,
+        },
+        "gesperrt",
+    )
+    .unwrap();
+    let side = fx.read(SIDE);
+    let history = st.history();
+    assert_eq!(
+        refusal(world_freeform_remove(&mut st, 0, 0)),
+        crate::world::keep::locked_map_refusal(0)
+    );
+    assert_eq!(st.history(), history);
+    assert_eq!(entries(&mut st), [entry("0000.g4_imp_cube.glb", [0, 0, 0])]);
+    assert_eq!(fx.read(SIDE), side);
+}
+
+#[test]
 fn remove_refuses_a_verbatim_entry() {
     use crate::world::adopt::{WorldAdoptRequest, world_adopt};
     let fx = world_ready();
