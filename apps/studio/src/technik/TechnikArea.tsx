@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { Against, AssetId, BuildStep, ChangedEntry, DiffSubject, HeaderPatchDto, LiveStatusDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
-import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
+import { CHECK_CODES, checkMessage } from "../checks/messages";
 import type { ChecksApi } from "../checks/useChecks";
 import type { GitStatusApi } from "../git/useGitStatus";
 import { useReset } from "../original/OriginalContext";
@@ -483,7 +483,7 @@ function CheckSwitches({ checks }: { checks: ChecksApi }) {
       <Section title="Prüfungen ein- und ausschalten" open={open} onToggle={() => setOpen(!open)}>
         <ul role="list" aria-label="Prüfungen ein- und ausschalten" className={styles.switchList}>
           {CHECK_CODES.map((code) => {
-            const m = CHECK_MESSAGES[code]!;
+            const m = checkMessage(code)!;
             const errors = m.severity === "error";
             return (
               <li key={code} className={styles.switchRow} data-check={code}>
