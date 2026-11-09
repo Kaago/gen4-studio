@@ -68,6 +68,10 @@ test_code_of_conduct_is_contributor_covenant_2_1() {
   local f="$REPO_ROOT/CODE_OF_CONDUCT.md"
   grep -q 'Contributor Covenant' "$f" || fail "CODE_OF_CONDUCT.md: Contributor Covenant missing"
   grep -q '2\.1' "$f" || fail "CODE_OF_CONDUCT.md: version 2.1 missing"
+  # The template's placeholder for the contact method must be replaced.
+  if grep -q '\[INSERT CONTACT METHOD\]' "$f"; then
+    fail "CODE_OF_CONDUCT.md: contact method placeholder [INSERT CONTACT METHOD] left in"
+  fi
 }
 
 test_contributing_names_the_hermetic_gate() {

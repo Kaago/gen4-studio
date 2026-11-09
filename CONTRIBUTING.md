@@ -21,7 +21,7 @@ The setup is described in [docs/dev-setup.md](docs/dev-setup.md) (currently in G
 
 - Rust: the toolchain of `rust-toolchain.toml` (install it with `rustup toolchain install`).
 - Node and pnpm for the app in `apps/studio` (`cd apps/studio && pnpm install`).
-- `cargo-deny`, `uv` and a bash for the gate.
+- `python3` (the ROM data guard and the token checks of the gate use it), `cargo-deny`, `uv` and a bash for the gate.
 
 The pinned versions of the external tools (Node, pnpm, cargo-deny, apicula, rotom, cargo-about) live in one file, `scripts/tool-versions.env`.
 
@@ -40,7 +40,7 @@ Run this before you open a pull request:
 G4_GATE_HERMETIC=1 bash scripts/gate.sh
 ```
 
-The hermetic gate needs no ROM, no save game and no other tool: formatting, clippy, licenses and advisories of the dependencies, the shell script tests, the GitHub Actions audit, the ROM data guard, the version check, the Rust tests, the frontend tests and build, the design checks (tokens, styles, depth) and the unit tests of the emulator scripts. GitHub Actions runs the same on every pull request (job `gate-macos`), and a pull request is merged only when it is green.
+The hermetic gate needs no ROM, no save game and none of the project tools (apicula, rotom, an emulator core), only the prerequisites listed under "Set up". It covers formatting, clippy, licenses and advisories of the dependencies, the shell script tests, the GitHub Actions audit, the ROM data guard, the version check, the Rust tests, the frontend tests and build, the design checks (tokens, styles, depth) and the unit tests of the emulator scripts. GitHub Actions runs the same on every pull request (job `gate-macos`), and a pull request is merged only when it is green.
 
 The second part of the full gate runs the tests that need the maintainer's test ROMs and projects. It runs on the maintainer's machine before a merge; you do not need to run it.
 
