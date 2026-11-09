@@ -1,6 +1,6 @@
 # Phase 6.4b: Gate prüfen
 
-Stand: 2026-11-08. Branch `phase-6-4b-smart-drawing` (Worktree `.claude/worktrees/phase-6-4b`), nicht nach main gemergt; Basis `7a8e3915` (main mit 6.1, 6.2, 6.3a, 6.3b, 6.4a und 6.5a; **6.5b noch nicht gemergt**: alles, was der Plan „6.5b“ nennt, fehlt, die Anhänge stehen am jeweiligen Ende). Kopf beim Gate: `cc8d6bbb` (Tasks 1 bis 11 je von der Review-Schleife abgenommen), danach nur dieser Doku-Commit. **Das Gate lief am 2026-11-08** aus den Läufen der Tasks: die gated Tests in Task 9 je Kopie im Release-Profil (Code `4e1a5149`, Smoke nach der Fix-Runde `c4a67473`), der Browser-Teil in Task 8 Step 5 (Task 8b, Code `8dfe0a38`), die Szenarien über MCP in Task 10 (`ccde14c8`); Task 12 lief die Automatik ohne ROM auf `cc8d6bbb` (Tabelle in (1)). Nach der Fix-Welle des abschließenden Branch-Reviews wiederholt der Controller alle Prüfungen; die Zahlen hier können darum um einen Satz Commits älter sein (ein Doku-Commit zieht sie nach, falls sie sich ändern). `scripts/gate.sh` als Ganzes ist **offen: Lauf in der Hauptsitzung auf main** (im Worktree untersagt); `tests/world_smart.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert.
+Stand: 2026-11-09. Branch `phase-6-4b-smart-drawing` (Worktree `.claude/worktrees/phase-6-4b`), nicht nach main gemergt; Basis `7a8e3915` (main mit 6.1, 6.2, 6.3a, 6.3b, 6.4a und 6.5a). **6.5b ist seit dem 2026-11-09 im Branch:** main `e7dd3073` (6.5b „Freiform und Austausch“, die begründete Ausnahme RUSTSEC-2026-0462 in `deny.toml`, die Frames 6.2 bis 6.4a in der `.fig`) ist mit `b93a2bb5` hineingemergt, Folge-Fixes `9da15f6a`; die Anhänge von 6.4b stehen jetzt nach denen von 6.5b, beide Phasen nebeneinander, die Automatik ohne ROM lief danach erneut grün ((1) 6). Das Gate selbst (gated Tests, Szenarien, Browser) lief vor dem Merge. Kopf beim Gate: `cc8d6bbb` (Tasks 1 bis 11 je von der Review-Schleife abgenommen), danach nur dieser Doku-Commit. **Das Gate lief am 2026-11-08** aus den Läufen der Tasks: die gated Tests in Task 9 je Kopie im Release-Profil (Code `4e1a5149`, Smoke nach der Fix-Runde `c4a67473`), der Browser-Teil in Task 8 Step 5 (Task 8b, Code `8dfe0a38`), die Szenarien über MCP in Task 10 (`ccde14c8`); Task 12 lief die Automatik ohne ROM auf `cc8d6bbb` (Tabelle in (1)). Nach der Fix-Welle des abschließenden Branch-Reviews wiederholt der Controller alle Prüfungen; die Zahlen hier können darum um einen Satz Commits älter sein (ein Doku-Commit zieht sie nach, falls sie sich ändern). `scripts/gate.sh` als Ganzes ist **offen: Lauf in der Hauptsitzung auf main** (im Worktree untersagt); `tests/world_smart.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert.
 
 Phase 6.4b bringt Smart Drawing und Muster: Ein Tileset trägt **Kantensätze** (Wang-Ecken, 13 Plätze plus zwei Diagonalen, je Platz eine oder mehrere Kacheln mit Drehung, Außenkachel, Regel „obere/untere Zelle blockiert“), die man im **Kantensatz-Editor** im Inspector aus der Palette füllt. Der **Terrain-Pinsel** (T) malt eine Fläche, der Kernel setzt um sie die passenden Kanten- und Eckkacheln ohne falsche Ecke; der **Klippenpinsel** (K) hebt oder senkt die gemalten Zellen um „Stufen der Klippe“, setzt den Rand des Satzes oben auf das Plateau, Wände entstehen an der Höhenkante (6.3a), die Kollision folgt der Kantenregel des Satzes. Mehrere Kacheln je Platz wählt der Pinsel zufällig, aber reproduzierbar (Samen je Strich); an der Kartengrenze liest er die Nachbarkarten der Matrix nur. Die Schicht „Gelände“ zeigt **Muster** (Schraffur blockiert, Wellen Wasser, Punkte hohes Gras, Pfeil Vorsprung, Kreuzschraffur Eis). Über MCP malt `world_edit` (kuratiert) mit `terrain`/`cliff`, `tileset_edit` (über `g4_call`) ändert Kantensätze mit `sets`; der Katalog bleibt bei 90 kuratierten Werkzeugen.
 
@@ -81,6 +81,20 @@ Durchgeführt 2026-11-08 (Befehle: [docs/agent-gate.md](agent-gate.md), „Phase
 
 Kein Test riss unter Last; keine Wiederholung und kein Fix nötig. Die strengen Zeittests von 6.4a (`G4_TIMING_STRICT=1`) liefen nicht eigens: 6.4b ändert weder den Strichweg noch den Vernetzer.
 
+- [x] 6. **Automatik ohne ROM nach dem Merge von 6.5b** (2026-11-09, Merge `b93a2bb5` von main `e7dd3073`, Stand von `9da15f6a`; Logs `target/agent/6-4b/merge-*.log`): alles grün, kein Test riss, keine Wiederholung. Die Folge-Fixes in `9da15f6a` machen den Merge nur übersetzbar und ändern kein Verhalten (`notes` im `WorldReport` von `world_freeform_remove`, `sets` in der `TilesetEditRequest` von `tests/world_freeform.rs`, ein gemeinsames `exported_copy`, Moduldoku von `world/tileset.rs`). MCP weiter 90 kuratierte Werkzeuge.
+
+| Prüfung | Ergebnis | Log | Last vor dem Lauf (1, 5, 15 min) |
+|---|---|---|---|
+| `cargo fmt --all --check` | Rückgabe 0 | `merge-fmt.log` | 5,31 11,05 13,20 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Rückgabe 0, keine Warnung | `merge-clippy.log` | 5,31 11,05 13,20 |
+| `env -u G4_TEST_PROJECT cargo test --workspace --all-features --no-fail-fast` | Rückgabe 0: 3 802 bestanden, 0 fehlgeschlagen, 2 ignoriert (74 Testläufe, 43 min; die Last stieg während des Laufs auf 11 bis 15) | `merge-cargo-test.log` | 3,74 2,77 3,61 |
+| `(cd apps/studio && pnpm test)` | Rückgabe 0: 433 Dateien bestanden (1 übersprungen), 4 186 Tests bestanden, 1 übersprungen | `merge-pnpm-test.log` | 10,01 14,05 14,50 |
+| `(cd apps/studio && pnpm build)` | Rückgabe 0, mit der bekannten Vite-Warnung „Some chunks are larger than 500 kB after minification“ | `merge-pnpm-build.log` | 11,61 13,05 14,01 |
+| `cargo deny --locked check licenses advisories` | Rückgabe 0, `advisories ok, licenses ok`; bekannte Warnung `warning[no-license-field]` für `chatot = 0.8.1` | `merge-deny.log` | 4,88 10,77 13,08 |
+| `check-styles.sh`, `check-tokens.sh`, `check-depth.sh` | `check-styles: ok`, „Alles stimmig.“, `check-depth: ok` | `merge-styles.log`, `merge-tokens.log`, `merge-depth.log` | 4,88 10,77 13,08 / 4,65 10,62 13,01 / 4,65 10,62 13,01 |
+| `check-no-rom-data.sh` | „no rom data: 2146 files ok“ (vor diesem Doku-Commit) | `merge-romdata.log` | 5,00 10,59 12,99 |
+| `(cd scripts/g4emu && uv run pytest -m "not integration" -q)` | Rückgabe 0: 412 bestanden, 7 abgewählt | `merge-pytest.log` | 5,00 10,59 12,99 |
+
 ## (2) Szenarien
 
 - [x] **Über MCP** (Task 10, `ccde14c8`): `pt-klippe` auf `6-4b-szen-pt`, `hg-klippe` auf `6-4b-szen-hg`, kopflos über `studio mcp` (Debug-Build von `c4a67473`; Logs `target/agent/6-4b/{pt,hg}-klippe.log`, Ausgaben `target/agent/gate-2026-11-08/6-4b/{pt,hg}-klippe/`; Last 24,02 vor dem Lauf): beide Rückgabe **0**, `"ok": true`, Header `[415, 593, 415, 593]` bzw. `[64, 540, 64, 540]`, je **20** Zeilen „Erwartung erfüllt“ (17 aus 6.4a und 3 neue).
@@ -117,6 +131,7 @@ Kein Test riss unter Last; keine Wiederholung und kein Fix nötig. Die strengen 
 | (1) 3 `world_bake` | Agent | bestanden: 666 / 676 / 676 Karten Form 1 byte-gleich, Projekt baut byte-gleich | 2026-11-08 |
 | (1) 4 `vanilla_checks` | Agent | 0 Fehler auf allen drei | 2026-11-08 |
 | (1) 5 Automatik ohne ROM | Agent | bestanden: `cargo deny`, fmt, clippy, Workspace 3 695 (0 fehlgeschlagen, 2 ignoriert), pnpm 4 169 und Build, Stil, Tokens, Tiefe, keine ROM-Daten, `g4emu` 412 | 2026-11-08 |
+| (1) 6 Automatik ohne ROM nach dem Merge von 6.5b | Agent | bestanden auf `9da15f6a` (Merge `b93a2bb5` von main `e7dd3073`): `cargo deny`, fmt, clippy, Workspace 3 802 (0 fehlgeschlagen, 2 ignoriert), pnpm 4 186 und Build, Stil, Tokens, Tiefe, keine ROM-Daten, `g4emu` 412 | 2026-11-09 |
 | (2) Szenarien `pt-klippe`, `hg-klippe` | Agent + Blick | bestanden (Rückgabe 0, 20 Erwartungen, zehn `world_edit` = zehn Einträge, Rand blockiert auf (37, 9), dazu die Schritte von 6.4a); Bild `klippe` vom Agenten beschrieben | 2026-11-08 |
 | (2) Regression `pt-gemalt`, `hg-gemalt` | Agent | bestanden (Rückgabe 0, 17 Erwartungen) | 2026-11-08 |
 | (3) Browser | Agent | bestanden mit Abweichungen (Zelle (1, 21) statt neben Zweiblattdorf, Route 203 statt 201, Striche als synthetischer Zug): 13 Plätze = 13 Einträge, Plus 0 Abweichungen über 1 024 Zellen, Klippe 18 / 18, Muster sichtbar, ⌘Z → `git status` leer | 2026-11-08 |
@@ -138,7 +153,7 @@ Gleiche Zahlen auf HeartGold DE und US sind plausibel (dasselbe Paket 19, diesel
 
 ## Trailer
 
-Über `git log 7a8e3915..HEAD` (keine Merges auf dem Branch), einschließlich dieses Doku-Commits: 16 Commits, 16 Zeilen `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`, je Commit genau eine; 0 volle Breite `＠` in `git log 7a8e3915..HEAD`.
+Über `git log 7a8e3915..HEAD` (keine Merges auf dem Branch), einschließlich dieses Doku-Commits: 16 Commits, 16 Zeilen `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`, je Commit genau eine; 0 volle Breite `＠` in `git log 7a8e3915..HEAD`. Stand vor dem Merge von 6.5b; seit `b93a2bb5` enthält `git log 7a8e3915..HEAD` auch die Commits von main, die Commits des Branches zählt `git log --first-parent 7a8e3915..HEAD`. Der Merge `b93a2bb5`, die Folge-Fixes `9da15f6a` und der Doku-Commit danach tragen je genau eine dieser Zeilen.
 
 ## Befunde
 
@@ -161,4 +176,4 @@ Die Abschluss-Review des ganzen Branches (Rulings 13 bis 16) brachte eine Fix-Ru
 - `.fig`-Frames von 6.4b auf main rendern, sobald OpenPencil antwortet (`NACHTRAG-6-4b.md`).
 - Blick auf die Muster im Overlay (Hell, Dunkel, Kompakt; Lesbarkeit des Faktors 0,55 im Dunkel-Thema), den Kantensatz-Editor und das Bild `klippe`; melonDS mit `out.nds` von `pt-klippe` (Klippe von oben und unten) (Nutzer).
 - Plan „Offen für die Umsetzung“: „Klippe neben Rampe“ (entartete Wand-Vierecke) und „zwei Matrizen mit derselben Karte“ (die Naht folgt der ersten Matrix) sind nicht im Gate geprüft; sie zeigen sich beim Malen.
-- Nach dem Merge von 6.5b: Kantensätze sind im TMJ bewusst nicht abgebildet (Plan „Schnittstellen“, `wangsets` später).
+- Seit dem Merge von 6.5b (`b93a2bb5`): Kantensätze sind im TMJ bewusst nicht abgebildet (Plan „Schnittstellen“, `wangsets` später).
