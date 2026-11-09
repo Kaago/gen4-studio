@@ -1,16 +1,25 @@
-# CI of Gen4 Studio (spec release-ci 3.2). gate-macos runs only the hermetic part of
-# scripts/gate.sh (G4_GATE_HERMETIC=1, the only G4_* variable), gate-windows runs clippy and the
-# Rust tests: no ROM, no save game, no secret.
+# CI of Gen4 Studio (spec release-ci 3.2, spec open-source-release 3.4). gate-macos runs only the
+# hermetic part of scripts/gate.sh (G4_GATE_HERMETIC=1, the only G4_* variable), gate-windows runs
+# clippy and the Rust tests: no ROM, no save game, no secret.
 #
-# Manual only (workflow_dispatch), no run on push or pull request: hosted minutes cost money
-# (a push to main ran about $1.80, macOS minutes count ten times), and the check that counts is
-# the full scripts/gate.sh on the maintainer's Mac before every merge (docs/dev-setup.md). Start
-# it by hand when a change needs the runner, e.g. Windows:
+# Cost: the standard runners of GitHub Actions are free for public repositories, macOS included.
+# That is why gate-macos now runs on every pull request to main and on every push to main, with no
+# path filter: the guards of the gate (ROM data, tokens, version, licenses) must see docs-only
+# changes too, and a required gate-macos check must always report. While the repository was
+# private, hosted minutes cost money (a push to main ran about $1.80, macOS minutes count ten
+# times), and the workflow ran by hand only. gate-windows stays manual: it is slow (see its
+# timeout), not expensive. The ROM-bound part of the full scripts/gate.sh runs on the maintainer's
+# Mac before a merge (docs/dev-setup.md). Start the workflow by hand when a change needs the
+# Windows runner:
 #   gh workflow run ci.yml                  gate-macos only
 #   gh workflow run ci.yml -f windows=true  gate-macos and gate-windows
 name: ci
 
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       windows:
@@ -18,10 +27,11 @@ on:
         type: boolean
         default: false
 
-# A second manual start on the same ref replaces the run before it.
+# A newer run for the same pull request replaces the run before it. Runs of pushes to main and
+# manual starts are never cancelled, so two quick merges to main each get their result.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -125,7 +135,7 @@ jobs:
 
   # Windows gate. Target x86_64-pc-windows-msvc, the host default of windows-latest (the feasibility
   # probe: msvc builds studio, x86_64-pc-windows-gnu fails to link it). Only with the input
-  # `windows` (default false), because the minutes cost. It runs clippy and the tests, not
+  # `windows` (default false), because it is slow. It runs clippy and the tests, not
   # scripts/gate.sh.
   gate-windows:
     name: gate-windows

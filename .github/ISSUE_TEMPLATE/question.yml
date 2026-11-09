@@ -1,0 +1,35 @@
+name: Question
+description: Ask how to do something with Gen4 Studio
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions and open-ended topics are best asked in [Discussions](https://github.com/Kaago/gen4-studio/discussions), where the whole community can answer and find them later. Use this form if you want an answer tracked as an issue.
+
+        Please do not attach a ROM, a save game or any file derived from one.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What do you want to do, and where are you stuck?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Gen4 Studio version
+      description: The version of the app, or the commit if you built it from source.
+      placeholder: "1.0.0"
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      options:
+        - Pokémon Diamond
+        - Pokémon Pearl
+        - Pokémon Platinum
+        - Pokémon HeartGold
+        - Pokémon SoulSilver
+        - Not tied to a game
