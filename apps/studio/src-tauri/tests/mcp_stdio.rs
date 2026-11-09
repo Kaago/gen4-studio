@@ -306,7 +306,10 @@ async fn resources_list_and_read() {
         .await
         .unwrap();
     let (text, mime) = text_of(&read.contents[0]);
-    assert!(text.contains("Area") && text.contains("Grid"), "{text}");
+    assert!(
+        text.contains("**Area**") && text.contains("**Matrix**"),
+        "{text}"
+    );
     assert_eq!(mime, Some("text/markdown"));
     let read = client
         .read_resource(ReadResourceRequestParams::new("g4://docs/formats/matrix"))
@@ -337,6 +340,10 @@ async fn prompts_list_and_get() {
     assert_eq!(names, ["new_route", "npc_with_item", "place_trainer"]);
     let new_route = &prompts[0];
     assert_eq!(new_route.title.as_deref(), Some("Create a new route"));
+    // English without a German gloss.
+    let description = new_route.description.as_deref().unwrap();
+    assert!(description.contains("(an area)"), "{description}");
+    assert!(!description.contains("Gebiet"), "{description}");
     let arguments = new_route.arguments.as_ref().unwrap();
     assert_eq!(arguments[0].name, "name");
     assert_eq!(arguments[0].required, Some(true));
@@ -442,6 +449,8 @@ async fn answers_in_german_with_g4_lang() {
     assert!(text.contains("**Gebiet**"), "{text}");
     let prompts = client.list_all_prompts().await.unwrap();
     assert_eq!(prompts[0].title.as_deref(), Some("Neue Route anlegen"));
+    let description = prompts[0].description.as_deref().unwrap();
+    assert!(description.contains("(Gebiet)"), "{description}");
     let mut request = GetPromptRequestParams::new("new_route");
     request.arguments = json!({ "name": "Route 301" }).as_object().cloned();
     let prompt = client.get_prompt(request).await.unwrap();

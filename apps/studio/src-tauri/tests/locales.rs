@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 use studio_lib::AppState;
 use studio_lib::dispatch::{DispatchError, dispatch, field_label};
 use studio_lib::mcp::access::{Access, Class, admit, classify};
+use studio_lib::mcp::prompts::PromptDef;
 use studio_lib::mcp::{docs, prompts};
 use studio_lib::policy::UserPolicy;
 
@@ -125,6 +126,7 @@ fn glossary_follows_locale() {
     assert!(english.starts_with("# Glossary"), "{english}");
     assert!(english.contains("Area"), "{english}");
     assert!(english.contains("World map"), "{english}");
+    assert!(english.contains("**Matrix**"), "{english}");
     assert!(!english.contains("**Gebiet**"), "{english}");
     // Any other language is English, too.
     set_locale("xx");
@@ -165,12 +167,28 @@ fn prompts_and_access_texts_follow_locale() {
     set_locale("de");
     let (def, plan) = prompts::render("new_route", &args).unwrap();
     assert_eq!(def.title(), "Neue Route anlegen");
+    assert!(
+        def.description()
+            .starts_with("Plan, um eine neue Route im Freien (Gebiet)")
+    );
+    assert_eq!(
+        PromptDef::argument_description(def.arguments[0].1),
+        "Name der neuen Route, zum Beispiel „Route 301“"
+    );
     assert!(plan.starts_with("Lege in Gen4 Studio eine neue Route „Route 301“ an"));
     assert!(plan.contains("create_area"), "{plan}");
     set_locale("en");
     let (def, plan) = prompts::render("new_route", &args).unwrap();
     assert_eq!(def.name, "new_route");
     assert_eq!(def.title(), "Create a new route");
+    assert!(
+        def.description()
+            .starts_with("Plan to create a new outdoor route (an area)")
+    );
+    assert_eq!(
+        PromptDef::argument_description(def.arguments[0].1),
+        "name of the new route, for example \"Route 301\""
+    );
     assert!(plan.starts_with("Create a new route \"Route 301\" in Gen4 Studio"));
     assert!(plan.contains("create_area"), "{plan}");
     // Prompt and argument names are codes: the same in both languages.

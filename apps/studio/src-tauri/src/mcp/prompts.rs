@@ -6,14 +6,16 @@ use serde_json::{Map, Value};
 
 /// One prompt: name, title, description, its arguments (name, description, required) and the
 /// message it returns for the given arguments (the required ones are there). The names (of the
-/// prompt and of its arguments) and the descriptions are the same in every language, like the
-/// tool catalog's; the title and the message come from the catalog in the language of the
-/// server.
+/// prompt and of its arguments) are codes, the same in every language; the title, the
+/// descriptions and the message come from the catalog in the language of the server.
 pub struct PromptDef {
     pub name: &'static str,
     /// The catalog key of the title (`mcp.prompts.<name>.title`).
     title_key: &'static str,
-    pub description: &'static str,
+    /// The catalog key of the description (`mcp.prompts.<name>.description`).
+    description_key: &'static str,
+    /// Each argument: its name, the catalog key of its description
+    /// (`mcp.prompts.<name>.arg_<argument>`) and whether it is required.
     pub arguments: &'static [(&'static str, &'static str, bool)],
     pub text: fn(&Map<String, Value>) -> String,
 }
@@ -23,42 +25,31 @@ pub static PROMPTS: &[PromptDef] = &[
     PromptDef {
         name: "new_route",
         title_key: "mcp.prompts.new_route.title",
-        description: "Plan to create a new outdoor route (Gebiet) with its header, warps and \
-                      checks, step by step with the tools to call.",
-        arguments: &[(
-            "name",
-            "name of the new route, for example \"Route 301\"",
-            true,
-        )],
+        description_key: "mcp.prompts.new_route.description",
+        arguments: &[("name", "mcp.prompts.new_route.arg_name", true)],
         text: new_route,
     },
     PromptDef {
         name: "npc_with_item",
         title_key: "mcp.prompts.npc_with_item.title",
-        description: "Plan to place a person (Person/Objekt) in a place who talks and gives \
-                      an item: event, text and script.",
+        description_key: "mcp.prompts.npc_with_item.description",
         arguments: &[
-            (
-                "header",
-                "the header (Ort) the person stands in: id or name",
-                true,
-            ),
-            ("item", "the item the person gives: name or id", false),
+            ("header", "mcp.prompts.npc_with_item.arg_header", true),
+            ("item", "mcp.prompts.npc_with_item.arg_item", false),
         ],
         text: npc_with_item,
     },
     PromptDef {
         name: "place_trainer",
         title_key: "mcp.prompts.place_trainer.title",
-        description: "Plan to put a trainer on the map of a header: the trainer, its party and \
-                      texts, and the person that starts the battle.",
+        description_key: "mcp.prompts.place_trainer.description",
         arguments: &[
+            ("header", "mcp.prompts.place_trainer.arg_header", true),
             (
-                "header",
-                "the header (Ort) the trainer stands in: id or name",
-                true,
+                "trainer_class",
+                "mcp.prompts.place_trainer.arg_trainer_class",
+                false,
             ),
-            ("trainer_class", "the trainer class: name or id", false),
         ],
         text: place_trainer,
     },
@@ -68,6 +59,17 @@ impl PromptDef {
     /// The title, in the language of the server.
     pub fn title(&self) -> String {
         t!(self.title_key).into_owned()
+    }
+
+    /// The description, in the language of the server.
+    pub fn description(&self) -> String {
+        t!(self.description_key).into_owned()
+    }
+
+    /// The description of the argument whose catalog key is `key` (the second part of an entry
+    /// of [`PromptDef::arguments`]), in the language of the server.
+    pub fn argument_description(key: &str) -> String {
+        t!(key).into_owned()
     }
 }
 

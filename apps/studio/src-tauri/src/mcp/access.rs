@@ -227,7 +227,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
         "git_commit_all",
         Kind::Irreversible("mcp.access.commit_all"),
     ),
-    // Writes the template block (as „Stand sichern“ would), then reads the status.
+    // Writes the template block (as "Save a snapshot" would), then reads the status.
     ("git_commit_prepare", Kind::Write),
     ("recipe_list", Kind::Read),
     ("recipe_plan", Kind::Read),
@@ -261,7 +261,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("live_breakpoint_clear", APP_ONLY),
     ("dialogs_of_header", Kind::Read),
     ("plan_delete", Kind::Read),
-    // Irreversible with `freeNumber` („Nummer freigeben“), see [`classify`].
+    // Irreversible with `freeNumber` ("Free the number"), see [`classify`].
     ("delete_entity", Kind::Depends),
     // One undo step, like any edit.
     ("restore_entity", Kind::Write),

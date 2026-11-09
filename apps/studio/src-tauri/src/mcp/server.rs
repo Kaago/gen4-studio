@@ -280,12 +280,13 @@ fn prompt(def: &PromptDef) -> Prompt {
         .arguments
         .iter()
         .map(|(name, description, required)| {
-            let mut argument = PromptArgument::new(*name).with_description(*description);
+            let mut argument = PromptArgument::new(*name)
+                .with_description(PromptDef::argument_description(description));
             argument.required = Some(*required);
             argument
         })
         .collect();
-    Prompt::new(def.name, Some(def.description), Some(arguments)).with_title(def.title())
+    Prompt::new(def.name, Some(def.description()), Some(arguments)).with_title(def.title())
 }
 
 /// The tools whose command answers a picture: `png`, base64 of a PNG of 256 × 192 (or

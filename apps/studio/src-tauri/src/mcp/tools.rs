@@ -185,7 +185,7 @@ static RESOURCES: [ResourceDef; 4] = [
         uri: "g4://glossary",
         name: "glossary",
         description: "The words of the app's interface in the language of the server (English: \
-                      World map, Area, Room, Place, Grid, Header, Event file, Warp ...; German: \
+                      World map, Area, Room, Place, Matrix, Header, Event file, Warp ...; German: \
                       Weltkarte, Gebiet, Raum, Ort, Raster, Header, Eventdatei, Warp ...) with \
                       their technical names and the tools and fields an agent uses for them. \
                       Needs no project.",
@@ -1098,7 +1098,7 @@ impl<'a> Call<'a> {
                 crate::commands::check_git_commit_all(self.state)?;
                 Ok(why.to_owned())
             }
-            // „Nummer freigeben: Trainer 0002“, after the plan: a refusal comes back unasked.
+            // "Free the number: Trainer 0002", after the plan: a refusal comes back unasked.
             // A target that is none is refused by the command.
             ("delete_entity", shared) => {
                 let target = args.get("target").and_then(|target| {
@@ -1577,9 +1577,9 @@ fn check_keys(def: &ToolDef, args: &Value) -> Result<(), ToolError> {
     }
 }
 
-/// The question before `assign_base` assigns `file` with `check`: „Basis-ROM zuordnen:
-/// <file> (<label>, SHA-1 <8 digits>)“, the label from `base_roms.yaml`, else „unbekannte oder
-/// veränderte ROM <title> (<game code>)“, and what differs from the project.
+/// The question before `assign_base` assigns `file` with `check`: "Assign base ROM:
+/// <file> (<label>, SHA-1 <8 digits>)", the label from `base_roms.yaml`, else "unknown or
+/// modified ROM <title> (<game code>)", and what differs from the project.
 fn assign_question(file: &str, check: &BaseCheck) -> String {
     let info = &check.info;
     let label = match &info.known_base {
@@ -1635,8 +1635,8 @@ fn conflict_question(why: &str, args: &Value) -> String {
 }
 
 /// The question before `resolve_text_conflicts` overwrites a version of each archive in
-/// `args`: „<why>: Textarchiv 0012 (die Spieldatei gilt, die JSON wird überschrieben)“, several
-/// joined with „; “. The version that applies is the one `keep` names: the JSON is the
+/// `args`: "<why>: Text archive 0012 (the game file applies, the JSON is overwritten)", several
+/// joined with "; ". The version that applies is the one `keep` names: the JSON is the
 /// editor's text, the member the game file. Args that cannot be read leave the generic `why`
 /// (the command refuses them itself).
 fn resolve_question(why: &str, args: &Value) -> String {
@@ -2645,7 +2645,7 @@ mod tests {
         let (_fixture, toolbox) = open_toolbox(READ);
         let (mime, text) = toolbox.read_resource("g4://glossary", AGENT).unwrap();
         assert_eq!(mime, "text/markdown");
-        for word in ["Area", "Room", "Place", "Grid", "World map", "Event file"] {
+        for word in ["Area", "Room", "Place", "Matrix", "World map", "Event file"] {
             assert!(text.contains(word), "{word}");
         }
         // The tools an agent uses are named, too.
@@ -2793,7 +2793,7 @@ mod tests {
         assert_eq!(code, "batch_failed");
         assert_eq!(details["history_forgotten"], true);
         assert!(
-            message.contains("not everything is taken back"),
+            message.contains("not everything is rolled back"),
             "{message}"
         );
         // A batch that forgets nothing does not say so.
@@ -2870,7 +2870,7 @@ mod tests {
         assert_eq!(details["kept"], 1);
         assert!(details.get("history_forgotten").is_none());
         assert!(
-            message.contains("1 step of the batch could not be taken back"),
+            message.contains("1 step of the batch could not be rolled back"),
             "{message}"
         );
         // The edit after the barrier is rolled back, the barrier step stays.
