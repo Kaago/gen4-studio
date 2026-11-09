@@ -7,11 +7,10 @@
   // Quellen: apps/studio/src/workbench/inspector/{ImportPartsDialog.tsx,ImportPartsDialog.module.css,importParts.ts}, ui/primitives/{Dialog,Segmented,TextField,
   // CheckList,Checkbox,Budget,Button}.tsx. Texte aus design-system/README.md, „Nachtrag 6.5a“. Beispielwerte, keine Spieldaten: das Testmodell g4_imp_cube ist
   // selbst erzeugt (g4k import-samples), die Größen 21.740 B und 139.264 B sind Beispiele.
-  // Nicht gerendert: die .fig wird in diesem Branch nicht angefasst (parallele Phasen, die .fig lässt sich nicht mergen); gerendert wird auf main nach dem
-  // Merge (Anleitung: openpencil/NACHTRAG-6-5a.md). Maße und Umbrüche dann mit dem Bild und der Test-Umgebung abgleichen.
+  // Gerendert am 09.11.2026 auf main nach dem Merge (App: Werkbank, Reihe 5: hell x 0, dunkel x 1520, y 5000), im zweiten Lauf (siehe unten); Anleitung: openpencil/NACHTRAG-6-5a.md.
   // Dunkel: bash ../build-screen.sh import-modell --dunkel.
   if (HX_DUNKEL) Object.assign(HX, HX_DUNKEL);
-  const NAME = 'Teile importieren: Modell aus OBJ';
+  const NAME = 'Teile importieren: Modell aus OBJ' + (DARK ? ' (Dunkel)' : '');
   const W = 480;
   const IW = W - 40;
   const de = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -105,7 +104,11 @@
     ] })}</Frame>,
   ], [{ label: 'Abbrechen' }, { label: '0 Teile übernehmen', art: 'Primär', off: true }]);
 
-  return <Frame name={NAME} flex="row" items="start" gap={40} p={40} w={W * 2 + 120} rounded={10} bg={v('flaeche/ueberlagerung')}>
-    {wuerfel}
-    {zuGross}
+  // Die Zeile der Dialoge steckt in einer Spalte. Der erste Lauf (09.11.2026, die Reihe als Wurzel) kam mit zerfallenem Layout zurück (Dialoge 40 breit,
+  // 7.578 hoch); vermutlich lag es am ersten Laden neuer Symbole, nicht an der Reihe (bei 6.4a lief ein ebenso zerfallener Frame unverändert sauber nach)
+  return <Frame name={NAME} flex="col" p={40} w={W * 2 + 120} rounded={10} bg={v('flaeche/ueberlagerung')}>
+    <Frame name="Dialoge" flex="row" items="start" gap={40}>
+      {wuerfel}
+      {zuGross}
+    </Frame>
   </Frame>;

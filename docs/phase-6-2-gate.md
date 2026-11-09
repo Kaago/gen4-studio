@@ -2,7 +2,7 @@
 
 Stand: 2026-11-06. Branch `phase-6-2-bdhc` (Worktree `.claude/worktrees/phase-6-2`, Basis `d515c5ee` = main `d05fad84` mit den Plänen 6.1, 6.2 und 6.3a), nicht nach main gemergt. Vom Agenten erledigt: (1) Automatik Schritt für Schritt auf dem Stand `286d3ab1` (gated Tests im Release-Profil auf frischen Kopien von Platin DE, HeartGold DE und HeartGold US, Generator, `cargo deny`, fmt, clippy, die Tests ohne ROM-Daten, Frontend, Stil, Tokens, `g4emu`), (2) die Szenarien `pt-gelaende` und `hg-gelaende` mit der Gegenprobe (Task 9, `731af8d2`) und (3) der Browser-Teil mit MCP über die Brücke und den 18 Blick-Bildern (2026-11-06 auf `731af8d2`, 9/9 bestanden). `scripts/gate.sh` als Ganzes ist **offen — läuft in der Hauptsitzung auf main nach dem Merge**.
 
-Beim Nutzer offen: der Blick auf Schicht „Höhen“, Overlay und Budget in Hell, Dunkel und Kompakt und auf die `g4emu`-Bilder; DSPRE (Windows) öffnet die gebaute Karte; `scripts/gate.sh` auf main; optional `pt-gelaende` auf HeartGold US; die Frames 6.2 in der `.fig` (Abschnitt „(4) Hand und Blick“).
+Beim Nutzer offen: der Blick auf Schicht „Höhen“, Overlay und Budget in Hell, Dunkel und Kompakt und auf die `g4emu`-Bilder; DSPRE (Windows) öffnet die gebaute Karte; `scripts/gate.sh` auf main; optional `pt-gelaende` auf HeartGold US (Abschnitt „(4) Hand und Blick“). Die Frames 6.2 stehen seit dem 09.11.2026 in der `.fig`.
 
 Phase 6.2 bringt BDHC und Gelände: den Codec `crates/g4-formats/src/bdhc.rs` (sechs Tabellen lesen, byte-gleich schreiben, Strukturprüfung `validate`, `height_at` wie die Höhensuche des Spiels, `flat`), den Generator `bdhc/grid.rs` (`HeightGrid`, `Ramp`, `from_grid`: Rechteck-Zerlegung je Ebene, Rampen als geneigte Platten, halboffene Streifen; nach Konstruktion ≤ 35 592 B), im Kernel das Modul `terrain` (Regeltabelle `terrain_rules.yaml` je Familie, Zeilen wie die Permissions, `derive_permissions`, Handwerte, Höhen je Kachelmitte, Budget je Karte), die Prüfungen `map.altitude-walkable`, `map.step-unblocked` (Fix `block_upper` „Obere Zelle blockieren“), `map.buildings-over-limit` und die Strukturregeln in `map.bdhc-size`, die Befehle `get_map_heights`, `set_map_terrain` und `get_map_budget` (Tauri und MCP), in der Szene Overlay, Marker, Picking, Event-Drag und Entwurf auf der BDHC-Höhe statt der Matrix-Ebene, die Schicht „Höhen“ (sieben cividis-Stufen, Isolinien) und die Budget-Leiste im Inspector der Karte, in `g4emu` den Farbfix (RGBX) und den Schritt `expect-height`. Roadmap: [docs/ROADMAP.md](ROADMAP.md), Abschnitt „Phase 6“, Zeile 6.2. Spezifikation: [2026-11-05-phase-6-kartenerstellung-design.md](superpowers/specs/2026-11-05-phase-6-kartenerstellung-design.md) §4. Plan: [2026-11-05-phase-6-2-bdhc.md](superpowers/plans/2026-11-05-phase-6-2-bdhc.md). Formate: [bdhc.md](formats/bdhc.md), [terrain.md](formats/terrain.md); Werkzeuge: [mcp.md](mcp.md).
 
@@ -114,7 +114,7 @@ Danach: Test-Umgebung über die PID beendet, `lsof -iTCP:1440 -iTCP:1441 -sTCP:L
 
 ## (4) Hand und Blick
 
-Beim Nutzer (Abschnitte „Hand“ und „Blick“ unten): der Blick auf Schicht „Höhen“, Overlay und Budget in Hell, Dunkel, Kompakt und auf die `g4emu`-Bilder; DSPRE öffnet die gebaute Karte; optional `pt-gelaende` auf HeartGold US; `scripts/gate.sh` auf main (Hauptsitzung); die Frames 6.2 in der `.fig`.
+Beim Nutzer (Abschnitte „Hand“ und „Blick“ unten): der Blick auf Schicht „Höhen“, Overlay und Budget in Hell, Dunkel, Kompakt und auf die `g4emu`-Bilder; DSPRE öffnet die gebaute Karte; optional `pt-gelaende` auf HeartGold US; `scripts/gate.sh` auf main (Hauptsitzung).
 
 ## Ergebnis
 
@@ -135,7 +135,7 @@ Beim Nutzer (Abschnitte „Hand“ und „Blick“ unten): der Blick auf Schicht
 | Blick auf Schicht „Höhen“, Overlay, Budget | Agent + Blick | 18 Bilder aufgenommen (Hell, Dunkel, Kompakt, Thema je Bild am Pixel geprüft); Bestätigung beim Nutzer offen (Abschnitt „Blick“) | 2026-11-06 |
 | DSPRE öffnet die gebaute Karte | Hand | offen | – |
 | `pt-gelaende` auf HeartGold US | Hand | offen (optional; `IPKE` nicht gemessen) | – |
-| Frames 6.2 in der `.fig` | Hand | offen (OpenPencil in Task 10 nicht erreichbar, Anleitung `design-system/openpencil/NACHTRAG-6-2.md`) | – |
+| Frames 6.2 in der `.fig` | Agent | bestanden: zwei Frames auf „App: Werkbank“ (Reihe 3), das Brett „Budget und Höhenstufen“ auf „Komponenten“, die Zeile im Brett „Stand der App“; Branch `phase-6-fig-nachtraege` (`design-system/openpencil/NACHTRAG-6-2.md`) | 2026-11-09 |
 
 Zahlentabelle (Release; (1) aus den gated Tests, Szenario aus (2); Last = 1-Minuten-Last aus `uptime` vor → nach den gated Tests des Spiels bzw. beim Szenario):
 
@@ -166,7 +166,7 @@ Aus den Szenarien: die Abweichungen 1 bis 4 in (2) (Treppen-Reihenfolge, `equals
 - [ ] **DSPRE öffnet die gebaute Karte** (Windows): `Roms/_testkopien/6-2-szen-pt_DSPRE_contents/out.nds` (Platin DE, neue Karte 666 auf Header 593) und `Roms/_testkopien/6-2-szen-hg_DSPRE_contents/out.nds` (HeartGold DE, Karte 676 auf Header 540) in DSPRE öffnen; die Karte lädt (Längen der Teile stimmen, bei HGSS mit BGS-Teil), und DSPRE zeigt die BDHC-Größe (334 B, 9 Platten, 5 Streifen). Die Gegenprobe-Kopien `6-2-flach-*` haben eine flache BDHC (66 B) und eignen sich als Vergleich.
 - [ ] **`pt-gelaende` auf HeartGold US** (optional): `hg-gelaende.yaml` legt `game: IPKD` fest; eine Kopie mit `game: IPKE` im Scratchpad anlegen (`sed 's/^game: IPKD$/game: IPKE/' scripts/agent/scenarios/hg-gelaende.yaml > <scratchpad>/hgus-gelaende.yaml`) und auf einer frischen Kopie von HeartGold US mit denselben `--set` wie HeartGold DE laufen lassen (`NEUER_HEADER=540`; Kacheln und Header-Zahl sind für US nicht gemessen).
 - [ ] **`scripts/gate.sh` grün** auf main nach dem Merge (Hauptsitzung): `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms scripts/gate.sh > target/agent/gate.log 2>&1` im Hintergrund; ein roter gated Test wird erst allein wiederholt, dann nur der Rest.
-- [ ] **Frames 6.2 in der `.fig`**, sobald OpenPencil antwortet (in Task 10 war Port 7600 zu): Anleitung `design-system/openpencil/NACHTRAG-6-2.md`, Vorlage `design-system/openpencil/beispiele/hoehen-budget.body.js` (drei Modi `hoehen`, `budget`, `brett`, nie gerendert).
+- [x] **Frames 6.2 in der `.fig`** (09.11.2026, Branch `phase-6-fig-nachtraege`; in Task 10 war Port 7600 zu): „App: Welt bauen, Schicht Höhen“ (x 0, y 3000) und „App: Inspector, Karte mit Budget“ (x 1520, y 3000) auf „App: Werkbank“, das Brett „Komponenten (App): Budget und Höhenstufen“ auf „Komponenten“ (x 3440, y 16440), aus `design-system/openpencil/beispiele/hoehen-budget.body.js` (Modi `hoehen`, `budget`, `brett`) ohne Korrektur; die Symbole `heights` und `topDown` in der Symbolreihe nicht nachgezogen (keine Vorlage). Anleitung `design-system/openpencil/NACHTRAG-6-2.md`.
 
 ## Blick
 

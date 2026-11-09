@@ -16,8 +16,9 @@
   // Texte aus design-system/README.md, „Nachtrag 6.4a“. Projekt „Sinnoh-Remix“, Platin DE. Beispielwerte, nicht aus dem ROM: die Kacheln sind die des
   // synthetischen Tilesets mit Beispielnamen (boden, weg, gras_a, wasser_a, fels, treppe), ihre „Bilder“ Platzhalter aus Szenenfarben; Karte, Zelle,
   // Header und Zahlen folgen dem Phasen-Gate über die Oberfläche (target/agent/gate-2026-11-07/6-4a/ui-gate.md), das Budget ist ein Beispiel.
-  // Nicht gerendert: OpenPencil antwortete beim Schreiben nicht (127.0.0.1:7600, HTTP 502). Die Vorlage ist gegen jsx-lib-app.js geschrieben und mit
-  // einer Attrappe der Bausteine durchgelaufen, aber nie als Bild gesehen (Anleitung: openpencil/NACHTRAG-6-4a.md).
+  // Gerendert am 09.11.2026 (App: Werkbank, Reihe 6, x 0 / 1520 / 3040 / 4560, y 6000; Komponenten x 3440, y 18260), korrigiert nach dem Bild (siehe die
+  // Kommentare an 'malen', 'entwurf' und PalTile); beim Schreiben antwortete OpenPencil nicht (Anleitung: openpencil/NACHTRAG-6-4a.md).
+  // OpenPencil setzt „⇆“ (U+21C6) nicht (der ganze Text bleibt leer); die Marke der Spiegelung steht darum als „↔“.
   // Dunkel: bash ../build-screen.sh gelaende-malen --dunkel. Szenenfarben heißen in OpenPencil ohne Präfix: v('gelaende/wasser'), v('hoehe/2').
   const MODE = 'malen';
   if (HX_DUNKEL) Object.assign(HX, HX_DUNKEL);
@@ -87,7 +88,8 @@
     const fill = o.pic === false || !k.pic ? <Frame w={30} h={30} bg={v(ROLLE[k.role][1])} /> : <Frame name="Bild" w={30} h={30} bg={k.pic[0]}><Frame position="absolute" x={0} y={15} w={15} h={15} bg={k.pic[1]} /><Frame position="absolute" x={15} y={0} w={15} h={15} bg={k.pic[1]} /></Frame>;
     const taste = <Frame name={'Kachel ' + k.n} w={32} h={32} rounded={4} bg={v('flaeche/taste')} stroke={v(o.sel ? 'auswahl/kante' : 'linie/leise')} strokeWidth={o.sel ? 3 : 1} overflow="hidden" flex="row" items="center" justify="center">
       {fill}
-      {o.mark && <Frame name="Marke" position="absolute" x={32 - 6 - o.mark.length * 6} y={20} px={2} h={12} bg={v('auswahl/kante')} flex="row" items="center">{T(o.mark, { s: 10, lh: 12, c: 'akzent/auf' })}</Frame>}
+      {/* Marke rechts unten verankert wie in der App (right 0, bottom 0); Breiten nach dem Bild vom 09.11.2026 („90°“ 24, „↔“ 16 mit Rand) */}
+      {o.mark && <Frame name="Marke" position="absolute" x={32 - ({ '90°': 24, '↔': 16 }[o.mark] || o.mark.length * 7 + 4)} y={20} px={2} h={12} bg={v('auswahl/kante')} flex="row" items="center">{T(o.mark, { s: 10, lh: 12, c: 'akzent/auf' })}</Frame>}
     </Frame>;
     return o.tinker ? <Frame flex="col" items="center" gap={2}>{taste}{Mono(k.n, { s: 10, lh: 12 })}</Frame> : taste;
   };
@@ -217,7 +219,8 @@
         {Layers({ rows: [{ name: 'Boden', active: true }, { name: 'Büsche', overlay: true }], next: 'Ebene 2' })}
         {TileSection({ k: kachel('0001'), kind: 0, kindName: 'NONE', blocked: false, origin: 'Von dir gesetzt', open: false })}
         {Quelle()}
-        {BudgetSection(BUDGET)}
+        {/* Budget eingeklappt (erstes Bild 09.11.2026): offen schnitt der Rand der Gruppe den Satz des Budgets mittendurch; die Zahlen zeigen die Frames von 6.2 */}
+        {BudgetSection(BUDGET, { open: false })}
       </Frame>],
       status: malStatus('Pinsel', 'Kachel x 9, y 14 · Karte 0667 · begehbar · Höhe 0 Stufen') });
   }
@@ -241,16 +244,18 @@
 
   // ----- 'entwurf': Weltkarte mit der gestrichelten Zelle, darüber der Dialog „Neue Karte malen“ -----
   if (MODE === 'entwurf') {
-    // Weltkarte (32er-Zellen, Beispiel-Hex), um Route 201: die Zelle des Entwurfs (Spalte 4, Zeile 2) gestrichelt in auswahl/kante (strich/fokus, 2)
+    // Weltkarte (32er-Zellen, Beispiel-Hex), um Route 201: die Zelle des Entwurfs (Spalte 2, Zeile 2) gestrichelt in auswahl/kante (strich/fokus, 2),
+    // links daneben die gewählte Karte 0666. Das Gitter steht links in der Schau, denn der Dialog (mittig, 480 breit, so hoch wie die App ihn zeigt)
+    // deckt die Mitte; nach dem ersten Bild (09.11.2026) lag das Gitter ganz unter dem Dialog
     const pic = ['#7B9C31', '#94AD42', '#A5BD5A', '#6B8C29'];
     const rows = [0, 1, 2, 3, 4].map((r) => [0, 1, 2, 3, 4, 5, 6, 7].map((c) => {
-      if (r === 2 && c === 4) return <Frame name="Entwurf: Zelle 1, 0" w={32} h={32} stroke={v('auswahl/kante')} strokeWidth={2} strokeDash={[4, 3]} dashPattern={[4, 3]} flex="row" items="center" justify="center">{T('+', { s: 15, c: 'text/sekundaer' })}</Frame>;
-      if ((r + c) % 5 === 0 || r === 4) return GridCell({ size: 32, plus: r === 4 && c === 4 });
-      return GridCell({ size: 32, map: String(600 + r * 8 + c).padStart(4, '0'), pic: pic[(r * 3 + c) % 4], sel: r === 2 && c === 3 });
+      if (r === 2 && c === 2) return <Frame name="Entwurf: Zelle 1, 0" w={32} h={32} stroke={v('auswahl/kante')} strokeWidth={2} strokeDash={[4, 3]} dashPattern={[4, 3]} flex="row" items="center" justify="center">{T('+', { s: 15, c: 'text/sekundaer' })}</Frame>;
+      if ((r + c) % 5 === 0 || r === 4) return GridCell({ size: 32, plus: r === 4 && c === 2 });
+      return GridCell({ size: 32, map: String(600 + r * 8 + c).padStart(4, '0'), pic: pic[(r * 3 + c) % 4], sel: r === 2 && c === 1 });
     }));
     const karte = <Frame name="Weltkarte" flex="col" w={SW} h={SH} bg={v('flaeche/schau')}>
       {WorldMapHead('Weltkarte')}
-      <Frame flex="row" justify="center" p={24} w="fill">{AreaGridX(rows, 'Weltkarte')}</Frame>
+      <Frame flex="row" justify="start" p={16} w="fill">{AreaGridX(rows, 'Weltkarte')}</Frame>
     </Frame>;
     const win = Werkbank({ name: 'Fenster', karten: [['0666', '0, 0', true]], crumbs: [['Route 201'], ['Karte 0666', 'Zelle 0, 0']], tab: 'Weltkarte', schauInhalt: karte,
       inspector: [InspectorHeadB({ word: 'Karte', icon: 'ph:mountains', title: 'Karte 0666', ident: 'Zelle 0, 0 · Route 201' })],
@@ -289,7 +294,7 @@
     {Zustand('Palettenkacheln: mit Bild (die ganze Textur, ohne Glättung), ohne Bild in der Platzhalterfarbe der Rolle, gewählt, gewählt mit Marke der Drehung und Spiegelung, Tüfteln mit Nummer', Karte(<Frame flex="col" gap={12} w="fill">
       {Mit(<Frame flex="row" gap={8}>{KACHELN.map((k) => PalTile(k))}</Frame>, 'Mit Bild. Tooltip „Kachel 0003 · gras_a · 32 × 32 Texel · Gras“.', 7 * 40)}
       {Mit(<Frame flex="row" gap={8}>{KACHELN.map((k) => PalTile(k, { pic: false }))}</Frame>, 'Ohne Bild (synthetisches Tileset, Format 5): szene/gelaende/unbekannt, hohes-gras, wasser, blockiert, spezial.', 7 * 40)}
-      {Mit(<Frame flex="row" gap={8}>{PalTile(kachel('0001'), { sel: true })}{PalTile(kachel('0001'), { sel: true, mark: '90° ⇆' })}{PalTile(kachel('0003'), { tinker: true })}</Frame>, 'Gewählt (aria-pressed): Rand und Fokusstrich auswahl/kante; die Marke „90°“, „⇆“ oder beides; Tüfteln die Nummer darunter und im Tooltip „kind 0x02, Kollision 0x00“.', 3 * 40)}
+      {Mit(<Frame flex="row" gap={8}>{PalTile(kachel('0001'), { sel: true })}{PalTile(kachel('0001'), { sel: true, mark: '90°' })}{PalTile(kachel('0001'), { sel: true, mark: '↔' })}{PalTile(kachel('0003'), { tinker: true })}</Frame>, 'Gewählt (aria-pressed): Rand und Fokusstrich auswahl/kante; rechts unten die Marke „90°“ (gedreht), der Pfeil der Spiegelung (in der App U+21C6, hier „↔“: OpenPencil setzt das Zeichen nicht) oder beides, dann breiter als die Taste und links beschnitten; Tüfteln die Nummer darunter und im Tooltip „kind 0x02, Kollision 0x00“.', 4 * 40)}
     </Frame>))}
     {Zustand('Ebenen: Radio „Aktiv“ (der Pinsel malt dorthin), Name und Rolle, Auge nur für die Szene, „Entfernen“ nur bei Überlagerungen', Karte(<Frame flex="row" gap={16} items="start" w="fill">
       {Ausschnitt([Layers({ rows: [{ name: 'Boden', active: true }, { name: 'Büsche', overlay: true }], next: 'Ebene 2' })])}

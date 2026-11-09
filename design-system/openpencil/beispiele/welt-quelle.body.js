@@ -13,8 +13,8 @@
   // Projekt „Sinnoh-Remix“, Platin DE. Beispielwerte: die Zahlen der Zeile des Backens und die Abweichungen stammen aus dem Lauf der Test-Umgebung
   // (Karte 0000 nach „Karte als Quelle übernehmen“, Member durch 0001 ersetzt), die Bilder unter target/agent/gate-2026-11-07/6-3b/ (blick-quelle-*,
   // blick-konflikt-*).
-  // Nicht gerendert: OpenPencil antwortete beim Schreiben nicht. Beim ersten Rendern Maße und Umbrüche mit den Screenshots abgleichen
-  // (Anleitung: openpencil/NACHTRAG-6-3b.md).
+  // Gerendert am 09.11.2026 (App: Werkbank x 0, y 4000; App: Texte, Technik, Dialoge x 0, y 3000), 'quelle' nach einem Korrekturlauf; beim Schreiben
+  // antwortete OpenPencil nicht (Anleitung: openpencil/NACHTRAG-6-3b.md).
   // Dunkel: bash ../build-screen.sh welt-quelle --dunkel.
   const MODE = 'quelle';
   if (HX_DUNKEL) Object.assign(HX, HX_DUNKEL);
@@ -50,17 +50,18 @@
       TreeRowX({ label: 'Karte 0000', tech: '3, 27', icon: 'ph:mountains', depth: 2, open: false, sel: true }),
       TreeRowX({ label: 'Figuren', icon: 'ph:person-simple-walk', depth: 1, open: false, count: 8 }),
     ];
-    // Platzhalter des Dorfs (keine Spielgrafik): Wiese, Wege, vier Häuser, ein Teich; der Zellrahmen der gewählten Karte (auswahl/halo)
+    // Platzhalter des Dorfs (keine Spielgrafik): Wiese, Wege, vier Häuser, ein Teich; der Zellrahmen der gewählten Karte (auswahl/halo).
+    // Nach dem ersten Bild (09.11.2026) ist das Dorf flacher (336 statt 400) und der Ausschnitt sitzt darunter, damit er kein Haus verdeckt
     const dorf = <Frame name="3D-Szene (gebackenes Modell)" w={SW} h={SH} bg={v('flaeche/welt')} overflow="hidden">
-      <Frame position="absolute" x={120} y={40} w={500} h={400} bg="#7B9C31" />
-      <Frame position="absolute" x={350} y={40} w={40} h={400} bg="#D6C08C" />
-      <Frame position="absolute" x={160} y={200} w={420} h={30} bg="#D6C08C" />
-      {[[180, 90], [440, 90], [180, 260], [440, 260]].map(([x, y]) => <Frame position="absolute" x={x} y={y} w={110} h={80} rounded={4} bg="#4A7B5A" stroke="#101821" strokeWidth={1} />)}
-      <Frame position="absolute" x={320} y={360} w={100} h={60} rounded={4} bg="#4A8CD6" />
-      <Frame position="absolute" x={120} y={40} w={500} h={400} stroke={v('auswahl/halo')} strokeWidth={6} />
+      <Frame position="absolute" x={120} y={24} w={500} h={336} bg="#7B9C31" />
+      <Frame position="absolute" x={350} y={24} w={40} h={336} bg="#D6C08C" />
+      <Frame position="absolute" x={160} y={176} w={420} h={30} bg="#D6C08C" />
+      {[[180, 64], [440, 64], [180, 230], [440, 230]].map(([x, y]) => <Frame position="absolute" x={x} y={y} w={110} h={80} rounded={4} bg="#4A7B5A" stroke="#101821" strokeWidth={1} />)}
+      <Frame position="absolute" x={320} y={300} w={100} h={44} rounded={4} bg="#4A8CD6" />
+      <Frame position="absolute" x={120} y={24} w={500} h={336} stroke={v('auswahl/halo')} strokeWidth={6} />
       {FloatingToolbar({ tool: 'Auswählen', anchor: 'links', x: 8, y: 8 })}
       {LegendBtn(8, SH - 40)}
-      <Frame name="Zustand binär (Ausschnitt)" position="absolute" x={SW - 340 - 16} y={SH - 200} w={340} flex="col" pt={2} rounded={8} bg={v('flaeche/blatt')} stroke={v('linie/leise')} strokeWidth={1}>
+      <Frame name="Zustand binär (Ausschnitt)" position="absolute" x={SW - 340 - 16} y={SH - 140} w={340} flex="col" pt={2} rounded={8} bg={v('flaeche/blatt')} stroke={v('linie/leise')} strokeWidth={1}>
         {Quelle({ world: false, textProject: false })}
       </Frame>
     </Frame>;
@@ -81,7 +82,7 @@
     const dock = <Frame name="Dock Welt" flex="row" w="fill" grow={1}><Frame name="Mitte" flex="col" grow={1} h="fill">{schau}{unten}</Frame>{insp}</Frame>;
     return Window({ name: NAMES.quelle, active: 'welt', dark: DARK, title: { project: 'Sinnoh-Remix', game: 'Platin, DE', unsaved: 1 },
       status: Statusbar({ tool: 'Auswählen', keys: [['Klick', 'wählt'], ['Ziehen', 'verschiebt']], info: 'Zweiblattdorf, Karte 0000 (3, 27)' }),
-      children: [WeltListe({ orte, szene }), <Frame name="Werkbank" flex="col" grow={1} h="fill">{ScharnierOben({ crumbs: [['Zweiblattdorf'], ['Karte 0000', 'Zelle 3, 27']], depth: 'Bauen', light: { e: 0, w: 101, i: 162 }, undo: 1 })}{dock}</Frame>] });
+      children: [WeltListe({ orte, szene, orteH: 288 }), <Frame name="Werkbank" flex="col" grow={1} h="fill">{ScharnierOben({ crumbs: [['Zweiblattdorf'], ['Karte 0000', 'Zelle 3, 27']], depth: 'Bauen', light: { e: 0, w: 101, i: 162 }, undo: 1 })}{dock}</Frame>] });
   }
 
   // ----- 'konflikt': Technik › Textprojekt mit dem Konflikt einer Welt-Karte -----
