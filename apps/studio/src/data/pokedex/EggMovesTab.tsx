@@ -1,4 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { EggMovesDto, MoveRowExtra } from "../../api";
 import { Button, IconButton, Notice, Table, TypeBadge } from "../../ui/primitives";
 import type { TableRow } from "../../ui/primitives";
@@ -8,12 +10,6 @@ import { ChoicePicker, PickField, useChoices } from "./pickers";
 import type { Editing } from "./PokedexHand";
 import { MAX_EGG_MOVES, moveName, spaced } from "./pokedexModel";
 import styles from "./Pokedex.module.css";
-
-const COLUMNS = [
-  { key: "move", label: "Attacke" },
-  { key: "type", label: "Typ", width: 96 },
-  { key: "remove", label: "Entfernen", width: 88, align: "end" as const },
-];
 
 /** An egg move by what it is, not where it stands: the move and which entry of that move it is (a list may name a move twice). */
 interface EggRef {
@@ -46,17 +42,17 @@ function findEgg(moves: readonly number[], ref: EggRef): number {
 /** The table as an editable one: null where the game has none or it is locked. */
 const editable = (table: EggMovesDto | null): EggMovesDto | null => (table === null || table.locked !== null ? null : table);
 
-const countText = (n: number) => `${n} ${n === 1 ? "Ei-Attacke" : "Ei-Attacken"}`;
+const countText = (t: TFunction<"data">, n: number) => t("eggMovesTab.count", { count: n });
 
 /**
  * Why „Zeile hinzufügen“ is locked: 16 moves per species at most (`data_edit` refuses more), or Platinum's table in overlay 5 has no
  * room for another word (a species without moves needs two: its mark and the move). Null: a move can be added.
  */
-function addBlocked(table: EggMovesDto): string | null {
+function addBlocked(table: EggMovesDto, t: TFunction<"data">): string | null {
   const count = table.moves.length;
-  if (count >= MAX_EGG_MOVES) return `Höchstens ${MAX_EGG_MOVES} Ei-Attacken je Art`;
+  if (count >= MAX_EGG_MOVES) return t("eggMovesTab.maxPerSpecies", { max: MAX_EGG_MOVES });
   const budget = table.budget;
-  if (budget !== null && budget.used + (count > 0 ? 1 : 2) > budget.total) return "Tabelle voll: erst eine Ei-Attacke bei einer anderen Art entfernen";
+  if (budget !== null && budget.used + (count > 0 ? 1 : 2) > budget.total) return t("eggMovesTab.tableFull");
   return null;
 }
 
@@ -69,6 +65,12 @@ function addBlocked(table: EggMovesDto): string | null {
  * full, the Platinum signature, more than 16 moves) shows above the tabs.
  */
 export function EggMovesTab({ e }: { e: Editing }) {
+  const { t } = useTranslation("data");
+  const columns = [
+    { key: "move", label: t("pokedexTable.columns.move") },
+    { key: "type", label: t("pokedexTable.columns.type"), width: 96 },
+    { key: "remove", label: t("pokedexTable.columns.remove"), width: 88, align: "end" as const },
+  ];
   const { project, store } = useDataArea("pokemon");
   const snapshot = useDataSnapshot(store);
   useEffect(() => {
@@ -88,20 +90,20 @@ export function EggMovesTab({ e }: { e: Editing }) {
   if (table === null) {
     return (
       <div className={styles.tableTab} data-tab="eggMoves">
-        <Notice kind="info">Dieses Spiel hat keine Ei-Attacken-Tabelle, die das Studio kennt.</Notice>
+        <Notice kind="info">{t("eggMovesTab.noTable")}</Notice>
       </div>
     );
   }
   if (table.locked !== null) {
     return (
       <div className={styles.tableTab} data-tab="eggMoves">
-        <Notice kind="warning">{`${table.locked}. Die Ei-Attacken lassen sich nicht bearbeiten.`}</Notice>
+        <Notice kind="warning">{t("eggMovesTab.locked", { reason: table.locked })}</Notice>
       </div>
     );
   }
 
   const name = (id: number) => moveName(e.names.moves, id);
-  const resized = (from: number, to: number) => `${e.name}: Ei-Attacken ${from} → ${to}`;
+  const resized = (from: number, to: number) => t("eggMovesTab.resized", { name: e.name, from, to });
   const write = (make: (list: readonly number[]) => { list: number[]; label: string } | null) =>
     void e.update((doc) => {
       const now = editable(doc.egg_moves);
@@ -116,15 +118,15 @@ export function EggMovesTab({ e }: { e: Editing }) {
     });
 
   const setMove = (ref: EggRef, move: number) =>
-    change(ref, (list, i) => (move === ref.move ? null : { list: list.map((m, j) => (j === i ? move : m)), label: `${e.name}: Ei-Attacken getauscht` }));
+    change(ref, (list, i) => (move === ref.move ? null : { list: list.map((m, j) => (j === i ? move : m)), label: t("eggMovesTab.swapped", { name: e.name }) }));
   const remove = (ref: EggRef) => change(ref, (list, i) => ({ list: list.filter((_, j) => j !== i), label: resized(list.length, list.length - 1) }));
   const add = (move: number) => write((list) => (list.length >= MAX_EGG_MOVES ? null : { list: [...list, move], label: resized(list.length, list.length + 1) }));
 
   const count = table.moves.length;
-  const blocked = addBlocked(table);
+  const blocked = addBlocked(table, t);
   const budget = table.budget;
   const footer =
-    budget === null ? countText(count) : <span data-egg-budget="">{`${countText(count)} · Tabelle ${spaced(budget.used)} von ${spaced(budget.total)} Einträgen`}</span>;
+    budget === null ? countText(t, count) : <span data-egg-budget="">{t("eggMovesTab.footerBudget", { counted: countText(t, count), used: spaced(budget.used), total: spaced(budget.total) })}</span>;
 
   const rows: TableRow[] = table.moves.map((id, i) => {
     const ref = refs[i]!;
@@ -134,9 +136,9 @@ export function EggMovesTab({ e }: { e: Editing }) {
       key: eggKey(ref),
       attrs: { "data-egg": String(i), "data-move": String(id) },
       cells: {
-        move: <PickField label={`Attacke in Zeile ${i + 1}`} text={move} choice="move" onPick={(v) => setMove(ref, v)} />,
+        move: <PickField label={t("pokedexTable.moveInRow", { row: i + 1 })} text={move} choice="move" onPick={(v) => setMove(ref, v)} />,
         type: type === undefined ? null : <TypeBadge type={type} size="s" />,
-        remove: <IconButton label={`${move} entfernen`} icon="close" onClick={() => remove(ref)} />,
+        remove: <IconButton label={t("eggMovesTab.removeMove", { move })} icon="close" onClick={() => remove(ref)} />,
       },
     };
   });
@@ -155,7 +157,7 @@ export function EggMovesTab({ e }: { e: Editing }) {
             if (blocked === null) setAdding(true);
           }}
         >
-          Zeile hinzufügen
+          {t("pokedexTable.addRow")}
         </Button>
         {blocked !== null && (
           <span id={helpId} className={styles.note}>
@@ -164,8 +166,8 @@ export function EggMovesTab({ e }: { e: Editing }) {
         )}
       </div>
       <Table
-        ariaLabel={`Ei-Attacken von ${e.name}`}
-        columns={COLUMNS}
+        ariaLabel={t("eggMovesTab.tableLabel", { name: e.name })}
+        columns={columns}
         rows={rows}
         selected={selected}
         onSelect={setSelected}
@@ -175,7 +177,7 @@ export function EggMovesTab({ e }: { e: Editing }) {
         }}
         footer={footer}
       />
-      <ChoicePicker open={adding} onOpenChange={setAdding} title="Ei-Attacke hinzufügen" items={addChoices} onPick={add} footer="Steht hinten in der Liste der Art." />
+      <ChoicePicker open={adding} onOpenChange={setAdding} title={t("eggMovesTab.addTitle")} items={addChoices} onPick={add} footer={t("eggMovesTab.addFooter")} />
     </div>
   );
 }

@@ -1,8 +1,10 @@
 import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataRowDto, SpeciesRowExtra } from "../../api";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { FilterChips, pokemonTypes } from "../../ui/primitives";
+import { typeName } from "../../ui/primitives/pokemonTypes";
 import { DataList, RowIcon } from "../DataList";
 import { monIcon, monIconKey } from "../icons";
 import { useDataArea, useDataSearch } from "../useDataArea";
@@ -19,24 +21,25 @@ const typesOf = (row: DataRowDto): readonly number[] => (row.extra as SpeciesRow
 
 /** The list of the Pokédex: search by name or number, type chips with their counts, icon, name and number, and a dot on unsaved species. */
 export function PokedexList() {
+  const { t } = useTranslation("data");
   const { rows, dirty } = useDataArea("pokemon");
   const { filter, setFilter } = useDataSearch("pokemon");
   const options = useMemo(
     () =>
-      pokemonTypes.map((t) => ({
-        value: String(t.id),
-        label: t.name,
-        type: t.id,
-        count: rows.filter((r) => typesOf(r).includes(t.id)).length,
+      pokemonTypes.map((type) => ({
+        value: String(type.id),
+        label: typeName(type.id),
+        type: type.id,
+        count: rows.filter((r) => typesOf(r).includes(type.id)).length,
       })),
-    [rows],
+    [rows, t],
   );
   const chosen = useMemo(() => new Set(filter.types.map(String)), [filter.types]);
   const onTypes = useCallback((next: Set<string>) => setFilter({ ...filter, types: [...next].map(Number) }), [filter, setFilter]);
   const unsaved = useMemo(() => new Set(dirty.filter((a) => PARTS.has(a.kind)).map((a) => a.index)), [dirty]);
   const trailing = useCallback(
-    (row: DataRowDto) => (unsaved.has(row.index) ? <span className={styles.dot} role="img" aria-label="ungespeichert" /> : null),
-    [unsaved],
+    (row: DataRowDto) => (unsaved.has(row.index) ? <span className={styles.dot} role="img" aria-label={t("unsaved")} /> : null),
+    [unsaved, t],
   );
   // A species with its data, learnset and evolution as in the base ROM.
   const { status, open } = useReset();
@@ -45,11 +48,11 @@ export function PokedexList() {
     <DataList
       contextMenu={contextMenu}
       area="pokemon"
-      label="Pokédex"
+      label={t("dataModel.sub.pokedex")}
       attr="data-species"
       leading={speciesIcon}
       trailing={trailing}
-      filters={<FilterChips ariaLabel="Typ" options={options} value={chosen} onChange={onTypes} />}
+      filters={<FilterChips ariaLabel={t("type")} options={options} value={chosen} onChange={onTypes} />}
     />
   );
 }

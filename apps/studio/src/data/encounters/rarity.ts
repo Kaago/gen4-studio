@@ -1,4 +1,5 @@
 import type { SlotDto } from "../../api";
+import { t } from "../../i18n";
 import type { EncounterDoc, TimeKey } from "./encounterModel";
 
 /**
@@ -15,11 +16,17 @@ export const RARITY_SLOTS: Readonly<Record<Rarity, readonly number[]>> = {
 };
 
 /** The classes in the order the switch shows them. */
-export const RARITIES: readonly { value: Rarity; label: string }[] = [
-  { value: "haeufig", label: "häufig" },
-  { value: "gewoehnlich", label: "gewöhnlich" },
-  { value: "selten", label: "selten" },
-];
+export const RARITIES: readonly { value: Rarity; readonly label: string }[] = [rarityOption("haeufig"), rarityOption("gewoehnlich"), rarityOption("selten")];
+
+/** One class; its `label` is read when asked for (in the language shown then), never when this module loads. */
+function rarityOption(value: Rarity) {
+  return {
+    value,
+    get label() {
+      return t(`data:rarity.${value}`);
+    },
+  };
+}
 
 /** „häufig“ for `haeufig`. */
 export const rarityWord = (rarity: Rarity): string => RARITIES.find((r) => r.value === rarity)!.label;

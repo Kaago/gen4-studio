@@ -1,1 +1,127 @@
-{}
+{
+  "shortcuts": {
+    "open": "Open project",
+    "palette": "Open command palette",
+    "save": "Save",
+    "undo": "Undo",
+    "redo": "Redo",
+    "play": "Play here (app only)",
+    "pokedex": "Pokédex (in the Pokémon area)",
+    "trainer": "Trainer (in the Pokémon area)",
+    "encounters": "Encounters (in the Pokémon area)",
+    "moves": "Moves (in the Pokémon area)"
+  },
+  "buildings": {
+    "deletePrompt": "Delete building {{number}} of map {{map}}?",
+    "deletePromptAt": "Delete building {{number}} of map {{map}} (model {{model}}, x {{x}}, y {{y}}, z {{z}})?"
+  },
+  "events": {
+    "kinds": {
+      "warp": "Warp",
+      "object": "Object",
+      "coord": "Trigger",
+      "bg": "Background event"
+    },
+    "titleWarp": "Warp {{index}} → {{dest}}",
+    "titleObject": "Object {{index}} · ID {{id}}",
+    "titleCoord": "Trigger {{index}} · {{script}} {{value}}",
+    "titleBg": "Background event {{index}} · {{script}} {{value}}",
+    "detailsWarp": "Position x {{x}}, z {{z}} · Target warp {{destWarp}} · Height {{height}}",
+    "detailsObject": "Position x {{x}}, z {{z}}, y {{y}} · Graphic {{graphics}} · Movement {{movement}} · {{script}} {{value}}",
+    "detailsCoord": "Position x {{x}}, z {{z}} · Size {{width}} × {{length}}",
+    "detailsBg": "Position x {{x}}, z {{z}}, y {{y}} · Type {{type}}",
+    "destinationUnknown": "unknown ({{dest}})",
+    "locked": "read-only: {{reason}}",
+    "warpRenumberNote": "Later doors move up, and warps that point to them are updated. A door that a warp points to, or that a script moves by index, cannot be deleted.",
+    "deletePrompt": "Delete {{what}}?",
+    "deletePromptAt": "Delete {{what}} (x {{x}}, z {{z}})?"
+  },
+  "ground": {
+    "decimalPoint": ".",
+    "noHeight": "no height",
+    "heightSteps_one": "Height {{steps}} step",
+    "heightSteps_other": "Height {{steps}} steps",
+    "heightUnitsSteps_one": "Height {{units}} units ({{steps}} step)",
+    "heightUnitsSteps_other": "Height {{units}} units ({{steps}} steps)"
+  },
+  "hover": {
+    "classes": {
+      "grass": "tall grass",
+      "water": "water",
+      "ledge": "ledge",
+      "ice": "ice"
+    },
+    "walkable": "walkable",
+    "blocked": "blocked",
+    "map": "Map {{map}}",
+    "tile": "Tile x {{x}}, y {{y}}",
+    "type": "Type {{type}}"
+  },
+  "legend": {
+    "terrain": {
+      "blocked": "Blocked",
+      "water": "Water",
+      "tallGrass": "Tall grass",
+      "ledge": "Ledge",
+      "ice": "Ice",
+      "special": "Special",
+      "unknown": "Unknown"
+    },
+    "events": {
+      "figure": "Character",
+      "door": "Door",
+      "trigger": "Trigger",
+      "sign": "Sign",
+      "item": "Item"
+    }
+  },
+  "load": {
+    "areaDataUnreadable": "Area data not readable",
+    "tilesetNotConvertible": "Tileset {{tileset}} not convertible",
+    "mapsUntextured": "{{problems}} – maps untextured"
+  },
+  "paint": {
+    "verbs": {
+      "brush": "Painted",
+      "rect": "Rectangle painted",
+      "fill": "Filled",
+      "erase": "Erased",
+      "pick": "Picked up",
+      "height": "Height changed",
+      "ramp": "Ramp set",
+      "terrain": "Terrain painted",
+      "cliff": "Cliff set"
+    },
+    "lowerVerbs": {
+      "terrain": "Terrain removed",
+      "cliff": "Cliff lowered"
+    },
+    "strokeLabel": "{{verb}}: Map {{map}} ({{cells}})",
+    "cells_one": "{{count}} cell",
+    "cells_other": "{{count}} cells",
+    "limitNotice": "{{cells}} already at the limit ({{min}} to {{max}}).",
+    "nothingToChange": "Nothing to change.",
+    "noEdgeSet": "Choose an edge set first (Inspector › Edge sets)."
+  },
+  "snapshot": {
+    "noContext": "No 2D drawing context for the preview image"
+  },
+  "thumbnails": {
+    "contextLost": "WebGL context lost",
+    "contextLostForGood": "WebGL context lost {{limit}} times, no more map pictures"
+  },
+  "scene": {
+    "eventsLocked": "Events {{locked}}",
+    "eventsNotLoaded": "Events not loaded: {{error}}",
+    "tileNamesNotLoaded": "Tile names not loaded: {{error}}",
+    "mapProblem": "Map {{id}}: {{error}}",
+    "mapModel": "Map {{id}}",
+    "buildingModel": "Building model {{id}}",
+    "modelsProgress": "Models {{done}}/{{total}}",
+    "mapsNotLoaded_one": "{{count}} map not loaded: {{first}}",
+    "mapsNotLoaded_other": "{{count}} maps not loaded: {{first}}",
+    "modelsNotLoaded_one": "{{count}} model not loaded: {{first}}",
+    "modelsNotLoaded_other": "{{count}} models not loaded: {{first}}",
+    "loadingMaps": "Loading maps ..."
+  }
+}

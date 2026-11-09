@@ -1,1 +1,992 @@
-{}
+{
+  "loading": "Lädt …",
+  "trainer": {
+    "placeholderText": "Platzhalter für das Sicht-Script",
+    "nameTooLong": "Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch",
+    "nameCount": "{{length}} von {{max}}",
+    "ai": {
+      "levels": {
+        "simple": "einfach",
+        "smart": "klug",
+        "expert": "Experte",
+        "custom": "eigene"
+      },
+      "customHex": "eigene {{hex}}",
+      "bits": {
+        "basics": "Grundlagen",
+        "rateAttacks": "Angriffe bewerten",
+        "expert": "Experte",
+        "buildStats": "Statuswerte aufbauen",
+        "risky": "Riskant",
+        "extremes": "Extreme bevorzugen",
+        "batonPass": "Staffette",
+        "doubles": "Doppelkampf-Taktik",
+        "checkHp": "KP prüfen",
+        "weather": "Wetter",
+        "harassment": "Schikane"
+      },
+      "bitNamed": "Bit {{bit}}: {{name}}",
+      "bit": "Bit {{bit}}"
+    },
+    "battle": {
+      "single": "Einzel",
+      "double": "Doppel"
+    },
+    "gender": {
+      "auto": "Auto",
+      "male": "männlich",
+      "female": "weiblich"
+    },
+    "ability": {
+      "auto": "Auto",
+      "first": "Fähigkeit 1",
+      "second": "Fähigkeit 2"
+    },
+    "strength": {
+      "hgss": "Stärke",
+      "hgssHint": "IV = Wert × 31 / 255",
+      "other": "Stärke (IV-Skala)",
+      "otherHint": "IV = Wert × 31 / 255; Byte 1 ist das obere Byte"
+    },
+    "slotLabel": "{{title}}: Platz {{slot}} {{rest}}",
+    "classFallback": "Klasse {{cls}}",
+    "numbered": "Trainer {{id}}",
+    "partial": {
+      "steps": {
+        "reloadTextArchive": "Textarchiv neu laden",
+        "writePlaceholder": "Platzhalter schreiben",
+        "writeTrainer": "Trainer schreiben",
+        "setNameAndOffset": "Name und Text-Offset setzen",
+        "extendBattleSlots": "Kampf-Plätze erweitern"
+      },
+      "scriptSlots": "Kampf-Script {{file}} hat die Plätze bis Trainer {{last}}",
+      "scriptChanged": "Kampf-Script {{file}} bleibt geändert",
+      "writtenOne": "Trainer {{id}} ist geschrieben",
+      "writtenMany": "Trainer {{list}} und {{last}} sind geschrieben",
+      "text": "Trainer {{id}} nur zum Teil angelegt: {{parts}}. Danach fehlgeschlagen: {{step}} ({{reason}})."
+    },
+    "textKinds": {
+      "before": {
+        "label": "Vor dem Kampf",
+        "word": "vor dem Kampf"
+      },
+      "defeat": {
+        "label": "Niederlage",
+        "word": "Niederlage"
+      },
+      "after": {
+        "label": "Danach",
+        "word": "danach"
+      },
+      "otherLabel": "Kampftext Art {{kind}}",
+      "otherWord": "Art {{kind}}"
+    },
+    "markProblem": "Der Text vor dem Kampf sollte auf ⏎ enden, sonst schließt sein Kasten sofort",
+    "group": {
+      "place": "Nach Ort",
+      "class": "Nach Klasse",
+      "noClass": "Ohne Klasse",
+      "noPlace": "Ohne Ort"
+    },
+    "battleChange": "Kampfart {{from}} → {{to}}",
+    "wrongKind": "Die Antwort enthält keine Trainer-Daten."
+  },
+  "speciesFallback": "Art {{id}}",
+  "trainerHand": {
+    "slotEmpty": "Platz {{slot}} leer, Pokémon hinzufügen",
+    "slotCard": "Platz {{slot}}: {{name}}, Level {{level}}",
+    "slot": "Platz {{slot}}",
+    "switchesNarrating": "in Bauen, Reiter Trainer",
+    "switches": "Reiter Trainer",
+    "pokemon": "Pokémon",
+    "species": "Art",
+    "speciesOf": "Art von Platz {{slot}}",
+    "level": "Level",
+    "levelChange": "Level {{from}} → {{to}}",
+    "strengthChange": "Stärke {{from}} → {{to}}",
+    "gender": "Geschlecht",
+    "genderChange": "Geschlecht {{from}} → {{to}}",
+    "ability": "Fähigkeit",
+    "abilityChange": "Fähigkeit {{from}} → {{to}}",
+    "form": "Form",
+    "formChange": "Form {{from}} → {{to}}",
+    "removed": "{{species}} entfernt",
+    "removeMon": "Pokémon entfernen",
+    "itemAndMoves": "Item und Attacken",
+    "item": "Gegenstand",
+    "itemOf": "Gegenstand von Platz {{slot}}",
+    "itemChange": "Gegenstand {{from}} → {{to}}",
+    "itemsOff": "Items tragen ist aus ({{switches}}): dieses Pokémon trägt nichts.",
+    "move": "Attacke {{n}}",
+    "moveOf": "Attacke {{n}} von Platz {{slot}}",
+    "moveChange": "Attacke {{n}} {{from}} → {{to}}",
+    "movesOff": "Eigene Attacken sind aus ({{switches}}): das Spiel gibt die Attacken aus dem Lernset bis zu seinem Level.",
+    "added": "{{species}} hinzugefügt",
+    "party": "Team",
+    "emptyParty": "Ohne Pokémon stürzt der Kampf ab: wähle einen freien Platz und eine Art.",
+    "pickFor": "Pokémon für Platz {{slot}} wählen",
+    "textChanged": "Text {{word}} geändert",
+    "textCreated": "Text {{word}} angelegt",
+    "battleTexts": "Kampftexte",
+    "textNoteNarrating": "der Text vor dem Kampf endet mit einem Seitenende (Umschalt+Enter)",
+    "textNote": "der Text vor dem Kampf endet auf \\r (⏎)",
+    "textsLocked": "Kampftexte schreibgeschützt: Trainertexte passen nicht zur Tabelle ({{reason}}).",
+    "appendReturn": "⏎ anhängen",
+    "createText": "Text {{label}} anlegen",
+    "createTextShort": "Text anlegen",
+    "class": "Klasse",
+    "classChange": "Klasse {{from}} → {{to}}",
+    "name": "Name",
+    "nameChange": "Name {{from}} → {{to}}",
+    "partMoves": "eigene Attacken",
+    "partItems": "Items tragen",
+    "on": "an",
+    "off": "aus",
+    "trainer": "Trainer",
+    "battleType": "Kampfart",
+    "ai": "KI",
+    "aiChange": "KI {{from}} → {{to}}",
+    "customAi": "Eigene KI {{hex}}: die Bits stehen unter Tüfteln in Rohdaten.",
+    "partyFormat": "Team-Format",
+    "ownMoves": "Eigene Attacken",
+    "holdItems": "Items tragen",
+    "formatNote": "Einschalten gibt jedem Pokémon die Attacken, die das Spiel ihm gäbe (Lernset bis zu seinem Level); Ausschalten verwirft die eigenen Attacken. Items tragen aus verwirft die Items der Pokémon.",
+    "trainerItems": "Items des Trainers",
+    "trainerItem": "Gegenstand {{n}}",
+    "trainerItemChange": "Gegenstand {{n}} {{from}} → {{to}}",
+    "raw": {
+      "propsLen": "Länge der Eigenschaften",
+      "flags": "Flags",
+      "hasMoves": "Eigene Attacken",
+      "hasItems": "Items tragen",
+      "class": "Klasse",
+      "unknown": "Unbekannt",
+      "partyCount": "Anzahl Pokémon",
+      "items": "Gegenstände",
+      "ai": "KI",
+      "battleType": "Kampfart",
+      "party": "Team"
+    },
+    "bytes": "Bytes",
+    "bytesNote": "Eigenschaften und Team",
+    "aiBits": "KI-Bits",
+    "aiBitsNote": "Wert {{hex}}",
+    "battleTypeRaw": "Kampfart (roh)",
+    "unreadable": "Dieser Trainer ist nicht lesbar.",
+    "placeholderNote": "{{placeholder}}: er hält die Nummer frei, die das Kampf-Script für „gesehen“ nutzt. Alle Felder sind gesperrt.",
+    "lockedFields": "{{reason}}. Die Felder dieses Trainers sind gesperrt.",
+    "edit": "{{title}} bearbeiten"
+  },
+  "none": "Keine",
+  "percent": "{{value}} %",
+  "trainerView": {
+    "teamCard": "Platz {{slot}}: {{name}}, Level {{level}}, im Pokédex öffnen",
+    "inWorld": "Steht in der Welt",
+    "notPlaced": "Noch nicht platziert: ohne Figur in der Welt kämpft niemand gegen diesen Trainer.",
+    "placeSoon": "Platzieren kommt mit dem Trainer-Feld der Welt",
+    "placeInWorld": "In der Welt platzieren",
+    "chipTile": "{{place}}, Kachel {{x}}, {{z}}",
+    "chipObject": "{{place}}, Objekt {{object}}",
+    "battlePreview": "Kampfvorschau",
+    "overview": "Übersicht {{title}}",
+    "doubleBattle": "Doppelkampf",
+    "delete": "Löschen…",
+    "unreadable": "Dieser Trainer ist nicht lesbar: {{error}}",
+    "placeholderNote": "{{placeholder}}: hält die Nummer frei, die das Kampf-Script für „gesehen“ nutzt. Er wird nie bearbeitet.",
+    "locked": "{{reason}}. Dieser Trainer ist gesperrt.",
+    "emptyParty": "Ohne Pokémon stürzt der Kampf ab. Füge in der Hand unter Team ein Pokémon hinzu.",
+    "party": "Team",
+    "partyOf": "{{n}} von 6"
+  },
+  "trainerList": {
+    "deleted": "gelöscht",
+    "locked": "gesperrt: {{reason}}",
+    "level": "Lv. {{level}}",
+    "createTitle": "Trainer {{id}} anlegen?",
+    "createDescription": "Er wird sofort ohne Pokémon angelegt; Team, Texte und Platz in der Welt folgen danach.",
+    "createDescriptionPlaceholder": "{{id}} wird Platzhalter für das Sicht-Script. Er wird sofort ohne Pokémon angelegt; Team, Texte und Platz in der Welt folgen danach.",
+    "cancel": "Abbrechen",
+    "create": "Anlegen",
+    "class": "Klasse",
+    "name": "Name",
+    "nameHint": "Höchstens 7 Zeichen, jetzt {{current}}",
+    "created": "Trainer {{id}} angelegt.",
+    "createdPlaceholder": "Trainer {{id}} angelegt; {{slot}} bleibt Platzhalter für das Sicht-Script.",
+    "scriptExtended": "{{made}} Das Kampf-Script hat neue Plätze bekommen.",
+    "scriptFileExtended": "{{made}} Die Kampf-Scriptdatei {{file}} hat neue Plätze bekommen.",
+    "search": "Trainer durchsuchen",
+    "searchPlaceholder": "Name, Klasse oder Nummer",
+    "groupBy": "Trainer gruppieren",
+    "createTrainer": "Trainer anlegen…",
+    "newTrainer": "Neuer Trainer…",
+    "nothingFound": "Nichts gefunden für „{{query}}“",
+    "searchHint": "Suche nach Name, Klasse oder Nummer.",
+    "list": "Trainer"
+  },
+  "battlePreview": {
+    "trainer": "Trainer",
+    "firstMon": "Erstes Pokémon",
+    "foeSide": "Gegnerseite"
+  },
+  "dataModel": {
+    "sub": {
+      "pokedex": "Pokédex",
+      "trainer": "Trainer",
+      "encounters": "Begegnungen",
+      "moves": "Attacken",
+      "items": "Gegenstände"
+    },
+    "area": {
+      "pokemon": "Pokémon",
+      "gegenstaende": "Gegenstände"
+    },
+    "pockets": {
+      "items": "Items",
+      "medicine": "Medizin",
+      "balls": "Bälle",
+      "tmHm": "TM/VM",
+      "berries": "Beeren",
+      "mail": "Briefe",
+      "battleItems": "Kampf-Items",
+      "keyItems": "Basis-Items"
+    },
+    "pocket": "Tasche {{name}}",
+    "categories": {
+      "physical": "Physisch",
+      "special": "Speziell",
+      "status": "Status"
+    },
+    "dataMember": "Daten {{id}}",
+    "fallbackWord": {
+      "species": "Art",
+      "move": "Attacke",
+      "item": "Gegenstand",
+      "trainer": "Trainer",
+      "encounter": "Begegnungen"
+    },
+    "lockLengths": "{{word}} {{id}}: {{actual}} Bytes statt {{expected}}",
+    "lockOther": "{{word}} {{id}}: {{reason}}",
+    "lockParts": {
+      "personalData": "Pokémon-Daten",
+      "learnset": "Lernset",
+      "evolutionData": "Entwicklungen",
+      "move": "Attacke",
+      "item": "Daten",
+      "encounter": "Begegnungen",
+      "trainer": "Trainer"
+    },
+    "lockTrainerPair": "Trainer {{id}}: {{part}} {{actual}} Bytes statt {{expected}}",
+    "partyPart": "Team",
+    "propertiesPart": "Eigenschaften",
+    "filterTypes": "Typ {{types}}",
+    "filterCategory": "Kategorie {{name}}"
+  },
+  "dataParts": {
+    "nothing": {
+      "pokedex": {
+        "what": "Kein Pokémon gewählt.",
+        "why": "Wähle links eine Art; hier erscheinen Werte und Fundorte.",
+        "first": "Erste Art zeigen"
+      },
+      "moves": {
+        "what": "Keine Attacke gewählt.",
+        "why": "Wähle links eine Attacke; hier erscheinen ihre Werte und wer sie lernt.",
+        "first": "Erste Attacke zeigen"
+      },
+      "items": {
+        "what": "Kein Gegenstand gewählt.",
+        "why": "Wähle links einen Gegenstand; hier erscheinen Preis, Tasche und Beschreibung.",
+        "first": "Ersten Gegenstand zeigen"
+      },
+      "trainer": {
+        "what": "Kein Trainer gewählt.",
+        "why": "Wähle links einen Trainer; hier erscheinen sein Team und wo er in der Welt steht.",
+        "first": "Ersten Trainer zeigen"
+      },
+      "encounters": {
+        "what": "Keine Begegnungsdatei gewählt.",
+        "why": "Wähle links eine Datei; hier erscheint, wer an ihren Orten wartet.",
+        "first": "Erste Datei zeigen"
+      }
+    },
+    "noun": {
+      "species_one": "{{count}} Art",
+      "species_other": "{{count}} Arten",
+      "move_one": "{{count}} Attacke",
+      "move_other": "{{count}} Attacken",
+      "item_one": "{{count}} Gegenstand",
+      "item_other": "{{count}} Gegenstände",
+      "trainer_one": "{{count}} Trainer",
+      "trainer_other": "{{count}} Trainer",
+      "encounter_one": "{{count}} Begegnungsdatei",
+      "encounter_other": "{{count}} Begegnungsdateien"
+    },
+    "noProject": "Kein Projekt geöffnet.",
+    "noProjectWhy": {
+      "pokemon": "Öffne ein Projekt, dann stehen hier seine Pokémon und Attacken.",
+      "gegenstaende": "Öffne ein Projekt, dann stehen hier seine Gegenstände."
+    },
+    "lockedForGame": "Für dieses Spiel gesperrt.",
+    "listUnreadable": "Die Liste ist nicht lesbar."
+  },
+  "dataList": {
+    "locked": "gesperrt: {{reason}}",
+    "search": "{{label}} durchsuchen",
+    "searchPlaceholder": "Name oder Nummer",
+    "clearFilter": "Filter lösen",
+    "nothingFound": "Nichts gefunden für „{{query}}“",
+    "searchHint": "Ändere die Suche oder löse den Filter."
+  },
+  "unsaved": "ungespeichert",
+  "value": "Wert {{value}}",
+  "notReadable": "Nicht lesbar: {{error}}",
+  "archive": "Archiv {{id}}",
+  "moveModel": {
+    "targets": {
+      "chosen": "Ein gewähltes Pokémon",
+      "byMove": "Je nach Attacke",
+      "randomOpponent": "Zufälliger Gegner",
+      "bothOpponents": "Beide Gegner",
+      "allButUser": "Alle außer dem Anwender",
+      "user": "Anwender",
+      "ownSide": "Eigene Seite",
+      "wholeField": "Ganzes Feld",
+      "opponentSide": "Gegnerische Seite",
+      "ally": "Partner",
+      "userOrAlly": "Anwender oder Partner",
+      "meFirst": "Ein Gegner, wie bei Ich zuerst"
+    },
+    "flags": {
+      "contact": "Macht Kontakt",
+      "protect": "Schutzschild wirkt",
+      "magicCoat": "Magiemantel wirkt",
+      "snatch": "Übernahme wirkt",
+      "mirrorMove": "Spiegeltrick wirkt",
+      "kingsRock": "King-Stein wirkt",
+      "bit": "Bit {{bit}}"
+    },
+    "bit": "Bit {{bit}}",
+    "priority": "Priorität {{value}}",
+    "flagOn": "{{name}}: {{flag}} aus → an",
+    "flagOff": "{{name}}: {{flag}} an → aus",
+    "uses": "{{learnsets}}, {{trainers}}",
+    "learnsets_one": "{{count}} Lernset",
+    "learnsets_other": "{{count}} Lernsets",
+    "trainers_one": "{{count}} Trainer",
+    "trainers_other": "{{count}} Trainer"
+  },
+  "moves": {
+    "wrongKind": "Die Antwort enthält keine Attacken-Daten."
+  },
+  "movesList": {
+    "allCategories": "Alle Kategorien",
+    "list": "Attacken",
+    "category": "Kategorie"
+  },
+  "type": "Typ",
+  "uses": {
+    "searching": "Verwendungen werden gesucht …",
+    "unreadable": "Verwendungen nicht lesbar: {{error}}",
+    "usedIn": "Verwendet in"
+  },
+  "moveView": {
+    "showAll": "Alle zeigen, {{more}} weitere",
+    "usesNote": "Lernsets und Trainer-Teams, ohne Scripts gezählt.",
+    "noPower": "keine Stärke",
+    "power": "Stärke",
+    "alwaysHits": "trifft immer",
+    "accuracy": "Genauigkeit",
+    "pp": "AP",
+    "traits": "Merkmale",
+    "overview": "Übersicht {{name}}",
+    "card": "Karte",
+    "unreadable": "Diese Attacke ist nicht lesbar: {{error}}",
+    "lockedValues": "{{reason}}. Ihre Werte sind nicht lesbar."
+  },
+  "description": {
+    "title": "Beschreibung",
+    "missing": "Beschreibung nicht gefunden.",
+    "page": "Seite {{page}} von {{pages}}",
+    "back": "Zurück",
+    "nextPage": "Weiterblättern",
+    "edit": "Beschreibung bearbeiten"
+  },
+  "moveHand": {
+    "baseValues": "Grundwerte",
+    "category": "Kategorie",
+    "powerHint": "0 heißt keine Stärke",
+    "accuracyHint": "in Prozent, 0 trifft immer",
+    "ppHint": "mit AP-Plus höchstens {{max}}",
+    "priorityHint": "von −7 bis +5, höher greift zuerst an",
+    "percentHint": "in Prozent",
+    "behaviour": "Verhalten",
+    "effectId": "Effekt-ID",
+    "effectHint": "Index der Kampfskripte",
+    "traitsByte": "Merkmale-Byte {{hex}}",
+    "unreadable": "Diese Attacke ist nicht lesbar.",
+    "edit": "{{name}} bearbeiten",
+    "lockedFields": "{{reason}}. Ihre Felder sind gesperrt."
+  },
+  "rawData": "Rohdaten",
+  "tinker": "Tüfteln",
+  "itemModel": {
+    "battlePockets": {
+      "balls": "Pokébälle",
+      "battleItems": "Kampf-Items",
+      "healHp": "KP heilen",
+      "healStatus": "Statusprobleme heilen",
+      "healPp": "AP heilen"
+    },
+    "functions": {
+      "none": "Keine",
+      "medicine": "Heilmittel",
+      "townMap": "Karte",
+      "bicycle": "Fahrrad",
+      "journal": "Tagebuch",
+      "tmHm": "TM/VM",
+      "mail": "Brief",
+      "berry": "Beere",
+      "poffinCase": "Knurspbox",
+      "palPad": "Adressbuch",
+      "poketchRadar": "Pokéradar",
+      "sprayduck": "Entonkanne",
+      "honey": "Honig",
+      "vsSeeker": "Kampffahnder",
+      "oldRod": "Angel",
+      "goodRod": "Profiangel",
+      "superRod": "Superangel",
+      "protectionAndCases": "Schutz, Flöten, Koffer und Karten",
+      "evolutionStone": "Entwicklungsstein",
+      "escapeRope": "Fluchtseil",
+      "azureFlute": "Azurflöte",
+      "explorerKit": "Forschersack",
+      "mulch": "Mulch",
+      "vsRecorder": "Kampfkamera",
+      "gracidea": "Gracidea",
+      "apricornBox": "Aprikokobox",
+      "berryPots": "Pflanzset",
+      "unownReport": "Icognitoheft",
+      "itemFinder": "Itemradar",
+      "gbSounds": "GB-Player"
+    },
+    "functionNumber": "Funktion {{value}}",
+    "battleFunctions": {
+      "none": "Keine eigene Funktion",
+      "ball": "Ball",
+      "medicine": "Heilmittel",
+      "escape": "Flucht"
+    },
+    "noGiftType": "Keiner",
+    "groups": {
+      "values": "Werte",
+      "effects": "Effekte",
+      "functions": "Funktionen",
+      "party": "Wirkung im Team"
+    },
+    "noBattlePocket": "keine",
+    "on": "an",
+    "off": "aus",
+    "sharedSuffix_one": ", gilt für {{count}} Gegenstände",
+    "sharedSuffix_other": ", gilt für {{count}} Gegenstände",
+    "pocketOn": "{{name}}: {{field}} {{pocket}} aus → an",
+    "pocketOff": "{{name}}: {{field}} {{pocket}} an → aus",
+    "sharedWarning_one": "Preis und Werte gelten auch für {{count}} anderen Gegenstand",
+    "sharedWarning_other": "Preis und Werte gelten auch für {{count}} andere Gegenstände",
+    "sharedNote_one": "Teilt Daten mit {{count}} Gegenstand",
+    "sharedNote_other": "Teilt Daten mit {{count}} Gegenständen",
+    "uses": "{{trainers}}, {{parties}}, {{wild}}, {{evolutions}}",
+    "usesTrainers_one": "{{count}} Trainer-Item",
+    "usesTrainers_other": "{{count}} Trainer-Items",
+    "usesParties_one": "{{count}} Team-Item",
+    "usesParties_other": "{{count}} Team-Items",
+    "usesWild": "{{n}} wild getragen",
+    "usesEvolutions_one": "{{count}} Entwicklung",
+    "usesEvolutions_other": "{{count}} Entwicklungen"
+  },
+  "items": {
+    "wrongKind": "Die Antwort enthält keine Gegenstands-Daten."
+  },
+  "itemsList": {
+    "list": "Gegenstände",
+    "tableUnreadable": "Item-Tabelle nicht lesbar: Namen und Symbole fehlen",
+    "pockets": "Taschen"
+  },
+  "itemView": {
+    "groups": {
+      "trainers": "Trainer-Items",
+      "parties": "Team-Items",
+      "wild": "Wild getragen",
+      "evolutions": "Entwicklungen"
+    },
+    "usesNote": "Trainer, Teams und Pokémon-Daten, ohne Scripts und Läden gezählt.",
+    "usableInBattle": "Im Kampf nutzbar",
+    "cannotToss": "Nicht wegwerfbar",
+    "price": "Preis",
+    "sell": "Verkauf",
+    "flingPower": "Schleuder-Stärke",
+    "overview": "Übersicht {{name}}",
+    "card": "Karte",
+    "unreadable": "Dieser Gegenstand ist nicht lesbar: {{error}}",
+    "lockedValues": "{{reason}}. Die Werte dieses Gegenstands sind nicht lesbar.",
+    "noTable": "Ohne Item-Tabelle lassen sich die Verwendungen nicht suchen."
+  },
+  "itemHand": {
+    "sellHint": "Verkauf {{price}} ₽",
+    "holdEffectHint": "Nummer des Effekts beim Tragen",
+    "partyNote": "Wirkung im Team, gilt mit dem Schalter in Funktionen",
+    "sharedWith": "Gegenstände mit denselben Daten",
+    "unreadable": "Dieser Gegenstand ist nicht lesbar.",
+    "edit": "{{name}} bearbeiten",
+    "lockedFields": "{{reason}}. Die Felder dieses Gegenstands sind gesperrt."
+  },
+  "encounterModel": {
+    "methods": {
+      "grass": "Gras",
+      "surf": "Surfen",
+      "rockSmash": "Fels",
+      "oldRod": "Alte Angel",
+      "goodRod": "Profi-Angel",
+      "superRod": "Super-Angel"
+    },
+    "replacements": "Ersatz",
+    "times": {
+      "morning": {
+        "label": "Morgens",
+        "word": "morgens"
+      },
+      "day": {
+        "label": "Tags",
+        "word": "tags"
+      },
+      "night": {
+        "label": "Nachts",
+        "word": "nachts"
+      }
+    },
+    "hours": {
+      "morning": "4–9 Uhr",
+      "day": "10–19 Uhr",
+      "night": "20–3 Uhr"
+    },
+    "columns": {
+      "pokemon": "Pokémon",
+      "slot": "Platz",
+      "level": "Level",
+      "levelRange": "Level (min–max)",
+      "share": "Anteil",
+      "replaced": "Ersetzt durch"
+    },
+    "slot": "Platz {{n}}",
+    "lists": {
+      "swarm": "Schwarm",
+      "day": "Tag",
+      "night": "Nacht",
+      "radar": "Poké-Radar",
+      "dualRuby": "Dual-Slot Rubin",
+      "dualSapphire": "Dual-Slot Saphir",
+      "dualEmerald": "Dual-Slot Smaragd",
+      "dualFireRed": "Dual-Slot Feuerrot",
+      "dualLeafGreen": "Dual-Slot Blattgrün",
+      "radio": "Radio",
+      "radioHoenn": "Radio Hoenn",
+      "radioSinnoh": "Radio Sinnoh",
+      "landSwarm": "Schwarm im Gras",
+      "surfSwarm": "Schwarm beim Surfen",
+      "nightFish": "Angeln nachts",
+      "fishSwarm": "Schwarm beim Angeln",
+      "trophyGarden": "Trophäengarten",
+      "greatMarsh": "Großmoor"
+    },
+    "games": {
+      "ruby": "Rubin",
+      "sapphire": "Saphir",
+      "emerald": "Smaragd",
+      "fireRed": "Feuerrot",
+      "leafGreen": "Blattgrün"
+    },
+    "when": {
+      "swarm": "bei einem Schwarm",
+      "radar": "mit dem Poké-Radar",
+      "trophyGarden": "im Trophäengarten",
+      "greatMarsh": "im Großmoor beim Safari-Spiel",
+      "radioHoenn": "mit Hoenn-Klängen im Radio",
+      "radioSinnoh": "mit Sinnoh-Klängen im Radio",
+      "swarmHeaders": "bei einem Schwarm (nur an den 20 Schwarm-Orten)",
+      "night": "nachts",
+      "hours": "von {{from}} bis {{to}} Uhr",
+      "gba": "mit {{game}} im GBA-Slot"
+    },
+    "replaces": "{{method}} Platz {{slots}}",
+    "warnings": {
+      "rateZero": "{{name}}-Rate {{rate}} wirkt wie 0: diese Methode löst nie aus (das Spiel liest nur das untere Byte)",
+      "rateLike": "{{name}}-Rate {{rate}} wirkt wie {{like}} (das Spiel liest nur das untere Byte)",
+      "levelZero": "{{name}} {{slot}}: {{species}} auf Level 0",
+      "levelAbove100": "{{name}} {{slot}}: Level {{level}} liegt über 100",
+      "minAboveMax": "{{name}} {{slot}}: Mindestlevel {{min}} liegt über Höchstlevel {{max}}, das Spiel tauscht sie",
+      "timeEmpty": "{{name}} {{slot}}: {{which}} ist leer, {{when}} erscheint dort ein Glitch-Pokémon",
+      "species": {
+        "morning": "Die Art für morgens",
+        "day": "Die Art für tags",
+        "night": "Die Art für nachts"
+      },
+      "entryEmpty": "{{list}} Eintrag {{entry}} ist leer: {{when}} erscheint auf {{name}} {{slot}} ein Glitch-Pokémon"
+    },
+    "usedBy_one": "verwendet von {{count}} Ort",
+    "usedBy_other": "verwendet von {{count}} Orten",
+    "partialSplit": "Begegnungsdatei {{copy}} ist als Kopie von {{file}} angelegt und bleibt. Danach fehlgeschlagen: Header {{header}} auf sie umhängen ({{reason}}).",
+    "unown": {
+      "almostAll0": "Fast alle Formen (0)",
+      "almostAll1": "Fast alle Formen (1)",
+      "onlyF": "Nur F",
+      "onlyR": "Nur R",
+      "onlyI": "Nur I",
+      "onlyN": "Nur N",
+      "onlyE": "Nur E",
+      "onlyD": "Nur D",
+      "marks": "! und ?"
+    },
+    "formRates": {
+      "shellos": "Schalellos",
+      "gastrodon": "Gastrodon"
+    },
+    "west": "West",
+    "east": "Ost",
+    "rateLabel": "{{title}}: {{method}}-Rate {{from}} → {{to}}",
+    "entryLabel": "{{title}}: {{list}} Eintrag {{entry}} {{rest}}",
+    "swapLabel": "{{title}}: {{method}} Platz {{a}} ↔ {{b}}",
+    "fieldWords": {
+      "level": "Level",
+      "min": "Mindestlevel",
+      "max": "Höchstlevel"
+    }
+  },
+  "encounters": {
+    "wrongKind": "Die Antwort enthält keine Begegnungsdaten."
+  },
+  "rarity": {
+    "haeufig": "häufig",
+    "gewoehnlich": "gewöhnlich",
+    "selten": "selten"
+  },
+  "encounterList": {
+    "usedByNone": "von keinem Ort verwendet",
+    "sourceEmpty": "Leer",
+    "sourceCopy": "Kopie von …",
+    "createTitle": "Begegnungsdatei {{id}} anlegen?",
+    "createDescription": "Sie wird sofort angelegt und von keinem Ort verwendet; anbinden kann man sie im Inspector eines Gebiets oder Raums (Feld „Begegnungen“).",
+    "sourceLabel": "Inhalt der neuen Datei",
+    "templateAria": "Vorlage wählen, jetzt {{current}}",
+    "templateNone": "keine",
+    "chooseTemplate": "Vorlage wählen …",
+    "pickTemplate": "Vorlage wählen",
+    "pickPlaceholder": "Ort oder Nummer suchen",
+    "created": "Begegnungsdatei {{id}} angelegt.",
+    "search": "Begegnungen durchsuchen",
+    "placePlaceholder": "Ort oder Nummer",
+    "sortNote": "Dateien nach den Orten, die sie nutzen",
+    "createFile": "Begegnungsdatei anlegen…",
+    "searchHint": "Suche nach einem Ort oder einer Nummer.",
+    "list": "Begegnungen",
+    "noPlace": "Ohne Ort"
+  },
+  "encounterHand": {
+    "slotEmpty": "Platz leer",
+    "labelOf": "{{label}} von {{slot}}",
+    "levelOf": "Level von {{slot}}",
+    "levelChange": "Level {{from}} → {{to}}",
+    "minLevelOf": "Mindestlevel von {{slot}}",
+    "minLevelChange": "Mindestlevel {{from}} → {{to}}",
+    "maxLevelOf": "Höchstlevel von {{slot}}",
+    "maxLevelChange": "Höchstlevel {{from}} → {{to}}",
+    "rate": "{{word}}-Rate",
+    "rateHintHgss": "0 = nie",
+    "rateHint": "0 = nie. Das Spiel liest nur das untere Byte, über 100 wirkt wie 100.",
+    "slots": "{{word}}: Plätze",
+    "noLists": "Diese Datei hat keine Ersatzlisten.",
+    "entry": "Eintrag",
+    "replaces": "Ersetzt",
+    "listEntry": "{{label}} Eintrag {{entry}}",
+    "forms": "Formen",
+    "formsNote": "Platin: Schalellos und Gastrodon West oder Ost, Icognito-Formen",
+    "eastLabel": "{{name}} Ost",
+    "unownTable": "Icognito-Tabelle",
+    "unownChange": "Icognito-Tabelle {{from}} → {{to}}",
+    "unreadable": "Diese Begegnungsdatei ist nicht lesbar.",
+    "lockedFields": "{{reason}}. Die Felder dieser Datei sind gesperrt.",
+    "edit": "{{title}} bearbeiten"
+  },
+  "pickers": {
+    "pickAria": "{{label}} wählen, jetzt {{current}}",
+    "pickTitle": "{{label}} wählen",
+    "searchPlaceholder": "Name oder Nummer suchen"
+  },
+  "encounterView": {
+    "openInPokedex": "{{name}} im Pokédex öffnen",
+    "splitTitle": "{{place}} eine eigene Begegnungsdatei geben?",
+    "splitDescription": "Die Datei wird für {{place}} kopiert, die anderen Orte behalten sie. Die Kopie wird sofort angelegt. Das Umhängen des Headers ist rückgängig.",
+    "split": "Abspalten",
+    "irreversible": "Nicht rückgängig: die Kopie",
+    "usedBy": "Verwendet von",
+    "usedByNone": "Von keinem Ort verwendet",
+    "usedByPlaces_one": "Verwendet von {{count}} Ort",
+    "usedByPlaces_other": "Verwendet von {{count}} Orten",
+    "attachNote": "Binde die Datei im Inspector eines Gebiets oder Raums an (Feld „Begegnungen“), dann gilt sie dort.",
+    "splitAria": "{{name}}: für diesen Ort abspalten…",
+    "splitButton": "Für diesen Ort abspalten",
+    "overview": "Übersicht {{title}}",
+    "unreadable": "Diese Begegnungsdatei ist nicht lesbar: {{error}}",
+    "locked": "{{reason}}. Diese Datei ist gesperrt.",
+    "warnings": "Warnungen",
+    "whoWaits": "Wer hier wartet",
+    "whoWaitsNote": "im Gras, Anteil je Tageszeit (Morgens 4–9, Tags 10–19, Nachts 20–3 Uhr)",
+    "grassRateZero": "Gras-Rate 0: im Gras gibt es hier keine Begegnungen.",
+    "nobody": "Im Gras wartet niemand."
+  },
+  "encounterNarrate": {
+    "listTitle": "Kommt {{word}} aus „{{list}}“ Eintrag {{entry}} und ersetzt Gras {{slot}}. Ein Ersatzeintrag lässt sich nicht auf einen anderen Platz tauschen.",
+    "pokemonWord": "Pokémon {{word}}",
+    "level": "Level",
+    "levelLabel": "Level {{name}} {{label}}",
+    "howCommon": "Wie häufig {{name}} {{label}}",
+    "nobody": "Niemand.",
+    "inGrass": "im Gras",
+    "rateZero": "Wie oft 0: im Gras gibt es hier keine Begegnungen.",
+    "howOften": "Wie oft",
+    "howOftenNever": "Wie oft (0 = nie)",
+    "rateHintHgss": "Im Gras, morgens, tags und nachts gleich.",
+    "rateHint": "Im Gras, morgens, tags und nachts gleich. Über 100 wirkt wie 100."
+  },
+  "pokedexModel": {
+    "forms_one": "{{count}} Form",
+    "forms_other": "{{count}} Formen",
+    "gender": {
+      "maleOnly": "nur männlich",
+      "male875": "87,5 % männlich",
+      "male75": "75 % männlich",
+      "even": "50 % männlich",
+      "female75": "75 % weiblich",
+      "female875": "87,5 % weiblich",
+      "femaleOnly": "nur weiblich",
+      "genderless": "geschlechtslos"
+    },
+    "thousands": ".",
+    "hatch_one": "{{count}} Zyklus, {{steps}} Schritte",
+    "hatch_other": "{{count}} Zyklen, {{steps}} Schritte",
+    "growthRates": {
+      "mediumFast": "Mittelschnell",
+      "erratic": "Unregelmäßig",
+      "fluctuating": "Schwankend",
+      "mediumSlow": "Mittellangsam",
+      "fast": "Schnell",
+      "slow": "Langsam"
+    },
+    "eggGroups": {
+      "monster": "Monster",
+      "water1": "Wasser 1",
+      "bug": "Käfer",
+      "flying": "Flug",
+      "field": "Feld",
+      "fairy": "Fee",
+      "grass": "Pflanze",
+      "humanLike": "Humanotyp",
+      "water3": "Wasser 3",
+      "mineral": "Mineral",
+      "amorphous": "Amorph",
+      "water2": "Wasser 2",
+      "ditto": "Ditto",
+      "dragon": "Drache",
+      "undiscovered": "Unbekannt"
+    },
+    "colors": {
+      "red": "Rot",
+      "blue": "Blau",
+      "yellow": "Gelb",
+      "green": "Grün",
+      "black": "Schwarz",
+      "brown": "Braun",
+      "purple": "Violett",
+      "gray": "Grau",
+      "white": "Weiß",
+      "pink": "Rosa"
+    },
+    "evoMethods": {
+      "none": "Keine",
+      "friendship": "Freundschaft",
+      "friendshipDay": "Freundschaft am Tag",
+      "friendshipNight": "Freundschaft in der Nacht",
+      "level": "Level",
+      "trade": "Tausch",
+      "tradeItem": "Tausch mit getragenem Gegenstand",
+      "useItem": "Gegenstand anwenden",
+      "levelAttackHigher": "Level, Angriff größer als Verteidigung",
+      "levelAttackEqual": "Level, Angriff gleich Verteidigung",
+      "levelAttackLower": "Level, Angriff kleiner als Verteidigung",
+      "levelPersonalityLow": "Level, Persönlichkeitswert niedrig",
+      "levelPersonalityHigh": "Level, Persönlichkeitswert hoch",
+      "levelNinjask": "Level, Ninjask-Zweig",
+      "levelShedinja": "Level, Ninjatom bei freiem Platz",
+      "beauty": "Schönheit",
+      "useItemMale": "Gegenstand anwenden, männlich",
+      "useItemFemale": "Gegenstand anwenden, weiblich",
+      "levelDayItem": "Level am Tag mit getragenem Gegenstand",
+      "levelNightItem": "Level in der Nacht mit getragenem Gegenstand",
+      "levelMove": "Level mit Attacke",
+      "levelSpecies": "Level mit Art im Team",
+      "levelMale": "Level, männlich",
+      "levelFemale": "Level, weiblich",
+      "levelCoronet": "Level am Kraterberg",
+      "levelEterna": "Level im Ewigwald",
+      "levelRoute217": "Level auf Route 217"
+    },
+    "params": {
+      "parameter": "Parameter",
+      "level": "Level",
+      "beauty": "Schönheit"
+    },
+    "lockLengths": "{{where}}: {{actual}} Bytes statt {{expected}}",
+    "lockOther": "{{where}}: {{reason}}",
+    "tabs": {
+      "values": "Werte",
+      "abilities": "Fähigkeiten und Typen",
+      "learnset": "Lernset",
+      "eggMoves": "Ei-Attacken",
+      "evolution": "Entwicklung",
+      "machines": "TM/VM",
+      "raw": "Rohdaten"
+    },
+    "noAbility": "Keine Fähigkeit",
+    "ability": "Fähigkeit",
+    "noItem": "Kein Gegenstand",
+    "machineTm": "TM",
+    "machineHm": "VM"
+  },
+  "pokedexHand": {
+    "unreadable": "Diese Art ist nicht lesbar.",
+    "lockedFields": "{{reason}}. Die Felder dieses Teils sind gesperrt.",
+    "edit": "{{name}} bearbeiten"
+  },
+  "pokedexView": {
+    "searching": "Fundorte werden gesucht …",
+    "placesUnreadable": "Fundorte nicht lesbar: {{error}}",
+    "places": "Fundorte",
+    "placesCount": "{{places}}, {{trainers}}",
+    "placeCount_one": "{{count}} Ort",
+    "placeCount_other": "{{count}} Orte",
+    "trainerParties_one": "{{count}} Trainer-Team",
+    "trainerParties_other": "{{count}} Trainer-Teams",
+    "nowhere": "Wartet in keiner Begegnung und in keinem Trainer-Team.",
+    "otherNone": "Nirgends sonst, ohne Scripts gezählt.",
+    "otherUses_one": "{{count}} Stelle, ohne Scripts gezählt.",
+    "otherUses_other": "{{count}} Stellen, ohne Scripts gezählt.",
+    "front": "Vorderseite",
+    "back": "Rückseite",
+    "noFemale": "Kein eigenes Bild für ♀",
+    "onlyFemale": "Nur ♀",
+    "playerView": "Spielerblick",
+    "side": "Seite",
+    "female": "Weiblich",
+    "shiny": "Schillernd",
+    "overview": "Übersicht {{name}}",
+    "abilityList_one": "Fähigkeit: {{list}}",
+    "abilityList_other": "Fähigkeiten: {{list}}",
+    "unreadable": "Diese Art ist nicht lesbar: {{error}}",
+    "lockedValues": "{{reason}}. Ihre Werte sind nicht lesbar.",
+    "baseStats": "Basiswerte",
+    "baseStatsNote": "Strich: Schnitt aller Arten. Vorher: Stand der letzten Speicherung.",
+    "sum": "Summe {{now}}",
+    "sumChanged": "Summe {{now}}, vorher {{saved}}"
+  },
+  "valuesTab": {
+    "baseStats": "Basiswerte",
+    "baseStatsNote": "je 0 bis 255",
+    "evYield": "EV-Ertrag",
+    "evYieldNote": "was der Sieger trainiert, je 0 bis 3",
+    "catchAndBattle": "Fang und Kampf",
+    "catchHint": "höher ist leichter",
+    "expHint": "für den Sieg",
+    "fleeHint": "in der Safari-Zone",
+    "breeding": "Zucht"
+  },
+  "abilitiesTab": {
+    "abilities": "Fähigkeiten",
+    "abilitiesNote": "ein Exemplar hat eine von beiden",
+    "types": "Typen",
+    "typesNote": "zweimal derselbe heißt ein Typ",
+    "heldInWild": "Wild getragen",
+    "heldInWildNote": "was wilde Exemplare tragen können"
+  },
+  "evolutionTab": {
+    "method": "Methode",
+    "param": "Parameter",
+    "target": "Ziel",
+    "methodNumber": "Methode {{method}}",
+    "changeLabel": "{{name}}: Entwicklung {{slot}} {{detail}}",
+    "methodChange": "Methode {{from}} → {{to}}",
+    "targetSet": "Ziel {{name}}",
+    "targetChange": "Ziel {{from}} → {{to}}",
+    "paramLabel": "{{param}}, Entwicklung {{slot}}",
+    "noParam": "kein Parameter",
+    "noEvolution": "keine Entwicklung",
+    "targetLabel": "Ziel, Entwicklung {{slot}}",
+    "noTarget": "kein Ziel",
+    "chooseTarget": "Ziel wählen",
+    "change": "Ändern …",
+    "methodLabel": "Methode, Entwicklung {{slot}}",
+    "tableLabel": "Entwicklungen von {{name}}",
+    "footer": "Die Methoden mit Tausch greifen beim Tausch, die mit „Gegenstand anwenden“ beim Anwenden, alle anderen beim Level-Aufstieg."
+  },
+  "pokedexTable": {
+    "columns": {
+      "level": "Level",
+      "move": "Attacke",
+      "type": "Typ",
+      "remove": "Entfernen"
+    },
+    "moveInRow": "Attacke in Zeile {{row}}",
+    "addRow": "Zeile hinzufügen"
+  },
+  "learnsetTab": {
+    "resized": "{{name}}: Lernset {{from}} → {{to}} Attacken",
+    "levelChange": "{{name}}: {{move}} Level {{from}} → {{to}}",
+    "moveChange": "{{name}}: Lernset {{from}} → {{to}}",
+    "levelOf": "Level von {{move}}",
+    "removeAt": "{{move}} auf Level {{level}} entfernen",
+    "limit": "Das Spiel liest höchstens 20 Attacken.",
+    "tableLabel": "Lernset von {{name}}",
+    "footer": "{{n}} von {{max}}",
+    "addTitle": "Attacke hinzufügen",
+    "addFooter": "Lernt sie auf Level 1; das Level lässt sich danach ändern."
+  },
+  "eggMovesTab": {
+    "count_one": "{{count}} Ei-Attacke",
+    "count_other": "{{count}} Ei-Attacken",
+    "maxPerSpecies": "Höchstens {{max}} Ei-Attacken je Art",
+    "tableFull": "Tabelle voll: erst eine Ei-Attacke bei einer anderen Art entfernen",
+    "noTable": "Dieses Spiel hat keine Ei-Attacken-Tabelle, die das Studio kennt.",
+    "locked": "{{reason}}. Die Ei-Attacken lassen sich nicht bearbeiten.",
+    "resized": "{{name}}: Ei-Attacken {{from}} → {{to}}",
+    "swapped": "{{name}}: Ei-Attacken getauscht",
+    "footerBudget": "{{counted}} · Tabelle {{used}} von {{total}} Einträgen",
+    "removeMove": "{{move}} entfernen",
+    "tableLabel": "Ei-Attacken von {{name}}",
+    "addTitle": "Ei-Attacke hinzufügen",
+    "addFooter": "Steht hinten in der Liste der Art."
+  },
+  "machinesTab": {
+    "toggleOn": "{{name}}: {{machine}} aus → an",
+    "toggleOff": "{{name}}: {{machine}} an → aus",
+    "copyLabel": "{{name}}: TM/VM und Lernset wie {{source}}",
+    "count": "{{on}} von {{total}}",
+    "copyButton": "Von anderer Art übernehmen …",
+    "unreadable": "Die Attacken der TM und VM sind nicht lesbar: {{error}}",
+    "gridLabel": "TM und VM",
+    "copyTitle": "Von anderer Art übernehmen",
+    "copyFooter": "Ersetzt TM/VM und Lernset von {{name}}"
+  },
+  "rawTab": {
+    "evoField": "Entwicklung {{n}} {{word}}"
+  },
+  "pokedex": {
+    "wrongKind": "Die Antwort enthält keine Pokémon-Daten."
+  }
+}

@@ -1,24 +1,24 @@
 import { useEffect, useState } from "react";
 import type { FocusEvent, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { dataRaw, errorText, fieldLabels } from "../../api";
 import type { RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
 import { depthAtLeast } from "../../ui/frame/shellState";
-import { Checkbox, EmptyState, HexBlock, InspectorRow, Notice, NumberField, Segmented, SelectField, pokemonTypes } from "../../ui/primitives";
+import { Checkbox, EmptyState, HexBlock, InspectorRow, Notice, NumberField, Segmented, SelectField } from "../../ui/primitives";
 import type { NumberFieldProps, SegmentedOption, SelectOption } from "../../ui/primitives";
+import { TYPE_OPTIONS } from "../dataModel";
 import { useDataArea } from "../useDataArea";
-import { CATEGORIES, FLAGS, NAMED_FLAGS, TARGETS, flagLabel, hasFlag, hex2, lockText, moveLabel, moveValues, ppMax, withFlag } from "./moveModel";
+import { CATEGORIES, FLAGS, NAMED_FLAGS, TARGETS, categoryName, flagLabel, hasFlag, hex2, lockText, moveLabel, moveValues, ppMax, withFlag } from "./moveModel";
 import type { MoveFlag, MoveField, MoveValues } from "./moveModel";
 import { useMove } from "./useMove";
 import type { MoveDoc } from "./useMove";
 import styles from "./Moves.module.css";
 
-const TYPES: readonly SelectOption<number>[] = pokemonTypes.map((t) => ({ value: t.id, label: t.name }));
-
 /** The three categories; a value the games do not know shows as a fourth, locked choice ("Wert 3"). */
 function categoryOptions(value: number): SegmentedOption<string>[] {
   const known = Object.entries(CATEGORIES).map(([v, label]) => ({ value: v, label }));
-  return CATEGORIES[value] === undefined ? [...known, { value: String(value), label: `Wert ${value}`, disabled: true }] : known;
+  return CATEGORIES[value] === undefined ? [...known, { value: String(value), label: categoryName(value), disabled: true }] : known;
 }
 
 /** A column of the hand: a bold title with its grey note. */
@@ -67,30 +67,32 @@ function MoveSelect({ e, field, options }: { e: Editing; field: MoveField; optio
 
 /** Grundwerte: type, category, power, accuracy, PP, priority, effect chance. */
 function BaseColumn({ e }: { e: Editing }) {
+  const { t } = useTranslation("data");
   const category = e.v.category ?? 0;
   return (
-    <Column title="Grundwerte">
-      <MoveSelect e={e} field="move_type" options={TYPES} />
-      <InspectorRow label="Kategorie">
+    <Column title={t("moveHand.baseValues")}>
+      <MoveSelect e={e} field="move_type" options={TYPE_OPTIONS} />
+      <InspectorRow label={t("moveHand.category")}>
         <div data-field="category">
-          <Segmented ariaLabel="Kategorie" size="s" options={categoryOptions(category)} value={String(category)} onChange={(value) => e.set("category", Number(value))} />
+          <Segmented ariaLabel={t("moveHand.category")} size="s" options={categoryOptions(category)} value={String(category)} onChange={(value) => e.set("category", Number(value))} />
         </div>
       </InspectorRow>
-      <MoveNumber e={e} field="power" bits={8} hint="0 heißt keine Stärke" />
-      <MoveNumber e={e} field="accuracy" bits={8} hint="in Prozent, 0 trifft immer" />
-      <MoveNumber e={e} field="pp" bits={8} hint={`mit AP-Plus höchstens ${ppMax(e.v.pp ?? 0)}`} />
-      <MoveNumber e={e} field="priority" min={-7} max={5} hint="von −7 bis +5, höher greift zuerst an" />
-      <MoveNumber e={e} field="effect_chance" bits={8} hint="in Prozent" />
+      <MoveNumber e={e} field="power" bits={8} hint={t("moveHand.powerHint")} />
+      <MoveNumber e={e} field="accuracy" bits={8} hint={t("moveHand.accuracyHint")} />
+      <MoveNumber e={e} field="pp" bits={8} hint={t("moveHand.ppHint", { max: ppMax(e.v.pp ?? 0) })} />
+      <MoveNumber e={e} field="priority" min={-7} max={5} hint={t("moveHand.priorityHint")} />
+      <MoveNumber e={e} field="effect_chance" bits={8} hint={t("moveHand.percentHint")} />
     </Column>
   );
 }
 
 /** Verhalten: the target and the named flags. */
 function BehaviourColumn({ e }: { e: Editing }) {
+  const { t } = useTranslation("data");
   return (
-    <Column title="Verhalten">
+    <Column title={t("moveHand.behaviour")}>
       <MoveSelect e={e} field="target" options={TARGETS} />
-      <div className={styles.flags} data-field="flags" role="group" aria-label="Merkmale">
+      <div className={styles.flags} data-field="flags" role="group" aria-label={t("moveView.traits")}>
         {NAMED_FLAGS.map((f) => (
           <Checkbox key={f.bit} label={f.label} checked={hasFlag(e.flags, f.mask)} onChange={(on) => e.setFlag(f, on)} />
         ))}
@@ -101,6 +103,7 @@ function BehaviourColumn({ e }: { e: Editing }) {
 
 /** The bytes of the move as the store holds them, read again with every document read (after an edit, undo, redo). */
 function RawBytes({ index, doc, highlight }: { index: number; doc: MoveDoc | null; highlight: string | undefined }) {
+  const { t } = useTranslation("data");
   const [raw, setRaw] = useState<{ raw: RawDto | null; error: string | null } | null>(null);
   useEffect(() => {
     let current = true;
@@ -112,22 +115,23 @@ function RawBytes({ index, doc, highlight }: { index: number; doc: MoveDoc | nul
       current = false;
     };
   }, [index, doc]);
-  if (raw === null) return <p className={styles.note}>Lädt …</p>;
-  if (raw.raw === null) return <p className={styles.note}>{`Nicht lesbar: ${raw.error ?? ""}`}</p>;
+  if (raw === null) return <p className={styles.note}>{t("loading")}</p>;
+  if (raw.raw === null) return <p className={styles.note}>{t("notReadable", { error: raw.error ?? "" })}</p>;
   return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} highlight={highlight} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => (fieldLabels.move as Record<string, string>)[name] ?? name} />;
 }
 
 /** Rohdaten (Tüfteln): the effect id, every bit of the flags byte, the bytes with the field focused last marked. */
 function RawColumn({ e, index, doc, highlight }: { e: Editing | null; index: number; doc: MoveDoc | null; highlight: string | undefined }) {
+  const { t } = useTranslation("data");
   return (
-    <Column title="Rohdaten" note="Tüfteln">
+    <Column title={t("rawData")} note={t("tinker")}>
       {e !== null && (
         <>
-          <MoveNumber e={e} field="effect" label="Effekt-ID" bits={16} hint="Index der Kampfskripte" />
-          <div className={styles.flags} data-field="flags" role="group" aria-label={`Merkmale-Byte ${hex2(e.flags)}`}>
-            <p className={styles.note}>{`Merkmale-Byte ${hex2(e.flags)}`}</p>
+          <MoveNumber e={e} field="effect" label={t("moveHand.effectId")} bits={16} hint={t("moveHand.effectHint")} />
+          <div className={styles.flags} data-field="flags" role="group" aria-label={t("moveHand.traitsByte", { hex: hex2(e.flags) })}>
+            <p className={styles.note}>{t("moveHand.traitsByte", { hex: hex2(e.flags) })}</p>
             {FLAGS.map((f) => (
-              <Checkbox key={f.bit} label={`Bit ${f.bit}`} ariaLabel={`Bit ${f.bit}, ${hex2(f.mask)}${f.named ? `, ${f.label}` : ""}`} checked={hasFlag(e.flags, f.mask)} onChange={(on) => e.setFlag(f, on)} />
+              <Checkbox key={f.bit} label={t("moveModel.bit", { bit: f.bit })} ariaLabel={`${t("moveModel.bit", { bit: f.bit })}, ${hex2(f.mask)}${f.named ? `, ${f.label}` : ""}`} checked={hasFlag(e.flags, f.mask)} onChange={(on) => e.setFlag(f, on)} />
             ))}
           </div>
         </>
@@ -143,6 +147,7 @@ function RawColumn({ e, index, doc, highlight }: { e: Editing | null; index: num
  * move of the wrong length is named there and shows no fields.
  */
 export function MoveHand() {
+  const { t } = useTranslation("data");
   const { row, labelOf, selected } = useDataArea("pokemon");
   const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   // `doc` is the move with the edits still waiting laid over it: a checkbox shows its new state at once and keeps it.
@@ -152,7 +157,7 @@ export function MoveHand() {
 
   if (row === null || selected === null) return null;
   if (doc === null) {
-    return <div className={styles.handEmpty}>{error !== null ? <EmptyState what="Diese Attacke ist nicht lesbar." why={error} /> : <p className={styles.note}>Lädt …</p>}</div>;
+    return <div className={styles.handEmpty}>{error !== null ? <EmptyState what={t("moveHand.unreadable")} why={error} /> : <p className={styles.note}>{t("loading")}</p>}</div>;
   }
   const name = labelOf(row);
   const index = selected;
@@ -187,10 +192,10 @@ export function MoveHand() {
   };
 
   return (
-    <div className={styles.hand} onFocus={onFocus} role="group" aria-label={`${name} bearbeiten`} data-move={index}>
+    <div className={styles.hand} onFocus={onFocus} role="group" aria-label={t("moveHand.edit", { name })} data-move={index}>
       {(editError !== null || doc.locked !== null) && (
         <div className={styles.notices}>
-          {doc.locked !== null && <Notice kind="warning">{`${lockText(doc.locked, index)}. Ihre Felder sind gesperrt.`}</Notice>}
+          {doc.locked !== null && <Notice kind="warning">{t("moveHand.lockedFields", { reason: lockText(doc.locked, index) })}</Notice>}
           {editError !== null && <Notice kind="error">{editError}</Notice>}
         </div>
       )}

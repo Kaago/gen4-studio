@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tilesetGet, worldEdit, worldGet } from "../../api.world";
 import type { TilesetDto, WorldEditRequest, WorldGetDto } from "../../api.world";
+import { t } from "../../i18n";
 import { usePaint } from "../../workbench/paint/PaintContext";
 import type { PaintState } from "../../workbench/paint/PaintContext";
 import { heightColor } from "../scene/heightLayer";
@@ -44,17 +45,22 @@ function applyRequest(cells: WorldCells, req: WorldEditRequest): WorldCells {
 
 /** The text of a height stroke whose cells are already at the limit: „2 Zellen schon an der Grenze (−16 bis 62).“ */
 function limitNotice(n: number): string {
-  return `${n === 1 ? "1 Zelle" : `${n} Zellen`} schon an der Grenze (${String(HEIGHT_MIN).replace("-", "−")} bis ${HEIGHT_MAX}).`;
+  return t("world:paint.limitNotice", { cells: t("world:paint.cells", { count: n }), min: String(HEIGHT_MIN).replace("-", "−"), max: HEIGHT_MAX });
 }
 
-/** The refusal of a stroke that changes nothing (the kernel's `NOTHING_TO_CHANGE`): from a terrain or cliff stroke it is no error. */
-const NOTHING_TO_CHANGE = "Nichts zu ändern.";
-
-/** Whether `e` is the kernel refusing a stroke that changes nothing. */
-const changesNothing = (e: unknown) => typeof e === "object" && e !== null && (e as { message?: unknown }).message === NOTHING_TO_CHANGE;
+/**
+ * Whether `e` is the kernel refusing a stroke that changes nothing (its `NOTHING_TO_CHANGE`): from a terrain or cliff stroke it is no
+ * error. The kernel says it in the language it was set to, and the catalogs keep its words for each language (`paint.nothingToChange`);
+ * the German words are matched too, for a kernel that still speaks German whatever the app shows.
+ */
+const changesNothing = (e: unknown) => {
+  if (typeof e !== "object" || e === null) return false;
+  const message = (e as { message?: unknown }).message;
+  return message === t("world:paint.nothingToChange") || message === t("world:paint.nothingToChange", { lng: "de" });
+};
 
 /** The note of a terrain or cliff stroke without an active edge set. */
-const NO_EDGE_SET = "Erst einen Kantensatz wählen (Inspector › Kantensätze).";
+const noEdgeSet = () => t("world:paint.noEdgeSet");
 
 /** Whether `sub` paints with an edge set (the kernel resolves the cells). */
 const isSmart = (sub: PaintSub) => sub === "terrain" || sub === "cliff";
@@ -198,7 +204,7 @@ export function usePaintSession(
     }
     const smart = isSmart(stroke.sub);
     if (smart && state.edgeSet === null) {
-      opts.onNotice?.(NO_EDGE_SET);
+      opts.onNotice?.(noEdgeSet());
       clear();
       return;
     }

@@ -1,11 +1,13 @@
 import { id4 } from "../../workbench/terms";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { DataRowDto, ItemEntryDto, MoveRowExtra, SpeciesRowExtra } from "../../api";
 import { Button, Picker, TypeBadge } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
 import { RowIcon } from "../DataList";
-import { CATEGORY_NAMES, rowLabel } from "../dataModel";
+import { categoryNameOf, rowLabel } from "../dataModel";
 import { useDataSnapshot } from "../dataStore";
 import { itemIcon, itemIconKey, monIcon, monIconKey } from "../icons";
 import { useDataArea } from "../useDataArea";
@@ -16,7 +18,7 @@ import styles from "./Pokedex.module.css";
 export type Choice = "species" | "move" | "item" | "ability";
 
 export interface PickFieldProps {
-  /** The field's name: the picker's title ("Fähigkeit 1 wählen") and the button's accessible name with the current value. */
+  /** The field's name: the picker's title („Fähigkeit 1 wählen“) and the button's accessible name with the current value. */
   label: string;
   /** The current value in words. */
   text: string;
@@ -26,27 +28,29 @@ export interface PickFieldProps {
   disabled?: boolean;
   /** The species to offer (all without it); keep its identity between renders. */
   only?: (index: number) => boolean;
-  /** The button's text when the value shows beside it (a reference to the target): "Ändern …". */
+  /** The button's text when the value shows beside it (a reference to the target): „Ändern …“. */
   trigger?: string;
 }
 
 /** A value chosen from a long list: a button with the current value that opens a picker over the project's entries. */
 export function PickField({ label, text, choice, onPick, disabled, only, trigger }: PickFieldProps) {
+  const { t } = useTranslation("data");
   const [open, setOpen] = useState(false);
   const items = useChoices(choice, open, only);
   return (
     <>
-      <Button kind={trigger ? "quiet" : "secondary"} size="s" aria-label={`${label} wählen, jetzt ${text}`} disabled={disabled} onClick={() => setOpen(true)}>
+      <Button kind={trigger ? "quiet" : "secondary"} size="s" aria-label={t("pickers.pickAria", { label, current: text })} disabled={disabled} onClick={() => setOpen(true)}>
         <span className={styles.pickText}>{trigger ?? text}</span>
       </Button>
-      <ChoicePicker open={open} onOpenChange={setOpen} title={`${label} wählen`} items={items} onPick={onPick} />
+      <ChoicePicker open={open} onOpenChange={setOpen} title={t("pickers.pickTitle", { label })} items={items} onPick={onPick} />
     </>
   );
 }
 
-/** The picker of a pick field, or of a button that picks once ("Zeile hinzufügen", "Von anderer Art übernehmen …"). */
+/** The picker of a pick field, or of a button that picks once („Zeile hinzufügen“, „Von anderer Art übernehmen …“). */
 export function ChoicePicker({ open, onOpenChange, title, items, onPick, footer }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; items: readonly PickerItem[]; onPick: (value: number) => void; footer?: ReactNode }) {
-  return <Picker open={open} onOpenChange={onOpenChange} title={title} items={items} placeholder="Name oder Nummer suchen" footer={footer} onPick={(item) => onPick(Number(item.id))} />;
+  const { t } = useTranslation("data");
+  return <Picker open={open} onOpenChange={onOpenChange} title={title} items={items} placeholder={t("pickers.searchPlaceholder")} footer={footer} onPick={(item) => onPick(Number(item.id))} />;
 }
 
 const NONE: readonly PickerItem[] = [];
@@ -56,6 +60,7 @@ const NONE: readonly PickerItem[] = [];
  * icon (with the item table), abilities by name. The moves and items lists are read from the store the first time they are offered.
  */
 export function useChoices(choice: Choice, open: boolean, only?: (index: number) => boolean): readonly PickerItem[] {
+  const { t } = useTranslation("data");
   const { project, store, kind, rows, labelOf, names, itemTable } = useDataArea("pokemon");
   const snapshot = useDataSnapshot(store);
   // The Pokédex offers its own rows; another part (a trainer's team) reads the species from the store.
@@ -79,14 +84,14 @@ export function useChoices(choice: Choice, open: boolean, only?: (index: number)
       case "move":
         // Move 0 is no move: a learnset or an evolution cannot name it.
         return moves
-          ? moves.filter((r) => r.index !== 0).map((r) => moveItem(r, moveName(names.moves, r.index)))
+          ? moves.filter((r) => r.index !== 0).map((r) => moveItem(r, moveName(names.moves, r.index), t))
           : names.moves.flatMap((_, id) => (id === 0 ? [] : [{ id, label: moveName(names.moves, id), tech: id4(id) }]));
       case "item":
         return names.items.map((_, id) => itemItem(id, itemName(names.items, id), itemTable?.[id]));
       case "ability":
         return names.abilities.map((_, id) => ({ id, label: abilityName(names.abilities, id), tech: id4(id) }));
     }
-  }, [open, choice, species, ownSpecies, labelOf, only, moves, names, itemTable]);
+  }, [open, choice, species, ownSpecies, labelOf, only, moves, names, itemTable, t]);
 }
 
 /** The types of a species row as badges. */
@@ -114,10 +119,10 @@ const speciesItem = (row: DataRowDto, label: string): PickerItem => ({
   ),
 });
 
-function moveItem(row: DataRowDto, label: string): PickerItem {
+function moveItem(row: DataRowDto, label: string, t: TFunction<"data">): PickerItem {
   const extra = row.extra as MoveRowExtra | null;
   if (!extra || typeof extra.type !== "number") return { id: row.index, label, tech: row.tech };
-  const category = CATEGORY_NAMES[extra.category] ?? `Kategorie ${extra.category}`;
+  const category = categoryNameOf(extra.category) ?? t("dataModel.filterCategory", { name: extra.category });
   return {
     id: row.index,
     label,

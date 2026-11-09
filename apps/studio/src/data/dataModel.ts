@@ -1,8 +1,10 @@
 import type { DataRowDto, HeaderSummary, ItemRowExtra, MoveRowExtra, SpeciesRowExtra } from "../api";
+import { t } from "../i18n";
 import type { DataSelectKey, PokemonSub } from "../ui/frame/shellState";
-import { typeName } from "../ui/primitives/pokemonTypes";
+import type { SelectOption } from "../ui/primitives";
+import { pokemonTypes, typeName } from "../ui/primitives/pokemonTypes";
 import { encounterRowLabel } from "./encounters/encounterModel";
-import { PLACEHOLDER_REASON, PLACEHOLDER_TEXT, trainerRowLabel } from "./trainer/trainerModel";
+import { PLACEHOLDER_REASON, placeholderText, trainerRowLabel } from "./trainer/trainerModel";
 
 /** The two data areas of the atlas. */
 export type DataArea = "pokemon" | "gegenstaende";
@@ -13,7 +15,8 @@ export type ListKind = "species" | "move" | "item" | "trainer" | "encounter";
 
 /** The list each part shows. */
 export const SUB_KIND: Record<DataSub, ListKind | null> = { pokedex: "species", trainer: "trainer", encounters: "encounter", moves: "move", items: "item" };
-export const SUB_LABEL: Record<DataSub, string> = { pokedex: "Pokédex", trainer: "Trainer", encounters: "Begegnungen", moves: "Attacken", items: "Gegenstände" };
+/** The name of a part in the switcher and as the title of its empty state, in the language shown. */
+export const subLabel = (sub: DataSub): string => t(`data:dataModel.sub.${sub}`);
 export const SUB_SHORTCUT: Record<PokemonSub, string> = { pokedex: "⌘1", trainer: "⌘2", encounters: "⌘3", moves: "⌘4" };
 /** Why a part cannot be opened yet; it shows in the switcher, but locked (none since the Begegnungen came with 3b.3b). */
 export const SUB_LOCKED: Partial<Record<DataSub, string>> = {};
@@ -22,26 +25,41 @@ export const isSubLocked = (sub: DataSub): boolean => SUB_LOCKED[sub] !== undefi
 /** Where each part keeps its selection in the shell state. */
 export const SELECT_KEY: Record<DataSub, DataSelectKey | null> = { pokedex: "pokedex", trainer: "trainer", encounters: "encounters", moves: "moves", items: "items" };
 
-export const AREA_LABEL: Record<DataArea, string> = { pokemon: "Pokémon", gegenstaende: "Gegenstände" };
+/** The title of an area's list column, in the language shown. */
+export const areaLabel = (area: DataArea): string => t(`data:dataModel.area.${area}`);
 export const areaOfSub = (sub: DataSub): DataArea => (sub === "items" ? "gegenstaende" : "pokemon");
 
 /** The field pockets of the bag by their number in the item data (pokeplatinum `POCKET_*`), as the German games name them. */
-export const POCKET_NAMES: readonly string[] = ["Items", "Medizin", "Bälle", "TM/VM", "Beeren", "Briefe", "Kampf-Items", "Basis-Items"];
+export const POCKET_IDS = ["items", "medicine", "balls", "tmHm", "berries", "mail", "battleItems", "keyItems"] as const;
+/** The name of a pocket by its number, in the language shown; a pocket number the games do not know has none. */
+export const pocketName = (pocket: number): string | undefined => {
+  const id = POCKET_IDS[pocket];
+  return id === undefined ? undefined : t(`data:dataModel.pockets.${id}`);
+};
+/** The names of all pockets, by their number. */
+export const pocketNames = (): string[] => POCKET_IDS.map((id) => t(`data:dataModel.pockets.${id}`));
 /** "Tasche Medizin"; a pocket number the games do not know keeps its number. */
-export const pocketLabel = (pocket: number): string => `Tasche ${POCKET_NAMES[pocket] ?? pocket}`;
+export const pocketLabel = (pocket: number): string => t("data:dataModel.pocket", { name: pocketName(pocket) ?? pocket });
 
 /** The move categories by their number in the move data. */
-export const CATEGORY_NAMES: readonly string[] = ["Physisch", "Speziell", "Status"];
+export const CATEGORY_IDS = ["physical", "special", "status"] as const;
+/** The name of a move category by its number, in the language shown; a number the games do not know has none. */
+export const categoryNameOf = (category: number): string | undefined => {
+  const id = CATEGORY_IDS[category];
+  return id === undefined ? undefined : t(`data:dataModel.categories.${id}`);
+};
+/** The names of all move categories, by their number. */
+export const categoryNames = (): string[] => CATEGORY_IDS.map((id) => t(`data:dataModel.categories.${id}`));
 
 const id4 = (n: number) => String(n).padStart(4, "0");
 
 /** The kernel's English fallback names ("species 0520") and what the UI calls them. */
-const FALLBACK: Record<ListKind, { pattern: RegExp; word: string }> = {
-  species: { pattern: /^species \d+$/, word: "Art" },
-  move: { pattern: /^move \d+$/, word: "Attacke" },
-  item: { pattern: /^item \d+$/, word: "Gegenstand" },
-  trainer: { pattern: /^trainer \d+$/, word: "Trainer" },
-  encounter: { pattern: /^encounter \d+$/, word: "Begegnungen" },
+const FALLBACK: Record<ListKind, { pattern: RegExp }> = {
+  species: { pattern: /^species \d+$/ },
+  move: { pattern: /^move \d+$/ },
+  item: { pattern: /^item \d+$/ },
+  trainer: { pattern: /^trainer \d+$/ },
+  encounter: { pattern: /^encounter \d+$/ },
 };
 
 /**
@@ -50,13 +68,13 @@ const FALLBACK: Record<ListKind, { pattern: RegExp; word: string }> = {
  * places of the `headers` that use it ("Route 201"), else "Begegnungen 0012".
  */
 export function rowLabel(kind: ListKind, row: DataRowDto, itemTable: boolean, headers: readonly HeaderSummary[] = []): string {
-  if (kind === "item" && !itemTable) return `Daten ${id4(row.index)}`;
+  if (kind === "item" && !itemTable) return t("data:dataModel.dataMember", { id: id4(row.index) });
   // "Wanderer Jens": class and name, as the game says it before a battle.
   if (kind === "trainer") return trainerRowLabel(row);
   if (kind === "encounter") return encounterRowLabel(row, headers);
   const name = row.name.trim();
   const fallback = FALLBACK[kind];
-  if (name === "" || fallback.pattern.test(name)) return `${fallback.word} ${id4(row.index)}`;
+  if (name === "" || fallback.pattern.test(name)) return `${t(`data:dataModel.fallbackWord.${kind}`)} ${id4(row.index)}`;
   return name;
 }
 
@@ -66,18 +84,20 @@ export function rowLabel(kind: ListKind, row: DataRowDto, itemTable: boolean, he
  */
 export function lockSentence(word: string, index: number, locked: string): string {
   const lengths = /: (\d+) bytes, expected (\d+)$/.exec(locked);
-  return lengths ? `${word} ${id4(index)}: ${lengths[1]} Bytes statt ${lengths[2]}` : `${word} ${id4(index)}: ${locked}`;
+  return lengths
+    ? t("data:dataModel.lockLengths", { word, id: id4(index), actual: lengths[1], expected: lengths[2] })
+    : t("data:dataModel.lockOther", { word, id: id4(index), reason: locked });
 }
 
 /** The German words of the parts the kernel names in a lock reason ("item 0017" is a data member, which several item ids may share). */
-const LOCK_PART: Readonly<Record<string, string>> = {
-  "personal data": "Pokémon-Daten",
-  learnset: "Lernset",
-  "evolution data": "Entwicklungen",
-  move: "Attacke",
-  item: "Daten",
-  encounter: "Begegnungen",
-  trainer: "Trainer",
+const LOCK_PART: Readonly<Record<string, "personalData" | "learnset" | "evolutionData" | "move" | "item" | "encounter" | "trainer">> = {
+  "personal data": "personalData",
+  learnset: "learnset",
+  "evolution data": "evolutionData",
+  move: "move",
+  item: "item",
+  encounter: "encounter",
+  trainer: "trainer",
 };
 
 /**
@@ -85,14 +105,26 @@ const LOCK_PART: Readonly<Record<string, string>> = {
  * reason in another shape stays as it is.
  */
 export function lockReason(locked: string): string {
-  if (locked === PLACEHOLDER_REASON) return PLACEHOLDER_TEXT;
+  if (locked === PLACEHOLDER_REASON) return placeholderText();
   // A trainer is a pair of members: "trainer 0012: party 20 bytes, expected 16".
   const pair = /^trainer (\d{4,}): (party|properties) (\d+) bytes, expected (\d+)$/.exec(locked);
-  if (pair) return `Trainer ${pair[1]}: ${pair[2] === "party" ? "Team" : "Eigenschaften"} ${pair[3]} Bytes statt ${pair[4]}`;
+  if (pair) return t("data:dataModel.lockTrainerPair", { id: pair[1], part: pair[2] === "party" ? t("data:dataModel.partyPart") : t("data:dataModel.propertiesPart"), actual: pair[3], expected: pair[4] });
   const m = /^(.+) (\d{4,}): (\d+) bytes, expected (\d+)$/.exec(locked);
   if (!m) return locked;
-  return `${LOCK_PART[m[1]!] ?? m[1]} ${m[2]}: ${m[3]} Bytes statt ${m[4]}`;
+  const part = LOCK_PART[m[1]!];
+  return t("data:dataModel.lockLengths", { word: part === undefined ? m[1] : t(`data:dataModel.lockParts.${part}`), id: m[2], actual: m[3], expected: m[4] });
 }
+
+/** A type as a choice; its `label` is read when asked for (the type names follow the language shown), never when this module loads. */
+export const typeOption = (id: number): SelectOption<number> => ({
+  value: id,
+  get label() {
+    return typeName(id);
+  },
+});
+
+/** The eighteen types of the fourth generation as choices (9 is the ???-type). */
+export const TYPE_OPTIONS: readonly SelectOption<number>[] = pokemonTypes.map((type) => typeOption(type.id));
 
 /** The types of a species row in words ("Normal, Flug"; one type once); empty for a locked row. */
 export function speciesTypes(row: DataRowDto): string {
@@ -132,9 +164,9 @@ export const isFiltered = (filter: ListFilter): boolean => filter.types.length >
 /** The filter in words ("Tasche Medizin", "Typ Feuer, Flug", "Kategorie Status"), for the filter line; null without a filter. */
 export function filterText(filter: ListFilter): string | null {
   const parts: string[] = [];
-  if (filter.types.length > 0) parts.push(`Typ ${filter.types.map(typeName).join(", ")}`);
+  if (filter.types.length > 0) parts.push(t("data:dataModel.filterTypes", { types: filter.types.map(typeName).join(", ") }));
   if (filter.pocket !== null) parts.push(pocketLabel(filter.pocket));
-  if (filter.category !== null) parts.push(`Kategorie ${CATEGORY_NAMES[filter.category] ?? filter.category}`);
+  if (filter.category !== null) parts.push(t("data:dataModel.filterCategory", { name: categoryNameOf(filter.category) ?? filter.category }));
   return parts.length === 0 ? null : parts.join(", ");
 }
 

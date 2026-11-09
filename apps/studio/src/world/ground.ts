@@ -1,4 +1,5 @@
 import type { MatrixDto } from "../api";
+import { t } from "../i18n";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { MAP_SIZE, MODEL_UNITS_PER_TILE, cellY, cellYAtTile } from "./layout";
@@ -71,10 +72,10 @@ export function flatGround(matrix: MatrixDto | null): Ground {
 /** World units per height step (half a tile), the step the Bauen words count in. */
 const UNITS_PER_STEP = 8;
 
-/** `n` with at most `digits` decimals, a comma for the point and no trailing zeros of a whole number („0,5“, „4“). */
+/** `n` with at most `digits` decimals, the decimal point of the language shown and no trailing zeros of a whole number („0,5“, „4“; „0.5“ in English). */
 const decimal = (n: number, digits: number) => {
   const rounded = Number(n.toFixed(digits));
-  return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(digits)).replace(".", ",");
+  return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(digits)).replace(".", t("world:ground.decimalPoint"));
 };
 
 /**
@@ -82,9 +83,10 @@ const decimal = (n: number, digits: number) => {
  * Tüfteln the world units first („Höhe 32 E (4 Stufen)“, „Höhe 3,99 E (0,5 Stufen)“); without a height „keine Höhe“.
  */
 export function heightWords(units: number | null, depth: Depth): string {
-  if (units === null) return "keine Höhe";
+  if (units === null) return t("world:ground.noHeight");
+  // One step (or minus one) takes the singular; the count is the rounded value the words show.
+  const count = Math.abs(Number((units / UNITS_PER_STEP).toFixed(1)));
   const steps = decimal(units / UNITS_PER_STEP, 1);
-  const stepWords = `${steps} ${steps === "1" || steps === "-1" ? "Stufe" : "Stufen"}`;
-  if (!depthAtLeast(depth, "tuefteln")) return `Höhe ${stepWords}`;
-  return `Höhe ${decimal(units, 2)} E (${stepWords})`;
+  if (!depthAtLeast(depth, "tuefteln")) return t("world:ground.heightSteps", { count, steps });
+  return t("world:ground.heightUnitsSteps", { count, steps, units: decimal(units, 2) });
 }

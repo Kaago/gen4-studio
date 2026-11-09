@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useDataDoc } from "../useDataDoc";
 import type { DataDoc, DocSpec } from "../useDataDoc";
 import { applyEncounter } from "./encounterModel";
@@ -13,7 +14,9 @@ const ENCOUNTER: DocSpec<EncounterDoc> = {
   kind: "encounter",
   parts: ["encounter"],
   accept: (doc) => (doc.kind === "encounter" ? doc : null),
-  wrongKind: "Die Antwort enthält keine Begegnungsdaten.",
+  get wrongKind() {
+    return t("data:encounters.wrongKind");
+  },
   apply: applyEncounter,
   texts: () => [],
 };

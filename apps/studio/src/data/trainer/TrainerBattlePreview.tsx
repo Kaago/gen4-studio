@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { BattleSpriteRequest } from "../../api";
 import { DSBattlePreview, Segmented } from "../../ui/primitives";
 import { battleSprite, battleSpriteKey, trainerSprite, trainerSpriteKey, useIcon } from "../icons";
@@ -20,21 +21,22 @@ export interface FirstMon {
  * wizard share it); the pictures come from the icon cache.
  */
 export function TrainerBattlePreview({ cls, title, first, foe, onFoe }: { cls: number; title: string; first: FirstMon | null; foe: Foe; onFoe: (foe: Foe) => void }) {
+  const { t } = useTranslation("data");
   const shown: Foe = first ? foe : "trainer";
   const monUrl = useIcon(first && shown === "pokemon" ? battleSpriteKey(first.sprite) : null, () => battleSprite(first!.sprite), true);
   const classUrl = useIcon(trainerSpriteKey(cls), () => trainerSprite(cls), true);
   const options = first
     ? [
-        { value: "trainer" as const, label: "Trainer" },
-        { value: "pokemon" as const, label: "Erstes Pokémon" },
+        { value: "trainer" as const, label: t("battlePreview.trainer") },
+        { value: "pokemon" as const, label: t("battlePreview.firstMon") },
       ]
-    : [{ value: "trainer" as const, label: "Trainer" }];
+    : [{ value: "trainer" as const, label: t("battlePreview.trainer") }];
   const side = shown === "pokemon" && first ? { name: first.name, level: first.level, spriteUrl: monUrl } : { name: title, level: 0, spriteUrl: classUrl };
   return (
     <>
       <DSBattlePreview foe={side} own={null} />
       <div className={styles.previewControls} data-foe={shown}>
-        <Segmented options={options} value={shown} onChange={onFoe} ariaLabel="Gegnerseite" size="s" />
+        <Segmented options={options} value={shown} onChange={onFoe} ariaLabel={t("battlePreview.foeSide")} size="s" />
       </div>
     </>
   );

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FocusEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataPatch, NameTablesDto, PersonalField, SpeciesTab } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
 import { depthAtLeast } from "../../ui/frame/shellState";
@@ -47,6 +48,7 @@ export interface Editing {
  * and its fields are locked.
  */
 export function PokedexHand() {
+  const { t } = useTranslation("data");
   const { row, labelOf, names, selected, dirty, target } = useDataArea("pokemon");
   const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   const { doc, error, editError, edit, update } = useSpecies(selected);
@@ -87,14 +89,14 @@ export function PokedexHand() {
 
   const items = useMemo<TabItem[]>(
     () =>
-      TABS.filter((t) => t.id !== "raw" || tinkering).map((t) => ({
-        id: t.id,
-        label: t.label,
-        count: tabCount(t.id, doc),
+      TABS.filter((x) => x.id !== "raw" || tinkering).map((x) => ({
+        id: x.id,
+        label: x.label,
+        count: tabCount(x.id, doc),
         // The egg move table is one asset for every species.
-        unsaved: dirty.some((a) => (a.kind === "EggMoves" || a.index === selected) && TAB_ASSETS[t.id].includes(a.kind)),
+        unsaved: dirty.some((a) => (a.kind === "EggMoves" || a.index === selected) && TAB_ASSETS[x.id].includes(a.kind)),
       })),
-    [tinkering, doc, dirty, selected],
+    [tinkering, doc, dirty, selected, t],
   );
 
   const onFocus = (event: FocusEvent<HTMLElement>) => {
@@ -106,7 +108,7 @@ export function PokedexHand() {
   if (editing === null) {
     return (
       <div className={styles.handEmpty}>
-        {error !== null ? <EmptyState what="Diese Art ist nicht lesbar." why={error} /> : <p className={styles.note}>Lädt …</p>}
+        {error !== null ? <EmptyState what={t("pokedexHand.unreadable")} why={error} /> : <p className={styles.note}>{t("loading")}</p>}
       </div>
     );
   }
@@ -114,11 +116,11 @@ export function PokedexHand() {
     <div className={styles.hand} onFocus={onFocus}>
       {(editError !== null || doc?.locked) && (
         <div className={styles.notices}>
-          {doc?.locked && <Notice kind="warning">{`${lockText(doc.locked, doc.locked_asset)}. Die Felder dieses Teils sind gesperrt.`}</Notice>}
+          {doc?.locked && <Notice kind="warning">{t("pokedexHand.lockedFields", { reason: lockText(doc.locked, doc.locked_asset) })}</Notice>}
           {editError !== null && <Notice kind="error">{editError}</Notice>}
         </div>
       )}
-      <Tabs items={items} value={shown} onChange={(id) => setTab(id as SpeciesTab)} ariaLabel={`${name} bearbeiten`}>
+      <Tabs items={items} value={shown} onChange={(id) => setTab(id as SpeciesTab)} ariaLabel={t("pokedexHand.edit", { name })}>
         <div className={styles.tabBody}>
           {shown === "values" && <ValuesTab e={editing} tinkering={tinkering} />}
           {shown === "abilities" && <AbilitiesTab e={editing} />}
