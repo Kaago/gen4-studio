@@ -1,5 +1,6 @@
 import type { AssetId, DiffSubject } from "./api";
 import type { RefDto } from "./api.data";
+import { t } from "./i18n";
 import { invoke } from "./platform/transport";
 
 /**
@@ -105,38 +106,39 @@ export function deleteWritesFiles(target: DeleteTarget, freed: boolean): boolean
   return freed || target.kind === "place" || target.kind === "flag" || target.kind === "var";
 }
 
-const WORDS: Record<Exclude<DeleteKind, "header" | "script" | "place" | "flag" | "var">, string> = {
-  trainer: "Trainer",
-  encounter: "Begegnungsdatei",
-  event_file: "Eventdatei",
-  matrix: "Matrix",
-  map: "Karte",
-  text_archive: "Textarchiv",
-  area_data: "Gebietsdaten",
-  map_texture: "Kartentextur",
-  building_texture: "Gebäudetextur",
-  building_model: "Gebäudemodell",
-  interior_building_model: "Innenraum-Gebäudemodell",
-};
+/** The catalog key of each kind's label (`common:deleteTarget`), with the four-digit id as `{{id}}`. */
+const LABEL_KEY = {
+  trainer: "common:deleteTarget.trainer",
+  encounter: "common:deleteTarget.encounter",
+  event_file: "common:deleteTarget.eventFile",
+  matrix: "common:deleteTarget.matrix",
+  map: "common:deleteTarget.map",
+  text_archive: "common:deleteTarget.textArchive",
+  area_data: "common:deleteTarget.areaData",
+  map_texture: "common:deleteTarget.mapTexture",
+  building_texture: "common:deleteTarget.buildingTexture",
+  building_model: "common:deleteTarget.buildingModel",
+  interior_building_model: "common:deleteTarget.interiorBuildingModel",
+} as const satisfies Record<Exclude<DeleteKind, "header" | "script" | "place" | "flag" | "var">, string>;
 
 const id4 = (n: number) => String(n).padStart(4, "0");
 const hex4 = (n: number) => `0x${n.toString(16).toUpperCase().padStart(4, "0")}`;
 
-/** The German name of the entity as the kernel gives it (`DeleteTarget::label`): „Trainer 0901“, „Ort 120“, „Flag 0x0094“. */
+/** The name of the entity as the kernel gives it (`DeleteTarget::label`), in the language shown: „Trainer 0901“, „Ort 120“, „Flag 0x0094“. */
 export function deleteTargetLabel(target: DeleteTarget): string {
   switch (target.kind) {
     case "header":
-      return `Header ${id4(target.id)}`;
+      return t("common:deleteTarget.header", { id: id4(target.id) });
     case "script":
-      return `Scriptdatei ${id4(target.file)}`;
+      return t("common:deleteTarget.script", { id: id4(target.file) });
     case "place":
-      return `Ort ${target.index}`;
+      return t("common:deleteTarget.place", { index: target.index });
     case "flag":
-      return `Flag ${hex4(target.number)}`;
+      return t("common:deleteTarget.flag", { id: hex4(target.number) });
     case "var":
-      return `Variable ${hex4(target.number)}`;
+      return t("common:deleteTarget.var", { id: hex4(target.number) });
     default:
-      return `${WORDS[target.kind]} ${id4(target.index)}`;
+      return t(LABEL_KEY[target.kind], { id: id4(target.index) });
   }
 }
 

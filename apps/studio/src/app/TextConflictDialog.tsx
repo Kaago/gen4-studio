@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { TextKeep } from "../api";
 import { Dialog, Notice, Segmented } from "../ui/primitives";
 import type { SegmentedOption } from "../ui/primitives";
@@ -18,12 +19,6 @@ export type TextConflictDialogProps = {
   busy?: boolean;
 };
 
-const OPTIONS: readonly SegmentedOption<TextKeep>[] = [
-  { value: "json", label: "Text (JSON)" },
-  { value: "member", label: "Spieldatei" },
-];
-
-const archiveName = (archive: number) => `Textarchiv ${String(archive).padStart(4, "0")}`;
 
 /**
  * The question a build puts when text archives changed as JSON and as member since the studio last built them (spec 4.2 „Konflikt beim
@@ -31,6 +26,8 @@ const archiveName = (archive: number) => `Textarchiv ${String(archive).padStart(
  * once: the Escape of the closing dialog after „Übernehmen und bauen“ cancels nothing.
  */
 export function TextConflictDialog({ archives, onResolve, onCancel, busy = false }: TextConflictDialogProps) {
+  const { t } = useTranslation("app");
+  const archiveName = (archive: number) => t("textConflict.archive", { id: String(archive).padStart(4, "0") });
   const [keep, setKeep] = useState<Readonly<Record<number, TextKeep>>>({});
   const answered = useRef(false);
   const answer = (run: () => void) => {
@@ -39,19 +36,22 @@ export function TextConflictDialog({ archives, onResolve, onCancel, busy = false
     run();
   };
   const choiceOf = (archive: number): TextKeep => keep[archive] ?? "json";
-  const options = busy ? OPTIONS.map((o) => ({ ...o, disabled: true })) : OPTIONS;
+  const options: readonly SegmentedOption<TextKeep>[] = [
+    { value: "json", label: t("textConflict.json"), disabled: busy },
+    { value: "member", label: t("textConflict.member"), disabled: busy },
+  ];
   return (
     <Dialog
       open
       onOpenChange={(open) => {
         if (!open && !busy) answer(onCancel);
       }}
-      title="Texte auf zwei Seiten geändert"
-      description="Diese Textarchive wurden als Text (JSON) und als Spieldatei geändert, seit das Studio sie zuletzt gebaut hat, etwa in DSPRE oder durch einen Git-Wechsel. Wähle je Archiv, welche Fassung gilt; die andere wird überschrieben."
+      title={t("textConflict.title")}
+      description={t("textConflict.description")}
       data={{ "data-text-conflict": "" }}
       actions={[
-        { label: "Abbrechen", onClick: () => answer(onCancel), disabled: busy },
-        { label: "Übernehmen und bauen", kind: "primary", onClick: () => answer(() => onResolve(archives.map((archive) => ({ archive, keep: choiceOf(archive) })))), disabled: busy },
+        { label: t("textConflict.cancel"), onClick: () => answer(onCancel), disabled: busy },
+        { label: t("textConflict.resolve"), kind: "primary", onClick: () => answer(() => onResolve(archives.map((archive) => ({ archive, keep: choiceOf(archive) })))), disabled: busy },
       ]}
     >
       <ul className={styles.rows}>
@@ -64,14 +64,14 @@ export function TextConflictDialog({ archives, onResolve, onCancel, busy = false
               options={options}
               value={choiceOf(archive)}
               onChange={(value) => setKeep((before) => ({ ...before, [archive]: value }))}
-              ariaLabel={`Fassung von ${archiveName(archive)}`}
+              ariaLabel={t("textConflict.versionOf", { archive: archiveName(archive) })}
               size="s"
             />
           </li>
         ))}
       </ul>
       {busy && (
-        <Notice kind="info">Die gewählten Fassungen werden übernommen, danach startet der Build …</Notice>
+        <Notice kind="info">{t("textConflict.busy")}</Notice>
       )}
     </Dialog>
   );

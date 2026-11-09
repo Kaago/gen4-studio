@@ -1,4 +1,5 @@
 import type { AssetId, EventKind, FlagKind, ProblemDto } from "./api";
+import { t } from "./i18n";
 import { invoke } from "./platform/transport";
 import type { HexFieldSpan } from "./ui/primitives/HexBlock";
 
@@ -397,7 +398,7 @@ export type DataPatch =
   | { EncounterExtra: { field: string; value: number } }
   /** A trainer property: `class`, `ai`, `battle_type`, `item0` to `item3`. */
   | { Trainer: { field: TrainerField; value: number } }
-  /** At most 7 characters, else refused with "Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch". */
+  /** At most 7 characters, else refused with „Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch“. */
   | { TrainerName: { name: string } }
   /** Own moves / held items for the whole party (null: unchanged). Moves on fill each Pokémon with the moves the game gives it; off drops them. One step. */
   | { TrainerFormat: { moves: boolean | null; items: boolean | null } }
@@ -407,7 +408,7 @@ export type DataPatch =
   | { TrainerTexts: { texts: TrainerTextInDto[] } }
   /**
    * The species' whole egg move list (at most 16 moves of the game, not 0; empty removes the entry). Platinum without DSPRE's patch: within
-   * the budget, else refused with "Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen" (adding needs a move removed elsewhere).
+   * the budget, else refused with „Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen“ (adding needs a move removed elsewhere).
    */
   | { EggMoves: { moves: number[] } };
 
@@ -514,7 +515,10 @@ export interface RefDto {
   nav: NavTargetDto;
 }
 
-/** German field names per kind, the same table the backend labels its undo steps with (a backend test keeps both equal). */
+/**
+ * German field names per kind, the same table the backend labels its undo steps with (a backend test keeps both equal). For a label in the
+ * language shown use `fieldLabel`.
+ */
 export const fieldLabels = {
   species: {
     hp: "KP",
@@ -671,6 +675,18 @@ export const fieldLabels = {
   },
 } as const satisfies Record<"species" | "move" | "item" | "encounter" | "trainer", Record<string, string>>;
 
+/** A kind of `fieldLabels`. */
+export type FieldKind = keyof typeof fieldLabels;
+
+/**
+ * The name of `field` of `kind` in the language shown (`common:fieldLabels`, resolved at call time). `fieldLabels` stays the German mirror
+ * of the backend's undo labels (`commands/data/labels.rs` reads it); the German catalog holds the same words (a test keeps them equal).
+ */
+export function fieldLabel<K extends FieldKind>(kind: K, field: keyof (typeof fieldLabels)[K] & string): string {
+  // The key is built from the table's own names; the test of the catalogs holds every one of them there.
+  return t(`common:fieldLabels.${kind}.${field}` as "common:fieldLabels.species.hp");
+}
+
 /** The rows of a data list, optionally narrowed. */
 export const dataList = (kind: DataKind, filter: DataFilter | null = null) => invoke<DataRowDto[]>("data_list", { kind, filter });
 /** The document of one member. */
@@ -709,8 +725,8 @@ export interface SplitDto {
 
 /**
  * Creates a trainer of class `cls` named `name` at the next ID; written at once, not undoable: its history entry (name and text offset) is
- * an undo barrier, `undo` there rejects with "Trainer <id> anlegen lässt sich nicht rückgängig machen".
- * Rejects with the kernel's words: "Erst Scripts übernehmen (Bereich Welt, Panel Script)", a name over 7 characters, the flag capacity; code
+ * an undo barrier, `undo` there rejects with „Trainer <id> anlegen lässt sich nicht rückgängig machen“.
+ * Rejects with the kernel's words: „Erst Scripts übernehmen (Bereich Welt, Panel Script)“, a name over 7 characters, the flag capacity; code
  * "partial" when the battle script was extended before a later step failed, or a failed extension could not put the old script back.
  */
 export const createTrainer = (cls: number, name: string) => invoke<CreateTrainerReport>("create_trainer", { class: cls, name });

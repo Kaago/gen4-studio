@@ -1,1 +1,184 @@
-{}
+{
+  "languages": {
+    "german": "Deutsch",
+    "english": "Englisch",
+    "french": "Französisch",
+    "italian": "Italienisch",
+    "spanish": "Spanisch",
+    "japanese": "Japanisch",
+    "korean": "Koreanisch",
+    "unknown": "Unbekannte Sprache"
+  },
+  "games": {
+    "pt": "Platin",
+    "dp": "Diamant/Perl",
+    "unknown": "Unbekanntes Spiel"
+  },
+  "suggestName": {
+    "game": "Neues {{game}}",
+    "other": "Neues Spiel"
+  },
+  "nameProblem": {
+    "empty": "Gib dem Projekt einen Namen.",
+    "characters": "Der Name darf kein /, \\ oder : enthalten und nicht mit einem Punkt beginnen.",
+    "tooLong": "Höchstens {{max}} Zeichen."
+  },
+  "start": {
+    "notEmpty": "Den Ordner gibt es schon und er ist nicht leer. Wähle einen anderen Namen.",
+    "aFile": "Dort liegt schon eine Datei.",
+    "unreadable": "Den Zielordner kann Gen4 Studio nicht lesen.",
+    "tooLittle": "Zu wenig Platz: {{free}} frei, gebraucht etwa {{needed}}.",
+    "inTheWay": "Ein alter Zwischenordner liegt im Weg. Lösche ihn oder wähle einen anderen Namen.",
+    "noSpace": "Zu wenig Platz auf dem Laufwerk des Ziels.",
+    "encrypted": "Die ROM ist verschlüsselt. Nutze einen entschlüsselten Dump.",
+    "preview": "Vorschau",
+    "noRom": "Noch keine ROM",
+    "dest": "Ziel",
+    "dropTitle": "ROM hier ablegen",
+    "dropText": "Eine .nds-Datei, deine eigene ROM."
+  },
+  "templates": {
+    "original": "Original",
+    "dataOnly": "Nur Daten",
+    "emptyRegion": "Leere Region"
+  },
+  "wizard": {
+    "title": "Neues Spiel aus ROM",
+    "submit": "Anlegen",
+    "open": "Öffnen",
+    "steps": {
+      "rom": "ROM",
+      "template": "Vorlage",
+      "dest": "Name und Ziel",
+      "summary": "Zusammenfassung"
+    },
+    "cards": {
+      "original": {
+        "title": "Original",
+        "text": "Das Spiel, wie es ist."
+      },
+      "emptyRegion": {
+        "title": "Leere Region mit Startstadt",
+        "text": "Nur die Startstadt mit Spielerhaus bleibt, der Rest ist eine leere Region. Ein Start-Script gibt dir deinen ersten Partner."
+      },
+      "dataOnly": {
+        "title": "Nur Daten",
+        "text": "Für Balancing: Werte, Lernsets, Trainer. Startet im Bereich Pokémon."
+      }
+    },
+    "untested": "Für diese Sprache gibt es kein Testprojekt. Entpacken geht, Editoren und Vorlagen sind nicht geprüft.",
+    "ownRom": "Gen4 Studio liefert keine Spieldaten; du nutzt deine eigene ROM. Die ROM bleibt unverändert.",
+    "phases": {
+      "read": "Lesen",
+      "extract": "Entpacken",
+      "template": "Vorlage anwenden",
+      "check": "Prüfen",
+      "textProject": "Textprojekt einrichten",
+      "git": "Git einrichten"
+    },
+    "phaseNote": {
+      "open": "wartet",
+      "running": "läuft",
+      "runningCount": "läuft {{done}}/{{total}}",
+      "done": "fertig",
+      "failed": "abgebrochen"
+    },
+    "support": {
+      "verified": "Freigegeben",
+      "untested": "Nicht geprüft",
+      "locked": "Gesperrt",
+      "unknown": "Kein Gen-4-Spiel erkannt"
+    },
+    "facts": {
+      "game": "Spiel",
+      "language": "Sprache",
+      "gameCode": "Spielcode",
+      "support": "Freigabe",
+      "base": "Basis",
+      "knownBase": "Bekannte Basis-ROM: {{base}}",
+      "unknownBase": "Unbekannte Fassung: vielleicht schon verändert.",
+      "rom": "ROM",
+      "template": "Vorlage",
+      "folder": "Ordner"
+    },
+    "templateHeading": "Womit startet das Projekt?",
+    "pickRom": "ROM-Datei wählen",
+    "pickFolder": "Ordner wählen",
+    "summary": {
+      "adopts": " Scripts werden übernommen.",
+      "asTextProject": ", als Textprojekt",
+      "withGit": ", mit Git",
+      "sentence": "Legt „{{name}}“ aus {{game}} mit der Vorlage {{template}} an{{options}}, in {{dest}}.{{adopts}} Die ROM bleibt unverändert."
+    },
+    "noFolder": "Wähle einen Ordner für das Projekt.",
+    "checkingFolder": "Prüfe den Ordner …",
+    "needed": "Gebraucht etwa {{needed}}.",
+    "space": "Platz: {{free}} frei, gebraucht etwa {{needed}}.",
+    "romFile": "ROM-Datei",
+    "romPlaceholder": "Pfad zur .nds-Datei",
+    "chooseFile": "Datei wählen…",
+    "readingRom": "Lese die ROM …",
+    "textProject": "Als Textprojekt einrichten",
+    "textProjectHint": "Eine lesbare Datei je Eintrag, bereit für Git; das Anlegen dauert etwas länger.",
+    "git": "Git einrichten (nur lokal)",
+    "gitHint": "Legt ein lokales Repository mit erstem Commit an; nichts wird hochgeladen.",
+    "name": "Name",
+    "folder": "Ordner",
+    "chooseFolder": "Ordner wählen…",
+    "dspreSuffix": "Endung _DSPRE_contents (für DSPRE)",
+    "newProject": "Neues Projekt",
+    "summaryHeading": "Das neue Projekt",
+    "progress": "Ablauf",
+    "done": {
+      "title": "Projekt angelegt",
+      "sha1": "Basis-ROM SHA-1 {{sha1}}…",
+      "next": "Öffnen lädt das Projekt.",
+      "nextDataOnly": "Öffnen startet im Bereich Pokémon."
+    }
+  },
+  "drop": {
+    "refused": "Nur eine .nds-Datei ablegen.",
+    "wizardOpen": "Erst den Assistenten abschließen oder abbrechen.",
+    "noPath": "Im Browser-Modus kennt die Seite den Pfad der Datei nicht. Gib ihn ein."
+  },
+  "preview": {
+    "format": "Das Bild ist weder PNG noch JPEG. Wähle eine PNG- oder JPEG-Datei.",
+    "tooLarge": "Das Bild ist zu groß (höchstens 32 MB und 8192 × 8192 Pixel). Wähle ein kleineres Bild.",
+    "unreadable": "Das Bild lässt sich nicht lesen. Wähle eine andere Datei.",
+    "other": "Das Vorschaubild ließ sich nicht ändern. Prüfe, ob der Projektordner noch da ist und du darin schreiben darfst.",
+    "choose": "Vorschaubild wählen",
+    "filter": "Bilder (PNG, JPEG)",
+    "removed": "Vorschaubild entfernt",
+    "set": "Vorschaubild gesetzt"
+  },
+  "clearWorld": {
+    "title": "Welt leeren",
+    "adoptFirst": "Dafür müssen die Scripts übernommen sein.",
+    "saveFirst": "Speichere zuerst, das Rezept schreibt Scripts direkt auf die Platte.",
+    "alreadyEmpty": "Die Welt ist schon leer.",
+    "cleared": "Welt geleert, {{town}} bleibt.",
+    "townStays": "{{town}} bleibt.",
+    "townStaysWithRooms_one": "{{town}} bleibt mit {{count}} Raum.",
+    "townStaysWithRooms_other": "{{town}} bleibt mit {{count}} Räumen.",
+    "emptied_one": "{{count}} Ort wird geleert: seine Figuren, Türen, Auslöser und Level-Scripts verschwinden. Scripts und Texte bleiben liegen.",
+    "emptied_other": "{{count}} Orte werden geleert: ihre Figuren, Türen, Auslöser und Level-Scripts verschwinden. Scripts und Texte bleiben liegen.",
+    "border_one": "{{count}} Feld der Weltkarte wird zu einer gesperrten Randkarte.",
+    "border_other": "{{count}} Felder der Weltkarte werden zu einer gesperrten Randkarte.",
+    "starter": "Ein Start-Script gibt dir {{species}} auf Level {{level}}, den Pokédex und die Laufschuhe.",
+    "species": "Art {{number}}",
+    "reading": "Lese die Welt …",
+    "stays": "Bleibt",
+    "goes": "Wird geleert",
+    "checkingScripts": "Prüfe die Scripts …",
+    "adopt": "Scripts übernehmen",
+    "binary_one": "{{count}} {{term}} ließen sich nicht dekompilieren und bleiben binär.",
+    "binary_other": "{{count}} {{term}} ließen sich nicht dekompilieren und bleiben binär.",
+    "save": "Speichern",
+    "stepPlan": "Was bleibt",
+    "stepSummary": "Zusammenfassung",
+    "summary": "Leert die Welt bis auf {{town}}. Die Welt holst du mit ⌘Z zurück; Randkarte, Level-Script und Start-Script bleiben als Dateien.",
+    "doneTitle": "Welt geleert",
+    "doneFiles": "Randkarte {{border}}, Level-Script {{level}}, Start-Script {{file}} #{{n}}",
+    "doneNext": "Mit „Hier spielen“: Intro, zu Hause aufwachen, draußen wartet dein erstes Pokémon."
+  }
+}

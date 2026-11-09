@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 
 /** Path the Vite dev server proxies to the dev bridge (see vite.config.ts). */
 export const BRIDGE_PREFIX = "/__bridge";
@@ -29,7 +30,7 @@ async function invokeBridge<T>(cmd: string, args?: Record<string, unknown>): Pro
       body: JSON.stringify(args ?? {}),
     });
   } catch {
-    throw bridgeError("Brücke nicht erreichbar");
+    throw bridgeError(t("platform:transport.bridgeDown"));
   }
   if (res.status === 200) {
     const type = res.headers.get("Content-Type") ?? "";
@@ -42,7 +43,7 @@ async function invokeBridge<T>(cmd: string, args?: Record<string, unknown>): Pro
   } catch {
     // Not JSON (404, 413, ...): fall through to the generic error.
   }
-  throw isCmdErrorBody(body) ? body : bridgeError(`Brücke: HTTP ${res.status}`);
+  throw isCmdErrorBody(body) ? body : bridgeError(t("platform:transport.bridgeHttp", { status: res.status }));
 }
 
 /**
@@ -53,5 +54,5 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
   if (inTauri()) return tauriInvoke<T>(cmd, args);
   // Removed from production builds: the bridge only exists in development.
   if (import.meta.env.DEV) return invokeBridge<T>(cmd, args);
-  return Promise.reject(bridgeError("Kein Tauri und keine Brücke"));
+  return Promise.reject(bridgeError(t("platform:transport.noBackend")));
 }

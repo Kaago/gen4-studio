@@ -3,6 +3,7 @@ import { listMatrices, listWarps } from "../api";
 import type { MatrixSummary, MemberCounts, WarpLink } from "../api";
 import type { EditBus } from "../bus/editBus";
 import { useBusEvent } from "../bus/useBusEvent";
+import { t } from "../i18n";
 import { id4, termLabel } from "../workbench/terms";
 import { shallowEqual } from "./useStable";
 
@@ -25,8 +26,8 @@ const REPORTED_MEMBERS = 3;
 function unreadableError(kind: Kind, unreadable: [number, string][]): Error {
   const label = kind === "matrices" ? termLabel("matrix") : termLabel("eventFile");
   const shown = unreadable.slice(0, REPORTED_MEMBERS).map(([id, reason]) => `${id4(id)}: ${reason}`);
-  const more = unreadable.length > REPORTED_MEMBERS ? `; und ${unreadable.length - REPORTED_MEMBERS} weitere` : "";
-  return new Error(`${label}: ${unreadable.length} nicht lesbar (${shown.join("; ")}${more})`);
+  const more = unreadable.length > REPORTED_MEMBERS ? t("app:overview.more", { count: unreadable.length - REPORTED_MEMBERS }) : "";
+  return new Error(t("app:overview.unreadable", { label, count: unreadable.length, list: `${shown.join("; ")}${more}` }));
 }
 
 /** `previous` while `next` lists equal entries (compared field by field), else `next`: a read that found nothing new keeps the identity of the list. */

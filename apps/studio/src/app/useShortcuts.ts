@@ -32,7 +32,7 @@ interface ShortcutHandlers {
   /** Cmd+1 to 4 in the Pokémon area: shows that part (never a locked one). */
   onSub: (sub: PokemonSub) => void;
   /**
-   * The area that shows. Only in the world (the deck with the scene) do the tool letters, Escape-to-"Auswählen" and Delete or Escape on
+   * The area that shows. Only in the world (the deck with the scene) do the tool letters, Escape-to-„Auswählen“ and Delete or Escape on
    * the pinned building or event act; only in Pokémon do Cmd+1 to 4.
    */
   area: AreaId;
@@ -42,9 +42,9 @@ interface ShortcutHandlers {
   toolsShown: () => boolean;
   /** A tool letter was pressed while the 3D view is hidden: the letter did nothing (the caller says so, once). */
   onToolsHidden: () => void;
-  /** A trainer waits to be placed with the figure tool: Escape drops that binding first (back to "Auswählen"), before it unpins anything. */
+  /** A trainer waits to be placed with the figure tool: Escape drops that binding first (back to „Auswählen“), before it unpins anything. */
   placing?: boolean;
-  /** The tool of the scene: Escape goes back to "Auswählen" from another one; with "Auswählen" (or none given) the tool has no use for it. */
+  /** The tool of the scene: Escape goes back to „Auswählen“ from another one; with „Auswählen“ (or none given) the tool has no use for it. */
   tool?: Tool;
   /**
    * An Escape that nothing else took (no field, menu, list or dialog, no selection, no tool, no binding needed it): ends a maximized group in
@@ -79,7 +79,7 @@ function inField(target: HTMLElement | null): boolean {
 /**
  * Cmd+O, Cmd+K, Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), in the world the tool letters (V B F T A S G;
  * while painting a world map first the paint keys B P G E I H R T K Z X 1 2, see `paintKey`; T is „Terrain-Pinsel“ then, „Tür“ only by its button),
- * Escape back to "Auswählen", Delete / Escape on a pinned building or event and Option+Cmd+Left / Right through the scenes shown, in the Pokémon area Cmd+1 to 4 for its parts,
+ * Escape back to „Auswählen“, Delete / Escape on a pinned building or event and Option+Cmd+Left / Right through the scenes shown, in the Pokémon area Cmd+1 to 4 for its parts,
  * in every area an Escape that nothing else wants ending a maximization, none of them while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
@@ -115,7 +115,7 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
           return;
         }
       }
-      // The tools: a letter, or Escape back to "Auswählen" when nothing is selected (a selection consumed Escape above). Never typed into
+      // The tools: a letter, or Escape back to „Auswählen“ when nothing is selected (a selection consumed Escape above). Never typed into
       // a field, never with a modifier, and not in an open menu or list, where a letter searches and Escape closes. Only while the world
       // is shown: on another area a letter must not change the tool the world comes back with.
       // While „Gelände malen“ paints a world map its sub-tools come first (G is „Füllen“, T „Terrain-Pinsel“ then, „Gebäude“ and „Tür“

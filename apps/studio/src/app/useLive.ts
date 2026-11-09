@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { liveBreakpointClear, liveBreakpointSet, liveResume, liveSet, liveStop } from "../api.live";
 import type { BreakpointDto, EventRef, LiveHingeInfo, LiveState, LiveStatusDto } from "../api.live";
+import { t } from "../i18n";
 import { subscribeLive } from "../platform/liveEvents";
 import { liveStore, liveValuesOf, useLiveStatus } from "./liveStore";
 import type { LiveValues } from "./liveStore";
@@ -32,8 +34,6 @@ export interface Live {
 
 const sameEvent = (a: EventRef, b: EventRef) => a.event_file === b.event_file && a.kind === b.kind && a.index === b.index;
 
-/** „1 Haltepunkt“, „2 Haltepunkte“. */
-const breakpointCount = (n: number) => (n === 1 ? "1 Haltepunkt" : `${n} Haltepunkte`);
 
 /** What the hinge shows for `s`; `null` while off or unavailable (the hinge stays dark then). */
 export function liveHingeOf(s: LiveStatusDto): LiveHingeInfo | null {
@@ -44,17 +44,18 @@ export function liveHingeOf(s: LiveStatusDto): LiveHingeInfo | null {
     case "unavailable":
       return null;
     case "starting":
-      return info("Startet melonDS …");
+      return info(t("app:live.starting"));
     case "connecting":
-      return info("Verbindet …");
+      return info(t("app:live.connecting"));
     case "waiting_for_save":
-      return info("Wartet auf den Spielstand");
+      return info(t("app:live.waitingForSave"));
     case "live":
-      return info(breakpoints > 0 ? `Live · ${breakpointCount(breakpoints)}` : "Live");
+      // „Live · 1 Haltepunkt“, „Live · 2 Haltepunkte“.
+      return info(breakpoints > 0 ? t("app:live.liveBreakpoints", { count: breakpoints }) : t("app:live.live"));
     case "halted":
-      return info(s.halt ? `Gehalten: ${s.halt.watch.label}: ${s.halt.before} → ${s.halt.after}` : "Gehalten");
+      return info(s.halt ? t("app:live.haltedAt", { label: s.halt.watch.label, before: s.halt.before, after: s.halt.after }) : t("app:live.halted"));
     case "lost":
-      return info(s.reason ? `Verbindung verloren: ${s.reason}` : "Verbindung verloren");
+      return info(s.reason ? t("app:live.lostBecause", { reason: s.reason }) : t("app:live.lost"));
   }
 }
 
@@ -94,7 +95,9 @@ export function useLive(onError: (e: unknown) => void, onNotice: (message: Messa
   }, [status, notice]);
 
   const values = useMemo(() => liveValuesOf(status), [status]);
-  const hinge = useMemo(() => liveHingeOf(status), [status]);
+  // The hinge's words follow the language shown.
+  const { i18n } = useTranslation();
+  const hinge = useMemo(() => liveHingeOf(status), [status, i18n.language]);
 
   const setFlag = useCallback(
     async (number: number, value: boolean) => {

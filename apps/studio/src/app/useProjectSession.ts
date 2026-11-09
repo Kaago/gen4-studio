@@ -3,6 +3,7 @@ import type { MutableRefObject } from "react";
 import { acceptDisk, buildRom, closeProject as closeBackendProject, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, livePlay, memberCounts, openProject, publishPatch, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives, textProjectStatus } from "../api";
 import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, LivePlayDto, MemberCounts, ProjectInfo, PublishOptionsDto, PublishPhase, PublishReportDto, SyncOutcome, TextKeep, TextProjectStatus } from "../api";
 import { staleText } from "../assets";
+import { t } from "../i18n";
 import { formatSeconds } from "../technik/stepWords";
 import { BUILD_CONFLICTS, CONFLICTS_TOAST } from "../technik/syncWords";
 import { ask, openPath, savePath } from "../platform/dialogs";
@@ -14,8 +15,6 @@ import type { ScriptBridge } from "../workbench/script/useScripts";
 import { eventReadOnlyReason, lockedText } from "../world/events";
 import { listToasts, toast } from "../ui/frame/toasts";
 
-/** Says that the Dynamic Headers patch calls a wrong function; the toast with this text offers the repair. */
-const BROKEN_PATCH = "Patch „Dynamische Header“ fehlerhaft: das Spiel bleibt nach dem Intro schwarz (falscher Funktionsaufruf, wie ihn DSPRE für Platin DE/FR/IT/ES schreibt).";
 
 const EMULATOR_KEY = "g4.emulatorPath";
 /** A macOS app bundle (melonDS.app): „Hier spielen“ starts play mode with it. */
@@ -40,8 +39,8 @@ function storeEmulator(path: string) {
 /** „Textarchiv 0012“, „Textarchive 0012, 0045 und 0433“: the archives a conflict names. */
 function archivesText(archives: readonly number[]): string {
   const names = archives.map((a) => String(a).padStart(4, "0"));
-  if (names.length === 1) return `Textarchiv ${names[0]}`;
-  return `Textarchive ${names.slice(0, -1).join(", ")} und ${names[names.length - 1]}`;
+  const list = names.length === 1 ? names[0]! : t("common:list.and", { rest: names.slice(0, -1).join(", "), last: names[names.length - 1] });
+  return t("app:session.archives", { count: names.length, list });
 }
 
 /**
@@ -51,8 +50,7 @@ function archivesText(archives: readonly number[]): string {
 function saveConflictText(e: CmdError): string {
   const archives = textConflictArchives(e);
   if (archives.length === 0) return e.message;
-  const verb = archives.length === 1 ? "wurde" : "wurden";
-  return `${archivesText(archives)} ${verb} als Text und als Spieldatei geändert. Wähle beim nächsten „Bauen“, welche Fassung gilt.`;
+  return t("app:session.saveConflict", { count: archives.length, archives: archivesText(archives) });
 }
 
 /** What a build of a text project with open conflicts is refused with (the backend's `conflicts` refusal says the same). */
@@ -126,6 +124,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   const [lastPatchRom, setLastPatchRom] = useState<string | null>(null);
   /** The error texts the builds of this session showed: a successful build closes their toasts (errors stay until closed otherwise). */
   const buildErrors = useRef(new Set<string>());
+  // The text of the broken patch's error as it was shown (in the language of then): the repair dismisses that toast.
+  const brokenPatch = useRef<string | null>(null);
   /** A build stopped by text archives in conflict: the dialog asks, `resolveConflicts` builds again. */
   const [textConflicts, setTextConflicts] = useState<TextConflicts | null>(null);
   /** The emulator a ROM starts in (stored for every project); null while none is chosen. */
@@ -213,8 +213,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
         kind: "error",
         text: staleText(asset),
         actions: [
-          { label: "Neu laden (eigene Änderung verwerfen)", run: () => void resolve(reloadAsset, "Von Platte neu geladen.")() },
-          { label: "Meine Version behalten", run: () => void resolve(acceptDisk, "Eigene Version behalten, bitte erneut speichern.")() },
+          { label: t("app:session.staleReload"), run: () => void resolve(reloadAsset, t("app:session.staleReloaded"))() },
+          { label: t("app:session.staleKeep"), run: () => void resolve(acceptDisk, t("app:session.staleKept"))() },
         ],
       });
       return;
@@ -238,7 +238,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
    */
   async function onOpen(resetProject: (headers: HeaderSummary[]) => void, known?: string): Promise<"opened" | "cancelled" | "failed"> {
     try {
-      if (dirtyCount + scripts.current.dirtyFiles().length > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return "cancelled";
+      if (dirtyCount + scripts.current.dirtyFiles().length > 0 && !(await ask(t("app:unsaved.discard"), { kind: "warning" }))) return "cancelled";
       const path = known ?? (await openPath({ directory: true }));
       if (path === null) return "cancelled";
       const opened = await openAt(path, resetProject);
@@ -334,7 +334,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
    * build, undo and redo wait, and so do the set-up's and take-back's buttons. Throws on without running when something else holds it.
    */
   async function exclusive<T>(work: () => Promise<T>): Promise<T> {
-    if (busyRef.current || busy) throw new Error("Das Projekt ist gerade beschäftigt.");
+    if (busyRef.current || busy) throw new Error(t("app:session.busy"));
     busyRef.current = true;
     setBusy(true);
     setHolding(true);
@@ -378,7 +378,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     setTextConflicts(null);
     if (listError !== null) fail(listError);
     else if (countsError !== null) fail(countsError);
-    else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
+    else setMessage(listing?.names_error ? { kind: "error", text: t("app:session.namesUnreadable", { reason: listing.names_error }) } : null);
     await offerPatchRepair();
     // The checks run for the opened project by themselves (`useChecks`): this read is no edit.
     await refreshDirty({ edited: false });
@@ -404,7 +404,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
         setMessage({ kind: "error", text: errorText(e) });
       }
     };
-    setMessage({ kind: "error", text: BROKEN_PATCH, actions: [{ label: "Patch reparieren", run: () => void repair() }] });
+    // Says that the Dynamic Headers patch calls a wrong function; the toast with this text offers the repair (and goes with it).
+    const broken = t("app:session.brokenPatch");
+    brokenPatch.current = broken;
+    setMessage({ kind: "error", text: broken, actions: [{ label: t("app:session.repairPatch"), run: () => void repair() }] });
   }
 
   /**
@@ -412,8 +415,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
    * (an error toast outlives its message, see `useToastMirror`), and the session says what changed and what to do next.
    */
   const patchRepaired = useCallback(() => {
-    for (const shown of listToasts()) if (shown.kind === "error" && shown.text === BROKEN_PATCH) toast.dismiss(shown.id);
-    setMessage({ kind: "info", text: "Patch „Dynamische Header“ repariert: arm9.bin geändert, bitte ROM neu bauen." });
+    const broken = brokenPatch.current ?? t("app:session.brokenPatch");
+    for (const shown of listToasts()) if (shown.kind === "error" && shown.text === broken) toast.dismiss(shown.id);
+    setMessage({ kind: "info", text: t("app:session.patchRepaired") });
   }, []);
 
   /**
@@ -438,7 +442,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
       // Open scripts are part of the project: saved the way Cmd+S in the editor saves them (after the archives, which a save refuses to run ahead of).
       const dirtyScripts = scripts.current.dirtyFiles();
       for (const file of dirtyScripts) await scripts.current.save(file);
-      setMessage({ kind: "info", text: `${report.written.length + dirtyScripts.length} Datei(en) gespeichert` });
+      setMessage({ kind: "info", text: t("app:session.saved", { count: report.written.length + dirtyScripts.length }) });
     } catch (e) {
       fail(e);
     }
@@ -526,7 +530,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
 
   /** A build stopped by conflicts: one message with „Lösen…“, in the place of the sync's conflict message (not stacked below it). */
   function conflictsMessage(): Message {
-    return { kind: "error", text: BUILD_CONFLICTS, key: CONFLICTS_TOAST, actions: onShowConflicts ? [{ label: "Lösen…", run: onShowConflicts }] : undefined };
+    return { kind: "error", text: BUILD_CONFLICTS, key: CONFLICTS_TOAST, actions: onShowConflicts ? [{ label: t("app:session.resolve"), run: onShowConflicts }] : undefined };
   }
 
   /** Shows an error of a build; the next successful build closes its toast. */
@@ -547,10 +551,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
    */
   async function buildTo(out: string, fresh: boolean, play: boolean, resolved: boolean): Promise<string | null> {
     try {
-      setMessage({ kind: "info", text: "Baue ROM ..." });
+      setMessage({ kind: "info", text: t("app:session.building") });
       const { result: report, storeSaved } = await guardedBuild(() => buildRom(out, fresh), (r) => r, true, fresh);
       closeBuildErrors();
-      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} in ${formatSeconds(report.ms)} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
+      setMessage({ kind: "info", text: t("app:session.built", { rom: report.rom, time: formatSeconds(report.ms), count: report.saved + storeSaved }) });
       return report.rom;
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") {
@@ -558,14 +562,14 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
         const errors = list.filter((p) => p.severity === "error").length;
         // Hidden files under files/ (source "build"): the backend's message counts them apart and says how to remove them.
         const hidden = list.some((p) => p.severity === "error" && (p.source === "build" || p.message.startsWith("build.hidden-file")));
-        const actions = onShowProblems ? [{ label: "Probleme zeigen", run: onShowProblems }] : undefined;
+        const actions = onShowProblems ? [{ label: t("app:session.showProblems"), run: onShowProblems }] : undefined;
         // Spec 5.7: the one toast a compile problem gets. The problems themselves went to the store and its counts.
         buildError(
           hidden
             ? { kind: "error", text: sentence(e.message), actions }
             : errors > 0
-              ? { kind: "error", text: `${errors} Fehler in Scripts, Build abgebrochen`, actions }
-              : { kind: "error", text: `Build abgebrochen: ${e.message}` },
+              ? { kind: "error", text: t("app:session.compileErrors", { count: errors }), actions }
+              : { kind: "error", text: t("app:session.buildStopped", { reason: e.message }) },
         );
       } else if (isCmdError(e) && e.code === "conflicts") {
         // Conflicts between the Studio and DSPRE (found by the sync before the build, or by the backend's own): the way out is Technik.
@@ -574,8 +578,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
         const archives = textConflictArchives(e);
         if (resolved) {
           // Changed again since the choice (or another archive): no loop of questions; the next „Bauen“ asks afresh.
-          const verb = archives.length === 1 ? "ist" : "sind";
-          buildError({ kind: "error", text: `Build abgebrochen: ${archivesText(archives)} ${verb} nach dem Auflösen wieder auf beiden Seiten geändert. Baue erneut, dann fragt das Studio noch einmal.` });
+          buildError({ kind: "error", text: t("app:session.conflictAgain", { count: archives.length, archives: archivesText(archives) }) });
         } else {
           setMessage(null);
           setTextConflicts({ archives, out, fresh, play, resolving: false });
@@ -634,11 +637,11 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   /** „Abbrechen“ of the text conflict: nothing is built, nothing is overwritten. */
   function cancelConflicts() {
     setTextConflicts(null);
-    setMessage({ kind: "info", text: "Nichts gebaut. Beim nächsten „Bauen“ fragt das Studio wieder, welche Fassung gilt." });
+    setMessage({ kind: "info", text: t("app:session.nothingBuilt") });
   }
 
   async function pickEmulator(): Promise<string | null> {
-    const chosen = await openPath({ directory: false, title: "Emulator wählen (z. B. melonDS)" });
+    const chosen = await openPath({ directory: false, title: t("app:session.pickEmulator") });
     if (chosen === null) return null;
     storeEmulator(chosen);
     setEmulatorPath(chosen);
@@ -648,7 +651,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   async function onPickEmulator() {
     try {
       const chosen = await pickEmulator();
-      if (chosen) setMessage({ kind: "info", text: `Emulator: ${chosen}` });
+      if (chosen) setMessage({ kind: "info", text: t("app:session.emulator", { path: chosen }) });
     } catch (e) {
       fail(e);
     }
@@ -673,12 +676,12 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
         forgetEmulator();
         setEmulatorPath(null);
         const why = errorText(e);
-        setMessage({ kind: "error", text: `${/[.!?]$/.test(why) ? why : `${why}.`} Beim nächsten Start fragt das Studio erneut nach dem Emulator.` });
+        setMessage({ kind: "error", text: t("app:session.emulatorFailed", { reason: sentence(why) }) });
         return;
       }
-      if (played === null) setMessage({ kind: "info", text: `Emulator gestartet: ${rom}` });
-      else if (played.live) setMessage({ kind: "info", text: `Spielt in melonDS: ${rom}` });
-      else setMessage({ kind: "info", text: played.reason ? `Ohne Live-Verbindung: ${played.reason}` : "Ohne Live-Verbindung" });
+      if (played === null) setMessage({ kind: "info", text: t("app:session.emulatorStarted", { rom }) });
+      else if (played.live) setMessage({ kind: "info", text: t("app:session.playingLive", { rom }) });
+      else setMessage({ kind: "info", text: played.reason ? t("app:session.notLiveBecause", { reason: played.reason }) : t("app:session.notLive") });
     } catch (e) {
       fail(e);
     }

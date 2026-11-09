@@ -3,6 +3,7 @@ import type { MutableRefObject } from "react";
 import { ask } from "../platform/dialogs";
 import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, isCmdError, setPermission, updateBuilding } from "../api";
 import type { EventKind, EventPatch, HeaderSummary, MatrixDto } from "../api";
+import { t } from "../i18n";
 import type { Message } from "./message";
 import type { NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
@@ -56,7 +57,7 @@ export function referencedMessage(e: unknown, goTo: ((nav: NavTarget) => void) |
   const sources = new Map<string, number>();
   for (const r of targets) sources.set(r.source_name, (sources.get(r.source_name) ?? 0) + 1);
   const actions = targets.map((r) => ({
-    label: targets.length === 1 ? "Zur Quelle" : (sources.get(r.source_name) ?? 0) > 1 ? r.label : `Zu ${r.source_name}`,
+    label: targets.length === 1 ? t("app:worldActions.toSource") : (sources.get(r.source_name) ?? 0) > 1 ? r.label : t("app:worldActions.toNamed", { name: r.source_name }),
     run: () => goTo(r.nav),
   }));
   return { kind: "error", text, actions };
@@ -74,7 +75,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
   const { pinned, setPinned, setHover } = pins;
   // The tile the pointer was last over: where a building added without a clicked tile (`onAddBuilding(fallbackMap)`) goes.
   const lastTile = useRef<{ map: number; x: number; y: number } | null>(null);
-  // The same tile as a position in the whole matrix, where "Hinzufügen" puts an event. Unlike the
+  // The same tile as a position in the whole matrix, where „Hinzufügen“ puts an event. Unlike the
   // one above it is forgotten when the scene gets another matrix (the position is only valid in one).
   const matrixTile = useRef<{ x: number; z: number } | null>(null);
   useEffect(() => {
@@ -167,7 +168,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
       const hovered = at ?? (lastTile.current && shown.maps.includes(lastTile.current.map) ? lastTile.current : null);
       const map = hovered?.map ?? fallbackMap;
       if (map === null) {
-        setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Gebäude entstehen soll." });
+        setMessage({ kind: "info", text: t("app:worldActions.hoverForBuilding") });
         return;
       }
       let added: number | null = null;
@@ -207,7 +208,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     [bus, fail, unpinSelection, refreshDirty],
   );
 
-  // A warp on a plain tile is never taken in the game: "Warp hinzufügen" says so and offers to make the tile a door.
+  // A warp on a plain tile is never taken in the game: „Warp hinzufügen“ says so and offers to make the tile a door.
   const offerDoor = useCallback(
     async (shown: MatrixDto, tile: { x: number; z: number }) => {
       const map = mapUnderTile(shown, tile.x, tile.z);
@@ -216,9 +217,9 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
       try {
         const found = await readWarpTile(map, x, y);
         if (found.fires) return;
-        const question = `Der neue Warp liegt auf Kachel x ${tile.x}, z ${tile.z}. ${found.text} Die Kachel zur Tür machen (Verhalten 0x69, Kollision 0x80)? Der Spieler läuft dann dagegen, um den Warp zu nehmen.`;
+        const question = t("app:worldActions.offerDoor", { x: tile.x, z: tile.z, found: found.text });
         if (!(await ask(question, { kind: "warning" }))) {
-          setMessage({ kind: "info", text: `Warp auf Kachel x ${tile.x}, z ${tile.z}: löst im Spiel nicht aus, solange die Kachel keine Tür- oder Warp-Kachel ist.` });
+          setMessage({ kind: "info", text: t("app:worldActions.warpNotFiring", { x: tile.x, z: tile.z }) });
           return;
         }
         await setPermission(map, x, y, DOOR, DOOR_COLLISION);
@@ -244,7 +245,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
       }
       const tile = at ?? matrixTile.current;
       if (!tile) {
-        setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Event entstehen soll." });
+        setMessage({ kind: "info", text: t("app:worldActions.hoverForEvent") });
         return;
       }
       let added = false;

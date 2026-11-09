@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { t } from "../i18n";
 import { inTauri } from "../platform/transport";
 
 /** What the wizard "Neues Spiel aus ROM" opens with: a ROM path to read at once, or a note on the step "ROM". */
@@ -9,10 +10,12 @@ export type StartWizardRequest = { rom?: string; notice?: string };
 /** What a drop carried: one path, one file whose path the page does not know, or nothing usable (also several files). */
 export type DropSource = { path: string } | { file: string } | { none: true };
 
-export const REFUSED = "Nur eine .nds-Datei ablegen.";
+/** Said when the drop is no single `.nds` file. */
+const refused = () => t("project:drop.refused");
 /** Said when a file is dropped while the wizard is open: the wizard keeps what it has. */
-export const WIZARD_OPEN_DROP = "Erst den Assistenten abschließen oder abbrechen.";
-export const NO_PATH = "Im Browser-Modus kennt die Seite den Pfad der Datei nicht. Gib ihn ein.";
+const wizardOpen = () => t("project:drop.wizardOpen");
+/** The note on the step "ROM" when the browser does not tell the dropped file's path. */
+const noPath = () => t("project:drop.noPath");
 
 /** Lines of a list (`text/uri-list` or plain text) without blanks and `#` comments. */
 const linesOf = (text: string) =>
@@ -89,7 +92,7 @@ export type RomDrop = {
  * A ROM dropped onto the start: in the app the webview reports the dropped paths (`onDragDropEvent`; it keeps HTML drops of files from
  * the page), in the browser the surface takes the HTML `drop`. One `.nds` path opens the wizard with it, a file without a path (browser)
  * opens it with the note to type the path; anything else is refused. While disabled (the wizard is open) a drop never replaces
- * the wizard: it is refused with `WIZARD_OPEN_DROP` (the webview's listener stays registered for that), and the browser does not open
+ * the wizard: it is refused with „Erst den Assistenten abschließen oder abbrechen.“ (the webview's listener stays registered for that), and the browser does not open
  * a dropped file in place of the app either.
  */
 export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => void, onRefuse: (msg: string) => void): RomDrop {
@@ -99,7 +102,7 @@ export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => v
   // dragenter and dragleave come for every child the pointer crosses: the surface is left when they even out.
   const depth = useRef(0);
 
-  const takePath = (path: string) => (isRomPath(path) ? latest.current.onRom({ rom: path }) : latest.current.onRefuse(REFUSED));
+  const takePath = (path: string) => (isRomPath(path) ? latest.current.onRom({ rom: path }) : latest.current.onRefuse(refused()));
 
   useEffect(() => {
     if (!enabled) {
@@ -119,9 +122,9 @@ export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => v
         else if (payload.type === "leave") setOver(false);
         else {
           setOver(false);
-          if (!taking) latest.current.onRefuse(WIZARD_OPEN_DROP);
+          if (!taking) latest.current.onRefuse(wizardOpen());
           else if (payload.paths.length === 1) takePath(payload.paths[0]!);
-          else latest.current.onRefuse(REFUSED);
+          else latest.current.onRefuse(refused());
         }
       })
       .then((fn) => {
@@ -163,15 +166,15 @@ export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => v
       depth.current = 0;
       setOver(false);
       if (!enabled) {
-        latest.current.onRefuse(WIZARD_OPEN_DROP);
+        latest.current.onRefuse(wizardOpen());
         return;
       }
       const source = pathFromDataTransfer(e.dataTransfer);
       if ("path" in source) takePath(source.path);
       else if ("file" in source) {
-        if (isRomPath(source.file)) latest.current.onRom({ notice: NO_PATH });
-        else latest.current.onRefuse(REFUSED);
-      } else latest.current.onRefuse(REFUSED);
+        if (isRomPath(source.file)) latest.current.onRom({ notice: noPath() });
+        else latest.current.onRefuse(refused());
+      } else latest.current.onRefuse(refused());
     },
   };
   return { over, handlers };
