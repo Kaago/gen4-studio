@@ -188,14 +188,14 @@ fn list_names_the_four_recipes_with_titles() {
     let list = recipes::list();
     let ids: Vec<RecipeId> = list.iter().map(|r| r.id).collect();
     assert_eq!(ids, RecipeId::all());
-    let titles: Vec<&str> = list.iter().map(|r| r.title).collect();
+    let titles: Vec<&str> = list.iter().map(|r| r.title.as_str()).collect();
     assert_eq!(
         &titles[..4],
         [
-            "Gebiet anlegen",
-            "Raum anlegen",
-            "Gebiet erweitern",
-            "Welt leeren"
+            "Create area",
+            "Create room",
+            "Extend area",
+            "Empty the world"
         ]
     );
     let irreversible: Vec<bool> = list.iter().map(|r| r.irreversible).collect();
@@ -223,14 +223,12 @@ fn plan_of_an_area_writes_nothing() {
         [(0, 0, 1), (1, 0, 0)]
     );
     assert!(
-        draft.notes[0].contains("Gebiet „Route 230“ mit 2 Karten"),
+        draft.notes[0].contains("area “Route 230” with 2 maps"),
         "{:?}",
         draft.notes
     );
     assert!(
-        draft
-            .irreversible
-            .contains(&"2 Karten werden kopiert".to_owned()),
+        draft.irreversible.contains(&"2 maps are copied".to_owned()),
         "{:?}",
         draft.irreversible
     );
@@ -305,7 +303,7 @@ fn plan_of_a_room_names_both_doors_and_the_door_tiles() {
     assert!(
         draft
             .irreversible
-            .contains(&"Karte 0002 wird kopiert".to_owned()),
+            .contains(&"Map 0002 is copied".to_owned()),
         "{:?}",
         draft.irreversible
     );
@@ -338,7 +336,7 @@ fn apply_of_an_area_is_one_undo_step() {
     assert_eq!(store.undo_depth(), depth + 1);
     assert_eq!(
         store.history().0.last().unwrap(),
-        "Gebiet „Route 230“ angelegt"
+        "Area “Route 230” created"
     );
     assert!(outcome.change.is_some());
     let created: Vec<(AssetKind, u16)> =
@@ -432,12 +430,12 @@ fn apply_of_a_room_with_an_entrance_is_one_undo_step() {
     assert_eq!(report.door_tiles.len(), 2);
     assert_eq!((report.door_tiles[0].map, report.door_tiles[1].map), (0, 3));
     assert_eq!(store.undo_depth(), depth + 1);
-    assert_eq!(store.history().0.last().unwrap(), "Raum „Haus“ angelegt");
+    assert_eq!(store.history().0.last().unwrap(), "Room “Haus” created");
     assert_eq!(
         outcome.next,
         vec![NextStep {
             id: "new_figure".into(),
-            label: "Neue Figur hier".into(),
+            label: "New figure here".into(),
             available: true,
             reason: None,
         }]
@@ -573,8 +571,10 @@ fn is_irreversible_follows_allow_patch_and_empty_region() {
     );
     area["header"]["allow_patch"] = json!(true);
     assert_eq!(
-        recipes::is_irreversible(&call("create_area", area)).unwrap(),
-        Some("Header-Patch einspielen")
+        recipes::is_irreversible(&call("create_area", area))
+            .unwrap()
+            .as_deref(),
+        Some("Apply the header patch")
     );
     let room = json!({
         "name": "Haus", "source_map": 2, "clear_buildings": false,
@@ -582,8 +582,10 @@ fn is_irreversible_follows_allow_patch_and_empty_region() {
         "entrance": null,
     });
     assert_eq!(
-        recipes::is_irreversible(&call("create_room", room)).unwrap(),
-        Some("Header-Patch einspielen")
+        recipes::is_irreversible(&call("create_room", room))
+            .unwrap()
+            .as_deref(),
+        Some("Apply the header patch")
     );
     let extend = json!({ "matrix": 0, "x": 2, "y": 0, "source_map": 2,
                          "clear_buildings": false, "header_cell": null });
@@ -595,8 +597,8 @@ fn is_irreversible_follows_allow_patch_and_empty_region() {
     let empty: RecipeCall = serde_json::from_value(json!({ "recipe": "empty_region" })).unwrap();
     assert_eq!(empty.input, json!({}));
     assert_eq!(
-        recipes::is_irreversible(&empty).unwrap(),
-        Some("Welt leeren")
+        recipes::is_irreversible(&empty).unwrap().as_deref(),
+        Some("Empty the world")
     );
     let empty = call("empty_region", serde_json::Value::Null);
     assert_eq!(empty.input, json!({}));
@@ -668,7 +670,7 @@ fn vanilla_room_recipe_matches_the_wizard_scenario() {
     assert!(
         draft
             .irreversible
-            .contains(&"Der Header-Patch wird eingespielt".to_owned()),
+            .contains(&"The header patch is applied".to_owned()),
         "{:?}",
         draft.irreversible
     );
@@ -685,7 +687,7 @@ fn vanilla_room_recipe_matches_the_wizard_scenario() {
     assert_eq!(store.undo_depth(), depth + 1);
     assert_eq!(
         store.history().0.last().unwrap(),
-        "Raum „Testzimmer“ angelegt"
+        "Room “Testzimmer” created"
     );
     store.save().unwrap();
 }

@@ -98,7 +98,12 @@ pub fn read_manifest(root: &Path) -> Result<Manifest, KernelError> {
         return Err(KernelError::Compile(vec![problem(
             manifest_rel(),
             SCHEMA_CODE,
-            format!("`format` ist „{}“, erwartet „{FORMAT}“.", manifest.format),
+            t!(
+                "textproject.manifest_format",
+                found = manifest.format,
+                expected = FORMAT
+            )
+            .into_owned(),
         )]));
     }
     Ok(manifest)
@@ -130,15 +135,18 @@ pub fn manifest_for(project: &Project, keep: Option<&Manifest>) -> Manifest {
 pub(crate) fn refusal(state: SchemaState) -> Option<String> {
     match state {
         SchemaState::Current => None,
-        SchemaState::Missing => Some(format!("Kein Textprojekt: {MANIFEST_FILE} fehlt.")),
-        SchemaState::Older(v) => Some(format!(
-            "Das Textprojekt hat Schema-Version {v}, diese Fassung kennt {SCHEMA_VERSION}: \
-             `g4k text migrate` ausführen."
-        )),
-        SchemaState::Newer(v) => Some(format!(
-            "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio \
-             (Schema-Version {v})."
-        )),
+        SchemaState::Missing => {
+            Some(t!("textproject.schema_missing", file = MANIFEST_FILE).into_owned())
+        }
+        SchemaState::Older(v) => Some(
+            t!(
+                "textproject.schema_older",
+                version = v,
+                known = SCHEMA_VERSION
+            )
+            .into_owned(),
+        ),
+        SchemaState::Newer(v) => Some(t!("textproject.schema_newer", version = v).into_owned()),
     }
 }
 
@@ -186,7 +194,7 @@ fn version_of(bytes: &[u8]) -> Result<u32, Problem> {
                 Ok(_) => problem(
                     manifest_rel(),
                     SCHEMA_CODE,
-                    "Der Schlüssel `schemaVersion` fehlt.".to_owned(),
+                    t!("textproject.schema_version_missing").into_owned(),
                 ),
             },
         );
@@ -198,7 +206,12 @@ fn version_of(bytes: &[u8]) -> Result<u32, Problem> {
             problem(
                 manifest_rel(),
                 SCHEMA_CODE,
-                format!("`{key}` ist keine Schema-Version (ganze Zahl ab 0): {version}."),
+                t!(
+                    "textproject.schema_version_invalid",
+                    key = key,
+                    version = version
+                )
+                .into_owned(),
             )
         })
 }
@@ -280,7 +293,7 @@ mod tests {
         let p = &problems[0];
         assert!(
             p.message
-                .starts_with("textproject.schema: plugin: unbekannter Schlüssel"),
+                .starts_with("textproject.schema: plugin: unknown key"),
             "{}",
             p.message
         );
@@ -296,22 +309,21 @@ mod tests {
         };
         assert_eq!(
             refused(dir.path()),
-            "Kein Textprojekt: g4-project.json fehlt."
+            "No text project: g4-project.json is missing."
         );
         let older = V4.replace("\"schemaVersion\": 4", "\"schemaVersion\": 1");
         std::fs::write(dir.path().join(MANIFEST_FILE), older).unwrap();
         assert_eq!(
             refused(dir.path()),
             format!(
-                "Das Textprojekt hat Schema-Version 1, diese Fassung kennt {SCHEMA_VERSION}: \
-                 `g4k text migrate` ausführen."
+                "The text project has schema version 1, this version of the Studio knows {SCHEMA_VERSION}: run `g4k text migrate`."
             )
         );
         let newer = V4.replace("\"schemaVersion\": 4", "\"schemaVersion\": 5");
         std::fs::write(dir.path().join(MANIFEST_FILE), newer).unwrap();
         assert_eq!(
             refused(dir.path()),
-            "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 5)."
+            "The text project comes from a newer version of Gen4 Studio (schema version 5)."
         );
     }
 

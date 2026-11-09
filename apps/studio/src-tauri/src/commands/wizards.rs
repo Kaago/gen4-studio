@@ -1145,7 +1145,7 @@ mod tests {
         assert_eq!((h.location_index, h.location_name.as_str()), (3, "Neuheim"));
         assert_eq!(place_slots_impl(&state).unwrap().count, 4);
         let undo = history_impl(&state).unwrap().undo;
-        assert_eq!(undo.last().unwrap(), "Gebiet „Route 230“ angelegt");
+        assert_eq!(undo.last().unwrap(), "Area “Route 230” created");
         // One undo takes the name and the place of the header back; the header stays.
         undo_impl(&state).unwrap();
         assert_eq!(place_slots_impl(&state).unwrap().count, 3);
@@ -1165,10 +1165,7 @@ mod tests {
         let h = summary(&state, 1);
         assert_eq!((h.location_index, h.matrix_id), (2, report.matrix));
         let undo = history_impl(&state).unwrap().undo;
-        assert!(
-            undo.contains(&"Raum „Haus“ angelegt".to_owned()),
-            "{undo:?}"
-        );
+        assert!(undo.contains(&"Room “Haus” created".to_owned()), "{undo:?}");
         assert_eq!(place_slots_impl(&state).unwrap().count, 3);
     }
 
@@ -1299,7 +1296,7 @@ mod tests {
             ("T_NEW", template)
         );
         let undo = history_impl(&state).unwrap().undo;
-        assert_eq!(undo.last().unwrap(), "Gebiet „Route 230“ angelegt");
+        assert_eq!(undo.last().unwrap(), "Area “Route 230” created");
         // A new header without an internal name deserializes too.
         let n: NewHeader = serde_json::from_str(r#"{"template":1}"#).unwrap();
         assert_eq!(n.internal_name, None);
@@ -1368,8 +1365,7 @@ mod tests {
     /// The text of a refused block at x `x`..`x2`, y `y`..`y2`.
     fn not_free(x: u8, x2: u16, y: u8, y2: u16) -> String {
         format!(
-            "Die Zellen x {x} bis {x2}, y {y} bis {y2} sind nicht frei: dort liegen Gebiete \
-             oder sie liegen außerhalb der Weltkarte."
+            "The cells x {x} to {x2}, y {y} to {y2} are not free: areas lie there or they lie outside the world map."
         )
     }
 
@@ -1422,7 +1418,7 @@ mod tests {
         let err = create_area_impl(&state, on_world(0, 2, 0)).unwrap_err();
         assert_eq!(
             err.message,
-            "Anordnung 0000 ist keine Weltkarte: ihren Zellen sind keine Orte zugeordnet."
+            "Matrix 0000 is not a world map: its cells have no places assigned."
         );
         assert_eq!(counts(&state), before);
     }
@@ -1445,7 +1441,7 @@ mod tests {
         assert_eq!(m.maps, vec![Some(0), Some(3), Some(4), E, E, E, E, E]);
         assert_eq!(
             history_impl(&state).unwrap().undo.last().unwrap(),
-            "Gebiet „Route 230“ angelegt"
+            "Area “Route 230” created"
         );
 
         assert_eq!(

@@ -98,11 +98,14 @@ pub struct SyncOutcome {
 }
 
 /// The refusal of a choice for a unit that is no conflict (any more).
-pub const NO_CONFLICT: &str = "Für diese Einheit gibt es keinen Konflikt mehr.";
+pub fn no_conflict() -> String {
+    t!("textproject.no_conflict").into_owned()
+}
 
 /// The refusal of a choice whose unit was written again while it was made.
-pub(super) const MOVED: &str =
-    "Die Dateien dieser Einheit haben sich eben geändert; bitte noch einmal abgleichen.";
+pub(super) fn moved() -> String {
+    t!("textproject.unit_moved").into_owned()
+}
 
 fn ms_since(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -188,7 +191,7 @@ pub fn sync_store(store: &mut Store, scan: ScanReport) -> Result<SyncOutcome, Ke
 }
 
 /// The user's choice `keep` for the conflict `key` (see the module's table): checks with a
-/// scan that the unit is still a conflict (else `Refused(NO_CONFLICT)`), writes the side
+/// scan that the unit is still a conflict (else `Refused(no_conflict)`), writes the side
 /// that goes from the one that stays, records the unit and loads the store's assets anew as
 /// the table says. Returns the assets loaded anew.
 pub fn resolve(store: &mut Store, key: &str, keep: Keep) -> Result<Vec<AssetId>, KernelError> {
@@ -269,7 +272,7 @@ fn choose(
     let Some(unit) = open else {
         // Every scan is applied (its time settles racy entries); nothing is taken over.
         apply_one_sided(project, &report, &|_| true)?;
-        return Err(KernelError::Refused(NO_CONFLICT.to_owned()));
+        return Err(KernelError::Refused(no_conflict()));
     };
     // Which side the takeover writes from: the source (the Studio's, or the changed file),
     // or DSPRE's members.
@@ -286,7 +289,7 @@ fn choose(
     })?;
     if !applied.taken.iter().any(|k| k == key) {
         let why = applied.failed.into_iter().find(|(k, _)| k == key);
-        return Err(why.map_or_else(|| KernelError::Refused(MOVED.to_owned()), |(_, e)| e));
+        return Err(why.map_or_else(|| KernelError::Refused(moved()), |(_, e)| e));
     }
     if let (Keep::Studio, Of::Script(n)) = (keep, of_unit(&unit.key, &unit.assets)) {
         // The source stays: the next build compiles it over DSPRE's member, also where the

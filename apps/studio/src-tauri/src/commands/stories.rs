@@ -20,7 +20,7 @@ use g4_kernel::stories::{
 use g4_kernel::text::Problem;
 use g4_kernel::textproject::ids::{RefInput, UNKNOWN_ID_CODE, unknown_id_text};
 use g4_kernel::textproject::registry::Registry;
-use g4_kernel::textproject::rename::NOT_A_TEXT_PROJECT;
+use g4_kernel::textproject::rename::not_a_text_project;
 use g4_kernel::textproject::symbols::SymbolKind;
 use serde::Serialize;
 use serde_json::Value;
@@ -445,7 +445,7 @@ fn story_error(e: KernelError) -> CmdError {
     let KernelError::Refused(why) = e else {
         return e.into();
     };
-    let code = if why == NOT_A_TEXT_PROJECT {
+    let code = if why == not_a_text_project() {
         "not_text_project"
     } else if why.starts_with(unknown_id_text("").trim_end_matches('.')) {
         UNKNOWN_ID_CODE

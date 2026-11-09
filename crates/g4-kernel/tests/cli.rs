@@ -4,8 +4,12 @@ mod common;
 use assert_cmd::Command;
 use predicates::str::contains;
 
+/// `g4k` in English whatever `LANG` the test runs under (`g4k` picks its locale from
+/// `G4_LANG`, then `LANG`): the tests assert the English messages.
 fn g4k() -> Command {
-    Command::cargo_bin("g4k").unwrap()
+    let mut cmd = Command::cargo_bin("g4k").unwrap();
+    cmd.env("G4_LANG", "en");
+    cmd
 }
 
 #[test]
@@ -1411,9 +1415,9 @@ fn cli_text_export_refuses_unbuilt_changes_unless_forced() {
     text(&["export"], &root)
         .assert()
         .code(1)
-        .stderr(contains(g4_kernel::textproject::UNSYNCED_EXPORT))
+        .stderr(contains(g4_kernel::textproject::unsynced_export_prefix()))
         .stderr(contains("data/moves/0002.json"))
-        .stderr(contains("erst bauen (g4k build)"));
+        .stderr(contains("build first (g4k build)"));
     assert_eq!(std::fs::read_to_string(&json).unwrap(), edited);
     text(&["export", "--force"], &root).assert().success();
     assert!(
@@ -1428,7 +1432,7 @@ fn cli_text_export_refuses_unbuilt_changes_unless_forced() {
     bytes[3] = 77;
     std::fs::write(&member, &bytes).unwrap();
     text(&["import"], &root).assert().code(1).stderr(contains(
-        "Member sind neuer als ihre JSON (unpacked/moveData/0002)",
+        "Members are newer than their JSON (unpacked/moveData/0002)",
     ));
     assert_eq!(std::fs::read(&member).unwrap()[3], 77);
     text(&["import", "--force"], &root).assert().success();
@@ -1542,7 +1546,7 @@ fn cli_text_migrate_v0_fixture() {
     text(&["migrate"], &root)
         .assert()
         .code(1)
-        .stderr(contains("neueren Fassung"));
+        .stderr(contains("newer version"));
     let assert = text(&["check"], &root).assert().code(1);
     assert_eq!(stdout_of(&assert).lines().next(), Some("schema=newer 99"));
 }
@@ -1615,7 +1619,7 @@ fn cli_text_adopt_sync_and_revert() {
     println!("{out}");
     assert!(
         out.lines()
-            .any(|l| l.starts_with("dspre data/moves/0001.json Attacke 0001")),
+            .any(|l| l.starts_with("dspre data/moves/0001.json Move 0001")),
         "{out}"
     );
     let json = std::fs::read_to_string(root.join("data/moves/0001.json")).unwrap();
@@ -1638,14 +1642,14 @@ fn cli_text_adopt_sync_and_revert() {
     println!("{out}");
     assert!(
         out.lines()
-            .any(|l| l.starts_with("conflict data/moves/0002.json Attacke 0002")),
+            .any(|l| l.starts_with("conflict data/moves/0002.json Move 0002")),
         "{out}"
     );
     // Pending: the revert is refused.
     text(&["revert"], &root)
         .assert()
         .code(1)
-        .stderr(contains(g4_kernel::textproject::adopt::REVERT_PENDING));
+        .stderr(contains(g4_kernel::textproject::adopt::revert_pending()));
     text(&["sync", "--keep", "studio", "data/moves/0002.json"], &root)
         .assert()
         .success()
@@ -1665,7 +1669,7 @@ fn cli_text_adopt_sync_and_revert() {
     println!("{out}");
     assert!(
         out.lines()
-            .any(|l| l.starts_with("broken data/moves/0003.json Attacke 0003")),
+            .any(|l| l.starts_with("broken data/moves/0003.json Move 0003")),
         "{out}"
     );
     assert!(
@@ -1742,7 +1746,7 @@ fn cli_text_rename_id() {
         .assert()
         .code(1)
         .stderr(contains(
-            "TRAINER_POKEMON_TRAINER_MIA gibt es schon (Nummer 2).",
+            "TRAINER_POKEMON_TRAINER_MIA exists already (number 2).",
         ));
     assert_eq!(
         std::fs::read_to_string(root.join("data/trainers/0001.json")).unwrap(),
@@ -1948,7 +1952,7 @@ fn text_clone(fx: &common::TextFixture) -> (tempfile::TempDir, std::path::PathBu
 
 #[test]
 fn cli_text_restore() {
-    use g4_kernel::textproject::restore::{HAS_GAME_FILES, needs_restore};
+    use g4_kernel::textproject::restore::{has_game_files, needs_restore};
 
     let fx = common::TextFixture::exported();
     // A project with its game files: refused, nothing written.
@@ -1959,7 +1963,7 @@ fn cli_text_restore() {
         .arg(fx.rom())
         .assert()
         .code(1)
-        .stderr(contains(HAS_GAME_FILES));
+        .stderr(contains(has_game_files()));
 
     let (_tmp, clone) = text_clone(&fx);
     assert!(needs_restore(&clone));
@@ -2080,7 +2084,7 @@ fn cli_git_status_lists_entries() {
     assert_eq!(lines.len(), 3, "{out}");
     assert!(lines[0].starts_with("branch main head "), "{out}");
     assert!(lines[0].ends_with(" changes 1"), "{out}");
-    assert_eq!(lines[1], "changed Trainer Trainer 0001", "{out}");
+    assert_eq!(lines[1], "changed Trainers Trainer 0001", "{out}");
     assert_eq!(lines[2], "git not found", "{out}");
 }
 
@@ -2117,19 +2121,19 @@ fn cli_recipe_list() {
     assert_eq!(
         lines,
         [
-            "create_area  Gebiet anlegen",
-            "create_room  Raum anlegen",
-            "extend_area  Gebiet erweitern",
-            "empty_region  Welt leeren  irreversible",
-            "new_figure  Neue Figur",
-            "connect_doors  Tür verbinden",
-            "new_trainer_here  Neuer Trainer hier  irreversible",
-            "new_story  Neue Geschichte",
-            "talk_advances  Gespräch schaltet weiter",
-            "figure_appears  Figur erscheint/verschwindet ab Schritt",
-            "scene_on_enter  Szene beim Betreten",
-            "reward_once  Belohnung einmalig",
-            "new_painted_map  Neue Karte malen  irreversible",
+            "create_area  Create area",
+            "create_room  Create room",
+            "extend_area  Extend area",
+            "empty_region  Empty the world  irreversible",
+            "new_figure  New figure",
+            "connect_doors  Connect doors",
+            "new_trainer_here  New trainer here  irreversible",
+            "new_story  New story",
+            "talk_advances  Talk advances the story",
+            "figure_appears  Figure appears/disappears from step",
+            "scene_on_enter  Scene on entering",
+            "reward_once  One-time reward",
+            "new_painted_map  Paint new map  irreversible",
         ],
         "{out}"
     );
@@ -2199,7 +2203,7 @@ fn cli_recipe_plan_extend_prints_a_draft() {
         .args(["extend_area", "--input", r#"{"matrix":0}"#])
         .assert()
         .code(1)
-        .stderr(contains("Die Eingabe für „Gebiet erweitern“ passt nicht"));
+        .stderr(contains("The input for “Extend area” does not fit"));
 }
 
 #[test]
@@ -2239,7 +2243,7 @@ fn cli_recipe_apply_empty_region_needs_the_flag() {
         .assert()
         .code(1)
         .stderr(contains(
-            "error: Welt leeren lässt sich nicht rückgängig machen; mit --allow-irreversible",
+            "error: Empty the world lässt sich nicht rückgängig machen; mit --allow-irreversible",
         ));
     assert!(!s.dir.path().join("rotom.toml").exists());
     // With the flag it gets past the question; the synthetic world then has no start town.
@@ -2393,7 +2397,7 @@ fn cli_recipe_apply_figure_appears_asks_only_when_a_level_script_file_is_created
         .assert()
         .code(1)
         .stderr(contains(
-            "error: Level-Script-Datei anlegen lässt sich nicht rückgängig machen; mit \
+            "error: Create level script file lässt sich nicht rückgängig machen; mit \
              --allow-irreversible",
         ));
     let assert = g4k()
@@ -2475,13 +2479,13 @@ fn story_create_and_list_on_a_text_fixture() {
     story(&["get", "STORY_NOPE"])
         .assert()
         .code(1)
-        .stderr(contains("Unbekannte ID: STORY_NOPE."));
+        .stderr(contains("Unknown ID: STORY_NOPE."));
 
     // A refusal: unknown progress, nothing written.
     story(&["create", "--name", "Zwei", "--var", "VAR_NOPE"])
         .assert()
         .code(1)
-        .stderr(contains("Unbekannte ID: VAR_NOPE."));
+        .stderr(contains("Unknown ID: VAR_NOPE."));
     assert!(!root.join("data/stories/0001.json").exists());
 
     // The threads: one line each, or JSON.
@@ -2517,7 +2521,7 @@ fn story_create_and_list_on_a_text_fixture() {
     story(&["delete", "STORY_NOPE"])
         .assert()
         .code(1)
-        .stderr(contains("Unbekannte ID: STORY_NOPE."));
+        .stderr(contains("Unknown ID: STORY_NOPE."));
     assert!(root.join("data/stories/0000.json").is_file());
     let out = stdout_of(&story(&["delete", "STORY_TEST"]).assert().success());
     assert!(

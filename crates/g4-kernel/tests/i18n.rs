@@ -126,3 +126,18 @@ fn probe_translates() {
     assert_eq!(t!("i18n.probe"), "probe");
     assert_eq!(g4_kernel::_rust_i18n_translate("en", "i18n.probe"), "probe");
 }
+
+/// A real key of the world module with two variables (`world.cell_outside`, the refusal of a
+/// cell off the map): both values land in the sentence, in German and in English.
+#[test]
+fn world_message_fills_variables() {
+    let _turn = locale_lock();
+    set_locale("de");
+    let de = t!("world.cell_outside", x = 3, z = 7, max = 31);
+    assert_eq!(de, "Zelle (3, 7) liegt außerhalb der Karte (0 bis 31).");
+    assert!(de.contains('3') && de.contains('7'), "{de}");
+    set_locale("en");
+    let en = t!("world.cell_outside", x = 3, z = 7, max = 31);
+    assert_eq!(en, "Cell (3, 7) is outside the map (0 to 31).");
+    assert!(en.contains('3') && en.contains('7'), "{en}");
+}

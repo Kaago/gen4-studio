@@ -1003,10 +1003,11 @@ fn packed_of(project: &Project, name: &str) -> Option<PathBuf> {
 pub(crate) fn check_raw_path(rel: &Path) -> Result<(), String> {
     let plain = rel.components().all(|c| matches!(c, Component::Normal(_)));
     if !plain || rel.as_os_str().is_empty() || outside_range(rel, false) {
-        return Err(format!(
-            "`{}` liegt nicht im Bereich der Blobs (data/raw).",
-            crate::build::step::key(rel)
-        ));
+        return Err(t!(
+            "textproject.blob_outside_range",
+            path = crate::build::step::key(rel)
+        )
+        .into_owned());
     }
     Ok(())
 }
@@ -1028,18 +1029,21 @@ pub(crate) fn check_raw_blob(
         .chain([&AssetKind::Item])
         .any(|&k| project.archives.packed(k) == Some(rel));
     if (owned.contains(rel) && !older_egg_blob(project, rel)) || entity_narc {
-        return Err(format!(
-            "`{}` gehört einer Entität; ihre JSON unter data/ gilt, nicht ein Blob.",
-            crate::build::step::key(rel)
-        ));
+        return Err(t!(
+            "textproject.blob_owned",
+            path = crate::build::step::key(rel)
+        )
+        .into_owned());
     }
     if unpacked_folder_of(project, rel).is_some()
         && let Err(e) = Narc::read(bytes)
     {
-        return Err(format!(
-            "`{}` ist kein lesbares NARC ({e}).",
-            crate::build::step::key(rel)
-        ));
+        return Err(t!(
+            "textproject.blob_bad_narc",
+            path = crate::build::step::key(rel),
+            error = e
+        )
+        .into_owned());
     }
     Ok(())
 }

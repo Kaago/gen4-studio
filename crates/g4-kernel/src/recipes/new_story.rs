@@ -20,7 +20,10 @@ use crate::stories::{Progress, Step, StepKind, StoryRequest, create_story, name_
 
 /// The key, value and name of the first step of a new story.
 const START_KEY: &str = "s0";
-const START_NAME: &str = "Anfang";
+/// The name of the first step, in the current locale.
+fn start_name() -> String {
+    t!("recipes.story_start_name").into_owned()
+}
 
 /// The input of „Neue Geschichte“: its name, the variable that keeps its progress (from the
 /// pool) and its notes.
@@ -77,8 +80,13 @@ pub fn plan(store: &mut Store, input: &NewStoryInput) -> Result<Draft, KernelErr
     let Checked { name, var_id } = check(store, input)?;
     Ok(Draft {
         notes: vec![
-            format!("Legt Geschichte „{name}“ mit dem Schritt „{START_NAME}“ an."),
-            format!("Benennt Variable 0x{:04X} als {var_id}.", input.var),
+            t!("recipes.note_story", name = name, step = start_name()).into_owned(),
+            t!(
+                "recipes.note_names_var",
+                var = input.var : {:04X},
+                id = var_id
+            )
+            .into_owned(),
         ],
         ..Draft::default()
     })
@@ -95,7 +103,7 @@ pub fn apply(
     let Checked { name, var_id } = check(store, input)?;
     let generation = store.change_generation();
     let mark = store.undo_depth();
-    let label = format!("Geschichte „{name}“ angelegt");
+    let label = t!("recipes.story_created", name = name).into_owned();
 
     let named = name_flag(
         store,
@@ -103,7 +111,7 @@ pub fn apply(
             kind: FlagKind::Var,
             number: input.var,
             id: Some(var_id.clone()),
-            description: Some(format!("Fortschritt der Geschichte „{name}“")),
+            description: Some(t!("recipes.story_progress_description", name = name).into_owned()),
         },
     )?;
     let request = StoryRequest {
@@ -114,7 +122,7 @@ pub fn apply(
             key: START_KEY.to_owned(),
             value: 0,
             kind: StepKind::Start,
-            name: START_NAME.to_owned(),
+            name: start_name(),
             notes: String::new(),
             made: Some(made(RecipeId::NewStory)),
             uses: Vec::new(),
@@ -143,10 +151,7 @@ pub fn apply(
         created: Vec::new(),
         change: story.change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[
-            ("talk_advances", "Gespräch schaltet weiter"),
-            ("figure_appears", "Figur erscheint ab Schritt"),
-        ]),
+        next: next_steps(&["talk_advances", "figure_appears"]),
     })
 }
 

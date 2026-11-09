@@ -720,7 +720,7 @@ fn head_entries_merge_members_of_one_entity() {
     assert_eq!(
         entries,
         [ChangedEntry {
-            group: "Trainer".into(),
+            group: "Trainers".into(),
             label: "Trainer 0001".into(),
             state: ChangeState::Changed,
             target: Some(ResetTarget::Trainer { index: 1 }),
@@ -754,8 +754,8 @@ fn head_entries_name_new_and_deleted() {
     assert_eq!(
         rows(&entries),
         [
-            (ChangeState::Missing, "Karten", "Karte 0002"),
-            (ChangeState::New, "Karten", "Karte 0003"),
+            (ChangeState::Missing, "Maps", "Map 0002"),
+            (ChangeState::New, "Maps", "Map 0003"),
         ]
     );
     assert!(entries.iter().all(|e| e.target.is_none()), "{entries:?}");
@@ -771,7 +771,7 @@ fn an_arm9_change_lists_the_headers_that_differ() {
     let entries = head_list(fx.root());
     assert_eq!(
         rows(&entries),
-        [(ChangeState::Changed, "Header", "Header 0001")]
+        [(ChangeState::Changed, "Headers", "Header 0001")]
     );
     assert_eq!(entries[0].subject, DiffSubject::Header { index: 1 });
     assert_eq!(entries[0].target, Some(ResetTarget::Header { id: 1 }));
@@ -785,7 +785,7 @@ fn an_arm9_change_lists_the_headers_that_differ() {
     assert_eq!(
         rows(&entries),
         [
-            (ChangeState::Changed, "Header", "Header 0001"),
+            (ChangeState::Changed, "Headers", "Header 0001"),
             (ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
         ]
     );
@@ -806,8 +806,8 @@ fn unsaved_entries_split_the_header_table_by_header() {
     assert_eq!(
         rows(&entries),
         [
-            (ChangeState::Changed, "Trainer", "Trainer 0001"),
-            (ChangeState::Changed, "Header", "Header 0001"),
+            (ChangeState::Changed, "Trainers", "Trainer 0001"),
+            (ChangeState::Changed, "Headers", "Header 0001"),
         ]
     );
     assert_eq!(entries[1].subject, DiffSubject::Header { index: 1 });
@@ -829,7 +829,7 @@ fn project_files_go_last_under_projektdateien() {
     assert_eq!(
         rows(&entries),
         [
-            (ChangeState::Changed, "Header", "Header 0000"),
+            (ChangeState::Changed, "Headers", "Header 0000"),
             (ChangeState::Changed, "Projektdateien", "header.yaml"),
             (ChangeState::New, "Projektdateien", "notizen.txt"),
         ]
@@ -880,7 +880,7 @@ fn the_dynamic_headers_patch_applied_after_the_commit_lists_no_header() {
     assert_eq!(
         project_rows(fx.root()),
         [
-            row(ChangeState::Changed, "Header", "Header 0001"),
+            row(ChangeState::Changed, "Headers", "Header 0001"),
             row(ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
             backup,
         ]
@@ -987,7 +987,11 @@ fn a_new_source_equal_to_heads_member_is_a_file_row_not_a_new_entity() {
     assert_eq!(fx.diff(&text, Against::Head).state, DiffState::Changed);
     assert_eq!(
         project_rows(fx.root()),
-        [row(ChangeState::Changed, "Textarchive", "Textarchiv 0001")]
+        [row(
+            ChangeState::Changed,
+            "Text archives",
+            "Text archive 0001"
+        )]
     );
 }
 
@@ -1115,7 +1119,7 @@ fn unreadable_headers_list_their_paths_as_files() {
     assert_eq!(
         project_rows(fx.root()),
         [
-            row(ChangeState::Changed, "Trainer", "Trainer 0001"),
+            row(ChangeState::Changed, "Trainers", "Trainer 0001"),
             row(
                 ChangeState::Missing,
                 "Projektdateien",

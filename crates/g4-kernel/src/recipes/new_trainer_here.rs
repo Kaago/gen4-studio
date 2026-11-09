@@ -104,7 +104,7 @@ pub struct NewTrainerHereReport {
 
 /// The undo label of the step behind the barrier.
 fn label(name: &str) -> String {
-    format!("Trainer „{name}“ hier aufgestellt")
+    t!("recipes.trainer_placed", name = name).into_owned()
 }
 
 /// What [`check`] found, everything [`apply`] needs before its first write.
@@ -155,46 +155,41 @@ fn check(
         return Err(refused(ADOPT_FIRST));
     }
     if input.name.trim().is_empty() {
-        return Err(refused("Der Trainer braucht einen Namen."));
+        return Err(refused(t!("recipes.trainer_needs_name")));
     }
     if let Some(why) = name_too_long(&input.name) {
         return Err(refused(why));
     }
     if input.party.is_empty() || input.party.len() > MAX_PARTY {
-        return Err(refused(format!(
-            "Das Team hat {} Pokémon; es braucht 1 bis {MAX_PARTY}.",
-            input.party.len()
+        return Err(refused(t!(
+            "recipes.party_size",
+            count = input.party.len(),
+            max = MAX_PARTY
         )));
     }
     let species = store.member_count(AssetKind::Personal)?;
     for mon in &input.party {
         if mon.species == 0 || usize::from(mon.species) >= species {
-            return Err(refused(format!(
-                "Art {} gibt es nicht (Arten 1 bis {}).",
-                mon.species,
-                species.saturating_sub(1)
+            return Err(refused(t!(
+                "recipes.species_missing",
+                species = mon.species,
+                max = species.saturating_sub(1)
             )));
         }
         if !(1..=100).contains(&mon.level) {
-            return Err(refused(format!(
-                "Level {} geht nicht: 1 bis 100.",
-                mon.level
-            )));
+            return Err(refused(t!("recipes.level_invalid", level = mon.level)));
         }
     }
     if !SIGHT.contains(&input.sight) {
-        return Err(refused(format!(
-            "Sichtweite {} geht nicht: {} bis {} Felder.",
-            input.sight,
-            SIGHT.start(),
-            SIGHT.end()
+        return Err(refused(t!(
+            "recipes.sight_invalid",
+            sight = input.sight,
+            min = SIGHT.start(),
+            max = SIGHT.end()
         )));
     }
     if !(0..=3).contains(&input.dir) {
-        return Err(refused(format!(
-            "Blickrichtung {} gibt es nicht: 0 oben, 1 unten, 2 links, 3 rechts.",
-            input.dir
-        )));
+        return Err(refused(t!("recipes.direction_invalid", dir = input.dir)));
     }
 
     let event_file = header_event_file(store, input.header)?;
@@ -205,9 +200,11 @@ fn check(
         .iter()
         .position(|o| (o.x, o.z) == (input.x, input.z))
     {
-        return Err(refused(format!(
-            "auf {}, {} steht schon Objekt {k}",
-            input.x, input.z
+        return Err(refused(t!(
+            "recipes.object_on_tile",
+            x = input.x,
+            z = input.z,
+            object = k
         )));
     }
     next_free_local_id(&objects)?;
@@ -215,14 +212,15 @@ fn check(
         .map_err(|_| refused(format!("event file {event_file:04} has too many objects")))?;
 
     let battle_texts = bank_index(family, project.language, Bank::BattleTexts)
-        .ok_or_else(|| refused("Dieses Spiel hat keine Kampftexte für Trainer."))?;
+        .ok_or_else(|| refused(t!("recipes.no_battle_texts")))?;
     let messages = NameTables::new().names(store, Bank::BattleTexts)?.len();
     let table = store.trainer_text_table(0)?.entries.len();
     if messages != table {
-        return Err(refused(format!(
-            "Die Kampftexte (Textarchiv {battle_texts:04}) haben {messages} Nachrichten, ihre \
-             Tabelle {table} Einträge. Gleiche sie im Bereich Texte an, dann lässt sich ein \
-             Trainer aufstellen."
+        return Err(refused(t!(
+            "recipes.battle_texts_mismatch",
+            archive = battle_texts : {:04},
+            messages = messages,
+            table = table
         )));
     }
 
@@ -235,10 +233,7 @@ fn check(
     } = next_trainer(&project, count, meta, flag_capacity)?;
     if trainer == 0 {
         // Trainer 0 is no trainer in the game; its battle script would be 2999.
-        return Err(refused(
-            "Das Spiel hat keine Trainer, nicht einmal Trainer 0; hier lässt sich kein Trainer \
-             aufstellen.",
-        ));
+        return Err(refused(t!("recipes.no_trainers")));
     }
     let look = match input.graphics_id {
         Some(look) => look,
@@ -298,39 +293,45 @@ pub fn plan_with(
     let checked = check(store, input, meta, flag_capacity)?;
     let id = checked.trainer;
     let class = NameTables::new().class_name(store, u16::from(input.class));
-    let mut notes = vec![format!(
-        "Legt Trainer „{class} {}“ als Nummer {id} an (nächste freie), Team {} Pokémon, \
-         Trainer-Flag 0x{:04X}.",
-        input.name,
-        input.party.len(),
-        FIRST_TRAINER_FLAG + id
-    )];
+    let mut notes = vec![
+        t!(
+            "recipes.note_trainer",
+            class = class,
+            name = input.name,
+            id = id,
+            party = input.party.len(),
+            flag = FIRST_TRAINER_FLAG + id : {:04X}
+        )
+        .into_owned(),
+    ];
     let mut irreversible = Vec::new();
     if let Some(p) = checked.placeholder {
-        notes.push(format!(
-            "Nummer {p} ist der Sicht-Platz des Kampf-Scripts und bekommt einen gesperrten \
-             Platzhalter."
-        ));
-        irreversible.push(format!("Platzhalter {p} wird angelegt"));
+        notes.push(t!("recipes.note_sight_placeholder", id = p).into_owned());
+        irreversible.push(t!("recipes.irreversible_placeholder", id = p).into_owned());
     }
-    irreversible.push(format!("Trainer {id} wird angelegt (Undo-Sperre)"));
+    irreversible.push(t!("recipes.irreversible_trainer_created", id = id).into_owned());
     if checked.extend {
-        irreversible.push(format!(
-            "Das Kampf-Script {:04} bekommt Platz {id}",
-            meta.battle_file
-        ));
-    }
-    notes.push(format!(
-        "Stellt ihn auf {}, {} mit Kampf-Script {} und Sichtweite {} auf.",
-        input.x,
-        input.z,
-        battle_script(id),
-        input.sight
-    ));
-    if !input.texts.before.is_empty() && !input.texts.before.ends_with("\\r") {
-        notes.push(
-            "Der Text vor dem Kampf endet nicht auf \\r: seine Box schließt sofort.".to_owned(),
+        irreversible.push(
+            t!(
+                "recipes.irreversible_battle_script_slot",
+                file = meta.battle_file : {:04},
+                id = id
+            )
+            .into_owned(),
         );
+    }
+    notes.push(
+        t!(
+            "recipes.note_trainer_position",
+            x = input.x,
+            z = input.z,
+            script = battle_script(id),
+            sight = input.sight
+        )
+        .into_owned(),
+    );
+    if !input.texts.before.is_empty() && !input.texts.before.ends_with("\\r") {
+        notes.push(t!("recipes.note_text_without_r").into_owned());
     }
     let messages = [&input.texts.before, &input.texts.lose, &input.texts.after]
         .into_iter()
@@ -510,6 +511,6 @@ fn run(
         created: created.objects(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("play_here", "Hier spielen")]),
+        next: next_steps(&["play_here"]),
     })
 }

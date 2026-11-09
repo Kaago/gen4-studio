@@ -230,9 +230,14 @@ fn check_option<T>(
 ) -> Result<(), String> {
     match (opt.is_some(), needed) {
         (true, false) => Err(format!("{SCHEMA_CODE}: {path}.{key}: {extra}")),
-        (false, true) => Err(format!(
-            "{SCHEMA_CODE}: {path}: Schlüssel `{key}` fehlt ({missing})."
-        )),
+        (false, true) => Err(t!(
+            "textproject.trainer_key_missing",
+            code = SCHEMA_CODE,
+            path = path,
+            key = key,
+            missing = missing
+        )
+        .into_owned()),
         _ => Ok(()),
     }
 }
@@ -241,10 +246,7 @@ fn check_option<T>(
 fn trainer_doc(t: &TrainerJson, family: Family, sym: &Symbols) -> Result<TrainerDoc, String> {
     let class = resolve_max(sym, SymbolKind::TrainerClass, &t.class, "data.class", 0xFF)?;
     if t.flags_rest & 0x03 != 0 {
-        return Err(format!(
-            "{SCHEMA_CODE}: data.flags_rest: Bit 0 und 1 sind `has_moves` und `has_items`; \
-             `flags_rest` hat nur die übrigen Bits."
-        ));
+        return Err(t!("textproject.trainer_flags_rest", code = SCHEMA_CODE).into_owned());
     }
     let mut items = [0u16; 4];
     for (i, r) in t.items.iter().enumerate() {
@@ -252,10 +254,13 @@ fn trainer_doc(t: &TrainerJson, family: Family, sym: &Symbols) -> Result<Trainer
         items[i] = resolve_max(sym, SymbolKind::Item, r, &path, 0xFFFF)? as u16;
     }
     if t.party.len() > MAX_PARTY {
-        return Err(format!(
-            "{SCHEMA_CODE}: data.party: {} Pokémon, höchstens {MAX_PARTY}.",
-            t.party.len()
-        ));
+        return Err(t!(
+            "textproject.trainer_party_size",
+            code = SCHEMA_CODE,
+            count = t.party.len(),
+            max = MAX_PARTY
+        )
+        .into_owned());
     }
     let format = PartyFormat {
         moves: t.has_moves,
@@ -272,34 +277,38 @@ fn trainer_doc(t: &TrainerJson, family: Family, sym: &Symbols) -> Result<Trainer
             0x3FF,
         )?;
         if m.form > 0x3F {
-            return Err(format!(
-                "{SCHEMA_CODE}: {path}.form: {} liegt nicht in 0..=63.",
-                m.form
-            ));
+            return Err(t!(
+                "textproject.number_out_of_range",
+                code = SCHEMA_CODE,
+                path = format!("{path}.form"),
+                n = m.form,
+                max = 63
+            )
+            .into_owned());
         }
         check_option(
             &m.item,
             t.has_items,
             &path,
             "item",
-            "`has_items` ist false, das Item würde nicht geschrieben.",
-            "`has_items` ist true",
+            &t!("textproject.trainer_item_unwritten"),
+            &t!("textproject.trainer_has_items_true"),
         )?;
         check_option(
             &m.moves,
             t.has_moves,
             &path,
             "moves",
-            "`has_moves` ist false, die Attacken würden nicht geschrieben.",
-            "`has_moves` ist true",
+            &t!("textproject.trainer_moves_unwritten"),
+            &t!("textproject.trainer_has_moves_true"),
         )?;
         check_option(
             &m.ball_capsule,
             family != Family::Dp,
             &path,
             "ball_capsule",
-            "Diamant/Perl hat keine Ball-Kapsel.",
-            "Platin und HeartGold/SoulSilver haben sie",
+            &t!("textproject.trainer_dp_no_capsule"),
+            &t!("textproject.trainer_capsule_games"),
         )?;
         let item = m
             .item

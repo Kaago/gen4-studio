@@ -9,7 +9,7 @@ use super::{Against, DiffState, DiffSubject};
 use crate::error::{KernelError, io_at};
 use crate::git::templates::layout_of;
 use crate::git::{GitRepo, GitStatus, Layout, PathState};
-use crate::original::changed::GROUPS;
+use crate::original::changed::{GROUP_COUNT, group_index};
 use crate::original::{ChangeState, ChangedEntry};
 use crate::project::Project;
 use crate::store::{HEADER_TABLE, Store};
@@ -203,15 +203,12 @@ impl Entries {
 fn order(subject: &DiffSubject) -> (usize, String, u16, String) {
     match subject {
         DiffSubject::Member { folder, index } => {
-            (GROUPS.len(), folder.clone(), *index, String::new())
+            (GROUP_COUNT, folder.clone(), *index, String::new())
         }
         DiffSubject::File { path } => (usize::MAX, String::new(), 0, path.clone()),
         _ => {
             let group = subject.group();
-            let rank = GROUPS
-                .iter()
-                .position(|g| *g == group)
-                .unwrap_or(GROUPS.len());
+            let rank = group_index(&group).unwrap_or(GROUP_COUNT);
             (
                 rank,
                 String::new(),

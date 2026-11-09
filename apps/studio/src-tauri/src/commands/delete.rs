@@ -673,12 +673,12 @@ mod tests {
         }
         refused(
             set_header_impl(&state, 0, edited, "edit header"),
-            &format!("Eventdatei {other:04} ist gelöscht."),
+            &format!("Event file {other:04} ist gelöscht."),
         );
         // A matrix cell's map and header.
         refused(
             set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None),
-            "Karte 0001 ist gelöscht.",
+            "Map 0001 ist gelöscht.",
         );
         let matrix = get_matrix_impl(&state, 0).unwrap();
         if matrix.headers.is_some() {

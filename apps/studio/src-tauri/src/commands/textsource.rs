@@ -17,15 +17,15 @@ use g4_kernel::build::state::BuildState;
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetId, Project, SourceMode};
 use g4_kernel::textproject::adopt::{
-    self, AdoptProgress, AdoptReport, REVERT_PENDING, RevertReport,
+    self, AdoptProgress, AdoptReport, RevertReport, revert_pending,
 };
 use g4_kernel::textproject::migrate::{self, MigrateReport};
-use g4_kernel::textproject::rename::{self, NOT_A_TEXT_PROJECT, RenamePlan, RenameResult};
+use g4_kernel::textproject::rename::{self, RenamePlan, RenameResult, not_a_text_project};
 use g4_kernel::textproject::symbols::SymbolKind;
 use g4_kernel::textproject::sync::{
     self, ConflictDiff, Keep, ScanReport, SyncOutcome, SyncProgress, UnitSide,
 };
-use g4_kernel::textproject::{NO_DP, SCHEMA_VERSION};
+use g4_kernel::textproject::{SCHEMA_VERSION, no_dp};
 use serde::Serialize;
 use tauri::Manager;
 use tauri::ipc::Channel;
@@ -88,7 +88,7 @@ pub fn status_of(state: &AppState, project: &Project) -> TextProjectStatusDto {
     match project.source_mode() {
         SourceMode::Dspre => {
             let reason = if project.family == Family::Dp {
-                Some(NO_DP.to_owned())
+                Some(no_dp())
             } else {
                 found_base(state, &project.root).err().map(|e| e.message)
             };
@@ -125,16 +125,18 @@ fn text_project(project: &Project, message: &str) -> Result<(), CmdError> {
 }
 
 /// A kernel error of the text project's commands as the app answers it: a refusal of a
-/// pending change (`REVERT_PENDING`) is `pending`, the refusal outside a text project
+/// pending change (`revert_pending`) is `pending`, the refusal outside a text project
 /// `not_text_project`; anything else as everywhere.
 fn text_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(why) if why == REVERT_PENDING => CmdError::refused("pending", why),
-        KernelError::Refused(why) if why == NOT_A_TEXT_PROJECT => {
+        KernelError::Refused(why) if why == revert_pending() => CmdError::refused("pending", why),
+        KernelError::Refused(why) if why == not_a_text_project() => {
             CmdError::refused("not_text_project", why)
         }
         // The adoption of a text project exports it: changes the members lack refuse it.
-        KernelError::Refused(why) if why.starts_with(g4_kernel::textproject::UNSYNCED_EXPORT) => {
+        KernelError::Refused(why)
+            if why.starts_with(&g4_kernel::textproject::unsynced_export_prefix()) =>
+        {
             CmdError::refused("unsynced", why)
         }
         other => other.into(),
@@ -284,7 +286,7 @@ pub(crate) fn check_adopt(
         ));
     }
     if project.family == Family::Dp {
-        return Err(NO_DP.into());
+        return Err(no_dp().into());
     }
     let (mark, hit) = found_base(state, &project.root)?;
     Ok((project, mark, hit.path))
@@ -499,7 +501,7 @@ pub fn conflict_diff_impl(state: &AppState, key: String) -> Result<ConflictDiff,
 /// answers the assets loaded anew. „Studio-Fassung behalten“ against a source changed on disk
 /// (`other = files`) takes the file as the base of the unsaved value (`accept_disk_as_base`),
 /// which drops that asset's undo history. A unit that is no conflict (any more) is refused
-/// with `NO_CONFLICT`.
+/// with `no_conflict`.
 pub fn resolve_external_conflict_impl(
     state: &AppState,
     key: String,
@@ -529,7 +531,7 @@ pub fn plan_rename_id_impl(
     new_id: String,
 ) -> Result<RenamePlan, CmdError> {
     let project = super::open_project_arc(state)?;
-    text_project(&project, NOT_A_TEXT_PROJECT)?;
+    text_project(&project, &not_a_text_project())?;
     rename::plan_rename(&project, &id, &new_id).map_err(text_error)
 }
 
@@ -545,7 +547,7 @@ pub fn rename_id_impl(
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     session.writable()?;
-    text_project(&session.project, NOT_A_TEXT_PROJECT)?;
+    text_project(&session.project, &not_a_text_project())?;
     let result = rename::rename_id(&mut session.store, &id, &new_id).map_err(text_error)?;
     // The JSON, the project files and the script sources were written past the store.
     session.files_written(&[]);
@@ -901,7 +903,7 @@ mod tests {
         );
         let err =
             resolve_external_conflict_impl(&t.state, MOVE_1_JSON.into(), Keep::Dspre).unwrap_err();
-        assert_eq!(err.message, sync::NO_CONFLICT);
+        assert_eq!(err.message, sync::no_conflict());
     }
 
     /// UI test 4.3b U3: the diff of a conflict the store holds unsaved shows the unsaved value
@@ -998,7 +1000,7 @@ mod tests {
         assert_eq!(result.plan, plan);
         assert_eq!(
             history_impl(&t.state).unwrap().undo,
-            ["ID umbenannt: TRAINER_YOUNGSTER_KAI → TRAINER_KID_KAI"]
+            ["ID renamed: TRAINER_YOUNGSTER_KAI → TRAINER_KID_KAI"]
         );
         let trainer = t.fx.text("data/trainers/0001.json");
         assert!(trainer.contains("TRAINER_KID_KAI"), "{trainer}");
@@ -1024,7 +1026,7 @@ mod tests {
         ] {
             assert_eq!(
                 (err.code, err.message.as_str()),
-                ("not_text_project", NOT_A_TEXT_PROJECT)
+                ("not_text_project", not_a_text_project().as_str())
             );
         }
         // The fixed tables everywhere.
@@ -1048,7 +1050,7 @@ mod tests {
         let err = revert_text_project_impl(&t.state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("pending", REVERT_PENDING)
+            ("pending", revert_pending().as_str())
         );
         external_sync_impl(&t.state, &mut |_| {}).unwrap();
         let report = revert_text_project_impl(&t.state).unwrap();
@@ -1077,7 +1079,7 @@ mod tests {
         let err = open_project_impl(&state, path).unwrap_err();
         assert_eq!(
             err.message,
-            "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 99)."
+            "The text project comes from a newer version of Gen4 Studio (schema version 99)."
         );
         assert!(state.lock_session().is_none());
         // A broken manifest: refused with file, line and column.
@@ -1112,7 +1114,7 @@ mod tests {
         let err = adopt_text_project_impl(&state, &mut |_| panic!("no progress")).unwrap_err();
         assert!(
             err.message
-                .starts_with("Das Textprojekt hat Schema-Version 0"),
+                .starts_with("The text project has schema version 0"),
             "{}",
             err.message
         );
@@ -1125,7 +1127,7 @@ mod tests {
                 .err()
                 .unwrap();
         assert!(
-            refused.starts_with("Das Textprojekt hat Schema-Version 0"),
+            refused.starts_with("The text project has schema version 0"),
             "{refused}"
         );
     }
@@ -1327,13 +1329,16 @@ mod tests {
         let info = open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
         assert_eq!(
             serde_json::to_value(&info).unwrap()["text_project"],
-            json!({ "state": "dspre", "adoptable": false, "reason": NO_DP })
+            json!({ "state": "dspre", "adoptable": false, "reason": no_dp() })
         );
         // Refused before the base ROM is even looked for, and nothing written.
         let err = check_adopt(&state).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("error", NO_DP));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("error", no_dp().as_str())
+        );
         let err = adopt_text_project_impl(&state, &mut |_| panic!("no progress")).unwrap_err();
-        assert_eq!(err.message, NO_DP);
+        assert_eq!(err.message, no_dp());
         assert!(!fixture.dir.path().join(MANIFEST_FILE).exists());
     }
 

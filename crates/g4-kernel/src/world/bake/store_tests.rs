@@ -119,7 +119,7 @@ fn world_create_bakes_the_map_in_the_same_step() {
     // Buildings stay.
     let old = MapFile::read(&before, Family::Pt).unwrap();
     assert_eq!(map.buildings, old.buildings);
-    assert_eq!(st.history().0, ["Welt angelegt: Karte 0000"]);
+    assert_eq!(st.history().0, ["World created: Map 0000"]);
     assert_eq!(
         st.dirty(),
         [
@@ -296,9 +296,7 @@ fn editing_derived_parts_of_a_world_map_is_refused() {
     let refusal = world_derived_refusal(0);
     assert_eq!(
         refusal,
-        "Karte 0000 ist eine Welt-Karte: Modell, Terrain und Permissions entstehen beim Backen; \
-         Permissions über `world_edit` (`permission`), zurück zur binären Karte über „Als \
-         binäre Karte übernehmen“."
+        "Map 0000 is a world map: model, terrain and permissions come from baking; permissions through `world_edit` (`permission`), back to the binary map through “Adopt as binary map”."
     );
     let refused = |r: Result<_, KernelError>| match r {
         Err(KernelError::Refused(text)) => text,
@@ -407,14 +405,14 @@ fn world_to_binary_keeps_the_baked_map() {
     create(&mut st, 0);
     st.save().unwrap();
     let baked = map_bytes(&mut st);
-    assert_eq!(world_to_binary_label(123), "Welt aufgegeben: Karte 0123");
+    assert_eq!(world_to_binary_label(123), "World given up: Map 0123");
     let report = world_to_binary(&mut st, 0).unwrap();
     assert_eq!((report.map, report.tileset), (0, 0));
     assert!(report.change.is_some());
     assert!(report.bake.is_none());
     assert_eq!(
         st.history().0.last().map(String::as_str),
-        Some("Welt aufgegeben: Karte 0000")
+        Some("World given up: Map 0000")
     );
     assert_eq!(st.world(0).unwrap(), None);
     assert_eq!(map_bytes(&mut st), baked);
@@ -454,11 +452,11 @@ fn reset_of_a_world_names_world_to_binary() {
     match reset(&mut st, &original, &ResetTarget::Map { index: 0 }, None) {
         Err(KernelError::Refused(text)) => assert_eq!(
             text,
-            "Eine Welt hat kein Original; erst „Als binäre Karte übernehmen“."
+            "A world has no original; first “Adopt as binary map”."
         ),
         other => panic!("{:?}", other.map(|_| ())),
     }
-    assert_eq!(st.history().0, ["Welt angelegt: Karte 0000"]);
+    assert_eq!(st.history().0, ["World created: Map 0000"]);
 }
 
 #[test]
@@ -535,7 +533,7 @@ fn world_edit_refuses_a_world_file_with_derived_keys() {
         panic!("{problems:?}");
     };
     assert!(
-        p.message.contains("permissions") && p.message.contains("sie entstehen beim Backen"),
+        p.message.contains("permissions") && p.message.contains("they come from baking"),
         "{p:?}"
     );
     assert_eq!(p.file, std::path::Path::new(JSON));

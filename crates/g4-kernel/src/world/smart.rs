@@ -77,33 +77,44 @@ pub struct Resolved {
 }
 
 /// Why a cliff stroke names an overlay.
-pub const CLIFF_GROUND_ONLY: &str = "Klippen gibt es nur auf der Bodenebene.";
+pub fn cliff_ground_only() -> String {
+    t!("world.cliff_ground_only").into_owned()
+}
 
-/// „Ebene 2 gibt es nicht (die Karte hat 1).“: the pure brushes' own guard, which knows no map;
-/// `world_edit` checks the layer before ([`super::edit::check_place`], „… (Karte 0123 hat 1).“),
+/// „Layer 2 does not exist (the map has 1).“: the pure brushes' own guard, which knows no map;
+/// `world_edit` checks the layer before ([`super::edit::check_place`], „… (Map 0123 has 1).“),
 /// so this one is never what its caller sees.
 fn no_layer(layer: usize, layers: usize) -> String {
-    format!("Ebene {layer} gibt es nicht (die Karte hat {layers}).")
+    t!("world.no_layer_plain", layer = layer, layers = layers).into_owned()
 }
 
-/// „Kantensatz „Weg“: der Platz „Ecke innen NW“ hat keine Kachel (Zelle (6, 7)).“ (the
-/// outside tile is named „Außen“).
+/// „Edge set “Path”: the place “Inner corner NW” has no tile (cell (6, 7)).“ (the outside
+/// tile is named „Outside“).
 pub(crate) fn missing_place(set: &str, place: &str, x: i32, z: i32) -> String {
-    format!("Kantensatz „{set}“: der Platz „{place}“ hat keine Kachel (Zelle ({x}, {z})).")
+    t!(
+        "world.edge_place_without_tile",
+        set = set,
+        place = place,
+        x = x,
+        z = z
+    )
+    .into_owned()
 }
 
-/// „Naht zu Karte 0124: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die Nachbarkarte
-/// bleibt, wie sie ist.“ (one cell: „1 Zelle dort passt …“).
+/// „Seam to Map 0124: 3 cells there no longer fit the set “Path”; the neighbouring map stays
+/// as it is.“ (one cell: „1 cell there no longer fits …“).
 pub(crate) fn seam_note(map: u16, cells: usize, set: &str) -> String {
-    let (noun, verb) = if cells == 1 {
-        ("Zelle", "passt")
+    if cells == 1 {
+        t!("world.seam_note_one", map = map : {:04}, set = set).into_owned()
     } else {
-        ("Zellen", "passen")
-    };
-    format!(
-        "Naht zu Karte {map:04}: {cells} {noun} dort {verb} nicht mehr zum Satz „{set}“; die \
-         Nachbarkarte bleibt, wie sie ist."
-    )
+        t!(
+            "world.seam_note_other",
+            map = map : {:04},
+            cells = cells,
+            set = set
+        )
+        .into_owned()
+    }
 }
 
 /// An edge set read for the brushes: each token of the set (parsed, so case and spelling do
@@ -154,8 +165,9 @@ impl<'a> SetTable<'a> {
     pub fn pick(&self, mask: u8, x: i32, z: i32, seed: u32) -> Result<String, String> {
         let entries = self.entries(mask);
         if entries.is_empty() {
-            let place = Place::of_mask(mask).map_or("Außen", Place::label);
-            return Err(missing_place(&self.set.name, place, x, z));
+            let place = Place::of_mask(mask)
+                .map_or_else(|| t!("world.place_outside").into_owned(), Place::label);
+            return Err(missing_place(&self.set.name, &place, x, z));
         }
         let cell = (z * CELLS + x) as usize;
         let index = variant(seed, cell, entries.len());
@@ -445,9 +457,9 @@ pub fn wrong_corners(grid: &WorldGrid, layer: usize, set: &EdgeSetJson) -> Vec<[
 /// The collision bit the edge rule sets.
 const BLOCKED: u8 = 0x80;
 
-/// „Zelle (12, 21) hat eine eigene Permission; die Klippe lässt sie stehen.“
+/// „Cell (12, 21) has a permission of its own; the cliff leaves it standing.“
 pub(crate) fn own_permission(x: i32, z: i32) -> String {
-    format!("Zelle ({x}, {z}) hat eine eigene Permission; die Klippe lässt sie stehen.")
+    t!("world.own_permission", x = x, z = z).into_owned()
 }
 
 /// The ground height of cell (x, z): from `grid` inside the map, from `seams` on the ring;
@@ -634,17 +646,15 @@ fn lower_overrides(
 }
 
 /// The one note of the overrides a stroke leaves (Ruling 15), `kept` in row order: one cell
-/// [`own_permission`], several „N Zellen haben eine eigene Permission (erste: (x, z)); die
-/// Klippe lässt sie stehen.“, none no note.
+/// [`own_permission`], several „N cells have a permission of their own (first: (x, z)); the
+/// cliff leaves them standing.“, none no note.
 fn kept_overrides(kept: &[(i32, i32)]) -> Option<String> {
     match kept {
         [] => None,
         [(x, z)] => Some(own_permission(*x, *z)),
-        [(x, z), ..] => Some(format!(
-            "{} Zellen haben eine eigene Permission (erste: ({x}, {z})); die Klippe lässt sie \
-             stehen.",
-            kept.len()
-        )),
+        [(x, z), ..] => {
+            Some(t!("world.own_permissions", count = kept.len(), x = x, z = z).into_owned())
+        }
     }
 }
 
@@ -727,8 +737,8 @@ fn neighbour_grid(
 /// Every change, smart or plain, is written into the working copy in turn
 /// ([`super::edit::apply_change`]), so a later change sees the earlier ones (rule
 /// „`world_edit`-Änderungen“); without a smart change `changes` come back as they are. A smart
-/// change is checked in this order: one field ([`super::edit::ONE_FIELD`]), a cliff off the
-/// ground ([`CLIFF_GROUND_ONLY`]), its layer and cells (the sentences of `world_edit`), the set
+/// change is checked in this order: one field ([`super::edit::one_field`]), a cliff off the
+/// ground ([`cliff_ground_only`]), its layer and cells (the sentences of `world_edit`), the set
 /// ([`missing_set`]), the cliff's height, then the brush (a place without tile).
 pub fn expand(
     store: &mut Store,
@@ -778,7 +788,7 @@ fn resolve(
     check_one_field(change)?;
     let layer = change.layer.unwrap_or(0);
     if change.cliff.is_some() && layer != 0 {
-        return Err(refused(CLIFF_GROUND_ONLY.to_owned()));
+        return Err(refused(cliff_ground_only()));
     }
     check_place(change, map, work)?;
     let name = match (&change.terrain, &change.cliff) {

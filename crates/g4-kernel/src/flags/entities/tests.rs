@@ -215,8 +215,7 @@ fn naming_refuses_taken_and_malformed_ids() {
         ".rotom/command_database/extra.json",
         b"{\"7\": \"FLAG_SEVEN\"}\n",
     );
-    let format = "Die neue ID muss mit FLAG_ beginnen und darf danach nur A–Z, 0–9 und _ \
-                  enthalten (höchstens 64 Zeichen).";
+    let format = "The new ID must start with FLAG_ and may then contain only A–Z, 0–9 and _ (at most 64 characters).";
     let cases: Vec<(NameRequest, String)> = vec![
         (
             req(FlagKind::Flag, 148, Some("FLAG_UNUSED_0x0095"), None),
@@ -300,10 +299,10 @@ fn naming_refuses_the_dspre_layout() {
     let request = req(FlagKind::Flag, 148, Some(MEDAILLE), None);
     assert_eq!(
         refused(name_flag_files(&fx.project(), &request)),
-        NOT_A_TEXT_PROJECT
+        not_a_text_project()
     );
     let mut store = Store::new(Arc::new(fx.project()));
-    assert_eq!(refused(name_flag(&mut store, &request)), NOT_A_TEXT_PROJECT);
+    assert_eq!(refused(name_flag(&mut store, &request)), not_a_text_project());
     assert!(store.history().0.is_empty());
     assert!(!fx.root().join("data").exists());
     assert!(

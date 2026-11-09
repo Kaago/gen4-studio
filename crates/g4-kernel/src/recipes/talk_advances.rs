@@ -17,7 +17,9 @@ use crate::store::Store;
 use crate::stories::{Step, StepKind, Use, duplicate_key_text};
 
 /// The refusal for an empty text.
-const NO_TEXT: &str = "Das Gespräch braucht einen Text.";
+fn no_text() -> String {
+    t!("recipes.talk_needs_text").into_owned()
+}
 
 /// The input of „Gespräch schaltet weiter“: the story (its id), the figure, the step the talk
 /// starts from (value k; the talk switches to k+1), the text the figure says then and the
@@ -55,20 +57,34 @@ fn step_key(value: u16) -> String {
 
 /// The undo label.
 fn label(local_id: u16, story: &str, value: u16) -> String {
-    format!("Gespräch von Figur {local_id} schaltet „{story}“ auf {value}")
+    t!(
+        "recipes.talk_label",
+        local_id = local_id,
+        story = story,
+        value = value
+    )
+    .into_owned()
 }
 
 /// The sentences of the dialog: the branch and where script and message go.
 fn notes(local_id: u16, from: u16, hull: (u16, u16, u16, u16)) -> Vec<String> {
     let (slot, script_file, message, archive) = hull;
     vec![
-        format!(
-            "Figur {local_id} bekommt den Zweig „ab Schritt {from}“ und schaltet auf {}.",
-            u32::from(from) + 1
-        ),
-        format!(
-            "Script #{slot} in Scriptdatei {script_file}, Nachricht {message} in Archiv {archive}."
-        ),
+        t!(
+            "recipes.note_talk",
+            local_id = local_id,
+            from = from,
+            value = u32::from(from) + 1
+        )
+        .into_owned(),
+        t!(
+            "recipes.note_hull_script",
+            slot = slot,
+            script_file = script_file,
+            message = message,
+            archive = archive
+        )
+        .into_owned(),
     ]
 }
 
@@ -76,7 +92,9 @@ fn notes(local_id: u16, from: u16, hull: (u16, u16, u16, u16)) -> Vec<String> {
 /// {local_id}“, made by this recipe, using the object, the hull, the message and the variable.
 fn talk_step(name: Option<&str>, value: u16, hull: &Hull, var_id: &str) -> Step {
     let local_id = hull.figure.local_id;
-    let name = step_name(name, || format!("Gespräch mit Figur {local_id}"));
+    let name = step_name(name, || {
+        t!("recipes.talk_step", local_id = local_id).into_owned()
+    });
     Step {
         key: step_key(value),
         value,
@@ -118,12 +136,9 @@ fn check(store: &mut Store, input: &TalkAdvancesInput) -> Result<Checked, Kernel
     let story = load_story(store, &input.story)?;
     let from = input.from_step;
     require_step(&story.story, from)?;
-    let value = from.checked_add(1).ok_or_else(|| {
-        refused(format!(
-            "Schritt {from} ist der höchste Wert einer Variable; das Gespräch kann nicht \
-             weiterschalten."
-        ))
-    })?;
+    let value = from
+        .checked_add(1)
+        .ok_or_else(|| refused(t!("recipes.talk_step_highest", step = from)))?;
     dialog_step_taken(&story.story, value)?;
     let key = step_key(value);
     if story.story.steps.iter().any(|s| s.key == key) {
@@ -134,7 +149,7 @@ fn check(store: &mut Store, input: &TalkAdvancesInput) -> Result<Checked, Kernel
         &HullRequest {
             figure: &input.figure,
             text: &input.text,
-            no_text: NO_TEXT,
+            no_text: &no_text(),
             name: &talk_name,
         },
     )?;
@@ -214,10 +229,7 @@ pub fn apply(
         created: Vec::new(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[
-            ("figure_appears", "Figur erscheint ab Schritt"),
-            ("scene_on_enter", "Szene beim Betreten"),
-        ]),
+        next: next_steps(&["figure_appears", "scene_on_enter"]),
     })
 }
 

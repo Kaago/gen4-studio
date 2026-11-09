@@ -301,10 +301,13 @@ fn render(
                 .iter()
                 .any(|(&n, id)| read.get(id).copied() != i32::try_from(n).ok())
         {
-            return Err(KernelError::InvalidProject(format!(
-                "{}: rotom läse die IDs anders",
-                file_name(stem)
-            )));
+            return Err(KernelError::InvalidProject(
+                t!(
+                    "textproject.rotom_reads_ids_differently",
+                    file = file_name(stem)
+                )
+                .into_owned(),
+            ));
         }
         out.push((*stem, Some(text.into_bytes())));
     }

@@ -3951,7 +3951,7 @@ AlreadyGiven:
         let mut store = crate::store::Store::new(std::sync::Arc::clone(&p));
         let step = reset_script(&p, 0, &base).unwrap();
         let reset_entry = state_entry(&p, key).unwrap();
-        store.record_file_step("Auf Original zurückgesetzt: Scriptdatei 0000", step);
+        store.record_file_step("Reset to original: Script file 0000", step);
 
         let asset = AssetId {
             kind: AssetKind::Script,

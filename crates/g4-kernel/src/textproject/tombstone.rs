@@ -54,7 +54,7 @@ pub(crate) fn parse_entity<T: DeserializeOwned>(
                 ..problem(
                     rel,
                     code,
-                    format!("`{DELETED_KEY}` ist kein Wahrheitswert."),
+                    t!("textproject.deleted_not_boolean", key = DELETED_KEY).into_owned(),
                 )
             });
         }
@@ -219,10 +219,7 @@ mod tests {
 
         let one = text.replace("\"deleted\": true", "\"deleted\": 1");
         let p = parse(one.as_bytes()).unwrap_err();
-        assert_eq!(
-            p.message,
-            "textproject.schema: `deleted` ist kein Wahrheitswert."
-        );
+        assert_eq!(p.message, "textproject.schema: `deleted` is not a boolean.");
         assert_eq!(p.file, Path::new(REL));
         let line = text
             .lines()
@@ -254,7 +251,7 @@ mod tests {
                 "{key}: {}",
                 p.message
             );
-            assert!(p.message.contains("unbekannter Schlüssel"), "{}", p.message);
+            assert!(p.message.contains("unknown key"), "{}", p.message);
         }
         // Both an unknown key and the envelope: the unknown key is the problem, located.
         let both = text.replace("\"deleted\": true", "\"extra\": 1,\n  \"deleted\": true");

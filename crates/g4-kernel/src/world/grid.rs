@@ -31,11 +31,16 @@ const CELLS: usize = MAP_SIZE * MAP_SIZE;
 /// The turns a piece may have, in degrees.
 const PIECE_TURNS: [u16; 4] = [0, 90, 180, 270];
 
-const GROUND_FIRST: &str = "die erste Ebene ist die einzige Bodenebene (`ground`).";
-const GROUND_ONLY: &str = "nur die Bodenebene trägt Höhen und Rampen.";
+fn ground_first() -> String {
+    t!("world.ground_first").into_owned()
+}
+fn ground_only() -> String {
+    t!("world.ground_only").into_owned()
+}
 /// The rule for `glb`; the parser knows no map, [`glb_map_errors`] says the map's number.
-const GLB_RULE: &str = "`glb` nennt ein Beifile dieser Karte: `NNNN.<name>.glb` mit a\u{2013}z, \
-                        0\u{2013}9, `_`, `-`.";
+fn glb_rule(map: &str) -> String {
+    t!("world.glb_rule", map = map).into_owned()
+}
 /// Where a free-form model may lie, per axis in world units.
 const FREEFORM_AT: std::ops::RangeInclusive<i32> = -512..=511;
 
@@ -139,7 +144,10 @@ impl Errors {
     ) -> Option<Vec<T>> {
         let mut ok = true;
         if lines.len() != MAP_SIZE {
-            self.push(path, format!("{} Zeilen statt {MAP_SIZE}.", lines.len()));
+            self.push(
+                path,
+                t!("world.rows_count", count = lines.len(), expected = MAP_SIZE),
+            );
             ok = false;
         }
         let mut cells = Vec::with_capacity(CELLS);
@@ -148,7 +156,11 @@ impl Errors {
             if tokens.len() != MAP_SIZE {
                 self.push(
                     format!("{path}[{z}]"),
-                    format!("{} Zellen statt {MAP_SIZE}.", tokens.len()),
+                    t!(
+                        "world.cells_count",
+                        count = tokens.len(),
+                        expected = MAP_SIZE
+                    ),
                 );
                 ok = false;
                 continue;
@@ -157,7 +169,10 @@ impl Errors {
                 match parse(token) {
                     Ok(cell) => cells.push(cell),
                     Err(e) => {
-                        self.push(format!("{path}[{z}]"), format!("Zelle {x}: {e}"));
+                        self.push(
+                            format!("{path}[{z}]"),
+                            t!("world.cell_prefixed", x = x, text = e),
+                        );
                         ok = false;
                         break;
                     }
@@ -176,14 +191,15 @@ impl WorldGrid {
         if world.version != WORLD_VERSION {
             errors.push(
                 "world.version",
-                format!(
-                    "Version {} kennt diese Fassung nicht ({WORLD_VERSION}).",
-                    world.version
+                t!(
+                    "world.version_unknown",
+                    version = world.version,
+                    known = WORLD_VERSION
                 ),
             );
         }
         if world.layers.is_empty() {
-            errors.push("world.layers", GROUND_FIRST);
+            errors.push("world.layers", ground_first());
         }
         let mut layers = Vec::with_capacity(world.layers.len());
         let mut heights = None;
@@ -192,7 +208,7 @@ impl WorldGrid {
             let at = format!("world.layers[{i}]");
             let ground = layer.role == LayerRole::Ground;
             if ground != (i == 0) {
-                errors.push(format!("{at}.role"), GROUND_FIRST);
+                errors.push(format!("{at}.role"), ground_first());
             }
             let tiles = errors.rows(&format!("{at}.tiles"), &layer.tiles, parse_tile);
             if let Some(tiles) = tiles {
@@ -207,10 +223,7 @@ impl WorldGrid {
                     Some(lines) => {
                         heights = errors.rows(&format!("{at}.heights"), lines, parse_height);
                     }
-                    None => errors.push(
-                        format!("{at}.heights"),
-                        "die Bodenebene braucht Höhen (32 Zeilen).",
-                    ),
+                    None => errors.push(format!("{at}.heights"), t!("world.ground_needs_heights")),
                 }
                 ramps = match &layer.ramps {
                     Some(lines) => errors.rows(&format!("{at}.ramps"), lines, parse_ramp),
@@ -218,10 +231,10 @@ impl WorldGrid {
                 };
             } else if !ground {
                 if layer.heights.is_some() {
-                    errors.push(format!("{at}.heights"), GROUND_ONLY);
+                    errors.push(format!("{at}.heights"), ground_only());
                 }
                 if layer.ramps.is_some() {
-                    errors.push(format!("{at}.ramps"), GROUND_ONLY);
+                    errors.push(format!("{at}.ramps"), ground_only());
                 }
             }
         }
@@ -233,20 +246,14 @@ impl WorldGrid {
             if !PIECE_TURNS.contains(&piece.rotate) {
                 errors.push(
                     format!("world.pieces[{i}].rotate"),
-                    format!(
-                        "`{}` ist keine Drehung (0, 90, 180 oder 270).",
-                        piece.rotate
-                    ),
+                    t!("world.piece_turn_invalid", rotate = piece.rotate),
                 );
             }
             let [x, z] = piece.at;
             if usize::from(x) >= MAP_SIZE || usize::from(z) >= MAP_SIZE {
                 errors.push(
                     format!("world.pieces[{i}].at"),
-                    format!(
-                        "[{x}, {z}] liegt nicht auf der Karte (0 bis {}).",
-                        MAP_SIZE - 1
-                    ),
+                    t!("world.piece_off_map", x = x, z = z, max = MAP_SIZE - 1),
                 );
             }
         }
@@ -255,18 +262,18 @@ impl WorldGrid {
             if model.glb.is_some() == model.nsbmd.is_some() {
                 errors.push(
                     format!("world.freeform[{i}]"),
-                    "braucht genau eines von `glb` und `nsbmd`.",
+                    t!("world.freeform_glb_or_nsbmd"),
                 );
             }
             if let Some(glb) = &model.glb
                 && side_parts(glb).is_none()
             {
-                errors.push(format!("world.freeform[{i}].glb"), GLB_RULE);
+                errors.push(format!("world.freeform[{i}].glb"), glb_rule("NNNN"));
             }
             if model.nsbmd.is_none() && model.at.iter().any(|v| !FREEFORM_AT.contains(v)) {
                 errors.push(
                     format!("world.freeform[{i}].at"),
-                    "`at` liegt nicht in \u{2212}512 bis 511.",
+                    t!("world.freeform_at_range"),
                 );
             }
             if model.nsbmd.is_some() {
@@ -274,13 +281,13 @@ impl WorldGrid {
                 if verbatim > 1 {
                     errors.push(
                         format!("world.freeform[{i}]"),
-                        "Höchstens ein Verbatim-Modell (`nsbmd`) in `freeform`.",
+                        t!("world.verbatim_at_most_one"),
                     );
                 }
                 if model.at != [0, 0, 0] {
                     errors.push(
                         format!("world.freeform[{i}].at"),
-                        "Ein Verbatim-Modell liegt an [0, 0, 0].",
+                        t!("world.verbatim_at_origin"),
                     );
                 }
             }
@@ -317,10 +324,7 @@ pub(crate) fn glb_map_errors(world: &WorldJson, map: u16) -> Vec<WorldError> {
         })
         .map(|(i, _)| WorldError {
             path: format!("world.freeform[{i}].glb"),
-            message: format!(
-                "`glb` nennt ein Beifile dieser Karte: `{map:04}.<name>.glb` mit a\u{2013}z, \
-                 0\u{2013}9, `_`, `-`."
-            ),
+            message: glb_rule(&format!("{map:04}")),
         })
         .collect()
 }
@@ -351,13 +355,19 @@ fn ramp_tops(heights: &[i8], ramps: &[Ramp], errors: &mut Errors) {
         });
         if let Some((x, h, steps)) = top {
             let steps = if steps == 1 {
-                "1 Stufe".to_owned()
+                t!("world.steps_one").into_owned()
             } else {
-                format!("{steps} Stufen")
+                t!("world.steps_other", n = steps).into_owned()
             };
+            let text = t!(
+                "world.ramp_too_high",
+                max = HEIGHT_MAX,
+                height = h,
+                steps = steps
+            );
             errors.push(
                 format!("world.layers[0].ramps[{z}]"),
-                format!("Zelle {x}: Die Rampe endet über {HEIGHT_MAX} (Höhe {h}, {steps})."),
+                t!("world.cell_prefixed", x = x, text = text),
             );
         }
     }
@@ -371,11 +381,14 @@ fn ramp_steps(ramp: Ramp) -> u8 {
     }
 }
 
-/// The cell of a row error of [`WorldGrid::parse`] (its message starts `Zelle {x}: `), `None`
-/// for an error of the whole row or of no row.
+/// The cell of a row error of [`WorldGrid::parse`] (its message is `world.cell_prefixed` in the
+/// current locale: „Cell {x}: …“), `None` for an error of the whole row or of no row.
 pub fn error_cell(e: &WorldError) -> Option<usize> {
-    let rest = e.message.strip_prefix("Zelle ")?;
-    let (x, _) = rest.split_once(": ")?;
+    let template = t!("world.cell_prefixed");
+    let (before, after) = template.split_once("%{x}")?;
+    let (separator, _) = after.split_once("%{text}")?;
+    let rest = e.message.strip_prefix(before)?;
+    let (x, _) = rest.split_once(separator)?;
     x.parse().ok().filter(|&x| x < MAP_SIZE)
 }
 
@@ -386,10 +399,7 @@ fn permissions(world: &WorldJson, errors: &mut Errors) -> Option<Vec<Option<Cell
     let p = &world.permissions;
     let Some(lines) = &p.overrides else {
         if !p.derive {
-            errors.push(
-                PATH,
-                "ohne Ableitung (`derive: false`) braucht es `override` mit 32 Zeilen.",
-            );
+            errors.push(PATH, t!("world.override_needed"));
             return None;
         }
         return Some(vec![None; CELLS]);
@@ -405,18 +415,12 @@ fn permissions(world: &WorldJson, errors: &mut Errors) -> Option<Vec<Option<Cell
     }
     let cells = errors.rows(PATH, lines, parse_override);
     if !p.derive && open > 0 {
-        let (noun, verb) = if open == 1 {
-            ("Zelle", "ist")
+        let text = if open == 1 {
+            t!("world.override_open_one")
         } else {
-            ("Zellen", "sind")
+            t!("world.override_open_other", open = open)
         };
-        errors.push(
-            PATH,
-            format!(
-                "ohne Ableitung (`derive: false`) braucht jede Zelle eine Permission; {open} \
-                 {noun} {verb} `.`."
-            ),
-        );
+        errors.push(PATH, text);
         return None;
     }
     cells
@@ -434,12 +438,7 @@ pub fn parse_tile(token: &str) -> Result<Option<TileRef>, String> {
     if token == EMPTY {
         return Ok(None);
     }
-    let bad = || {
-        format!(
-            "`{token}` ist keine Kachel (`.` oder vier Hex-Ziffern, dahinter `r1` bis `r3` und \
-             `f`)."
-        )
-    };
+    let bad = || t!("world.token_not_tile", token = token).into_owned();
     let lower = token.to_ascii_lowercase();
     let (digits, rest) = lower.split_at_checked(4).ok_or_else(bad)?;
     let tile = hex4(digits).ok_or_else(bad)?;
@@ -474,8 +473,7 @@ pub fn tile_token(t: Option<TileRef>) -> String {
 
 /// The ramp of a token ([`lex_ramp`]): `.` or `n`, `e`, `s`, `w` with 1 or 2 steps.
 pub fn parse_ramp(token: &str) -> Result<Ramp, String> {
-    let bad =
-        || format!("`{token}` ist keine Rampe (`.` oder `n`, `e`, `s`, `w` mit 1 oder 2 Stufen).");
+    let bad = || t!("world.token_not_ramp", token = token).into_owned();
     let ramp = Ramp::from(lex_ramp(token).ok_or_else(bad)?);
     if ramp == Ramp::None || (1..=2).contains(&ramp_steps(ramp)) {
         Ok(ramp)
@@ -493,11 +491,11 @@ pub fn ramp_token(r: Ramp) -> String {
 /// The height step of a token ([`lex_height`]): a whole number from −16 to 62.
 pub fn parse_height(token: &str) -> Result<i8, String> {
     let value = lex_height(token)
-        .ok_or_else(|| format!("`{token}` ist keine Höhe (ganze Zahl von \u{2212}16 bis 62)."))?;
+        .ok_or_else(|| t!("world.token_not_height", token = token).into_owned())?;
     i8::try_from(value)
         .ok()
         .filter(|h| (HEIGHT_MIN..=HEIGHT_MAX).contains(h))
-        .ok_or_else(|| format!("`{token}` liegt nicht in \u{2212}16 bis 62."))
+        .ok_or_else(|| t!("world.token_height_range", token = token).into_owned())
 }
 
 /// The permission override of a token: `.` is `None`, else `kkcc` (hex of kind and
@@ -506,12 +504,8 @@ pub fn parse_override(token: &str) -> Result<Option<Cell>, String> {
     if token == EMPTY {
         return Ok(None);
     }
-    let value = hex4(token).ok_or_else(|| {
-        format!(
-            "`{token}` ist keine Permission (`.` oder `kkcc` aus vier Hex-Ziffern, Art und \
-             Kollision)."
-        )
-    })?;
+    let value =
+        hex4(token).ok_or_else(|| t!("world.token_not_permission", token = token).into_owned())?;
     let [kind, collision] = value.to_be_bytes();
     Ok(Some(Cell { kind, collision }))
 }
@@ -528,14 +522,16 @@ pub fn override_token(c: Option<Cell>) -> String {
 pub fn set_token(row: &str, x: usize, token: &str) -> Result<String, String> {
     let mut tokens: Vec<&str> = row.split_whitespace().collect();
     if tokens.len() != MAP_SIZE {
-        return Err(format!("{} Zellen statt {MAP_SIZE}.", tokens.len()));
-    }
-    let cell = tokens.get_mut(x).ok_or_else(|| {
-        format!(
-            "Zelle {x} liegt nicht in der Zeile (0 bis {}).",
-            MAP_SIZE - 1
+        return Err(t!(
+            "world.cells_count",
+            count = tokens.len(),
+            expected = MAP_SIZE
         )
-    })?;
+        .into_owned());
+    }
+    let cell = tokens
+        .get_mut(x)
+        .ok_or_else(|| t!("world.cell_not_in_row", x = x, max = MAP_SIZE - 1).into_owned())?;
     *cell = token;
     Ok(tokens.join(" "))
 }
@@ -621,7 +617,7 @@ mod tests {
         }
         assert_eq!(
             parse_tile("g012").unwrap_err(),
-            "`g012` ist keine Kachel (`.` oder vier Hex-Ziffern, dahinter `r1` bis `r3` und `f`)."
+            "`g012` is not a tile (`.` or four hex digits, followed by `r1` to `r3` and `f`)."
         );
     }
 
@@ -651,11 +647,11 @@ mod tests {
         assert_eq!(parse_height("62"), Ok(62));
         assert_eq!(
             parse_height("70").unwrap_err(),
-            "`70` liegt nicht in \u{2212}16 bis 62."
+            "`70` is not within −16 to 62."
         );
         assert_eq!(
             parse_height("-17").unwrap_err(),
-            "`-17` liegt nicht in \u{2212}16 bis 62."
+            "`-17` is not within −16 to 62."
         );
         // 6.2's spelling with a sign reads the same.
         assert_eq!(parse_height("+3"), Ok(3));
@@ -698,11 +694,11 @@ mod tests {
         );
         assert_eq!(
             set_token(&line, 32, "0000").unwrap_err(),
-            "Zelle 32 liegt nicht in der Zeile (0 bis 31)."
+            "Cell 32 is not in the row (0 to 31)."
         );
         assert_eq!(
             set_token("0000 0000", 0, "0001").unwrap_err(),
-            "2 Zellen statt 32."
+            "2 cells instead of 32."
         );
     }
 
@@ -823,66 +819,64 @@ mod tests {
                 at: [0, 0, 0],
             },
         ];
-        let tile_rule = "(`.` oder vier Hex-Ziffern, dahinter `r1` bis `r3` und `f`)";
-        let ramp_rule = "(`.` oder `n`, `e`, `s`, `w` mit 1 oder 2 Stufen)";
+        let tile_rule = "(`.` or four hex digits, followed by `r1` to `r3` and `f`)";
+        let ramp_rule = "(`.` or `n`, `e`, `s`, `w` with 1 or 2 steps)";
         let expected: Vec<(String, String)> = [
             (
                 "world.version",
-                "Version 3 kennt diese Fassung nicht (2).".to_owned(),
+                "Version 3 does not know this version of the file (2).".to_owned(),
             ),
-            ("world.layers[0].tiles[4]", "31 Zellen statt 32.".to_owned()),
+            ("world.layers[0].tiles[4]", "31 cells instead of 32.".to_owned()),
             (
                 "world.layers[0].tiles[5]",
-                format!("Zelle 7: `00g2` ist keine Kachel {tile_rule}."),
+                format!("Cell 7: `00g2` is not a tile {tile_rule}."),
             ),
             (
                 "world.layers[0].heights[3]",
-                "Zelle 0: `70` liegt nicht in \u{2212}16 bis 62.".to_owned(),
+                "Cell 0: `70` is not within −16 to 62.".to_owned(),
             ),
             (
                 "world.layers[0].ramps[2]",
-                format!("Zelle 1: `n3` ist keine Rampe {ramp_rule}."),
+                format!("Cell 1: `n3` is not a ramp {ramp_rule}."),
             ),
             (
                 "world.layers[0].ramps[6]",
-                format!("Zelle 2: `n0` ist keine Rampe {ramp_rule}."),
+                format!("Cell 2: `n0` is not a ramp {ramp_rule}."),
             ),
-            ("world.layers[1].tiles", "31 Zeilen statt 32.".to_owned()),
+            ("world.layers[1].tiles", "31 rows instead of 32.".to_owned()),
             (
                 "world.layers[1].heights",
-                "nur die Bodenebene trägt Höhen und Rampen.".to_owned(),
+                "only the ground layer carries heights and ramps.".to_owned(),
             ),
             (
                 "world.layers[1].ramps",
-                "nur die Bodenebene trägt Höhen und Rampen.".to_owned(),
+                "only the ground layer carries heights and ramps.".to_owned(),
             ),
             (
                 "world.layers[2].role",
-                "die erste Ebene ist die einzige Bodenebene (`ground`).".to_owned(),
+                "the first layer is the only ground layer (`ground`).".to_owned(),
             ),
             (
                 "world.permissions.override[10]",
-                "Zelle 0: `zz00` ist keine Permission (`.` oder `kkcc` aus vier Hex-Ziffern, \
-                 Art und Kollision)."
+                "Cell 0: `zz00` is not a permission (`.` or `kkcc` of four hex digits, kind and collision)."
                     .to_owned(),
             ),
             (
                 "world.permissions.override",
-                "ohne Ableitung (`derive: false`) braucht jede Zelle eine Permission; 1 Zelle \
-                 ist `.`."
+                "without derivation (`derive: false`) every cell needs a permission; 1 cell is `.`."
                     .to_owned(),
             ),
             (
                 "world.pieces[1].rotate",
-                "`45` ist keine Drehung (0, 90, 180 oder 270).".to_owned(),
+                "`45` is not a turn (0, 90, 180 or 270).".to_owned(),
             ),
             (
                 "world.freeform[0]",
-                "braucht genau eines von `glb` und `nsbmd`.".to_owned(),
+                "needs exactly one of `glb` and `nsbmd`.".to_owned(),
             ),
             (
                 "world.freeform[1]",
-                "braucht genau eines von `glb` und `nsbmd`.".to_owned(),
+                "needs exactly one of `glb` and `nsbmd`.".to_owned(),
             ),
         ]
         .into_iter()
@@ -901,7 +895,7 @@ mod tests {
             errors_of(&w),
             vec![(
                 "world.version".to_owned(),
-                "Version 1 kennt diese Fassung nicht (2).".to_owned()
+                "Version 1 does not know this version of the file (2).".to_owned()
             )]
         );
     }
@@ -921,7 +915,7 @@ mod tests {
             errors_of(&w),
             vec![(
                 "world.freeform[1]".to_owned(),
-                "Höchstens ein Verbatim-Modell (`nsbmd`) in `freeform`.".to_owned()
+                "At most one verbatim model (`nsbmd`) in `freeform`.".to_owned()
             )]
         );
         w.freeform = vec![verbatim([0, 8, 0])];
@@ -929,7 +923,7 @@ mod tests {
             errors_of(&w),
             vec![(
                 "world.freeform[0].at".to_owned(),
-                "Ein Verbatim-Modell liegt an [0, 0, 0].".to_owned()
+                "A verbatim model lies at [0, 0, 0].".to_owned()
             )]
         );
         // A glTF model may lie anywhere and beside a verbatim one (the bake refuses it).
@@ -955,8 +949,8 @@ mod tests {
         // The parser knows no map: any number of four digits passes.
         w.freeform = vec![glb("0123.haus.glb"), glb("0007.a-b_9.glb")];
         assert!(WorldGrid::parse(&w).is_ok());
-        let rule = "`glb` nennt ein Beifile dieser Karte: `NNNN.<name>.glb` mit a\u{2013}z, \
-                    0\u{2013}9, `_`, `-`.";
+        let rule =
+            "`glb` names a side file of this map: `NNNN.<name>.glb` with a–z, 0–9, `_`, `-`.";
         for bad in [
             "haus.glb",
             "0123.Haus.glb",
@@ -983,7 +977,7 @@ mod tests {
         let mut w = world(vec![ground()]);
         w.freeform = vec![glb([-512, 511, 0]), glb([511, -512, -512])];
         assert!(WorldGrid::parse(&w).is_ok());
-        let rule = "`at` liegt nicht in \u{2212}512 bis 511.";
+        let rule = "`at` is not within −512 to 511.";
         for at in [[512, 0, 0], [0, -513, 0], [0, 0, 600]] {
             w.freeform = vec![glb([0, 0, 0]), glb(at)];
             assert_eq!(
@@ -996,7 +990,7 @@ mod tests {
 
     #[test]
     fn the_ground_layer_comes_first_and_has_heights() {
-        let ground_rule = "die erste Ebene ist die einzige Bodenebene (`ground`).";
+        let ground_rule = "the first layer is the only ground layer (`ground`).";
         assert_eq!(
             errors_of(&world(Vec::new())),
             vec![("world.layers".to_owned(), ground_rule.to_owned())]
@@ -1014,7 +1008,7 @@ mod tests {
             errors_of(&world(vec![bare])),
             vec![(
                 "world.layers[0].heights".to_owned(),
-                "die Bodenebene braucht Höhen (32 Zeilen).".to_owned()
+                "the ground layer needs heights (32 rows).".to_owned()
             )]
         );
         let mut w = world(vec![ground()]);
@@ -1023,7 +1017,8 @@ mod tests {
             errors_of(&w),
             vec![(
                 "world.permissions.override".to_owned(),
-                "ohne Ableitung (`derive: false`) braucht es `override` mit 32 Zeilen.".to_owned()
+                "without derivation (`derive: false`) `override` with 32 rows is needed."
+                    .to_owned()
             )]
         );
         w.permissions.overrides = Some(rows("0000"));
@@ -1055,11 +1050,11 @@ mod tests {
             vec![
                 (
                     "world.layers[0].ramps[3]",
-                    "Zelle 4: Die Rampe endet über 62 (Höhe 61, 2 Stufen)."
+                    "Cell 4: The ramp ends above 62 (height 61, 2 steps)."
                 ),
                 (
                     "world.layers[0].ramps[5]",
-                    "Zelle 7: Die Rampe endet über 62 (Höhe 62, 1 Stufe)."
+                    "Cell 7: The ramp ends above 62 (height 62, 1 step)."
                 ),
             ]
         );
@@ -1078,22 +1073,22 @@ mod tests {
         assert_eq!(
             error_cell(&e(
                 "world.layers[0].tiles[4]",
-                "Zelle 12: `00g2` ist keine Kachel."
+                "Cell 12: `00g2` is not a tile."
             )),
             Some(12)
         );
         assert_eq!(
-            error_cell(&e("world.layers[0].tiles[4]", "31 Zellen statt 32.")),
+            error_cell(&e("world.layers[0].tiles[4]", "31 cells instead of 32.")),
             None
         );
         assert_eq!(
             error_cell(&e(
                 "world.version",
-                "Version 3 kennt diese Fassung nicht (2)."
+                "Version 3 does not know this version of the file (2)."
             )),
             None
         );
-        assert_eq!(error_cell(&e("x", "Zelle 40: zu weit.")), None);
+        assert_eq!(error_cell(&e("x", "Cell 40: zu weit.")), None);
         let w = {
             let mut w = world(vec![ground()]);
             w.layers[0].tiles[4] = set_token(&row("0000"), 12, "00g2").unwrap();
@@ -1139,19 +1134,19 @@ mod tests {
             vec![
                 (
                     "world.pieces[0].rotate".to_owned(),
-                    "`360` ist keine Drehung (0, 90, 180 oder 270).".to_owned()
+                    "`360` is not a turn (0, 90, 180 or 270).".to_owned()
                 ),
                 (
                     "world.pieces[1].at".to_owned(),
-                    "[32, 0] liegt nicht auf der Karte (0 bis 31).".to_owned()
+                    "[32, 0] is not on the map (0 to 31).".to_owned()
                 ),
                 (
                     "world.pieces[2].rotate".to_owned(),
-                    "`1` ist keine Drehung (0, 90, 180 oder 270).".to_owned()
+                    "`1` is not a turn (0, 90, 180 or 270).".to_owned()
                 ),
                 (
                     "world.pieces[2].at".to_owned(),
-                    "[0, 200] liegt nicht auf der Karte (0 bis 31).".to_owned()
+                    "[0, 200] is not on the map (0 to 31).".to_owned()
                 ),
             ]
         );

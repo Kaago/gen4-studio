@@ -379,7 +379,7 @@ fn older_and_newer_schemas_refuse_edits_with_the_manifest_sentence() {
         "\"schemaVersion\": 0",
         "\"schemaVersion\": 99",
     );
-    refused(&fx, SourceMode::Newer { schema: 99 }, "neueren Fassung");
+    refused(&fx, SourceMode::Newer { schema: 99 }, "newer version");
     fx.write("g4-project.json", b"{\n  \"format\": \n");
     let p = fx.project();
     let SourceMode::Broken { reason } = p.source_mode().clone() else {

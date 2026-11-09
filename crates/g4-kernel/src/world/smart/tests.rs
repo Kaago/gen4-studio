@@ -250,7 +250,7 @@ fn a_missing_place_refuses_with_its_name() {
     .unwrap_err();
     assert_eq!(
         e,
-        "Kantensatz „Weg“: der Platz „Diagonale NW–SO“ hat keine Kachel (Zelle (5, 5))."
+        "Edge set “Weg”: the place “Diagonal NW–SE” has no tile (cell (5, 5))."
     );
     // The place comes from the actual mask: (6, 4) + (4, 6) give cell (5, 5) the mask
     // NE + SW (diag_nesw).
@@ -266,7 +266,7 @@ fn a_missing_place_refuses_with_its_name() {
     .unwrap_err();
     assert_eq!(
         e,
-        "Kantensatz „Weg“: der Platz „Diagonale NO–SW“ hat keine Kachel (Zelle (5, 5))."
+        "Edge set “Weg”: the place “Diagonal NE–SW” has no tile (cell (5, 5))."
     );
     // A half-filled set from the editor: the first cell in row order that needs an empty place.
     let mut half = weg13();
@@ -275,7 +275,7 @@ fn a_missing_place_refuses_with_its_name() {
     let e = paint_terrain(&grid, 0, &half, &[[10, 10]], true, 0, &Seams::default()).unwrap_err();
     assert_eq!(
         e,
-        "Kantensatz „Weg“: der Platz „Kante N“ hat keine Kachel (Zelle (10, 9))."
+        "Edge set “Weg”: the place “Edge N” has no tile (cell (10, 9))."
     );
 }
 
@@ -437,7 +437,7 @@ fn cells_of_a_changed_set_read_as_foreign() {
     let e = paint_terrain(&grid, 0, &empty, &[[8, 4]], true, 0, &Seams::default()).unwrap_err();
     assert_eq!(
         e,
-        "Kantensatz „Weg“: der Platz „Kante N“ hat keine Kachel (Zelle (8, 3))."
+        "Edge set “Weg”: the place “Edge N” has no tile (cell (8, 3))."
     );
     // The whole set renamed or a broken token: reads nothing, no panic.
     let mut broken = weg13();
@@ -485,9 +485,9 @@ fn overlay_layer_is_painted_alone() {
 fn cells_and_layers_outside_the_map_are_refused() {
     let grid = flat();
     let e = paint_terrain(&grid, 0, &weg13(), &[[32, 4]], true, 0, &Seams::default()).unwrap_err();
-    assert_eq!(e, "Zelle (32, 4) liegt außerhalb der Karte (0 bis 31).");
+    assert_eq!(e, "Cell (32, 4) is outside the map (0 to 31).");
     let e = paint_terrain(&grid, 1, &weg13(), &[[3, 4]], true, 0, &Seams::default()).unwrap_err();
-    assert_eq!(e, "Ebene 1 gibt es nicht (die Karte hat 1).");
+    assert_eq!(e, "Layer 1 does not exist (the map has 1).");
     assert_eq!(wrong_corners(&grid, 3, &weg13()), Vec::<[u8; 2]>::new());
 }
 
@@ -548,8 +548,7 @@ fn the_seam_reads_a_neighbour_and_notes_cells_that_no_longer_fit() {
     assert_eq!(
         r.notes,
         [
-            "Naht zu Karte 0124: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die \
-          Nachbarkarte bleibt, wie sie ist."
+            "Seam to Map 0124: 3 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
         ]
     );
     // A stroke at the edge next to an outside neighbour: its cells z 19–21 no longer fit.
@@ -558,8 +557,7 @@ fn the_seam_reads_a_neighbour_and_notes_cells_that_no_longer_fit() {
     assert_eq!(
         r.notes,
         [
-            "Naht zu Karte 0124: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die \
-          Nachbarkarte bleibt, wie sie ist."
+            "Seam to Map 0124: 3 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
         ]
     );
     assert_eq!(
@@ -610,8 +608,7 @@ fn one_seam_cell_is_noted_in_the_singular() {
     assert_eq!(
         r.notes,
         [
-            "Naht zu Karte 0007: 1 Zelle dort passt nicht mehr zum Satz „Weg“; die Nachbarkarte \
-          bleibt, wie sie ist."
+            "Seam to Map 0007: 1 cell there no longer fits the set “Weg”; the neighbouring map stays as it is."
         ]
     );
     // Another layer's seam cells are not read.
@@ -848,7 +845,7 @@ fn a_cliff_needing_an_empty_place_is_refused() {
     .unwrap_err();
     assert_eq!(
         e,
-        "Kantensatz „Weg“: der Platz „Kante N“ hat keine Kachel (Zelle (21, 20))."
+        "Edge set “Weg”: the place “Edge N” has no tile (cell (21, 20))."
     );
     let e = paint_cliff(
         &flat(),
@@ -861,7 +858,7 @@ fn a_cliff_needing_an_empty_place_is_refused() {
         &Seams::default(),
     )
     .unwrap_err();
-    assert_eq!(e, "Zelle (32, 1) liegt außerhalb der Karte (0 bis 31).");
+    assert_eq!(e, "Cell (32, 1) is outside the map (0 to 31).");
 }
 
 #[test]
@@ -960,7 +957,7 @@ fn lower_rule_keeps_existing_overrides() {
     assert!(r.overrides.iter().all(|(c, _)| *c != [19, 22]));
     assert_eq!(
         r.notes,
-        ["Zelle (19, 22) hat eine eigene Permission; die Klippe lässt sie stehen."]
+        ["Cell (19, 22) has a permission of its own; the cliff leaves it standing."]
     );
     assert_eq!(grid.overrides[22 * N + 19], Some(door));
     assert_eq!(baked_permissions(&grid)[22 * N + 19], door);
@@ -981,7 +978,9 @@ fn several_kept_overrides_are_one_note() {
     assert_eq!(r.overrides.len(), 37);
     assert_eq!(
         r.notes,
-        ["3 Zellen haben eine eigene Permission (erste: (22, 19)); die Klippe lässt sie stehen."]
+        [
+            "3 cells have a permission of their own (first: (22, 19)); the cliff leaves them standing."
+        ]
     );
 }
 

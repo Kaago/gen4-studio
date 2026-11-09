@@ -387,7 +387,7 @@ fn story_delete_over_the_command_path() {
     let err = story_delete_impl(&dspre, "STORY_STARTER".into()).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        ("not_text_project", NOT_A_TEXT_PROJECT)
+        ("not_text_project", not_a_text_project().as_str())
     );
 }
 
@@ -398,7 +398,7 @@ fn story_create_refuses_the_dspre_layout() {
         story_create_impl(&state, request("Starter", Progress::Var(STARTER.into()))).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        ("not_text_project", NOT_A_TEXT_PROJECT)
+        ("not_text_project", not_a_text_project().as_str())
     );
     let err = story_update_impl(
         &state,

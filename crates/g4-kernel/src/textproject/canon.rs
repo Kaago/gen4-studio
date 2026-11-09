@@ -61,17 +61,14 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     text
 }
 
-/// The bytes of a hex string (either case, no separators); the error is a German sentence
-/// for a [`problem`].
+/// The bytes of a hex string (either case, no separators); the error is a sentence for a
+/// [`problem`].
 pub(crate) fn unhex(text: &str) -> Result<Vec<u8>, String> {
     if let Some(bad) = text.chars().find(|c| !c.is_ascii_hexdigit()) {
-        return Err(format!("`{bad}` ist keine Hex-Ziffer."));
+        return Err(t!("textproject.hex_bad_digit", digit = bad).into_owned());
     }
     if !text.len().is_multiple_of(2) {
-        return Err(format!(
-            "Hex-Text mit ungerader Zahl von Ziffern ({}).",
-            text.len()
-        ));
+        return Err(t!("textproject.hex_odd", len = text.len()).into_owned());
     }
     // Only ASCII hex digits are left, one byte each.
     let digit = |b: u8| char::from(b).to_digit(16).unwrap_or(0) as u8;
@@ -140,21 +137,21 @@ fn located(
         col: u32::try_from(utf16_column(source, err.line(), err.column()))
             .unwrap_or(u32::MAX)
             .max(1),
-        message: format!("{code}: {}", german(err, path)),
+        message: format!("{code}: {}", sentence(err, path)),
     }
 }
 
-/// `<path>: <sentence>` for `err` in German; the sentence alone without a path or for a
-/// syntax error (no field to name).
-fn german(err: &serde_json::Error, path: Option<&str>) -> String {
+/// `<path>: <sentence>` for `err` in the current locale; the sentence alone without a path or
+/// for a syntax error (no field to name).
+fn sentence(err: &serde_json::Error, path: Option<&str>) -> String {
     let full = err.to_string();
     let suffix = format!(" at line {} column {}", err.line(), err.column());
     let raw = full.strip_suffix(&suffix).unwrap_or(&full);
     match err.classify() {
         Category::Syntax | Category::Eof => {
-            format!("kein gültiges JSON: {}.", syntax_sentence(raw))
+            t!("textproject.json_invalid", reason = syntax_sentence(raw)).into_owned()
         }
-        Category::Io => format!("nicht lesbar ({raw})."),
+        Category::Io => t!("textproject.json_unreadable", reason = raw).into_owned(),
         Category::Data => {
             // serde's path of the root is `.`, ours `$`; no path at all leaves the sentence alone.
             let path = path.map_or("", |p| if p == "." { ROOT } else { p });
@@ -163,43 +160,43 @@ fn german(err: &serde_json::Error, path: Option<&str>) -> String {
     }
 }
 
-/// A syntax error of serde_json as a German phrase (no final period); unknown ones stay as
-/// serde says them.
+/// A syntax error of serde_json as a phrase in the current locale (no final period); unknown
+/// ones stay as serde says them.
 fn syntax_sentence(raw: &str) -> String {
-    let known = match raw {
-        "expected value" => "ein Wert wird erwartet",
-        "key must be a string" => "ein Schlüssel muss ein Text in Anführungszeichen sein",
-        "expected `,` or `}`" => "`,` oder `}` wird erwartet",
-        "expected `,` or `]`" => "`,` oder `]` wird erwartet",
-        "expected `:`" => "`:` wird erwartet",
-        "expected `,`" => "`,` wird erwartet",
-        "expected `{`" => "`{` wird erwartet",
-        "expected `[`" => "`[` wird erwartet",
-        "expected `\"`" => "`\"` wird erwartet",
-        "expected ident" => "ein Schlüsselwort wird erwartet (true, false oder null)",
-        "trailing comma" => "ein Komma zu viel vor dem Ende",
-        "trailing characters" => "nach dem Ende des Werts folgen weitere Zeichen",
-        "invalid escape" => "ungültige Escape-Folge in einem Text",
-        "invalid number" => "ungültige Zahl",
-        "number out of range" => "Zahl außerhalb des Bereichs",
-        "unexpected end of hex escape" => "unvollständige \\u-Folge in einem Text",
-        "invalid unicode code point" => "ungültiges Unicode-Zeichen in einem Text",
-        "recursion limit exceeded" => "zu tief verschachtelt",
-        "EOF while parsing an object" => "die Datei endet mitten in einem Objekt",
-        "EOF while parsing a list" => "die Datei endet mitten in einer Liste",
-        "EOF while parsing a string" => "die Datei endet mitten in einem Text",
-        "EOF while parsing a value" => "die Datei endet mitten in einem Wert",
+    let key = match raw {
+        "expected value" => "textproject.json_expected_value",
+        "key must be a string" => "textproject.json_key_string",
+        "expected `,` or `}`" => "textproject.json_expected_comma_brace",
+        "expected `,` or `]`" => "textproject.json_expected_comma_bracket",
+        "expected `:`" => "textproject.json_expected_colon",
+        "expected `,`" => "textproject.json_expected_comma",
+        "expected `{`" => "textproject.json_expected_open_brace",
+        "expected `[`" => "textproject.json_expected_open_bracket",
+        "expected `\"`" => "textproject.json_expected_quote",
+        "expected ident" => "textproject.json_expected_ident",
+        "trailing comma" => "textproject.json_trailing_comma",
+        "trailing characters" => "textproject.json_trailing_characters",
+        "invalid escape" => "textproject.json_invalid_escape",
+        "invalid number" => "textproject.json_invalid_number",
+        "number out of range" => "textproject.json_number_out_of_range",
+        "unexpected end of hex escape" => "textproject.json_hex_escape_end",
+        "invalid unicode code point" => "textproject.json_invalid_unicode",
+        "recursion limit exceeded" => "textproject.json_too_deep",
+        "EOF while parsing an object" => "textproject.json_eof_object",
+        "EOF while parsing a list" => "textproject.json_eof_list",
+        "EOF while parsing a string" => "textproject.json_eof_string",
+        "EOF while parsing a value" => "textproject.json_eof_value",
         r"control character (\u0000-\u001F) found while parsing a string" => {
-            "ein Steuerzeichen steht in einem Text (es muss als \\uXXXX geschrieben sein)"
+            "textproject.json_control_character"
         }
         _ => return raw.to_owned(),
     };
-    known.to_owned()
+    t!(key).into_owned()
 }
 
-/// serde's data error `raw` as `<path>: <sentence>` in German. The path names the field; for
-/// an unknown or duplicate key it ends with that key. Messages of no known form (custom
-/// ones, already German) keep their text after the path.
+/// serde's data error `raw` as `<path>: <sentence>` in the current locale. The path names the
+/// field; for an unknown or duplicate key it ends with that key. Messages of no known form
+/// (custom ones, already translated) keep their text after the path.
 fn data_sentence(path: &str, raw: &str) -> String {
     let lead = if path.is_empty() {
         String::new()
@@ -211,50 +208,57 @@ fn data_sentence(path: &str, raw: &str) -> String {
             let at = with_key(path, name);
             let keys: Vec<&str> = allowed.split('`').skip(1).step_by(2).collect();
             let allowed = if allowed == "there are no fields" || keys.is_empty() {
-                "hier ist kein Schlüssel erlaubt".to_owned()
+                t!("textproject.json_no_key_allowed").into_owned()
             } else if let [only] = keys[..] {
-                format!("erlaubt ist nur `{only}`")
+                t!("textproject.json_only_key_allowed", key = only).into_owned()
             } else {
-                format!("erlaubt: {}", quoted(&keys))
+                t!("textproject.json_keys_allowed", keys = quoted(&keys)).into_owned()
             };
-            return format!("{at}: unbekannter Schlüssel ({allowed}).");
+            return t!("textproject.json_unknown_key", at = at, allowed = allowed).into_owned();
         }
         if let Some(name) = rest.strip_suffix("`, there are no fields") {
-            return format!(
-                "{}: unbekannter Schlüssel (hier ist kein Schlüssel erlaubt).",
-                with_key(path, name)
-            );
+            return t!(
+                "textproject.json_unknown_key",
+                at = with_key(path, name),
+                allowed = t!("textproject.json_no_key_allowed")
+            )
+            .into_owned();
         }
     }
     if let Some(name) = raw
         .strip_prefix("missing field `")
         .and_then(|r| r.strip_suffix('`'))
     {
-        return format!("{lead}der Schlüssel `{name}` fehlt.");
+        return t!("textproject.json_missing_key", lead = lead, name = name).into_owned();
     }
     if let Some(name) = raw
         .strip_prefix("duplicate field `")
         .and_then(|r| r.strip_suffix('`'))
     {
-        return format!("{}: der Schlüssel steht doppelt.", with_key(path, name));
+        return t!("textproject.json_duplicate_key", at = with_key(path, name)).into_owned();
     }
     if let Some(rest) = raw.strip_prefix("unknown variant `")
         && let Some((name, allowed)) = rest.rsplit_once("`, expected ")
     {
         let keys: Vec<&str> = allowed.split('`').skip(1).step_by(2).collect();
-        return format!(
-            "{lead}unbekannter Wert `{name}` (erlaubt: {}).",
-            quoted(&keys)
-        );
+        return t!(
+            "textproject.json_unknown_value",
+            lead = lead,
+            name = name,
+            allowed = quoted(&keys)
+        )
+        .into_owned();
     }
     if let Some(rest) = raw.strip_prefix("invalid type: ")
         && let Some((found, expected)) = rest.rsplit_once(", expected ")
     {
-        return format!(
-            "{lead}erwartet wird {}, gefunden ist {}.",
-            expected_de(expected),
-            found_de(found)
-        );
+        return t!(
+            "textproject.json_invalid_type",
+            lead = lead,
+            expected = expected_words(expected),
+            found = found_words(found)
+        )
+        .into_owned();
     }
     if let Some(rest) = raw.strip_prefix("invalid value: ")
         && let Some((found, expected)) = rest.rsplit_once(", expected ")
@@ -265,26 +269,42 @@ fn data_sentence(path: &str, raw: &str) -> String {
                 .and_then(|n| n.strip_suffix('`')),
             int_range(expected),
         ) {
-            return format!("{lead}die Zahl {number} passt nicht in {expected} ({min} bis {max}).");
+            return t!(
+                "textproject.json_number_range",
+                lead = lead,
+                number = number,
+                expected = expected,
+                min = min,
+                max = max
+            )
+            .into_owned();
         }
-        return format!(
-            "{lead}ungültiger Wert, {} (erwartet wird {}).",
-            found_de(found),
-            expected_de(expected)
-        );
+        return t!(
+            "textproject.json_invalid_value",
+            lead = lead,
+            found = found_words(found),
+            expected = expected_words(expected)
+        )
+        .into_owned();
     }
     if let Some(rest) = raw.strip_prefix("invalid length ")
         && let Some((count, expected)) = rest.split_once(", expected ")
     {
         if expected.starts_with("struct ") {
-            return format!(
-                "{lead}erwartet wird ein Objekt, gefunden ist eine Liste mit {count} Einträgen."
-            );
+            return t!(
+                "textproject.json_object_not_list",
+                lead = lead,
+                count = count
+            )
+            .into_owned();
         }
-        return format!(
-            "{lead}falsche Länge {count} (erwartet wird {}).",
-            expected_de(expected)
-        );
+        return t!(
+            "textproject.json_wrong_length",
+            lead = lead,
+            count = count,
+            expected = expected_words(expected)
+        )
+        .into_owned();
     }
     // A custom message may lead with the key it is about (`hex: <sentence>`): that key joins
     // the path (`model.hex: <sentence>`).
@@ -331,54 +351,61 @@ fn int_range(name: &str) -> Option<(String, String)> {
     )
 }
 
-/// What serde found (`integer `5``, `string "abc"`) in German.
-fn found_de(found: &str) -> String {
+/// What serde found (`integer `5``, `string "abc"`) in the current locale.
+fn found_words(found: &str) -> String {
     if let Some(n) = found
         .strip_prefix("integer `")
         .and_then(|n| n.strip_suffix('`'))
     {
-        format!("die Zahl {n}")
+        t!("textproject.json_found_number", n = n).into_owned()
     } else if let Some(n) = found
         .strip_prefix("floating point `")
         .and_then(|n| n.strip_suffix('`'))
     {
-        format!("die Kommazahl {n}")
+        t!("textproject.json_found_float", n = n).into_owned()
     } else if let Some(b) = found
         .strip_prefix("boolean `")
         .and_then(|n| n.strip_suffix('`'))
     {
-        format!("der Wert {b}")
-    } else if let Some(t) = found.strip_prefix("string ") {
-        format!("der Text {t}")
+        t!("textproject.json_found_boolean", value = b).into_owned()
+    } else if let Some(text) = found.strip_prefix("string ") {
+        t!("textproject.json_found_string", text = text).into_owned()
     } else {
         match found {
             "null" | "unit value" => "null".to_owned(),
-            "sequence" => "eine Liste".to_owned(),
-            "map" => "ein Objekt".to_owned(),
+            "sequence" => t!("textproject.json_a_list").into_owned(),
+            "map" => t!("textproject.json_an_object").into_owned(),
             other => other.to_owned(),
         }
     }
 }
 
-/// What serde expected (`u8`, `a string`) in German.
-fn expected_de(expected: &str) -> String {
+/// What serde expected (`u8`, `a string`) in the current locale.
+fn expected_words(expected: &str) -> String {
     if let Some((min, max)) = int_range(expected) {
-        return format!("eine Zahl von {min} bis {max}");
+        return t!(
+            "textproject.json_expected_number_range",
+            min = min,
+            max = max
+        )
+        .into_owned();
     }
     if expected.starts_with("an object with exactly one of") {
-        return "ein Objekt mit genau einem von `hex`, `base_sha1` oder `file`".to_owned();
+        return t!("textproject.json_expected_part").into_owned();
     }
     if expected.starts_with("an object: the value, or the locked form") {
-        return "ein Objekt (der Wert oder die gesperrte Form mit `locked` und `raw`)".to_owned();
+        return t!("textproject.json_expected_lockable").into_owned();
     }
     match expected {
-        "a string" | "a borrowed string" | "a string or a number" => "ein Text".to_owned(),
-        "a boolean" => "true oder false".to_owned(),
-        "f32" | "f64" => "eine Zahl".to_owned(),
-        "a sequence" | "a tuple" => "eine Liste".to_owned(),
-        "a map" | "struct" => "ein Objekt".to_owned(),
+        "a string" | "a borrowed string" | "a string or a number" => {
+            t!("textproject.json_a_text").into_owned()
+        }
+        "a boolean" => t!("textproject.json_true_or_false").into_owned(),
+        "f32" | "f64" => t!("textproject.json_a_number").into_owned(),
+        "a sequence" | "a tuple" => t!("textproject.json_a_list").into_owned(),
+        "a map" | "struct" => t!("textproject.json_an_object").into_owned(),
         other => match other.strip_prefix("struct ") {
-            Some(_) => "ein Objekt".to_owned(),
+            Some(_) => t!("textproject.json_an_object").into_owned(),
             None => other.to_owned(),
         },
     }
@@ -465,7 +492,7 @@ mod tests {
         assert_eq!(hex(&[]), "");
         assert_eq!(unhex("00ab7f").unwrap(), vec![0x00, 0xAB, 0x7F]);
         assert_eq!(unhex("00AB").unwrap(), vec![0x00, 0xAB]);
-        assert!(unhex("abc").unwrap_err().contains("ungerade"));
+        assert!(unhex("abc").unwrap_err().contains("odd"));
         assert!(unhex("zz").unwrap_err().contains("`z`"));
     }
 
@@ -499,7 +526,7 @@ mod tests {
         assert_eq!((p.line, p.col), (2, 8));
         assert_eq!(
             p.message,
-            "textproject.schema: kein gültiges JSON: ein Wert wird erwartet."
+            "textproject.schema: not valid JSON: a value is expected."
         );
 
         // An error after no position (from `from_value`): line 1, column 1.
@@ -596,22 +623,22 @@ mod tests {
         assert_eq!((line, col), (4, 16));
         assert_eq!(
             msg,
-            "textproject.schema: small: die Zahl 70000 passt nicht in u8 (0 bis 255)."
+            "textproject.schema: small: the number 70000 does not fit in u8 (0 to 255)."
         );
         let (_, _, msg) = message_of(&GOOD.replace("\"wide\": 1", "\"wide\": 70000"));
         assert_eq!(
             msg,
-            "textproject.schema: wide: die Zahl 70000 passt nicht in u16 (0 bis 65535)."
+            "textproject.schema: wide: the number 70000 does not fit in u16 (0 to 65535)."
         );
         let (_, _, msg) = message_of(&GOOD.replace("\"power\": 3", "\"power\": -1"));
         assert_eq!(
             msg,
-            "textproject.schema: data.power: die Zahl -1 passt nicht in u8 (0 bis 255)."
+            "textproject.schema: data.power: the number -1 does not fit in u8 (0 to 255)."
         );
         let (_, _, msg) = message_of(&GOOD.replace("[1, 2]", "[1, 256]"));
         assert_eq!(
             msg,
-            "textproject.schema: list[1]: die Zahl 256 passt nicht in u8 (0 bis 255)."
+            "textproject.schema: list[1]: the number 256 does not fit in u8 (0 to 255)."
         );
     }
 
@@ -621,36 +648,30 @@ mod tests {
         assert_eq!((line, col), (4, 16));
         assert_eq!(
             msg,
-            "textproject.schema: small: erwartet wird eine Zahl von 0 bis 255, gefunden ist \
-             der Text \"abc\"."
+            "textproject.schema: small: expected a number from 0 to 255, found the text \"abc\"."
         );
         let (_, _, msg) = message_of(&GOOD.replace("\"flag\": true", "\"flag\": 1"));
         assert_eq!(
             msg,
-            "textproject.schema: flag: erwartet wird true oder false, gefunden ist die Zahl 1."
+            "textproject.schema: flag: expected true or false, found the number 1."
         );
         let (_, _, msg) = message_of(&GOOD.replace("\"wide\": 1", "\"wide\": 1.5"));
         assert_eq!(
             msg,
-            "textproject.schema: wide: erwartet wird eine Zahl von 0 bis 65535, gefunden ist \
-             die Kommazahl 1.5."
+            "textproject.schema: wide: expected a number from 0 to 65535, found the decimal number 1.5."
         );
         let (_, _, msg) = message_of(&GOOD.replace("{\"power\": 3, \"label\": \"l\"}", "5"));
         assert_eq!(
             msg,
-            "textproject.schema: data: erwartet wird ein Objekt, gefunden ist die Zahl 5."
+            "textproject.schema: data: expected an object, found the number 5."
         );
         let (_, _, msg) = message_of(&GOOD.replace("{\"power\": 3, \"label\": \"l\"}", "[]"));
         assert_eq!(
             msg,
-            "textproject.schema: data: erwartet wird ein Objekt, gefunden ist eine Liste mit 0 \
-             Einträgen."
+            "textproject.schema: data: expected an object, found a list with 0 entries."
         );
         let (_, _, msg) = message_of(&GOOD.replace("\"id\": \"X\"", "\"id\": null"));
-        assert_eq!(
-            msg,
-            "textproject.schema: id: erwartet wird ein Text, gefunden ist null."
-        );
+        assert_eq!(msg, "textproject.schema: id: expected a text, found null.");
     }
 
     #[test]
@@ -659,30 +680,24 @@ mod tests {
         assert_eq!((line, col), (2, 17));
         assert_eq!(
             msg,
-            "textproject.schema: zzz_unbekannt: unbekannter Schlüssel (erlaubt: `id`, `wide`, \
+            "textproject.schema: zzz_unbekannt: unknown key (allowed: `id`, `wide`, \
              `small`, `flag`, `data`, `list`)."
         );
         let (_, _, msg) = message_of(&GOOD.replace("\"power\"", "\"powr\""));
         assert_eq!(
             msg,
-            "textproject.schema: data.powr: unbekannter Schlüssel (erlaubt: `power`, `label`)."
+            "textproject.schema: data.powr: unknown key (allowed: `power`, `label`)."
         );
     }
 
     #[test]
     fn parse_json_names_a_missing_and_a_duplicate_key() {
         let (_, _, msg) = message_of(&GOOD.replace("\"id\": \"X\",", ""));
-        assert_eq!(msg, "textproject.schema: $: der Schlüssel `id` fehlt.");
+        assert_eq!(msg, "textproject.schema: $: the key `id` is missing.");
         let (_, _, msg) = message_of(&GOOD.replace(", \"label\": \"l\"", ""));
-        assert_eq!(
-            msg,
-            "textproject.schema: data: der Schlüssel `label` fehlt."
-        );
+        assert_eq!(msg, "textproject.schema: data: the key `label` is missing.");
         let (_, _, msg) = message_of(&GOOD.replace("\"small\": 2,", "\"small\": 2, \"small\": 3,"));
-        assert_eq!(
-            msg,
-            "textproject.schema: small: der Schlüssel steht doppelt."
-        );
+        assert_eq!(msg, "textproject.schema: small: the key appears twice.");
     }
 
     #[test]
@@ -691,39 +706,38 @@ mod tests {
         assert_eq!((line, col), (1, 2));
         assert_eq!(
             msg,
-            "textproject.schema: kein gültiges JSON: ein Schlüssel muss ein Text in \
-             Anführungszeichen sein."
+            "textproject.schema: not valid JSON: a key must be a text in quotes."
         );
         let (_, _, msg) = message_of("{\"id\": x}");
         assert_eq!(
             msg,
-            "textproject.schema: kein gültiges JSON: ein Wert wird erwartet."
+            "textproject.schema: not valid JSON: a value is expected."
         );
         let (_, _, msg) = message_of("{\"id\": \"X\" \"wide\": 1}");
         assert_eq!(
             msg,
-            "textproject.schema: kein gültiges JSON: `,` oder `}` wird erwartet."
+            "textproject.schema: not valid JSON: `,` or `}` is expected."
         );
         let (line, _, msg) = message_of("{\"id\": \"X\",\n");
         assert_eq!(line, 2);
         assert_eq!(
             msg,
-            "textproject.schema: kein gültiges JSON: die Datei endet mitten in einem Wert."
+            "textproject.schema: not valid JSON: the file ends in the middle of a value."
         );
         let (_, _, msg) = message_of(&format!("{GOOD} x"));
         assert_eq!(
             msg,
-            "textproject.schema: kein gültiges JSON: nach dem Ende des Werts folgen weitere Zeichen."
+            "textproject.schema: not valid JSON: more characters follow after the end of the value."
         );
         let (_, _, msg) = message_of("{\"id\"");
         assert_eq!(
             msg,
-            "textproject.schema: kein gültiges JSON: die Datei endet mitten in einem Objekt."
+            "textproject.schema: not valid JSON: the file ends in the middle of an object."
         );
         let (_, _, msg) = message_of("");
         assert_eq!(
             msg,
-            "textproject.schema: kein gültiges JSON: die Datei endet mitten in einem Wert."
+            "textproject.schema: not valid JSON: the file ends in the middle of a value."
         );
     }
 
@@ -749,7 +763,7 @@ mod tests {
         assert_eq!((err.line, err.col), (1, 1));
         assert_eq!(
             err.message,
-            "textproject.schema: small: die Zahl 300 passt nicht in u8 (0 bis 255)."
+            "textproject.schema: small: the number 300 does not fit in u8 (0 to 255)."
         );
     }
 
@@ -760,7 +774,7 @@ mod tests {
         let p = json_problem(Path::new("a.json"), b"{\"A\": -1}", &err, "c");
         assert_eq!(
             p.message,
-            "c: die Zahl -1 passt nicht in u32 (0 bis 4294967295)."
+            "c: the number -1 does not fit in u32 (0 to 4294967295)."
         );
         // Unknown messages stay as serde says them.
         assert_eq!(

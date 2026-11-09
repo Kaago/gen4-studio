@@ -687,14 +687,14 @@ fn open_refuses_a_folder_that_is_no_text_project_of_the_current_schema() {
         Ok(_) => panic!("opened"),
     };
     let dspre = TextFixture::dspre();
-    assert!(refusal(&dspre).contains("Kein Textprojekt"));
+    assert!(refusal(&dspre).contains("No text project"));
     let fx = TextFixture::exported();
     fx.edit(
         "g4-project.json",
         "\"schemaVersion\": 4",
         "\"schemaVersion\": 99",
     );
-    assert!(refusal(&fx).contains("neueren Fassung"));
+    assert!(refusal(&fx).contains("newer version"));
     fx.edit(
         "g4-project.json",
         "\"schemaVersion\": 99",
@@ -1060,7 +1060,7 @@ fn a_hand_edit_of_egg_moves_is_found_by_the_scan_and_taken_into_the_member() {
             .find(|u| u.key == EGG_MOVES_UNIT_KEY)
             .unwrap()
             .label;
-        assert_eq!(label, "Ei-Attacken");
+        assert_eq!(label, "Egg moves");
         apply_one_sided(&p, &found, &|_| false).unwrap();
         let member = disk_bytes(&p, EGG).unwrap().unwrap();
         assert_eq!(egg_table(&member).moves_of(1), Some([7, 5].as_slice()));
@@ -1324,7 +1324,7 @@ fn saving_a_locked_world_map_leaves_its_file() {
         panic!("{err:?}")
     };
     assert!(
-        text.starts_with("textproject.map-source: Karte 0000 ist eine Welt-Karte,"),
+        text.starts_with("textproject.map-source: Map 0000 is a world map,"),
         "{text}"
     );
     assert_eq!(fx.read(MAP), file);

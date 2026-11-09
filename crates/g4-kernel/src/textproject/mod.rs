@@ -61,8 +61,8 @@ pub(crate) mod tombstone;
 pub use arts::Art;
 pub use check::{CheckReport, check, sources};
 pub use export::{
-    ArtStats, ExportOptions, ExportProgress, ExportReport, ExportStep, NOT_ADOPTED,
-    UNSYNCED_EXPORT, export, export_reported, unsynced_export,
+    ArtStats, ExportOptions, ExportProgress, ExportReport, ExportStep, export, export_reported,
+    not_adopted, unsynced_export, unsynced_export_prefix,
 };
 pub use import::{ImportOptions, ImportReport, import, import_with};
 /// A binary part of an entity: public because the world document ([`crate::world::WorldJson`])
@@ -70,7 +70,7 @@ pub use import::{ImportOptions, ImportReport, import, import_with};
 pub use part::Part;
 pub use record::ref_kind;
 pub use schema::data::item_owners;
-pub use schema::header::NO_DP;
+pub use schema::header::no_dp;
 
 /// The manifest at the project root; its presence makes a folder a text project.
 pub const MANIFEST_FILE: &str = "g4-project.json";

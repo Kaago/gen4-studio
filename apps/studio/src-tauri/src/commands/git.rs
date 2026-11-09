@@ -30,7 +30,7 @@ use g4_kernel::original::ChangedEntry;
 use g4_kernel::project::Project;
 use g4_kernel::start::{MarkState, mark_state};
 use g4_kernel::textproject::restore::{
-    self, HAS_GAME_FILES, RESTORE_NEEDED, RestoreProgress, RestoreReport, needs_restore,
+    self, RestoreProgress, RestoreReport, has_game_files, needs_restore,
 };
 use serde::Serialize;
 use tauri::Manager;
@@ -351,15 +351,19 @@ pub fn unsaved_changes_impl(state: &AppState) -> Result<Vec<ChangedEntry>, CmdEr
 }
 
 /// The `restore_needed` refusal for the folder at `root` when it is a text project without
-/// its game files (`restore::needs_restore`, a fresh Git clone): [`RESTORE_NEEDED`], with
+/// its game files (`restore::needs_restore`, a fresh Git clone): [`restore::restore_needed`], with
 /// „ Basis-ROM: {label}.“ when the base mark reads.
 pub(crate) fn restore_needed(root: &Path) -> Option<CmdError> {
     if !needs_restore(root) {
         return None;
     }
     let message = match mark_state(root) {
-        MarkState::Present(mark) => format!("{RESTORE_NEEDED} Basis-ROM: {}.", base_label(&mark)),
-        _ => RESTORE_NEEDED.to_owned(),
+        MarkState::Present(mark) => format!(
+            "{} Basis-ROM: {}.",
+            restore::restore_needed(),
+            base_label(&mark)
+        ),
+        _ => restore::restore_needed(),
     };
     Some(CmdError::refused("restore_needed", message))
 }
@@ -368,7 +372,7 @@ pub(crate) fn restore_needed(root: &Path) -> Option<CmdError> {
 /// and opens it: the base ROM is `nds` (checked against the base mark's SHA-1, then
 /// remembered) or the one the search finds (`base_missing` with the reason otherwise); then
 /// `restore::restore_from_base` and `open_project`. A folder that has its game files is
-/// refused ([`HAS_GAME_FILES`]) before anything is searched.
+/// refused ([`has_game_files`]) before anything is searched.
 pub fn restore_text_project_impl(
     state: &AppState,
     root: String,
@@ -377,7 +381,7 @@ pub fn restore_text_project_impl(
 ) -> Result<RestoreReport, CmdError> {
     let path = Path::new(&root);
     if !needs_restore(path) {
-        return Err(HAS_GAME_FILES.into());
+        return Err(has_game_files().into());
     }
     if let Some(nds) = &nds {
         register_base_rom_at(state, path, Path::new(nds))?;
@@ -604,7 +608,7 @@ mod tests {
     use g4_kernel::start::read_base_mark;
     use g4_kernel::test_support::{GitFixture, TextFixture, copy_dir, synthetic_rom};
     use g4_kernel::textproject::base_layer::BASE_LAYER_DIR;
-    use g4_kernel::textproject::restore::{RESTORE_NEEDED, RestorePhase, needs_restore};
+    use g4_kernel::textproject::restore::{RestorePhase, needs_restore, restore_needed};
     use g4_kernel::textproject::symbols::SymbolKind;
     use serde_json::{Value, json};
 
@@ -1063,7 +1067,7 @@ mod tests {
         assert_eq!(err.code, "restore_needed");
         assert_eq!(
             err.message,
-            format!("{RESTORE_NEEDED} Basis-ROM: {}.", base_label(&mark))
+            format!("{} Basis-ROM: {}.", restore_needed(), base_label(&mark))
         );
         assert!(crate::commands::open_project_arc(&state).is_err());
         // Without a mark the sentence stands alone.
@@ -1071,7 +1075,7 @@ mod tests {
         let err = open_project_impl(&state, clone.to_str().unwrap()).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("restore_needed", RESTORE_NEEDED)
+            ("restore_needed", restore_needed().as_str())
         );
     }
 
@@ -1120,7 +1124,10 @@ mod tests {
         assert!(crate::commands::base::found_base(&state, &clone).is_ok());
         // Complete now: a second run is refused.
         let err = restore_text_project_impl(&state, text(&clone), None, &mut |_| {}).unwrap_err();
-        assert_eq!(err.message, g4_kernel::textproject::restore::HAS_GAME_FILES);
+        assert_eq!(
+            err.message,
+            g4_kernel::textproject::restore::has_game_files()
+        );
     }
 
     #[test]

@@ -142,7 +142,7 @@ fn a_terrain_stroke_is_one_step() {
     .unwrap();
     assert_eq!(
         st.history().0.last().unwrap(),
-        "Welt geändert: Karte 0000 (2 Zellen)"
+        "World changed: Map 0000 (2 cells)"
     );
 }
 
@@ -194,7 +194,7 @@ fn a_refused_smart_stroke_writes_nothing() {
     ));
     assert_eq!(
         text,
-        "Kantensatz „Weg“: der Platz „Diagonale NW–SO“ hat keine Kachel (Zelle (5, 5))."
+        "Edge set “Weg”: the place “Diagonal NW–SE” has no tile (cell (5, 5))."
     );
     // A plain change before it in the same call is not written either.
     let text = refused(edit(
@@ -204,7 +204,7 @@ fn a_refused_smart_stroke_writes_nothing() {
             {"cells": [[4, 4], [6, 6]], "terrain": {"set": "Weg"}}
         ]}),
     ));
-    assert!(text.contains("Diagonale NW–SO"), "{text}");
+    assert!(text.contains("Diagonal NW–SE"), "{text}");
     // A half-filled set from the editor: the stroke needs the empty place.
     let mut half = Tileset::synthetic_edges();
     half.edge_sets[0].places.e.clear();
@@ -218,7 +218,7 @@ fn a_refused_smart_stroke_writes_nothing() {
     ));
     assert_eq!(
         text,
-        "Kantensatz „Weg“: der Platz „Kante O“ hat keine Kachel (Zelle (9, 8))."
+        "Edge set “Weg”: the place “Edge E” has no tile (cell (9, 8))."
     );
     assert_eq!(fresh.history(), fresh_history);
     assert_eq!(world(&mut st, 0), before);
@@ -240,7 +240,7 @@ fn a_stroke_with_a_missing_set_is_refused() {
         json!({"cells": [[3, 3]], "cliff": {"set": "Weg", "height": 16}}),
     ] {
         let text = refused(edit(&mut st, json!({"map": 0, "changes": [change]})));
-        assert_eq!(text, "Kantensatz „Weg“ gibt es im Tileset 0000 nicht.");
+        assert_eq!(text, "Edge set “Weg” does not exist in tileset 0000.");
     }
     assert_eq!(st.history(), history);
     assert_eq!(world(&mut st, 0), one_tile_world());
@@ -271,14 +271,14 @@ fn cliff_off_the_ground_is_refused() {
                 {"layer": layer, "cells": [[3, 3]], "cliff": {"set": "Weg", "height": 16}}
             ]}),
         ));
-        assert_eq!(text, "Klippen gibt es nur auf der Bodenebene.");
+        assert_eq!(text, "Cliffs exist only on the ground layer.");
     }
     // A height outside −16 to 62: the parser's sentence.
     let text = refused(edit(
         &mut st,
         json!({"map": 0, "changes": [{"cells": [[3, 3]], "cliff": {"set": "Weg", "height": 63}}]}),
     ));
-    assert_eq!(text, "`63` liegt nicht in \u{2212}16 bis 62.");
+    assert_eq!(text, "`63` is not within −16 to 62.");
     assert_eq!(st.history(), history);
     // On the ground (`layer: 0` given) it paints.
     edit(
@@ -298,13 +298,13 @@ fn cells_and_layers_use_the_sentences_of_world_edit() {
         &mut st,
         json!({"map": 0, "changes": [{"layer": 3, "cells": [[3, 3]], "terrain": {"set": "Weg"}}]}),
     ));
-    assert_eq!(text, "Ebene 3 gibt es nicht (Karte 0000 hat 1).");
+    assert_eq!(text, "Layer 3 does not exist (Map 0000 has 1).");
     for change in [
         json!({"cells": [[32, 4]], "terrain": {"set": "Weg"}}),
         json!({"cells": [[32, 4]], "cliff": {"set": "Weg", "height": 16}}),
     ] {
         let text = refused(edit(&mut st, json!({"map": 0, "changes": [change]})));
-        assert_eq!(text, "Zelle (32, 4) liegt außerhalb der Karte (0 bis 31).");
+        assert_eq!(text, "Cell (32, 4) is outside the map (0 to 31).");
     }
     // The terrain brush paints an overlay of its own.
     put_world(&mut st, 0, with_overlay());
@@ -321,8 +321,8 @@ fn cells_and_layers_use_the_sentences_of_world_edit() {
 #[test]
 fn one_field_names_terrain_and_cliff() {
     assert_eq!(
-        ONE_FIELD,
-        "Eine Änderung setzt genau eines von tile, height, ramp, permission, terrain, cliff."
+        one_field(),
+        "A change sets exactly one of tile, height, ramp, permission, terrain, cliff."
     );
     let (_fx, mut st) = setup();
     for change in [
@@ -332,7 +332,7 @@ fn one_field_names_terrain_and_cliff() {
         json!({"cells": [[3, 3]]}),
     ] {
         let text = refused(edit(&mut st, json!({"map": 0, "changes": [change]})));
-        assert_eq!(text, ONE_FIELD);
+        assert_eq!(text, one_field());
     }
     // Unknown fields of the brushes are refused by the request.
     let bad: Result<WorldEditRequest, _> = serde_json::from_value(
@@ -400,18 +400,18 @@ fn nothing_changed_is_nothing_to_change() {
         &mut st,
         json!({"map": 0, "changes": [{"cells": [[3, 3]], "terrain": {"set": "Weg", "inside": false}}]}),
     ));
-    assert_eq!(text, NOTHING_TO_CHANGE);
+    assert_eq!(text, nothing_to_change());
     assert_eq!(st.history(), history);
     // The same stroke twice: the second changes nothing.
     let stroke = json!({"map": 0, "changes": [{"cells": plus_cells(), "terrain": {"set": "Weg"}}]});
     edit(&mut st, stroke.clone()).unwrap();
     let history = st.history();
-    assert_eq!(refused(edit(&mut st, stroke)), NOTHING_TO_CHANGE);
+    assert_eq!(refused(edit(&mut st, stroke)), nothing_to_change());
     // The same cliff twice.
     let cliff = json!({"map": 0, "changes": [{"cells": rect(20..=24, 20..=24), "cliff": {"set": "Weg", "height": 16}}]});
     edit(&mut st, cliff.clone()).unwrap();
     assert_eq!(st.history().0.len(), history.0.len() + 1);
-    assert_eq!(refused(edit(&mut st, cliff)), NOTHING_TO_CHANGE);
+    assert_eq!(refused(edit(&mut st, cliff)), nothing_to_change());
 }
 
 /// [`setup`] with map 1 (east of map 0) a world map with an area at its x 0–3, z 9–11, painted
@@ -482,8 +482,7 @@ fn neighbours_are_never_written() {
     assert_eq!(
         report.notes,
         [
-            "Naht zu Karte 0001: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die Nachbarkarte \
-          bleibt, wie sie ist."
+            "Seam to Map 0001: 3 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
         ]
     );
     assert_eq!(world(&mut st, 1), east);
@@ -573,8 +572,7 @@ fn notes_are_in_the_report() {
     assert_eq!(
         report.notes,
         [
-            "Naht zu Karte 0000: 5 Zellen dort passen nicht mehr zum Satz „Weg“; die Nachbarkarte \
-          bleibt, wie sie ist."
+            "Seam to Map 0000: 5 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
         ]
     );
     let v = serde_json::to_value(&report).unwrap();

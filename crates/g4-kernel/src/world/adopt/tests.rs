@@ -13,10 +13,10 @@ use crate::project::{AssetId, AssetKind};
 use crate::terrain::{parse_grid, scenario_input, set_map_terrain};
 use crate::test_support::{TextFixture, synthetic_map_bytes};
 use crate::textproject::canon::to_canonical;
-use crate::world::WORLD_NEEDS_TEXT_PROJECT;
 use crate::world::edit::{WorldEditRequest, world_edit, world_to_binary};
 use crate::world::grid::WorldGrid;
 use crate::world::tileset::{Tileset, tileset_rel};
+use crate::world::world_needs_text_project;
 
 const JSON: &str = "data/maps/0000.json";
 
@@ -274,7 +274,7 @@ fn adopt_is_one_undo_step() {
     let before = map_bytes(&mut st, 0);
     let report = adopt(&mut st, 0);
     assert!(report.change.is_some());
-    assert_eq!(st.history().0, ["Karte als Quelle übernommen: Karte 0000"]);
+    assert_eq!(st.history().0, ["Map adopted as source: Map 0000"]);
     let adopted = st.world(0).unwrap().cloned();
     assert!(adopted.is_some());
     st.undo().unwrap();
@@ -300,13 +300,13 @@ fn adopt_refuses_dspre_world_locked_and_gltf() {
             &mut st,
             &req(json!({"map": 0, "form": "gltf"}))
         )),
-        "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula)."
+        "Form 2 needs apicula (`G4_APICULA` or tools/apicula)."
     );
     assert!(st.history().0.is_empty());
     adopt(&mut st, 0);
     assert_eq!(
         refused(world_adopt(&mut st, &req(json!({"map": 0})))),
-        "Karte 0000 ist schon eine Welt-Karte."
+        "Map 0000 is a world map already."
     );
     assert_eq!(st.history().0.len(), 1);
     // A locked map.
@@ -320,7 +320,7 @@ fn adopt_refuses_dspre_world_locked_and_gltf() {
     .unwrap();
     assert_eq!(
         refused(world_adopt(&mut st, &req(json!({"map": 1})))),
-        "Karte 0001 lässt sich nicht übernehmen: ihr Member lässt sich nicht lesen (gesperrt)."
+        "Map 0001 cannot be adopted: its member does not read (gesperrt)."
     );
     assert_eq!(st.world(1).unwrap(), None);
     assert_eq!(st.history().0.len(), 1);
@@ -329,7 +329,7 @@ fn adopt_refuses_dspre_world_locked_and_gltf() {
     let mut st = store(&dspre);
     assert_eq!(
         refused(world_adopt(&mut st, &req(json!({"map": 0})))),
-        WORLD_NEEDS_TEXT_PROJECT
+        world_needs_text_project()
     );
     assert!(st.history().0.is_empty());
     // Unknown keys and forms are serde's.

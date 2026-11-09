@@ -38,12 +38,12 @@ use crate::textproject::canon::{parse_json, problem, to_canonical};
 use crate::textproject::codes::SCHEMA_CODE;
 use crate::textproject::locate::located;
 use crate::tiles::tile_behavior;
-use crate::world::WORLD_NEEDS_TEXT_PROJECT;
 use crate::world::edge::{EdgeSetJson, EdgeSetOp, edge_set_label, edge_set_problems, missing_set};
 use crate::world::freeform::{
     SIDE_NAME_MAX, bind_model, file_step_at, in_one_step, is_side_name, named_piece_files,
     new_side_name, piece_rel, side_parts,
 };
+use crate::world::world_needs_text_project;
 
 /// The version of the tileset file this build reads and writes.
 pub const TILESET_VERSION: u32 = 1;
@@ -272,110 +272,130 @@ pub fn read_tileset_file(project: &Project, package: u16) -> Result<Option<Tiles
 /// the tiles ([`tile_outside`]) or not of role `wall`, `footprint` on a tile that is not `piece`
 /// or a `piece` without it, a texture name longer than 16 bytes, `sound` ≠ 0 outside
 /// HeartGold/SoulSilver or past bit 6 in it; then per edge set its [`edge_set_problems`] and a
-/// name an earlier set has („edge_sets[1].name: Kantensatz „Weg“ gibt es zweimal.“).
+/// name an earlier set has („edge_sets[1].name: Edge set “Path” exists twice.“).
 pub fn tileset_problems(tileset: &Tileset, stem: u16, family: Family) -> Vec<String> {
     let mut problems = Vec::new();
     if tileset.version != TILESET_VERSION {
-        problems.push(format!(
-            "version: Version {} kennt diese Fassung nicht ({TILESET_VERSION}).",
-            tileset.version
-        ));
+        problems.push(
+            t!(
+                "world.tileset_version_unknown",
+                version = tileset.version,
+                known = TILESET_VERSION
+            )
+            .into_owned(),
+        );
     }
     if tileset.package != stem {
-        problems.push(format!(
-            "package: Paket {:04} passt nicht zum Dateinamen {stem:04}.json.",
-            tileset.package
-        ));
+        problems.push(
+            t!(
+                "world.tileset_package_mismatch",
+                package = tileset.package : {:04},
+                stem = stem : {:04}
+            )
+            .into_owned(),
+        );
     }
     let count = tileset.tiles.len();
     for (i, tile) in tileset.tiles.iter().enumerate() {
         let at = |key: &str| format!("tiles[{i}].{key}");
         let len = tile.texture.len();
         if len > TEXTURE_NAME_MAX {
-            problems.push(format!(
-                "{}: der Texturname `{}` ist {len} Byte lang (höchstens {TEXTURE_NAME_MAX}).",
-                at("texture"),
-                tile.texture
-            ));
+            problems.push(
+                t!(
+                    "world.texture_name_too_long",
+                    path = at("texture"),
+                    name = tile.texture,
+                    len = len,
+                    max = TEXTURE_NAME_MAX
+                )
+                .into_owned(),
+            );
         }
         if tile.sound != 0 {
             if family != Family::Hgss {
-                problems.push(format!(
-                    "{}: Geräusche gibt es nur in HeartGold/SoulSilver.",
-                    at("sound")
-                ));
+                problems.push(t!("world.sound_hgss_only", path = at("sound")).into_owned());
             } else if tile.sound > SOUND_MAX {
-                problems.push(format!(
-                    "{}: {:#04x} hat mehr als 7 Bit (höchstens {SOUND_MAX:#04x}).",
-                    at("sound"),
-                    tile.sound
-                ));
+                problems.push(
+                    t!(
+                        "world.sound_too_big",
+                        path = at("sound"),
+                        sound = tile.sound : {:#04x},
+                        max = SOUND_MAX : {:#04x}
+                    )
+                    .into_owned(),
+                );
             }
         }
         if let Some(wall) = tile.wall {
             match tileset.tile(wall) {
                 None => problems.push(tile_outside(&at("wall"), wall, tileset.package, count)),
-                Some(target) if target.role != TileRole::Wall => problems.push(format!(
-                    "{}: Kachel {wall:#06x} ist keine Wand (Rolle `{}`).",
-                    at("wall"),
-                    target.role.key()
-                )),
+                Some(target) if target.role != TileRole::Wall => problems.push(
+                    t!(
+                        "world.tile_not_wall",
+                        path = at("wall"),
+                        tile = wall : {:#06x},
+                        role = target.role.key()
+                    )
+                    .into_owned(),
+                ),
                 Some(_) => {}
             }
         }
         match (tile.role == TileRole::Piece, tile.footprint.is_some()) {
-            (false, true) => problems.push(format!(
-                "{}: einen Fußabdruck haben nur Teilmodelle (`piece`).",
-                at("footprint")
-            )),
-            (true, false) => problems.push(format!(
-                "tiles[{i}]: ein Teilmodell (`piece`) braucht einen Fußabdruck (`footprint`)."
-            )),
+            (false, true) => {
+                problems.push(t!("world.footprint_piece_only", path = at("footprint")).into_owned())
+            }
+            (true, false) => problems
+                .push(t!("world.piece_needs_footprint", path = format!("tiles[{i}]")).into_owned()),
             _ => {}
         }
         if let Some(model) = &tile.model {
             if tile.role != TileRole::Piece {
-                problems.push(format!(
-                    "{}: `model` haben nur Teilmodelle (`piece`).",
-                    at("model")
-                ));
+                problems.push(t!("world.model_piece_only", path = at("model")).into_owned());
             }
             if !is_side_name(model) {
-                problems.push(format!(
-                    "{}: `model` ist ein Name aus a\u{2013}z, 0\u{2013}9, `_`, `-`, \
-                     höchstens {SIDE_NAME_MAX} Zeichen.",
-                    at("model")
-                ));
+                problems.push(
+                    t!(
+                        "world.model_name_rule",
+                        path = at("model"),
+                        max = SIDE_NAME_MAX
+                    )
+                    .into_owned(),
+                );
             }
         }
     }
     for (i, set) in tileset.edge_sets.iter().enumerate() {
         problems.extend(edge_set_problems(set, i, tileset.package, count));
         if tileset.edge_sets[..i].iter().any(|s| s.name == set.name) {
-            problems.push(format!(
-                "edge_sets[{i}].name: Kantensatz „{}“ gibt es zweimal.",
-                set.name
-            ));
+            problems.push(t!("world.edge_set_twice_name", index = i, name = set.name).into_owned());
         }
     }
     problems
 }
 
-/// „<path>: Kachel 0x0120 gibt es im Tileset 0006 nicht (94 Kacheln).“ (check and
-/// world_edit share it).
+/// „<path>: Tile 0x0120 does not exist in tileset 0006 (94 tiles).“ (check and world_edit
+/// share it).
 pub fn tile_outside(path: &str, tile: u16, package: u16, tiles: usize) -> String {
     let count = if tiles == 1 {
-        "1 Kachel".to_owned()
+        t!("world.tiles_one").into_owned()
     } else {
-        format!("{tiles} Kacheln")
+        t!("world.tiles_other", n = tiles).into_owned()
     };
-    format!("{path}: Kachel {tile:#06x} gibt es im Tileset {package:04} nicht ({count}).")
+    t!(
+        "world.tile_outside",
+        path = path,
+        tile = tile : {:#06x},
+        package = package : {:04},
+        count = count
+    )
+    .into_owned()
 }
 
 /// The problems of the folder `data/tilesets/` (the file kind `tilesets` of
 /// [`check_files`](crate::textproject::kinds::check_files)), each `textproject.schema` with
 /// file and line: a model side file `PPPP.<name>.glb` no tile of `PPPP.json` names
-/// ([`named_piece_files`]; „löschen oder `model` setzen“), any other file name that is no
+/// ([`named_piece_files`]; „delete it or set `model`“), any other file name that is no
 /// package number `NNNN.json`, a file that does not read as a [`Tileset`] (serde's path), and
 /// every one of [`tileset_problems`] of a file that does, at its JSON path. A model side file
 /// of a `PPPP.json` that does not read is left to that file's problem.
@@ -398,10 +418,12 @@ pub fn check_folder(project: &Project, problems: &mut Vec<Problem>) -> Result<()
                 problems.push(problem(
                     &rel,
                     SCHEMA_CODE,
-                    format!(
-                        "Das Beifile {name} nennt keine Kachel von {package:04}.json; löschen \
-                         oder `model` setzen."
-                    ),
+                    t!(
+                        "world.side_file_unnamed",
+                        name = name,
+                        package = package : {:04}
+                    )
+                    .into_owned(),
                 ));
             }
             continue;
@@ -410,9 +432,7 @@ pub fn check_folder(project: &Project, problems: &mut Vec<Problem>) -> Result<()
             problems.push(problem(
                 &rel,
                 SCHEMA_CODE,
-                "Der Dateiname ist keine Paketnummer (`NNNN.json`); die Datei gehört zu keinem \
-                 Kartentextur-Paket."
-                    .to_owned(),
+                t!("world.tileset_file_name").into_owned(),
             ));
             continue;
         };
@@ -768,16 +788,21 @@ fn argmax(values: &[f64]) -> usize {
     best
 }
 
-/// „Kartentextur-Paket 0200 gibt es nicht (74 Pakete).“
+/// „Map texture package 0200 does not exist (74 packages).“
 pub(crate) fn missing_package(package: u16, count: usize) -> KernelError {
     let count = if count == 1 {
-        "1 Paket".to_owned()
+        t!("world.packages_one").into_owned()
     } else {
-        format!("{count} Pakete")
+        t!("world.packages_other", n = count).into_owned()
     };
-    KernelError::Refused(format!(
-        "Kartentextur-Paket {package:04} gibt es nicht ({count})."
-    ))
+    KernelError::Refused(
+        t!(
+            "world.package_missing",
+            package = package : {:04},
+            count = count
+        )
+        .into_owned(),
+    )
 }
 
 /// The member file of map texture package `package` (its archive unpacked first); refused
@@ -790,14 +815,14 @@ pub(crate) fn package_file(project: &Project, package: u16) -> Result<PathBuf, K
     Ok(project.member_path(AssetKind::MapTexture, package))
 }
 
-/// The package in `path` read; refused with the reason when it does not read („Kartentextur-
-/// Paket 0006 lässt sich nicht lesen: …“).
+/// The package in `path` read; refused with the reason when it does not read („Map texture
+/// package 0006 does not read: …“).
 pub(crate) fn read_package_file(path: &Path, package: u16) -> Result<Nsbtx, KernelError> {
     let bytes = std::fs::read(path).map_err(io_at(path))?;
     Nsbtx::read(&bytes).map_err(|e| {
-        KernelError::Refused(format!(
-            "Kartentextur-Paket {package:04} lässt sich nicht lesen: {e}"
-        ))
+        KernelError::Refused(
+            t!("world.package_unreadable", package = package : {:04}, error = e).into_owned(),
+        )
     })
 }
 
@@ -874,14 +899,13 @@ pub fn save_tileset(store: &mut Store, package: u16) -> Result<TilesetSaveReport
         return Err(KernelError::Busy(why.to_owned()));
     }
     if *project.source_mode() != SourceMode::TextProject {
-        return Err(KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()));
+        return Err(KernelError::Refused(world_needs_text_project()));
     }
     let rel = tileset_rel(package);
     if project.root.join(&rel).exists() {
-        return Err(KernelError::Refused(format!(
-            "{} gibt es schon.",
-            crate::relpath::slash(&rel)
-        )));
+        return Err(KernelError::Refused(
+            t!("world.file_exists", file = crate::relpath::slash(&rel)).into_owned(),
+        ));
     }
     let tileset = derive_tileset(store, package)?;
     let dir = project.root.join(TILESETS_DIR);
@@ -897,7 +921,10 @@ pub fn save_tileset(store: &mut Store, package: u16) -> Result<TilesetSaveReport
         kind: FileStepKind::Reset,
     };
     write_file_step(&project, &step)?;
-    let change = store.record_file_step(&format!("Tileset {package:04} abgeleitet"), step);
+    let change = store.record_file_step(
+        &t!("world.tileset_derived_label", package = package : {:04}),
+        step,
+    );
     let tiles = tileset.tiles.len();
     let vanilla = tileset
         .tiles
@@ -964,17 +991,22 @@ pub struct TilesetEditReport {
     pub change: ChangeId,
 }
 
-/// „Erst `tileset_save` für Paket 0006.“: why a package without tileset file is not edited.
+/// „First `tileset_save` for package 0006.“: why a package without tileset file is not edited.
 pub fn tileset_file_missing(package: u16) -> String {
-    format!("Erst `tileset_save` für Paket {package:04}.")
+    t!("world.tileset_file_missing", package = package : {:04}).into_owned()
 }
 
-/// „Tileset 0006 geändert (2 Kacheln)“, the label of [`tileset_edit`].
+/// „Tileset 0006 changed (2 tiles)“, the label of [`tileset_edit`].
 pub fn tileset_edit_label(package: u16, tiles: usize) -> String {
     if tiles == 1 {
-        format!("Tileset {package:04} geändert (1 Kachel)")
+        t!("world.tileset_changed_one", package = package : {:04}).into_owned()
     } else {
-        format!("Tileset {package:04} geändert ({tiles} Kacheln)")
+        t!(
+            "world.tileset_changed_other",
+            package = package : {:04},
+            tiles = tiles
+        )
+        .into_owned()
     }
 }
 
@@ -990,7 +1022,7 @@ pub fn tileset_edit_label(package: u16, tiles: usize) -> String {
 ///
 /// The step is a file step as [`save_tileset`]'s (FileStepKind::Reset, asset HEADER_TABLE):
 /// undo writes the file as it was. Refused besides ([`KernelError::Refused`], nothing written):
-/// changes that change no tile ([`super::edit::NOTHING_TO_CHANGE`]), a file that does not
+/// changes that change no tile ([`super::edit::nothing_to_change`]), a file that does not
 /// read (the refusal of [`read_tileset_file`]). A problem of the result is named with the
 /// file's path (`data/tilesets/0006.json: tiles[0].wall: …`).
 pub fn tileset_edit(
@@ -1003,7 +1035,7 @@ pub fn tileset_edit(
         return Err(KernelError::Busy(why.to_owned()));
     }
     if *project.source_mode() != SourceMode::TextProject {
-        return Err(KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()));
+        return Err(KernelError::Refused(world_needs_text_project()));
     }
     let package = req.package;
     let rel = tileset_rel(package);
@@ -1071,9 +1103,7 @@ pub fn tileset_edit(
         }
     }
     if changed == 0 && tileset.edge_sets == old.edge_sets {
-        return Err(KernelError::Refused(
-            super::edit::NOTHING_TO_CHANGE.to_owned(),
-        ));
+        return Err(KernelError::Refused(super::edit::nothing_to_change()));
     }
     if let Some(problem) = tileset_problems(&tileset, package, project.family)
         .into_iter()
@@ -1141,12 +1171,18 @@ pub struct PieceSetReport {
     pub change: ChangeId,
 }
 
-/// „Teilmodell gesetzt: Kachel 5 in Tileset 0006 (baum)“, the label of [`tileset_piece_set`].
+/// „Piece set: Tile 5 in tileset 0006 (baum)“, the label of [`tileset_piece_set`].
 pub fn piece_set_label(package: u16, tile: u16, model: &str) -> String {
-    format!("Teilmodell gesetzt: Kachel {tile} in Tileset {package:04} ({model})")
+    t!(
+        "world.piece_set_label",
+        tile = tile,
+        package = package : {:04},
+        model = model
+    )
+    .into_owned()
 }
 
-/// One undo step „Teilmodell gesetzt: Kachel 5 in Tileset 0006 (baum)“: textures appended to
+/// One undo step „Piece set: Tile 5 in tileset 0006 (baum)“: textures appended to
 /// `package`, side file `PPPP.<name>.glb`, tile set to role `piece`, `footprint`, `model`; needs
 /// the tileset file.
 ///
@@ -1157,7 +1193,7 @@ pub fn piece_set_label(package: u16, tile: u16, model: &str) -> String {
 /// it. Refused
 /// ([`KernelError::Refused`], nothing written): outside a text project, without the tileset
 /// file ([`tileset_file_missing`]), a tile past the tileset, a footprint without a cell, a
-/// model the reader or the conversion refuses („Teilmodell nicht gesetzt: …“), a result with
+/// model the reader or the conversion refuses („Piece not set: …“), a result with
 /// `tileset_problems`, a busy store.
 pub fn tileset_piece_set(
     store: &mut Store,
@@ -1169,7 +1205,7 @@ pub fn tileset_piece_set(
         return Err(KernelError::Busy(why.to_owned()));
     }
     if *project.source_mode() != SourceMode::TextProject {
-        return Err(KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()));
+        return Err(KernelError::Refused(world_needs_text_project()));
     }
     let package = req.package;
     let rel = tileset_rel(package);
@@ -1190,19 +1226,26 @@ pub fn tileset_piece_set(
         )));
     };
     if req.footprint.contains(&0) {
-        return Err(KernelError::Refused(format!(
-            "Ein Fußabdruck ist mindestens 1 × 1 Zelle ({} × {}).",
-            req.footprint[0], req.footprint[1]
-        )));
+        return Err(KernelError::Refused(
+            t!(
+                "world.footprint_too_small",
+                w = req.footprint[0],
+                d = req.footprint[1]
+            )
+            .into_owned(),
+        ));
     }
     let bound = match bind_model(store, package, &old, &req.path, &req.options, 0)? {
         Ok(bound) => bound,
         Err(refusal) => {
-            return Err(KernelError::Refused(format!(
-                "Teilmodell nicht gesetzt: {} ({})",
-                refusal.reason.message,
-                refusal.reason.code.as_str()
-            )));
+            return Err(KernelError::Refused(
+                t!(
+                    "world.piece_not_set",
+                    reason = refusal.reason.message,
+                    code = refusal.reason.code.as_str()
+                )
+                .into_owned(),
+            ));
         }
     };
     let own = was.model.clone();
@@ -1470,31 +1513,31 @@ mod tests {
 
         assert_eq!(
             problems(&|t| t.version = 2, 0, pt),
-            ["version: Version 2 kennt diese Fassung nicht (1)."]
+            ["version: Version 2 does not know this version of the file (1)."]
         );
         assert_eq!(
             problems(&none, 6, pt),
-            ["package: Paket 0000 passt nicht zum Dateinamen 0006.json."]
+            ["package: Package 0000 does not match the file name 0006.json."]
         );
         assert_eq!(
             problems(&|t| t.tiles[2].model = Some("baum".to_owned()), 0, pt),
-            ["tiles[2].model: `model` haben nur Teilmodelle (`piece`)."]
+            ["tiles[2].model: only pieces (`piece`) have `model`."]
         );
         assert_eq!(
             problems(&|t| t.tiles[0].wall = Some(6), 0, pt),
-            ["tiles[0].wall: Kachel 0x0006 gibt es im Tileset 0000 nicht (6 Kacheln)."]
+            ["tiles[0].wall: Tile 0x0006 does not exist in tileset 0000 (6 tiles)."]
         );
         assert_eq!(
             problems(&|t| t.tiles[0].wall = Some(2), 0, pt),
-            ["tiles[0].wall: Kachel 0x0002 ist keine Wand (Rolle `water`)."]
+            ["tiles[0].wall: Tile 0x0002 is not a wall (role `water`)."]
         );
         assert_eq!(
             problems(&|t| t.tiles[1].footprint = Some([1, 1]), 0, pt),
-            ["tiles[1].footprint: einen Fußabdruck haben nur Teilmodelle (`piece`)."]
+            ["tiles[1].footprint: only pieces (`piece`) have a footprint."]
         );
         assert_eq!(
             problems(&|t| t.tiles[5].footprint = None, 0, pt),
-            ["tiles[5]: ein Teilmodell (`piece`) braucht einen Fußabdruck (`footprint`)."]
+            ["tiles[5]: a piece (`piece`) needs a footprint (`footprint`)."]
         );
         assert_eq!(
             problems(
@@ -1503,16 +1546,16 @@ mod tests {
                 pt
             ),
             [
-                "tiles[4].texture: der Texturname `syn_rampe_zu_lang` ist 17 Byte lang (höchstens 16)."
+                "tiles[4].texture: the texture name `syn_rampe_zu_lang` is 17 bytes long (at most 16)."
             ]
         );
         assert_eq!(
             problems(&|t| t.tiles[1].sound = 3, 0, pt),
-            ["tiles[1].sound: Geräusche gibt es nur in HeartGold/SoulSilver."]
+            ["tiles[1].sound: sounds exist only in HeartGold/SoulSilver."]
         );
         assert_eq!(
             problems(&|t| t.tiles[1].sound = 3, 0, Family::Dp),
-            ["tiles[1].sound: Geräusche gibt es nur in HeartGold/SoulSilver."]
+            ["tiles[1].sound: sounds exist only in HeartGold/SoulSilver."]
         );
         assert_eq!(
             problems(&|t| t.tiles[1].sound = 3, 0, Family::Hgss),
@@ -1520,7 +1563,7 @@ mod tests {
         );
         assert_eq!(
             problems(&|t| t.tiles[1].sound = 0x80, 0, Family::Hgss),
-            ["tiles[1].sound: 0x80 hat mehr als 7 Bit (höchstens 0x7f)."]
+            ["tiles[1].sound: 0x80 has more than 7 bits (at most 0x7f)."]
         );
         // Several problems: all of them, file first, then tile by tile.
         assert_eq!(
@@ -1538,12 +1581,11 @@ mod tests {
                 pt
             ),
             [
-                "package: Paket 0000 passt nicht zum Dateinamen 0001.json.",
-                "tiles[2].model: `model` haben nur Teilmodelle (`piece`).",
-                "tiles[3].wall: Kachel 0x0120 gibt es im Tileset 0000 nicht (6 Kacheln).",
-                "edge_sets[0].name: Ein Kantensatz braucht einen Namen.",
-                "edge_sets[0].places.center[0]: Kachel 0x0006 gibt es im Tileset 0000 nicht \
-                 (6 Kacheln).",
+                "package: Package 0000 does not match the file name 0001.json.",
+                "tiles[2].model: only pieces (`piece`) have `model`.",
+                "tiles[3].wall: Tile 0x0120 does not exist in tileset 0000 (6 tiles).",
+                "edge_sets[0].name: An edge set needs a name.",
+                "edge_sets[0].places.center[0]: Tile 0x0006 does not exist in tileset 0000 (6 tiles).",
             ]
         );
     }
@@ -1552,11 +1594,11 @@ mod tests {
     fn tile_outside_names_tile_package_and_count() {
         assert_eq!(
             tile_outside("world.layers[0].tiles[4]", 0x0120, 6, 94),
-            "world.layers[0].tiles[4]: Kachel 0x0120 gibt es im Tileset 0006 nicht (94 Kacheln)."
+            "world.layers[0].tiles[4]: Tile 0x0120 does not exist in tileset 0006 (94 tiles)."
         );
         assert_eq!(
             tile_outside("tiles[0].wall", 0x00ab, 12, 1),
-            "tiles[0].wall: Kachel 0x00ab gibt es im Tileset 0012 nicht (1 Kachel)."
+            "tiles[0].wall: Tile 0x00ab does not exist in tileset 0012 (1 tile)."
         );
     }
 
@@ -1772,7 +1814,7 @@ mod tests {
         // Package 2 (named by area data 1) is no member: refused with the count.
         assert_eq!(
             refusal(deriver.derive(&mut store, 2)),
-            "Kartentextur-Paket 0002 gibt es nicht (1 Paket)."
+            "Map texture package 0002 does not exist (1 package)."
         );
     }
 
@@ -1917,14 +1959,14 @@ mod tests {
 
         assert_eq!(
             refusal(store.tileset(5)),
-            "Kartentextur-Paket 0005 gibt es nicht (1 Paket)."
+            "Map texture package 0005 does not exist (1 package)."
         );
         // A package that does not read names why.
         let synth = synthetic_project();
         let mut plain = Store::new(Arc::new(Project::open(synth.dir.path()).unwrap()));
         let why = refusal(plain.tileset(0));
         assert!(
-            why.starts_with("Kartentextur-Paket 0000 lässt sich nicht lesen: "),
+            why.starts_with("Map texture package 0000 does not read: "),
             "{why}"
         );
     }
@@ -2022,7 +2064,7 @@ mod tests {
         );
         assert_eq!(*store.tileset(0).unwrap(), derived);
         let (undo, _) = store.history();
-        assert_eq!(undo, ["Tileset 0000 abgeleitet"]);
+        assert_eq!(undo, ["Tileset 0000 derived"]);
 
         assert_eq!(store.undo().unwrap(), [HEADER_TABLE]);
         assert!(!path.exists());
@@ -2038,7 +2080,7 @@ mod tests {
         save_tileset(&mut store, 0).unwrap();
         assert_eq!(
             refusal(save_tileset(&mut store, 0)),
-            "data/tilesets/0000.json gibt es schon."
+            "data/tilesets/0000.json exists already."
         );
         assert_eq!(store.history().0.len(), 1);
 
@@ -2046,7 +2088,7 @@ mod tests {
         let mut store = store_of(&dspre);
         assert_eq!(
             refusal(save_tileset(&mut store, 0)),
-            WORLD_NEEDS_TEXT_PROJECT
+            world_needs_text_project()
         );
         assert!(!dspre.root().join(tileset_rel(0)).exists());
         assert!(store.history().0.is_empty());
@@ -2074,7 +2116,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((report.package, report.tiles), (0, 2));
-        assert_eq!(store.history().0, ["Tileset 0000 geändert (2 Kacheln)"]);
+        assert_eq!(store.history().0, ["Tileset 0000 changed (2 tiles)"]);
         let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
         let mut want = Tileset::synthetic();
         want.tiles[0].role = TileRole::Grass;
@@ -2100,7 +2142,7 @@ mod tests {
         assert_eq!(report.tiles, 1);
         assert_eq!(
             store.history().0.last().unwrap(),
-            "Tileset 0000 geändert (1 Kachel)"
+            "Tileset 0000 changed (1 tile)"
         );
         assert_eq!(store.tileset(0).unwrap().tiles[2].wall, None);
     }
@@ -2113,7 +2155,7 @@ mod tests {
         let one = || edit_req(json!({"package": 0, "changes": [{"tile": 0, "kind": 2}]}));
         assert_eq!(
             refusal(tileset_edit(&mut store, &one())),
-            "Erst `tileset_save` für Paket 0000."
+            "First `tileset_save` for package 0000."
         );
         assert!(store.history().0.is_empty());
         // The DSPRE layout.
@@ -2121,7 +2163,7 @@ mod tests {
         let mut dstore = store_of(&dspre);
         assert_eq!(
             refusal(tileset_edit(&mut dstore, &one())),
-            WORLD_NEEDS_TEXT_PROJECT
+            world_needs_text_project()
         );
         // With the file: a tile past it, a result with a problem, nothing changed.
         let fx = crate::test_support::world_ready();
@@ -2131,20 +2173,18 @@ mod tests {
         let cases = [
             (
                 json!([{"tile": 1, "kind": 2}, {"tile": 6, "kind": 2}]),
-                "changes[1].tile: Kachel 0x0006 gibt es im Tileset 0000 nicht (6 Kacheln).",
+                "changes[1].tile: Tile 0x0006 does not exist in tileset 0000 (6 tiles).",
             ),
             (
                 json!([{"tile": 0, "wall": 1}]),
-                "data/tilesets/0000.json: tiles[0].wall: Kachel 0x0001 ist keine Wand (Rolle \
-                 `grass`).",
+                "data/tilesets/0000.json: tiles[0].wall: Tile 0x0001 is not a wall (role `grass`).",
             ),
             (
                 json!([{"tile": 1, "sound": 3}]),
-                "data/tilesets/0000.json: tiles[1].sound: Geräusche gibt es nur in \
-                 HeartGold/SoulSilver.",
+                "data/tilesets/0000.json: tiles[1].sound: sounds exist only in HeartGold/SoulSilver.",
             ),
-            (json!([{"tile": 1, "kind": 2}]), "Nichts zu ändern."),
-            (json!([]), "Nichts zu ändern."),
+            (json!([{"tile": 1, "kind": 2}]), "Nothing to change."),
+            (json!([]), "Nothing to change."),
         ];
         for (changes, want) in cases {
             let text = refusal(tileset_edit(
@@ -2317,10 +2357,10 @@ mod tests {
         );
         assert_eq!(
             problems(&|t| t.tiles[0].model = Some("turm".to_owned())),
-            ["tiles[0].model: `model` haben nur Teilmodelle (`piece`)."]
+            ["tiles[0].model: only pieces (`piece`) have `model`."]
         );
-        let rule = "tiles[5].model: `model` ist ein Name aus a\u{2013}z, 0\u{2013}9, `_`, `-`, \
-                    höchstens 32 Zeichen.";
+        let rule =
+            "tiles[5].model: `model` is a name of a–z, 0–9, `_`, `-`, at most 32 characters.";
         for bad in ["Turm", "", "tu rm", "turm.glb", "../turm", &"a".repeat(33)] {
             assert_eq!(
                 problems(&|t| t.tiles[5].model = Some(bad.to_owned())),
@@ -2332,9 +2372,8 @@ mod tests {
         assert_eq!(
             problems(&|t| t.tiles[1].model = Some("Turm".to_owned())),
             [
-                "tiles[1].model: `model` haben nur Teilmodelle (`piece`).",
-                "tiles[1].model: `model` ist ein Name aus a\u{2013}z, 0\u{2013}9, `_`, `-`, \
-                 höchstens 32 Zeichen."
+                "tiles[1].model: only pieces (`piece`) have `model`.",
+                "tiles[1].model: `model` is a name of a–z, 0–9, `_`, `-`, at most 32 characters."
             ]
         );
     }
@@ -2376,13 +2415,11 @@ mod tests {
         for (changes, want) in [
             (
                 json!([{"tile": 0, "model": "turm"}]),
-                "data/tilesets/0000.json: tiles[0].model: `model` haben nur Teilmodelle \
-                 (`piece`).",
+                "data/tilesets/0000.json: tiles[0].model: only pieces (`piece`) have `model`.",
             ),
             (
                 json!([{"tile": 5, "model": "Turm"}]),
-                "data/tilesets/0000.json: tiles[5].model: `model` ist ein Name aus a\u{2013}z, \
-                 0\u{2013}9, `_`, `-`, höchstens 32 Zeichen.",
+                "data/tilesets/0000.json: tiles[5].model: `model` is a name of a–z, 0–9, `_`, `-`, at most 32 characters.",
             ),
         ] {
             let text = refusal(tileset_edit(
@@ -2489,20 +2526,17 @@ mod tests {
             [
                 (
                     "data/tilesets/0000.Haus.glb".to_owned(),
-                    "textproject.schema: Der Dateiname ist keine Paketnummer (`NNNN.json`); die \
-                     Datei gehört zu keinem Kartentextur-Paket."
+                    "textproject.schema: The file name is not a package number (`NNNN.json`); the file belongs to no map texture package."
                         .to_owned()
                 ),
                 (
                     "data/tilesets/0000.alt.glb".to_owned(),
-                    "textproject.schema: Das Beifile 0000.alt.glb nennt keine Kachel von \
-                     0000.json; löschen oder `model` setzen."
+                    "textproject.schema: The side file 0000.alt.glb names no tile of 0000.json; delete it or set `model`."
                         .to_owned()
                 ),
                 (
                     "data/tilesets/0003.turm.glb".to_owned(),
-                    "textproject.schema: Das Beifile 0003.turm.glb nennt keine Kachel von \
-                     0003.json; löschen oder `model` setzen."
+                    "textproject.schema: The side file 0003.turm.glb names no tile of 0003.json; delete it or set `model`."
                         .to_owned()
                 ),
             ]
@@ -2516,8 +2550,7 @@ mod tests {
         assert_eq!(
             found,
             [
-                "textproject.schema: Das Beifile 0000.turm.glb nennt keine Kachel von 0000.json; \
-              löschen oder `model` setzen."
+                "textproject.schema: The side file 0000.turm.glb names no tile of 0000.json; delete it or set `model`."
             ]
         );
     }
@@ -2592,7 +2625,7 @@ mod tests {
             tileset_piece_set(&mut store, &piece_req(&fx, json!({"name": "Baum"}))).unwrap();
         assert_eq!(report.model, "baum");
         assert_eq!(report.stats.quads, 6);
-        let label = "Teilmodell gesetzt: Kachel 5 in Tileset 0000 (baum)";
+        let label = "Piece set: Tile 5 in tileset 0000 (baum)";
         assert_eq!(piece_set_label(0, 5, "baum"), label);
         assert_eq!(store.history().0, [label]);
         let glb = fx.root().join("data/tilesets/0000.baum.glb");
@@ -2669,7 +2702,7 @@ mod tests {
                 &mut store,
                 &piece_req(&fx, json!({"footprint": [0, 2]}))
             )),
-            "Ein Fußabdruck ist mindestens 1 × 1 Zelle (0 × 2)."
+            "A footprint is at least 1 × 1 cell (0 × 2)."
         );
         assert!(store.history().0.is_empty());
     }
@@ -2728,9 +2761,8 @@ mod tests {
         assert_eq!(
             tileset_problems(&t, 0, Family::Pt),
             [
-                "edge_sets[0].places.n[1]: `0g07` ist keine Kachel (`.` oder vier Hex-Ziffern, \
-                 dahinter `r1` bis `r3` und `f`).",
-                "edge_sets[1].name: Kantensatz „Weg“ gibt es zweimal.",
+                "edge_sets[0].places.n[1]: `0g07` is not a tile (`.` or four hex digits, followed by `r1` to `r3` and `f`).",
+                "edge_sets[1].name: Edge set “Weg” exists twice.",
             ]
         );
         // The check names it at its line in the file.
@@ -2773,10 +2805,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((report.package, report.tiles), (0, 0));
-        assert_eq!(
-            store.history().0,
-            ["Kantensatz „Weg“ angelegt: Tileset 0000"]
-        );
+        assert_eq!(store.history().0, ["Edge set “Weg” added: Tileset 0000"]);
         let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
         assert_eq!(now, Tileset::synthetic_edges());
         assert_eq!(*store.tileset(0).unwrap(), now);
@@ -2799,7 +2828,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             store.history().0.last().unwrap(),
-            "Kantensatz „Weg“ geändert: Tileset 0000"
+            "Edge set “Weg” changed: Tileset 0000"
         );
         let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
         assert_eq!(now.edge_sets, [changed.clone(), other.clone()]);
@@ -2809,7 +2838,7 @@ mod tests {
                 &mut store,
                 &edit_req(json!({"package": 0, "changes": [], "sets": [put(&changed)]})),
             )),
-            "Nichts zu ändern."
+            "Nothing to change."
         );
         tileset_edit(
             &mut store,
@@ -2818,7 +2847,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             store.history().0.last().unwrap(),
-            "Kantensatz „Weg“ entfernt: Tileset 0000"
+            "Edge set “Weg” removed: Tileset 0000"
         );
         let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
         assert_eq!(now.edge_sets, [other]);
@@ -2835,8 +2864,7 @@ mod tests {
                 &mut store,
                 &edit_req(json!({"package": 0, "changes": [], "sets": [put(&broken)]})),
             )),
-            "data/tilesets/0000.json: edge_sets[0].places.e[0]: Kachel 0007 steht zweimal im \
-             Satz („n“ und „e“)."
+            "data/tilesets/0000.json: edge_sets[0].places.e[0]: Tile 0007 stands twice in the set (“n” and “e”)."
         );
         assert_eq!(std::fs::read(&path).unwrap(), before);
         // Neither changes nor sets: nothing to change.
@@ -2845,7 +2873,7 @@ mod tests {
                 &mut store,
                 &edit_req(json!({"package": 0, "changes": [], "sets": []})),
             )),
-            "Nichts zu ändern."
+            "Nothing to change."
         );
     }
 
@@ -2859,7 +2887,7 @@ mod tests {
                     json!({"package": 0, "changes": [], "sets": [{"remove": {"name": "Weg"}}]})
                 ),
             )),
-            "Kantensatz „Weg“ gibt es im Tileset 0000 nicht."
+            "Edge set “Weg” does not exist in tileset 0000."
         );
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert!(store.history().0.is_empty());
@@ -2871,10 +2899,7 @@ mod tests {
             ]})),
         )
         .unwrap();
-        assert_eq!(
-            store.history().0,
-            ["Kantensatz „Weg“ angelegt: Tileset 0000"]
-        );
+        assert_eq!(store.history().0, ["Edge set “Weg” added: Tileset 0000"]);
     }
 
     #[test]
@@ -2887,10 +2912,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(report.tiles, 13);
-        assert_eq!(
-            store.history().0,
-            ["Kantensatz „Weg“ angelegt: Tileset 0000"]
-        );
+        assert_eq!(store.history().0, ["Edge set “Weg” added: Tileset 0000"]);
         let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
         assert_eq!(now.edge_sets, [weg13()]);
         for (i, tile) in now.tiles.iter().enumerate() {

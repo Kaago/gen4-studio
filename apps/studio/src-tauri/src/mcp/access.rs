@@ -392,7 +392,7 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         "recipe_apply" => serde_json::from_value::<RecipeCall>(args.clone())
             .ok()
             .and_then(|call| recipes::is_irreversible(&call).ok().flatten())
-            .map_or(Class::Write, |why| Kind::Irreversible(why).into()),
+            .map_or(Class::Write, Class::Irreversible),
         "delete_entity" if frees_number(args) => Kind::Irreversible("Nummer freigeben").into(),
         _ => Class::Write,
     }
@@ -409,11 +409,11 @@ pub fn frees_number(args: &Value) -> bool {
 
 /// Whether [`classify`]'s answer `class` for `command` depends on the project, so that
 /// [`classify_in`] answers it exactly: `recipe_apply` of a visibility or a scene, which
-/// [`classify`] holds irreversible ([`recipes::LEVEL_SCRIPT_FILE`]) without knowing whether
+/// [`classify`] holds irreversible ([`recipes::level_script_file`]) without knowing whether
 /// the place needs a level script file of its own.
 pub fn needs_store(command: &str, class: &Class) -> bool {
     command == "recipe_apply"
-        && matches!(class, Class::Irreversible(why) if why == recipes::LEVEL_SCRIPT_FILE)
+        && matches!(class, Class::Irreversible(why) if *why == recipes::level_script_file())
 }
 
 /// [`classify`] with the project's store at hand: where the answer depends on the project
@@ -434,7 +434,7 @@ pub fn classify_in(command: &str, args: &Value, policy: &UserPolicy, store: &mut
     };
     match recipes::is_irreversible_in(store, &call) {
         Ok(None) => Class::Write,
-        Ok(Some(why)) => Kind::Irreversible(why).into(),
+        Ok(Some(why)) => Class::Irreversible(why),
         Err(_) => class,
     }
 }
@@ -816,7 +816,7 @@ mod tests {
             } })
         };
         let classify = |args: Value| classify("recipe_apply", &args, &policy);
-        let patch = Class::Irreversible("Header-Patch einspielen".to_owned());
+        let patch = Class::Irreversible("Apply the header patch".to_owned());
         assert_eq!(classify(area(true)), patch);
         assert_eq!(classify(room(true)), patch);
         for empty in [
@@ -826,7 +826,7 @@ mod tests {
         ] {
             assert_eq!(
                 classify(empty.clone()),
-                Class::Irreversible("Welt leeren".to_owned()),
+                Class::Irreversible("Empty the world".to_owned()),
                 "{empty}"
             );
         }
@@ -846,7 +846,7 @@ mod tests {
         } });
         assert_eq!(
             classify(trainer),
-            Class::Irreversible("Trainer anlegen".to_owned())
+            Class::Irreversible("Create trainer".to_owned())
         );
         // Arguments that are no recipe call, or input the recipe cannot read.
         for args in [
@@ -907,7 +907,7 @@ mod tests {
                 json!({ "story": story, "header": header, "step": 0, "text": "Willkommen" }),
             )
         };
-        let level = Class::Irreversible(recipes::LEVEL_SCRIPT_FILE.to_owned());
+        let level = Class::Irreversible(recipes::level_script_file());
 
         // Without the store.
         let bare = |args: &Value| classify("recipe_apply", args, &policy);

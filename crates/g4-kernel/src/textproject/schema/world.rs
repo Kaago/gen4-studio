@@ -394,24 +394,41 @@ fn read_grid<T>(
     cell: impl Fn(&str) -> Option<T>,
 ) -> Result<Vec<T>, String> {
     if lines.len() != usize::from(height) {
-        return Err(format!(
-            "{SCHEMA_CODE}: {key}: {} Zeilen statt {height} (`height`).",
-            lines.len()
-        ));
+        return Err(t!(
+            "textproject.grid_rows",
+            code = SCHEMA_CODE,
+            key = key,
+            count = lines.len(),
+            height = height
+        )
+        .into_owned());
     }
     let mut out = Vec::with_capacity(usize::from(width) * lines.len());
     for (y, line) in lines.iter().enumerate() {
         let cells: Vec<&str> = line.split_whitespace().collect();
         if cells.len() != usize::from(width) {
-            return Err(format!(
-                "{SCHEMA_CODE}: {key}[{y}]: {} Zellen statt {width} (`width`).",
-                cells.len()
-            ));
+            return Err(t!(
+                "textproject.grid_cells",
+                code = SCHEMA_CODE,
+                key = key,
+                y = y,
+                count = cells.len(),
+                width = width
+            )
+            .into_owned());
         }
         for c in cells {
-            out.push(
-                cell(c).ok_or_else(|| format!("{SCHEMA_CODE}: {key}[{y}]: `{c}` ist {what}."))?,
-            );
+            out.push(cell(c).ok_or_else(|| {
+                t!(
+                    "textproject.grid_cell_invalid",
+                    code = SCHEMA_CODE,
+                    key = key,
+                    y = y,
+                    cell = c,
+                    what = what
+                )
+                .into_owned()
+            })?);
         }
     }
     Ok(out)
@@ -451,10 +468,12 @@ fn matrix_json(m: &Matrix) -> MatrixJson {
 
 fn matrix_bytes(j: &MatrixJson) -> Result<Vec<u8>, String> {
     if j.name.len() > usize::from(u8::MAX) {
-        return Err(format!(
-            "{SCHEMA_CODE}: name: {} Byte, höchstens 255.",
-            j.name.len()
-        ));
+        return Err(t!(
+            "textproject.matrix_name_length",
+            code = SCHEMA_CODE,
+            len = j.name.len()
+        )
+        .into_owned());
     }
     let (w, h) = (j.width, j.height);
     let maps = read_grid(
@@ -462,7 +481,7 @@ fn matrix_bytes(j: &MatrixJson) -> Result<Vec<u8>, String> {
         "maps",
         w,
         h,
-        "keine Kartennummer in 0..=65535 und nicht `----`",
+        &t!("textproject.grid_not_map"),
         |c| {
             if c == "----" {
                 Some(MATRIX_EMPTY)
@@ -480,7 +499,7 @@ fn matrix_bytes(j: &MatrixJson) -> Result<Vec<u8>, String> {
                 "headers",
                 w,
                 h,
-                "keine Header-Nummer in 0..=65535",
+                &t!("textproject.grid_not_header"),
                 digits::<u16>,
             )
         })
@@ -494,7 +513,7 @@ fn matrix_bytes(j: &MatrixJson) -> Result<Vec<u8>, String> {
                 "altitudes",
                 w,
                 h,
-                "keine Höhe in 0..=255",
+                &t!("textproject.grid_not_altitude"),
                 digits::<u8>,
             )
         })
@@ -555,9 +574,9 @@ fn area_bytes(j: &AreaDataJson, family: Family) -> Result<Vec<u8>, String> {
         ("dynamic_texture_type", j.dynamic_texture_type.is_some()),
         ("area_type", j.area_type.is_some()),
     ];
-    let (form, own, other): (&str, FormKeys<'_>, FormKeys<'_>) = match family {
-        Family::Hgss => ("HeartGold/SoulSilver", &hgss, &pt),
-        Family::Pt | Family::Dp => ("Platin", &pt, &hgss),
+    let (form, own, other): (String, FormKeys<'_>, FormKeys<'_>) = match family {
+        Family::Hgss => ("HeartGold/SoulSilver".to_owned(), &hgss, &pt),
+        Family::Pt | Family::Dp => (t!("textproject.platinum").into_owned(), &pt, &hgss),
     };
     let keys = |list: &[(&str, bool)], has: bool| -> Vec<String> {
         list.iter()
@@ -571,25 +590,37 @@ fn area_bytes(j: &AreaDataJson, family: Family) -> Result<Vec<u8>, String> {
         let also = if foreign.is_empty() {
             String::new()
         } else {
-            format!("; {} gehört zur anderen Familie", foreign.join(", "))
+            t!("textproject.area_foreign_keys", keys = foreign.join(", ")).into_owned()
         };
-        return Err(format!(
-            "{SCHEMA_CODE}: {ROOT}: der Area-Data von {form} fehlt {}{also}.",
-            missing.join(", ")
-        ));
+        return Err(t!(
+            "textproject.area_missing_keys",
+            code = SCHEMA_CODE,
+            root = ROOT,
+            form = form,
+            keys = missing.join(", "),
+            also = also
+        )
+        .into_owned());
     }
     if let Some((key, _)) = other.iter().find(|(_, has)| *has) {
-        return Err(format!(
-            "{SCHEMA_CODE}: {key}: die Area-Data von {form} hat dieses Feld nicht."
-        ));
+        return Err(t!(
+            "textproject.area_foreign_key",
+            code = SCHEMA_CODE,
+            key = key,
+            form = form
+        )
+        .into_owned());
     }
     let a = match family {
         Family::Hgss => {
             let light_type = u8::try_from(j.light_type).map_err(|_| {
-                format!(
-                    "{SCHEMA_CODE}: light_type: {} liegt nicht in 0..=255 ({form}).",
-                    j.light_type
+                t!(
+                    "textproject.light_type_range",
+                    code = SCHEMA_CODE,
+                    value = j.light_type,
+                    form = form
                 )
+                .into_owned()
             })?;
             AreaData::Hgss {
                 buildings_tileset: j.buildings_tileset,
@@ -720,10 +751,13 @@ fn events_bytes(j: &EventsJson, family: Family, sym: &Symbols) -> Result<Vec<u8>
             0xFFFF,
         )?;
         if family != Family::Hgss && w.height != 0 {
-            return Err(format!(
-                "{SCHEMA_CODE}: {path}.height: außer in HeartGold/SoulSilver immer 0, gefunden {}.",
-                w.height
-            ));
+            return Err(t!(
+                "textproject.warp_height",
+                code = SCHEMA_CODE,
+                path = path,
+                height = w.height
+            )
+            .into_owned());
         }
         warp_events.push(WarpEvent {
             x: w.x,

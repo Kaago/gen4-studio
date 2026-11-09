@@ -130,25 +130,26 @@ impl Place {
         }
     }
 
-    /// The name of the place in the UI („Ecke außen NW“).
-    pub fn label(self) -> &'static str {
-        match self {
-            Place::Center => "Mitte",
-            Place::N => "Kante N",
-            Place::E => "Kante O",
-            Place::S => "Kante S",
-            Place::W => "Kante W",
-            Place::OuterNw => "Ecke außen NW",
-            Place::OuterNe => "Ecke außen NO",
-            Place::OuterSw => "Ecke außen SW",
-            Place::OuterSe => "Ecke außen SO",
-            Place::InnerNw => "Ecke innen NW",
-            Place::InnerNe => "Ecke innen NO",
-            Place::InnerSw => "Ecke innen SW",
-            Place::InnerSe => "Ecke innen SO",
-            Place::DiagNwse => "Diagonale NW–SO",
-            Place::DiagNesw => "Diagonale NO–SW",
-        }
+    /// The name of the place in the UI, in the current locale („Outer corner NW“).
+    pub fn label(self) -> String {
+        let key = match self {
+            Place::Center => "world.place_center",
+            Place::N => "world.place_n",
+            Place::E => "world.place_e",
+            Place::S => "world.place_s",
+            Place::W => "world.place_w",
+            Place::OuterNw => "world.place_outer_nw",
+            Place::OuterNe => "world.place_outer_ne",
+            Place::OuterSw => "world.place_outer_sw",
+            Place::OuterSe => "world.place_outer_se",
+            Place::InnerNw => "world.place_inner_nw",
+            Place::InnerNe => "world.place_inner_ne",
+            Place::InnerSw => "world.place_inner_sw",
+            Place::InnerSe => "world.place_inner_se",
+            Place::DiagNwse => "world.place_diag_nwse",
+            Place::DiagNesw => "world.place_diag_nesw",
+        };
+        t!(key).into_owned()
     }
 }
 
@@ -274,7 +275,7 @@ pub fn edge_set_problems(
     let base = format!("edge_sets[{index}]");
     let mut problems = Vec::new();
     if set.name.trim().is_empty() {
-        problems.push(format!("{base}.name: Ein Kantensatz braucht einen Namen."));
+        problems.push(t!("world.edge_set_needs_name", path = base).into_owned());
     }
     // The tokens read so far, each with the key it stands under.
     let mut seen: Vec<(TileRef, &str)> = Vec::new();
@@ -282,7 +283,7 @@ pub fn edge_set_problems(
         let tile = match parse_tile(token) {
             Err(why) => return problems.push(format!("{path}: {why}")),
             Ok(None) => {
-                return problems.push(format!("{path}: `.` ist keine Kachel eines Platzes."));
+                return problems.push(t!("world.edge_set_dot", path = path).into_owned());
             }
             Ok(Some(tile)) => tile,
         };
@@ -290,10 +291,16 @@ pub fn edge_set_problems(
             return problems.push(tile_outside(&path, tile.tile, package, tiles));
         }
         if let Some((_, first)) = seen.iter().find(|(t, _)| *t == tile) {
-            return problems.push(format!(
-                "{path}: Kachel {} steht zweimal im Satz („{first}“ und „{key}“).",
-                tile_token(Some(tile))
-            ));
+            return problems.push(
+                t!(
+                    "world.edge_set_twice",
+                    path = path,
+                    tile = tile_token(Some(tile)),
+                    first = first,
+                    key = key
+                )
+                .into_owned(),
+            );
         }
         seen.push((tile, key));
     };
@@ -352,21 +359,21 @@ impl EdgeSetOp {
     }
 }
 
-/// The label of a `tileset_edit` with sets, after its first operation `op`: „Kantensatz „Weg“
-/// angelegt: Tileset 0006“ (a put of a new set), „… geändert: …“ (a put of a set that
-/// `existed`), „… entfernt: …“.
+/// The label of a `tileset_edit` with sets, after its first operation `op`: „Edge set “Path”
+/// added: Tileset 0006“ (a put of a new set), „… changed: …“ (a put of a set that
+/// `existed`), „… removed: …“.
 pub fn edge_set_label(op: &EdgeSetOp, existed: bool, package: u16) -> String {
-    let what = match op {
-        EdgeSetOp::Put(_) if existed => "geändert",
-        EdgeSetOp::Put(_) => "angelegt",
-        EdgeSetOp::Remove { .. } => "entfernt",
+    let key = match op {
+        EdgeSetOp::Put(_) if existed => "world.edge_set_changed_label",
+        EdgeSetOp::Put(_) => "world.edge_set_added_label",
+        EdgeSetOp::Remove { .. } => "world.edge_set_removed_label",
     };
-    format!("Kantensatz „{}“ {what}: Tileset {package:04}", op.name())
+    t!(key, name = op.name(), package = package : {:04}).into_owned()
 }
 
-/// „Kantensatz „Weg“ gibt es im Tileset 0006 nicht.“
+/// „Edge set “Path” does not exist in tileset 0006.“
 pub fn missing_set(name: &str, package: u16) -> String {
-    format!("Kantensatz „{name}“ gibt es im Tileset {package:04} nicht.")
+    t!("world.edge_set_missing", name = name, package = package : {:04}).into_owned()
 }
 
 /// The edge sets of the synthetic tileset [`super::tileset::Tileset::synthetic_edges`].
@@ -484,25 +491,25 @@ mod tests {
                 "diag_nesw"
             ]
         );
-        let labels: Vec<&str> = Place::ALL.iter().map(|p| p.label()).collect();
+        let labels: Vec<String> = Place::ALL.iter().map(|p| p.label()).collect();
         assert_eq!(
             labels,
             [
-                "Mitte",
-                "Kante N",
-                "Kante O",
-                "Kante S",
-                "Kante W",
-                "Ecke außen NW",
-                "Ecke außen NO",
-                "Ecke außen SW",
-                "Ecke außen SO",
-                "Ecke innen NW",
-                "Ecke innen NO",
-                "Ecke innen SW",
-                "Ecke innen SO",
-                "Diagonale NW–SO",
-                "Diagonale NO–SW"
+                "Centre",
+                "Edge N",
+                "Edge E",
+                "Edge S",
+                "Edge W",
+                "Outer corner NW",
+                "Outer corner NE",
+                "Outer corner SW",
+                "Outer corner SE",
+                "Inner corner NW",
+                "Inner corner NE",
+                "Inner corner SW",
+                "Inner corner SE",
+                "Diagonal NW–SE",
+                "Diagonal NE–SW"
             ]
         );
         // `get` reads the field named by the key.
@@ -632,54 +639,52 @@ mod tests {
         );
         assert_eq!(
             problems(&|set| set.name = String::new()),
-            ["edge_sets[0].name: Ein Kantensatz braucht einen Namen."]
+            ["edge_sets[0].name: An edge set needs a name."]
         );
         assert_eq!(
             problems(&|set| set.name = "  ".to_owned()),
-            ["edge_sets[0].name: Ein Kantensatz braucht einen Namen."]
+            ["edge_sets[0].name: An edge set needs a name."]
         );
         let mut empty = weg13();
         empty.name = String::new();
         assert_eq!(
             edge_set_problems(&empty, 2, 6, 22),
-            ["edge_sets[2].name: Ein Kantensatz braucht einen Namen."]
+            ["edge_sets[2].name: An edge set needs a name."]
         );
         assert_eq!(
             problems(&|set| *set.places.get_mut(Place::N) = s(&["0007", "0g07"])),
             [
-                "edge_sets[0].places.n[1]: `0g07` ist keine Kachel (`.` oder vier Hex-Ziffern, \
-                 dahinter `r1` bis `r3` und `f`)."
+                "edge_sets[0].places.n[1]: `0g07` is not a tile (`.` or four hex digits, followed by `r1` to `r3` and `f`)."
             ]
         );
         assert_eq!(
             problems(&|set| set.outside = "zz".to_owned()),
             [
-                "edge_sets[0].outside: `zz` ist keine Kachel (`.` oder vier Hex-Ziffern, \
-                 dahinter `r1` bis `r3` und `f`)."
+                "edge_sets[0].outside: `zz` is not a tile (`.` or four hex digits, followed by `r1` to `r3` and `f`)."
             ]
         );
         assert_eq!(
             problems(&|set| *set.places.get_mut(Place::N) = s(&["0007", "."])),
-            ["edge_sets[0].places.n[1]: `.` ist keine Kachel eines Platzes."]
+            ["edge_sets[0].places.n[1]: `.` is not a tile of a place."]
         );
         assert_eq!(
             problems(&|set| set.outside = ".".to_owned()),
-            ["edge_sets[0].outside: `.` ist keine Kachel eines Platzes."]
+            ["edge_sets[0].outside: `.` is not a tile of a place."]
         );
         assert_eq!(
             problems(&|set| *set.places.get_mut(Place::N) = s(&["0016"])),
-            ["edge_sets[0].places.n[0]: Kachel 0x0016 gibt es im Tileset 0000 nicht (22 Kacheln)."]
+            ["edge_sets[0].places.n[0]: Tile 0x0016 does not exist in tileset 0000 (22 tiles)."]
         );
         assert_eq!(
             problems(&|set| set.outside = "0100".to_owned()),
-            ["edge_sets[0].outside: Kachel 0x0100 gibt es im Tileset 0000 nicht (22 Kacheln)."]
+            ["edge_sets[0].outside: Tile 0x0100 does not exist in tileset 0000 (22 tiles)."]
         );
         assert_eq!(
             problems(&|set| {
                 *set.places.get_mut(Place::N) = s(&["0007r1"]);
                 *set.places.get_mut(Place::E) = s(&["0007r1"]);
             }),
-            ["edge_sets[0].places.e[0]: Kachel 0007r1 steht zweimal im Satz („n“ und „e“)."]
+            ["edge_sets[0].places.e[0]: Tile 0007r1 stands twice in the set (“n” and “e”)."]
         );
         // Compared after `parse_tile`: upper case is the same token.
         assert_eq!(
@@ -687,20 +692,18 @@ mod tests {
                 *set.places.get_mut(Place::N) = s(&["0007r1"]);
                 *set.places.get_mut(Place::E) = s(&["0007R1"]);
             }),
-            ["edge_sets[0].places.e[0]: Kachel 0007r1 steht zweimal im Satz („n“ und „e“)."]
+            ["edge_sets[0].places.e[0]: Tile 0007r1 stands twice in the set (“n” and “e”)."]
         );
         assert_eq!(
             problems(&|set| *set.places.get_mut(Place::Center) = s(&["0006", "0006"])),
             [
-                "edge_sets[0].places.center[1]: Kachel 0006 steht zweimal im Satz („center“ und \
-                 „center“)."
+                "edge_sets[0].places.center[1]: Tile 0006 stands twice in the set (“center” and “center”)."
             ]
         );
         assert_eq!(
             problems(&|set| set.places.get_mut(Place::InnerSe).push("0000".to_owned())),
             [
-                "edge_sets[0].places.inner_se[1]: Kachel 0000 steht zweimal im Satz („outside“ \
-                 und „inner_se“)."
+                "edge_sets[0].places.inner_se[1]: Tile 0000 stands twice in the set (“outside” and “inner_se”)."
             ]
         );
         // Several problems: all of them, in file order.
@@ -712,11 +715,10 @@ mod tests {
                 *set.places.get_mut(Place::DiagNesw) = s(&["0099"]);
             }),
             [
-                "edge_sets[0].name: Ein Kantensatz braucht einen Namen.",
-                "edge_sets[0].outside: `.` ist keine Kachel eines Platzes.",
-                "edge_sets[0].places.w[0]: Kachel 0006 steht zweimal im Satz („center“ und „w“).",
-                "edge_sets[0].places.diag_nesw[0]: Kachel 0x0099 gibt es im Tileset 0000 nicht \
-                 (22 Kacheln).",
+                "edge_sets[0].name: An edge set needs a name.",
+                "edge_sets[0].outside: `.` is not a tile of a place.",
+                "edge_sets[0].places.w[0]: Tile 0006 stands twice in the set (“center” and “w”).",
+                "edge_sets[0].places.diag_nesw[0]: Tile 0x0099 does not exist in tileset 0000 (22 tiles).",
             ]
         );
     }
@@ -726,22 +728,22 @@ mod tests {
         let put = EdgeSetOp::Put(weg13());
         assert_eq!(
             edge_set_label(&put, false, 6),
-            "Kantensatz „Weg“ angelegt: Tileset 0006"
+            "Edge set “Weg” added: Tileset 0006"
         );
         assert_eq!(
             edge_set_label(&put, true, 6),
-            "Kantensatz „Weg“ geändert: Tileset 0006"
+            "Edge set “Weg” changed: Tileset 0006"
         );
         let remove = EdgeSetOp::Remove {
             name: "Weg".to_owned(),
         };
         assert_eq!(
             edge_set_label(&remove, true, 6),
-            "Kantensatz „Weg“ entfernt: Tileset 0006"
+            "Edge set “Weg” removed: Tileset 0006"
         );
         assert_eq!(
             missing_set("Weg", 6),
-            "Kantensatz „Weg“ gibt es im Tileset 0006 nicht."
+            "Edge set “Weg” does not exist in tileset 0006."
         );
     }
 }

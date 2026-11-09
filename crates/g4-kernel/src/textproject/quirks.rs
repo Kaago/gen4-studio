@@ -403,7 +403,7 @@ mod tests {
         assert_eq!((problem.line, problem.col), (3, 38));
         assert!(
             problem.message.starts_with(
-                "textproject.schema: quirks.ä.jump_table_end_marker_cont: unbekannter Schlüssel"
+                "textproject.schema: quirks.ä.jump_table_end_marker_cont: unknown key"
             ),
             "{}",
             problem.message

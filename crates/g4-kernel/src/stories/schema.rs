@@ -839,7 +839,7 @@ mod tests {
         );
         assert_eq!(
             problems[0].message,
-            "story.dangling-ref: progress.var: Unbekannte ID: VAR_NOPE."
+            "story.dangling-ref: progress.var: Unknown ID: VAR_NOPE."
         );
         let text = "{\n  \"id\": \"STORY_A\",\n  \"name\": \"A\",\n  \"progress\": {\n    \"flag\": \
                     \"FLAG_0001\"\n  },\n  \"steps\": [\n    {\n      \"key\": \"s0\",\n      \
@@ -859,11 +859,11 @@ mod tests {
         );
         assert_eq!(
             problems[0].message,
-            "story.dangling-ref: steps[0].uses[0].trainer: Unbekannte ID: TRAINER_NIEMAND."
+            "story.dangling-ref: steps[0].uses[0].trainer: Unknown ID: TRAINER_NIEMAND."
         );
         assert_eq!(
             problems[1].message,
-            "story.dangling-ref: flags[0]: Unbekannte ID: FLAG_NIRGENDS."
+            "story.dangling-ref: flags[0]: Unknown ID: FLAG_NIRGENDS."
         );
     }
 
@@ -909,7 +909,7 @@ mod tests {
         );
         assert_eq!(
             problems[1].message,
-            "story.dangling-ref: steps[0].uses[1].object: Eventdatei 0000 ist gelöscht."
+            "story.dangling-ref: steps[0].uses[1].object: Event file 0000 ist gelöscht."
         );
         assert_eq!(
             problems[2].message,
@@ -968,9 +968,9 @@ mod tests {
         assert_eq!(
             messages(&problems),
             [
-                "story.dangling-ref: steps[0].uses[2].script: Scriptdatei 0003 gibt es nicht.",
-                "story.dangling-ref: steps[0].uses[4].message: Textarchiv 0698 gibt es nicht.",
-                "story.dangling-ref: steps[0].uses[6].object: Eventdatei 0002 gibt es nicht.",
+                "story.dangling-ref: steps[0].uses[2].script: Script file 0003 gibt es nicht.",
+                "story.dangling-ref: steps[0].uses[4].message: Text archive 0698 gibt es nicht.",
+                "story.dangling-ref: steps[0].uses[6].object: Event file 0002 gibt es nicht.",
             ]
         );
 

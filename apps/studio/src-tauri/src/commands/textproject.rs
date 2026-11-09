@@ -7,7 +7,7 @@ use g4_kernel::base::BaseRom;
 use g4_kernel::error::KernelError;
 use g4_kernel::project::Project;
 use g4_kernel::textproject::{
-    self, CheckReport, ExportOptions, ExportReport, NOT_ADOPTED, UNSYNCED_EXPORT,
+    self, CheckReport, ExportOptions, ExportReport, not_adopted, unsynced_export_prefix,
 };
 use tauri::Manager;
 
@@ -53,7 +53,7 @@ fn check_before_export(
     }
     let (mark, hit) = super::found_base(state, &project.root)?;
     if !g4_kernel::scripts::is_adopted(&project) {
-        return Err(CmdError::refused("not_adopted", NOT_ADOPTED.to_owned()));
+        return Err(CmdError::refused("not_adopted", not_adopted()));
     }
     Ok((project, mark, hit.path))
 }
@@ -75,10 +75,10 @@ pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
 /// The kernel's export refusals with a code of their own: `not_adopted`, `unsynced`.
 fn export_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(message) if message == NOT_ADOPTED => {
+        KernelError::Refused(message) if message == not_adopted() => {
             CmdError::refused("not_adopted", message)
         }
-        KernelError::Refused(message) if message.starts_with(UNSYNCED_EXPORT) => {
+        KernelError::Refused(message) if message.starts_with(&unsynced_export_prefix()) => {
             CmdError::refused("unsynced", message)
         }
         other => other.into(),
@@ -118,7 +118,7 @@ mod tests {
     use g4_kernel::base::missing_text;
     use g4_kernel::start::read_base_mark;
     use g4_kernel::test_support::{copy_dir, synthetic_project, synthetic_rom};
-    use g4_kernel::textproject::{DATA_DIR, MANIFEST_FILE, NOT_ADOPTED};
+    use g4_kernel::textproject::{DATA_DIR, MANIFEST_FILE, not_adopted};
     use serde_json::json;
     use std::path::{Path, PathBuf};
 
@@ -215,10 +215,10 @@ mod tests {
 
     #[test]
     fn the_kernels_unsynced_refusal_answers_unsynced() {
-        let message = format!("{UNSYNCED_EXPORT} (data/moves/0001.json); …");
+        let message = format!("{} (data/moves/0001.json); …", unsynced_export_prefix());
         let err = export_error(KernelError::Refused(message.clone()));
         assert_eq!((err.code, err.message), ("unsynced", message));
-        let err = export_error(KernelError::Refused(NOT_ADOPTED.to_owned()));
+        let err = export_error(KernelError::Refused(not_adopted()));
         assert_eq!(err.code, "not_adopted");
         let err = export_error(KernelError::Refused("anders".to_owned()));
         assert_eq!(err.code, "error");
@@ -231,7 +231,7 @@ mod tests {
         let err = text_export_impl(&d.state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("not_adopted", NOT_ADOPTED)
+            ("not_adopted", not_adopted().as_str())
         );
         assert!(err.problems.is_empty());
         wrote_nothing(&d.root);

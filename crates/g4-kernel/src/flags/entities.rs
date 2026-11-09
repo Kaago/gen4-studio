@@ -25,7 +25,7 @@ use crate::textproject::canon::{parse_json, to_canonical};
 use crate::textproject::codes::SCHEMA_CODE;
 use crate::textproject::manifest::{SchemaState, refusal, schema_state};
 use crate::textproject::registry::{IDS_DIR, Registry, registry_file};
-use crate::textproject::rename::{NOT_A_TEXT_PROJECT, apply_file_step, format_text, well_formed};
+use crate::textproject::rename::{not_a_text_project, apply_file_step, format_text, well_formed};
 use crate::textproject::symbols::parse_fallback;
 
 /// Why a number that already has an own name cannot get another one.
@@ -171,7 +171,7 @@ pub fn not_in_save_text(kind: FlagKind, n: u16, family: Family) -> String {
 /// documentation): labelled „Flag benannt: FLAG_X (0x0094)“, „Variable benannt: VAR_X (0x406C)“
 /// or „Beschreibung geändert: FLAG_X“. Every refusal comes before anything is written and is
 /// [`KernelError::Refused`] with its sentence: not a current text project
-/// ([`NOT_A_TEXT_PROJECT`]), the number outside the save ([`not_in_save_text`]), an id without
+/// ([`not_a_text_project`]), the number outside the save ([`not_in_save_text`]), an id without
 /// the kind's prefix or with other characters ([`format_text`]), an id taken ([`taken_text`]),
 /// a number with another own name ([`HAS_OWN_NAME`]), no id for a number without an own name
 /// ([`ID_REQUIRED`]), nothing to do ([`NOTHING_TO_CHANGE`]).
@@ -247,8 +247,8 @@ fn prepare(project: &Project, req: &NameRequest) -> Result<Named, KernelError> {
     let refuse = |why: String| Err(KernelError::Refused(why));
     match schema_state(&project.root)? {
         SchemaState::Current => {}
-        SchemaState::Missing => return refuse(NOT_A_TEXT_PROJECT.to_owned()),
-        state => return refuse(refusal(state).unwrap_or_else(|| NOT_A_TEXT_PROJECT.to_owned())),
+        SchemaState::Missing => return refuse(not_a_text_project()),
+        state => return refuse(refusal(state).unwrap_or_else(not_a_text_project)),
     }
     let (kind, n) = (req.kind, req.number);
     let symbol = kind.symbol();

@@ -253,7 +253,7 @@ fn manifest_unit(problems: Vec<Problem>) -> SyncUnit {
     let file = PathBuf::from(MANIFEST_FILE);
     SyncUnit {
         key: MANIFEST_FILE.to_owned(),
-        label: format!("Datei {MANIFEST_FILE}"),
+        label: t!("textproject.unit_file", file = MANIFEST_FILE).into_owned(),
         side: UnitSide::Broken,
         assets: Vec::new(),
         sources: vec![file],
@@ -329,18 +329,21 @@ fn shown(path: &Path) -> String {
 }
 
 /// What the sync does not delete, for the sentence of a deleted file of a unit of `of`.
-fn what(of: &Of) -> &'static str {
-    match of {
-        Of::Asset(id) if is_binary(id.kind) => "keine Datei",
-        Of::Asset(_) => "keine Entität",
-        Of::Text(_) => "kein Textarchiv",
-        Of::Script(_) => "keine Scriptdatei",
-        Of::Blob(_) | Of::Quirks | Of::Global(_) | Of::Other(_) => "keine Datei",
-    }
+fn what(of: &Of) -> String {
+    let key = match of {
+        Of::Asset(id) if is_binary(id.kind) => "textproject.no_file",
+        Of::Asset(_) => "textproject.no_entity",
+        Of::Text(_) => "textproject.no_text_archive",
+        Of::Script(_) => "textproject.no_script_file",
+        Of::Blob(_) | Of::Quirks | Of::Global(_) | Of::Other(_) => "textproject.no_file",
+    };
+    t!(key).into_owned()
 }
 
 /// How the sync's sentences end for a deletion: it is the Studio's.
-const DELETE_IN_STUDIO: &str = "Löschen geht im Studio („Löschen…“).";
+fn delete_in_studio() -> String {
+    t!("textproject.delete_in_studio").into_owned()
+}
 
 /// Whether `kind` is one of the binary kinds (no JSON, `data/<art>/NNNN.<ext>`).
 pub(super) fn is_binary(kind: AssetKind) -> bool {
@@ -433,17 +436,21 @@ impl Judge<'_> {
         {
             let kept = unit.sources.iter().find(|s| self.exists(s));
             let message = match kept {
-                Some(source) => format!(
-                    "{} fehlt, {} ist da; der Abgleich löscht {}; {DELETE_IN_STUDIO}",
-                    shown(gone),
-                    shown(source),
-                    what(&unit.of)
-                ),
-                None => format!(
-                    "{} fehlt; der Abgleich löscht {}; {DELETE_IN_STUDIO}",
-                    shown(gone),
-                    what(&unit.of)
-                ),
+                Some(source) => t!(
+                    "textproject.member_gone_source_there",
+                    gone = shown(gone),
+                    source = shown(source),
+                    what = what(&unit.of),
+                    delete = delete_in_studio()
+                )
+                .into_owned(),
+                None => t!(
+                    "textproject.member_gone",
+                    gone = shown(gone),
+                    what = what(&unit.of),
+                    delete = delete_in_studio()
+                )
+                .into_owned(),
             };
             return Ok(Some((
                 UnitSide::Broken,
@@ -523,13 +530,13 @@ impl Judge<'_> {
         Some(problem(
             gone,
             MEMBER_WITHOUT_JSON_CODE,
-            format!(
-                "die Datei fehlt, {} ist da; der Abgleich löscht {}: nur Member am Ende ohne \
-                 JSON, die seit der Aufzeichnung unverändert sind, entfernen Abgleich und Import \
-                 (textproject.member-removed); {DELETE_IN_STUDIO}",
-                shown(member),
-                what(&unit.of)
-            ),
+            t!(
+                "textproject.json_gone_member_there",
+                member = shown(member),
+                what = what(&unit.of),
+                delete = delete_in_studio()
+            )
+            .into_owned(),
         ))
     }
 
@@ -593,11 +600,7 @@ impl Judge<'_> {
             ..problem(
                 &found.file,
                 MEMBER_REMOVED_CODE,
-                format!(
-                    "die Datei fehlt; {} am Ende ist seit der Aufzeichnung unverändert und nicht \
-                     in der Basis: Abgleich und Import entfernen es.",
-                    listed.join(", ")
-                ),
+                t!("textproject.trailing_removed", members = listed.join(", ")).into_owned(),
             )
         }))
     }
@@ -761,8 +764,7 @@ impl Judge<'_> {
                 return broken(vec![problem(
                     gone,
                     MEMBER_WITHOUT_JSON_CODE,
-                    "die Quelle fehlt, das Member ist da; der Abgleich löscht keine Scriptdatei."
-                        .to_owned(),
+                    t!("textproject.source_gone_member_there").into_owned(),
                 )]);
             }
             return Ok((UnitSide::InSync, Vec::new()));
@@ -799,18 +801,24 @@ impl Judge<'_> {
                 UnitSide::Broken,
                 vec![plain(
                     member_rel,
-                    format!(
-                        "rotom dekompiliert {} nicht; {} bleibt, wie sie ist.",
-                        shown(member_rel),
-                        shown(present)
-                    ),
+                    t!(
+                        "textproject.rotom_no_decompile",
+                        member = shown(member_rel),
+                        unit = shown(present)
+                    )
+                    .into_owned(),
                 )],
             ),
             Err(e) => (
                 UnitSide::Broken,
                 vec![plain(
                     member_rel,
-                    format!("rotom dekompiliert {} nicht: {e}", shown(member_rel)),
+                    t!(
+                        "textproject.rotom_decompile_error",
+                        member = shown(member_rel),
+                        error = e
+                    )
+                    .into_owned(),
                 )],
             ),
         })
@@ -862,23 +870,23 @@ impl Judge<'_> {
                 None => {
                     return broken(vec![plain(
                         raw_rel,
-                        format!(
-                            "{} fehlt; ohne Basisschicht ist die Fassung der Basis von {} nicht \
-                             bekannt.",
-                            shown(raw_rel),
-                            shown(file)
-                        ),
+                        t!(
+                            "textproject.base_version_unknown",
+                            unit = shown(raw_rel),
+                            file = shown(file)
+                        )
+                        .into_owned(),
                     )]);
                 }
                 Some(None) => {
                     return broken(vec![plain(
                         raw_rel,
-                        format!(
-                            "{} fehlt und die Basis hat {} nicht; der Abgleich löscht keine \
-                             Datei.",
-                            shown(raw_rel),
-                            shown(file)
-                        ),
+                        t!(
+                            "textproject.raw_gone_not_in_base",
+                            raw = shown(raw_rel),
+                            file = shown(file)
+                        )
+                        .into_owned(),
                     )]);
                 }
                 Some(Some(_)) => {}

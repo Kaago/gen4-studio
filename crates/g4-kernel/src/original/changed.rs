@@ -49,14 +49,15 @@ pub enum ChangeState {
 /// (personal data, learnset, evolution) are one entry each.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChangedEntry {
-    /// „Karten“, „Trainer“, „Header“, …; a folder of no group goes under its own name.
+    /// „Maps“, „Trainers“, „Headers“, … ([`group_name`]); a folder of no group goes under its
+    /// own name.
     pub group: String,
-    /// „Karte 0003“ ([`ResetTarget::label`]); a kind without reset by [`asset_label`]
+    /// „Map 0003“ ([`ResetTarget::label`]); a kind without reset by [`asset_label`]
     /// („Matrix 0003“); a folder of no asset kind „{folder} {NNNN}“.
     pub label: String,
     pub state: ChangeState,
     /// What „Auf Original zurücksetzen“ resets; `None` for a new or missing entry and for a
-    /// kind without reset ([`super::NOT_RESETTABLE`]). A `Deleted` entry carries it when the
+    /// kind without reset ([`super::not_resettable`]). A `Deleted` entry carries it when the
     /// entity is an original (the reset takes the tombstone back), `None` when it is new.
     pub target: Option<ResetTarget>,
     /// The store assets of the entry, so the app can mark the unsaved ones.
@@ -119,28 +120,41 @@ pub struct ChangedProgress {
 /// Progress is reported after this many files hashed, and at the end.
 const PROGRESS_EVERY: u32 = 256;
 
-/// The groups of the list, in order; folders of no group follow under their own name.
-pub(crate) const GROUPS: [&str; 16] = [
-    "Karten",
-    "Eventdateien",
-    "Textarchive",
-    "Trainer",
-    "Pokémon",
-    "Begegnungen",
-    "Header",
-    "Scriptdateien",
-    "Kartentexturen",
-    "Gebäudetexturen",
-    "Gebäudemodelle",
-    "Innenraum-Gebäudemodelle",
-    "Matrizen",
-    "Gebietsdaten",
-    "Attacken",
-    "Items",
+/// The catalog keys of the groups of the list, in order; folders of no group follow under
+/// their own name.
+const GROUP_KEYS: [&str; 16] = [
+    "original.group_maps",
+    "original.group_events",
+    "original.group_text_archives",
+    "original.group_trainers",
+    "original.group_species",
+    "original.group_encounters",
+    "original.group_headers",
+    "original.group_scripts",
+    "original.group_map_textures",
+    "original.group_building_textures",
+    "original.group_building_models",
+    "original.group_interior_building_models",
+    "original.group_matrices",
+    "original.group_area_data",
+    "original.group_moves",
+    "original.group_items",
 ];
+/// The number of groups ([`group_name`]).
+pub(crate) const GROUP_COUNT: usize = GROUP_KEYS.len();
 pub(crate) const HEADER_GROUP: usize = 6;
 
-/// The group (index into [`GROUPS`]) of the archive of `kind`; `None`: no group of its own.
+/// The name of group `g` (below [`GROUP_COUNT`]) in the current locale: „Maps“, „Trainers“, …
+pub(crate) fn group_name(g: usize) -> String {
+    t!(GROUP_KEYS[g]).into_owned()
+}
+
+/// The group whose name in the current locale is `name` ([`group_name`]).
+pub(crate) fn group_index(name: &str) -> Option<usize> {
+    (0..GROUP_COUNT).find(|&g| group_name(g) == name)
+}
+
+/// The group (see [`group_name`]) of the archive of `kind`; `None`: no group of its own.
 pub(crate) fn group_of(kind: AssetKind) -> Option<usize> {
     Some(match kind {
         AssetKind::Map => 0,
@@ -421,7 +435,7 @@ fn entities(
     let mut found: BTreeMap<(usize, u16), Entity> = BTreeMap::new();
     for folder in folders {
         let (order, group) = match folder.kind.and_then(group_of) {
-            Some(g) => (g, GROUPS[g].to_owned()),
+            Some(g) => (g, group_name(g)),
             None => {
                 let at = others
                     .iter()
@@ -430,7 +444,7 @@ fn entities(
                         others.push(&folder.name);
                         others.len() - 1
                     });
-                (GROUPS.len() + at, folder.name.clone())
+                (GROUP_COUNT + at, folder.name.clone())
             }
         };
         let theirs = base
@@ -535,7 +549,7 @@ fn headers(
         listed.insert(
             (HEADER_GROUP, id),
             ChangedEntry {
-                group: GROUPS[HEADER_GROUP].to_owned(),
+                group: group_name(HEADER_GROUP),
                 label: target.label(),
                 state,
                 target: (state == ChangeState::Changed).then_some(target),
@@ -568,7 +582,7 @@ fn tombstones(
                 .and_then(|&id| DiffSubject::from_asset(project, id)),
         };
         let Some(subject) = subject else { continue };
-        let Some(group) = GROUPS.iter().position(|&g| g == subject.group()) else {
+        let Some(group) = group_index(&subject.group()) else {
             continue;
         };
         let at = (group, target.number());
@@ -754,8 +768,8 @@ mod tests {
         assert_eq!(
             fx.run().entries,
             vec![ChangedEntry {
-                group: "Karten".to_owned(),
-                label: "Karte 0001".to_owned(),
+                group: "Maps".to_owned(),
+                label: "Map 0001".to_owned(),
                 state: ChangeState::Changed,
                 target: Some(ResetTarget::Map { index: 1 }),
                 assets: vec![id(AssetKind::Map, 1)],
@@ -775,7 +789,7 @@ mod tests {
         assert_eq!(
             fx.run().entries,
             vec![ChangedEntry {
-                group: "Trainer".to_owned(),
+                group: "Trainers".to_owned(),
                 label: "Trainer 0002".to_owned(),
                 state: ChangeState::Changed,
                 target: Some(ResetTarget::Trainer { index: 2 }),
@@ -821,8 +835,8 @@ mod tests {
         assert_eq!(
             fx.run().entries,
             vec![ChangedEntry {
-                group: "Karten".to_owned(),
-                label: "Karte 0003".to_owned(),
+                group: "Maps".to_owned(),
+                label: "Map 0003".to_owned(),
                 state: ChangeState::New,
                 target: None,
                 assets: vec![id(AssetKind::Map, 3)],
@@ -840,8 +854,8 @@ mod tests {
         assert_eq!(
             fx.run().entries,
             vec![ChangedEntry {
-                group: "Karten".to_owned(),
-                label: "Karte 0002".to_owned(),
+                group: "Maps".to_owned(),
+                label: "Map 0002".to_owned(),
                 state: ChangeState::Missing,
                 target: None,
                 assets: vec![id(AssetKind::Map, 2)],
@@ -868,7 +882,7 @@ mod tests {
         assert_eq!(
             fx.run().entries,
             vec![ChangedEntry {
-                group: "Header".to_owned(),
+                group: "Headers".to_owned(),
                 label: "Header 0001".to_owned(),
                 state: ChangeState::Changed,
                 target: Some(ResetTarget::Header { id: 1 }),
@@ -914,7 +928,7 @@ mod tests {
         assert_eq!(
             fx.run().entries,
             vec![ChangedEntry {
-                group: "Matrizen".to_owned(),
+                group: "Matrices".to_owned(),
                 label: "Matrix 0000".to_owned(),
                 state: ChangeState::Changed,
                 target: None,
@@ -938,8 +952,8 @@ mod tests {
         assert_eq!(
             report.entries,
             vec![ChangedEntry {
-                group: "Attacken".to_owned(),
-                label: "Attacke 0001".to_owned(),
+                group: "Moves".to_owned(),
+                label: "Move 0001".to_owned(),
                 state: ChangeState::Changed,
                 target: None,
                 assets: vec![id(AssetKind::Move, 1)],
@@ -964,7 +978,7 @@ mod tests {
             fx.run().entries,
             vec![ChangedEntry {
                 group: name.clone(),
-                label: "Dynamische Header 0000".to_owned(),
+                label: "Dynamic headers 0000".to_owned(),
                 state: ChangeState::Changed,
                 target: None,
                 assets: vec![id(AssetKind::DynamicHeaders, 0)],
@@ -994,12 +1008,7 @@ mod tests {
         let labels: Vec<_> = fx.run().entries.into_iter().map(|e| e.label).collect();
         assert_eq!(
             labels,
-            [
-                "Karte 0000",
-                "Karte 0002",
-                "Begegnungsdatei 0001",
-                "Matrix 0000"
-            ]
+            ["Map 0000", "Map 0002", "Encounter file 0001", "Matrix 0000"]
         );
     }
 
@@ -1043,7 +1052,7 @@ mod tests {
 
         let first = fx.run();
         let listed: Vec<_> = first.entries.iter().map(|e| e.label.as_str()).collect();
-        assert_eq!(listed, ["Karte 0001"]);
+        assert_eq!(listed, ["Map 0001"]);
         assert_eq!((first.hashed, first.recorded), (3, 2));
         assert_eq!(
             fx.recorded(AssetKind::Map, 1),
@@ -1101,7 +1110,7 @@ mod tests {
         assert_ne!(recorded, stat);
         let report = fx.run();
         let listed: Vec<_> = report.entries.iter().map(|e| e.label.as_str()).collect();
-        assert_eq!(listed, ["Karte 0001"]);
+        assert_eq!(listed, ["Map 0001"]);
         assert_eq!((report.hashed, report.recorded), (3, 0));
         assert_eq!(
             fx.recorded(AssetKind::Map, 1).unwrap().xxh3,
@@ -1118,7 +1127,7 @@ mod tests {
         assert_eq!(report.unbuilt, vec![fx.folder(AssetKind::Map)]);
         assert_eq!((report.hashed, report.recorded), (3, 0));
         let listed: Vec<_> = report.entries.iter().map(|e| e.label.as_str()).collect();
-        assert_eq!(listed, ["Karte 0001"]);
+        assert_eq!(listed, ["Map 0001"]);
         let step = format!("pack:{}", fx.folder(AssetKind::Map));
         assert!(
             !BuildState::load(fx.root()).steps.contains_key(&step),

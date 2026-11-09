@@ -39,10 +39,14 @@ use crate::textproject::registry::Registry;
 use crate::textproject::symbols::SymbolKind;
 
 /// The refusal for an empty text.
-const NO_TEXT: &str = "Die Szene braucht einen Text.";
+fn no_text() -> String {
+    t!("recipes.scene_needs_text").into_owned()
+}
 
 /// The step's name when the input gives none.
-const DEFAULT_NAME: &str = "Szene beim Betreten";
+fn default_name() -> String {
+    t!("recipes.scene_default_name").into_owned()
+}
 
 /// The input of „Szene beim Betreten“: the story (its id), the place (header), the step the
 /// scene plays at (value k; it switches to k+1), its text and the step's name (`None`: „Szene
@@ -81,12 +85,12 @@ fn step_key(value: u16) -> String {
 
 /// The undo label.
 fn label(header: u16, story: &str) -> String {
-    format!("Szene beim Betreten von Header {header} in „{story}“")
+    t!("recipes.scene_label", header = header, story = story).into_owned()
 }
 
 /// The refusal for a place whose level script runs a script at that step of the story already.
 fn taken_condition_text(step: u16) -> String {
-    format!("Der Ort hat schon eine Szene für Schritt {step}.")
+    t!("recipes.scene_step_taken", step = step).into_owned()
 }
 
 /// What [`check`] found, everything [`apply`] needs before its first write.
@@ -118,11 +122,9 @@ fn check(store: &mut Store, input: &SceneOnEnterInput) -> Result<Checked, Kernel
     let story = load_story(store, &input.story)?;
     let k = input.step;
     require_step(&story.story, k)?;
-    let value = k.checked_add(1).ok_or_else(|| {
-        refused(format!(
-            "Schritt {k} ist der höchste Wert einer Variable; die Szene kann nicht weiterschalten."
-        ))
-    })?;
+    let value = k
+        .checked_add(1)
+        .ok_or_else(|| refused(t!("recipes.scene_step_highest", step = k)))?;
     dialog_step_taken(&story.story, value)?;
     let key = step_key(value);
     if story.story.steps.iter().any(|s| s.key == key) {
@@ -148,13 +150,15 @@ fn check(store: &mut Store, input: &SceneOnEnterInput) -> Result<Checked, Kernel
         return Err(refused(taken_condition_text(k)));
     }
     if input.text.trim().is_empty() {
-        return Err(refused(NO_TEXT));
+        return Err(refused(no_text()));
     }
     let (slot, source) = next_slot(&project, script_file)?;
     let name = scene_name(slot);
     if scripts::names_identifier(&source, &name) {
-        return Err(refused(format!(
-            "Die Scriptdatei {script_file:04} nennt schon {name}; in Bauen umbenennen."
+        return Err(refused(t!(
+            "recipes.script_file_names_already",
+            script_file = script_file : {:04},
+            name = name
         )));
     }
     let family = project.family;
@@ -182,10 +186,15 @@ pub fn plan(store: &mut Store, input: &SceneOnEnterInput) -> Result<Draft, Kerne
             archive: Some(checked.files.text_archive),
             text: input.text.clone(),
         }],
-        notes: vec![format!(
-            "Beim Betreten von Header {} mit Schritt {} läuft die Szene und schaltet auf {}.",
-            input.header, input.step, checked.value
-        )],
+        notes: vec![
+            t!(
+                "recipes.note_scene",
+                header = input.header,
+                step = input.step,
+                value = checked.value
+            )
+            .into_owned(),
+        ],
         irreversible: checked.level.irreversible().into_iter().collect(),
         ..Draft::default()
     })
@@ -200,7 +209,7 @@ fn scene_step(input: &SceneOnEnterInput, checked: &Checked, level: (u16, u16)) -
         key: step_key(checked.value),
         value: checked.value,
         kind: StepKind::Dialog,
-        name: step_name(input.step_name.as_deref(), || DEFAULT_NAME.to_owned()),
+        name: step_name(input.step_name.as_deref(), default_name),
         notes: String::new(),
         made: Some(made(RecipeId::SceneOnEnter)),
         uses: [
@@ -270,7 +279,7 @@ pub fn apply(
         created,
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("play_here", "Hier spielen")]),
+        next: next_steps(&["play_here"]),
     })
 }
 

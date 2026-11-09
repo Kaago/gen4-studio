@@ -25,7 +25,8 @@ pub const HEIGHT_MIN: i8 = g4_formats::bdhc::MIN_STEP;
 /// The highest height step of a cell, also of a ramp's upper edge (as in 6.2's BDHC grid).
 pub const HEIGHT_MAX: i8 = g4_formats::bdhc::MAX_STEP;
 
-/// The name of the ground layer of a new world.
+/// The name of the ground layer of a new world: content of the map's JSON (and of a TMJ
+/// export), not a message, so it is the same in every locale.
 const GROUND_NAME: &str = "Boden";
 
 /// The object `world` of a map file.

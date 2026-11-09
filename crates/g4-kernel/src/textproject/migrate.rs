@@ -93,14 +93,20 @@ pub fn migrate(root: &Path) -> Result<MigrateReport, KernelError> {
             .iter()
             .find(|m| m.from == version)
             .ok_or_else(|| {
-                KernelError::Refused(format!(
-                    "Keine Migration von Schema-Version {version} auf {to}."
-                ))
+                KernelError::Refused(
+                    t!("textproject.no_migration", version = version, to = to).into_owned(),
+                )
             })?;
         (step.run)(&mut tree).map_err(|why| {
-            KernelError::Refused(format!(
-                "Die Migration von Schema-Version {version} auf {to} ist gescheitert: {why}"
-            ))
+            KernelError::Refused(
+                t!(
+                    "textproject.migration_failed",
+                    version = version,
+                    to = to,
+                    why = why
+                )
+                .into_owned(),
+            )
         })?;
     }
     let manifest = current_manifest(&tree)?;
@@ -149,11 +155,17 @@ pub fn migrate(root: &Path) -> Result<MigrateReport, KernelError> {
     let total = writes.len() + removed.len();
     let mut done = 0;
     let partial = |done: usize, e: KernelError| {
-        KernelError::Partial(format!(
-            "Die Migration auf Schema-Version {SCHEMA_VERSION} brach nach {done} von {total} \
-             Dateien ab ({e}); die alten Fassungen liegen unter {}.",
-            snapshot.display()
-        ))
+        KernelError::Partial(
+            t!(
+                "textproject.migration_partial",
+                version = SCHEMA_VERSION,
+                done = done,
+                total = total,
+                error = e,
+                snapshot = snapshot.display()
+            )
+            .into_owned(),
+        )
     };
     let (manifest_write, data_writes) = writes.split_last().expect("the manifest is written");
     for (rel, bytes) in data_writes {
@@ -308,7 +320,7 @@ fn v0_to_v1(tree: &mut Tree) -> Result<(), String> {
         .files
         .get_mut(Path::new(MANIFEST_FILE))
         .and_then(Value::as_object_mut)
-        .ok_or_else(|| format!("{MANIFEST_FILE} ist kein JSON-Objekt."))?;
+        .ok_or_else(|| t!("textproject.manifest_not_object", file = MANIFEST_FILE).into_owned())?;
     *manifest = std::mem::take(manifest)
         .into_iter()
         .map(|(key, value)| match key.as_str() {
@@ -327,11 +339,11 @@ fn v0_to_v1(tree: &mut Tree) -> Result<(), String> {
             continue;
         };
         if value.as_object().is_some_and(|o| o.len() != 1) {
-            return Err(format!("{file}: neben `ids` stehen weitere Schlüssel."));
+            return Err(t!("textproject.ids_extra_keys", file = file).into_owned());
         }
         let ids = ids
             .as_object()
-            .ok_or_else(|| format!("{file}: `ids` ist kein Objekt."))?;
+            .ok_or_else(|| t!("textproject.ids_not_object", file = file).into_owned())?;
         let mut by_id: BTreeMap<String, u32> = BTreeMap::new();
         for (number, id) in ids {
             let n = number
@@ -339,12 +351,14 @@ fn v0_to_v1(tree: &mut Tree) -> Result<(), String> {
                 .all(|b| b.is_ascii_digit())
                 .then(|| number.parse::<u32>().ok())
                 .flatten()
-                .ok_or_else(|| format!("{file}: `{number}` ist keine Nummer."))?;
-            let id = id
-                .as_str()
-                .ok_or_else(|| format!("{file}: der Wert zu `{number}` ist keine ID."))?;
+                .ok_or_else(|| {
+                    t!("textproject.ids_not_number", file = file, number = number).into_owned()
+                })?;
+            let id = id.as_str().ok_or_else(|| {
+                t!("textproject.ids_value_not_id", file = file, number = number).into_owned()
+            })?;
             if by_id.insert(id.to_owned(), n).is_some() {
-                return Err(format!("{file}: die ID `{id}` steht mehrfach."));
+                return Err(t!("textproject.ids_duplicate", file = file, id = id).into_owned());
             }
         }
         *value = Value::Object(
@@ -370,18 +384,21 @@ fn v1_to_v2(tree: &mut Tree) -> Result<(), String> {
             return Ok(BTreeMap::new());
         };
         let object = value.as_object().ok_or_else(|| {
-            format!(
-                "{}: kein Objekt aus ID und Nummer.",
-                crate::build::step::key(&rel)
+            t!(
+                "textproject.ids_not_map",
+                file = crate::build::step::key(&rel)
             )
+            .into_owned()
         })?;
         let mut names = BTreeMap::new();
         for (id, n) in object {
             let n = n.as_u64().ok_or_else(|| {
-                format!(
-                    "{}: `{id}` nennt keine Nummer.",
-                    crate::build::step::key(&rel)
+                t!(
+                    "textproject.ids_names_no_number",
+                    file = crate::build::step::key(&rel),
+                    id = id
                 )
+                .into_owned()
             })?;
             // The register is sorted by id; no number has two ids (the first one wins).
             names.entry(n).or_insert_with(|| id.clone());
@@ -431,12 +448,12 @@ fn v2_to_v3(tree: &mut Tree) -> Result<(), String> {
         .files
         .get_mut(Path::new(MANIFEST_FILE))
         .and_then(Value::as_object_mut)
-        .ok_or_else(|| format!("{MANIFEST_FILE} ist kein JSON-Objekt."))?;
+        .ok_or_else(|| t!("textproject.manifest_not_object", file = MANIFEST_FILE).into_owned())?;
     let schemas = manifest
         .entry("schemas")
         .or_insert_with(|| Value::Object(serde_json::Map::new()))
         .as_object_mut()
-        .ok_or_else(|| format!("{MANIFEST_FILE}: `schemas` ist kein Objekt."))?;
+        .ok_or_else(|| t!("textproject.schemas_not_object", file = MANIFEST_FILE).into_owned())?;
     for key in ["maps.world", "tilesets"] {
         let kept = schemas.get(key).and_then(Value::as_u64).unwrap_or(0);
         schemas.insert(key.to_owned(), Value::from(kept.max(1)));
@@ -459,12 +476,12 @@ fn v3_to_v4(tree: &mut Tree) -> Result<(), String> {
         .files
         .get_mut(Path::new(MANIFEST_FILE))
         .and_then(Value::as_object_mut)
-        .ok_or_else(|| format!("{MANIFEST_FILE} ist kein JSON-Objekt."))?;
+        .ok_or_else(|| t!("textproject.manifest_not_object", file = MANIFEST_FILE).into_owned())?;
     let schemas = manifest
         .entry("schemas")
         .or_insert_with(|| Value::Object(serde_json::Map::new()))
         .as_object_mut()
-        .ok_or_else(|| format!("{MANIFEST_FILE}: `schemas` ist kein Objekt."))?;
+        .ok_or_else(|| t!("textproject.schemas_not_object", file = MANIFEST_FILE).into_owned())?;
     let kept = schemas
         .get("maps.world")
         .and_then(Value::as_u64)

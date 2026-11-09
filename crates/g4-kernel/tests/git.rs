@@ -581,7 +581,7 @@ fn trainer_and_text_changes_show_with_field_names_against_head_and_base() {
         "{labels:?} from {status:?}"
     );
     assert!(
-        labels.contains(&"Textarchiv 0001"),
+        labels.contains(&"Text archive 0001"),
         "{labels:?} from {status:?}"
     );
     eprintln!("entries {labels:?} from {} paths", status.paths.len());

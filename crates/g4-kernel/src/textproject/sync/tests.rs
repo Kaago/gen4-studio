@@ -117,7 +117,7 @@ fn a_dspre_member_change_is_dspre_and_apply_writes_the_json() {
     let unit = &report.units[0];
     assert_eq!(unit.side, UnitSide::Dspre);
     assert_eq!(unit.key, MOVE_1_JSON);
-    assert_eq!(unit.label, "Attacke 0001 · MOVE_POUND");
+    assert_eq!(unit.label, "Move 0001 · MOVE_POUND");
     assert!(report.hashed >= 1);
 
     let applied = apply_of(&fx, &report);
@@ -197,7 +197,7 @@ fn a_dspre_text_change_writes_the_text_json() {
     let units = changed(&report);
     assert_eq!(units.len(), 1, "{:?}", report.units);
     assert_eq!(units[0].side, UnitSide::Dspre);
-    assert_eq!(units[0].label, format!("Textarchiv {n:04}"));
+    assert_eq!(units[0].label, format!("Text archive {n:04}"));
     apply_of(&fx, &report);
     assert!(fx.text(&json).contains("Von DSPRE geändert"));
     assert!(changed(&scan_of(&fx)).is_empty());
@@ -217,7 +217,7 @@ fn a_dspre_script_member_change_is_decompiled_into_its_source() {
     let units = changed(&report);
     assert_eq!(units.len(), 1, "{:?}", report.units);
     assert_eq!(units[0].side, UnitSide::Dspre);
-    assert_eq!(units[0].label, "Scriptdatei 0000");
+    assert_eq!(units[0].label, "Script file 0000");
     apply_of(&fx, &report);
     assert!(fx.text(SCRIPT_0_SOURCE).contains("Message 2"));
     assert!(changed(&scan_of(&fx)).is_empty());
@@ -233,7 +233,7 @@ fn an_undecompilable_script_member_is_broken_with_its_reason() {
     assert_eq!(units.len(), 1, "{:?}", report.units);
     assert_eq!(units[0].side, UnitSide::Broken);
     assert!(
-        units[0].problems[0].message.contains("dekompiliert"),
+        units[0].problems[0].message.contains("does not decompile"),
         "{:?}",
         units[0].problems
     );
@@ -256,7 +256,7 @@ fn a_change_in_an_unmodelled_folder_becomes_a_blob() {
     let unit = &report.units[0];
     assert_eq!(unit.side, UnitSide::Dspre);
     assert_eq!(unit.key, format!("data/raw/{shown}"));
-    assert_eq!(unit.label, format!("Datei {shown}"));
+    assert_eq!(unit.label, format!("File {shown}"));
     apply_of(&fx, &report);
     assert_eq!(fx.read(&format!("data/raw/{shown}")), bytes);
     assert!(scan_of(&fx).units.is_empty());
@@ -290,11 +290,11 @@ fn a_member_deleted_by_dspre_is_broken() {
     assert_eq!(report.units.len(), 1, "{:?}", report.units);
     let unit = &report.units[0];
     assert_eq!(unit.side, UnitSide::Broken);
-    assert!(unit.label.starts_with("Attacke 0003"), "{}", unit.label);
+    assert!(unit.label.starts_with("Move 0003"), "{}", unit.label);
     assert!(
         unit.problems[0]
             .message
-            .ends_with("löscht keine Entität; Löschen geht im Studio („Löschen…“)."),
+            .ends_with("deletes no entity; Deleting is done in the Studio (“Delete…”)."),
         "{:?}",
         unit.problems
     );
@@ -329,10 +329,10 @@ fn a_trailing_binary_member_deleted_by_dspre_is_broken_with_the_import_sentence(
     assert!(
         found
             .message
-            .contains(&format!("unpacked/mapTextures/{last} fehlt"))
+            .contains(&format!("unpacked/mapTextures/{last} is missing"))
             && found
                 .message
-                .ends_with("der Abgleich löscht keine Datei; Löschen geht im Studio („Löschen…“)."),
+                .ends_with("the sync deletes no file; Deleting is done in the Studio (“Delete…”)."),
         "{found:?}"
     );
     let before = tree(&fx);
@@ -358,9 +358,9 @@ fn a_surplus_trainer_member_is_broken_not_adopted() {
         found
             .message
             .starts_with("textproject.member-without-json: ")
-            && found.message.contains("verschieden viele Member")
-            && found.message.contains("Weder Export noch Import")
-            && found.message.ends_with("im Studio löschen ließe)."),
+            && found.message.contains("different numbers of members")
+            && found.message.contains("Neither export nor import")
+            && found.message.ends_with("deleted in the Studio)."),
         "{found:?}"
     );
     let before = tree(&fx);
@@ -982,7 +982,7 @@ fn a_json_edited_while_the_build_step_writes_is_not_recorded_in_step() {
         },
     );
     assert!(
-        matches!(&refused, Err(KernelError::Refused(text)) if text.starts_with(crate::textproject::UNSYNCED_EXPORT)),
+        matches!(&refused, Err(KernelError::Refused(text)) if text.starts_with(&crate::textproject::unsynced_export_prefix())),
         "{refused:?}"
     );
     assert_eq!(power(&fx), 13);
@@ -1036,7 +1036,7 @@ fn export_refused(fx: &TextFixture) -> bool {
                 force: false,
             },
         ),
-        Err(KernelError::Refused(text)) if text.starts_with(crate::textproject::UNSYNCED_EXPORT)
+        Err(KernelError::Refused(text)) if text.starts_with(&crate::textproject::unsynced_export_prefix())
     )
 }
 

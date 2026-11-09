@@ -18,7 +18,7 @@ use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project, SourceMode};
 use g4_kernel::scripts;
 use g4_kernel::store::Store;
-use g4_kernel::textproject::rename::{NOT_A_TEXT_PROJECT, format_text};
+use g4_kernel::textproject::rename::{format_text, not_a_text_project};
 use serde::Serialize;
 
 use super::data::NavTargetDto;
@@ -499,7 +499,7 @@ fn name_error(e: KernelError, req: &NameRequest) -> CmdError {
     let KernelError::Refused(why) = e else {
         return e.into();
     };
-    let code = if why == NOT_A_TEXT_PROJECT {
+    let code = if why == not_a_text_project() {
         "not_text_project"
     } else if why == format_text(req.kind.symbol()) {
         "invalid_id"
@@ -577,7 +577,7 @@ mod tests {
     use g4_kernel::flags::{POOL_EMPTY, area_of, names};
     use g4_kernel::scripts::LevelScriptDoc;
     use g4_kernel::test_support::TextFixture;
-    use g4_kernel::textproject::rename::NOT_A_TEXT_PROJECT;
+    use g4_kernel::textproject::rename::not_a_text_project;
     use serde_json::{Value, json};
 
     /// Flag 0x173 (`FLAG_HIDE_TWINLEAF_TOWN_PLAYER_HOUSE_2F_RIVAL` in Platinum).
@@ -971,7 +971,7 @@ mod tests {
         let err = name_flag_impl(&state, request(148, "FLAG_HAT_MEDAILLE", None)).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("not_text_project", NOT_A_TEXT_PROJECT)
+            ("not_text_project", not_a_text_project().as_str())
         );
         assert!(history_impl(&state).unwrap().undo.is_empty());
         // The list works with the pret names.

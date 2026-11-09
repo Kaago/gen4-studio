@@ -53,35 +53,36 @@ pub const WORLD_MEMBER_CHANGED_CODE: &str = "world.member-changed";
 /// Texturen, VRAM 21 656 Byte.“: the model's bytes and share of [`MODEL_BUDGET`], the BDHC's
 /// payload and its share of `bdhc.max_bytes`, the textures the model binds and the area's
 /// VRAM, thousands split by a space, shares rounded to a whole percent; with a `bake.vram-high`
-/// warning „; VRAM über dem Vanilla-Höchstwert 110 640 Byte“ (`vram_max`) before the stop.
+/// warning „; VRAM above the vanilla maximum of 110 640 bytes“ (`vram_max`) before the stop.
 pub fn baked_budget_text(report: &WorldBakeReport, vram_max: usize) -> String {
     let share = |bytes: usize, of: usize| (bytes * 100 + of / 2) / of.max(1);
     let terrain_max = Project::limits().bdhc.max_bytes.value;
     let textures = match report.textures.len() {
-        1 => "1 Textur".to_owned(),
-        n => format!("{} Texturen", thousands(n)),
+        1 => t!("world.textures_one").into_owned(),
+        n => t!("world.textures_other", n = thousands(n)).into_owned(),
     };
     let high = report
         .messages
         .iter()
         .any(|m| m.code == BakeCode::VramHigh.as_str());
     let over = if high {
-        format!(
-            "; VRAM über dem Vanilla-Höchstwert {} Byte",
-            thousands(vram_max)
-        )
+        t!("world.budget_vram_over", max = thousands(vram_max)).into_owned()
     } else {
         String::new()
     };
-    format!(
-        "Gebacken: Modell {} Byte ({} % von {MODEL_BUDGET:#X}), Terrain {} Byte ({} % von \
-         {terrain_max:#X}), {textures}, VRAM {} Byte{over}.",
-        thousands(report.model_bytes),
-        share(report.model_bytes, MODEL_BUDGET),
-        thousands(report.bdhc_payload),
-        share(report.bdhc_payload, terrain_max),
-        thousands(report.vram_bytes),
+    t!(
+        "world.budget_baked",
+        model = thousands(report.model_bytes),
+        model_share = share(report.model_bytes, MODEL_BUDGET),
+        model_max = MODEL_BUDGET : {:#X},
+        terrain = thousands(report.bdhc_payload),
+        terrain_share = share(report.bdhc_payload, terrain_max),
+        terrain_max = terrain_max : {:#X},
+        textures = textures,
+        vram = thousands(report.vram_bytes),
+        over = over
     )
+    .into_owned()
 }
 
 /// `n` with a space between each three digits: `1 680`, `61 440`.
@@ -374,7 +375,7 @@ pub(crate) fn tile_errors(grid: &WorldGrid, tileset: &Tileset) -> Vec<WorldError
                 let text = outside(&path, t.tile);
                 errors.push(WorldError {
                     path,
-                    message: format!("Zelle {x}: {text}"),
+                    message: t!("world.cell_prefixed", x = x, text = text).into_owned(),
                 });
             }
         }
@@ -383,16 +384,20 @@ pub(crate) fn tile_errors(grid: &WorldGrid, tileset: &Tileset) -> Vec<WorldError
         let path = format!("world.pieces[{i}].tile");
         let message = match tileset.tile(piece.tile) {
             None => outside(&path, piece.tile),
-            Some(t) if t.role != TileRole::Piece => format!(
-                "Kachel {:#06x} ist kein Teilmodell (Rolle `{}`).",
-                piece.tile,
-                t.role.key()
-            ),
+            Some(t) if t.role != TileRole::Piece => t!(
+                "world.tile_not_piece",
+                tile = piece.tile : {:#06x},
+                role = t.role.key()
+            )
+            .into_owned(),
             Some(t) => match t.footprint {
-                Some([w, d]) if w == 0 || d == 0 => format!(
-                    "Kachel {:#06x} hat einen Fußabdruck ohne Fläche ({w} × {d}).",
-                    piece.tile
-                ),
+                Some([w, d]) if w == 0 || d == 0 => t!(
+                    "world.footprint_empty",
+                    tile = piece.tile : {:#06x},
+                    w = w,
+                    d = d
+                )
+                .into_owned(),
                 _ => continue,
             },
         };
@@ -416,9 +421,12 @@ fn mismatch(store: &mut Store, map: u16, at: &Spot<'_>, problems: &mut Vec<Probl
                 Severity::Warning,
                 WORLD_TILESET_MISMATCH_CODE,
                 "world.tileset",
-                &format!(
-                    "Karte {map:04} nimmt Tileset {tileset:04}, ihr Header {header:04} nennt \
-                     Gebietsdaten mit Paket {pack:04}."
+                &t!(
+                    "world.tileset_mismatch",
+                    map = map : {:04},
+                    tileset = tileset : {:04},
+                    header = header : {:04},
+                    pack = pack : {:04}
                 ),
                 None,
             ));
@@ -546,8 +554,7 @@ mod tests {
         assert_eq!(schema.len(), 1, "{problems:#?}");
         assert_eq!(
             schema[0].message,
-            "world.schema: world.freeform[1].glb: `glb` nennt ein Beifile dieser Karte: \
-             `0000.<name>.glb` mit a\u{2013}z, 0\u{2013}9, `_`, `-`."
+            "world.schema: world.freeform[1].glb: `glb` names a side file of this map: `0000.<name>.glb` with a–z, 0–9, `_`, `-`."
         );
         // `0004.haus.glb` on map 3 names the map's own form.
         w.freeform = vec![glb("0004.haus.glb")];
@@ -556,8 +563,7 @@ mod tests {
         assert_eq!(errors[0].path, "world.freeform[0].glb");
         assert_eq!(
             errors[0].message,
-            "`glb` nennt ein Beifile dieser Karte: `0003.<name>.glb` mit a\u{2013}z, \
-             0\u{2013}9, `_`, `-`."
+            "`glb` names a side file of this map: `0003.<name>.glb` with a–z, 0–9, `_`, `-`."
         );
         assert!(glb_map_errors(&w, 4).is_empty());
     }
@@ -576,8 +582,7 @@ mod tests {
         assert_eq!(p.file, Path::new(MAP));
         assert_eq!(
             p.message,
-            "world.schema: world.layers[0].tiles[1]: Zelle 3: `00g2` ist keine Kachel (`.` oder \
-             vier Hex-Ziffern, dahinter `r1` bis `r3` und `f`)."
+            "world.schema: world.layers[0].tiles[1]: Cell 3: `00g2` is not a tile (`.` or four hex digits, followed by `r1` to `r3` and `f`)."
         );
         let (line, col) = spot(&fx, MAP, "00g2");
         assert_eq!((p.line, p.col), (line, col));
@@ -597,8 +602,7 @@ mod tests {
         assert_eq!(schema.len(), 1, "{problems:#?}");
         assert_eq!(
             schema[0].message,
-            "world.schema: world.layers[0].ramps[2]: Zelle 5: Die Rampe endet über 62 (Höhe 61, \
-             2 Stufen)."
+            "world.schema: world.layers[0].ramps[2]: Cell 5: The ramp ends above 62 (height 61, 2 steps)."
         );
         assert_eq!((schema[0].line, schema[0].col), spot(&fx, MAP, "e2"));
     }
@@ -646,16 +650,11 @@ mod tests {
         assert_eq!(
             schema,
             [
-                "world.schema: world.layers[0].tiles[7]: Zelle 2: Kachel 0x0006 gibt es im \
-                 Tileset 0000 nicht (6 Kacheln).",
-                "world.schema: world.layers[0].tiles[9]: Zelle 0: Kachel 0x0120 gibt es im \
-                 Tileset 0000 nicht (6 Kacheln).",
-                "world.schema: world.pieces[0].tile: Kachel 0x0009 gibt es im Tileset 0000 nicht \
-                 (6 Kacheln).",
-                "world.schema: world.pieces[1].tile: Kachel 0x0001 ist kein Teilmodell (Rolle \
-                 `grass`).",
-                "world.schema: world.pieces[2]: Das Teilmodell ragt über den Kartenrand (x 31, \
-                 Breite 2).",
+                "world.schema: world.layers[0].tiles[7]: Cell 2: Tile 0x0006 does not exist in tileset 0000 (6 tiles).",
+                "world.schema: world.layers[0].tiles[9]: Cell 0: Tile 0x0120 does not exist in tileset 0000 (6 tiles).",
+                "world.schema: world.pieces[0].tile: Tile 0x0009 does not exist in tileset 0000 (6 tiles).",
+                "world.schema: world.pieces[1].tile: Tile 0x0001 is not a piece (role `grass`).",
+                "world.schema: world.pieces[2]: The piece reaches over the edge of the map (x 31, width 2).",
             ],
             "{problems:#?}"
         );
@@ -681,8 +680,7 @@ mod tests {
         assert_eq!(
             schema,
             [
-                "world.schema: world.pieces[0].tile: Kachel 0x0005 hat einen Fußabdruck ohne Fläche \
-              (0 × 2)."
+                "world.schema: world.pieces[0].tile: Tile 0x0005 has a footprint without area (0 × 2)."
             ]
         );
 
@@ -697,7 +695,7 @@ mod tests {
             .collect();
         assert_eq!(
             schema,
-            ["world.schema: world.tileset: Kartentextur-Paket 0007 gibt es nicht (1 Paket)."]
+            ["world.schema: world.tileset: Map texture package 0007 does not exist (1 package)."]
         );
     }
 
@@ -725,8 +723,7 @@ mod tests {
         assert_eq!(w.file, Path::new(MAP));
         assert_eq!(
             w.message,
-            "world.tileset-mismatch: world.tileset: Karte 0000 nimmt Tileset 0000, ihr Header \
-             0001 nennt Gebietsdaten mit Paket 0001."
+            "world.tileset-mismatch: world.tileset: Map 0000 takes tileset 0000, its Header 0001 names area data with package 0001."
         );
         assert_eq!((w.line, w.col), spot(&fx, MAP, "\"tileset\""));
     }
@@ -784,8 +781,7 @@ mod tests {
         let mut r = sample_report();
         assert_eq!(
             baked_budget_text(&r, 110_640),
-            "Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), \
-             3 Texturen, VRAM 21 656 Byte."
+            "Baked: model 21 740 bytes (35 % of 0xF000), terrain 334 bytes (1 % of 0x9000), 3 textures, VRAM 21 656 bytes."
         );
         r.textures.truncate(1);
         r.vram_bytes = 120_000;
@@ -797,8 +793,7 @@ mod tests {
         });
         assert_eq!(
             baked_budget_text(&r, 110_640),
-            "Gebacken: Modell 21 740 Byte (35 % von 0xF000), Terrain 334 Byte (1 % von 0x9000), \
-             1 Textur, VRAM 120 000 Byte; VRAM über dem Vanilla-Höchstwert 110 640 Byte."
+            "Baked: model 21 740 bytes (35 % of 0xF000), terrain 334 bytes (1 % of 0x9000), 1 texture, VRAM 120 000 bytes; VRAM above the vanilla maximum of 110 640 bytes."
         );
 
         // In the check: the bake of the store, an info at `world`.
@@ -819,7 +814,7 @@ mod tests {
             )
         );
         assert!(
-            budget[0].message.contains(", 1 Textur, "),
+            budget[0].message.contains(", 1 texture, "),
             "{}",
             budget[0].message
         );
@@ -844,8 +839,7 @@ mod tests {
         assert_eq!(
             bake[0].message,
             format!(
-                "world.bake: world: bake.model-too-big: Das gebackene Modell hat {bytes} Byte, \
-                 das Spiel fasst höchstens 61 440 Byte; die Karte behält ihr letztes Modell."
+                "world.bake: world: bake.model-too-big: The baked model has {bytes} bytes, the game holds at most 61 440 bytes; the map keeps its last model."
             )
         );
         // A refused bake has no budget.
@@ -862,8 +856,7 @@ mod tests {
         assert_eq!(
             bake.iter().map(|p| p.message.as_str()).collect::<Vec<_>>(),
             [
-                "world.bake: world: bake.texture-missing: Die Textur „syn_boden“ fehlt im \
-                 Kartentextur-Paket oder hat dort keine Palette."
+                "world.bake: world: bake.texture-missing: The texture “syn_boden” is missing in the map texture package or has no palette there."
             ]
         );
     }
@@ -886,9 +879,7 @@ mod tests {
         assert_eq!(changed[0].file, Path::new(MAP));
         assert_eq!(
             changed[0].message,
-            "world.member-changed: world: Karte 0000: Der Member wurde außerhalb des Studios \
-             geändert (DSPRE?). In Technik › Textprojekt „Neu backen“ oder „Als binäre Karte \
-             übernehmen“."
+            "world.member-changed: world: Map 0000: The member was changed outside the Studio (DSPRE?). In Technical › Text project, “Bake again” or “Adopt as binary map”."
         );
     }
 

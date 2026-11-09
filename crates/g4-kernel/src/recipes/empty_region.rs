@@ -171,31 +171,36 @@ pub fn plan(store: &mut Store, _: &EmptyRegionInput) -> Result<Draft, KernelErro
             text: checked.message.clone(),
         }],
         notes: vec![
-            format!(
-                "Behält {town} mit {rooms} Räumen; {} Header werden geleert.",
-                plan.emptied.len()
-            ),
-            format!(
-                "{} Zellen von Weltkarte 0000 bekommen die Rand-Karte, eine Kopie von Karte \
-                 {:04} mit gesperrten Zellen.",
-                plan.border_cells, plan.town_map
-            ),
-            format!(
-                "Die Stadt verliert {} Figuren und {} Auslöser; {} Warps in geleerte Header \
-                 fallen weg.",
-                plan.removed_objects,
-                plan.removed_triggers,
-                plan.dropped_warps.len()
-            ),
-            format!(
-                "Ein Start-Script gibt Pokémon {} auf Level {}.",
-                plan.starter_species, plan.starter_level
-            ),
+            t!(
+                "recipes.note_empty_keeps",
+                town = town,
+                rooms = rooms,
+                emptied = plan.emptied.len()
+            )
+            .into_owned(),
+            t!(
+                "recipes.note_empty_border",
+                cells = plan.border_cells,
+                map = plan.town_map : {:04}
+            )
+            .into_owned(),
+            t!(
+                "recipes.note_empty_town_loses",
+                objects = plan.removed_objects,
+                triggers = plan.removed_triggers,
+                warps = plan.dropped_warps.len()
+            )
+            .into_owned(),
+            t!(
+                "recipes.note_empty_starter",
+                species = plan.starter_species,
+                level = plan.starter_level
+            )
+            .into_owned(),
         ],
-        irreversible: vec![format!(
-            "Karte {:04} wird als Rand-Karte kopiert",
-            plan.town_map
-        )],
+        irreversible: vec![
+            t!("recipes.irreversible_border_map", map = plan.town_map : {:04}).into_owned(),
+        ],
         ..Draft::default()
     })
 }
@@ -414,7 +419,7 @@ pub fn apply(
         }],
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("create_area", "Gebiet anlegen")]),
+        next: next_steps(&["create_area"]),
     })
 }
 

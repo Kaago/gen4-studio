@@ -94,7 +94,7 @@ fn labels_use_the_words_of_the_app() {
     assert_eq!(label(DeleteTarget::Header { id: 593 }), "Header 0593");
     assert_eq!(
         label(DeleteTarget::Script { file: 1124 }),
-        "Scriptdatei 1124"
+        "Script file 1124"
     );
     assert_eq!(label(DeleteTarget::Place { index: 125 }), "Ort 125");
     assert_eq!(label(DeleteTarget::Flag { number: 0x94 }), "Flag 0x0094");
@@ -104,25 +104,22 @@ fn labels_use_the_words_of_the_app() {
     );
     assert_eq!(
         label(DeleteTarget::Encounter { index: 3 }),
-        "Begegnungsdatei 0003"
+        "Encounter file 0003"
     );
     assert_eq!(
         label(DeleteTarget::EventFile { index: 3 }),
-        "Eventdatei 0003"
+        "Event file 0003"
     );
     assert_eq!(label(DeleteTarget::Matrix { index: 3 }), "Matrix 0003");
-    assert_eq!(label(DeleteTarget::Map { index: 3 }), "Karte 0003");
-    assert_eq!(
-        label(DeleteTarget::AreaData { index: 3 }),
-        "Gebietsdaten 0003"
-    );
+    assert_eq!(label(DeleteTarget::Map { index: 3 }), "Map 0003");
+    assert_eq!(label(DeleteTarget::AreaData { index: 3 }), "Area data 0003");
     assert_eq!(
         label(DeleteTarget::TextArchive { index: 3 }),
-        "Textarchiv 0003"
+        "Text archive 0003"
     );
     assert_eq!(
         label(DeleteTarget::MapTexture { index: 3 }),
-        "Kartentextur 0003"
+        "Map texture 0003"
     );
 
     // The word of a kind, for the sentences.
@@ -629,7 +626,7 @@ fn guard_reference_refuses_a_tombstone() {
     assert_eq!(refused(Target::Trainer(1)), "Trainer 0001 ist gelöscht.");
     assert_eq!(
         refused(Target::EventFile(1)),
-        "Eventdatei 0001 ist gelöscht."
+        "Event file 0001 ist gelöscht."
     );
     assert!(guard_reference(&st, Target::Trainer(0)).is_ok());
     assert!(guard_reference(&st, Target::Header(1)).is_ok());
@@ -1188,7 +1185,7 @@ fn free_number_of_a_new_script_removes_source_member_and_compile_entry() {
     let after = snapshot_script(&fx.project(), 2).unwrap();
     assert_eq!(after, Default::default());
     assert_eq!(st.member_count(AssetKind::Script).unwrap(), 2);
-    assert_eq!(last_label(&st), "Nummer freigegeben: Scriptdatei 0002");
+    assert_eq!(last_label(&st), "Nummer freigegeben: Script file 0002");
     assert_eq!(refused(st.undo()), IRREVERSIBLE);
     // No tombstone step before it: script files have none.
     assert!(
@@ -1794,7 +1791,7 @@ fn guard_header_refuses_only_a_new_reference_to_a_tombstone() {
     tombstone(&mut st, DeleteTarget::EventFile { index: other });
     match guard_header(&st, &before, &after) {
         Err(KernelError::Refused(why)) => {
-            assert_eq!(why, format!("Eventdatei {other:04} ist gelöscht."));
+            assert_eq!(why, format!("Event file {other:04} ist gelöscht."));
         }
         other => panic!("{other:?}"),
     }

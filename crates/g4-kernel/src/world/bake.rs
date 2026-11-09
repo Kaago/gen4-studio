@@ -122,7 +122,7 @@ impl From<&BakeMessage> for WorldBakeMessage {
     }
 }
 
-/// The German sentence of the baker's finding `code` with `args` (as [`BakeCode`] documents
+/// The sentence of the baker's finding `code` with `args` (as [`BakeCode`] documents
 /// them), numbers with a space between thousands; `None` for a code of appending textures or
 /// args of another shape.
 pub fn baker_text(code: BakeCode, args: &[String]) -> Option<String> {
@@ -132,33 +132,42 @@ pub fn baker_text(code: BakeCode, args: &[String]) -> Option<String> {
             .unwrap_or_else(|_| s.clone())
     };
     Some(match (code, args) {
-        (BakeCode::Empty, []) => "Die Welt hat keine Fläche zum Backen.".to_owned(),
-        (BakeCode::ModelTooBig, [bytes, limit]) => format!(
-            "Das gebackene Modell hat {} Byte, das Spiel fasst höchstens {} Byte; die Karte \
-             behält ihr letztes Modell.",
-            number(bytes),
-            number(limit)
-        ),
+        (BakeCode::Empty, []) => t!("world.bake_empty").into_owned(),
+        (BakeCode::ModelTooBig, [bytes, limit]) => t!(
+            "world.bake_model_too_big",
+            bytes = number(bytes),
+            limit = number(limit)
+        )
+        .into_owned(),
         (BakeCode::ModelTooBig, [error]) => {
-            format!("Das gebackene Modell lässt sich nicht schreiben: {error}.")
+            t!("world.bake_model_unwritable", error = error).into_owned()
         }
         (BakeCode::TextureMissing, [name]) => {
-            format!("Die Textur „{name}“ fehlt im Kartentextur-Paket oder hat dort keine Palette.")
+            t!("world.bake_texture_missing", name = name).into_owned()
         }
-        (BakeCode::FaceOutOfRange, [face, x, y, z]) => format!(
-            "Fläche {face} hat die Ecke ({x}, {y}, {z}); Ecken liegen zwischen {WORLD_MIN} und \
-             {WORLD_MAX} Welteinheiten."
-        ),
-        (BakeCode::FaceUvRange, [face, axis, span]) => format!(
-            "Fläche {face} spannt {} Texel in {axis}; ihre Texturkoordinaten passen weder so \
-             noch um ganze Texturen verschoben in den Bereich des Modells.",
-            number(span)
-        ),
-        (BakeCode::VramHigh, [vram, limit]) => format!(
-            "Die Texturen des Gebiets belegen {} Byte VRAM, das größte Vanilla-Gebiet {} Byte.",
-            number(vram),
-            number(limit)
-        ),
+        (BakeCode::FaceOutOfRange, [face, x, y, z]) => t!(
+            "world.bake_face_out_of_range",
+            face = face,
+            x = x,
+            y = y,
+            z = z,
+            min = WORLD_MIN,
+            max = WORLD_MAX
+        )
+        .into_owned(),
+        (BakeCode::FaceUvRange, [face, axis, span]) => t!(
+            "world.bake_face_uv_range",
+            face = face,
+            span = number(span),
+            axis = axis
+        )
+        .into_owned(),
+        (BakeCode::VramHigh, [vram, limit]) => t!(
+            "world.bake_vram_high",
+            vram = number(vram),
+            limit = number(limit)
+        )
+        .into_owned(),
         _ => return None,
     })
 }
@@ -297,10 +306,7 @@ pub fn bake_grid(
             messages.push(WorldBakeMessage::error(
                 VERBATIM_MIXED_CODE,
                 Vec::new(),
-                "Ein Verbatim-Modell (Form 1) backt nur allein; für Kacheln oder Freiform \
-                 daneben die Karte als binäre Karte übernehmen und mit Form 2 (glTF) neu \
-                 übernehmen."
-                    .to_owned(),
+                t!("world.bake_verbatim_mixed").into_owned(),
             ));
         }
     } else if faces.is_empty() {
@@ -318,10 +324,7 @@ pub fn bake_grid(
         messages.push(WorldBakeMessage::error(
             NO_AREA_CODE,
             vec![map.to_string()],
-            format!(
-                "Karte {map:04} liegt in keiner Matrixzelle mit Header; Backen braucht Licht und \
-                 VRAM ihres Gebiets."
-            ),
+            t!("world.bake_no_area", map = map : {:04}).into_owned(),
         ));
     }
     let bdhc = verbatim
@@ -575,15 +578,10 @@ pub(crate) fn bake_world_with(
     Ok(WorldBake { file, report })
 }
 
-/// „Karte 0123 ist eine Welt-Karte: Modell, Terrain und Permissions entstehen beim Backen;
-/// Permissions über `world_edit` (`permission`), zurück zur binären Karte über „Als binäre
-/// Karte übernehmen“.“: why an edit of a world map's derived parts is refused.
+/// „Map 0123 is a world map: model, terrain and permissions come from baking; …“: why an edit
+/// of a world map's derived parts is refused.
 pub fn world_derived_refusal(map: u16) -> String {
-    format!(
-        "Karte {map:04} ist eine Welt-Karte: Modell, Terrain und Permissions entstehen beim \
-         Backen; Permissions über `world_edit` (`permission`), zurück zur binären Karte über \
-         „Als binäre Karte übernehmen“."
-    )
+    t!("world.derived_refusal", map = map : {:04}).into_owned()
 }
 
 #[cfg(any(test, feature = "test-support"))]
