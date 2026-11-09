@@ -2052,7 +2052,10 @@ mod tests {
             json!({ "file": outside.to_str().unwrap() }),
             AGENT,
         ));
-        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(
+            message.starts_with("Path is outside the allowed folders"),
+            "{message}"
+        );
         assert!(!fixture.dir.path().join(".g4/preview.png").exists());
         // Without a path: the bound project's preview, a file relative to its folder.
         std::fs::write(
@@ -2684,8 +2687,11 @@ mod tests {
                     panic!("{e:?}")
                 };
                 assert!(!["read_only", "needs_confirmation"].contains(&code.as_str()));
-                assert!(!message.contains("Ungültige Argumente"), "{message}");
-                assert!(!message.contains("außerhalb"), "{message}");
+                assert!(!message.contains("Invalid arguments"), "{message}");
+                assert!(
+                    !message.contains("outside the allowed folders"),
+                    "{message}"
+                );
                 assert!(fixture.dir.path().join("build").is_dir());
             }
         }
@@ -3439,14 +3445,20 @@ mod tests {
             let (code, message, _) =
                 failed(d.toolbox.call("assign_base", json!({ "nds": nds }), AGENT));
             assert_eq!(code, "error", "{message}");
-            assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+            assert!(
+                message.starts_with("Path is outside the allowed folders"),
+                "{message}"
+            );
             assert_eq!(d.state.agents.status().question, None);
         }
         // Through g4_call as well.
         d.state.agents.set_expert(true).unwrap();
         let args = json!({ "command": "assign_base", "args": { "nds": copy.to_str().unwrap() } });
         let (_, message, _) = failed(d.toolbox.call("g4_call", args, AGENT));
-        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(
+            message.starts_with("Path is outside the allowed folders"),
+            "{message}"
+        );
         assert_eq!(d.state.agents.status().question, None);
         assert!(!d.root.join(".g4").exists());
     }
@@ -3683,7 +3695,10 @@ mod tests {
         let toolbox = open(ALL).unwrap();
         let (_, message, _) =
             failed(toolbox.call("assign_base", json!({ "nds": "../../weg.nds" }), AGENT));
-        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(
+            message.starts_with("Path is outside the allowed folders"),
+            "{message}"
+        );
         let status = toolbox
             .call("assign_base", json!({ "nds": "../X.nds" }), AGENT)
             .unwrap();
@@ -3930,7 +3945,7 @@ mod tests {
             )
             .unwrap();
         let message = unasked("unsaved");
-        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
+        assert_eq!(message, "Save first: 1 unsaved change.");
         assert!(!d.root.join("g4-project.json").exists());
     }
 
@@ -4141,7 +4156,7 @@ mod tests {
             )
             .unwrap();
         let message = unasked("unsaved");
-        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
+        assert_eq!(message, "Save first: 1 unsaved change.");
         d.toolbox.call("save", json!({}), AGENT).unwrap();
         unasked("base_missing");
         assert!(!d.root.join("g4-project.json").exists());
@@ -4293,7 +4308,10 @@ mod tests {
         let (code, message, _) = failed(toolbox.call("adopt_text_project", json!({}), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("error", crate::commands::ALREADY_TEXT_PROJECT)
+            (
+                "error",
+                crate::commands::already_text_project_message().as_str()
+            )
         );
         assert_eq!(state.agents.status().question, None);
         assert!(state.agents.poll(seq).events.is_empty());
@@ -4716,7 +4734,7 @@ mod tests {
         let (code, message, _) = failed(d.toolbox.call("git_init", json!({}), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("unsaved", crate::commands::INIT_UNSAVED)
+            ("unsaved", crate::commands::init_unsaved().as_str())
         );
         assert_eq!(d.state.agents.status().question, None);
         assert!(!d.root.join(".gitignore").exists());
@@ -4846,7 +4864,7 @@ mod tests {
         let outside = |code: &str, message: &str, place: &Path| {
             assert_eq!(code, "error", "{message}");
             assert!(
-                message.starts_with("Pfad liegt außerhalb der erlaubten Ordner: "),
+                message.starts_with("Path is outside the allowed folders: "),
                 "{place:?}: {message}"
             );
             assert!(!message.contains("kein Ordner"), "{message}");
@@ -4909,7 +4927,7 @@ mod tests {
         let (code, message, _) = failed(d.toolbox.call("git_commit_all", json!({}), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("unsaved", crate::commands::COMMIT_UNSAVED)
+            ("unsaved", crate::commands::commit_unsaved().as_str())
         );
         assert_eq!(d.state.agents.status().question, None);
         d.toolbox.call("save", json!({}), AGENT).unwrap();
@@ -5020,7 +5038,7 @@ mod tests {
             references[0]["label"]
                 .as_str()
                 .unwrap()
-                .ends_with(" springt hierher"),
+                .ends_with(" leads here"),
             "{details}"
         );
     }

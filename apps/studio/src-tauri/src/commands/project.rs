@@ -409,14 +409,18 @@ fn build_dto(
                 if session.store.is_dirty(id) {
                     problems.push(warning(
                         index,
-                        format!(
-                            "Textarchiv {index:04} wurde beim Bauen geändert, ist aber ungespeichert bearbeitet — nicht neu geladen"
-                        ),
+                        t!("commands.project.build_reload_unsaved", index = index : {:04})
+                            .into_owned(),
                     ));
                 } else if let Err(e) = session.store.reload_from_disk(id) {
                     problems.push(warning(
                         index,
-                        format!("Textarchiv {index:04} konnte nicht neu geladen werden: {e}"),
+                        t!(
+                            "commands.project.build_reload_failed",
+                            index = index : {:04},
+                            error = e
+                        )
+                        .into_owned(),
                     ));
                 }
             }
@@ -464,12 +468,13 @@ pub fn resolve_text_conflicts_impl(
     let sync = TextSync::load(&project);
     for choice in &choices {
         if sync.side(&project, choice.archive)? != TextSide::Conflict {
-            return Err(CmdError::from(format!(
-                "Textarchiv {:04} ist nicht in Konflikt: Text (JSON) und Spieldatei wurden \
-                 seit dem letzten Bauen nicht beide geändert. Es wurde nichts überschrieben; \
-                 baue erneut, dann nennt der Build die Archive, die noch in Konflikt sind.",
-                choice.archive
-            )));
+            return Err(CmdError::from(
+                t!(
+                    "commands.project.not_in_conflict",
+                    archive = choice.archive : {:04}
+                )
+                .into_owned(),
+            ));
         }
     }
     let attempted = !choices.is_empty();
@@ -793,7 +798,7 @@ mod tests {
         let out = fixture.dir.path().join("out/rom.nds");
         let err = build_rom_impl(&state, out.to_str().unwrap(), false).unwrap_err();
         assert_eq!(err.code, "compile");
-        assert_eq!(err.message, "1 Fehler in Scripts oder Texten");
+        assert_eq!(err.message, "1 error in scripts or texts");
         assert_eq!(err.problems.len(), 1, "{:?}", err.problems);
         let problem = &err.problems[0];
         assert_eq!(
@@ -983,7 +988,7 @@ mod tests {
         assert_eq!(err.code, "error");
         assert!(
             err.message
-                .starts_with("Textarchiv 0007 ist nicht in Konflikt"),
+                .starts_with("Text archive 0007 is not in conflict"),
             "{}",
             err.message
         );
@@ -1147,7 +1152,7 @@ mod tests {
         );
         assert_eq!(
             problem.message,
-            "Textarchiv 0433 wurde beim Bauen geändert, ist aber ungespeichert bearbeitet — nicht neu geladen"
+            "Text archive 0433 was changed by the build, but has unsaved edits — not reloaded"
         );
         // The edit survived: still dirty, still undoable, the appended message not loaded.
         assert_eq!(dirty_impl(&state).unwrap().len(), 1);

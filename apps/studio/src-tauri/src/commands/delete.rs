@@ -59,7 +59,7 @@ fn current<'s>(
     if Arc::ptr_eq(&session.project, project) {
         Ok(session)
     } else {
-        Err("Das Projekt wurde gewechselt; nichts gelöscht.".into())
+        Err(t!("commands.delete.project_switched").into_owned().into())
     }
 }
 

@@ -41,10 +41,14 @@ use crate::errors::CmdError;
 use crate::state::AppState;
 
 /// The refusal of `git_init` with unsaved changes, before anything is asked or written.
-pub const INIT_UNSAVED: &str = "Erst speichern: der erste Commit nimmt den gespeicherten Stand.";
+pub fn init_unsaved() -> String {
+    t!("commands.git.init_unsaved").into_owned()
+}
 
-/// Why the store refuses writes while „Git einrichten“ runs (code `busy`).
-pub const SETTING_UP_GIT: &str = "Git wird gerade eingerichtet.";
+/// Why the store refuses writes while „Set up Git“ („Git einrichten“) runs (code `busy`).
+pub fn setting_up_git() -> String {
+    t!("commands.git.setting_up_git").into_owned()
+}
 
 /// The files of „Git einrichten“ at the project root, as `GitStatusDto::templates` names them.
 const TEMPLATE_FILES: [&str; 2] = [".gitignore", ".gitattributes"];
@@ -145,7 +149,7 @@ fn plain_path(path: PathBuf) -> PathBuf {
 
 /// The refusals of „Git einrichten“ that come before the question (over MCP in the app it
 /// runs before „Git einrichten“ is asked, so such a refusal comes back unasked): unsaved
-/// changes (`unsaved`, [`INIT_UNSAVED`]; the first commit takes the saved state) and a project
+/// changes (`unsaved`, [`init_unsaved`]; the first commit takes the saved state) and a project
 /// being set up as text project (`busy`). Writes nothing.
 pub(crate) fn check_git_init(state: &AppState) -> Result<Arc<Project>, CmdError> {
     let mut guard = super::lock(state)?;
@@ -156,7 +160,7 @@ pub(crate) fn check_git_init(state: &AppState) -> Result<Arc<Project>, CmdError>
 fn checked_for_init(session: &crate::state::Session) -> Result<Arc<Project>, CmdError> {
     session.writable()?;
     if !session.store.dirty().is_empty() {
-        return Err(CmdError::refused("unsaved", INIT_UNSAVED));
+        return Err(CmdError::refused("unsaved", init_unsaved()));
     }
     Ok(Arc::clone(&session.project))
 }
@@ -174,7 +178,7 @@ pub fn git_init_impl(
 /// [`check_git_init`] says, else `git::git_init` (archives unpacked in the DSPRE layout, the
 /// templates, then `git init` and the first commit „Ausgangsstand“, never a remote) without
 /// the session lock, so the status and the other reads go on meanwhile; the store refuses
-/// every write meanwhile ([`SETTING_UP_GIT`], `busy`), so the commit sees the saved state. A
+/// every write meanwhile ([`setting_up_git`], `busy`), so the commit sees the saved state. A
 /// failed commit is no error (`committed: false` with Git's reason); a broken template block
 /// is. The checks learn afterwards that files were written past the store, and the `git` CLI
 /// is probed again on the next status.
@@ -191,8 +195,8 @@ pub(crate) fn git_init_with(
     Ok(result?)
 }
 
-/// The store of the session of `project` refuses writes ([`SETTING_UP_GIT`], or for „Stand
-/// sichern“ [`SAVING_STATE`]) from [`InitBusy::begin`] / [`InitBusy::begin_with`] until this is
+/// The store of the session of `project` refuses writes ([`setting_up_git`], or for „Save
+/// state“ („Stand sichern“) [`saving_state`]) from [`InitBusy::begin`] / [`InitBusy::begin_with`] until this is
 /// dropped.
 struct InitBusy<'a> {
     state: &'a AppState,
@@ -202,7 +206,7 @@ struct InitBusy<'a> {
 impl<'a> InitBusy<'a> {
     /// Under the session lock: the refusals of [`check_git_init`], then the store is busy.
     fn begin(state: &'a AppState) -> Result<InitBusy<'a>, CmdError> {
-        Self::begin_with(state, checked_for_init, SETTING_UP_GIT)
+        Self::begin_with(state, checked_for_init, setting_up_git)
     }
 
     /// Under the session lock: the refusals of `check`, then the store refuses writes with
@@ -210,12 +214,12 @@ impl<'a> InitBusy<'a> {
     fn begin_with(
         state: &'a AppState,
         check: fn(&crate::state::Session) -> Result<Arc<Project>, CmdError>,
-        why: &str,
+        why: fn() -> String,
     ) -> Result<InitBusy<'a>, CmdError> {
         let mut guard = super::lock(state)?;
         let session = super::session(&mut guard)?;
         let project = check(session)?;
-        session.store.set_busy(Some(why.to_owned()));
+        session.store.set_busy(Some(why()));
         Ok(InitBusy { state, project })
     }
 }
@@ -338,8 +342,16 @@ pub(crate) fn diff_subject(
     if let Some(path) = path {
         value.insert("path".to_owned(), path.into());
     }
-    serde_json::from_value(value.into())
-        .map_err(|e| CmdError::from(format!("Ungültige Argumente für diff_entity: {e}")))
+    serde_json::from_value(value.into()).map_err(|e| {
+        CmdError::from(
+            t!(
+                "commands.dispatch.invalid_arguments",
+                name = "diff_entity",
+                error = e
+            )
+            .into_owned(),
+        )
+    })
 }
 
 /// The store's unsaved edits as entities (`diff::unsaved_entries`, the header table per
@@ -358,7 +370,12 @@ pub(crate) fn restore_needed(root: &Path) -> Option<CmdError> {
         return None;
     }
     let message = match mark_state(root) {
-        MarkState::Present(mark) => format!("{RESTORE_NEEDED} Basis-ROM: {}.", base_label(&mark)),
+        MarkState::Present(mark) => t!(
+            "commands.git.restore_needed_with_base",
+            message = RESTORE_NEEDED,
+            label = base_label(&mark)
+        )
+        .into_owned(),
         _ => RESTORE_NEEDED.to_owned(),
     };
     Some(CmdError::refused("restore_needed", message))
@@ -390,16 +407,20 @@ pub fn restore_text_project_impl(
 }
 
 /// The refusal of `git_commit_all` with unsaved changes, before anything is asked or written.
-pub const COMMIT_UNSAVED: &str = "Erst speichern: der Commit nimmt den gespeicherten Stand.";
+pub fn commit_unsaved() -> String {
+    t!("commands.git.commit_unsaved").into_owned()
+}
 
-/// Why the store refuses writes while „Stand sichern“ runs (code `busy`).
-pub const SAVING_STATE: &str = "Der Stand wird gerade gesichert.";
+/// Why the store refuses writes while „Save state“ („Stand sichern“) runs (code `busy`).
+pub fn saving_state() -> String {
+    t!("commands.git.saving_state").into_owned()
+}
 
 /// [`check_git_commit_all`] on `session`, under the lock: `busy`, then `unsaved`.
 fn checked_for_commit(session: &crate::state::Session) -> Result<Arc<Project>, CmdError> {
     session.writable()?;
     if !session.store.dirty().is_empty() {
-        return Err(CmdError::refused("unsaved", COMMIT_UNSAVED));
+        return Err(CmdError::refused("unsaved", commit_unsaved()));
     }
     Ok(Arc::clone(&session.project))
 }
@@ -423,7 +444,7 @@ fn commit_error(e: KernelError) -> CmdError {
 
 /// The refusals of „Stand sichern“ that come before the question (over MCP in the app it runs
 /// before „Stand sichern“ is asked, so such a refusal comes back unasked): a session that
-/// refuses writes (`busy`), unsaved changes (`unsaved`, [`COMMIT_UNSAVED`]), then
+/// refuses writes (`busy`), unsaved changes (`unsaved`, [`commit_unsaved`]), then
 /// `git::check_commit_all` with the `git` CLI the status found (`no_repo`, `enclosing_repo`,
 /// `no_git`, `nothing_to_commit`). In the project's own repository that check writes the
 /// templates first, so an outdated Gen4 Studio block is refreshed (a change it then counts).
@@ -464,7 +485,7 @@ pub fn git_commit_all_impl(
 /// „Stand sichern“ on the open project with `cli` (`None`: no `git` installed): refused with
 /// `busy` or `unsaved` as [`check_git_commit_all`] says, then `git::commit_all` (templates,
 /// `git add -A`, the commit with subject and notes, never a remote) without the session
-/// lock; the store refuses every write meanwhile ([`SAVING_STATE`], `busy`), so the commit
+/// lock; the store refuses every write meanwhile ([`saving_state`], `busy`), so the commit
 /// takes the saved state. The kernel's refusals have their codes ([`commit_error`]); a failed
 /// subcommand is no error (`committed: false` with Git's reason). The checks learn
 /// afterwards that templates may have been written past the store.
@@ -474,7 +495,7 @@ pub(crate) fn git_commit_all_with(
     opts: CommitOptions,
     progress: &mut dyn FnMut(CommitProgress),
 ) -> Result<CommitReport, CmdError> {
-    let busy = InitBusy::begin_with(state, checked_for_commit, SAVING_STATE)?;
+    let busy = InitBusy::begin_with(state, checked_for_commit, saving_state)?;
     let result = git::commit_all(&busy.project, cli, &opts, progress);
     drop(busy);
     result.map_err(commit_error)
@@ -758,7 +779,7 @@ mod tests {
         for (save_code, save_message, edit_code) in during {
             assert_eq!(
                 (save_code, save_message.as_str(), edit_code),
-                ("busy", SETTING_UP_GIT, "busy")
+                ("busy", setting_up_git().as_str(), "busy")
             );
         }
         // Released afterwards, also after a refusal.
@@ -798,13 +819,19 @@ mod tests {
         let (fixture, state) = open_synthetic();
         set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap();
         let err = check_git_init(&state).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("unsaved", INIT_UNSAVED));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("unsaved", init_unsaved().as_str())
+        );
         let mut phases = Vec::new();
         let err = git_init_with(&state, None, InitOptions::default(), &mut |p| {
             phases.push(p)
         })
         .unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("unsaved", INIT_UNSAVED));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("unsaved", init_unsaved().as_str())
+        );
         assert!(phases.is_empty(), "{phases:?}");
         assert!(!fixture.dir.path().join(".gitignore").exists());
         // No project open: an error.
@@ -986,8 +1013,7 @@ mod tests {
         for (kind, index) in [("trainer", None), ("nichts", Some(1))] {
             let err = diff_subject(kind.into(), index, None, None).unwrap_err();
             assert!(
-                err.message
-                    .starts_with("Ungültige Argumente für diff_entity"),
+                err.message.starts_with("Invalid arguments for diff_entity"),
                 "{}",
                 err.message
             );
@@ -1063,7 +1089,7 @@ mod tests {
         assert_eq!(err.code, "restore_needed");
         assert_eq!(
             err.message,
-            format!("{RESTORE_NEEDED} Basis-ROM: {}.", base_label(&mark))
+            format!("{RESTORE_NEEDED} Base ROM: {}.", base_label(&mark))
         );
         assert!(crate::commands::open_project_arc(&state).is_err());
         // Without a mark the sentence stands alone.
@@ -1131,7 +1157,7 @@ mod tests {
         let err = check_git_commit_all(&state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("unsaved", COMMIT_UNSAVED)
+            ("unsaved", commit_unsaved().as_str())
         );
         let mut phases = Vec::new();
         let err = git_commit_all_with(&state, None, CommitOptions::default(), &mut |p| {
@@ -1140,7 +1166,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("unsaved", COMMIT_UNSAVED)
+            ("unsaved", commit_unsaved().as_str())
         );
         assert!(phases.is_empty(), "{phases:?}");
         assert!(!fixture.dir.path().join(".gitignore").exists());
@@ -1215,7 +1241,7 @@ mod tests {
         assert!(report.files >= 1, "{report:?}");
         assert!(!during.is_empty());
         for (_, code, message) in &during {
-            assert_eq!((*code, message.as_str()), ("busy", SAVING_STATE));
+            assert_eq!((*code, message.as_str()), ("busy", saving_state().as_str()));
         }
         let status = git_status_impl(&state).unwrap();
         assert_eq!(status.changes, 0, "{:?}", status.entries);
@@ -1239,7 +1265,7 @@ mod tests {
         let err = git_commit_prepare_impl(&state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("unsaved", COMMIT_UNSAVED)
+            ("unsaved", commit_unsaved().as_str())
         );
         assert!(!fixture.dir.path().join(".gitignore").exists());
         // No project open: an error.

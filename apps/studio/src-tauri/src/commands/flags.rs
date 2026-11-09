@@ -113,19 +113,11 @@ pub struct FreeFlagDto {
 }
 
 /// Why `free_flag` refuses a project whose scripts are not adopted (code
-/// `scripts_not_adopted`), for a flag.
-pub const SCRIPTS_NOT_INDEXED: &str = "Erst Scripts übernehmen: ohne Script-Quellen weiß der \
-                                       Index nicht, welche Flags Scripts benutzen.";
-
-/// [`SCRIPTS_NOT_INDEXED`] for a variable.
-pub const SCRIPTS_NOT_INDEXED_VARS: &str = "Erst Scripts übernehmen: ohne Script-Quellen weiß \
-                                            der Index nicht, welche Variablen Scripts benutzen.";
-
-/// Why `free_flag` refuses `kind` while the scripts are not adopted.
-pub fn scripts_not_indexed_text(kind: FlagKind) -> &'static str {
+/// `scripts_not_adopted`): the text for a flag, or for a variable.
+pub fn scripts_not_indexed_text(kind: FlagKind) -> String {
     match kind {
-        FlagKind::Flag => SCRIPTS_NOT_INDEXED,
-        FlagKind::Var => SCRIPTS_NOT_INDEXED_VARS,
+        FlagKind::Flag => t!("commands.flags.scripts_not_indexed").into_owned(),
+        FlagKind::Var => t!("commands.flags.scripts_not_indexed_vars").into_owned(),
     }
 }
 
@@ -241,18 +233,31 @@ pub(crate) fn event_place(
     };
     let (what, nav) = match (r.field, trainer) {
         ("script", Some(trainer)) => (
-            format!("Trainer {trainer:04} · Script"),
+            t!("commands.flags.trainer_script", trainer = trainer : {:04}).into_owned(),
             NavTargetDto::Trainer { index: trainer },
         ),
         ("hidden_flag", _) => (
-            format!("Objekt {slot} · Sichtbarkeits-Flag"),
+            t!("commands.flags.object_hidden_flag", slot = slot).into_owned(),
             event("object"),
         ),
-        ("hidden_item", _) => (format!("Schild {slot} · Verstecktes Item"), event("bg")),
-        ("var", _) => (format!("Auslöser {slot} · Variable"), event("coord")),
-        (field, _) => (format!("Objekt {slot} · {field}"), event("object")),
+        ("hidden_item", _) => (
+            t!("commands.flags.sign_hidden_item", slot = slot).into_owned(),
+            event("bg"),
+        ),
+        ("var", _) => (
+            t!("commands.flags.trigger_variable", slot = slot).into_owned(),
+            event("coord"),
+        ),
+        (field, _) => (
+            t!("commands.flags.object_field", slot = slot, field = field).into_owned(),
+            event("object"),
+        ),
     };
-    (format!("Eventdatei {event_file:04}"), what, nav)
+    (
+        t!("commands.flags.event_file", n = event_file : {:04}).into_owned(),
+        what,
+        nav,
+    )
 }
 
 /// `r` as the app shows it, without the header's name; `None` for a source the index has no
@@ -738,8 +743,8 @@ mod tests {
             .iter()
             .find(|r| r.field == "hidden_flag")
             .unwrap();
-        assert_eq!(object.label, "Objekt 0 · Sichtbarkeits-Flag");
-        assert_eq!(object.source_name, "Eventdatei 0000");
+        assert_eq!(object.label, "Object 0 · Visibility flag");
+        assert_eq!(object.source_name, "Event file 0000");
         assert_eq!(object.access, Access::Read);
         assert_eq!(object.header, Some(0));
         assert!(object.header_name.is_some());
@@ -752,8 +757,8 @@ mod tests {
         );
         // The script line: script file 0 is header 0's too.
         let line = usage.refs.iter().find(|r| r.field == "SetFlag").unwrap();
-        assert_eq!(line.label, "Zeile 2 · SetFlag");
-        assert_eq!(line.source_name, "Scriptdatei 0000");
+        assert_eq!(line.label, "Line 2 · SetFlag");
+        assert_eq!(line.source_name, "Script file 0000");
         assert_eq!(line.access, Access::Write);
         assert_eq!(line.header, Some(0));
         assert_eq!(
@@ -765,8 +770,8 @@ mod tests {
         let var = flag_usage_impl(&state, FlagKind::Var, RIVAL_STATE).unwrap();
         assert_eq!(var.area, Area::General);
         let condition = &var.refs[0];
-        assert_eq!(condition.label, "Bedingung 1 · var_conditions");
-        assert_eq!(condition.source_name, "Level-Script 0001");
+        assert_eq!(condition.label, "Condition 1 · var_conditions");
+        assert_eq!(condition.source_name, "Level script 0001");
         assert_eq!(condition.header, Some(0));
         assert_eq!(
             json_of(&condition.nav),
@@ -781,8 +786,8 @@ mod tests {
         add_event_impl(&state, 1, EventKind::Coord, 4, 4, Some(patch), None).unwrap();
         let var = flag_usage_impl(&state, FlagKind::Var, RIVAL_STATE).unwrap();
         let trigger = var.refs.iter().find(|r| r.field == "var").unwrap();
-        assert_eq!(trigger.label, "Auslöser 0 · Variable");
-        assert_eq!(trigger.source_name, "Eventdatei 0001");
+        assert_eq!(trigger.label, "Trigger 0 · Variable");
+        assert_eq!(trigger.source_name, "Event file 0001");
         assert_eq!(json_of(&trigger.nav)["eventKind"], "coord");
         // A number nobody uses: no references, its pret name.
         let unused = flag_usage_impl(&state, FlagKind::Flag, 0x94).unwrap();
@@ -816,7 +821,7 @@ mod tests {
         let flag = g4_kernel::flags::hidden_item_flag(g4_formats::game::Family::Pt, 3).unwrap();
         let usage = flag_usage_impl(&state, FlagKind::Flag, flag).unwrap();
         let r = &usage.refs[0];
-        assert_eq!(r.label, "Schild 0 · Verstecktes Item");
+        assert_eq!(r.label, "Sign 0 · Hidden item");
         assert_eq!(json_of(&r.nav)["eventKind"], "bg");
     }
 
@@ -859,25 +864,24 @@ mod tests {
         let (_s, state) = open_synthetic();
         // Without the script sources the index cannot see what scripts use.
         for (kind, text) in [
-            (FlagKind::Flag, SCRIPTS_NOT_INDEXED),
-            (FlagKind::Var, SCRIPTS_NOT_INDEXED_VARS),
+            (
+                FlagKind::Flag,
+                "Adopt the scripts first: without the script sources the index does not know \
+                 which flags scripts use.",
+            ),
+            (
+                FlagKind::Var,
+                "Adopt the scripts first: without the script sources the index does not know \
+                 which variables scripts use.",
+            ),
         ] {
             let err = free_flag_impl(&state, kind).unwrap_err();
             assert_eq!(
                 (err.code, err.message.as_str()),
                 ("scripts_not_adopted", text)
             );
+            assert_eq!(scripts_not_indexed_text(kind), text);
         }
-        assert_eq!(
-            SCRIPTS_NOT_INDEXED,
-            "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Flags \
-             Scripts benutzen."
-        );
-        assert_eq!(
-            SCRIPTS_NOT_INDEXED_VARS,
-            "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche \
-             Variablen Scripts benutzen."
-        );
         // The list still lists, free as computed, and says the scripts are not indexed.
         let list = list_flags_impl(&state, FlagKind::Flag).unwrap();
         assert!(!list.scripts_indexed);
@@ -1059,7 +1063,7 @@ mod tests {
             .find(|r| r.field == "hidden_flag")
             .unwrap_or_else(|| panic!("{:#X}: {:?}", visible.number, usage.refs));
         assert!(
-            object.source_name.starts_with("Eventdatei "),
+            object.source_name.starts_with("Event file "),
             "{}",
             object.source_name
         );

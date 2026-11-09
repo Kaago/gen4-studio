@@ -1098,7 +1098,7 @@ mod tests {
             }
         );
         assert!(
-            r.label.starts_with("Tür 1 von ") && r.label.ends_with(" springt hierher"),
+            r.label.starts_with("Door 1 of ") && r.label.ends_with(" leads here"),
             "{}",
             r.label
         );

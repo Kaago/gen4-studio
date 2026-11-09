@@ -169,9 +169,7 @@ pub fn assign_base_impl(state: &AppState, nds: &str) -> Result<BaseStatusDto, Cm
     let after = ProjectKey::of(root)?;
     if after != before {
         state.agents.move_grant(&before, after).map_err(|e| {
-            CmdError::partial(format!(
-                "Basis-ROM zugeordnet, die Agenten-Freigabe aber nicht umgeschrieben: {e}"
-            ))
+            CmdError::partial(t!("commands.base.grant_not_moved", error = e).into_owned())
         })?;
     }
     if let Err(e) = state.base_roms.register(nds, &check.info) {
@@ -203,11 +201,7 @@ pub(crate) fn register_base_rom_at(
         other => return Err(other.refusal().unwrap_or_default().into()),
     };
     if state.base_roms.is_original(path) {
-        return Err(format!(
-            "Originale sind gesperrt, nur Kopien unter _testkopien: {}",
-            path.display()
-        )
-        .into());
+        return Err(super::policy::originals_locked(path.display()).into());
     }
     let info = start::inspect_rom(path)?;
     if !info.sha1.eq_ignore_ascii_case(&mark.sha1) {
@@ -237,19 +231,15 @@ pub(crate) fn create_patch_checked(
     let (mark, hit) = found_base(state, &project.root)?;
     let targets = patch::default_targets(&project);
     check(&targets)?;
-    let rom = targets.rom.to_str().ok_or_else(|| {
-        CmdError::from(format!(
-            "Pfad ist kein gültiger Text: {}",
-            targets.rom.display()
-        ))
-    })?;
+    let rom = targets
+        .rom
+        .to_str()
+        .ok_or_else(|| super::path_not_text(targets.rom.display()))?;
     super::sync_before_build(state, turn)?;
     let build = super::build_synced(state, rom, false)?;
     // The build takes the session as it is then: another project opened meanwhile was built.
     if !Arc::ptr_eq(&super::open_project_arc(state)?, &project) {
-        return Err(
-            "Das Projekt wurde während des Exports gewechselt; kein Patch erstellt.".into(),
-        );
+        return Err(t!("commands.base.project_switched").into_owned().into());
     }
     let base = BaseRom::open(&hit.path, Some(&mark.sha1))?;
     let report = patch::create_patch(

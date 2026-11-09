@@ -99,6 +99,11 @@ pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdEr
     guard.as_mut().ok_or_else(|| "no project open".into())
 }
 
+/// The refusal of a path that is no valid text (it cannot be passed on as a string).
+pub(crate) fn path_not_text(path: impl std::fmt::Display) -> CmdError {
+    CmdError::from(t!("commands.common.path_not_text", path = path).into_owned())
+}
+
 /// The open project (its `Arc`; the session lock is released again).
 pub(crate) fn open_project_arc(
     state: &AppState,

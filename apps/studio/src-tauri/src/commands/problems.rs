@@ -45,7 +45,8 @@ pub struct CheckFieldsDto {
     pub subject: Subject,
     /// The spot within the subject (`warp:2`); with `code` and `subject` it names the finding.
     pub key: String,
-    /// German: the subject and the spot ("Eventdatei 0411 · Warp 2").
+    /// The subject and the spot ("Event file 0411 · Warp 2"; "Eventdatei 0411 · Warp 2" in
+    /// German), in the language of the process.
     pub label: String,
     /// The numbers and names the UI puts into its sentence (each check documents the order).
     pub args: Vec<String>,
@@ -63,12 +64,12 @@ pub struct CheckFieldsDto {
     pub fingerprint: String,
 }
 
-/// A fix of a finding: `id` in snake_case (`create_script`), the German `label` of its button,
-/// and whether it can be undone (`create_script` cannot).
+/// A fix of a finding: `id` in snake_case (`create_script`), the `label` of its button in the
+/// language of the process, and whether it can be undone (`create_script` cannot).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FixDto {
     pub id: FixId,
-    pub label: &'static str,
+    pub label: String,
     pub irreversible: bool,
 }
 
