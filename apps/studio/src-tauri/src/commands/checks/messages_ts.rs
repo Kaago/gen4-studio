@@ -1,14 +1,29 @@
-//! The German sentences of the checks live in the frontend (`apps/studio/src/checks/messages.ts`);
-//! the catalogue lives in the kernel. This test holds the one against the other: every code of
-//! `Registry::all()` has its entry there, in catalogue order, with the check's group and its
-//! highest severity (a check that reports errors cannot be switched off), and there is no entry
-//! for a code the kernel does not have.
+//! The words of the checks live in the frontend: titles and sentences in the catalogs
+//! (`apps/studio/src/i18n/locales/{de,en}/checks.json`), the check's group and its highest severity
+//! in `apps/studio/src/checks/messages.ts` (`CHECK_MESSAGES`, one line per code); the catalogue
+//! lives in the kernel. This test holds the one against the other: every code of
+//! `Registry::all()` has its line in `messages.ts` and its entry in both catalogs, in catalogue
+//! order, with the check's group and its highest severity (a check that reports errors cannot be
+//! switched off), and there is no entry for a code the kernel does not have.
 
 use g4_kernel::checks::{Group, Registry, Severity};
+use serde_json::Value;
 
 const MESSAGES_TS: &str = include_str!("../../../../src/checks/messages.ts");
 
-/// One entry of `CHECK_MESSAGES` as the file writes it.
+/// The catalogs, by language; `serde_json` keeps their key order (`preserve_order`).
+const CATALOGS: [(&str, &str); 2] = [
+    (
+        "de",
+        include_str!("../../../../src/i18n/locales/de/checks.json"),
+    ),
+    (
+        "en",
+        include_str!("../../../../src/i18n/locales/en/checks.json"),
+    ),
+];
+
+/// One line of `CHECK_MESSAGES` as the file writes it.
 #[derive(Debug, PartialEq, Eq)]
 struct Entry {
     code: String,
@@ -24,35 +39,44 @@ fn value(line: &str, field: &str) -> Option<String> {
     Some(rest[..rest.find('"')?].to_owned())
 }
 
-/// The entries of `CHECK_MESSAGES`, in file order: each starts with `  "<code>": {` and has its
-/// fields on the lines below.
+/// The entries of `CHECK_MESSAGES`, in file order: one per line, `  "<code>": { group: "…",
+/// severity: "…" },`.
 fn entries() -> Vec<Entry> {
     let start = MESSAGES_TS
         .find("export const CHECK_MESSAGES")
         .expect("messages.ts declares CHECK_MESSAGES");
     let body = &MESSAGES_TS[start..];
     let body = &body[..body.find("\n};").expect("CHECK_MESSAGES ends with `};`")];
-    let mut out: Vec<Entry> = Vec::new();
-    for line in body.lines() {
-        if let Some(code) = line
-            .strip_prefix("  \"")
-            .and_then(|rest| rest.strip_suffix("\": {"))
-        {
-            out.push(Entry {
+    body.lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("  \"")?;
+            let (code, fields) = rest.split_once("\": {")?;
+            Some(Entry {
                 code: code.to_owned(),
-                group: String::new(),
-                severity: String::new(),
-            });
-        } else if let Some(entry) = out.last_mut() {
-            if let Some(group) = value(line, "group") {
-                entry.group = group;
-            }
-            if let Some(severity) = value(line, "severity") {
-                entry.severity = severity;
-            }
+                group: value(fields, "group").unwrap_or_default(),
+                severity: value(fields, "severity").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// The codes of a catalog in file order; every entry must carry a title and a sentence.
+fn catalog_codes(lang: &str, json: &str) -> Vec<String> {
+    let Value::Object(catalog) = serde_json::from_str(json)
+        .unwrap_or_else(|e| panic!("{lang}/checks.json is not JSON: {e}"))
+    else {
+        panic!("{lang}/checks.json is not an object keyed by check code");
+    };
+    for (code, entry) in &catalog {
+        for field in ["title", "text"] {
+            let word = entry.get(field).and_then(Value::as_str).unwrap_or("");
+            assert!(
+                !word.trim().is_empty(),
+                "{lang}/checks.json: `{code}` has no non-empty `{field}`"
+            );
         }
     }
-    out
+    catalog.keys().cloned().collect()
 }
 
 fn group_name(group: Group) -> &'static str {
@@ -72,7 +96,7 @@ fn severity_name(severity: Severity) -> &'static str {
 }
 
 #[test]
-fn every_check_has_its_german_sentence_in_messages_ts() {
+fn every_check_has_its_group_and_severity_in_messages_ts() {
     let expected: Vec<Entry> = Registry::all()
         .iter()
         .map(|check| Entry {
@@ -89,7 +113,7 @@ fn every_check_has_its_german_sentence_in_messages_ts() {
         .collect();
     assert!(
         missing.is_empty(),
-        "codes without a sentence in messages.ts: {missing:?}"
+        "codes without a line in messages.ts: {missing:?}"
     );
     let unknown: Vec<&str> = found
         .iter()
@@ -104,4 +128,29 @@ fn every_check_has_its_german_sentence_in_messages_ts() {
         found, expected,
         "messages.ts: catalogue order, group and severity of every code"
     );
+}
+
+#[test]
+fn catalogs_hold_every_code() {
+    let expected: Vec<String> = Registry::all()
+        .iter()
+        .map(|check| check.code().to_owned())
+        .collect();
+    for (lang, json) in CATALOGS {
+        let found = catalog_codes(lang, json);
+        let missing: Vec<&String> = expected.iter().filter(|c| !found.contains(c)).collect();
+        assert!(
+            missing.is_empty(),
+            "codes without an entry in {lang}/checks.json: {missing:?}"
+        );
+        let unknown: Vec<&String> = found.iter().filter(|c| !expected.contains(c)).collect();
+        assert!(
+            unknown.is_empty(),
+            "codes in {lang}/checks.json the kernel does not have: {unknown:?}"
+        );
+        assert_eq!(
+            found, expected,
+            "{lang}/checks.json: catalogue order of every code"
+        );
+    }
 }
