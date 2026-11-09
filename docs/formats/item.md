@@ -1,5 +1,11 @@
 # Gegenstände (`itemData/NNNN`)
 
+**In English:** Documents the item data file (`itemData/NNNN`): one member of exactly 34 bytes per
+item with its price, hold effect, party-use parameters and further fields. The byte layout,
+including the bit layout of the party parameters, was checked on Platinum DE (member 17, Potion, and
+several party-effect items). Format knowledge comes from the pret decompilation. The codec is
+`crates/g4-formats/src/data/item.rs`; all values are little endian.
+
 Quelle: DSPRE `ROMFiles/ItemData.cs`, pret `pokeplatinum` `include/item.h`
 (`ItemData`, `ItemPartyParam`); Recherche
 `docs/research/2026-10-23-3b3/dspre-report.md` §1.6. Die Werte und die Bit-Lage

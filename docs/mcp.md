@@ -1,6 +1,8 @@
+*English: [docs/en/mcp.md](en/mcp.md)*
+
 # Gen4 Studio für Coding-Agenten (MCP)
 
-Gen4 Studio spricht das Model Context Protocol (MCP): Ein Coding-Agent wie Claude Code kann ein Projekt über dieselben Befehle lesen und bearbeiten, die auch die Oberfläche benutzt. Der Agent sieht rund 40 kuratierte Werkzeuge mit englischen Namen und Schemas („Tools“), einige Ressourcen und drei Beispiele („Prompts“). Alles läuft lokal: kopflos über stdio, in der laufenden App über HTTP nur auf `127.0.0.1`.
+Gen4 Studio spricht das Model Context Protocol (MCP): Ein Coding-Agent wie Claude Code kann ein Projekt über dieselben Befehle lesen und bearbeiten, die auch die Oberfläche benutzt. Der Agent sieht 90 kuratierte Werkzeuge mit englischen Namen und Schemas („Tools“), einige Ressourcen und drei Beispiele („Prompts“). Alles läuft lokal: kopflos über stdio, in der laufenden App über HTTP nur auf `127.0.0.1`.
 
 Stand: 2026-10-26, Phase 3h.3 und 3h.4. Es gibt zwei Betriebsarten mit derselben Programmdatei `studio` und dem Unterbefehl `mcp`:
 
@@ -629,7 +631,7 @@ Unvollständige Sätze lassen sich speichern; erst ein Strich, der einen leeren 
 Zwei weitere Felder einer Änderung in `changes`, je genau eines pro Änderung („Eine Änderung setzt genau eines von tile, height, ramp, permission, terrain, cliff.“):
 
 - `terrain: {set, inside? (Vorgabe true), seed? (Vorgabe 0)}` auf `layer` (Vorgabe 0): jede genannte Zelle setzt ihre vier Ecken auf innen (mit `inside: false` auf außen, die Fläche wird weggenommen); danach bekommt jede Zelle, die eine geänderte Ecke berührt, die Kachel ihrer neuen Maske. Zellen, deren Maske gleich bleibt, und fremde Zellen mit Maske 0 bleiben, wie sie sind; Mitglieder mit Maske 0 bekommen `outside`.
-- `cliff: {set, height, seed? (Vorgabe 0)}`, nur auf der Bodenebene: die Zellen bekommen die absolute Höhe `height` (Stufen zu 8 Einheiten, −16 bis 62; Rampen dort gehen weg), der Rand des Satzes liegt oben auf dem Plateau, tiefere Zellen behalten ihre Kachel. Mit `block: lower` schreibt der Strich Permission-Überschreibungen für jede Kante ab 16 Einheiten Unterschied, deren obere oder untere Zelle an P oder dem Ring darum liegt (obere Zelle frei, untere blockiert); eine Überschreibung dort, die der alte Kachelwert der Zelle oder dieser `| 0x80` ist, gilt als vom Pinsel geschrieben und wird neu berechnet (an keiner Kante mehr: gelöscht), eine eigene Permission (etwa eine Tür) bleibt. Eine Klippe von einer Zelle Breite hat keinen Rand: oben liegt `outside`.
+- `cliff: {set, height, seed? (Vorgabe 0)}`, nur auf der Bodenebene: die Zellen bekommen die absolute Höhe `height` (Stufen zu 8 Einheiten, −16 bis 62; Rampen dort gehen weg), der Rand des Satzes liegt oben auf dem Plateau, tiefere Zellen behalten ihre Kachel. Mit `block: lower` schreibt der Strich Permission-Überschreibungen für jede Kante ab 16 Einheiten Unterschied, deren obere oder untere Zelle in den gemalten Zellen oder im Ring der 8 Nachbarn darum liegt (obere Zelle frei, untere blockiert); eine Überschreibung dort, die der alte Kachelwert der Zelle oder dieser `| 0x80` ist, gilt als vom Pinsel geschrieben und wird neu berechnet (an keiner Kante mehr: gelöscht), eine eigene Permission (etwa eine Tür) bleibt. Eine Klippe von einer Zelle Breite hat keinen Rand: oben liegt `outside`.
 
 Der Kernel löst die Änderungen der Reihe nach auf (eine spätere sieht die frühere), alles ist **ein** Undo-Schritt und wird im selben Schritt gebacken; ohne `label` zählt der Schritt die genannten Zellen („Welt geändert: Karte 0000 (45 Zellen)“). Ein Strich, der nichts ändert, antwortet „Nichts zu ändern.“
 

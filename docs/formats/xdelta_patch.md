@@ -1,5 +1,13 @@
 # xdelta-Patch `build/<Name>.xdelta`
 
+**In English:** Documents the xdelta patch `build/<name>.xdelta` that the export "Create patch…"
+writes (Technical › Publish, `g4k patch create`, the MCP tool `create_patch`): a VCDIFF patch that
+turns the project's base ROM into the built ROM, together with a sidecar file; this is about Gen4
+Studio itself. A section covers publishing: numbered releases `<project>-v<version>.xdelta` with
+change notes, an optional `README.txt` and the list in `.g4/releases.json`. The code is
+`crates/g4-kernel/src/patch.rs` with `patch/release.rs` and `patch/publish.rs`; the encoder is the
+crate `crates/g4-xdelta` (xdelta3 3.0.12, Apache-2.0).
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Der Export „Patch erstellen…“
 (Technik › Veröffentlichen, `g4k patch create`, MCP `create_patch`) schreibt einen VCDIFF-Patch, der
 die Basis-ROM des Projekts in die gebaute ROM überführt, und daneben eine Begleitdatei.

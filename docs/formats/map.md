@@ -1,5 +1,12 @@
 # Map-Datei ("Land Data")
 
+**In English:** Documents the map file ("land data"): one member of `land_data.narc` (Diamond/Pearl,
+Platinum) or of `a/0/6/5` (HeartGold/SoulSilver). A file consists of a header, a background sound
+block (HeartGold/SoulSilver only), the permissions (1,024 byte pairs of kind and collision), the
+buildings (48 bytes each), the 3D model (NSBMD) and the BDHC walking heights, and the document gives
+offsets and checks for each. For maps painted in the world format the member is the output of baking
+and keeps this layout. The code is `crates/g4-formats/src/map.rs`; all values are little endian.
+
 Quelle: DSPRE `MapFile.cs` (Kopfkommentar und Konstruktor, Zeilen 81 bis 128),
 für das Gebäude-Layout pret/pokeplatinum `src/overlay005/map_prop.c`
 (`MapPropFile`). Implementierung: `crates/g4-formats/src/map.rs`.

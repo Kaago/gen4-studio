@@ -1,5 +1,14 @@
 # NSBMD (BMD0 / MDL0): Modell-Codec
 
+**In English:** Documents the NSBMD (BMD0/MDL0) model codec: the container, the Nitro dictionary,
+the model with its bones, render commands (SBC), materials, shapes and the GPU display list, and the
+order of sections that the writer produces. The codec reads a map model into a structure and writes
+it back in the vanilla layout; the round trip is a check, and unchanged models stay bytes on import.
+The baker, which builds new map models from painted faces, uses this codec and is limited to the
+subset described here. Layout references are apicula, GBATEK and the pret decompilation, plus own
+measurements. The code is in `crates/g4-formats/src/nsbmd/` and
+`crates/g4-formats/src/nitro_dict.rs`; all values are little endian.
+
 Quellen: apicula `src/nitro/{model,render_cmds,info_block}.rs` und `src/nds/gpu_cmds.rs`
 (0BSD) als Layout-Referenz; GBATEK „DS 3D Geometry Commands“, „DS 3D Polygon Attributes“,
 „DS 3D Texture Attributes“; pret/pokeplatinum `src/overlay005/land_data.c:1935`

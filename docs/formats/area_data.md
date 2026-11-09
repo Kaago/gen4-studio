@@ -1,5 +1,12 @@
 # AreaData
 
+**In English:** Documents the AreaData record: one 8-byte entry per area, a member of
+`area_data.narc` (Diamond/Pearl, Platinum) or of `a/0/4/2` (HeartGold/SoulSilver). An entry points
+to the building texture set and the map texture set (tilesets) that the area uses and holds a light
+type. The layout is given per game family with offsets and types, all values little endian. The code
+is `crates/g4-formats/src/area_data.rs`, which was verified byte for byte against the three vanilla
+test projects (Platinum DE, HeartGold DE and US).
+
 Quelle: Das Layout folgt dem Plan bzw. DSPRE `AreaData.cs` in der dort
 dokumentierten Form; die Implementierung wurde gegen alle drei
 Vanilla-Projekte (Platin DE, HeartGold DE und US) byte-identisch verifiziert.

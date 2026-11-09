@@ -1,5 +1,13 @@
 # Flags und Variablen
 
+**In English:** Describes how Gen4 Studio names, groups and stores the flags and variables of the
+Gen 4 games; this is about Gen4 Studio itself, not a game format. A flag is a number from 1, a
+variable a number from `0x4000` (from `0x8000` on they are script-local registers). The document
+covers the name tables, the ranges (what the save game holds, the general pool, reserved areas) and
+the own names that a text project can add. The code is in `crates/g4-kernel/src/flags.rs` and the
+modules below `flags/`. Reasoning and measurements are in two expert reports under
+`docs/research/2026-10-30-phase-3d/`.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: wie das Studio die Flags und
 Variablen der Gen-4-Spiele benennt, in Bereiche teilt und eigene Namen im Textprojekt ablegt. Ein
 Flag ist eine Nummer ab 1 (0 heißt „kein Flag“), eine Variable eine Nummer ab `0x4000` (darunter

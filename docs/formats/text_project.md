@@ -1,5 +1,13 @@
 # Textprojekt
 
+**In English:** Documents the text project: a DSPRE-compatible project folder whose game data
+additionally lives as JSON under `data/`, so that the project can live in Git and be edited by hand.
+The document covers the layout (the manifest `g4-project.json`, one JSON per entity, ID registers
+under `data/ids/`, raw blobs under `data/raw/`, quirks), export, import, checks, migration and the
+reconciliation with changes made outside Gen4 Studio. Only Platinum and HeartGold/SoulSilver are
+supported. This is about Gen4 Studio itself, and the examples come from a synthetic test project.
+The code is in `crates/g4-kernel/src/textproject/`.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Das Textprojekt ist ein
 DSPRE-Ordner, dessen Spieldaten zusätzlich als JSON unter `data/` liegen, damit das Projekt in Git
 leben und von Hand bearbeitet werden kann. Die Wurzel des Textprojekts ist der DSPRE-Ordner selbst;

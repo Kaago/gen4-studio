@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/version.sh, on a copy of Cargo.toml, package.json and CHANGELOG.md.
+# Tests for scripts/version.sh, on a copy of Cargo.toml and package.json and a fixture changelog.
 set -euo pipefail
 
 . "$(dirname "$0")/lib.sh"
@@ -13,14 +13,24 @@ run() { # run <root> <args...>
 }
 
 # Prints a fresh copy of the version files (same layout as the repo), set to 0.1.0 whatever
-# version the repo carries (a release candidate on main must not turn these tests red).
+# version the repo carries (a release candidate on main must not turn these tests red). The
+# changelog is a fixture with the one section `## [0.1.0]`, not the repo's: its headings change
+# with every release and these tests are about the script, not about the release notes.
 setup() {
   local d
   d="$(tmpdir)"
   mkdir -p "$d/apps/studio"
   cp "$REPO_ROOT/Cargo.toml" "$d/Cargo.toml"
   cp "$REPO_ROOT/apps/studio/package.json" "$d/apps/studio/package.json"
-  cp "$REPO_ROOT/CHANGELOG.md" "$d/CHANGELOG.md"
+  cat >"$d/CHANGELOG.md" <<'MD'
+# Changelog
+
+## [0.1.0] - unreleased
+
+### Added
+
+- A fixture entry.
+MD
   run "$d" set 0.1.0 >/dev/null
   printf '%s' "$d"
 }

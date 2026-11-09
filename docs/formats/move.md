@@ -1,5 +1,11 @@
 # Attacken (`moveData/NNNN`)
 
+**In English:** Documents the move data file (`moveData/NNNN`): one member of exactly 16 bytes per
+move, with the battle effect, category (physical, special, status), power, type, accuracy and
+further fields. The values were checked on Platinum DE (member 17, Wing Attack). Format knowledge
+comes from the pret decompilation. The codec is `crates/g4-formats/src/data/moves.rs`; all values
+are little endian.
+
 Quelle: DSPRE `ROMFiles/MoveData.cs`, pret `pokeplatinum` `include/move_table.h`;
 Recherche `docs/research/2026-10-23-3b3/dspre-report.md` §1.5. Die Werte sind an
 Platin DE Member 0017 (Flügelschlag) geprüft.

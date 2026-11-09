@@ -1,5 +1,12 @@
 # NSBMD-Kopf (BMD0) und MDL0-Wörterbücher
 
+**In English:** Documents the container header of an NSBMD model (BMD0) and the dictionaries of its
+MDL0 block, as far as the import of map parts needs them. It is a thin shell without a geometry
+reader: the MDL0 block is carried over byte for byte. The document lists the checks (magic,
+signature, sizes) and the errors they raise. The complete structure of a model and the writer are
+described in `nsbmd.md`. The code is `crates/g4-formats/src/nsbmd_header.rs`, with the dictionaries
+read by `nitro_dict`; all values are little endian.
+
 Quelle: apicula `src/nitro/{container,info_block}.rs` (0BSD) als Layout-Referenz, GBATEK,
 pret/pokeplatinum `land_data.c` (`numEntry == 1`), eigene Messung
 (`docs/research/2026-10-23-3b4/task0-3b4.md` §6).

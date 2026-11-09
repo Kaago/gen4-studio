@@ -1,5 +1,14 @@
 # Modelle und Texturen importieren (OBJ, glTF, PNG)
 
+**In English:** Documents how Gen4 Studio imports 3D models (OBJ, glTF, GLB) and textures (PNG) into
+a map through the "Import parts…" dialog, next to the finished binary parts. A model becomes the
+model part of the map: it is read, converted into the faces that the baker turns into an NSBMD, and
+checked against the budgets of the game. PNG files become textures that are appended to the map's
+texture pack. The document covers units and axes, accuracy, polygons, materials and texture names,
+the supported glTF subset, the preview and its codes, and verification. The code is in
+`crates/g4-kernel/src/model_import/` and `crates/g4-kernel/src/map_import.rs`; the NSBMD writer is
+described in `nsbmd.md` and the texture pack in `nsbtx.md`.
+
 Quellen: die OBJ- und MTL-Beschreibung von Wavefront (Anhang B1 und B2 des „Advanced
 Visualizer“-Handbuchs), die glTF-2.0-Spezifikation von Khronos, die Crates `tobj` 4.0.5 (MIT)
 und `gltf` 1.4.1 (MIT OR Apache-2.0), Gutachten C
