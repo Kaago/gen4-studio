@@ -54,7 +54,7 @@ import { useEventLiveMode, useInspectorModel, useMatrixSelection, useWorkbench, 
 import type { WizardRequest } from "./WorkbenchContext";
 import { useWorldActions } from "./RoomActions";
 import { NewPlaceDialog } from "./places/NewPlaceDialog";
-import { DP_PLACES } from "./places/placeChoices";
+import { dpPlaces } from "./places/placeChoices";
 
 /** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
 const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
@@ -188,7 +188,7 @@ export function ExplorerPane() {
           toolsBlocked: eventToolsBlocked(d.eventLock, d.eventFileId),
           onConnectRoom,
           onNewPlace,
-          placesBlocked: info?.family === "Dp" ? DP_PLACES : null,
+          placesBlocked: info?.family === "Dp" ? dpPlaces() : null,
           onBack: d.sceneBack,
           onForward: d.sceneForward,
           canBack: d.canBack,

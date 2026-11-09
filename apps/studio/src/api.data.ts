@@ -691,6 +691,13 @@ export function fieldLabel<K extends FieldKind>(kind: K, field: keyof (typeof fi
   return t(`common:fieldLabels.${key}`);
 }
 
+/** The name of the raw field `name` of `kind` in the language shown (a row of a hex block), or `name` itself where the table has no such field. */
+export function fieldLabelOf(kind: FieldKind, name: string): string {
+  if (!Object.prototype.hasOwnProperty.call(fieldLabels[kind], name)) return name;
+  const key = `${kind}.${name}` as FieldLabelKey;
+  return t(`common:fieldLabels.${key}`);
+}
+
 /** The rows of a data list, optionally narrowed. */
 export const dataList = (kind: DataKind, filter: DataFilter | null = null) => invoke<DataRowDto[]>("data_list", { kind, filter });
 /** The document of one member. */

@@ -1,20 +1,12 @@
 import { countKey, targetIndex } from "../api";
 import type { OriginalStatus, ResetTarget } from "../api";
 import { t } from "../i18n";
-import deOriginal from "../i18n/locales/de/original.json";
 import type { MenuItemSpec } from "../ui/primitives";
 
 /** The entry's label where one target stands alone; where two stand side by side the caller names which one. */
 export function resetLabel(): string {
   return t("original:resetEntry.label");
 }
-
-/**
- * The German label, as a constant for the places of other folders that still read `RESET_LABEL` (Technik › Änderungen: `ChangesSurface`,
- * `EntityDiff`; the script panel). Taken from the German catalog, so it stays German until they call `resetLabel()`.
- * @deprecated Call `resetLabel()`.
- */
-export const RESET_LABEL: string = deOriginal.resetEntry.label;
 
 /**
  * Why resetting `target` is not possible, as a menu entry's quiet detail or a locked button's reason: the base ROM is read, missing, or does

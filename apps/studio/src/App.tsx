@@ -924,8 +924,8 @@ function AppBody() {
    */
   const commitFocus = (from: "changes" | "wizard" | "palette") => (): HTMLElement | null => {
     if (from === "changes") focusCommitAll();
-    // The title bar names its button with the word of the vocabulary („Veröffentlichen“, „Publish“) in the language shown.
-    return from === "wizard" ? document.querySelector<HTMLElement>(`header button[aria-label="${t("common:appBody.publishButton")}"]`) : null;
+    // The title bar marks its button with `data-publish-button`: its label follows the language shown.
+    return from === "wizard" ? document.querySelector<HTMLElement>("header button[data-publish-button]") : null;
   };
   /**
    * The wizard is left; after a release the base status and the list of releases are read again (by Technik itself when the wizard goes

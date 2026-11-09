@@ -172,7 +172,7 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
   const classes = [styles.hinge, wizard === true ? styles.wizardMode : null, play ? styles.playMode : null].filter((c) => c !== null).join(" ");
 
   return (
-    <div className={classes} role="toolbar" aria-label={t("hinge.label")} data-hinge-mode={play ? "play" : undefined} data-hinge-squeeze={play ? squeezed : undefined} ref={barRef}>
+    <div className={classes} role="toolbar" aria-label={t("hinge.label")} data-hinge="" data-hinge-mode={play ? "play" : undefined} data-hinge-squeeze={play ? squeezed : undefined} ref={barRef}>
       {wizard !== undefined && <div className={styles.wizard} data-wizard-bar="" hidden={!wizard} />}
       {wizard !== true && (
         <>

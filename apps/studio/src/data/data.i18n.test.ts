@@ -1,11 +1,13 @@
 import i18next from "i18next";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TYPE_OPTIONS, filterText, lockReason, pocketLabel, rowLabel } from "./dataModel";
-import { TARGETS, flagLabel, FLAGS, usesText } from "./moves/moveModel";
+import { TARGETS, flagLabel, FLAGS, moveLabel, usesText } from "./moves/moveModel";
 import { FIELD_GROUPS, fieldFunctions, sharedNote } from "./items/itemModel";
-import { EGG_GROUPS, EVO_METHODS, GENDER, TABS, hatchText, lockText } from "./pokedex/pokedexModel";
+import { EGG_GROUPS, EVO_METHODS, GENDER, STATS, TABS, hatchText, lockText } from "./pokedex/pokedexModel";
 import { TIME_COLUMNS, TIME_HOURS, methodTabs, replacedByText, shareText, usedByText, warningText } from "./encounters/encounterModel";
 import { AI_LEVELS, TEXT_KINDS, bitLabel, partialTrainer, problemText } from "./trainer/trainerModel";
+import { fieldLabelOf } from "../api";
+import { numberText } from "../workbench/terms";
 
 // The tables of the data areas hold their words as getters and the functions read the catalog when they are called: in English they are
 // English, and German again after the switch back.
@@ -33,6 +35,15 @@ describe("the data areas in English", () => {
     expect(TABS.map((t) => t.label)).toEqual(["Values", "Abilities and types", "Learnset", "Egg moves", "Evolution", "TM/HM", "Raw data"]);
     expect(hatchText(20)).toBe("20 cycles, 5,120 steps");
     expect(lockText("personal 0001: 36 bytes, expected 44", { kind: "Personal", index: 1 })).toBe("Pokémon data 0001: 36 bytes instead of 44");
+  });
+
+  it("names_the_fields_and_numbers_in_English", () => {
+    // The field names come from `common:fieldLabels` when they are asked for, not from the German table `fieldLabels`.
+    expect(STATS.map((s) => s.label).slice(0, 2)).toEqual(["HP", "Attack"]);
+    expect(moveLabel("Wing Attack", "power", 60, 65)).toBe("Wing Attack: Power 60 → 65");
+    expect(fieldLabelOf("item", "price")).toBe("Price");
+    expect(fieldLabelOf("item", "padding")).toBe("padding");
+    expect(numberText(17)).toBe("Number 0017");
   });
 
   it("words the move, item, encounter and trainer tables in English", () => {

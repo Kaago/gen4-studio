@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
-import { UNNAMED_KEY, UNNAMED_PLACE, buildPlaces, filterPlaces, placeColor, placeOf, scriptChildren } from "./places";
+import { UNNAMED_KEY, buildPlaces, filterPlaces, placeColor, placeOf, scriptChildren, unnamedPlace } from "./places";
 
 const header = (id: number, location_name: string, matrix_id: number, internal_name = `H${id}`): HeaderSummary => ({
   id,
@@ -38,7 +38,7 @@ const link = (dest_header_id: number): WarpLink => ({ event_file: 0, index: 0, x
 describe("buildPlaces", () => {
   it("groups_headers_by_location_outside_first_then_rooms", () => {
     const places = buildPlaces(headers, matrices);
-    expect(places.map((p) => p.name)).toEqual(["Zweiblattdorf", "Route 201", UNNAMED_PLACE]);
+    expect(places.map((p) => p.name)).toEqual(["Zweiblattdorf", "Route 201", unnamedPlace()]);
     const first = places[0];
     expect(first.headers.map((h) => h.header.id)).toEqual([0, 1, 2]);
     expect(first.headers.map((h) => h.kind)).toEqual(["outside", "inside", "inside"]);
@@ -56,7 +56,7 @@ describe("buildPlaces", () => {
   it("headers_without_name_or_matrix_summary_are_still_listed", () => {
     const places = buildPlaces([...headers, header(5, "Ort", 42)], matrices);
     const unnamed = places.find((p) => p.key === UNNAMED_KEY);
-    expect(unnamed?.name).toBe(UNNAMED_PLACE);
+    expect(unnamed?.name).toBe(unnamedPlace());
     expect(unnamed?.headers.map((h) => h.header.id)).toEqual([4]);
     const orphan = places.find((p) => p.name === "Ort")?.headers[0];
     expect(orphan).toMatchObject({ kind: "inside", mapCount: 0, size: null });

@@ -1,10 +1,9 @@
 import i18next from "i18next";
 import { afterEach, describe, expect, it } from "vitest";
 import type { BuildStep } from "../api";
-import { AGENT_SETTING_UP, agentSettingUpText } from "./TextProjectSurface";
 import { stateBadge } from "./diffWords";
 import { formatSeconds, patchBuildNote, stepLabel } from "./stepWords";
-import { BUILD_CONFLICTS, buildConflictsText, firstSyncNote, syncProgressText } from "./syncWords";
+import { buildConflictsText, firstSyncNote, syncProgressText } from "./syncWords";
 import { changesSubtitle, unbuiltText } from "./ChangesSurface";
 
 const step = (id: string, over: Partial<BuildStep> = {}): BuildStep => ({ id, status: "full", ms: 0, done: 0, total: 0, cached: 0, reason: null, ...over });
@@ -38,12 +37,5 @@ describe("technik in English", () => {
     expect(syncProgressText({ done: 3, total: 40 })).toBe("Syncing with DSPRE … 3 of 40 files");
     expect(firstSyncNote()).toBe("The first time takes longer; after that it is quick.");
     expect(buildConflictsText()).toBe("Resolve the conflicts in Technical › Text project first.");
-  });
-
-  it("keeps_the_German_constants_equal_to_the_catalog_while_other_folders_import_them", () => {
-    // `app/useProjectSession.ts` and `app/useTextProjectDialogs.ts` still import these names: until they move to the functions they must
-    // say what the German catalog says.
-    expect(BUILD_CONFLICTS).toBe(buildConflictsText());
-    expect(AGENT_SETTING_UP).toBe(agentSettingUpText());
   });
 });

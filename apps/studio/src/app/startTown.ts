@@ -1,6 +1,6 @@
 import type { HeaderSummary } from "../api";
 import type { HeaderIdentity } from "../workbench/headerIdentity";
-import { UNNAMED_PLACE } from "../workbench/places";
+import { isUnnamedPlace } from "../workbench/places";
 import { placeNameOf } from "../workbench/worldModel";
 
 /**
@@ -9,6 +9,6 @@ import { placeNameOf } from "../workbench/worldModel";
  * the world calls such an area „Ohne Ortsnamen“, which is no town to name (the hint then says „der Startstadt“).
  */
 export function startTownName(header: HeaderSummary, identity: HeaderIdentity): string | null {
-  if (identity.kind === "room" || placeNameOf(header) === "" || identity.name === UNNAMED_PLACE) return null;
+  if (identity.kind === "room" || placeNameOf(header) === "" || isUnnamedPlace(identity.name)) return null;
   return identity.name;
 }

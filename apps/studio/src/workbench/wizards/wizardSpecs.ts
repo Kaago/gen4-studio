@@ -1,12 +1,12 @@
 import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssetKind, AssignHeader, ConnectDoorsInput, ConnectDoorsReport, DoorReport, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, NameTablesDto, NewFigureReport, NewTrainerHereInput, NewTrainerHereReport, NextStep, PlaceChoice, RecipeOutcome, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
 import { className, speciesName, trainerTitle } from "../../data/trainer/trainerModel";
-import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
+import { notATextProject } from "../../flags/flagWords";
 import { t } from "../../i18n";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
-import { UNNAMED_PLACE } from "../places";
+import { unnamedPlace } from "../places";
 import { nextStepsFor } from "../recipes";
 import { id4, numberText, termLabel, termPlural } from "../terms";
 import type { WarpTile } from "../warpTile";
@@ -506,7 +506,7 @@ export function buildingSources(world: World | null, headers: readonly HeaderSum
   const areas = world ? [...world.worldMaps.flatMap((m) => m.areas), ...world.moreAreas] : [];
   const room = [...areas.flatMap((a) => a.rooms), ...(world?.unconnected ?? [])].find((r) => r.header.matrix_id === current);
   const named = headers.find((h) => h.matrix_id === current && h.location_name.trim() !== "")?.location_name.trim();
-  return [...sources, { value: current, label: room?.name ?? named ?? UNNAMED_PLACE }];
+  return [...sources, { value: current, label: room?.name ?? named ?? unnamedPlace() }];
 }
 
 /** The world maps an area can go onto, one per raster: Johto and Kanto share one and are named together („Johto und Kanto“). */
@@ -891,7 +891,7 @@ export function figureResult(outcome: RecipeOutcome<NewFigureReport>, textProjec
       ...outcome.created.map(createdLine),
     ],
     // „Zu einer Geschichte“ opens a story recipe, which needs a text project: outside one it is locked with the kernel's sentence.
-    steps: textProject ? outcome.next : outcome.next.map((s) => (s.id === "story_join" ? { ...s, available: false, reason: NOT_A_TEXT_PROJECT } : s)),
+    steps: textProject ? outcome.next : outcome.next.map((s) => (s.id === "story_join" ? { ...s, available: false, reason: notATextProject() } : s)),
     next: [t("workbench:wizardSpecs.tryFigure")],
   };
 }

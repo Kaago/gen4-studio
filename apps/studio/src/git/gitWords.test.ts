@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { commitReportOf, gitStatusOf, noRepo } from "./gitTesting";
-import { NOT_INSTALLED, changedFilesText, changesWord, commitDoneText, gitFoundText, statusText, statusTooltip } from "./gitWords";
+import { changedFilesText, changesWord, commitDoneText, gitFoundText, notInstalledText, statusText, statusTooltip } from "./gitWords";
 
 describe("gitWords", () => {
   it("changes_have_none_singular_and_plural", () => {
@@ -48,7 +48,7 @@ describe("gitWords", () => {
     // The dialog and the wizard tell „only the templates“ from a failed commit by this sentence: a change in the kernel must show here.
     const cli = readFileSync("../../crates/g4-kernel/src/git/cli.rs", "utf8");
     const rust = /pub const NOT_INSTALLED: &str =\s*"((?:[^"\\]|\\.)*)";/.exec(cli);
-    expect(rust?.[1]).toBe(NOT_INSTALLED);
+    expect(rust?.[1]).toBe(notInstalledText());
   });
 
   it("changed_files_have_none_singular_and_plural", () => {

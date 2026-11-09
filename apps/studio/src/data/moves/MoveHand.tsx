@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FocusEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { dataRaw, errorText, fieldLabels } from "../../api";
+import { dataRaw, errorText, fieldLabel, fieldLabelOf } from "../../api";
 import type { RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
 import { depthAtLeast } from "../../ui/frame/shellState";
@@ -44,7 +44,7 @@ interface Editing {
   flags: number;
 }
 
-function MoveNumber({ e, field, label = fieldLabels.move[field], ...limits }: { e: Editing; field: MoveField; label?: string } & Pick<NumberFieldProps, "bits" | "min" | "max" | "hint">) {
+function MoveNumber({ e, field, label = fieldLabel("move", field), ...limits }: { e: Editing; field: MoveField; label?: string } & Pick<NumberFieldProps, "bits" | "min" | "max" | "hint">) {
   return (
     <InspectorRow label={label}>
       <div data-field={field}>
@@ -55,7 +55,7 @@ function MoveNumber({ e, field, label = fieldLabels.move[field], ...limits }: { 
 }
 
 function MoveSelect({ e, field, options }: { e: Editing; field: MoveField; options: readonly SelectOption<number>[] }) {
-  const label = fieldLabels.move[field];
+  const label = fieldLabel("move", field);
   return (
     <InspectorRow label={label}>
       <div data-field={field}>
@@ -117,7 +117,7 @@ function RawBytes({ index, doc, highlight }: { index: number; doc: MoveDoc | nul
   }, [index, doc]);
   if (raw === null) return <p className={styles.note}>{t("loading")}</p>;
   if (raw.raw === null) return <p className={styles.note}>{t("notReadable", { error: raw.error ?? "" })}</p>;
-  return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} highlight={highlight} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => (fieldLabels.move as Record<string, string>)[name] ?? name} />;
+  return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} highlight={highlight} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => fieldLabelOf("move", name)} />;
 }
 
 /** Rohdaten (Tüfteln): the effect id, every bit of the flags byte, the bytes with the field focused last marked. */

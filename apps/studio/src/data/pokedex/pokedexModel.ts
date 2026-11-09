@@ -1,4 +1,4 @@
-import { fieldLabels } from "../../api";
+import { fieldLabel } from "../../api";
 import type { AssetId, DataRowDto, LearnEntryDto, NameTablesDto, PersonalDto, PersonalField, SpeciesRowExtra, SpeciesTab } from "../../api";
 import { t } from "../../i18n";
 import type { SelectOption } from "../../ui/primitives";
@@ -8,15 +8,26 @@ import { id4 } from "../../workbench/terms";
 /** The six base stats in the order the games list them (summary screen). */
 export type StatField = "hp" | "attack" | "defense" | "sp_attack" | "sp_defense" | "speed";
 
-/** The base stats with their label and their place in a row's `extra.stats` (HP, Attack, Defense, Speed, Special Attack, Special Defense). */
-export const STATS: readonly { field: StatField; label: string; row: number }[] = [
-  { field: "hp", label: fieldLabels.species.hp, row: 0 },
-  { field: "attack", label: fieldLabels.species.attack, row: 1 },
-  { field: "defense", label: fieldLabels.species.defense, row: 2 },
-  { field: "sp_attack", label: fieldLabels.species.sp_attack, row: 4 },
-  { field: "sp_defense", label: fieldLabels.species.sp_defense, row: 5 },
-  { field: "speed", label: fieldLabels.species.speed, row: 3 },
-];
+/**
+ * The base stats with their label and their place in a row's `extra.stats` (HP, Attack, Defense, Speed, Special Attack, Special Defense).
+ * Each label is read when asked for (in the language shown then), never when this module loads.
+ */
+export const STATS: readonly { field: StatField; readonly label: string; row: number }[] = (
+  [
+    ["hp", 0],
+    ["attack", 1],
+    ["defense", 2],
+    ["sp_attack", 4],
+    ["sp_defense", 5],
+    ["speed", 3],
+  ] as const
+).map(([field, row]) => ({
+  field,
+  row,
+  get label() {
+    return fieldLabel("species", field);
+  },
+}));
 
 /** The highest species of the National Dex; members after it are the eggs (494, 495) and the forms (496 to 507). */
 const LAST_SPECIES = 493;
@@ -331,4 +342,4 @@ export function personalText(field: PersonalField, value: number, names: Pick<Na
 
 /** The undo label of a personal field: "Staravia: Angriff 75 → 85", "Staravia: Typ 2 Flug → Feuer". */
 export const personalLabel = (name: string, field: PersonalField, old: number, value: number, names: Pick<NameTablesDto, "abilities" | "items">): string =>
-  `${name}: ${fieldLabels.species[field]} ${personalText(field, old, names)} → ${personalText(field, value, names)}`;
+  `${name}: ${fieldLabel("species", field)} ${personalText(field, old, names)} → ${personalText(field, value, names)}`;

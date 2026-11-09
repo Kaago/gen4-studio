@@ -38,12 +38,6 @@ export type TextProjectView = {
 /** What the surface says while an agent sets the folder up, in the language that is shown. */
 export const agentSettingUpText = () => t("technik:textProjectSurface.agentSettingUp");
 
-/**
- * @deprecated German only, kept while `app/useTextProjectDialogs.ts` imports the name `AGENT_SETTING_UP` from here: a constant cannot follow
- * the language. It moves to `agentSettingUpText()`, then this goes.
- */
-export const AGENT_SETTING_UP = "Wird von einem Agenten eingerichtet …";
-
 /** The line under „Textprojekt“ in the list of Technik; `text` null: no project. */
 export function textProjectSubtitle(text: TextProjectView | null): string {
   if (text === null) return t("technik:shared.noProject");

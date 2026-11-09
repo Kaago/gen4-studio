@@ -1,6 +1,5 @@
 import type { HeaderSummary, PlaceSlots } from "../../api";
 import { t } from "../../i18n";
-import workbenchDe from "../../i18n/locales/de/workbench.json";
 import type { PickerItem } from "../../ui/primitives";
 import { UNNAMED_KEY } from "../places";
 import { NO_PLACE_INDEX, placeNameOf } from "../worldModel";
@@ -10,12 +9,6 @@ import type { Area, World } from "../worldModel";
 export const noPlaceLabel = (): string => t("workbench:placeChoices.noPlace");
 /** Why Diamond and Pearl have no new places (the kernel's refusal, said before the click). */
 export const dpPlaces = (): string => t("workbench:placeChoices.dpPlaces");
-/**
- * The German sentence of `dpPlaces` (read from the German catalog, so it has one source), for `panels.tsx` (outside this folder's
- * migration) until it reads `dpPlaces()`.
- * @deprecated Use `dpPlaces()`: this one stays German in English.
- */
-export const DP_PLACES: string = workbenchDe.placeChoices.dpPlaces;
 /** The longest name of the vanilla games: a longer one may be cut off in the game. */
 const NAME_LIMIT = 16;
 

@@ -357,6 +357,17 @@ describe("usePaintSession", () => {
     api.worldEdit.mockImplementation(async (req: WorldEditRequest) => report(req));
   });
 
+  it("nothing_to_change_is_silent_in_either_language_of_the_kernel", async () => {
+    // The app speaks German here; a kernel set to English says the same refusal in English.
+    api.worldEdit.mockRejectedValue({ ...nothing, message: "Nothing to change." });
+    await showSmart({ sub: "terrain", edgeSet: "Weg" });
+    act(() => session?.onStroke(stroke({ sub: "terrain", preview: 7 })));
+    await tick();
+    expect(api.worldEdit).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    api.worldEdit.mockImplementation(async (req: WorldEditRequest) => report(req));
+  });
+
   it("notes_become_notices", async () => {
     const notes = ["Naht zu Karte 0124: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die Nachbarkarte bleibt, wie sie ist."];
     api.worldEdit.mockImplementation(async (req: WorldEditRequest) => ({ ...report(req), notes }));

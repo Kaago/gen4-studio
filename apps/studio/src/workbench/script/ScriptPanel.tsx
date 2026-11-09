@@ -8,7 +8,7 @@ import type { LspToolState } from "../../app/toolStatus";
 import { useStableCallback } from "../../app/useStable";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
-import { RESET_LABEL, resetEntry } from "../../original/resetEntry";
+import { resetEntry, resetLabel } from "../../original/resetEntry";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, Button, EmptyState, Menu, PanelHead, Tabs } from "../../ui/primitives";
@@ -238,7 +238,7 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
                 // The shown file as in the base ROM; the dialog warns when the editor holds unsaved text of it (that text is lost).
                 doc
                   ? resetEntry({ kind: "script", file: doc.file }, reset.status, (target) => reset.open(target, { scriptDirty: isDirty(doc) }))
-                  : { label: RESET_LABEL, icon: "undo", disabled: true, detail: t("scriptPanel.noScriptDetail"), onSelect: () => {} },
+                  : { label: resetLabel(), icon: "undo", disabled: true, detail: t("scriptPanel.noScriptDetail"), onSelect: () => {} },
               ]}
             />
           </>

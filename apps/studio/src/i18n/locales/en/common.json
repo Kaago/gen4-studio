@@ -21,8 +21,7 @@
     "chooseMapFirst": "Choose a map first",
     "notYetWhat": "This area is not here yet.",
     "notYetWhy": "It comes in one of the next phases.",
-    "settingsApply": "Changes apply at once and to every project",
-    "publishButton": "Publish"
+    "settingsApply": "Changes apply at once and to every project"
   },
   "list": {
     "and": "{{rest}} and {{last}}"

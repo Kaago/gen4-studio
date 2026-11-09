@@ -1415,6 +1415,9 @@
     "hex": "Hex",
     "title": "Technical"
   },
+  "terms": {
+    "number": "Number {{id}}"
+  },
   "textArea": {
     "hints": "↵ new line, ⇧↵ new page",
     "noFigureSays": "No character says this message – opened in Build",

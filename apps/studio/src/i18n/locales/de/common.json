@@ -21,8 +21,7 @@
     "chooseMapFirst": "Erst eine Karte wählen",
     "notYetWhat": "Dieser Bereich ist noch nicht da.",
     "notYetWhy": "Er kommt in einer der nächsten Phasen.",
-    "settingsApply": "Änderungen gelten sofort und für alle Projekte",
-    "publishButton": "Veröffentlichen"
+    "settingsApply": "Änderungen gelten sofort und für alle Projekte"
   },
   "list": {
     "and": "{{rest}} und {{last}}"

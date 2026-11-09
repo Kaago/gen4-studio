@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { fieldLabels } from "../../api";
+import { fieldLabel } from "../../api";
 import { InspectorRow } from "../../ui/primitives";
 import { TYPE_OPTIONS } from "../dataModel";
 import { PickField } from "./pickers";
@@ -11,7 +11,7 @@ import styles from "./Pokedex.module.css";
 
 /** A personal field chosen from a long list (an ability, an item). */
 function PersonalPick({ e, field, choice, text }: { e: Editing; field: NumericField; choice: Choice; text: string }) {
-  const label = fieldLabels.species[field];
+  const label = fieldLabel("species", field);
   return (
     <InspectorRow label={label} deviates={e.doc.personal[field] !== e.doc.saved[field]}>
       <div data-field={field}>

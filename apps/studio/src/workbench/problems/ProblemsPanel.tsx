@@ -10,7 +10,6 @@ import { problemText } from "../../data/trainer/trainerModel";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { t as translate } from "../../i18n";
-import workbenchDe from "../../i18n/locales/de/workbench.json";
 import { Badge, Button, CheckList, EmptyState, Icon, Notice, PanelHead, Reference, Section } from "../../ui/primitives";
 import type { Area, CheckRow } from "../../ui/primitives";
 import { useSectionFolds } from "../inspector/foldState";
@@ -232,13 +231,6 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
 
 /** Why an empty list says nothing while the checks have no result, and the way out (the foot's „Erneut prüfen“). */
 export const uncheckedWhy = (): string => translate("workbench:problemsPanel.uncheckedWhy");
-
-/**
- * The German sentence of `uncheckedWhy` (read from the German catalog, so it has one source), for `technik/TechnikArea.tsx` (outside
- * this folder's migration) until it reads `uncheckedWhy()`.
- * @deprecated Use `uncheckedWhy()`: this one stays German in English.
- */
-export const UNCHECKED_WHY: string = workbenchDe.problemsPanel.uncheckedWhy;
 
 /**
  * Beside problems of a save or a build, while the checks have no result and none runs: a note says so (`data-unchecked`), so the list does
