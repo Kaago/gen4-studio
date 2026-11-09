@@ -1,16 +1,21 @@
 # Awesome-list entries
 
-One line per list, in the format of that list. One pull request per list and one entry per pull request. The formats and rules below were read from the lists' own README and contributing files on 2026-11-09; look at the neighbouring entries once more before opening each pull request, because the lists change quickly. Never fake popularity: where a list has a threshold, wait until the repository meets it.
+One line per list, in the format of that list. One pull request per list and one entry per pull request. The formats and rules below were read from the lists' own README and contributing files on 2026-11-09; look at the neighboring entries once more before opening each pull request, because the lists change quickly. Never fake popularity: where a list has a threshold, wait until the repository meets it.
 
 ## 1. awesome-mcp-servers
 
 - List: https://github.com/punkpeye/awesome-mcp-servers (README.md)
 - Section: "Gaming" (game data, game engines and services). Entries are meant to be alphabetical by `owner/repo` (the section is not perfectly sorted), so the line goes next to `justinscott12/modrinth-mcp` and before `kitao/pyxel-mcp`.
-- Format: a bullet with `-`, the repository `owner/repo` as the link text pointing to its GitHub URL, then the icons for language, scope and operating systems, a plain hyphen and the description. The list's legend: 🦀 Rust codebase, 🏠 local service, 🍎 macOS, 🪟 Windows (no 🐧: there is no Linux build).
+- Format: a bullet with `-`, the repository `owner/repo` as the link text pointing to its GitHub URL, the Glama score badge (see the prerequisite), then the icons for language, scope and operating systems, a plain hyphen and the description. The list's legend: 🦀 Rust codebase, 🏠 local service, 🍎 macOS, 🪟 Windows (no 🐧: there is no Linux build).
 - Rules: one server per line, alphabetical order inside the category, concise description. The list is for servers with a public GitHub repository, which Gen4 Studio is once the repository is public. The server is the `studio mcp` subcommand of the desktop app.
+- **Prerequisite: a Glama listing.** The list's workflow `.github/workflows/check-glama.yml` labels every pull request `missing-glama` unless the new line carries a Glama score badge, and it asks for a server that Glama has accepted. So, before opening the pull request:
+  1. Submit the server at https://glama.ai/mcp/servers and add the Dockerfile directly on Glama (the check only needs the server to start and answer introspection requests such as `tools/list`).
+  2. Wait until Glama's checks for `Kaago/gen4-studio` pass, and open https://glama.ai/mcp/servers/Kaago/gen4-studio to confirm that the badge image loads.
+  3. Only then open the pull request with the line below.
+  A caveat to settle when doing step 1: Glama runs the server in a Linux container, and there is no Linux release build (Linux is best effort), so the Dockerfile has to build `studio` from source and start `studio mcp --project <folder>` on a small synthetic project (headless mode, see the [MCP guide](../en/mcp.md)). If that does not work out, the entry waits; nothing else in the launch depends on it.
 
 ```
-- [Kaago/gen4-studio](https://github.com/Kaago/gen4-studio) 🦀 🏠 🍎 🪟 - Read and edit Pokémon Platinum, HeartGold and SoulSilver ROM-hack projects (maps, scripts, texts, data, build) through 90 curated tools, headless over stdio or inside the running desktop app, with read and write permissions per project.
+- [Kaago/gen4-studio](https://github.com/Kaago/gen4-studio) [![Kaago/gen4-studio MCP server](https://glama.ai/mcp/servers/Kaago/gen4-studio/badges/score.svg)](https://glama.ai/mcp/servers/Kaago/gen4-studio) 🦀 🏠 🍎 🪟 - Read and edit Pokémon Platinum, HeartGold and SoulSilver ROM-hack projects (maps, scripts, texts, data, build) through 90 curated tools, headless over stdio or inside the running desktop app, with read and write permissions per project.
 ```
 
 Pull request title: `Add Kaago/gen4-studio`.
@@ -34,7 +39,7 @@ Pull request title: `Add Kaago/gen4-studio`.
 ## 4. awesome-romhacking
 
 - List: https://github.com/btelwy/awesome-romhacking (README.md). A small list (about 50 stars) of ROM-hacking resources with a "Pokémon series" subsection under "Prominent Games" and a Nintendo DS subsection.
-- Section: "Prominent Games" › "*Pokémon* series". The contributing file asks for new items at the bottom of a section, in the form `- [item name](https link) - Description beginning with capital, ending in period.`, always from a new branch. The README's own entries use `*` as the bullet and put the platform icons (🍎 macOS, 🪟 Windows, 🐧 Linux) at the end, so the line follows that.
+- Section: "Prominent Games" › "*Pokémon* series". The contributing file asks for new items at the bottom of a section, in the form `- [item name](https link) - Description beginning with capital, ending in period.`, always from a new branch. If the maintainers prefer a platform-based place, the "Nintendo DS" subsection under "Consoles" is a fine alternative, since the line applies to DS games. The README's own entries use `*` as the bullet and put the platform icons (🍎 macOS, 🪟 Windows, 🐧 Linux) at the end, so the line follows that.
 
 ```
 * [Gen4 Studio](https://github.com/Kaago/gen4-studio) - A text-based, Git-friendly editor for Pokémon Platinum, HeartGold and SoulSilver ROM hacks, with an MCP interface for AI agents. 🍎🪟

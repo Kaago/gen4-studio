@@ -2,7 +2,7 @@
 
 Ready-to-post texts for the release of Gen4 Studio v1.0.0, all in English. The maintainer publishes them by hand, in the order below. Nothing in this folder is posted automatically.
 
-Every text says what Gen4 Studio is, names macOS and Windows, the text project with Git, MCP and the DSPRE compatibility, thanks the DSPRE team and the DS hacking community, and links to the release page, the [README](../../README.md) and the [MCP guide](../en/mcp.md).
+Every long-form post (the Discord message, the announcement, the Reddit post and the Show HN comment) says what Gen4 Studio is, names macOS and Windows, the text project with Git, MCP and the DSPRE compatibility, thanks the DSPRE team and the DS hacking community, and links to the release page, the [README](../../README.md) and the [MCP guide](../en/mcp.md). The wiki entries and the awesome-list lines are single lines in the format of their targets.
 
 | File | For |
 |---|---|
@@ -21,9 +21,10 @@ All of these must be true before anything goes out, because every text links to 
 - [ ] The repository is public: `gh repo view Kaago/gen4-studio --json visibility` says `PUBLIC`. Discussions are switched on, so the follow-up below has a place to happen.
 - [ ] The screenshots show in the README on github.com (they live in `docs/media/`) and contain nothing but what the app shows.
 - [ ] Both packages were installed once from the release page, and the Gatekeeper and SmartScreen steps in the README match what you saw.
-- [ ] The texts are still true: `bash scripts/check-links.sh docs/launch/*.md` prints `links: <n> ok`, `wc -m docs/launch/discord.md` is at most 1200, and `grep -niE 'based [o]n|fork [o]f' docs/launch` finds nothing (the DSPRE wording rule: inspired by, format knowledge, test oracle, project-compatible, shares no code).
+- [ ] The texts are still true: `bash scripts/check-links.sh docs/launch/*.md` prints `links: <n> ok`, `wc -m docs/launch/discord.md` is at most 1200, and `grep -rniE 'based [o]n|fork [o]f' docs/launch` finds nothing (the DSPRE wording rule: inspired by, format knowledge, test oracle, project-compatible, shares no code).
+- [ ] No placeholder is left: `grep -rn '\[add th[e] link' docs/launch` finds only the screenshots line of the Reddit post, and that line is replaced with the link to the uploaded screenshots when you post it (step 5).
 - [ ] The links in the texts work on the public site: https://github.com/Kaago/gen4-studio/releases/latest, https://github.com/Kaago/gen4-studio#readme and https://github.com/Kaago/gen4-studio/blob/main/docs/en/mcp.md.
-- [ ] Optional but friendly: tell the DSPRE maintainers about the launch before the first post, since every text thanks them.
+- [ ] Optional but friendly: tell the DSPRE maintainers about the launch before the first post, since the posts thank them.
 
 ## Publishing order
 
@@ -39,10 +40,11 @@ Post in this order and leave some time between the steps (a day or two between t
    - [ ] Posted. Link: ________
 5. **r/PokemonROMhacks.** File: [reddit.md](reddit.md). Read the sidebar rules and pick the flair for a tool release, replace the screenshots line with the link to the uploaded screenshots, then post. Do not ask for or post ROMs in the thread.
    - [ ] Posted. Link: ________
-6. **Show HN.** File: [show-hn.md](show-hn.md). Submit the repository URL with the title from the file (see the note about the 80-character limit there), leave the text field empty and post the author comment right away. A weekday morning in US time is the usual choice. Do not ask friends to upvote.
+6. **Show HN.** File: [show-hn.md](show-hn.md). Submit the repository URL with the title under "Title to submit" in the file (77 characters; Hacker News allows 80), leave the text field empty and post the author comment right away. A weekday morning in US time is the usual choice. Do not ask friends to upvote.
    - [ ] Posted. Link: ________
-7. **Awesome lists (pull requests).** File: [awesome-lists.md](awesome-lists.md). awesome-mcp-servers and awesome-romhacking can go out now. awesome-rust waits until the repository has more than 50 stars. awesome-tauri takes no applications any more, so there is nothing to submit there.
-   - [ ] awesome-mcp-servers. Link: ________
+7. **Awesome lists (pull requests).** File: [awesome-lists.md](awesome-lists.md). awesome-romhacking can go out now. awesome-mcp-servers needs the server to be listed on Glama first (submit it at https://glama.ai/mcp/servers, add the Dockerfile there and wait for its checks to pass; the list's workflow labels pull requests without the Glama badge `missing-glama`), so that pull request waits for the Glama listing, and the line in the file already carries the badge. awesome-rust waits until the repository has more than 50 stars. awesome-tauri takes no applications any more, so there is nothing to submit there.
+   - [ ] Glama listing submitted and its checks pass. Link: ________
+   - [ ] awesome-mcp-servers (after the Glama listing). Link: ________
    - [ ] awesome-romhacking. Link: ________
    - [ ] awesome-rust (when the threshold is met). Link: ________
 
