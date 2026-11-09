@@ -1,4 +1,5 @@
 import { Fragment, memo, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createTrainer, errorText, isCmdError } from "../../api";
 import type { CreateTrainerReport, DataRowDto, TrainerRowExtra } from "../../api";
 import { FindingMark, useFindingMarks } from "../../checks/FindingMark";
@@ -14,7 +15,7 @@ import type { SelectOption } from "../../ui/primitives";
 import { recipeRequest } from "../../workbench/recipes";
 import { lockReason } from "../dataModel";
 import { useDataArea, useDataSearch } from "../useDataArea";
-import { GROUP_OPTIONS, PLACEHOLDER_TEXT, TRAINER_SCRIPTS, classOptions, groupRows, nameCount, nameError, nextTrainer, partialTrainer, rowLevel, trainerNameArchive } from "./trainerModel";
+import { TRAINER_SCRIPTS, classOptions, groupOptions, groupRows, nameCount, nameError, nextTrainer, partialTrainer, rowLevel, trainerNameArchive } from "./trainerModel";
 import type { GroupMode, RowGroup } from "./trainerModel";
 import styles from "./Trainer.module.css";
 
@@ -37,6 +38,7 @@ const TrainerRow = memo(function TrainerRow({
   mark: MarkSeverity | undefined;
   onSelect: (index: number) => void;
 }) {
+  const { t } = useTranslation("data");
   const reason = row.locked === null ? null : lockReason(row.locked);
   const level = rowLevel(row);
   const reset = useReset();
@@ -53,14 +55,14 @@ const TrainerRow = memo(function TrainerRow({
       selected={selected}
       onSelect={() => onSelect(row.index)}
       title={reason ?? undefined}
-      ariaLabel={`${label}, ${row.tech}${deleted ? ", gelöscht" : ""}${reason === null ? "" : `, gesperrt: ${reason}`}`}
+      ariaLabel={[label, row.tech, ...(deleted ? [t("trainerList.deleted")] : []), ...(reason === null ? [] : [t("trainerList.locked", { reason })])].join(", ")}
       dataAttrs={{ "data-trainer": row.index, "data-deleted": deleted ? "true" : undefined }}
       trailing={
         <span className={styles.rowEnd}>
           {deleted && <EntityStateBadge state="deleted" />}
-          {level !== null && <span className={styles.level}>{`Lv. ${level}`}</span>}
+          {level !== null && <span className={styles.level}>{t("trainerList.level", { level })}</span>}
           {mark && <FindingMark severity={mark} />}
-          {unsaved && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
+          {unsaved && <span className={styles.dot} role="img" aria-label={t("unsaved")} />}
           {reason !== null && <Badge kind="locked" title={reason} />}
         </span>
       }
@@ -89,6 +91,7 @@ function CreateDialog({
   /** The backend failed after it wrote something (code "partial"): its message. */
   onPartial: (message: string) => void;
 }) {
+  const { t } = useTranslation("data");
   const { names, scriptFiles } = useDataArea("pokemon");
   const [cls, setCls] = useState(defaultClass);
   const [name, setName] = useState("");
@@ -110,24 +113,23 @@ function CreateDialog({
       setBusy(false);
     }
   };
-  const placeholder = next.placeholder === null ? "" : `${next.placeholder} wird ${PLACEHOLDER_TEXT}. `;
   return (
     <Dialog
       open
       onOpenChange={(open) => !open && onClose()}
-      title={`Trainer ${next.id} anlegen?`}
-      description={`${placeholder}Er wird sofort ohne Pokémon angelegt; Team, Texte und Platz in der Welt folgen danach.`}
+      title={t("trainerList.createTitle", { id: next.id })}
+      description={next.placeholder === null ? t("trainerList.createDescription") : t("trainerList.createDescriptionPlaceholder", { id: next.placeholder })}
       actions={[
-        { label: "Abbrechen", onClick: onClose },
-        { label: "Anlegen", kind: "primary", onClick: () => void create() },
+        { label: t("trainerList.cancel"), onClick: onClose },
+        { label: t("trainerList.create"), kind: "primary", onClick: () => void create() },
       ]}
     >
       <div className={styles.dialogBody}>
         <span>
           <Badge kind="irreversible" />
         </span>
-        <SelectField label="Klasse" showLabel value={cls} options={options} onChange={setCls} />
-        <TextField label="Name" showLabel value={name} onChange={setName} onCommit={setName} hint={`Höchstens 7 Zeichen, jetzt ${nameCount(name)}`} error={tooLong ?? undefined} />
+        <SelectField label={t("trainerList.class")} showLabel value={cls} options={options} onChange={setCls} />
+        <TextField label={t("trainerList.name")} showLabel value={name} onChange={setName} onCommit={setName} hint={t("trainerList.nameHint", { current: nameCount(name) })} error={tooLong ?? undefined} />
         {refusal !== null && <Notice kind="error">{refusal}</Notice>}
       </div>
     </Dialog>
@@ -142,6 +144,7 @@ function CreateDialog({
  * at the place the world shows or showed last.
  */
 export function TrainerList() {
+  const { t } = useTranslation("data");
   const { rows, selected, select, labelOf, project, bus, onEdited, dirty, scriptFiles, problems, openWizard, worldHeader } = useDataArea("pokemon");
   // The depth of this area, not of the one in front (the list of a deck kept behind keeps its head).
   const narrating = !depthAtLeast(viewDepth("pokemon", useShell().state.depth), "bauen");
@@ -193,8 +196,9 @@ export function TrainerList() {
     if (id !== null) select(id);
   };
   const onCreated = (report: CreateTrainerReport) => {
-    const made = report.placeholder === null ? `Trainer ${report.id} angelegt.` : `Trainer ${report.id} angelegt; ${report.placeholder} bleibt ${PLACEHOLDER_TEXT}.`;
-    written(report.id, report.script_extended, { kind: "success", text: report.script_extended ? `${made} ${battleFile === null ? "Das Kampf-Script" : `Die Kampf-Scriptdatei ${String(battleFile).padStart(4, "0")}`} hat neue Plätze bekommen.` : made });
+    const made = report.placeholder === null ? t("trainerList.created", { id: report.id }) : t("trainerList.createdPlaceholder", { id: report.id, slot: report.placeholder });
+    const extended = battleFile === null ? t("trainerList.scriptExtended", { made }) : t("trainerList.scriptFileExtended", { made, file: String(battleFile).padStart(4, "0") });
+    written(report.id, report.script_extended, { kind: "success", text: report.script_extended ? extended : made });
   };
   const onPartial = (message: string) => {
     const partial = partialTrainer(message);
@@ -205,16 +209,16 @@ export function TrainerList() {
   return (
     <div className={styles.column}>
       <div className={styles.top}>
-        <TextField type="search" label="Trainer durchsuchen" placeholder="Name, Klasse oder Nummer" value={query} onChange={setQuery} onCommit={setQuery} />
+        <TextField type="search" label={t("trainerList.search")} placeholder={t("trainerList.searchPlaceholder")} value={query} onChange={setQuery} onCommit={setQuery} />
         <div className={styles.topRow}>
-          <Segmented ariaLabel="Trainer gruppieren" size="s" options={GROUP_OPTIONS} value={mode} onChange={setMode} />
-          {!narrating && <IconButton label="Trainer anlegen…" icon="plus" onClick={() => setCreating(true)} />}
+          <Segmented ariaLabel={t("trainerList.groupBy")} size="s" options={groupOptions()} value={mode} onChange={setMode} />
+          {!narrating && <IconButton label={t("trainerList.createTrainer")} icon="plus" onClick={() => setCreating(true)} />}
         </div>
         {narrating && (
           // A row of its own: next to „Nach Ort · Nach Klasse“ the labelled key does not fit the default list width.
           <div className={styles.recipeRow} data-new-trainer-row="">
             <Button kind="secondary" size="s" icon="plus" disabled={openWizard === null} onClick={newTrainerHere} data-new-trainer-recipe="">
-              Neuer Trainer…
+              {t("trainerList.newTrainer")}
             </Button>
           </div>
         )}
@@ -222,9 +226,9 @@ export function TrainerList() {
         {created !== null && <Notice kind={created.kind}>{created.text}</Notice>}
       </div>
       {groups.length === 0 && searching ? (
-        <EmptyState what={`Nichts gefunden für „${query.trim()}“`} why="Suche nach Name, Klasse oder Nummer." />
+        <EmptyState what={t("trainerList.nothingFound", { query: query.trim() })} why={t("trainerList.searchHint")} />
       ) : (
-        <div ref={host} role="tree" aria-label="Trainer" className={styles.host}>
+        <div ref={host} role="tree" aria-label={t("trainerList.list")} className={styles.host}>
           {groups.map((g) => {
             const open = isOpen(g);
             return (

@@ -1,4 +1,5 @@
 import { trainerProblemFile } from "../../api";
+import { t } from "../../i18n";
 import { useDataDoc } from "../useDataDoc";
 import type { DataDoc, DocSpec } from "../useDataDoc";
 import { applyTrainer } from "./trainerModel";
@@ -14,7 +15,9 @@ const TRAINER: DocSpec<TrainerDoc> = {
   kind: "trainer",
   parts: ["trainer"],
   accept: (doc) => (doc.kind === "trainer" ? doc : null),
-  wrongKind: "Die Antwort enthält keine Trainer-Daten.",
+  get wrongKind() {
+    return t("data:trainer.wrongKind");
+  },
   apply: applyTrainer,
   texts: (doc) => [doc.name_archive, doc.text_archive],
   problems: (doc, index) => ({ file: trainerProblemFile(index), rows: doc.problems }),

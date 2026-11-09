@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createEncounterFile, errorText } from "../../api";
 import type { DataRowDto } from "../../api";
 import { restoreEntry, useDelete } from "../../delete/DeleteContext";
@@ -34,6 +35,7 @@ const FileRow = memo(function FileRow({
   mark: MarkSeverity | undefined;
   onSelect: (index: number) => void;
 }) {
+  const { t } = useTranslation("data");
   const reason = row.locked === null ? null : lockReason(row.locked);
   const users = rowUsers(row).length;
   const reset = useReset();
@@ -45,7 +47,7 @@ const FileRow = memo(function FileRow({
       contextMenu={deleted ? [restoreEntry({ kind: "encounter", index: row.index }, restore), resetItem] : [resetItem]}
       label={label}
       tech={row.tech}
-      subtitle={reason ?? (users === 0 ? "von keinem Ort verwendet" : usedByText(users))}
+      subtitle={reason ?? (users === 0 ? t("encounterList.usedByNone") : usedByText(users))}
       selected={selected}
       onSelect={() => onSelect(row.index)}
       title={reason ?? undefined}
@@ -55,7 +57,7 @@ const FileRow = memo(function FileRow({
           <span className={styles.rowEnd}>
             {deleted && <EntityStateBadge state="deleted" />}
             {mark && <FindingMark severity={mark} />}
-            {unsaved && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
+            {unsaved && <span className={styles.dot} role="img" aria-label={t("unsaved")} />}
             {reason !== null && <Badge kind="locked" title={reason} />}
           </span>
         ) : undefined
@@ -65,17 +67,18 @@ const FileRow = memo(function FileRow({
 });
 
 type Source = "empty" | "copy";
-const SOURCES: readonly SegmentedOption<Source>[] = [
-  { value: "empty", label: "Leer" },
-  { value: "copy", label: "Kopie von …" },
-];
 
 /**
  * The question before a file is made: empty or a copy of a file chosen in a picker. Making it is written at once and cannot be undone
  * (badge); a refusal of the backend (HeartGold's 255 files) shows in the dialog.
  */
 function CreateDialog({ next, onClose, onCreated }: { next: number; onClose: () => void; onCreated: (index: number) => void }) {
+  const { t } = useTranslation("data");
   const { rows, labelOf } = useDataArea("pokemon");
+  const sources: readonly SegmentedOption<Source>[] = [
+    { value: "empty", label: t("encounterList.sourceEmpty") },
+    { value: "copy", label: t("encounterList.sourceCopy") },
+  ];
   const [source, setSource] = useState<Source>("empty");
   const [copyOf, setCopyOf] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
@@ -101,28 +104,28 @@ function CreateDialog({ next, onClose, onCreated }: { next: number; onClose: () 
     <Dialog
       open
       onOpenChange={(open) => !open && onClose()}
-      title={`Begegnungsdatei ${id4(next)} anlegen?`}
-      description="Sie wird sofort angelegt und von keinem Ort verwendet; anbinden kann man sie im Inspector eines Gebiets oder Raums (Feld „Begegnungen“)."
+      title={t("encounterList.createTitle", { id: id4(next) })}
+      description={t("encounterList.createDescription")}
       actions={[
-        { label: "Abbrechen", onClick: onClose },
-        { label: "Anlegen", kind: "primary", onClick: () => void create() },
+        { label: t("trainerList.cancel"), onClick: onClose },
+        { label: t("trainerList.create"), kind: "primary", onClick: () => void create() },
       ]}
     >
       <div className={styles.dialogBody}>
         <span>
           <Badge kind="irreversible" />
         </span>
-        <Segmented ariaLabel="Inhalt der neuen Datei" size="s" options={SOURCES} value={source} onChange={setSource} />
+        <Segmented ariaLabel={t("encounterList.sourceLabel")} size="s" options={sources} value={source} onChange={setSource} />
         {source === "copy" && (
           <span>
-            <Button kind="secondary" size="s" aria-label={`Vorlage wählen, jetzt ${template ? labelOf(template) : "keine"}`} onClick={() => setPicking(true)}>
-              {template ? `${labelOf(template)} · ${template.tech}` : "Vorlage wählen …"}
+            <Button kind="secondary" size="s" aria-label={t("encounterList.templateAria", { current: template ? labelOf(template) : t("encounterList.templateNone") })} onClick={() => setPicking(true)}>
+              {template ? `${labelOf(template)} · ${template.tech}` : t("encounterList.chooseTemplate")}
             </Button>
           </span>
         )}
         {refusal !== null && <Notice kind="error">{refusal}</Notice>}
       </div>
-      <Picker open={picking} onOpenChange={setPicking} title="Vorlage wählen" items={items} placeholder="Ort oder Nummer suchen" onPick={(item) => setCopyOf(Number(item.id))} />
+      <Picker open={picking} onOpenChange={setPicking} title={t("encounterList.pickTemplate")} items={items} placeholder={t("encounterList.pickPlaceholder")} onPick={(item) => setCopyOf(Number(item.id))} />
     </Dialog>
   );
 }
@@ -133,6 +136,7 @@ function CreateDialog({ next, onClose, onCreated }: { next: number; onClose: () 
  * then selected.
  */
 export function EncounterList() {
+  const { t } = useTranslation("data");
   const { rows, selected, select, labelOf, bus, onEdited, dirty, problems } = useDataArea("pokemon");
   // The rules of the files are the checks `encounter.*`: a file they found an error or warning in is marked.
   const marks = useFindingMarks(problems, "encounter");
@@ -149,7 +153,7 @@ export function EncounterList() {
   const next = rows.reduce((max, r) => Math.max(max, r.index + 1), 0);
   const onCreated = (index: number) => {
     setCreating(false);
-    setCreated(`Begegnungsdatei ${id4(index)} angelegt.`);
+    setCreated(t("encounterList.created", { id: id4(index) }));
     // The list reads its files again; the file is on disk, no undo step.
     bus.emit({ topic: "dataChanged", kind: "encounter", index: null });
     onEdited();
@@ -160,23 +164,23 @@ export function EncounterList() {
   return (
     <div className={styles.column}>
       <div className={styles.top}>
-        <TextField type="search" label="Begegnungen durchsuchen" placeholder="Ort oder Nummer" value={query} onChange={setQuery} onCommit={setQuery} />
+        <TextField type="search" label={t("encounterList.search")} placeholder={t("encounterList.placePlaceholder")} value={query} onChange={setQuery} onCommit={setQuery} />
         <div className={styles.topRow}>
-          <span className={styles.note}>Dateien nach den Orten, die sie nutzen</span>
-          <IconButton label="Begegnungsdatei anlegen…" icon="plus" onClick={() => setCreating(true)} />
+          <span className={styles.note}>{t("encounterList.sortNote")}</span>
+          <IconButton label={t("encounterList.createFile")} icon="plus" onClick={() => setCreating(true)} />
         </div>
         <ShowDeleted checked={showDeleted} onChange={setShowDeleted} />
         {created !== null && <Notice kind="success">{created}</Notice>}
       </div>
       {shown.length === 0 && query.trim() !== "" ? (
-        <EmptyState what={`Nichts gefunden für „${query.trim()}“`} why="Suche nach einem Ort oder einer Nummer." />
+        <EmptyState what={t("dataList.nothingFound", { query: query.trim() })} why={t("encounterList.searchHint")} />
       ) : (
-        <div ref={host} role="listbox" aria-label="Begegnungen" className={styles.host}>
+        <div ref={host} role="listbox" aria-label={t("encounterList.list")} className={styles.host}>
           {placed.map(item)}
           {unplaced.length > 0 && (
-            <div role="group" aria-label="Ohne Ort" className={styles.group}>
+            <div role="group" aria-label={t("encounterList.noPlace")} className={styles.group}>
               <div role="presentation" className={styles.groupHead}>
-                Ohne Ort <span className={styles.count}>{unplaced.length}</span>
+                {t("encounterList.noPlace")} <span className={styles.count}>{unplaced.length}</span>
               </div>
               {unplaced.map(item)}
             </div>

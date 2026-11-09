@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { LearnEntryDto, MoveRowExtra } from "../../api";
 import { Button, IconButton, NumberField, Table, TypeBadge } from "../../ui/primitives";
 import type { TableRow } from "../../ui/primitives";
@@ -10,20 +11,20 @@ import { MAX_LEARNSET, findLearn, learnKey, learnRefs, moveName, sortLearnset } 
 import type { LearnRef } from "./pokedexModel";
 import styles from "./Pokedex.module.css";
 
-const COLUMNS = [
-  { key: "level", label: "Level", width: 112 },
-  { key: "move", label: "Attacke" },
-  { key: "type", label: "Typ", width: 96 },
-  { key: "remove", label: "Entfernen", width: 88, align: "end" as const },
-];
-
 /**
  * Lernset: the level-up moves as a table (level 1 to 100, the move from a picker, a button to remove the row). The game reads 20 at most:
- * "Zeile hinzufügen" is locked from there. Every change writes the whole list, sorted by level (equal levels keep their order). A change
+ * „Zeile hinzufügen“ is locked from there. Every change writes the whole list, sorted by level (equal levels keep their order). A change
  * names its entry by move and occurrence and is built when its turn comes, from the list the changes before it left: a level typed and a
  * row removed right after both stay. Rows are keyed the same way, so the focus follows an entry a new level sorts elsewhere.
  */
 export function LearnsetTab({ e }: { e: Editing }) {
+  const { t } = useTranslation("data");
+  const columns = [
+    { key: "level", label: t("pokedexTable.columns.level"), width: 112 },
+    { key: "move", label: t("pokedexTable.columns.move") },
+    { key: "type", label: t("pokedexTable.columns.type"), width: 96 },
+    { key: "remove", label: t("pokedexTable.columns.remove"), width: 88, align: "end" as const },
+  ];
   const { project, store } = useDataArea("pokemon");
   const snapshot = useDataSnapshot(store);
   useEffect(() => {
@@ -40,7 +41,7 @@ export function LearnsetTab({ e }: { e: Editing }) {
   const count = entries.length;
   const off = e.locked.learnset;
   const name = (id: number) => moveName(e.names.moves, id);
-  const resized = (from: number, to: number) => `${e.name}: Lernset ${from} → ${to} Attacken`;
+  const resized = (from: number, to: number) => t("learnsetTab.resized", { name: e.name, from, to });
 
   /** Writes what `make` does to the entry `ref` of the list as it is when the write comes; nothing when the entry is gone. */
   const change = (ref: LearnRef, make: (list: readonly LearnEntryDto[], i: number) => { list: LearnEntryDto[]; label: string } | null) =>
@@ -52,10 +53,10 @@ export function LearnsetTab({ e }: { e: Editing }) {
 
   const setLevel = (ref: LearnRef, level: number) =>
     change(ref, (list, i) =>
-      list[i]!.level === level ? null : { list: list.map((x, j) => (j === i ? { ...x, level } : x)), label: `${e.name}: ${name(ref.move_id)} Level ${list[i]!.level} → ${level}` },
+      list[i]!.level === level ? null : { list: list.map((x, j) => (j === i ? { ...x, level } : x)), label: t("learnsetTab.levelChange", { name: e.name, move: name(ref.move_id), from: list[i]!.level, to: level }) },
     );
   const setMove = (ref: LearnRef, move: number) =>
-    change(ref, (list, i) => (move === ref.move_id ? null : { list: list.map((x, j) => (j === i ? { ...x, move_id: move } : x)), label: `${e.name}: Lernset ${name(ref.move_id)} → ${name(move)}` }));
+    change(ref, (list, i) => (move === ref.move_id ? null : { list: list.map((x, j) => (j === i ? { ...x, move_id: move } : x)), label: t("learnsetTab.moveChange", { name: e.name, from: name(ref.move_id), to: name(move) }) }));
   const remove = (ref: LearnRef) => change(ref, (list, i) => ({ list: list.filter((_, j) => j !== i), label: resized(list.length, list.length - 1) }));
   const add = (move: number) =>
     void e.update((doc) =>
@@ -73,10 +74,10 @@ export function LearnsetTab({ e }: { e: Editing }) {
       attrs: { "data-learn": String(i), "data-move": String(entry.move_id) },
       disabled: off,
       cells: {
-        level: <NumberField label={`Level von ${move}`} value={entry.level} min={1} max={100} onCommit={(v) => setLevel(ref, v)} disabled={off} showBase={e.showBase} />,
-        move: <PickField label={`Attacke in Zeile ${i + 1}`} text={move} choice="move" onPick={(v) => setMove(ref, v)} disabled={off} />,
+        level: <NumberField label={t("learnsetTab.levelOf", { move })} value={entry.level} min={1} max={100} onCommit={(v) => setLevel(ref, v)} disabled={off} showBase={e.showBase} />,
+        move: <PickField label={t("pokedexTable.moveInRow", { row: i + 1 })} text={move} choice="move" onPick={(v) => setMove(ref, v)} disabled={off} />,
         type: type === undefined ? null : <TypeBadge type={type} size="s" />,
-        remove: <IconButton label={`${move} auf Level ${entry.level} entfernen`} icon="close" disabled={off} onClick={() => remove(ref)} />,
+        remove: <IconButton label={t("learnsetTab.removeAt", { move, level: entry.level })} icon="close" disabled={off} onClick={() => remove(ref)} />,
       },
     };
   });
@@ -85,13 +86,13 @@ export function LearnsetTab({ e }: { e: Editing }) {
     <div className={styles.tableTab}>
       <div className={styles.actions}>
         <Button kind="secondary" size="s" icon="plus" data-add-learn="" disabled={off || count >= MAX_LEARNSET} onClick={() => setAdding(true)}>
-          Zeile hinzufügen
+          {t("pokedexTable.addRow")}
         </Button>
-        {count >= MAX_LEARNSET && <span className={styles.note}>Das Spiel liest höchstens 20 Attacken.</span>}
+        {count >= MAX_LEARNSET && <span className={styles.note}>{t("learnsetTab.limit")}</span>}
       </div>
       <Table
-        ariaLabel={`Lernset von ${e.name}`}
-        columns={COLUMNS}
+        ariaLabel={t("learnsetTab.tableLabel", { name: e.name })}
+        columns={columns}
         rows={rows}
         selected={selected}
         onSelect={setSelected}
@@ -103,9 +104,9 @@ export function LearnsetTab({ e }: { e: Editing }) {
                 if (ref) remove(ref);
               }
         }
-        footer={`${count} von ${MAX_LEARNSET}`}
+        footer={t("learnsetTab.footer", { n: count, max: MAX_LEARNSET })}
       />
-      <ChoicePicker open={adding} onOpenChange={setAdding} title="Attacke hinzufügen" items={addChoices} onPick={add} footer="Lernt sie auf Level 1; das Level lässt sich danach ändern." />
+      <ChoicePicker open={adding} onOpenChange={setAdding} title={t("learnsetTab.addTitle")} items={addChoices} onPick={add} footer={t("learnsetTab.addFooter")} />
     </div>
   );
 }

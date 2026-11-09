@@ -1,4 +1,5 @@
 import { isCmdError } from "../api";
+import { t } from "../i18n";
 import type { BgDto, CoordDto, EventKind, EventsDto, HeaderSummary, MatrixDto, ObjectDto, WarpDto } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
@@ -8,12 +9,20 @@ import { MAP_SIZE } from "./layout";
 
 export type { EventKind } from "../api";
 
-/** Inspector names of the event classes. */
-export const KIND_LABELS: Record<EventKind, string> = {
-  warp: "Warp",
-  object: "Objekt",
-  coord: "Trigger",
-  bg: "Hintergrund-Event",
+/** Inspector names of the event classes. Each name is read when asked for (in the language shown then), never when this module loads. */
+export const KIND_LABELS: Readonly<Record<EventKind, string>> = {
+  get warp() {
+    return t("world:events.kinds.warp");
+  },
+  get object() {
+    return t("world:events.kinds.object");
+  },
+  get coord() {
+    return t("world:events.kinds.coord");
+  },
+  get bg() {
+    return t("world:events.kinds.bg");
+  },
 };
 
 /** The classes in the order they are offered. */
@@ -49,20 +58,20 @@ export function eventTitle(kind: EventKind, data: EventData, depth: Depth, destN
     case "warp": {
       const w = data as WarpDto;
       const dest = `${termFor("header", depth)} ${id4(w.dest_header_id)}`;
-      if (!depthAtLeast(depth, "tuefteln")) return `Warp ${w.index} → ${destName || dest}`;
-      return `Warp ${w.index} → ${destName ? `${dest} (${destName})` : dest}`;
+      if (!depthAtLeast(depth, "tuefteln")) return t("world:events.titleWarp", { index: w.index, dest: destName || dest });
+      return t("world:events.titleWarp", { index: w.index, dest: destName ? `${dest} (${destName})` : dest });
     }
     case "object": {
       const o = data as ObjectDto;
-      return `Objekt ${o.index} · ID ${o.local_id}`;
+      return t("world:events.titleObject", { index: o.index, id: o.local_id });
     }
     case "coord": {
       const c = data as CoordDto;
-      return `Trigger ${c.index} · ${termLabel("script")} ${c.script}`;
+      return t("world:events.titleCoord", { index: c.index, script: termLabel("script"), value: c.script });
     }
     case "bg": {
       const b = data as BgDto;
-      return `Hintergrund-Event ${b.index} · ${termLabel("script")} ${b.script}`;
+      return t("world:events.titleBg", { index: b.index, script: termLabel("script"), value: b.script });
     }
   }
 }
@@ -72,19 +81,19 @@ export function eventDetails(kind: EventKind, data: EventData): string {
   switch (kind) {
     case "warp": {
       const w = data as WarpDto;
-      return `Position x ${w.x}, z ${w.z} · Ziel-Warp ${w.dest_warp_id} · Höhe ${w.height}`;
+      return t("world:events.detailsWarp", { x: w.x, z: w.z, destWarp: w.dest_warp_id, height: w.height });
     }
     case "object": {
       const o = data as ObjectDto;
-      return `Position x ${o.x}, z ${o.z}, y ${o.y} · Grafik ${o.graphics_id} · Bewegung ${o.movement_type} · ${termLabel("script")} ${o.script}`;
+      return t("world:events.detailsObject", { x: o.x, z: o.z, y: o.y, graphics: o.graphics_id, movement: o.movement_type, script: termLabel("script"), value: o.script });
     }
     case "coord": {
       const c = data as CoordDto;
-      return `Position x ${c.x}, z ${c.z} · Größe ${c.width} × ${c.length}`;
+      return t("world:events.detailsCoord", { x: c.x, z: c.z, width: c.width, length: c.length });
     }
     case "bg": {
       const b = data as BgDto;
-      return `Position x ${b.x}, z ${b.z}, y ${b.y} · Typ ${b.event_type}`;
+      return t("world:events.detailsBg", { x: b.x, z: b.z, y: b.y, type: b.event_type });
     }
   }
 }
@@ -107,14 +116,14 @@ export function clampToMatrix(tile: { x: number; z: number }, matrix: MatrixDto)
  */
 export function warpDestinationLabel(dest: number, headers: HeaderSummary[]): { text: string; known: boolean } {
   const h = headers.find((x) => x.id === dest);
-  if (!h) return { text: `unbekannt (${dest})`, known: false };
+  if (!h) return { text: t("world:events.destinationUnknown", { dest }), known: false };
   const text = h.location_name ? `${id4(h.id)} ${h.location_name} (${h.internal_name})` : `${id4(h.id)} ${h.internal_name}`;
   return { text, known: true };
 }
 
-/** The shown form of a locked event file's reason, e.g. "schreibgeschützt: 17 bytes read, 16 would be written". */
+/** The shown form of a locked event file's reason, e.g. „schreibgeschützt: 17 bytes read, 16 would be written“. */
 export function lockedText(reason: string): string {
-  return `schreibgeschützt: ${reason}`;
+  return t("world:events.locked", { reason });
 }
 
 /** The reason carried by a "read_only" error about an event file (the message minus its "... is read-only: " lead), else null. */
@@ -126,16 +135,15 @@ export function eventReadOnlyReason(e: unknown): string | null {
 }
 
 /** Added to the confirmation for a warp: what deleting it does to later doors and the warps to them, and what refuses it (3d.4). */
-export const WARP_RENUMBER_NOTE =
-  "Spätere Türen rücken nach; Warps, die auf sie zeigen, werden nachgezogen. Eine Tür, auf die ein Warp zeigt oder die ein Script per Index umsetzt, lässt sich nicht löschen.";
+const warpRenumberNote = () => t("world:events.warpRenumberNote");
 
 /** Text of the confirmation before an event is deleted: its class, index and position. */
 export function eventDeletePrompt(kind: EventKind, index: number, data: Pick<EventData, "x" | "z"> | undefined): string {
   const what = `${KIND_LABELS[kind]} ${index}`;
-  const ask = data ? `${what} (x ${data.x}, z ${data.z}) löschen?` : `${what} löschen?`;
+  const ask = data ? t("world:events.deletePromptAt", { what, x: data.x, z: data.z }) : t("world:events.deletePrompt", { what });
   // The game addresses a warp by its index in the file: later warps move up by one, and the kernel
   // renumbers the warps that point at them (`delete::warps`), or refuses a door a warp or script targets.
-  return kind === "warp" ? `${ask}\n\n${WARP_RENUMBER_NOTE}` : ask;
+  return kind === "warp" ? `${ask}\n\n${warpRenumberNote()}` : ask;
 }
 
 /** An event by event file, class and index: the identity the scene and the inspector bind to. */

@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { NameTablesDto } from "../../api";
 import { Badge, EmptyState, InspectorRow, Notice, NumberField, Segmented, Sprite } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
@@ -32,11 +34,12 @@ interface Editing {
 
 /** The file of the selected row with its queue of edits, its title and how one edit is written; null fields while there is none. */
 function useEditing() {
+  const { t } = useTranslation("data");
   const { row, labelOf, names, selected, project } = useDataArea("pokemon");
   const { doc, error, editError, update } = useEncounter(selected);
   const index = selected ?? 0;
   const family = project?.family ?? "Pt";
-  const title = row === null ? `Begegnungen ${id4(index)}` : labelOf(row);
+  const title = row === null ? `${t("dataModel.fallbackWord.encounter")} ${id4(index)}` : labelOf(row);
   const editing = useMemo<Editing | null>(() => {
     if (doc === null) return null;
     const locked = doc.locked !== null;
@@ -56,7 +59,7 @@ function useEditing() {
 }
 
 /** A species by name; 0 is „Keine“. */
-const speciesText = (names: NameTablesDto, id: number) => (id === 0 ? "Keine" : speciesName(names.species, id));
+const speciesText = (names: NameTablesDto, id: number, none: string) => (id === 0 ? none : speciesName(names.species, id));
 
 /** The species written at `at` in `doc` (a grass slot's column or a list entry); null when the file has no such place. */
 function speciesAt(doc: EncounterDoc, at: TimeSlot): number | null {
@@ -70,8 +73,8 @@ function speciesAt(doc: EncounterDoc, at: TimeSlot): number | null {
 const levelAt = (doc: EncounterDoc, slot: number): number | null => doc.methods.find((m) => m.method === "grass")?.slots.find((s) => s.index === slot)?.min ?? null;
 
 /** Why a row's class cannot be switched: Platinum takes its place by day or by night from a replacement list, which a swap cannot move. */
-const listTitle = (at: TimeSlot, word: string): string =>
-  `Kommt ${word} aus „${listWord(at.method)}“ Eintrag ${at.slot + 1} und ersetzt Gras ${slotText(at.grass)}. Ein Ersatzeintrag lässt sich nicht auf einen anderen Platz tauschen.`;
+const listTitle = (t: TFunction<"data">, at: TimeSlot, word: string): string =>
+  t("encounterNarrate.listTitle", { word, list: listWord(at.method), entry: at.slot + 1, slot: slotText(at.grass) });
 
 /**
  * One species waiting at one time of day: picture, name, its share as a badge („24 % · häufig“), and what changes it there: the species
@@ -80,6 +83,8 @@ const listTitle = (at: TimeSlot, word: string): string =>
  * undo step.
  */
 function WaitingRow({ e, when, label, word, species, share }: { e: Editing; when: TimeKey; label: string; word: string; species: number; share: number }) {
+  const { t } = useTranslation("data");
+  const none = t("none");
   const name = speciesName(e.names.species, species);
   const icon = useIcon(monIconKey(species), () => monIcon(species), true);
   const at = timeSlot(e.doc, e.family, when, species);
@@ -94,7 +99,7 @@ function WaitingRow({ e, when, label, word, species, share }: { e: Editing; when
       const place = timeSlot(now, e.family, when, species);
       const old = place === null ? null : speciesAt(now, place);
       if (place === null || old === null || old === value) return null;
-      const words = `${speciesText(e.names, old)} → ${speciesText(e.names, value)}`;
+      const words = `${speciesText(e.names, old, none)} → ${speciesText(e.names, value, none)}`;
       if (place.method !== "grass") return { patch: { Encounter: { method: place.method, slot: place.slot, field: "species", value } }, label: entryLabel(e.title, place.method, place.slot, words) };
       // HeartGold names the column („Gras Platz 1 nachts Hoothoot → Taubsi“).
       const column = e.family === "Hgss" ? `${TIME_COLUMNS.find((c) => c.field === place.field)?.word ?? ""} ` : "";
@@ -104,7 +109,7 @@ function WaitingRow({ e, when, label, word, species, share }: { e: Editing; when
     e.write((now) => {
       const place = timeSlot(now, e.family, when, species);
       const old = place === null ? null : levelAt(now, place.grass);
-      return place === null || old === null || old === value ? null : { patch: { Encounter: { method: "grass", slot: place.grass, field: "level", value } }, label: slotLabel(e.title, "grass", place.grass, `Level ${old} → ${value}`) };
+      return place === null || old === null || old === value ? null : { patch: { Encounter: { method: "grass", slot: place.grass, field: "level", value } }, label: slotLabel(e.title, "grass", place.grass, t("encounterHand.levelChange", { from: old, to: value })) };
     });
   // Named as a result: the species' place at this time is of class `to`. Already there (or no longer waiting here) writes nothing.
   const setRarity = (to: Rarity) =>
@@ -125,15 +130,15 @@ function WaitingRow({ e, when, label, word, species, share }: { e: Editing; when
         </span>
       </div>
       <div className={styles.controls}>
-        <PickField label={`Pokémon ${word}`} text={name} choice="species" only={isEvolutionTarget} disabled={e.locked || at === null} onPick={pick} />
+        <PickField label={t("encounterNarrate.pokemonWord", { word })} text={name} choice="species" only={isEvolutionTarget} disabled={e.locked || at === null} onPick={pick} />
         <span className={styles.field}>
           <span className={styles.fieldWord} aria-hidden="true">
-            Level
+            {t("encounterNarrate.level")}
           </span>
-          <NumberField label={`Level ${name} ${label}`} value={level ?? 0} bits={8} disabled={e.locked || level === null} onCommit={setLevel} />
+          <NumberField label={t("encounterNarrate.levelLabel", { name, label })} value={level ?? 0} bits={8} disabled={e.locked || level === null} onCommit={setLevel} />
         </span>
-        <span className={styles.rarity} data-rarity={rarity} title={at !== null && fromList ? listTitle(at, word) : undefined}>
-          <Segmented ariaLabel={`Wie häufig ${name} ${label}`} size="s" options={RARITIES.map((r) => ({ ...r, disabled: fixed }))} value={rarity} onChange={setRarity} />
+        <span className={styles.rarity} data-rarity={rarity} title={at !== null && fromList ? listTitle(t, at, word) : undefined}>
+          <Segmented ariaLabel={t("encounterNarrate.howCommon", { name, label })} size="s" options={RARITIES.map((r) => ({ ...r, disabled: fixed }))} value={rarity} onChange={setRarity} />
         </span>
       </div>
     </li>
@@ -142,14 +147,15 @@ function WaitingRow({ e, when, label, word, species, share }: { e: Editing; when
 
 /** One time of day: who waits in the grass then, largest share first (the kernel's sums). */
 function TimeColumn({ e, when, label, word }: { e: Editing; when: TimeKey; label: string; word: string }) {
-  const waiting = e.doc.effective.find((t) => t.when === when)?.species ?? [];
+  const { t } = useTranslation("data");
+  const waiting = e.doc.effective.find((x) => x.when === when)?.species ?? [];
   return (
     <section className={styles.column} aria-label={label} data-time={when}>
       <h3 className={styles.columnTitle}>
         {label} <span className={styles.hours}>{TIME_HOURS[when]}</span>
       </h3>
       {waiting.length === 0 ? (
-        <p className={styles.note}>Niemand.</p>
+        <p className={styles.note}>{t("encounterNarrate.nobody")}</p>
       ) : (
         <ul className={styles.rows}>
           {waiting.map((w) => (
@@ -166,26 +172,27 @@ function TimeColumn({ e, when, label, word }: { e: Editing; when: TimeKey; label
  * picker, level and class. Surfen and Angeln stay in Bauen. The rules the file breaks follow below.
  */
 export function EncounterViewNarrate() {
+  const { t } = useTranslation("data");
   const { row, selected, title, editing, error, editError } = useEditing();
   const reset = useReset();
   if (row === null || selected === null) return null;
   const doc = editing?.doc ?? null;
   const grass = doc?.methods.find((m) => m.method === "grass");
   return (
-    <section className={styles.view} aria-label={`Übersicht ${title}`} data-encounter={selected} data-encounter-narrate="">
+    <section className={styles.view} aria-label={t("encounterView.overview", { title })} data-encounter={selected} data-encounter-narrate="">
       <header className={styles.head}>
         <h2 className={styles.title}>{title}</h2>
         <HeadActions items={[resetEntry({ kind: "encounter", index: selected }, reset.status, reset.open)]} />
       </header>
-      {error !== null && <Notice kind="error">{`Diese Begegnungsdatei ist nicht lesbar: ${error}`}</Notice>}
+      {error !== null && <Notice kind="error">{t("encounterView.unreadable", { error })}</Notice>}
       {editError !== null && <Notice kind="error">{editError}</Notice>}
-      {doc !== null && doc.locked !== null && <Notice kind="warning">{`${lockReason(doc.locked)}. Diese Datei ist gesperrt.`}</Notice>}
+      {doc !== null && doc.locked !== null && <Notice kind="warning">{t("encounterView.locked", { reason: lockReason(doc.locked) })}</Notice>}
       {editing !== null && editing.doc.locked === null && (
-        <section className={styles.waiting} aria-label="Wer hier wartet">
+        <section className={styles.waiting} aria-label={t("encounterView.whoWaits")}>
           <h3 className={styles.sectionTitle}>
-            Wer hier wartet <span className={styles.hours}>im Gras</span>
+            {t("encounterView.whoWaits")} <span className={styles.hours}>{t("encounterNarrate.inGrass")}</span>
           </h3>
-          {grass !== undefined && grass.rate === 0 && <p className={styles.note}>Wie oft 0: im Gras gibt es hier keine Begegnungen.</p>}
+          {grass !== undefined && grass.rate === 0 && <p className={styles.note}>{t("encounterNarrate.rateZero")}</p>}
           <div className={styles.columns}>
             {TIME_COLUMNS.map((c) => (
               <TimeColumn key={c.when} e={editing} when={c.when} label={c.label} word={c.word} />
@@ -194,17 +201,18 @@ export function EncounterViewNarrate() {
         </section>
       )}
       {doc !== null && <FileWarnings doc={doc} />}
-      {doc === null && error === null && <p className={styles.note}>Lädt …</p>}
+      {doc === null && error === null && <p className={styles.note}>{t("loading")}</p>}
     </section>
   );
 }
 
 /** The hand of an encounter file in Erzählen: how often the grass gives an encounter (all three times share it), and who uses the file. */
 export function EncounterHandNarrate() {
+  const { t } = useTranslation("data");
   const { row, selected, title, editing, error, editError } = useEditing();
   if (row === null || selected === null) return null;
   if (editing === null) {
-    return <div className={styles.handEmpty}>{error !== null ? <EmptyState what="Diese Begegnungsdatei ist nicht lesbar." why={error} /> : <p className={styles.note}>Lädt …</p>}</div>;
+    return <div className={styles.handEmpty}>{error !== null ? <EmptyState what={t("encounterHand.unreadable")} why={error} /> : <p className={styles.note}>{t("loading")}</p>}</div>;
   }
   const grass = editing.doc.methods.find((m) => m.method === "grass");
   const setRate = (value: number) =>
@@ -214,17 +222,17 @@ export function EncounterHandNarrate() {
     });
   return (
     <div className={styles.hand} data-encounter={selected} data-encounter-narrate="">
-      {editing.locked && <Notice kind="warning">{`${lockReason(editing.doc.locked ?? "")}. Die Felder dieser Datei sind gesperrt.`}</Notice>}
+      {editing.locked && <Notice kind="warning">{t("encounterHand.lockedFields", { reason: lockReason(editing.doc.locked ?? "") })}</Notice>}
       {editError !== null && <Notice kind="error">{editError}</Notice>}
       {grass !== undefined && (
-        <InspectorRow label="Wie oft">
+        <InspectorRow label={t("encounterNarrate.howOften")}>
           <NumberField
-            label="Wie oft (0 = nie)"
+            label={t("encounterNarrate.howOftenNever")}
             value={grass.rate}
             min={0}
             max={255}
             disabled={editing.locked}
-            hint={editing.family === "Hgss" ? "Im Gras, morgens, tags und nachts gleich." : "Im Gras, morgens, tags und nachts gleich. Über 100 wirkt wie 100."}
+            hint={editing.family === "Hgss" ? t("encounterNarrate.rateHintHgss") : t("encounterNarrate.rateHint")}
             onCommit={setRate}
           />
         </InspectorRow>

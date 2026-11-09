@@ -1,4 +1,5 @@
 import type { TextureIssue } from "../api";
+import { t } from "../i18n";
 
 /** How many map models are fetched and parsed at the same time (each one may run apicula). */
 export const MODEL_CONCURRENCY = 4;
@@ -42,8 +43,8 @@ export function textureNote(issues: readonly TextureIssue[]): string | null {
     if (parts.has(key)) continue;
     parts.set(
       key,
-      tileset === null ? "Area-Data nicht lesbar" : `Tileset ${String(tileset).padStart(4, "0")} nicht konvertierbar`,
+      tileset === null ? t("world:load.areaDataUnreadable") : t("world:load.tilesetNotConvertible", { tileset: String(tileset).padStart(4, "0") }),
     );
   }
-  return parts.size === 0 ? null : `${[...parts.values()].join(", ")} – Karten untexturiert`;
+  return parts.size === 0 ? null : t("world:load.mapsUntextured", { problems: [...parts.values()].join(", ") });
 }
