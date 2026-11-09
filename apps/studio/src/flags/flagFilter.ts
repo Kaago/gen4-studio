@@ -1,4 +1,5 @@
 import type { FlagArea, FlagEntryDto, FlagKind, FlagRefDto } from "../api";
+import { t } from "../i18n";
 import { hex4 } from "./flagWords";
 
 /**
@@ -60,7 +61,12 @@ export function groupRefsByHeader(refs: readonly FlagRefDto[]): { header: number
   for (const ref of refs) {
     let group = groups.get(ref.header);
     if (group === undefined) {
-      const name = ref.header === null ? "Ohne Header" : ref.header_name === null ? `Header ${id4(ref.header)}` : `${ref.header_name} (${id4(ref.header)})`;
+      const name =
+        ref.header === null
+          ? t("flags:flagFilter.headerNone")
+          : ref.header_name === null
+            ? t("flags:flagFilter.headerUnnamed", { id: id4(ref.header) })
+            : `${ref.header_name} (${id4(ref.header)})`;
       group = { header: ref.header, name, refs: [] };
       groups.set(ref.header, group);
     }

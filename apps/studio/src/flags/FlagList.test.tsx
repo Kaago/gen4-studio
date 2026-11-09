@@ -8,8 +8,8 @@ import { FLAGS, flagEntry, flagList } from "./flagTesting";
 import { OFF_STATUS } from "../api.live";
 import { liveValuesOf } from "../app/liveStore";
 import type { LiveValues } from "../app/liveStore";
-import { FlagList, LIVE_OFF, ROW_LIMIT } from "./FlagList";
-import { OUTSIDE_THE_SAVE } from "./flagWords";
+import { FlagList, ROW_LIMIT, liveOff } from "./FlagList";
+import { outsideTheSave } from "./flagWords";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -104,7 +104,7 @@ describe("FlagList", () => {
     expect(cells.every((c) => c.textContent === "–" && c.tagName === "SPAN")).toBe(true);
     // Hovering a cell names how its value comes.
     expect(await tipOf(cells[0]!)).toBe("Kommt mit „Hier spielen“ in melonDS");
-    expect(LIVE_OFF).toBe("Kommt mit „Hier spielen“ in melonDS");
+    expect(liveOff()).toBe("Kommt mit „Hier spielen“ in melonDS");
   });
 
   it("the_live_head_is_marked_on_in_play_mode", async () => {
@@ -145,7 +145,7 @@ describe("FlagList", () => {
     const outside = cell(0x9999);
     expect(outside.tagName).toBe("SPAN");
     expect(outside.textContent).toBe("–");
-    expect(await tipOf(outside)).toBe(OUTSIDE_THE_SAVE);
+    expect(await tipOf(outside)).toBe(outsideTheSave());
     // A variable: its value in decimal, changed in the detail.
     const vars = flagList("var", [flagEntry(0x4000), flagEntry(0x4001), flagEntry(0x8000, { in_save: false })]);
     await act(async () => root.render(<FlagList list={vars} entries={vars.entries} selected={null} onSelect={onSelect} live={liveOf([], [1234, 7])} onLiveToggle={onLiveToggle} />));
@@ -155,7 +155,7 @@ describe("FlagList", () => {
     expect(cell(0x4001).textContent).toBe("7");
     expect(await tipOf(cell(0x4000))).toBe("Live 1234 · ändern im Detail");
     expect(cell(0x8000).textContent).toBe("–");
-    expect(await tipOf(cell(0x8000))).toBe(OUTSIDE_THE_SAVE);
+    expect(await tipOf(cell(0x8000))).toBe(outsideTheSave());
   });
 
   it("map_local_rows_count_places", async () => {

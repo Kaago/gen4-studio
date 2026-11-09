@@ -1,6 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { NavTargetDto } from "../../api.data";
 import type { GraphEdgeDto, GraphNodeDto, ThreadGraphDto } from "../../api.stories";
+import { t } from "../../i18n";
 import type { StoryNodeKind } from "../../ui/primitives";
 
 /** The field of a level script's condition (`stories::threads::LEVEL_SCRIPT_FIELD`). */
@@ -40,7 +41,7 @@ function nodeData(node: GraphNodeDto): StoryNodeData {
     return {
       kind: node.step.kind,
       title: node.step.name,
-      subtitle: `Wert ${node.value}`,
+      subtitle: t("stories:graphModel.value", { value: node.value }),
       notedOnly: node.noted_only,
       loose: false,
       layoutKey: node.step.key,
@@ -58,9 +59,11 @@ export function edgeLabel(edge: GraphEdgeDto, graph: ThreadGraphDto): string {
   const placeId = edge.from.startsWith("p:") ? edge.from : edge.to;
   const place = graph.nodes.find((n) => n.id === placeId);
   const slot = edge.slot ?? 0;
-  if (place?.kind === "place" && place.source.kind === "Event") return edge.field === "var" ? `Auslöser ${slot}` : `Objekt ${slot}`;
-  if (edge.field === LEVEL_SCRIPT_FIELD) return `Bedingung ${slot + 1}`;
-  return edge.slot === null ? edge.field : `Zeile ${edge.slot} · ${edge.field}`;
+  if (place?.kind === "place" && place.source.kind === "Event") {
+    return edge.field === "var" ? t("stories:graphModel.trigger", { slot }) : t("stories:graphModel.object", { slot });
+  }
+  if (edge.field === LEVEL_SCRIPT_FIELD) return t("stories:graphModel.condition", { number: slot + 1 });
+  return edge.slot === null ? edge.field : t("stories:graphModel.line", { line: edge.slot, field: edge.field });
 }
 
 /**

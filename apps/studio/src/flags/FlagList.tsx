@@ -1,27 +1,29 @@
 import { memo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { FlagEntryDto, FlagKind, FlagListDto } from "../api";
 import type { LiveValues } from "../app/liveStore";
 import { Badge, ListRow, Tooltip, useRovingList } from "../ui/primitives";
 import type { RowDataAttrs } from "../ui/primitives";
-import { OUTSIDE_THE_SAVE, displayName, liveCellText, liveCellTip, numberText, usageText } from "./flagWords";
+import { t as translate } from "../i18n";
+import { displayName, liveCellText, liveCellTip, numberText, outsideTheSave, usageText } from "./flagWords";
 import styles from "./FlagsSurface.module.css";
 
 /** At most this many rows are rendered (a list of 537 rows takes 40 to 90 ms, a full Platinum list has 4 097); search and filters reach the rest. */
 export const ROW_LIMIT = 500;
 
 /** Why the cell of the column „Live“ is empty outside play mode. */
-export const LIVE_OFF = "Kommt mit „Hier spielen“ in melonDS";
-
-const de = (n: number) => n.toLocaleString("de-DE");
+export function liveOff(): string {
+  return translate("flags:flagList.liveOff");
+}
 
 /** What the row says on the right: the places of a map-local number („an 54 Orten“), else how often it is set and checked. */
 function usageOf(entry: FlagEntryDto): string {
-  if (entry.area === "map_local" && entry.places > 0) return `an ${de(entry.places)} ${entry.places === 1 ? "Ort" : "Orten"}`;
+  if (entry.area === "map_local" && entry.places > 0) return translate("flags:flagList.places", { count: entry.places });
   return usageText(entry.usage);
 }
 
 /**
- * The cell „Live“ of a row. `value` undefined: no snapshot, „–“ with `pending` in play mode, else `LIVE_OFF`; null: the snapshot does not hold the number (outside the
+ * The cell „Live“ of a row. `value` undefined: no snapshot, „–“ with `pending` in play mode, else `liveOff()`; null: the snapshot does not hold the number (outside the
  * save), „–“ with `OUTSIDE_THE_SAVE`. A flag is „1“ or „0“ as a button that asks for the other value (a click does not choose the row; the
  * keyboard's way is the detail's switch, so the button is no tab stop of its own); a variable shows its value, changed in the detail.
  */
@@ -41,7 +43,7 @@ function LiveCell({
 }) {
   if (value === undefined || value === null) {
     return (
-      <Tooltip content={value === null ? OUTSIDE_THE_SAVE : (pending ?? LIVE_OFF)}>
+      <Tooltip content={value === null ? outsideTheSave() : (pending ?? liveOff())}>
         <span data-flag-live="" className={styles.live}>
           –
         </span>
@@ -101,6 +103,7 @@ const FlagRow = memo(function FlagRow({
   livePending?: string;
   onLiveToggle?: (n: number) => void;
 }) {
+  const { t } = useTranslation("flags");
   const own = entry.own_id !== null;
   const subtitle = `${own && entry.name !== null ? `${entry.name} · ` : ""}${numberText(entry.number)}`;
   return (
@@ -117,12 +120,12 @@ const FlagRow = memo(function FlagRow({
           <span className={styles.usage}>{usageOf(entry)}</span>
           {entry.reserved !== null && (
             <span data-flag-badge="reserved" title={entry.reserved} className={styles.badge}>
-              <Badge kind="info">reserviert</Badge>
+              <Badge kind="info">{t("flagList.reserved")}</Badge>
             </span>
           )}
           {entry.free && (
             <span data-flag-badge="free" className={styles.badge}>
-              <Badge kind="success">frei</Badge>
+              <Badge kind="success">{t("flagList.free")}</Badge>
             </span>
           )}
           <LiveCell kind={kind} number={entry.number} value={live} pending={livePending} onToggle={onLiveToggle} />
@@ -137,8 +140,8 @@ const FlagRow = memo(function FlagRow({
  * renders: „500 von 4.097 gezeigt“, after a filter „500 von 2.000 gezeigt, 4.097 insgesamt“.
  */
 function shownText(rendered: number, matching: number, total: number): string {
-  if (rendered >= matching) return `${de(matching)} von ${de(total)}`;
-  return matching === total ? `${de(rendered)} von ${de(total)} gezeigt` : `${de(rendered)} von ${de(matching)} gezeigt, ${de(total)} insgesamt`;
+  if (rendered >= matching) return translate("flags:flagList.foot.counted", { matching, total });
+  return matching === total ? translate("flags:flagList.foot.cut", { rendered, total }) : translate("flags:flagList.foot.cutFiltered", { rendered, matching, total });
 }
 
 export type FlagListProps = {
@@ -172,6 +175,7 @@ function liveValueOf(live: LiveValues | null | undefined, kind: FlagKind, entry:
  * variables, flags from variables). The first `ROW_LIMIT` rows show, and the chosen one wherever it is.
  */
 export function FlagList({ list, entries, selected, onSelect, live, livePending, onLiveToggle }: FlagListProps) {
+  const { t } = useTranslation("flags");
   const host = useRef<HTMLDivElement>(null);
   useRovingList(host);
   const shown = entries.length > ROW_LIMIT ? entries.slice(0, ROW_LIMIT) : entries;
@@ -181,13 +185,13 @@ export function FlagList({ list, entries, selected, onSelect, live, livePending,
     <div className={styles.list} data-flag-list="">
       <div className={styles.listHead}>
         <span data-flag-live-head={live || livePending !== undefined ? "on" : ""} className={styles.liveHead}>
-          Live
+          {t("flagList.live")}
         </span>
       </div>
       {entries.length === 0 ? (
-        <p className={styles.empty}>Nichts passt zu Filter und Suche.</p>
+        <p className={styles.empty}>{t("flagList.empty")}</p>
       ) : (
-        <div ref={host} role="listbox" aria-label={list.kind === "flag" ? "Flags" : "Variablen"} className={styles.rows}>
+        <div ref={host} role="listbox" aria-label={list.kind === "flag" ? t("flagList.listFlags") : t("flagList.listVars")} className={styles.rows}>
           {rows.map((e) => (
             <FlagRow
               key={e.number}
@@ -202,9 +206,13 @@ export function FlagList({ list, entries, selected, onSelect, live, livePending,
           ))}
         </div>
       )}
-      {entries.length > ROW_LIMIT && <p className={styles.note}>{`Die ersten ${de(ROW_LIMIT)} Zeilen; Suche und Filter erreichen die übrigen.`}</p>}
+      {entries.length > ROW_LIMIT && <p className={styles.note}>{t("flagList.rowLimitNote", { limit: ROW_LIMIT })}</p>}
       <p className={styles.foot} data-flag-list-foot="">
-        {`${shownText(rows.length, entries.length, list.entries.length)} · Script-lokale Variablen ${de(list.counts.script_local)} Vorkommen, Flags aus Variablen ${de(list.counts.dynamic)} (nicht im Index)`}
+        {t("flagList.foot.summary", {
+          shown: shownText(rows.length, entries.length, list.entries.length),
+          scriptLocal: list.counts.script_local,
+          dynamic: list.counts.dynamic,
+        })}
       </p>
     </div>
   );

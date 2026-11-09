@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import deDelete from "../i18n/locales/de/delete.json";
+import { t } from "../i18n";
 import { deleteTargetLabel, restoreEntity } from "../api";
 import type { DeleteResult, DeleteTarget, DiffSubject } from "../api";
 import type { EntityState, MenuItemSpec } from "../ui/primitives";
@@ -36,11 +38,20 @@ export function useEntityState(subject: DiffSubject | null, dto?: { deleted?: bo
 }
 
 /** The label of the entry that takes a tombstone back (a row's context menu, Technik › Änderungen). */
-export const RESTORE_LABEL = "Wiederherstellen";
+export function restoreLabel(): string {
+  return t("delete:deleteContext.restore");
+}
+
+/**
+ * The German label, as a constant for the places of other folders that still read `RESTORE_LABEL` (Technik › Änderungen: `ChangesSurface`,
+ * `EntityDiff`). Taken from the German catalog, so it stays German until they call `restoreLabel()`.
+ * @deprecated Call `restoreLabel()`.
+ */
+export const RESTORE_LABEL: string = deDelete.deleteContext.restore;
 
 /** The context menu entry „Wiederherstellen“ of a deleted row. */
 export function restoreEntry(target: DeleteTarget, restore: DeleteApi["restore"]): MenuItemSpec {
-  return { label: RESTORE_LABEL, onSelect: () => restore(target) };
+  return { label: restoreLabel(), onSelect: () => restore(target) };
 }
 
 /** Gives `value` to every `useDelete` below: a part shown on its own (the gallery, a test) without the app's dialog. */

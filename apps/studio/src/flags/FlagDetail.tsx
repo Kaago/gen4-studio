@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { FlagEntryDto, FlagKind, FlagRefDto, FlagUsageDto } from "../api";
 import { useEntityIds } from "../textproject/useEntityIds";
 import { depthAtLeast } from "../ui/frame/shellState";
@@ -7,20 +8,8 @@ import type { Depth } from "../ui/frame/shellState";
 import { Button, Notice, NumberField, Reference, Section, Switch, Tooltip } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import { groupRefsByHeader } from "./flagFilter";
-import { NAMING_NEEDS_TEXT_PROJECT, OUTSIDE_THE_SAVE, areaWord, displayName, numberText } from "./flagWords";
+import { areaWord, displayName, namingNeedsTextProject, numberText, outsideTheSave } from "./flagWords";
 import styles from "./FlagsSurface.module.css";
-
-/** Why naming waits while a save or a build runs (the palette's sentence). */
-const BUSY = "Erst Speichern oder Bauen abwarten";
-
-/** What a number does when only read: the hint in „Wo gesetzt“. */
-export const READ_NOT_SET = "Gelesen, aber nirgends gesetzt: die Engine oder ein Script über eine Variable setzt es, oder nie.";
-
-/** Why a flag set live shows only later in the game. */
-export const MAP_RELOAD = "Sichtbarkeits-Flags wirken beim nächsten Betreten der Karte.";
-
-/** A live write the game undid before the next snapshot (review focus 4). */
-export const NOT_TAKEN = "Wert nicht übernommen, noch einmal versuchen.";
 
 /** The number in play mode: its value as the game holds it and how to write another one. A live value is never a step in the history. */
 export type FlagLive = {
@@ -84,23 +73,24 @@ function HeadButton({ why, onClick, children }: { why: string | null; onClick: (
  * the game undid is named with a warning. Render it with `key` per number: what was typed belongs to that number.
  */
 function LiveSection({ kind, inSave, live }: { kind: FlagKind; inSave: boolean; live: FlagLive }) {
+  const { t } = useTranslation("flags");
   const [open, setOpen] = useState(true);
   // What was typed and not yet written; null: the field shows the game's value.
   const [typed, setTyped] = useState<number | null>(null);
   const value = inSave ? live.value : null;
   return (
     <div data-flag-section="Live">
-      <Section title="Live" open={open} onToggle={() => setOpen((o) => !o)}>
+      <Section title={t("flagDetail.live.title")} open={open} onToggle={() => setOpen((o) => !o)}>
         {value === null ? (
-          <p className={styles.note}>{OUTSIDE_THE_SAVE}</p>
+          <p className={styles.note}>{outsideTheSave()}</p>
         ) : kind === "flag" ? (
           <>
-            <Switch label="Im Spiel gesetzt" checked={value !== 0} disabled={live.busy} onChange={(on) => live.onSet(on ? 1 : 0)} />
-            <p className={styles.note}>{MAP_RELOAD}</p>
+            <Switch label={t("flagDetail.live.setInGame")} checked={value !== 0} disabled={live.busy} onChange={(on) => live.onSet(on ? 1 : 0)} />
+            <p className={styles.note}>{t("flagDetail.mapReload")}</p>
           </>
         ) : (
           <div className={styles.liveSet}>
-            <NumberField label="Wert im Spiel" value={typed ?? value} min={0} max={65535} disabled={live.busy} onCommit={setTyped} />
+            <NumberField label={t("flagDetail.live.valueInGame")} value={typed ?? value} min={0} max={65535} disabled={live.busy} onCommit={setTyped} />
             <Button
               kind="secondary"
               size="s"
@@ -110,11 +100,11 @@ function LiveSection({ kind, inSave, live }: { kind: FlagKind; inSave: boolean; 
                 setTyped(null);
               }}
             >
-              Setzen
+              {t("flagDetail.live.set")}
             </Button>
           </div>
         )}
-        {!live.readBack && <Notice kind="warning">{NOT_TAKEN}</Notice>}
+        {!live.readBack && <Notice kind="warning">{t("flagDetail.notTaken")}</Notice>}
       </Section>
     </div>
   );
@@ -178,11 +168,12 @@ export function FlagDetail({ kind, number, entry, usage, busy, error, textProjec
   const names = usage ?? entry;
   const area = names?.area ?? "general";
   const mapLocal = area === "map_local";
+  const { t } = useTranslation("flags");
   const ids = useEntityIds("Map", number !== null && textProject && mapLocal && depthAtLeast(depth, "tuefteln"));
   if (number === null) {
     return (
       <div className={styles.detail} data-flag-detail="">
-        <p className={styles.empty}>Wähle links ein Flag oder eine Variable.</p>
+        <p className={styles.empty}>{t("flagDetail.chooseOne")}</p>
       </div>
     );
   }
@@ -193,7 +184,7 @@ export function FlagDetail({ kind, number, entry, usage, busy, error, textProjec
   // Only a number the save holds takes an own name (the kernel refuses the others): outside every range, HeartGold's temporary flags,
   // the script-local variables.
   const inSave = names?.in_save ?? true;
-  const why = !textProject ? NAMING_NEEDS_TEXT_PROJECT : !inSave ? OUTSIDE_THE_SAVE : readOnly ? BUSY : null;
+  const why = !textProject ? namingNeedsTextProject() : !inSave ? outsideTheSave() : readOnly ? t("flagDetail.busy") : null;
   const refs = usage?.refs ?? [];
   const groups = (list: FlagRefDto[]): Group[] =>
     mapLocal
@@ -208,37 +199,37 @@ export function FlagDetail({ kind, number, entry, usage, busy, error, textProjec
         <h2 className={own !== null ? `${styles.detailTitle} ${styles.own}` : styles.detailTitle}>{displayName({ name: pret, own_id: own }, kind, number)}</h2>
         {own !== null && pret !== null && <p className={styles.pret}>{pret}</p>}
         <p className={styles.facts}>{`${numberText(number)} · ${areaWord(area)}${reserved !== null ? ` · ${reserved}` : ""}`}</p>
-        <p className={description !== null ? styles.text : styles.note}>{description ?? "Keine Beschreibung"}</p>
+        <p className={description !== null ? styles.text : styles.note}>{description ?? t("flagDetail.noDescription")}</p>
         <div className={styles.actions}>
           {own !== null ? (
             <>
               <HeadButton why={why} onClick={() => onRename(own)}>
-                Umbenennen…
+                {t("flagDetail.rename")}
               </HeadButton>
               <HeadButton why={why} onClick={onDescribe}>
-                Beschreibung…
+                {t("flagDetail.describe")}
               </HeadButton>
             </>
           ) : (
             <HeadButton why={why} onClick={onName}>
-              {kind === "flag" ? "Als eigenes Flag benennen…" : "Als eigene Variable benennen…"}
+              {kind === "flag" ? t("flagDetail.nameAsFlag") : t("flagDetail.nameAsVar")}
             </HeadButton>
           )}
         </div>
       </header>
       {error !== null && <Notice kind="error">{error}</Notice>}
       {live !== undefined && <LiveSection key={`${kind}:${number}`} kind={kind} inSave={inSave} live={live} />}
-      {usage === null && busy && error === null && <p className={styles.note}>Wird gelesen …</p>}
+      {usage === null && busy && error === null && <p className={styles.note}>{t("flagDetail.reading")}</p>}
       {usage !== null && (
         <>
           <Uses
-            title="Wo gesetzt"
+            title={t("flagDetail.uses.whereSet")}
             groups={groups(set)}
-            empty={checked.length > 0 ? <Notice kind="info">{READ_NOT_SET}</Notice> : <p className={styles.note}>Nirgends gesetzt.</p>}
+            empty={checked.length > 0 ? <Notice kind="info">{t("flagDetail.readNotSet")}</Notice> : <p className={styles.note}>{t("flagDetail.uses.neverSet")}</p>}
             goTo={goTo}
           />
-          <Uses title="Wo geprüft" groups={groups(checked)} empty={<p className={styles.note}>Nirgends geprüft.</p>} goTo={goTo} />
-          {unclear.length > 0 && <Uses title="Unklar" groups={groups(unclear)} empty={null} goTo={goTo} />}
+          <Uses title={t("flagDetail.uses.whereChecked")} groups={groups(checked)} empty={<p className={styles.note}>{t("flagDetail.uses.neverChecked")}</p>} goTo={goTo} />
+          {unclear.length > 0 && <Uses title={t("flagDetail.uses.unclear")} groups={groups(unclear)} empty={null} goTo={goTo} />}
         </>
       )}
     </div>

@@ -1,9 +1,10 @@
 import { useEffect, useId, useState } from "react";
 import type { JSX, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { storyUpdate } from "../api";
 import type { FlagKind, ProjectInfo, StoryListDto, StoryReport, StoryRowDto } from "../api";
 import { FLAGS_SOURCE } from "../flags/FlagsSurface";
-import { NOT_A_TEXT_PROJECT, hex4 } from "../flags/flagWords";
+import { hex4, notATextProject } from "../flags/flagWords";
 import { useFlagList } from "../flags/useFlagList";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
@@ -58,11 +59,6 @@ export type StoriesSurfaceProps = {
   onRecipe?: (request: StoryRecipeRequest) => void;
 };
 
-const COLUMNS: readonly TableColumn[] = [
-  { key: "name", label: "Name" },
-  { key: "progress", label: "Fortschritt", width: 280 },
-  { key: "steps", label: "Schritte", width: 96, align: "end" },
-];
 
 /**
  * Geschichten › Geschichten (3d.6, reading): the stories of the project as a table (name, progress as a chip of the area Geschichten,
@@ -71,8 +67,14 @@ const COLUMNS: readonly TableColumn[] = [
  */
 export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
   const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, listRevision, onCreated, onUpdated, onDeleted, onError, onOpenProject, onRecipe } = props;
+  const { t } = useTranslation("stories");
   const titleId = useId();
   const tech = depthAtLeast(depth, "bauen");
+  const columns: readonly TableColumn[] = [
+    { key: "name", label: t("storiesSurface.columns.name") },
+    { key: "progress", label: t("storiesSurface.columns.progress"), width: 280 },
+    { key: "steps", label: t("storiesSurface.columns.steps"), width: 96, align: "end" },
+  ];
   const [creating, setCreating] = useState(false);
   const rowsOf = stories?.stories ?? [];
   // The names of the progress numbers, read only for a kind whose ids the list has by name (a fallback id names its number itself).
@@ -146,50 +148,50 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
       <header className={styles.head}>
         <div className={styles.headText}>
           <h1 id={titleId} className={styles.title}>
-            Geschichten
+            {t("storiesSurface.title")}
           </h1>
-          <p className={styles.text}>Geschichten erzählen mit einer Variable oder einem Flag, Schritt für Schritt, was im Spiel geschieht.</p>
+          <p className={styles.text}>{t("storiesSurface.intro")}</p>
         </div>
         {project !== null && <NewStoryButton locked={locked} onClick={() => setCreating(true)} />}
       </header>
       {project === null ? (
         <EmptyState
-          what="Kein Projekt geöffnet."
-          why="Öffne ein Projekt, dann stehen hier seine Geschichten."
-          action={onOpenProject && { label: "Projekt öffnen", onClick: onOpenProject }}
+          what={t("storiesSurface.noProject")}
+          why={t("storiesSurface.noProjectWhy")}
+          action={onOpenProject && { label: t("storiesSurface.openProject"), onClick: onOpenProject }}
         />
       ) : stories === null ? (
         error === null ? (
-          <p className={styles.note}>Wird gelesen …</p>
+          <p className={styles.note}>{t("storiesSurface.reading")}</p>
         ) : (
           <Notice kind="error">{error}</Notice>
         )
       ) : rowsOf.length === 0 ? (
         locked ? (
           <EmptyState
-            what="Kein Textprojekt."
-            why="Geschichten liegen als Dateien im Textprojekt; im DSPRE-Layout gibt es keine. Technik › Textprojekt richtet es ein."
-            action={{ label: "Als Textprojekt einrichten…", onClick: onOpenTextProject }}
+            what={t("storiesSurface.noTextProject")}
+            why={t("storiesSurface.noTextProjectWhy")}
+            action={{ label: t("storiesSurface.setUpTextProject"), onClick: onOpenTextProject }}
           />
         ) : (
-          <EmptyState what="Noch keine Geschichten." why="„Neue Geschichte…“ legt eine an: ein Name und die Variable oder das Flag, das ihren Fortschritt hält." />
+          <EmptyState what={t("storiesSurface.noStories")} why={t("storiesSurface.noStoriesWhy")} />
         )
       ) : (
         <>
           <Table
-            columns={COLUMNS}
+            columns={columns}
             rows={rows}
-            ariaLabel="Geschichten"
+            ariaLabel={t("storiesSurface.table")}
             selected={selected === null ? undefined : String(selected)}
             onSelect={(key) => onSelect(Number(key))}
             footer={storiesCount(rowsOf.length)}
           />
           {chosen === null ? (
-            <p className={styles.note}>Wähle eine Geschichte: darunter erscheinen ihre Notizen, ihre Schritte und ihr Graph.</p>
+            <p className={styles.note}>{t("storiesSurface.chooseOne")}</p>
           ) : storyError !== null ? (
             <Notice kind="error">{storyError}</Notice>
           ) : story === null ? (
-            <p className={styles.note}>Geschichte wird gelesen …</p>
+            <p className={styles.note}>{t("storiesSurface.storyReading")}</p>
           ) : (
             <StoryDetail
               key={chosen.id}
@@ -213,6 +215,7 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
 
 /** „Neue Geschichte…“: locked in the DSPRE layout but focusable, the kernel's reason as its description and tooltip. */
 function NewStoryButton({ locked, onClick }: { locked: boolean; onClick: () => void }) {
+  const { t } = useTranslation("stories");
   const noteId = useId();
   const button = (
     <Button
@@ -223,15 +226,15 @@ function NewStoryButton({ locked, onClick }: { locked: boolean; onClick: () => v
       aria-describedby={locked ? noteId : undefined}
       onClick={() => !locked && onClick()}
     >
-      Neue Geschichte…
+      {t("storiesSurface.newStory")}
     </Button>
   );
   if (!locked) return button;
   return (
     <>
-      <Tooltip content={NOT_A_TEXT_PROJECT}>{button}</Tooltip>
+      <Tooltip content={notATextProject()}>{button}</Tooltip>
       <span id={noteId} hidden>
-        {NOT_A_TEXT_PROJECT}
+        {notATextProject()}
       </span>
     </>
   );

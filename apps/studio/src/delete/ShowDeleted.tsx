@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Checkbox } from "../ui/primitives";
 
 /**
@@ -5,9 +6,10 @@ import { Checkbox } from "../ui/primitives";
  * out; on, they show with the badge „gelöscht“ and „Wiederherstellen“ in their context menu. `data-show-deleted` says whether it is on.
  */
 export function ShowDeleted({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  const { t } = useTranslation("delete");
   return (
     <span data-show-deleted={checked ? "true" : "false"}>
-      <Checkbox label="Gelöschte zeigen" checked={checked} onChange={onChange} />
+      <Checkbox label={t("showDeleted.label")} checked={checked} onChange={onChange} />
     </span>
   );
 }

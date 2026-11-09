@@ -1,1 +1,24 @@
-{}
+{
+  "resetDialog": {
+    "title": "{{label}} auf Original zurücksetzen?",
+    "description": "Stellt den Stand der Basis-ROM {{base}} wieder her. ⌘Z nimmt es zurück.",
+    "close": "Schließen",
+    "cancel": "Abbrechen",
+    "reset": "Zurücksetzen",
+    "loading": "Lade Vergleich …",
+    "same": "Schon im Stand der Basis-ROM.",
+    "scriptDirty": "Ungespeicherte Änderungen an dieser Scriptdatei gehen verloren.",
+    "dirty": "Auch ungespeicherte Änderungen werden ersetzt; ⌘Z stellt sie wieder her.",
+    "writesFiles": "Wird sofort geschrieben; ⌘Z nimmt es zurück.",
+    "resetting": "Setze zurück …"
+  },
+  "headActions": {
+    "actions": "Aktionen"
+  },
+  "resetEntry": {
+    "label": "Auf Original zurücksetzen…",
+    "reading": "Wird gelesen …",
+    "baseMissing": "Basis-ROM fehlt",
+    "noOriginal": "Kein Original"
+  }
+}
