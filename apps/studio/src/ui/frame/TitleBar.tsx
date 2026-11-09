@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { isMacTauri } from "../../platform/os";
 import { Icon, IconButton, Kbd } from "../primitives";
 import styles from "./TitleBar.module.css";
@@ -29,21 +30,20 @@ export type TitleBarProps = {
   onToggleTheme: () => void;
 };
 
-const unsavedText = (n: number) => `${n} ${n === 1 ? "Änderung" : "Änderungen"} nicht gespeichert`;
-
 /**
  * The 40 px bar on top. Its row (and every text in it, since Tauri drags only by the element that carries the attribute)
  * is a drag region; the buttons are not.
  */
 export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, onBuild, onPublish, publishLocked, onHelp, onPalette, paletteDisabled = false, theme, onToggleTheme }: TitleBarProps) {
+  const { t } = useTranslation("ui");
   const open = projectName !== null;
   const inset = isMacTauri();
   return (
     <div className={styles.bar} data-tauri-drag-region="" style={inset ? { paddingLeft: MAC_INSET } : undefined /* dyn */}>
       <div className={styles.left} data-tauri-drag-region="">
-        <IconButton label="Projekt öffnen" icon="open" disabled={busy} onClick={onOpen} />
+        <IconButton label={t("titleBar.openProject")} icon="open" disabled={busy} onClick={onOpen} />
         <span className={open ? styles.name : styles.noName} data-tauri-drag-region="">
-          {projectName ?? "Kein Projekt geöffnet"}
+          {projectName ?? t("titleBar.noProject")}
         </span>
         {game !== null && (
           <span className={styles.game} data-tauri-drag-region="">
@@ -53,27 +53,27 @@ export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, 
         {open &&
           (dirtyCount > 0 ? (
             <span className={`${styles.saveState} ${styles.unsaved}`} data-tauri-drag-region="">
-              <span aria-hidden="true">●</span> {unsavedText(dirtyCount)}
+              <span aria-hidden="true">●</span> {t("titleBar.unsaved", { count: dirtyCount })}
             </span>
           ) : (
             <span className={`${styles.saveState} ${styles.saved}`} data-tauri-drag-region="">
-              <Icon name="check" /> Alles gespeichert
+              <Icon name="check" /> {t("titleBar.allSaved")}
             </span>
           ))}
       </div>
       <div className={styles.middle} data-tauri-drag-region="">
         <button type="button" className={styles.palette} disabled={paletteDisabled} aria-keyshortcuts="Meta+K" onClick={onPalette}>
           <Icon name="search" />
-          <span className={styles.paletteText}>Suchen oder Befehl eingeben</span>
+          <span className={styles.paletteText}>{t("titleBar.search")}</span>
           <Kbd keys="⌘K" />
         </button>
       </div>
       <div className={styles.right} data-tauri-drag-region="">
-        <IconButton label="Speichern" icon="save" shortcut="⌘S" disabled={!open} busy={busy} onClick={onSave} />
-        <IconButton label="Bauen" icon="build" disabled={!open} busy={busy} onClick={onBuild} />
-        <IconButton label="Veröffentlichen" icon="publish" disabled={!open} busy={busy || publishLocked !== null} hint={open ? (publishLocked ?? undefined) : undefined} onClick={onPublish} />
-        <IconButton label="Thema wechseln" icon={theme === "hell" ? "moon" : "sun"} onClick={onToggleTheme} />
-        <IconButton label="Hilfe" icon="help" onClick={onHelp} />
+        <IconButton label={t("titleBar.save")} icon="save" shortcut="⌘S" disabled={!open} busy={busy} onClick={onSave} />
+        <IconButton label={t("titleBar.build")} icon="build" disabled={!open} busy={busy} onClick={onBuild} />
+        <IconButton label={t("titleBar.publish")} icon="publish" disabled={!open} busy={busy || publishLocked !== null} hint={open ? (publishLocked ?? undefined) : undefined} onClick={onPublish} />
+        <IconButton label={t("titleBar.theme")} icon={theme === "hell" ? "moon" : "sun"} onClick={onToggleTheme} />
+        <IconButton label={t("titleBar.help")} icon="help" onClick={onHelp} />
       </div>
     </div>
   );

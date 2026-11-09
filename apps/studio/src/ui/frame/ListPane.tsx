@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
 import { PanelHead } from "../primitives";
 import type { PanelHeadSwitcher } from "../primitives";
@@ -22,6 +23,7 @@ export type ListPaneProps = {
  * folded, so a search, the opened places and the scroll position survive.
  */
 export function ListPane({ title, subtitle, actions, switcher, open, onToggle, children }: ListPaneProps) {
+  const { t } = useTranslation("ui");
   // Whether the list was open when the current press began: the double click that opened the list must not fold it again.
   const openAtPress = useRef(true);
   return (
@@ -33,9 +35,9 @@ export function ListPane({ title, subtitle, actions, switcher, open, onToggle, c
       <button
         type="button"
         className={styles.grip}
-        aria-label={open ? "Liste einklappen" : "Liste ausklappen"}
+        aria-label={open ? t("listPane.collapse") : t("listPane.expand")}
         aria-expanded={open}
-        title={open ? "Doppelklick klappt die Liste ein" : "Klick klappt die Liste aus"}
+        title={open ? t("listPane.collapseHint") : t("listPane.expandHint")}
         onMouseDown={(e) => {
           if (e.detail <= 1) openAtPress.current = open;
         }}

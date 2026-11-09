@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import styles from "./ChangeTable.module.css";
 
 /** A run of a word diff: unchanged, only on the old side, or only on the new one. */
@@ -30,11 +31,12 @@ export type ChangeTableProps = {
 
 /** A side: „—“ with a hidden „fehlt“ where there is none, the spans as `<del>`/`<ins>`, else the value. */
 function Cell({ value }: { value: ChangeCell }) {
+  const { t } = useTranslation("ui");
   if (value === null) {
     return (
       <code className={styles.value}>
         <span aria-hidden="true">—</span>
-        <span className={styles.hidden}>fehlt</span>
+        <span className={styles.hidden}>{t("changeTable.missing")}</span>
       </code>
     );
   }

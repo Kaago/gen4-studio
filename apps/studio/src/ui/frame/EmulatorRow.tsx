@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "../primitives";
 import styles from "./EmulatorRow.module.css";
 
@@ -10,6 +11,7 @@ export type EmulatorRowProps = {
 
 /** The emulator the studio starts a built ROM in, and the way to choose another one. Shared by Einstellungen and Technik. */
 export function EmulatorRow({ path, onPick }: EmulatorRowProps) {
+  const { t } = useTranslation("ui");
   const chosen = path !== null && path !== undefined && path !== "";
   return (
     <div className={styles.row}>
@@ -18,10 +20,10 @@ export function EmulatorRow({ path, onPick }: EmulatorRowProps) {
           {path}
         </span>
       ) : (
-        <span className={styles.none}>Kein Emulator gewählt</span>
+        <span className={styles.none}>{t("emulatorRow.none")}</span>
       )}
       <Button kind="secondary" size="s" onClick={onPick}>
-        Emulator wählen
+        {t("emulatorRow.pick")}
       </Button>
     </div>
   );

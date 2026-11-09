@@ -1,5 +1,6 @@
 import { Fragment, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button, Icon, IconButton } from "../primitives";
 import { listToasts, pauseToast, resumeToast, subscribeToasts, toast } from "./toasts";
 import type { Toast } from "./toasts";
@@ -19,6 +20,7 @@ function breakable(text: string): ReactNode {
 const LOOK = { info: "info", progress: "info", warning: "warning", error: "error" } as const;
 
 function ToastItem({ item }: { item: Toast }) {
+  const { t } = useTranslation("ui");
   const isError = item.kind === "error";
   const look = LOOK[item.kind];
   return (
@@ -53,16 +55,17 @@ function ToastItem({ item }: { item: Toast }) {
           </div>
         )}
       </div>
-      <IconButton label="Meldung schließen" icon="close" onClick={() => toast.dismiss(item.id)} />
+      <IconButton label={t("toastHost.close")} icon="close" onClick={() => toast.dismiss(item.id)} />
     </div>
   );
 }
 
 /** Bottom right above the status bar: at most four toasts from the store, newest last. */
 export function ToastHost() {
+  const { t } = useTranslation("ui");
   const items = useSyncExternalStore(subscribeToasts, listToasts);
   return (
-    <section className={styles.host} aria-live="polite" aria-label="Meldungen">
+    <section className={styles.host} aria-live="polite" aria-label={t("toastHost.label")}>
       {items.map((item) => (
         <ToastItem key={item.id} item={item} />
       ))}

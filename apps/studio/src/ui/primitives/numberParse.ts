@@ -1,3 +1,5 @@
+import { t } from "../../i18n";
+
 export type NumberBase = "dec" | "hex";
 
 const DEC = /^-?\d+$/;
@@ -35,15 +37,15 @@ export type NumberCheck = { ok: true; value: number } | { ok: false; error: stri
  * sentence that names the way out; it is never turned into the nearest valid number.
  */
 export function checkNumber(text: string, base: NumberBase, min: number, max: number | undefined): NumberCheck {
-  if (text.trim() === "") return { ok: false, error: "Gib eine Zahl ein." };
+  if (text.trim() === "") return { ok: false, error: t("ui:numberParse.enterNumber") };
   const n = parseNumber(text, base);
   if (n === null) {
     return {
       ok: false,
-      error: base === "hex" ? "Das ist keine Hex-Zahl. Gib z. B. 0x1F ein." : "Das ist keine ganze Zahl. Gib z. B. 12 ein.",
+      error: base === "hex" ? t("ui:numberParse.notHex") : t("ui:numberParse.notInteger"),
     };
   }
-  if (max !== undefined && n > max) return { ok: false, error: `höchstens ${formatNumber(max, base)}` };
-  if (n < min) return { ok: false, error: `mindestens ${formatNumber(min, base)}` };
+  if (max !== undefined && n > max) return { ok: false, error: t("ui:numberParse.atMost", { max: formatNumber(max, base) }) };
+  if (n < min) return { ok: false, error: t("ui:numberParse.atLeast", { min: formatNumber(min, base) }) };
   return { ok: true, value: n };
 }

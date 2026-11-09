@@ -1,5 +1,6 @@
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "./Button";
 import type { ButtonProps } from "./Button";
 import { Icon } from "./Icon";
@@ -53,6 +54,7 @@ export type DialogProps = {
 
 /** A modal dialog: focus is trapped inside, Escape closes (Base UI). Wizards are not dialogs. */
 export function Dialog({ open, onOpenChange, title, description, actions, children, variant = "dialog", data, finalFocus, dismissible = true, size = "standard" }: DialogProps) {
+  const { t } = useTranslation("ui");
   const palette = variant === "palette";
   const popupClass = palette ? `${styles.popup} ${styles.palette}` : size === "wide" ? `${styles.popup} ${styles.wide}` : styles.popup;
   return (
@@ -88,7 +90,7 @@ export function Dialog({ open, onOpenChange, title, description, actions, childr
           )}
           {/* After the content in the DOM so the first Tab stop is content, not the cross; placed top right by CSS. */}
           {!palette && dismissible && (
-            <BaseDialog.Close className={styles.close} aria-label="Schließen">
+            <BaseDialog.Close className={styles.close} aria-label={t("dialog.close")}>
               <Icon name="close" />
             </BaseDialog.Close>
           )}
