@@ -48,6 +48,8 @@ bytes = "1"
 getrandom = "0.3"
 # The project preview travels as base64 in JSON (`commands::preview`).
 base64 = "0.22"
+# The message catalogs (`locales/{en,de}.yml`, `t!`); the locale is shared with g4-kernel.
+rust-i18n = { workspace = true }
 
 # `studio doctor` attaches to the console of the shell that started it (`doctor.rs`), `studio
 # mcp` keeps stray stdout out of the protocol (`mcp::stdout`); the version gix and tokio already

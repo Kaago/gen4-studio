@@ -1,3 +1,9 @@
+#[macro_use]
+extern crate rust_i18n;
+
+// The messages of the Tauri side: `locales/{en,de}.yml`, English is the fallback.
+i18n!("locales", fallback = "en");
+
 /// The remembered base ROMs of the app (`base-roms.json`).
 pub mod base_roms;
 #[cfg(feature = "dev-bridge")]
@@ -23,6 +29,7 @@ use commands::bake_test;
 use commands::close_project;
 use commands::git_commit_prepare;
 use commands::resolve_text_conflicts;
+use commands::set_locale;
 use commands::split_room;
 use commands::story_delete;
 use commands::{
@@ -308,7 +315,8 @@ pub fn run() {
             world_export_tmj,
             world_inspect_tmj,
             world_import_tmj,
-            world_layers
+            world_layers,
+            set_locale
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

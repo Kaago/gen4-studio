@@ -251,6 +251,7 @@ pub const COMMANDS: &[&str] = &[
     "world_inspect_tmj",
     "world_import_tmj",
     "world_layers",
+    "set_locale",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1370,6 +1371,10 @@ pub fn dispatch(
             { req: g4_kernel::world::WorldLayersRequest },
             |a| world_layers_impl(state, a.req)
         ),
+        "set_locale" => run!(json, "set_locale", args, { lang: String }, |a| {
+            set_locale_impl(&a.lang);
+            Ok(())
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1897,6 +1902,8 @@ mod tests {
                 "world_layers",
                 json!({ "req": { "map": 0, "op": { "add": { "name": "Brücke" } } } }),
             ),
+            // `en` is the default: the lib tests share the process, none may switch to German.
+            ("set_locale", json!({ "lang": "en" })),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
