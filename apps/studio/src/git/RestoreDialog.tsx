@@ -1,34 +1,35 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, isCmdError, restoreTextProject } from "../api";
 import type { RestoreProgress, RestoreReport } from "../api";
+import { t } from "../i18n";
 import { openPath } from "../platform/dialogs";
 import { toast } from "../ui/frame/toasts";
 import { Dialog, Notice } from "../ui/primitives";
 import type { DialogAction } from "../ui/primitives";
-import { NBSP } from "../words";
 import styles from "./GitInitDialog.module.css";
 
 /** The file dialog of „Basis-ROM wählen…“. */
-const PICK = { directory: false, title: "Basis-ROM wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] };
+const pickOptions = () => ({ directory: false, title: t("git:restoreDialog.pickTitle"), filters: [{ name: t("git:restoreDialog.pickFilter"), extensions: ["nds"] }] });
 
 /** The progress line of a phase; the import's count only when it counts more than one step. */
 export function restoreProgressText(p: RestoreProgress): string {
   switch (p.phase) {
     case "extract":
-      return "Basis-ROM auspacken …";
+      return t("git:restoreDialog.progress.extract");
     case "merge":
-      return "Spieldateien einsetzen …";
+      return t("git:restoreDialog.progress.merge");
     case "import":
       // Without fine progress (only 0 and 1 of 1) the count says nothing.
-      return p.total > 1 ? `Textprojekt einspielen … ${p.done} von ${p.total}` : "Textprojekt einspielen …";
+      return p.total > 1 ? t("git:restoreDialog.progress.importCount", { done: p.done, total: p.total }) : t("git:restoreDialog.progress.import");
     case "sync":
-      return "Abgleich vorbereiten …";
+      return t("git:restoreDialog.progress.sync");
   }
 }
 
 /** The message after completing: the seconds it took. */
 export function restoredText(report: RestoreReport): string {
-  return `Textprojekt vervollständigt in ${Math.round(report.ms / 1000)}${NBSP}s.`;
+  return t("git:restoreDialog.restored", { seconds: Math.round(report.ms / 1000) });
 }
 
 export type RestoreDialogProps = {
@@ -49,6 +50,7 @@ export type RestoreDialogProps = {
  * sentence). While it runs the dialog has no button and stays.
  */
 export function RestoreDialog({ root, message, onClose, onOpened }: RestoreDialogProps) {
+  const { t } = useTranslation("git");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<RestoreProgress | null>(null);
   // Why no base ROM was found (`base_missing`): „Basis-ROM wählen…“ shows from then on.
@@ -77,15 +79,15 @@ export function RestoreDialog({ root, message, onClose, onOpened }: RestoreDialo
   };
   const pick = async () => {
     if (busy.current) return;
-    const nds = await openPath(PICK);
+    const nds = await openPath(pickOptions());
     if (nds !== null) await restore(nds);
   };
 
   const actions: DialogAction[] = running
     ? []
     : [
-        { label: "Abbrechen", onClick: onClose },
-        { label: "Vervollständigen", kind: "primary", onClick: () => void restore(null) },
+        { label: t("shared.cancel"), onClick: onClose },
+        { label: t("restoreDialog.complete"), kind: "primary", onClick: () => void restore(null) },
       ];
 
   return (
@@ -95,15 +97,15 @@ export function RestoreDialog({ root, message, onClose, onOpened }: RestoreDialo
         if (!open && !busy.current) onClose();
       }}
       dismissible={!running}
-      title="Textprojekt vervollständigen?"
-      description={`${message} Gen4 Studio legt die Spieldateien aus deiner Basis-ROM an; deine Dateien bleiben, wie sie sind.`}
+      title={t("restoreDialog.title")}
+      description={t("restoreDialog.description", { message })}
       data={{ "data-restore-dialog": "" }}
       actions={actions}
     >
       {(running || missing !== null || error !== null) && (
         <div className={styles.content}>
           {missing !== null && (
-            <Notice kind="warning" actions={running ? undefined : [{ label: "Basis-ROM wählen…", onClick: () => void pick() }]}>
+            <Notice kind="warning" actions={running ? undefined : [{ label: t("restoreDialog.chooseBase"), onClick: () => void pick() }]}>
               {missing}
             </Notice>
           )}

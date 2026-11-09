@@ -1,7 +1,9 @@
 import { useId, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
+import { useTranslation } from "react-i18next";
 import type { Against, BlobSide, ChangedEntry, EntityDiff as Diff, EntityDiffReport, FieldChange, OriginalStatus, WordSpan } from "../api";
 import { RESTORE_LABEL, useDelete } from "../delete/DeleteContext";
+import { t } from "../i18n";
 import { useReset } from "../original/OriginalContext";
 import { RESET_LABEL } from "../original/resetEntry";
 import { Badge, Button, ChangeTable, Notice, Section, Tooltip } from "../ui/primitives";
@@ -12,11 +14,12 @@ import { navTargetOf, restoreTarget, rowResetLock, sideWords } from "./diffWords
 import styles from "./EntityDiff.module.css";
 import { useEntityDiff } from "./useEntityDiff";
 
-/** Why „Öffnen“ is locked. */
-const NO_PLACE = "Für diese Art gibt es keinen Ort in der App.";
-
-/** The German names of a map's parts, in the kernel's order. */
-const PART_NAMES: Record<string, string> = { model: "Modell", permissions: "Bewegungsrechte", buildings: "Gebäude", bdhc: "BDHC", bgs: "BGS", raw: "Rohdaten" };
+/** The parts of a map the catalog has a name for, in the kernel's order. */
+const PART_NAMES = ["model", "permissions", "buildings", "bdhc", "bgs", "raw"] as const;
+type PartName = (typeof PART_NAMES)[number];
+const isPartName = (part: string): part is PartName => (PART_NAMES as readonly string[]).includes(part);
+/** The name of a map's part in the language that is shown; a part the catalog does not know keeps the kernel's name. */
+const partName = (part: string): string => (isPartName(part) ? t(`technik:entityDiff.part.${part}`) : part);
 
 export type EntityDiffProps = {
   /** The row chosen in the list; null: nothing chosen yet. */
@@ -37,8 +40,8 @@ export type EntityDiffProps = {
  * for an entity that is new on the compared side.
  */
 function resetLock(entry: ChangedEntry, report: EntityDiffReport | null, status: OriginalStatus | null): string | null {
-  if (report?.state === "new") return "Kein Original";
-  if (report !== null && report.reset === null) return "Für diese Art gibt es kein Zurücksetzen.";
+  if (report?.state === "new") return t("technik:diffWords.noOriginal");
+  if (report !== null && report.reset === null) return t("technik:diffWords.noReset");
   return rowResetLock(report?.reset ? { ...entry, target: report.reset } : entry, status);
 }
 
@@ -49,11 +52,12 @@ function resetLock(entry: ChangedEntry, report: EntityDiffReport | null, status:
  * „Gelöscht“ (or „Wiederhergestellt“ when only the old side is one) above the fields, never a field. Without a choice it says what to do.
  */
 export function EntityDiff({ entry, against, revision, headId = null, goTo, finalFocus }: EntityDiffProps) {
+  const { t } = useTranslation("technik");
   const { report, error, busy } = useEntityDiff(entry?.subject ?? null, against, revision, headId);
   if (entry === null) {
     return (
       <div className={styles.detail} data-entity-diff="">
-        <p className={styles.note}>Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.</p>
+        <p className={styles.note}>{t("entityDiff.choose")}</p>
       </div>
     );
   }
@@ -62,13 +66,13 @@ export function EntityDiff({ entry, against, revision, headId = null, goTo, fina
       <Head entry={entry} report={report} goTo={goTo} finalFocus={finalFocus} />
       {report === null && busy && (
         <p role="status" className={styles.note}>
-          Lade Vergleich …
+          {t("entityDiff.loading")}
         </p>
       )}
       {error !== null && <Notice kind="error">{error}</Notice>}
       {report !== null &&
         (report.state === "same" ? (
-          <p className={styles.text}>Keine Abweichung.</p>
+          <p className={styles.text}>{t("entityDiff.same")}</p>
         ) : (
           <>
             <Tombstone report={report} />
@@ -114,16 +118,18 @@ function nothingElse(diff: Diff): boolean {
 
 /** The tombstone of the new side as the badge „Gelöscht“, of the old side only as „Wiederhergestellt“; nothing when the sides agree. */
 function Tombstone({ report }: { report: EntityDiffReport }) {
+  const { t } = useTranslation("technik");
   if (!tombstoneDiffers(report)) return null;
   const deleted = report.tombstone!.new;
   return (
     <p className={styles.tombstone} data-tombstone={deleted ? "deleted" : "restored"}>
-      {deleted ? <Badge kind="error">Gelöscht</Badge> : <Badge kind="info">Wiederhergestellt</Badge>}
+      {deleted ? <Badge kind="error">{t("entityDiff.deleted")}</Badge> : <Badge kind="info">{t("entityDiff.restored")}</Badge>}
     </p>
   );
 }
 
 function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report: EntityDiffReport | null; goTo: (t: NavTarget) => void; finalFocus?: () => HTMLElement | null }) {
+  const { t } = useTranslation("technik");
   const { open, status } = useReset();
   const { restore } = useDelete();
   const back = restoreTarget(entry);
@@ -144,8 +150,8 @@ function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report
         )}
       </div>
       <div className={styles.actions}>
-        <LockableButton why={place === null && !waiting ? NO_PLACE : null} waiting={waiting} onClick={() => place !== null && goTo(place)}>
-          Öffnen
+        <LockableButton why={place === null && !waiting ? t("entityDiff.noPlace") : null} waiting={waiting} onClick={() => place !== null && goTo(place)}>
+          {t("shared.open")}
         </LockableButton>
         {back !== null ? (
           <LockableButton why={null} onClick={() => restore(back)}>
@@ -180,9 +186,10 @@ function fieldRows(changes: readonly FieldChange[], specs: readonly { key: strin
 }
 
 /** „und {n} weitere …“ below a table, when rows were cut. */
-const moreText = (more: number, what: string) => (more > 0 ? `und ${more} weitere ${what}` : undefined);
+const moreText = (more: number, what: "Fields" | "Messages") => (more > 0 ? t(`technik:entityDiff.more${what}`, { count: more }) : undefined);
 
 function Body({ report, against }: { report: EntityDiffReport; against: Against }) {
+  const { t } = useTranslation("technik");
   const words = sideWords(against);
   const family = useReset().family;
   const diff = report.diff;
@@ -190,10 +197,10 @@ function Body({ report, against }: { report: EntityDiffReport; against: Against 
     case "fields":
       return (
         <ChangeTable
-          columns={["Feld", words.old, words.new]}
+          columns={[t("entityDiff.columns.field"), words.old, words.new]}
           ariaLabel={report.label}
           rows={fieldRows(diff.changes, report.subject.kind === "header" && family ? headerFieldSpecs(family) : [])}
-          more={moreText(diff.more, "Felder")}
+          more={moreText(diff.more, "Fields")}
         />
       );
     case "map":
@@ -201,43 +208,44 @@ function Body({ report, against }: { report: EntityDiffReport; against: Against 
     case "messages":
       return (
         <ChangeTable
-          columns={["Nachricht", words.old, words.new]}
+          columns={[t("entityDiff.columns.message"), words.old, words.new]}
           ariaLabel={report.label}
           rows={diff.messages.map((m) => ({
             key: String(m.index),
             field: (
               <span className={styles.message}>
                 {m.index}
-                {m.state === "new" && <Badge kind="info">Neu</Badge>}
-                {m.state === "removed" && <Badge kind="error">Entfernt</Badge>}
+                {m.state === "new" && <Badge kind="info">{t("entityDiff.messageNew")}</Badge>}
+                {m.state === "removed" && <Badge kind="error">{t("entityDiff.messageRemoved")}</Badge>}
               </span>
             ),
             old: spans(m.old, m.state === "new"),
             new: spans(m.new, m.state === "removed"),
           }))}
-          more={moreText(diff.more, "Nachrichten")}
+          more={moreText(diff.more, "Messages")}
         />
       );
     case "lines":
       return <LineDiff diff={diff} />;
     case "binary":
-      return <ChangeTable columns={["Eigenschaft", words.old, words.new]} ariaLabel={report.label} rows={binaryRows(diff.old, diff.new)} />;
+      return <ChangeTable columns={[t("entityDiff.columns.property"), words.old, words.new]} ariaLabel={report.label} rows={binaryRows(diff.old, diff.new)} />;
   }
 }
 
 /** Size and SHA-1 of a binary side; „wie in der Basis-ROM“ where the text project keeps none, missing where the side has none. */
 function blobCell(side: BlobSide, what: "size" | "sha1"): ChangeCell {
   if (side.side === "absent") return null;
-  if (side.side === "base") return "wie in der Basis-ROM";
-  return what === "size" ? `${side.size.toLocaleString("de-DE")} Byte` : side.sha1.slice(0, 8);
+  if (side.side === "base") return t("technik:entityDiff.asInBase");
+  return what === "size" ? t("technik:entityDiff.bytes", { count: side.size }) : side.sha1.slice(0, 8);
 }
 
 const binaryRows = (old: BlobSide, now: BlobSide): ChangeTableRow[] => [
-  { key: "size", field: "Größe", old: blobCell(old, "size"), new: blobCell(now, "size") },
+  { key: "size", field: t("technik:shared.size"), old: blobCell(old, "size"), new: blobCell(now, "size") },
   { key: "sha1", field: "SHA-1", old: blobCell(old, "sha1"), new: blobCell(now, "sha1") },
 ];
 
 function MapDiff({ diff, label, words }: { diff: Extract<Diff, { shape: "map" }>; label: string; words: { old: string; new: string } }) {
+  const { t } = useTranslation("technik");
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const toggle = (name: string) =>
     setFolded((before) => {
@@ -248,46 +256,47 @@ function MapDiff({ diff, label, words }: { diff: Extract<Diff, { shape: "map" }>
   return (
     <>
       <div className={styles.sections}>
-        <Section title="Teile" open={!folded.has("parts")} onToggle={() => toggle("parts")}>
+        <Section title={t("entityDiff.partsTitle")} open={!folded.has("parts")} onToggle={() => toggle("parts")}>
           <ul className={styles.parts} data-map-parts="">
             {diff.parts.map((p) => (
               <li key={p.part} className={styles.part}>
-                <span>{PART_NAMES[p.part] ?? p.part}</span>
-                {p.changed ? <Badge kind="warning">geändert</Badge> : <Badge kind="neutral">gleich</Badge>}
+                <span>{partName(p.part)}</span>
+                {p.changed ? <Badge kind="warning">{t("entityDiff.partChanged")}</Badge> : <Badge kind="neutral">{t("entityDiff.partSame")}</Badge>}
               </li>
             ))}
           </ul>
         </Section>
         {diff.cells.length > 0 && (
-          <Section title="Zellen der Bewegungsrechte" count={diff.cells.length} open={!folded.has("cells")} onToggle={() => toggle("cells")}>
+          <Section title={t("entityDiff.cellsTitle")} count={diff.cells.length} open={!folded.has("cells")} onToggle={() => toggle("cells")}>
             <ChangeTable
-              columns={["Zelle", words.old, words.new]}
-              ariaLabel={`${label}: Zellen der Bewegungsrechte`}
+              columns={[t("entityDiff.columns.cell"), words.old, words.new]}
+              ariaLabel={t("entityDiff.cellsAriaLabel", { label })}
               // A side without such a cell (the map grew or shrank) is missing.
               rows={diff.cells.map((c) => ({ key: `${c.x},${c.y}`, field: `${c.x}, ${c.y}`, old: c.old === "" ? null : c.old, new: c.new === "" ? null : c.new }))}
             />
           </Section>
         )}
         {diff.buildings.length > 0 && (
-          <Section title="Gebäude" count={diff.buildings.length} open={!folded.has("buildings")} onToggle={() => toggle("buildings")}>
-            <ChangeTable columns={["Feld", words.old, words.new]} ariaLabel={`${label}: Gebäude`} rows={fieldRows(diff.buildings)} />
+          <Section title={t("entityDiff.buildingsTitle")} count={diff.buildings.length} open={!folded.has("buildings")} onToggle={() => toggle("buildings")}>
+            <ChangeTable columns={[t("entityDiff.columns.field"), words.old, words.new]} ariaLabel={t("entityDiff.buildingsAriaLabel", { label })} rows={fieldRows(diff.buildings)} />
           </Section>
         )}
       </div>
       {/* The kernel cuts cells and building fields together: one count below both. */}
-      {diff.more > 0 && <p className={styles.more}>{`und ${diff.more} weitere Einträge`}</p>}
+      {diff.more > 0 && <p className={styles.more}>{t("entityDiff.moreEntries", { count: diff.more })}</p>}
     </>
   );
 }
 
 /** The hunks of a line diff: where each starts on both sides, then its lines with „−“, „+“ or a space in front. */
 function LineDiff({ diff }: { diff: Extract<Diff, { shape: "lines" }> }) {
+  const { t } = useTranslation("technik");
   return (
     <div className={styles.hunks}>
       {diff.hunks.map((hunk) => (
         <div key={`${hunk.old_start}:${hunk.new_start}`} className={styles.hunk} data-hunk="">
           <h3 className={styles.hunkTitle}>
-            Zeile {hunk.old_start} → {hunk.new_start}
+            {t("entityDiff.hunkTitle", { old: hunk.old_start, new: hunk.new_start })}
           </h3>
           <code className={styles.lines}>
             {hunk.lines.map(([op, text], i) =>
@@ -308,7 +317,7 @@ function LineDiff({ diff }: { diff: Extract<Diff, { shape: "lines" }> }) {
           </code>
         </div>
       ))}
-      {diff.more > 0 && <p className={styles.note}>{`und ${diff.more} weitere Zeilen`}</p>}
+      {diff.more > 0 && <p className={styles.note}>{t("entityDiff.moreLines", { count: diff.more })}</p>}
     </div>
   );
 }

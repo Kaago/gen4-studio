@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { BuildStep } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
@@ -15,12 +16,6 @@ export type BuildStepsProps = {
   /** The build was started with „Neu bauen (ohne Cache)“: a step without state ran fully for that, not as a first build. */
   fresh?: boolean;
 };
-
-const COLUMNS: readonly TableColumn[] = [
-  { key: "name", label: "Schritt" },
-  { key: "result", label: "Ergebnis" },
-  { key: "time", label: "Dauer", width: 96, align: "end" },
-];
 
 function rowsOf(steps: readonly BuildStep[], depth: Depth, fresh: boolean): TableRow[] {
   return steps.map((step) => {
@@ -47,7 +42,13 @@ function rowsOf(steps: readonly BuildStep[], depth: Depth, fresh: boolean): Tabl
  * section „Übersprungen (N)“ with a row per skipped step. Steps that only watch a folder are not shown.
  */
 export function BuildSteps({ steps, depth, fresh = false }: BuildStepsProps) {
+  const { t } = useTranslation("technik");
   const [open, setOpen] = useState(false);
+  const columns: readonly TableColumn[] = [
+    { key: "name", label: t("buildSteps.columns.step") },
+    { key: "result", label: t("buildSteps.columns.result") },
+    { key: "time", label: t("buildSteps.columns.duration"), width: 96, align: "end" },
+  ];
   const shown = steps.filter((s) => !s.id.startsWith(WATCH_PREFIX));
   const ran = shown.filter((s) => s.status !== "skipped");
   const skipped = shown.filter((s) => s.status === "skipped");
@@ -55,15 +56,15 @@ export function BuildSteps({ steps, depth, fresh = false }: BuildStepsProps) {
     <div className={styles.steps} data-build-steps="">
       {ran.length > 0 ? (
         <div className={styles.table}>
-          <Table columns={COLUMNS} rows={rowsOf(ran, depth, fresh)} ariaLabel="Schritte des letzten Builds" />
+          <Table columns={columns} rows={rowsOf(ran, depth, fresh)} ariaLabel={t("buildSteps.ariaLabel")} />
         </div>
       ) : (
-        <p className={styles.text}>Kein Schritt lief: alles war aktuell.</p>
+        <p className={styles.text}>{t("buildSteps.nothingRan")}</p>
       )}
       {skipped.length > 0 && (
         <div className={styles.table}>
-          <Section title={`Übersprungen (${skipped.length})`} open={open} onToggle={() => setOpen((o) => !o)}>
-            <Table columns={COLUMNS} rows={rowsOf(skipped, depth, fresh)} ariaLabel="Übersprungene Schritte" />
+          <Section title={t("buildSteps.skippedTitle", { count: skipped.length })} open={open} onToggle={() => setOpen((o) => !o)}>
+            <Table columns={columns} rows={rowsOf(skipped, depth, fresh)} ariaLabel={t("buildSteps.skippedAriaLabel")} />
           </Section>
         </div>
       )}

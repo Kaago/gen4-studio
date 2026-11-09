@@ -1,14 +1,16 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, revertTextProject } from "../api";
 import type { RevertReport } from "../api";
 import { templatesNote } from "../git/gitWords";
+import { t } from "../i18n";
 import { Dialog, Notice } from "../ui/primitives";
 import styles from "./AdoptDialog.module.css";
 
 /** The message after taking the text project back: where its files went, then what became of the Git templates. */
 export function revertedText(report: RevertReport): string {
   const note = templatesNote(report);
-  return note === "" ? `Textprojekt zurückgenommen. Sicherung: ${report.backup}` : `Textprojekt zurückgenommen. Sicherung: ${report.backup}.${note}`;
+  return note === "" ? t("textproject:revertDialog.reverted", { backup: report.backup }) : t("textproject:revertDialog.revertedWithNote", { backup: report.backup, note });
 }
 
 export type RevertDialogProps = {
@@ -27,6 +29,7 @@ export type RevertDialogProps = {
  * something is unsaved; the kernel's refusal (something waits for the sync) shows its sentence.
  */
 export function RevertDialog({ unsaved, onClose, onReverted, exclusive = (work) => work() }: RevertDialogProps) {
+  const { t } = useTranslation("textproject");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
@@ -55,17 +58,17 @@ export function RevertDialog({ unsaved, onClose, onReverted, exclusive = (work) 
         if (!open && !busy.current) onClose();
       }}
       dismissible={!running}
-      title="Textprojekt zurücknehmen?"
-      description="Das Studio arbeitet danach wieder direkt mit den DSPRE-Dateien. g4-project.json und data/ wandern nach .g4/backup/; die Spieldateien bleiben, wie sie sind."
+      title={t("revertDialog.title")}
+      description={t("revertDialog.description")}
       data={{ "data-revert-dialog": "" }}
       actions={[
-        { label: "Abbrechen", onClick: onClose, disabled: running },
-        { label: "Zurücknehmen", kind: "primary", onClick: () => void revert(), disabled: unsaved > 0 || running },
+        { label: t("revertDialog.cancel"), onClick: onClose, disabled: running },
+        { label: t("revertDialog.revert"), kind: "primary", onClick: () => void revert(), disabled: unsaved > 0 || running },
       ]}
     >
       {(unsaved > 0 || error !== null) && (
         <div className={styles.content}>
-          {unsaved > 0 && <Notice kind="warning">Erst speichern.</Notice>}
+          {unsaved > 0 && <Notice kind="warning">{t("revertDialog.saveFirst")}</Notice>}
           {error !== null && <Notice kind="error">{error}</Notice>}
         </div>
       )}

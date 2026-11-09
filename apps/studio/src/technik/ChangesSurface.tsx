@@ -1,9 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent, ReactNode, Ref } from "react";
+import { useTranslation } from "react-i18next";
 import type { Against, AssetId, ChangedEntry, DiffSubject, GitStatus, OriginalStatus } from "../api";
 import { RESTORE_LABEL, useDelete } from "../delete/DeleteContext";
-import { NO_GIT_FOR_COMMIT } from "../git/gitWords";
+import { noGitForCommit } from "../git/gitWords";
 import type { GitStatusApi } from "../git/useGitStatus";
+import { t } from "../i18n";
 import { useReset } from "../original/OriginalContext";
 import { RESET_LABEL } from "../original/resetEntry";
 import { Badge, Button, EmptyState, ListRow, Notice, Section, Segmented, Tooltip, useRovingList } from "../ui/primitives";
@@ -15,12 +17,11 @@ import { EntityDiff } from "./EntityDiff";
 import type { ChangesApi } from "./useChanges";
 
 /** The three comparisons of the switch above the list. */
-const AGAINST: readonly SegmentedOption<Against>[] = [
-  { value: "base", label: "Gegen Basis" },
-  { value: "head", label: "Gegen letzten Commit" },
-  { value: "saved", label: "Gegen gespeichert" },
+const againstOptions = (): readonly SegmentedOption<Against>[] => [
+  { value: "base", label: t("technik:changesSurface.against.base") },
+  { value: "head", label: t("technik:changesSurface.against.head") },
+  { value: "saved", label: t("technik:changesSurface.against.saved") },
 ];
-
 
 /** At most this many folders are named in „Noch nicht gebaut“; the others are counted. */
 const UNBUILT_NAMED = 5;
@@ -29,7 +30,7 @@ const UNBUILT_NAMED = 5;
 export function unbuiltText(folders: readonly string[]): string {
   const named = folders.slice(0, UNBUILT_NAMED).join(", ");
   const more = folders.length - UNBUILT_NAMED;
-  return more > 0 ? `${named} und ${more} weitere` : named;
+  return more > 0 ? t("technik:changesSurface.unbuilt", { named, count: more }) : named;
 }
 
 /**
@@ -37,28 +38,28 @@ export function unbuiltText(folders: readonly string[]): string {
  * and the saved state the entities are counted (the status line counts paths).
  */
 export function changesSubtitle(against: Against, changes: ChangesApi | null, status: OriginalStatus | null, git: GitStatus | null, unsaved: readonly ChangedEntry[] | null): string {
-  if (changes === null) return "Kein Projekt geöffnet";
+  if (changes === null) return t("technik:shared.noProject");
   if (against === "head") {
-    if (git === null) return "Wird gelesen …";
-    if (git.repo.kind === "none") return "Kein Git";
-    if (git.head === null) return "Noch kein Commit";
+    if (git === null) return t("technik:shared.reading");
+    if (git.repo.kind === "none") return t("technik:changesSurface.subtitle.noGit");
+    if (git.head === null) return t("technik:changesSurface.subtitle.noCommit");
     const n = git.entries.length;
-    if (n === 0) return "Keine Änderung seit dem Commit";
-    return n === 1 ? "1 Änderung seit dem Commit" : `${n} Änderungen seit dem Commit`;
+    if (n === 0) return t("technik:changesSurface.subtitle.noneSinceCommit");
+    return t("technik:changesSurface.subtitle.sinceCommit", { count: n });
   }
   if (against === "saved") {
-    if (unsaved === null) return "Wird gelesen …";
+    if (unsaved === null) return t("technik:shared.reading");
     const n = unsaved.length;
-    if (n === 0) return "Nichts ungespeichert";
-    return n === 1 ? "1 Eintrag ungespeichert" : `${n} Einträge ungespeichert`;
+    if (n === 0) return t("technik:changesSurface.subtitle.nothingUnsaved");
+    return t("technik:changesSurface.subtitle.unsaved", { count: n });
   }
-  if (status === null) return "Wird gelesen …";
-  if (status.state === "unavailable") return "Basis-ROM fehlt";
-  if (changes.busy) return "Vergleiche …";
-  if (changes.report === null) return changes.error === null ? "Noch nicht verglichen" : "Vergleich fehlgeschlagen";
+  if (status === null) return t("technik:shared.reading");
+  if (status.state === "unavailable") return t("technik:changesSurface.subtitle.baseMissing");
+  if (changes.busy) return t("technik:changesSurface.subtitle.comparing");
+  if (changes.report === null) return changes.error === null ? t("technik:changesSurface.subtitle.notCompared") : t("technik:changesSurface.subtitle.compareFailed");
   const n = changes.report.entries.length;
-  if (n === 0) return "Keine Abweichung";
-  return n === 1 ? "1 Eintrag weicht ab" : `${n} Einträge weichen ab`;
+  if (n === 0) return t("technik:changesSurface.subtitle.noDifference");
+  return t("technik:changesSurface.subtitle.differs", { count: n });
 }
 
 /** The entries grouped, the groups in the order of their first entry (the kernel sorts them). */
@@ -256,9 +257,10 @@ type Shown = { lead?: string; action?: ReactNode; before?: ReactNode; entries: r
 /** The sentence about the last commit: „Gegenüber dem letzten Commit 4c1d2e3 „…“ auf main.“, detached „(losgelöst)“, in a larger repository its folder first. */
 function headLead(git: GitStatus): string {
   const head = git.head!;
-  const where = git.detached || git.branch === null ? " (losgelöst)" : ` auf ${git.branch}`;
-  const repo = git.repo.kind === "enclosing" ? `Repository ${git.repo.workdir}. ` : "";
-  return `${repo}Gegenüber dem letzten Commit ${head.short} „${head.summary}“${where}. Gezählt wird der gespeicherte Stand.`;
+  const lead = git.detached || git.branch === null
+    ? t("technik:changesSurface.headLead.detached", { id: head.short, summary: head.summary })
+    : t("technik:changesSurface.headLead.onBranch", { id: head.short, summary: head.summary, branch: git.branch });
+  return git.repo.kind === "enclosing" ? `${t("technik:changesSurface.headLead.repo", { workdir: git.repo.workdir })} ${lead}` : lead;
 }
 
 /**
@@ -270,6 +272,7 @@ function headLead(git: GitStatus): string {
  */
 export function ChangesSurface(props: ChangesSurfaceProps) {
   const { changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, unsavedError = null, onReloadUnsaved = () => {}, onGitSetup, onCommitAll, goTo, revision } = props;
+  const { t } = useTranslation("technik");
   const { where, fallback, ...keep } = useKeepFocus();
   // The chosen entity (by its subject, the same in every comparison): the app's when it holds it, else this surface's.
   const [own, setOwn] = useState<DiffSubject | null>(null);
@@ -288,7 +291,7 @@ export function ChangesSurface(props: ChangesSurfaceProps) {
   if (changes === null || shown === null) {
     return (
       <Surface {...keep}>
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann zeigt Technik hier, was vom Original abweicht." action={{ label: "Projekt öffnen", onClick: onOpenProject }} />
+        <EmptyState what={t("shared.noProjectWhat")} why={t("changesSurface.noProjectWhy")} action={{ label: t("shared.openProject"), onClick: onOpenProject }} />
       </Surface>
     );
   }
@@ -300,7 +303,7 @@ export function ChangesSurface(props: ChangesSurfaceProps) {
       action={shown.action}
       toggle={
         <div className={styles.toggle} data-against={against}>
-          <Segmented size="s" ariaLabel="Vergleichen mit" options={AGAINST} value={against} onChange={onAgainst} />
+          <Segmented size="s" ariaLabel={t("changesSurface.compareWith")} options={againstOptions()} value={against} onChange={onAgainst} />
         </div>
       }
     >
@@ -322,14 +325,14 @@ export function ChangesSurface(props: ChangesSurfaceProps) {
 
 /** „Gegen Basis“ (4.1b): the compare against the base ROM, its progress, and why it cannot run. */
 function baseShown(changes: ChangesApi, status: OriginalStatus | null): Shown {
-  const empty = "Alles wie in der Basis-ROM.";
-  if (status === null) return { before: <p className={styles.note}>Wird gelesen …</p>, entries: null, empty };
+  const empty = t("technik:changesSurface.base.empty");
+  if (status === null) return { before: <p className={styles.note}>{t("technik:shared.reading")}</p>, entries: null, empty };
   if (status.state === "unavailable") {
     return {
       before: (
         <>
           <Notice kind="warning">{status.reason}</Notice>
-          <p className={styles.text}>Die Basis-ROM ordnest du in Technik › Veröffentlichen zu.</p>
+          <p className={styles.text}>{t("technik:changesSurface.base.assignHint")}</p>
         </>
       ),
       entries: null,
@@ -338,10 +341,10 @@ function baseShown(changes: ChangesApi, status: OriginalStatus | null): Shown {
   }
   const { report, progress, error, busy } = changes;
   return {
-    lead: `Gegenüber der Basis-ROM ${status.label}. Gezählt wird der gespeicherte Stand.`,
+    lead: t("technik:changesSurface.base.lead", { label: status.label }),
     action: (
       <Button kind="secondary" data-compare-again="" aria-disabled={busy || undefined} onClick={() => !busy && void changes.compare()}>
-        Neu vergleichen
+        {t("technik:changesSurface.base.compareAgain")}
       </Button>
     ),
     before: (
@@ -349,14 +352,14 @@ function baseShown(changes: ChangesApi, status: OriginalStatus | null): Shown {
         {busy && (
           <div className={styles.progress}>
             <p role="status" className={styles.text}>
-              {progress === null ? "Vergleiche …" : `Vergleiche ${progress.done} von ${progress.total} Dateien …`}
+              {progress === null ? t("technik:changesSurface.subtitle.comparing") : t("technik:changesSurface.base.progress", { done: progress.done, total: progress.total })}
             </p>
-            {report === null && <p className={styles.note}>Das erste Mal dauert länger; danach geht es schnell.</p>}
+            {report === null && <p className={styles.note}>{t("technik:shared.firstRunNote")}</p>}
           </div>
         )}
         {error !== null && <Notice kind="error">{error}</Notice>}
         {report !== null && report.unbuilt.length > 0 && (
-          <Notice kind="info">Noch nicht gebaut: {unbuiltText(report.unbuilt)}. Nach dem nächsten Build geht der Vergleich schneller.</Notice>
+          <Notice kind="info">{t("technik:changesSurface.base.unbuilt", { folders: unbuiltText(report.unbuilt) })}</Notice>
         )}
       </>
     ),
@@ -370,19 +373,20 @@ function baseShown(changes: ChangesApi, status: OriginalStatus | null): Shown {
  * stays free without a change (the dialog says so); without `git` it waits, focusable, with the reason as its description and tooltip.
  */
 function CommitAllButton({ status, onCommitAll }: { status: GitStatus; onCommitAll: () => void }) {
+  const { t } = useTranslation("technik");
   const noteId = useId();
   const locked = status.cli === null;
   const button = (
     <Button kind="secondary" data-commit-all="" aria-disabled={locked || undefined} aria-describedby={locked ? noteId : undefined} onClick={() => !locked && onCommitAll()}>
-      Stand sichern…
+      {t("changesSurface.head.saveSnapshot")}
     </Button>
   );
   if (!locked) return button;
   return (
     <>
-      <Tooltip content={NO_GIT_FOR_COMMIT}>{button}</Tooltip>
+      <Tooltip content={noGitForCommit()}>{button}</Tooltip>
       <span id={noteId} hidden>
-        {NO_GIT_FOR_COMMIT}
+        {noGitForCommit()}
       </span>
     </>
   );
@@ -393,21 +397,21 @@ function CommitAllButton({ status, onCommitAll }: { status: GitStatus; onCommitA
  * compared. In the project's own repository „Stand sichern…“ (also for the first commit of a repository set up by hand).
  */
 function headShown(git: GitStatusApi | null, onGitSetup: () => void, onCommitAll: () => void): Shown {
-  const empty = "Seit dem letzten Commit nichts geändert.";
+  const empty = t("technik:changesSurface.head.empty");
   const status = git?.status ?? null;
   const failed = git?.error ?? null;
   if (status === null) {
-    return { before: failed === null ? <p className={styles.note}>Wird gelesen …</p> : <Notice kind="error">{failed}</Notice>, entries: null, empty };
+    return { before: failed === null ? <p className={styles.note}>{t("technik:shared.reading")}</p> : <Notice kind="error">{failed}</Notice>, entries: null, empty };
   }
   if (status.repo.kind === "none") {
     return {
       before: (
         <>
-          <Notice kind="info">Dieses Projekt liegt in keinem Git-Repository.</Notice>
-          <p className={styles.text}>Git einrichten legt ein lokales Repository an; nur lokal oder privat, Gen4 Studio lädt nichts hoch.</p>
+          <Notice kind="info">{t("technik:changesSurface.head.noRepo")}</Notice>
+          <p className={styles.text}>{t("technik:changesSurface.head.noRepoHint")}</p>
           <div className={styles.offer} data-git-offer="">
             <Button kind="secondary" onClick={onGitSetup}>
-              Git einrichten…
+              {t("technik:changesSurface.head.setUpGit")}
             </Button>
           </div>
         </>
@@ -420,7 +424,7 @@ function headShown(git: GitStatusApi | null, onGitSetup: () => void, onCommitAll
   if (status.head === null) {
     return {
       action: commit === null ? undefined : <div className={styles.actions}>{commit}</div>,
-      before: <Notice kind="info">Noch kein Commit: es gibt nichts zu vergleichen.</Notice>,
+      before: <Notice kind="info">{t("technik:changesSurface.head.noCommitNote")}</Notice>,
       entries: null,
       empty,
     };
@@ -430,7 +434,7 @@ function headShown(git: GitStatusApi | null, onGitSetup: () => void, onCommitAll
     action: (
       <div className={styles.actions}>
         <Button kind="secondary" data-compare-again="" onClick={() => void git!.refresh()}>
-          Neu vergleichen
+          {t("technik:changesSurface.base.compareAgain")}
         </Button>
         {commit}
       </div>
@@ -443,14 +447,14 @@ function headShown(git: GitStatusApi | null, onGitSetup: () => void, onCommitAll
 
 /** „Gegen gespeichert“: the store's unsaved edits as entities; a failed read names its reason and offers to read again. */
 function savedShown(unsaved: readonly ChangedEntry[] | null, error: string | null, onReload: () => void): Shown {
-  const empty = "Nichts ungespeichert.";
-  const lead = "Was ungespeichert vom gespeicherten Stand abweicht.";
+  const empty = t("technik:changesSurface.saved.empty");
+  const lead = t("technik:changesSurface.saved.lead");
   if (error !== null) {
     return {
       lead,
       action: (
         <Button kind="secondary" data-compare-again="" onClick={onReload}>
-          Neu vergleichen
+          {t("technik:changesSurface.base.compareAgain")}
         </Button>
       ),
       before: <Notice kind="error">{error}</Notice>,
@@ -458,12 +462,13 @@ function savedShown(unsaved: readonly ChangedEntry[] | null, error: string | nul
       empty,
     };
   }
-  if (unsaved === null) return { before: <p className={styles.note}>Wird gelesen …</p>, entries: null, empty };
+  if (unsaved === null) return { before: <p className={styles.note}>{t("technik:shared.reading")}</p>, entries: null, empty };
   return { lead, entries: unsaved, empty };
 }
 
 /** The surface: the title „Änderungen“, below it `lead` and beside it `action`, then the switch of the comparison and what it holds. */
 function Surface({ lead, action, toggle, children, ref, onFocus }: { lead?: string; action?: ReactNode; toggle?: ReactNode; children: ReactNode; ref?: Ref<HTMLElement>; onFocus?: (e: FocusEvent<HTMLElement>) => void }) {
+  const { t } = useTranslation("technik");
   const id = useId();
   return (
     <section ref={ref} onFocus={onFocus} className={styles.surface} data-technik="aenderungen" aria-labelledby={id}>
@@ -471,7 +476,7 @@ function Surface({ lead, action, toggle, children, ref, onFocus }: { lead?: stri
         <div className={styles.headText}>
           {/* tabIndex -1: the last place focus can go when the list is empty and „Neu vergleichen“ is gone. */}
           <h1 id={id} tabIndex={-1} className={styles.title}>
-            Änderungen
+            {t("changesSurface.title")}
           </h1>
           {lead !== undefined && <p className={styles.text}>{lead}</p>}
         </div>
@@ -516,6 +521,7 @@ function ChangeGroups({ entries, dirty, against, status, where, selected, onSele
 }
 
 function GroupList({ group, entries, dirty, against, status, where, selected, onSelect }: Omit<GroupsProps, "entries"> & { group: string; entries: readonly ChangedEntry[] }) {
+  const { t } = useTranslation("technik");
   const { open } = useReset();
   const { restore } = useDelete();
   const list = useRef<HTMLDivElement>(null);
@@ -550,7 +556,7 @@ function GroupList({ group, entries, dirty, against, status, where, selected, on
             label={entry.label}
             // The list cuts a long path short: hovering the row reads it in full.
             title={entry.label}
-            ariaLabel={[entry.label, badge.text, ...(unsaved ? ["Ungespeichert"] : [])].join(", ")}
+            ariaLabel={[entry.label, badge.text, ...(unsaved ? [t("diffWords.state.unsaved")] : [])].join(", ")}
             selected={selected === key}
             onSelect={() => onSelect(key)}
             dataAttrs={{ "data-change": entry.label }}

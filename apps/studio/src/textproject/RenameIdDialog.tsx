@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, planRenameId, renameId } from "../api";
 import type { RenamePlan, RenameResult } from "../api";
 import { t } from "../i18n";
@@ -14,7 +15,7 @@ const SHOWN_FILES = 8;
 
 /** The message after a rename. */
 export function renamedText(plan: RenamePlan): string {
-  return `ID umbenannt: ${plan.old_id} → ${plan.new_id}. ⌘Z nimmt es zurück.`;
+  return t("textproject:renameIdDialog.renamed", { old: plan.old_id, new: plan.new_id });
 }
 
 const filesText = (n: number) => t("textproject:renameIdDialog.filesCount", { count: n });
@@ -33,6 +34,7 @@ export type RenameIdDialogProps = {
  * (or why the new id is refused, which locks „Umbenennen“). „Umbenennen“ renames as one undo step.
  */
 export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) {
+  const { t } = useTranslation("textproject");
   const [typed, setTyped] = useState(id);
   const [plan, setPlan] = useState<RenamePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -104,26 +106,26 @@ export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) 
         if (!open && !busy.current) onClose();
       }}
       dismissible={!running}
-      title="ID umbenennen"
+      title={t("renameIdDialog.title")}
       data={{ "data-rename-id-dialog": "" }}
       actions={[
-        { label: "Abbrechen", onClick: onClose, disabled: running },
-        { label: "Umbenennen", kind: "primary", onClick: () => void rename(), disabled: !ready },
+        { label: t("renameIdDialog.cancel"), onClick: onClose, disabled: running },
+        { label: t("renameIdDialog.rename"), kind: "primary", onClick: () => void rename(), disabled: !ready },
       ]}
     >
       <div className={styles.content}>
         <div onKeyDown={onEnter}>
-          <TextField label="Neue ID" showLabel value={typed} onCommit={setTyped} onChange={setTyped} disabled={running} />
+          <TextField label={t("renameIdDialog.newId")} showLabel value={typed} onCommit={setTyped} onChange={setTyped} disabled={running} />
         </div>
         {asking && !running && (
           <p role="status" className={styles.wait}>
-            Verweise werden gesucht …
+            {t("renameIdDialog.searching")}
           </p>
         )}
         {current?.refusal != null && <Notice kind="error">{current.refusal}</Notice>}
         {current !== null && current.refusal === null && (
           <Notice kind="info">
-            <p className={styles.sentence}>{`${refsText(current.total)} in ${filesText(current.files.length)} werden nachgezogen.`}</p>
+            <p className={styles.sentence}>{t("renameIdDialog.sentence", { refs: refsText(current.total), files: filesText(current.files.length) })}</p>
             {current.files.length > 0 && (
               <ul className={styles.files}>
                 {current.files.slice(0, SHOWN_FILES).map((f) => (
@@ -131,14 +133,14 @@ export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) 
                     {f.path}
                   </li>
                 ))}
-                {more > 0 && <li className={styles.more}>{t("textproject:renameIdDialog.moreCount", { count: more })}</li>}
+                {more > 0 && <li className={styles.more}>{t("renameIdDialog.moreCount", { count: more })}</li>}
               </ul>
             )}
           </Notice>
         )}
         {running && (
           <p role="status" className={styles.wait}>
-            Wird umbenannt …
+            {t("renameIdDialog.renaming")}
           </p>
         )}
         {error !== null && <Notice kind="error">{error}</Notice>}

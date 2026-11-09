@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, migrateTextProject } from "../api";
 import type { MigrateReport } from "../api";
+import { t } from "../i18n";
 import { Dialog, Notice } from "../ui/primitives";
 
 /** The schema version of the text project this build of Gen4 Studio writes (`textproject::SCHEMA_VERSION`). */
@@ -8,7 +10,7 @@ export const TEXT_PROJECT_SCHEMA = 2;
 
 /** The message after lifting: from which version to which. */
 export function liftedText(report: MigrateReport): string {
-  return `Textprojekt angehoben: Schema-Version ${report.from} → ${report.to}.`;
+  return t("textproject:migrateDialog.lifted", { from: report.from, to: report.to });
 }
 
 export type MigrateDialogProps = {
@@ -27,6 +29,7 @@ export type MigrateDialogProps = {
  * project. A failure stays in the dialog with its sentence.
  */
 export function MigrateDialog({ schema, onCancel, onLifted, exclusive = (work) => work() }: MigrateDialogProps) {
+  const { t } = useTranslation("textproject");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
@@ -53,12 +56,12 @@ export function MigrateDialog({ schema, onCancel, onLifted, exclusive = (work) =
         if (!open && !busy.current) onCancel();
       }}
       dismissible={!running}
-      title="Textprojekt anheben?"
-      description={`Dieses Textprojekt hat Schema-Version ${schema}; diese Fassung von Gen4 Studio schreibt Version ${TEXT_PROJECT_SCHEMA}. Anheben sichert die geänderten Dateien vorher in .g4/backup/.`}
+      title={t("migrateDialog.title")}
+      description={t("migrateDialog.description", { schema, current: TEXT_PROJECT_SCHEMA })}
       data={{ "data-migrate-dialog": "" }}
       actions={[
-        { label: "Abbrechen", onClick: onCancel, disabled: running },
-        { label: "Anheben", kind: "primary", onClick: () => void lift(), disabled: running },
+        { label: t("migrateDialog.cancel"), onClick: onCancel, disabled: running },
+        { label: t("migrateDialog.lift"), kind: "primary", onClick: () => void lift(), disabled: running },
       ]}
     >
       {error !== null && <Notice kind="error">{error}</Notice>}

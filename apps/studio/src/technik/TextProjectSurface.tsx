@@ -1,15 +1,17 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { conflictDiff, errorText, resolveExternalConflict } from "../api";
 import type { AssetId, BrokenEntry, ConflictDiff, ConflictEntry, DeleteTarget, Keep, SyncOutcome, TextProjectStatus } from "../api";
 import type { ExternalSyncApi } from "../app/useExternalSync";
 import { useDelete } from "../delete/DeleteContext";
+import { t } from "../i18n";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { ago, useNow } from "../ui/frame/timeAgo";
 import { Badge, Button, EmptyState, Notice, NumberField, Section, SelectField, Table } from "../ui/primitives";
 import type { SelectOption, TableColumn } from "../ui/primitives";
-import { FIRST_SYNC_NOTE, brokenCountText, conflictCountText, moreText, problemLine, syncProgressText } from "./syncWords";
+import { brokenCountText, conflictCountText, firstSyncNote, moreText, problemLine, syncProgressText } from "./syncWords";
 import styles from "./TextProjectSurface.module.css";
 
 /** What Technik › Textprojekt shows and does for the open project (held by the app). */
@@ -33,31 +35,35 @@ export type TextProjectView = {
   agentSetUp?: boolean;
 };
 
-/** What the surface says while an agent sets the folder up. */
-export const AGENT_SETTING_UP = "Wird von einem Agenten eingerichtet …";
+/** What the surface says while an agent sets the folder up, in the language that is shown. */
+export const agentSettingUpText = () => t("technik:textProjectSurface.agentSettingUp");
 
-const SETUP_LEAD = "Das Projekt liegt im DSPRE-Layout. Als Textprojekt bekommt jeder Eintrag eine lesbare Datei unter data/, bereit für Git; DSPRE öffnet den Ordner weiter.";
+/**
+ * @deprecated German only, kept while `app/useTextProjectDialogs.ts` imports the name `AGENT_SETTING_UP` from here: a constant cannot follow
+ * the language. It moves to `agentSettingUpText()`, then this goes.
+ */
+export const AGENT_SETTING_UP = "Wird von einem Agenten eingerichtet …";
 
 /** The line under „Textprojekt“ in the list of Technik; `text` null: no project. */
 export function textProjectSubtitle(text: TextProjectView | null): string {
-  if (text === null) return "Kein Projekt geöffnet";
+  if (text === null) return t("technik:shared.noProject");
   const { status, sync } = text;
-  if (status === null) return "Wird gelesen …";
+  if (status === null) return t("technik:shared.reading");
   switch (status.state) {
     case "dspre":
-      return text.agentSetUp ? "Wird eingerichtet …" : "DSPRE-Layout";
+      return text.agentSetUp ? t("technik:textProjectSurface.subtitle.settingUp") : t("technik:textProjectSurface.subtitle.dspre");
     case "older":
-      return "Schema veraltet";
+      return t("technik:textProjectSurface.subtitle.older");
     case "newer":
     case "broken":
-      return "Nicht lesbar";
+      return t("technik:shared.notReadable");
     case "current": {
-      if (sync.running) return "Gleicht ab …";
+      if (sync.running) return t("technik:textProjectSurface.subtitle.syncing");
       // Conflicts first, then broken files: either is open work, never „Abgeglichen“.
       const conflicts = sync.last?.conflicts.length ?? 0;
       const broken = sync.last?.broken.length ?? 0;
       if (conflicts > 0) return conflictCountText(conflicts);
-      return broken > 0 ? brokenCountText(broken) : "Abgeglichen";
+      return broken > 0 ? brokenCountText(broken) : t("technik:textProjectSurface.subtitle.synced");
     }
   }
 }
@@ -93,11 +99,12 @@ export type TextProjectSurfaceProps = {
  * entities no head deletes (matrices, event files, area data, script files, text archives) and for maps.
  */
 export function TextProjectSurface({ text, onOpenProject, depth = "bauen" }: TextProjectSurfaceProps) {
+  const { t } = useTranslation("technik");
   const tinker = depthAtLeast(depth, "tuefteln");
   if (text === null) {
     return (
       <Surface>
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann zeigt Technik hier sein Textprojekt." action={{ label: "Projekt öffnen", onClick: onOpenProject }} />
+        <EmptyState what={t("shared.noProjectWhat")} why={t("textProjectSurface.noProjectWhy")} action={{ label: t("shared.openProject"), onClick: onOpenProject }} />
       </Surface>
     );
   }
@@ -105,7 +112,7 @@ export function TextProjectSurface({ text, onOpenProject, depth = "bauen" }: Tex
   if (status === null) {
     return (
       <Surface>
-        <p className={styles.note}>Wird gelesen …</p>
+        <p className={styles.note}>{t("shared.reading")}</p>
       </Surface>
     );
   }
@@ -116,14 +123,14 @@ export function TextProjectSurface({ text, onOpenProject, depth = "bauen" }: Tex
       return <Current text={text} schema={status.schema} lastSyncAt={status.last_sync_at} tinker={tinker} />;
     case "older":
       return (
-        <Surface lead={`Textprojekt, Schema-Version ${status.schema}: älter als diese Fassung von Gen4 Studio. Bis es angehoben ist, lässt es sich nur lesen.`}>
+        <Surface lead={t("textProjectSurface.olderLead", { schema: status.schema })}>
           {null}
         </Surface>
       );
     case "newer":
       return (
         <Surface>
-          <Notice kind="error">Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version {status.schema}).</Notice>
+          <Notice kind="error">{t("textProjectSurface.newer", { schema: status.schema })}</Notice>
         </Surface>
       );
     case "broken":
@@ -137,6 +144,7 @@ export function TextProjectSurface({ text, onOpenProject, depth = "bauen" }: Tex
 
 /** The surface: the title „Textprojekt“, below it `lead` and beside it `actions`, then what it holds. */
 function Surface({ lead, actions, children }: { lead?: string; actions?: ReactNode; children?: ReactNode }) {
+  const { t } = useTranslation("technik");
   const id = useId();
   const surface = useRef<HTMLElement>(null);
   const [, ask] = useState(0);
@@ -159,7 +167,7 @@ function Surface({ lead, actions, children }: { lead?: string; actions?: ReactNo
         <div className={styles.headText}>
           {/* tabIndex -1: where focus goes when the group a message leads to is not there. */}
           <h1 id={id} tabIndex={-1} className={styles.title}>
-            Textprojekt
+            {t("textProjectSurface.title")}
           </h1>
           {lead !== undefined && <p className={styles.text}>{lead}</p>}
         </div>
@@ -189,14 +197,15 @@ function SetUp({
   onSetUp?: () => void;
   tinker: boolean;
 }) {
+  const { t } = useTranslation("technik");
   const reasonId = useId();
   const locked = !adoptable || busy || agentSetUp || onSetUp === undefined;
   const why = agentSetUp || adoptable ? null : reason;
   return (
-    <Surface lead={SETUP_LEAD}>
+    <Surface lead={t("textProjectSurface.setUpLead")}>
       <div className={styles.actions}>
         <Button kind="primary" aria-disabled={locked || undefined} aria-describedby={why !== null ? reasonId : undefined} onClick={() => !locked && onSetUp?.()}>
-          Als Textprojekt einrichten…
+          {t("textProjectSurface.setUp")}
         </Button>
         {why !== null && (
           <p id={reasonId} className={styles.note}>
@@ -205,7 +214,7 @@ function SetUp({
         )}
         {agentSetUp && (
           <p role="status" className={styles.note}>
-            {AGENT_SETTING_UP}
+            {agentSettingUpText()}
           </p>
         )}
       </div>
@@ -221,12 +230,13 @@ function SetUp({
 
 /** A text project of the current schema: its state, the sync under way, and what the last sync found. */
 function Current({ text, schema, lastSyncAt, tinker }: { text: TextProjectView; schema: number; lastSyncAt: number | null; tinker: boolean }) {
+  const { t } = useTranslation("technik");
   const now = useNow();
   const { sync } = text;
   const locked = sync.running || text.busy;
   // An agent's set-up still reported (the end follows its reopen): nothing is taken back meanwhile.
   const revertLocked = text.onRevert === undefined || text.busy || text.agentSetUp === true;
-  const synced = lastSyncAt === null ? "Noch nicht abgeglichen." : `Zuletzt abgeglichen ${ago(lastSyncAt, now)}.`;
+  const synced = lastSyncAt === null ? t("textProjectSurface.notSynced") : t("textProjectSurface.lastSynced", { ago: ago(lastSyncAt, now) });
   const conflicts = sync.last?.conflicts ?? [];
   const broken = sync.last?.broken ?? [];
   const groups = useRef<HTMLDivElement>(null);
@@ -255,14 +265,14 @@ function Current({ text, schema, lastSyncAt, tinker }: { text: TextProjectView; 
   };
   return (
     <Surface
-      lead={`Textprojekt, Schema-Version ${schema}. ${synced}`}
+      lead={t("textProjectSurface.currentLead", { schema, synced })}
       actions={
         <>
           <Button kind="secondary" aria-disabled={locked || undefined} onClick={() => !locked && void sync.run()}>
-            Jetzt abgleichen
+            {t("textProjectSurface.syncNow")}
           </Button>
           <Button kind="secondary" aria-disabled={revertLocked || undefined} onClick={() => !revertLocked && text.onRevert?.()}>
-            Zurücknehmen…
+            {t("textProjectSurface.revert")}
           </Button>
         </>
       }
@@ -270,9 +280,9 @@ function Current({ text, schema, lastSyncAt, tinker }: { text: TextProjectView; 
       {sync.running && (
         <div className={styles.progress}>
           <p role="status" className={styles.text}>
-            {sync.progress === null ? "Gleicht ab …" : syncProgressText(sync.progress)}
+            {sync.progress === null ? t("textProjectSurface.subtitle.syncing") : syncProgressText(sync.progress)}
           </p>
-          {lastSyncAt === null && <p className={styles.note}>{FIRST_SYNC_NOTE}</p>}
+          {lastSyncAt === null && <p className={styles.note}>{firstSyncNote()}</p>}
         </div>
       )}
       {sync.error !== null && <Notice kind="error">{sync.error}</Notice>}
@@ -310,8 +320,9 @@ function Conflicts({
   onChosen: (key: string) => void;
   onResolved: (assets: AssetId[]) => void;
 }) {
+  const { t } = useTranslation("technik");
   return (
-    <Group title="Auf zwei Seiten geändert" count={conflicts.length} data="data-sync-conflicts">
+    <Group title={t("textProjectSurface.conflictsTitle")} count={conflicts.length} data="data-sync-conflicts">
       <ul className={styles.rows}>
         {conflicts.map((c) => (
           <ConflictRow
@@ -334,6 +345,7 @@ function Conflicts({
  * and the choice, with a warning above it when taking the other side drops unsaved changes.
  */
 function ConflictRow({ conflict, busy, onResolved }: { conflict: ConflictEntry; busy: boolean; onResolved: (assets: AssetId[]) => void }) {
+  const { t } = useTranslation("technik");
   const [open, setOpen] = useState(false);
   const bodyId = useId();
   return (
@@ -342,7 +354,7 @@ function ConflictRow({ conflict, busy, onResolved }: { conflict: ConflictEntry; 
         <Button kind="quiet" size="s" icon={open ? "caretDown" : "caretRight"} aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={() => setOpen(!open)}>
           {conflict.label}
         </Button>
-        {conflict.unsaved ? <Badge kind="unsaved" /> : <Badge kind="warning">Konflikt</Badge>}
+        {conflict.unsaved ? <Badge kind="unsaved" /> : <Badge kind="warning">{t("textProjectSurface.conflict")}</Badge>}
       </div>
       {open && (
         <div id={bodyId} className={styles.rowBody}>
@@ -360,6 +372,7 @@ type DiffState = { diff: ConflictDiff | null; error: string | null };
  * „Neu backen“ (`studio`) and „Als binäre Karte übernehmen“ (`dspre`).
  */
 function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry; busy: boolean; onResolved: (assets: AssetId[]) => void }) {
+  const { t } = useTranslation("technik");
   const { key, label, unsaved, other, world } = conflict;
   const [read, setRead] = useState<DiffState>({ diff: null, error: null });
   const [resolving, setResolving] = useState(false);
@@ -375,14 +388,14 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
     };
   }, [key]);
   // A world map's member is the bake's output: the Studio's side bakes anew, the other side takes the member as a binary map.
-  const keep = world ? "Neu backen" : "Studio-Fassung behalten";
-  const take = world ? "Als binäre Karte übernehmen" : other === "files" ? "Geänderte Datei übernehmen" : "DSPRE-Fassung übernehmen";
+  const keep = world ? t("textProjectSurface.keep.world") : t("textProjectSurface.keep.studio");
+  const take = world ? t("textProjectSurface.take.world") : other === "files" ? t("textProjectSurface.take.files") : t("textProjectSurface.take.dspre");
   const { diff, error } = read;
   // The Studio's side of a unit held unsaved is its unsaved value (what the editor shows): the column says so.
   const columns: TableColumn[] = [
-    { key: "path", label: "Feld" },
-    { key: "studio", label: diff?.unsaved ? "Studio (ungespeichert)" : "Studio" },
-    { key: "other", label: other === "files" ? "Datei" : "DSPRE" },
+    { key: "path", label: t("textProjectSurface.columns.field") },
+    { key: "studio", label: diff?.unsaved ? t("textProjectSurface.columns.studioUnsaved") : t("textProjectSurface.columns.studio") },
+    { key: "other", label: other === "files" ? t("textProjectSurface.columns.file") : t("textProjectSurface.columns.dspre") },
   ];
   const locked = resolving || busy;
   const choose = async (keep: Keep) => {
@@ -399,12 +412,12 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
   };
   return (
     <>
-      {world && <p className={styles.note}>Diese Welt-Karte wurde außerhalb des Studios geändert.</p>}
-      {diff === null && error === null && <p className={styles.note}>Lese die Abweichungen …</p>}
+      {world && <p className={styles.note}>{t("textProjectSurface.worldChanged")}</p>}
+      {diff === null && error === null && <p className={styles.note}>{t("textProjectSurface.readingDifferences")}</p>}
       {error !== null && <Notice kind="error">{error}</Notice>}
       {diff !== null && (
         <Table
-          ariaLabel={`Abweichungen: ${label}`}
+          ariaLabel={t("textProjectSurface.differencesAriaLabel", { label })}
           columns={columns}
           rows={diff.lines.map((line, i) => ({
             key: String(i),
@@ -413,7 +426,7 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
           footer={diff.more > 0 ? <span className={styles.note}>{moreText(diff.more)}</span> : undefined}
         />
       )}
-      {unsaved && <Notice kind="warning">„{take}“ verwirft die ungespeicherten Änderungen an diesem Eintrag.</Notice>}
+      {unsaved && <Notice kind="warning">{t("textProjectSurface.discards", { take })}</Notice>}
       <div className={styles.actions}>
         <Button kind="secondary" size="s" aria-disabled={locked || undefined} onClick={() => void choose("studio")}>
           {keep}
@@ -429,8 +442,9 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
 
 /** „Fehlerhafte Dateien“: a row per unit whose source does not read, each problem with its file, line and column. */
 function Broken({ entries }: { entries: readonly BrokenEntry[] }) {
+  const { t } = useTranslation("technik");
   return (
-    <Group title="Fehlerhafte Dateien" count={entries.length} data="data-sync-broken">
+    <Group title={t("textProjectSurface.brokenTitle")} count={entries.length} data="data-sync-broken">
       <ul className={styles.rows}>
         {entries.map((entry) => (
           <li key={entry.key} className={styles.row} data-broken={entry.key}>
@@ -451,17 +465,18 @@ function Broken({ entries }: { entries: readonly BrokenEntry[] }) {
 
 /** „Zuletzt übernommen“: what the last takeover brought in, by side. */
 function Taken({ taken }: { taken: SyncOutcome | null }) {
-  const entries = taken === null ? [] : [...taken.adopted.map((e) => ({ entry: e, from: "aus DSPRE" })), ...taken.applied.map((e) => ({ entry: e, from: "aus Datei" }))];
+  const { t } = useTranslation("technik");
+  const entries = taken === null ? [] : [...taken.adopted.map((e) => ({ entry: e, from: "dspre" as const })), ...taken.applied.map((e) => ({ entry: e, from: "file" as const }))];
   return (
-    <Group title="Zuletzt übernommen" count={entries.length > 0 ? entries.length : undefined} data="data-sync-taken">
+    <Group title={t("textProjectSurface.takenTitle")} count={entries.length > 0 ? entries.length : undefined} data="data-sync-taken">
       {entries.length === 0 ? (
-        <p className={`${styles.text} ${styles.inset}`}>Nichts von außen geändert.</p>
+        <p className={`${styles.text} ${styles.inset}`}>{t("textProjectSurface.takenNone")}</p>
       ) : (
         <ul className={styles.rows}>
           {entries.map(({ entry, from }) => (
             <li key={`${from}\u0000${entry.key}`} className={`${styles.row} ${styles.rowHead}`} data-taken={entry.key}>
               <span className={styles.label}>{entry.label}</span>
-              <Badge kind="neutral">{from}</Badge>
+              <Badge kind="neutral">{t(`textProjectSurface.takenFrom.${from}`)}</Badge>
             </li>
           ))}
         </ul>
@@ -476,30 +491,25 @@ function Taken({ taken }: { taken: SyncOutcome | null }) {
  */
 type TinkerDeleteKind = "matrix" | "map" | "event_file" | "area_data" | "script" | "text_archive";
 
-const DELETE_KINDS: readonly SelectOption<TinkerDeleteKind>[] = [
-  { value: "matrix", label: "Matrix" },
-  { value: "map", label: "Karte" },
-  { value: "event_file", label: "Eventdatei" },
-  { value: "area_data", label: "Gebietsdaten" },
-  { value: "script", label: "Scriptdatei" },
-  { value: "text_archive", label: "Textarchiv" },
-];
+const DELETE_KINDS: readonly TinkerDeleteKind[] = ["matrix", "map", "event_file", "area_data", "script", "text_archive"];
 
 /** The entity of `kind` with the number `n` (a script file names its file). */
 const deleteTarget = (kind: TinkerDeleteKind, n: number): DeleteTarget => (kind === "script" ? { kind, file: n } : { kind, index: n });
 
 /** „Löschen“ (Tüfteln): a kind and a number, and „Löschen…“ opens the dialog for that entity (the dialog says what is possible). */
 function DeleteSection() {
+  const { t } = useTranslation("technik");
   const remove = useDelete();
   const [kind, setKind] = useState<TinkerDeleteKind>("matrix");
   const [number, setNumber] = useState<number | null>(null);
+  const kinds: readonly SelectOption<TinkerDeleteKind>[] = DELETE_KINDS.map((value) => ({ value, label: t(`textProjectSurface.deleteKind.${value}`) }));
   return (
-    <Group title="Löschen" data="data-delete-section">
+    <Group title={t("textProjectSurface.deleteTitle")} data="data-delete-section">
       <div className={`${styles.actions} ${styles.deleteRow} ${styles.inset}`}>
-        <SelectField label="Art" showLabel value={kind} options={DELETE_KINDS} onChange={setKind} />
-        <NumberField label="Nummer" showLabel value={number} onCommit={setNumber} min={0} bits={16} />
+        <SelectField label={t("textProjectSurface.deleteKindLabel")} showLabel value={kind} options={kinds} onChange={setKind} />
+        <NumberField label={t("textProjectSurface.deleteNumber")} showLabel value={number} onCommit={setNumber} min={0} bits={16} />
         <Button kind="secondary" aria-disabled={number === null || undefined} onClick={() => number !== null && remove.open(deleteTarget(kind, number))}>
-          Löschen…
+          {t("textProjectSurface.deleteButton")}
         </Button>
       </div>
     </Group>

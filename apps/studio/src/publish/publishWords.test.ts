@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { found, missing } from "../technik/baseTesting";
-import { BAD_FILE, BAD_VERSION, NO_ROM_CONTENT, PHASE_TEXT, VERSION_TAKEN, commitSubjectNow, dateText, fileNameFor, fileProblem, filesLine, publishLocked, publishedSubject, versionProblem, withXdelta } from "./publishWords";
+import { badFile, badVersion, commitSubjectNow, dateText, fileNameFor, fileProblem, filesLine, noRomContent, phaseText, publishLocked, publishedSubject, versionProblem, versionTaken, withXdelta } from "./publishWords";
 
 describe("publishWords", () => {
   it("file_name_follows_stem_and_version", () => {
@@ -13,22 +13,22 @@ describe("publishWords", () => {
   });
 
   it("version_and_file_problems_match_the_kernel_sentences", () => {
-    // The kernel's sentences, word for word (`patch::release::{BAD_VERSION, VERSION_TAKEN}`, `patch::publish::BAD_FILE`).
-    expect(BAD_VERSION).toBe('Die Version darf nicht leer sein, höchstens 32 Zeichen haben und weder Leerzeichen noch / \\ : * ? " < > | enthalten.');
-    expect(VERSION_TAKEN).toBe("Diese Version gibt es schon.");
-    expect(BAD_FILE).toBe('Der Dateiname darf nicht leer sein und weder / \\ : * ? " < > | noch Steuerzeichen enthalten.');
+    // The kernel's sentences, word for word (`patch::release::{badVersion(), versionTaken()}`, `patch::publish::badFile()`).
+    expect(badVersion()).toBe('Die Version darf nicht leer sein, höchstens 32 Zeichen haben und weder Leerzeichen noch / \\ : * ? " < > | enthalten.');
+    expect(versionTaken()).toBe("Diese Version gibt es schon.");
+    expect(badFile()).toBe('Der Dateiname darf nicht leer sein und weder / \\ : * ? " < > | noch Steuerzeichen enthalten.');
 
     for (const ok of ["0.1.0", "1.0-beta", "v2", "x".repeat(32), "1.0.0+ä"]) expect(versionProblem(ok, [])).toBeNull();
-    for (const bad of ["", "1 0", "1.0\t", "1/0", "1\\0", "a:b", "a*", "a?", 'a"', "a<", "a>", "a|", "a\u0007", "x".repeat(33)]) expect(versionProblem(bad, []), bad).toBe(BAD_VERSION);
+    for (const bad of ["", "1 0", "1.0\t", "1/0", "1\\0", "a:b", "a*", "a?", 'a"', "a<", "a>", "a|", "a\u0007", "x".repeat(33)]) expect(versionProblem(bad, []), bad).toBe(badVersion());
     // 32 characters, not bytes.
     expect(versionProblem("ä".repeat(32), [])).toBeNull();
     // Taken comes after the characters, as in `check_version`.
-    expect(versionProblem("0.1.0", ["0.1.0"])).toBe(VERSION_TAKEN);
-    expect(versionProblem("0 1", ["0 1"])).toBe(BAD_VERSION);
+    expect(versionProblem("0.1.0", ["0.1.0"])).toBe(versionTaken());
+    expect(versionProblem("0 1", ["0 1"])).toBe(badVersion());
 
     for (const ok of ["Hack-v0.1.0.xdelta", "Hack", "Mein Hack v1", ".hidden"]) expect(fileProblem(ok), ok).toBeNull();
     // Empty, only spaces and dots (also before the suffix), or a character a file name cannot have; spaces are fine in a file name.
-    for (const bad of ["", " ", "..", ".xdelta", " . .xdelta", "a/b", "a\\b", "a:b", "a*", "a?", 'a"', "a<", "a>", "a|", "a\n"]) expect(fileProblem(bad), JSON.stringify(bad)).toBe(BAD_FILE);
+    for (const bad of ["", " ", "..", ".xdelta", " . .xdelta", "a/b", "a\\b", "a:b", "a*", "a?", 'a"', "a<", "a>", "a|", "a\n"]) expect(fileProblem(bad), JSON.stringify(bad)).toBe(badFile());
   });
 
   it("files_line_counts_and_sums", () => {
@@ -47,8 +47,14 @@ describe("publishWords", () => {
 
   it("names_the_date_the_phases_and_what_is_handed_on", () => {
     expect(dateText("2026-10-31T10:00:00Z")).toBe("31.10.2026");
-    expect(PHASE_TEXT).toEqual({ build: "Speichern und bauen …", encode: "Patch kodieren …", verify: "Selbstprüfung …", write: "Dateien schreiben …", record: "Veröffentlichung eintragen …" });
-    expect(NO_ROM_CONTENT).toBe("Kein ROM-Inhalt, nur der Patch: wer ihn anwendet, braucht dieselbe Basis-ROM.");
+    expect(Object.fromEntries((["build", "encode", "verify", "write", "record"] as const).map((phase) => [phase, phaseText(phase)]))).toEqual({
+      build: "Speichern und bauen …",
+      encode: "Patch kodieren …",
+      verify: "Selbstprüfung …",
+      write: "Dateien schreiben …",
+      record: "Veröffentlichung eintragen …",
+    });
+    expect(noRomContent()).toBe("Kein ROM-Inhalt, nur der Patch: wer ihn anwendet, braucht dieselbe Basis-ROM.");
   });
 
   it("publishing_waits_for_a_found_base_and_a_readable_list", () => {
