@@ -364,7 +364,7 @@ pub fn unsaved_changes_impl(state: &AppState) -> Result<Vec<ChangedEntry>, CmdEr
 
 /// The `restore_needed` refusal for the folder at `root` when it is a text project without
 /// its game files (`restore::needs_restore`, a fresh Git clone): [`RESTORE_NEEDED`], with
-/// „ Basis-ROM: {label}.“ when the base mark reads.
+/// „ Base ROM: {label}.“ („ Basis-ROM: {label}.“ in German) when the base mark reads.
 pub(crate) fn restore_needed(root: &Path) -> Option<CmdError> {
     if !needs_restore(root) {
         return None;

@@ -84,7 +84,7 @@ pub fn create_project_impl(
     let created =
         start::create_project_with_options(Path::new(rom), Path::new(dest), &opts, progress)?;
     if let Err(e) = state.base_roms.register(Path::new(rom), &created.info) {
-        eprintln!("Basis-ROM nicht gemerkt: {e}");
+        eprintln!("The base ROM could not be remembered: {e}");
     }
     Ok(CreatedDto {
         root: created.root.display().to_string(),

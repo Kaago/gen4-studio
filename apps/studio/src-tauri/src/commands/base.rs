@@ -173,7 +173,7 @@ pub fn assign_base_impl(state: &AppState, nds: &str) -> Result<BaseStatusDto, Cm
         })?;
     }
     if let Err(e) = state.base_roms.register(nds, &check.info) {
-        eprintln!("Basis-ROM nicht gemerkt: {e}");
+        eprintln!("The base ROM could not be remembered: {e}");
     }
     Ok(base_of(state, root).dto(&project))
 }

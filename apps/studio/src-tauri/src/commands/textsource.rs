@@ -334,8 +334,8 @@ pub fn adopt_text_project_impl(
         // only logged (the next open reads the manifest).
         (Err(e), Some(Err(reopen))) => {
             eprintln!(
-                "Sitzung nach gescheitertem Einrichten nicht neu geöffnet: {}",
-                reopen.message
+                "The session was not reopened after the failed set-up ({}): {}",
+                reopen.code, reopen.message
             );
             Err(e)
         }

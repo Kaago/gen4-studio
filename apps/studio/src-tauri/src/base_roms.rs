@@ -129,7 +129,7 @@ impl Inner {
         if let Some(dir) = &self.dir
             && let Err(e) = self.settings.save(dir)
         {
-            eprintln!("{BASE_ROMS_FILE} nicht gespeichert: {e}");
+            eprintln!("{BASE_ROMS_FILE} could not be saved: {e}");
         }
     }
 }

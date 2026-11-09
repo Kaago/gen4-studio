@@ -140,7 +140,7 @@ impl Session {
         if !members.is_empty()
             && let Err(e) = after_member_write(&self.project, &members)
         {
-            eprintln!("data/ nach dem Schreiben von Membern nicht nachgezogen: {e}");
+            eprintln!("data/ could not be brought up to date after writing members: {e}");
         }
     }
 

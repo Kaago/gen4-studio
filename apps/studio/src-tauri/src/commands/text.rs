@@ -62,7 +62,7 @@ pub fn get_text_archive_impl(state: &AppState, index: u16) -> Result<TextArchive
 }
 
 /// Applies `edit`; `None` when it left the archive as it was (nothing to undo then). The step
-/// is named `label` ("Dialog geändert" from the dialog editor), else after the edit ("edit
+/// is named `label` („Dialog geändert“ from the dialog editor), else after the edit ("edit
 /// text", "add message", "remove message").
 pub fn edit_text_archive_impl(
     state: &AppState,

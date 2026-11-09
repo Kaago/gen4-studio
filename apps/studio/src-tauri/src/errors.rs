@@ -67,7 +67,7 @@ impl From<KernelError> for CmdError {
                 .iter()
                 .filter(|p| p.severity == Severity::Error)
                 .count();
-            // Without an error there is nothing to show as "N Fehler": a plain error.
+            // Without an error there is nothing to show as "N errors": a plain error.
             if errors == 0 {
                 return CmdError {
                     code: "error",
@@ -411,10 +411,10 @@ mod tests {
         };
         let err = CmdError::from(KernelError::Compile(vec![warning]));
         assert_eq!(err.code, "error");
-        assert!(!err.message.starts_with("0 Fehler"), "{}", err.message);
+        assert!(!err.message.starts_with("0 errors"), "{}", err.message);
         let empty = CmdError::from(KernelError::Compile(Vec::new()));
         assert_eq!(empty.code, "error");
-        assert!(!empty.message.starts_with("0 Fehler"), "{}", empty.message);
+        assert!(!empty.message.starts_with("0 errors"), "{}", empty.message);
     }
 
     #[test]

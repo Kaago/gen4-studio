@@ -527,7 +527,10 @@ mod tests {
         let index = figure_with_flag(&state, 0x173);
         let breakpoint = live_breakpoint_set_impl(&state, figure(index)).unwrap();
         assert_eq!(breakpoint.target, Target::Flag { number: 0x173 });
-        assert_eq!(breakpoint.label, format!("Object {index} · Event file 0"));
+        assert_eq!(
+            breakpoint.label,
+            format!("Character {index} · Event file 0")
+        );
         assert_eq!(
             live_breakpoints_impl(&state).unwrap(),
             std::slice::from_ref(&breakpoint)
@@ -566,7 +569,7 @@ mod tests {
         let (_fixture, state) = open_cpud();
         let flagless = figure_with_flag(&state, 0);
         let err = live_breakpoint_set_impl(&state, figure(flagless)).unwrap_err();
-        assert_eq!(err.message, "The object has no visibility flag");
+        assert_eq!(err.message, "The character has no visibility flag");
         let coord = add_event_impl(&state, 0, EventKind::Coord, 4, 5, None, None).unwrap();
         let trigger = EventRef {
             event_file: 0,
@@ -581,7 +584,7 @@ mod tests {
             index: 0,
         };
         let err = live_breakpoint_set_impl(&state, door).unwrap_err();
-        assert_eq!(err.message, "Breakpoints exist on objects and triggers");
+        assert_eq!(err.message, "Breakpoints exist on characters and triggers");
         // A trigger with a variable gets one, labelled as a trigger.
         let patch = EventPatch {
             var: Some(0x40A5),

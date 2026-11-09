@@ -275,7 +275,7 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
                 }
                 script_place(index, field, slot, None)
             }
-            // A cell of a matrix: its map or its header layer („Grid 0003, Cell 1, 0 · Map“;
+            // A cell of a matrix: its map or its header layer („Matrix 0003, Cell 1, 0 · Map“;
             // „Matrix 0003, Zelle 1, 0 · Karte“ in German).
             AssetKind::Matrix => {
                 let cell = slot.unwrap_or(0);
@@ -381,8 +381,8 @@ mod tests {
             .find(|r| r.source.kind == AssetKind::Matrix)
             .unwrap();
         let dto = ref_dtos(session, std::slice::from_ref(matrix)).remove(0);
-        assert_eq!(dto.label, "Grid 0000, Cell 1, 0 · Map");
-        assert_eq!(dto.source_name, "Grid 0000");
+        assert_eq!(dto.label, "Matrix 0000, Cell 1, 0 · Map");
+        assert_eq!(dto.source_name, "Matrix 0000");
         assert_eq!(
             dto.nav,
             NavTargetDto::MatrixCell {

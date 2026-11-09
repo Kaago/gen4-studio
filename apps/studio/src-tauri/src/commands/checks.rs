@@ -485,7 +485,7 @@ fn full(report: Option<&ChecksReport>) -> Option<&ChecksReport> {
     report.filter(|r| Group::ALL.iter().all(|g| r.groups.contains(g)))
 }
 
-/// "Ausgangslage übernehmen": ignores every warning and info of a full report of the current
+/// „Ausgangslage übernehmen“: ignores every warning and info of a full report of the current
 /// state (run first when there is none) and writes the ignore file.
 pub fn accept_baseline_impl(state: &AppState) -> Result<ChecksReportDto, CmdError> {
     // Before the pass it may run: a file that cannot be written refuses at once.
@@ -943,7 +943,7 @@ mod tests {
             (
                 Subject::Matrix(0),
                 "cell:3,26",
-                "Grid 0000 · Cell x 3, y 26",
+                "Matrix 0000 · Cell x 3, y 26",
             ),
             (Subject::Map(5), "building:0", "Map 0005 · Building 1"),
             (Subject::Map(5), "bdhc", "Map 0005 · Terrain"),
