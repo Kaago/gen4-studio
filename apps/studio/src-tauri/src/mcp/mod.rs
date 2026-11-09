@@ -44,7 +44,7 @@ const EXIT_USAGE: u8 = 2;
 #[command(
     name = "studio mcp",
     about = "Serve the Gen 4 Studio tools over MCP (stdio): without --project through the \
-             running app (\"Lokale Agenten zulassen\"), which decides what the agent may do; \
+             running app (\"Allow local agents\"), which decides what the agent may do; \
              with --project headless for that project, read and edit, irreversible steps \
              only with --allow-irreversible"
 )]
@@ -90,7 +90,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
             let _ = e.print();
             return ExitCode::SUCCESS;
         }
-        Err(e) => return usage(&format!("ungültige Argumente\n{e}")),
+        Err(e) => return usage(&t!("mcp.cli.invalid_arguments", error = e)),
     };
     let Some(project) = cli.project.clone() else {
         return forward(&cli);
@@ -99,7 +99,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
     // break the protocol, which writes to its own copy of stdout.
     let protocol = match stdout::protect() {
         Ok(protocol) => protocol,
-        Err(e) => return usage(&format!("stdout nicht umlenkbar: {e}")),
+        Err(e) => return usage(&t!("mcp.cli.stdout_not_redirected", error = e)),
     };
     #[cfg(debug_assertions)]
     if std::env::var_os("G4_MCP_TEST_NOISE").is_some_and(|v| v == "1") {
@@ -125,7 +125,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         .build()
     {
         Ok(runtime) => runtime,
-        Err(e) => return usage(&format!("Laufzeit nicht startbar: {e}")),
+        Err(e) => return usage(&t!("mcp.cli.runtime_not_started", error = e)),
     };
     // `serve` returns once the client has gone and no call runs any more (at most
     // `server::DRAIN_LIMIT`), so a write is never cut off in the middle of its step.
@@ -158,10 +158,10 @@ fn headless_flag(cli: &Cli) -> Option<&'static str> {
 /// discovery file in `--app-data` (else the app data folder); exit code 2 when no app runs.
 fn forward(cli: &Cli) -> ExitCode {
     if let Some(flag) = headless_flag(cli) {
-        return usage(&format!("{flag} gilt nur kopflos mit --project"));
+        return usage(&t!("mcp.cli.headless_only", flag = flag));
     }
     let Some(dir) = cli.app_data.clone().or_else(discovery::default_dir) else {
-        return usage(proxy::NOT_RUNNING);
+        return usage(&proxy::not_running());
     };
     let found = match proxy::locate(&dir) {
         Ok(found) => found,
@@ -169,14 +169,14 @@ fn forward(cli: &Cli) -> ExitCode {
     };
     let protocol = match stdout::protect() {
         Ok(protocol) => protocol,
-        Err(e) => return usage(&format!("stdout nicht umlenkbar: {e}")),
+        Err(e) => return usage(&t!("mcp.cli.stdout_not_redirected", error = e)),
     };
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => runtime,
-        Err(e) => return usage(&format!("Laufzeit nicht startbar: {e}")),
+        Err(e) => return usage(&t!("mcp.cli.runtime_not_started", error = e)),
     };
     let forwarded = runtime.block_on(proxy::run(dir, found, tokio::io::stdin(), protocol));
     runtime.shutdown_timeout(Duration::from_secs(1));
@@ -243,7 +243,7 @@ mod stdout {
         unsafe {
             let out = GetStdHandle(STD_OUTPUT_HANDLE);
             if out.is_null() || out == INVALID_HANDLE_VALUE {
-                return Err(std::io::Error::other("kein stdout"));
+                return Err(std::io::Error::other(t!("mcp.cli.no_stdout").into_owned()));
             }
             let process = GetCurrentProcess();
             let mut copy: HANDLE = std::ptr::null_mut();

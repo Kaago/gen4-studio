@@ -1,15 +1,19 @@
 //! The message catalogs of the Tauri crate: `en.yml` and `de.yml` have the same keys, the same
 //! `%{…}` placeholders per key and no empty values; the `set_locale` command switches the
-//! language of the process, and the field labels and command errors follow it.
+//! language of the process, and the field labels, command errors, the MCP glossary, prompts and
+//! access texts follow it.
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use g4_kernel::i18n::{check_catalogs, locale, set_locale};
 use g4_kernel::test_support::synthetic_project;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 use studio_lib::AppState;
 use studio_lib::dispatch::{DispatchError, dispatch, field_label};
+use studio_lib::mcp::access::{Access, Class, admit, classify};
+use studio_lib::mcp::prompts::PromptDef;
+use studio_lib::mcp::{docs, prompts};
 use studio_lib::policy::UserPolicy;
 
 #[test]
@@ -107,4 +111,87 @@ fn set_locale_command_sets_the_process_locale() {
         dispatch(&state, &policy, "set_locale", json!({ "lang": lang })).unwrap();
         assert_eq!(locale(), expected, "{lang}");
     }
+}
+
+#[test]
+fn glossary_follows_locale() {
+    let _locale = LocaleGuard::take();
+    set_locale("de");
+    let german = docs::glossary();
+    assert!(german.starts_with("# Glossar"), "{german}");
+    assert!(german.contains("Gebiet"), "{german}");
+    assert!(german.contains("Weltkarte"), "{german}");
+    set_locale("en");
+    let english = docs::glossary();
+    assert!(english.starts_with("# Glossary"), "{english}");
+    assert!(english.contains("Area"), "{english}");
+    assert!(english.contains("World map"), "{english}");
+    assert!(english.contains("**Matrix**"), "{english}");
+    assert!(!english.contains("**Gebiet**"), "{english}");
+    // Any other language is English, too.
+    set_locale("xx");
+    assert_eq!(docs::glossary(), english);
+    // The guide to the server comes in the same two languages.
+    set_locale("de");
+    assert!(docs::mcp_guide().contains("# Gen4 Studio für Coding-Agenten"));
+    set_locale("en");
+    assert!(docs::mcp_guide().contains("# Gen4 Studio for coding agents"));
+}
+
+#[test]
+fn prompts_and_access_texts_follow_locale() {
+    let _locale = LocaleGuard::take();
+    let project = synthetic_project();
+    let policy = UserPolicy::new(project.dir.path(), &[], None).unwrap();
+    let args: Map<String, Value> = json!({ "name": "Route 301" }).as_object().cloned().unwrap();
+    let read = Access {
+        write: false,
+        irreversible: false,
+        expert: false,
+    };
+    let refused = |lang: &str| {
+        set_locale(lang);
+        let class = classify("create_trainer", &json!({}), &policy);
+        let error = admit("create_trainer", &class, &read).unwrap_err();
+        (class, error.code, error.message)
+    };
+    let (class, code, message) = refused("de");
+    assert_eq!(class, Class::Irreversible("Trainer anlegen".to_owned()));
+    assert_eq!(code, "read_only");
+    assert_eq!(message, "Nur lesen: create_trainer ändert das Projekt");
+    let (class, code, message) = refused("en");
+    assert_eq!(class, Class::Irreversible("Create trainer".to_owned()));
+    assert_eq!(code, "read_only");
+    assert_eq!(message, "Read only: create_trainer changes the project");
+
+    set_locale("de");
+    let (def, plan) = prompts::render("new_route", &args).unwrap();
+    assert_eq!(def.title(), "Neue Route anlegen");
+    assert!(
+        def.description()
+            .starts_with("Plan, um eine neue Route im Freien (Gebiet)")
+    );
+    assert_eq!(
+        PromptDef::argument_description(def.arguments[0].1),
+        "Name der neuen Route, zum Beispiel „Route 301“"
+    );
+    assert!(plan.starts_with("Lege in Gen4 Studio eine neue Route „Route 301“ an"));
+    assert!(plan.contains("create_area"), "{plan}");
+    set_locale("en");
+    let (def, plan) = prompts::render("new_route", &args).unwrap();
+    assert_eq!(def.name, "new_route");
+    assert_eq!(def.title(), "Create a new route");
+    assert!(
+        def.description()
+            .starts_with("Plan to create a new outdoor route (an area)")
+    );
+    assert_eq!(
+        PromptDef::argument_description(def.arguments[0].1),
+        "name of the new route, for example \"Route 301\""
+    );
+    assert!(plan.starts_with("Create a new route \"Route 301\" in Gen4 Studio"));
+    assert!(plan.contains("create_area"), "{plan}");
+    // Prompt and argument names are codes: the same in both languages.
+    assert_eq!(def.arguments[0].0, "name");
+    assert!(prompts::render("new_route", &Map::new()).is_err());
 }

@@ -2615,11 +2615,7 @@ mod tests {
         ] {
             match dispatch(&state, &policy, name, args) {
                 Err(DispatchError::Cmd(e)) => {
-                    assert!(
-                        e.message.starts_with("Pfad liegt außerhalb"),
-                        "{}",
-                        e.message
-                    )
+                    assert!(e.message.starts_with("Path is outside"), "{}", e.message)
                 }
                 other => panic!("{name}: {other:?}"),
             }
@@ -2658,7 +2654,7 @@ mod tests {
         ] {
             match dispatch(&state, &policy, name, args) {
                 Err(DispatchError::Cmd(e)) => assert!(
-                    e.message.starts_with("Pfad liegt außerhalb"),
+                    e.message.starts_with("Path is outside"),
                     "{name}: {}",
                     e.message
                 ),
@@ -2709,10 +2705,7 @@ mod tests {
         ) {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "error");
-                assert_eq!(
-                    e.message,
-                    "Im Browser-Modus nicht verfügbar, g4emu benutzen"
-                );
+                assert_eq!(e.message, "Not available in browser mode, use g4emu");
             }
             other => panic!("{other:?}"),
         }
@@ -2739,10 +2732,7 @@ mod tests {
         ) {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "error");
-                assert_eq!(
-                    e.message,
-                    "Im Browser-Modus nicht verfügbar, g4emu benutzen"
-                );
+                assert_eq!(e.message, "Not available in browser mode, use g4emu");
             }
             other => panic!("{other:?}"),
         }
@@ -3024,7 +3014,7 @@ mod tests {
             "inspect_rom",
             json!({ "path": outside.to_str().unwrap() }),
         ) {
-            Err(DispatchError::Cmd(e)) => assert!(e.message.starts_with("Pfad liegt außerhalb")),
+            Err(DispatchError::Cmd(e)) => assert!(e.message.starts_with("Path is outside")),
             other => panic!("{other:?}"),
         }
     }
@@ -3069,11 +3059,11 @@ mod tests {
                 Err(DispatchError::Cmd(e)) => {
                     assert!(
                         e.message
-                            .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                            .starts_with("Originals (_DSPRE_contents) are locked: "),
                         "{name}: {}",
                         e.message
                     );
-                    assert!(e.message.contains("ohne die Endung"), "{}", e.message);
+                    assert!(e.message.contains("without the suffix"), "{}", e.message);
                 }
                 other => panic!("{name}: {other:?}"),
             }
@@ -3522,7 +3512,7 @@ mod tests {
             "project_preview_set",
             json!({ "file": file.to_str().unwrap() }),
         );
-        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(message.starts_with("Path is outside"), "{message}");
         assert!(!fixture.dir.path().join(".g4").exists());
     }
 
@@ -3554,10 +3544,7 @@ mod tests {
                 ("project_preview_set", json!({ "path": path })),
             ] {
                 let message = refused_with(&state, &roots, name, args);
-                assert!(
-                    message.starts_with("Pfad liegt außerhalb"),
-                    "{name}: {message}"
-                );
+                assert!(message.starts_with("Path is outside"), "{name}: {message}");
             }
         }
         assert!(other.join(".g4/preview.png").is_file());

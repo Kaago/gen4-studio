@@ -1,5 +1,6 @@
 //! The message keys of the Tauri crate's catalog and its code agree: every key the code names
-//! (`t!("commands.git.init_unsaved")`, `("hp", "labels.hp")`) is in `locales/en.yml`, and every
+//! (`t!("commands.git.init_unsaved")`, `("hp", "labels.hp")`, `Kind::Irreversible("mcp.access.run_rom")`)
+//! is in `locales/en.yml`, and every
 //! key of the sections below is named somewhere in the code. A typo in a key would otherwise
 //! show as the key itself in the app (and tests that compare a message with the function that
 //! builds it would not notice).
@@ -7,17 +8,23 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// The top-level keys of the command layer and the files around it. `mcp.*` and `bridge.*` have
-/// their own owners.
-const SECTIONS: [&str; 7] = [
+/// The top-level keys of the command layer, the MCP server (`mcp`), the dev bridge (`bridge`)
+/// and the files around them.
+const SECTIONS: [&str; 9] = [
     "base_roms",
+    "bridge",
     "commands",
     "doctor",
     "errors",
     "labels",
     "live_hub",
     "lsp",
+    "mcp",
 ];
+
+/// String literals that look like a key of a section and are none: the name of the file
+/// `studio mcp` and the app share (`mcp.json`).
+const NOT_KEYS: [&str; 1] = ["mcp.json"];
 
 /// The dotted keys of the catalog `text` (nested maps, two-space indentation, one
 /// `key: "value"` per line; comments and blank lines skipped).
@@ -75,7 +82,8 @@ fn without_tests(text: &str) -> &str {
 }
 
 /// The string literals of `text` that look like a key of one of the [`SECTIONS`]
-/// (`section.name` or `section.module.name`, lower case and underscores).
+/// (`section.name`, `section.module.name` or `section.module.name.part`, lower case and
+/// underscores).
 fn named_keys(text: &str) -> BTreeSet<String> {
     let mut keys = BTreeSet::new();
     for literal in text.split('"').skip(1).step_by(2) {
@@ -88,7 +96,8 @@ fn named_keys(text: &str) -> BTreeSet<String> {
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         };
         if SECTIONS.contains(&first)
-            && (1..=2).contains(&rest.len())
+            && !NOT_KEYS.contains(&literal)
+            && (1..=3).contains(&rest.len())
             && rest.iter().all(|s| word(s))
         {
             keys.insert(literal.to_owned());

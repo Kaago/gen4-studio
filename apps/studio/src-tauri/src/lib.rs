@@ -371,7 +371,7 @@ fn setup_agents(app: &tauri::AppHandle) {
     if hub.settings().enabled
         && let Err(e) = hub.set_enabled(true)
     {
-        eprintln!("MCP-Server nicht gestartet: {e}");
+        eprintln!("{}", t!("mcp.server.not_started", error = e));
     }
 }
 

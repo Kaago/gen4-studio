@@ -27,15 +27,25 @@ const LIMIT: Duration = Duration::from_secs(180);
 type Client = RunningService<RoleClient, ()>;
 
 fn command(project: &Path, extra: &[&str]) -> tokio::process::Command {
+    // The texts the tests compare are English whatever `LANG` of the host says.
+    command_in(project, extra, "en")
+}
+
+/// [`command`] with the language of the server (`G4_LANG`) given instead of `en`.
+fn command_in(project: &Path, extra: &[&str], lang: &str) -> tokio::process::Command {
     tokio::process::Command::new(STUDIO).configure(|cmd| {
-        // The texts the tests compare are English whatever `LANG` of the host says.
-        cmd.env("G4_LANG", "en");
+        cmd.env("G4_LANG", lang);
         cmd.arg("mcp").arg("--project").arg(project).args(extra);
     })
 }
 
 async fn connect(project: &Path, extra: &[&str]) -> Client {
-    let transport = TokioChildProcess::new(command(project, extra)).unwrap();
+    connect_in(project, extra, "en").await
+}
+
+/// [`connect`] to a server that speaks `lang` (`G4_LANG`).
+async fn connect_in(project: &Path, extra: &[&str], lang: &str) -> Client {
+    let transport = TokioChildProcess::new(command_in(project, extra, lang)).unwrap();
     tokio::time::timeout(LIMIT, ().serve(transport))
         .await
         .expect("initialize timed out")
@@ -238,7 +248,7 @@ async fn unknown_tool_is_a_protocol_error() {
     let error = protocol_error(&client, "no_such_tool", json!({})).await;
     assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
     assert!(error.message.contains("no_such_tool"), "{error:?}");
-    assert!(error.message.contains("nbekanntes Tool"), "{error:?}");
+    assert!(error.message.contains("Unknown tool"), "{error:?}");
     // Write tools and the expert tools are unknown to a read-only agent without --expert.
     let error = protocol_error(&client, "set_header", json!({})).await;
     assert!(error.message.contains("set_header"), "{error:?}");
@@ -296,7 +306,10 @@ async fn resources_list_and_read() {
         .await
         .unwrap();
     let (text, mime) = text_of(&read.contents[0]);
-    assert!(text.contains("Gebiet") && text.contains("Raster"), "{text}");
+    assert!(
+        text.contains("**Area**") && text.contains("**Matrix**"),
+        "{text}"
+    );
     assert_eq!(mime, Some("text/markdown"));
     let read = client
         .read_resource(ReadResourceRequestParams::new("g4://docs/formats/matrix"))
@@ -326,7 +339,11 @@ async fn prompts_list_and_get() {
     let names: Vec<&str> = prompts.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["new_route", "npc_with_item", "place_trainer"]);
     let new_route = &prompts[0];
-    assert_eq!(new_route.title.as_deref(), Some("Neue Route anlegen"));
+    assert_eq!(new_route.title.as_deref(), Some("Create a new route"));
+    // English without a German gloss.
+    let description = new_route.description.as_deref().unwrap();
+    assert!(description.contains("(an area)"), "{description}");
+    assert!(!description.contains("Gebiet"), "{description}");
     let arguments = new_route.arguments.as_ref().unwrap();
     assert_eq!(arguments[0].name, "name");
     assert_eq!(arguments[0].required, Some(true));
@@ -388,6 +405,79 @@ async fn expert_flag_lists_g4_call() {
     .await;
     assert_eq!(answer.is_error, Some(true));
     assert_eq!(answer.structured_content.unwrap()["code"], "read_only");
+    client.cancel().await.unwrap();
+}
+
+/// A write the server refuses under `--read-only`, through `g4_call`: the code and the text of
+/// the answer.
+async fn refused_write(client: &Client) -> (String, String) {
+    let error = tool_error(
+        call_tool(
+            client,
+            "g4_call",
+            json!({ "command": "set_header", "args": { "id": 0, "header": {} } }),
+        )
+        .await,
+    );
+    (
+        error["code"].as_str().unwrap().to_owned(),
+        error["message"].as_str().unwrap().to_owned(),
+    )
+}
+
+/// The language of the server is `G4_LANG`: with `de` the grant text of a refused write, the
+/// glossary and the prompts are German, without it (the other tests pin `en`) English.
+#[tokio::test]
+async fn answers_in_german_with_g4_lang() {
+    let fixture = synthetic_project();
+    let extra = ["--expert", "--read-only"];
+
+    let client = connect_in(fixture.dir.path(), &extra, "de").await;
+    assert_eq!(
+        refused_write(&client).await,
+        (
+            "read_only".to_owned(),
+            "Nur lesen: set_header ändert das Projekt".to_owned()
+        )
+    );
+    let glossary = client
+        .read_resource(ReadResourceRequestParams::new("g4://glossary"))
+        .await
+        .unwrap();
+    let (text, _) = text_of(&glossary.contents[0]);
+    assert!(text.starts_with("# Glossar"), "{text}");
+    assert!(text.contains("**Gebiet**"), "{text}");
+    let prompts = client.list_all_prompts().await.unwrap();
+    assert_eq!(prompts[0].title.as_deref(), Some("Neue Route anlegen"));
+    let description = prompts[0].description.as_deref().unwrap();
+    assert!(description.contains("(Gebiet)"), "{description}");
+    let mut request = GetPromptRequestParams::new("new_route");
+    request.arguments = json!({ "name": "Route 301" }).as_object().cloned();
+    let prompt = client.get_prompt(request).await.unwrap();
+    let text = serde_json::to_string(&prompt.messages[0]).unwrap();
+    assert!(
+        text.contains("Lege in Gen4 Studio eine neue Route"),
+        "{text}"
+    );
+    assert!(text.contains("Route 301"), "{text}");
+    client.cancel().await.unwrap();
+
+    // The same call to the usual, `en`-pinned server.
+    let client = connect(fixture.dir.path(), &extra).await;
+    assert_eq!(
+        refused_write(&client).await,
+        (
+            "read_only".to_owned(),
+            "Read only: set_header changes the project".to_owned()
+        )
+    );
+    let glossary = client
+        .read_resource(ReadResourceRequestParams::new("g4://glossary"))
+        .await
+        .unwrap();
+    let (text, _) = text_of(&glossary.contents[0]);
+    assert!(text.starts_with("# Glossary"), "{text}");
+    assert!(text.contains("**Area**"), "{text}");
     client.cancel().await.unwrap();
 }
 
@@ -470,8 +560,8 @@ fn bad_project_exits_before_serving() {
     assert_eq!(code, Some(2), "{stderr}");
     assert!(
         stderr.contains(
-            "Gen4 Studio läuft nicht oder „Lokale Agenten zulassen“ ist aus; kopflos mit \
-             --project <Ordner>"
+            "Gen4 Studio is not running or \"Allow local agents\" is off; headless with \
+             --project <folder>"
         ),
         "{stderr}"
     );
@@ -741,7 +831,7 @@ async fn irreversible_needs_the_flag() {
     let error = tool_error(call_tool(&client, "create_trainer", trainer.clone()).await);
     assert_eq!(error["code"], "needs_confirmation");
     let message = error["message"].as_str().unwrap();
-    assert!(message.contains("Trainer anlegen"), "{message}");
+    assert!(message.contains("Create trainer"), "{message}");
     assert!(message.contains("--allow-irreversible"), "{message}");
     let error = tool_error(call_tool(&client, "apply_header_patch", json!({})).await);
     assert_eq!(error["code"], "needs_confirmation");
@@ -750,7 +840,9 @@ async fn irreversible_needs_the_flag() {
         tool_error(call_tool(&client, "recipe_apply", json!({ "recipe": "empty_region" })).await);
     assert_eq!(error["code"], "needs_confirmation");
     let message = error["message"].as_str().unwrap();
-    assert!(message.contains("Welt leeren"), "{message}");
+    // (the reason is the recipe's own title, which the kernel names)
+    let title = g4_kernel::recipes::RecipeId::EmptyRegion.title();
+    assert!(message.contains(title), "{message}");
     let status = result(call_tool(&client, "header_patch_status", json!({})).await);
     assert_eq!(status["applied"], false);
     assert_eq!(
@@ -805,7 +897,7 @@ async fn build_inside_build_needs_no_flag_outside_does() {
     );
     assert_eq!(error["code"], "needs_confirmation");
     let message = error["message"].as_str().unwrap();
-    assert!(message.contains("Bauen außerhalb von build/"), "{message}");
+    assert!(message.contains("Build outside build/"), "{message}");
     let error = tool_error(call_tool(&client, "g4_call", export(per.to_str().unwrap())).await);
     assert_eq!(error["code"], "needs_confirmation");
     assert!(!rom.exists() && !per.exists());
@@ -847,11 +939,11 @@ async fn batch_over_stdio_is_one_undo_step() {
     let calls: Vec<Value> = (0..10).map(|i| power(1, 50 + i)).collect();
     let answer = result(call_tool(&client, "g4_batch", json!({ "calls": calls })).await);
     assert_eq!(answer["results"].as_array().unwrap().len(), 10);
-    assert_eq!(answer["label"], "Agent: 10 Änderungen");
+    assert_eq!(answer["label"], "Agent: 10 changes");
     let steps = history(&client).await;
     let undo = steps["undo"].as_array().unwrap();
     assert_eq!(undo.len(), before + 1, "{steps}");
-    assert_eq!(undo.last(), Some(&json!("Agent: 10 Änderungen")));
+    assert_eq!(undo.last(), Some(&json!("Agent: 10 changes")));
     // One undo takes the whole batch back.
     let edited = data_get(&client, "move", 1).await;
     result(call_tool(&client, "undo", json!({})).await);
@@ -902,7 +994,7 @@ async fn run_rom_needs_emulator_and_flag() {
     let error = tool_error(call_tool(&client, "g4_call", run("", "rom.nds")).await);
     assert_eq!(error["code"], "needs_confirmation");
     assert!(
-        error["message"].as_str().unwrap().contains("Emulator"),
+        error["message"].as_str().unwrap().contains("emulator"),
         "{error}"
     );
     client.cancel().await.unwrap();
