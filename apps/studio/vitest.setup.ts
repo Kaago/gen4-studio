@@ -1,3 +1,8 @@
+import { init } from "./src/i18n";
+
+// Every test runs in German: the existing assertions are German and stay that way. The first statement, before any module renders.
+init("de");
+
 import { afterEach } from "vitest";
 import { resetSectionFolds } from "./src/workbench/inspector/foldState";
 
