@@ -6,7 +6,7 @@
 
 [English](README.md) · Deutsch
 
-Gen4 Studio ist ein moderner, plattformübergreifender Editor für ROM-Hacks von Pokémon Diamant, Perl, Platin, HeartGold und SoulSilver. Welten, Geschichten, Scripts und Daten entstehen in einem textbasierten Projekt und werden zu einer ROM oder einem xdelta-Patch gebaut. Arbeitet über MCP mit KI-Agenten zusammen.
+Gen4 Studio ist ein moderner, plattformübergreifender Editor für ROM-Hacks von Pokémon Platin, HeartGold und SoulSilver. Welten, Geschichten, Scripts und Daten entstehen in einem textbasierten Projekt und werden zu einer ROM oder einem xdelta-Patch gebaut. Arbeitet über MCP mit KI-Agenten zusammen.
 
 [![Lizenz: MIT](https://img.shields.io/github/license/Kaago/gen4-studio)](LICENSE)
 [![Neuester Release](https://img.shields.io/github/v/release/Kaago/gen4-studio)](https://github.com/Kaago/gen4-studio/releases/latest)
@@ -36,7 +36,7 @@ Gen4 Studio ist für Leute gedacht, die Orte und Geschichten bauen wollen, statt
 - **Scripts und Texte.** Ereignis-Scripts in der Script-Sprache rotom mit Language Server bearbeiten, Spieltexte mit einer Vorschau des DS-Bildschirms.
 - **Daten.** Pokédex-Einträge, Attacken, Lernlisten, Entwicklungen, Ei-Attacken, Items, Trainer und Begegnungen bearbeiten. Löschen ist gesperrt, solange noch etwas darauf verweist, und geänderte Einträge lassen sich auf ihren Originalzustand zurücksetzen.
 - **Prüfen.** Dutzende Projektprüfungen über Welt, Scripts, Texte und Daten finden Probleme wie kaputte Verweise, fehlende Nachrichten und zu breiten Text für den DS-Bildschirm, bevor das Spiel sie findet. Jeder Befund nennt den Ausweg, und etliche lassen sich mit Vorschau und einem Undo-Schritt beheben.
-- **Bauen.** Eine ROM oder einen xdelta-Patch bauen. Ein unverändertes Projekt baut eine ROM, die der Ausgangs-ROM gleicht. „Hier spielen“ baut und startet Ihren Emulator; „Veröffentlichen…“ schreibt einen selbstgeprüften xdelta-Patch mit Version und Änderungsnotizen.
+- **Bauen.** Eine ROM oder einen xdelta-Patch bauen. Ein unverändertes Projekt baut eine ROM, die byte-gleich zur Ausgangs-ROM ist. „Hier spielen“ baut und startet Ihren Emulator; „Veröffentlichen…“ schreibt einen selbstgeprüften xdelta-Patch mit Version und Änderungsnotizen.
 - **Textprojekt mit Git.** Die Spieldaten liegen als JSON-Dateien vor, eine Entität je Datei, sodass Änderungen als lesbare Diffs erscheinen. Gen4 Studio richtet auf Wunsch ein lokales Git-Repository ein und sichert Stände.
 - **Agenten.** Ein eingebauter MCP-Server lässt KI-Agenten wie Claude Code das offene Projekt lesen und bearbeiten.
 - **DSPRE-Projekte.** Einen vorhandenen DSPRE-Projektordner öffnen und DSPRE neben Gen4 Studio weiter benutzen.
@@ -54,9 +54,9 @@ Gen4 Studio ist für Leute gedacht, die Orte und Geschichten bauen wollen, statt
 | Plattform | Paket | Hinweise |
 |---|---|---|
 | macOS 13 oder neuer, Apple Silicon (arm64) | DMG | Alles, einschließlich des Spielmodus live. |
-| Windows 10 oder neuer, x64 | NSIS-Installer | Alles außer dem Spielmodus live. |
+| Windows 10 oder neuer, x64 | NSIS-Installer | Alles außer dem Spielmodus live. In der CI gebaut und getestet (stille Installation, `studio doctor`, Rauchtest), noch nicht von Hand auf einem Windows-PC geprüft; die Agenten-Verbindung zur laufenden App ist nicht verifiziert. |
 
-„Hier spielen“ startet auf beiden Plattformen den Emulator Ihrer Wahl; beim ersten Mal fragt Gen4 Studio danach (zum Beispiel melonDS). Der Spielmodus live, der Flags und Variablen im laufenden Spiel liest und setzt, braucht melonDS 1.1 oder neuer und läuft nur unter macOS. Linux ist Best-Effort und gehört nicht zu den Release-Builds.
+„Hier spielen“ startet auf beiden Plattformen den Emulator Ihrer Wahl; beim ersten Mal fragt Gen4 Studio danach (zum Beispiel melonDS). Der Spielmodus live, der Flags und Variablen im laufenden Spiel liest und setzt, braucht melonDS 1.1 oder neuer und läuft nur unter macOS. Für Linux gibt es keinen Release-Build.
 
 <!-- section: install -->
 ## Installation
@@ -70,7 +70,7 @@ Die Datei `SHA256SUMS.txt` auf derselben Seite nennt die Prüfsumme jeder Datei.
 
 Die Pakete sind noch nicht mit einem Entwicklerzertifikat signiert (macOS: ad-hoc-Signatur, keine Notarisierung; Windows: unsigniert). Ihr System warnt deshalb beim ersten Start der App.
 
-**macOS (Gatekeeper).** Das DMG öffnen und Gen4 Studio in „Programme“ ziehen. Beim ersten Start die App mit Rechtsklick und „Öffnen“ starten und im Dialog noch einmal „Öffnen“ wählen. Alternativ in den Systemeinstellungen unter „Datenschutz & Sicherheit“ „Trotzdem öffnen“ wählen. Oder im Terminal das Quarantäne-Merkmal entfernen:
+**macOS (Gatekeeper).** Das DMG öffnen und Gen4 Studio in „Programme“ ziehen. Die App einmal starten; macOS blockiert sie. Dann in den Systemeinstellungen unter „Datenschutz & Sicherheit“ die Meldung zu Gen4 Studio suchen, „Trotzdem öffnen“ wählen und bestätigen. Unter macOS 14 und älter geht auch Rechtsklick auf die App, „Öffnen“ und im Dialog noch einmal „Öffnen“. Oder im Terminal das Quarantäne-Merkmal entfernen:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Gen4 Studio.app"
@@ -94,7 +94,7 @@ Sie brauchen Ihre eigene, rechtmäßig erworbene ROM-Datei (`.nds`) von Platin, 
 
 Gen4 Studio spricht das Model Context Protocol. Ein Agent wie Claude Code liest und bearbeitet ein Projekt über dieselben Befehle wie die Oberfläche: kuratierte Werkzeuge mit englischen Namen und Schemas, einige Ressourcen (ein Glossar, die MCP-Anleitung und die Formatbeschreibungen) und drei Beispiel-Prompts. Alles läuft auf Ihrem Rechner: kopflos über stdio, in der laufenden App nur über HTTP auf `127.0.0.1`.
 
-In der laufenden App arbeitet der Agent im Projekt, das Sie gerade offen haben, in derselben Sitzung. Seine Schritte stehen im Verlauf und lassen sich wie Ihre eigenen zurücknehmen. Sie behalten die Kontrolle: Der Zugriff ist standardmäßig aus und wird in Einstellungen › Agenten eingeschaltet, Sie erteilen ihn je Projekt (keiner, Lesen oder Lesen und Bearbeiten), die App fragt beim ersten Zugriff und noch einmal vor allem Unumkehrbaren, und „Nur lesen“ und „Trennen“ sind jederzeit erreichbar. So verbinden Sie Claude Code mit der laufenden App:
+In der laufenden App arbeitet der Agent im Projekt, das Sie gerade offen haben, in derselben Sitzung. Seine Schritte stehen im Verlauf und lassen sich wie Ihre eigenen zurücknehmen. Sie behalten die Kontrolle: Der Zugriff ist standardmäßig aus und wird in Einstellungen › Agenten eingeschaltet, Sie erteilen ihn je Projekt („Nicht“, „Lesen“ oder „Lesen und bearbeiten“), die App fragt beim ersten Zugriff und noch einmal vor allem Unumkehrbaren, und „Nur lesen“ und „Trennen“ sind jederzeit erreichbar. So verbinden Sie Claude Code mit der laufenden App:
 
 ```sh
 # Den Pfad der Programmdatei „studio“ Ihrer Installation verwenden.

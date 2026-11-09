@@ -6,7 +6,7 @@
 
 English · [Deutsch](README.de.md)
 
-Gen4 Studio is a modern, cross-platform editor for Pokémon Diamond, Pearl, Platinum, HeartGold and SoulSilver ROM hacks. Build worlds, stories, scripts and data from a text-based project, then compile to a ROM or xdelta patch. Works with AI agents via MCP.
+Gen4 Studio is a modern, cross-platform editor for Pokémon Platinum, HeartGold and SoulSilver ROM hacks. Build worlds, stories, scripts and data from a text-based project, then compile to a ROM or xdelta patch. Works with AI agents via MCP.
 
 [![License: MIT](https://img.shields.io/github/license/Kaago/gen4-studio)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/Kaago/gen4-studio)](https://github.com/Kaago/gen4-studio/releases/latest)
@@ -17,7 +17,7 @@ Gen4 Studio is a modern, cross-platform editor for Pokémon Diamond, Pearl, Plat
 
 Gen4 Studio treats a ROM hack like a software project. You open your own ROM once, and from then on the hack is a folder of files: maps, scripts, texts and game data, which you can edit in the app, by hand, or with an AI agent, track in Git and read as plain text. When you are done, Gen4 Studio builds a ROM or an xdelta patch, so you can share your work without sharing the game.
 
-It is made for people who want to build places and stories rather than edit tables: you work with places, figures, dialogs, doors and trainers, and Gen4 Studio takes care of headers, matrices, event files and archives behind them. The interface is available in English and German. It follows your system language and can be switched in Settings.
+It is made for people who want to build places and stories rather than edit tables: you work with places, characters, dialogs, doors and trainers, and Gen4 Studio takes care of headers, matrices, event files and archives behind them. The interface is available in English and German. It follows your system language and can be switched in Settings.
 
 <!-- section: screenshots -->
 ## Screenshots
@@ -26,17 +26,17 @@ It is made for people who want to build places and stories rather than edit tabl
 
 | Tell | Technical |
 |---|---|
-| ![Tell: stories, figures and dialogs](docs/media/erzaehlen.png) | ![Technical: changes against the original](docs/media/technik-aenderungen.png) |
+| ![Tell: stories, characters and dialogs](docs/media/erzaehlen.png) | ![Technical: changes against the original](docs/media/technik-aenderungen.png) |
 
 <!-- section: features -->
 ## What it does
 
 - **World.** Explore places instead of tables: world map, areas and rooms, in 2D and 3D. Create new areas and rooms with wizards, edit headers, matrices, buildings, events and warps, and paint new maps from tiles with heights, ramps and smart drawing. Gen4 Studio bakes them to the game's model, terrain and collision data. PNG textures and OBJ or glTF models can be imported.
-- **Tell.** Lay out stories as threads of steps tied to flags and variables. Place figures with dialog, doors, and trainers with their teams and battle texts, and see who else says a given line.
+- **Tell.** Lay out stories as threads of steps tied to flags and variables. Place characters with dialog, doors, and trainers with their teams and battle texts, and see who else says a given line.
 - **Scripts and text.** Edit event scripts in the rotom scripting language with a language server, and edit game text with a preview of the DS screen.
 - **Data.** Edit Pokédex entries, moves, learnsets, evolutions, egg moves, items, trainers and encounters. Deleting something is blocked while anything still refers to it, and changed entities can be reset to their original state.
 - **Checks.** Dozens of project checks across world, scripts, texts and data find problems such as broken references, missing messages and text that is too wide for the DS screen before the game does. Each finding says what to do, and several can be fixed with a preview and one undo step.
-- **Build.** Build a ROM or an xdelta patch. An unchanged project builds a ROM identical to the one you started from. Play here builds and starts your emulator; Publish… writes a self-checked xdelta patch with a version and release notes.
+- **Build.** Build a ROM or an xdelta patch. An unchanged project builds a ROM identical to the one you started from. "Play here" builds and starts your emulator; "Publish…" writes a self-checked xdelta patch with a version and release notes.
 - **Text project with Git.** Game data lives as JSON files, one entity per file, so changes show up as readable diffs. Gen4 Studio can set up a local Git repository and save snapshots.
 - **Agents.** A built-in MCP server lets AI agents such as Claude Code read and edit the open project.
 - **DSPRE projects.** Open an existing DSPRE project folder and keep using DSPRE next to Gen4 Studio.
@@ -49,14 +49,14 @@ It is made for people who want to build places and stories rather than edit tabl
 | Pokémon Platinum | Verified with a German ROM. Other regions run through the same code but have not been tried. |
 | Pokémon HeartGold | Verified with German and US ROMs. Other regions run through the same code but have not been tried. |
 | Pokémon SoulSilver | Same engine family as HeartGold, no test project yet, not tried. |
-| Pokémon Diamond and Pearl | Not enabled yet. Gen4 Studio recognises these ROMs but declines to create a project from them, because there is no test project. |
+| Pokémon Diamond and Pearl | Not enabled yet. Gen4 Studio recognizes these ROMs but declines to create a project from them, because there is no test project. |
 
 | Platform | Package | Notes |
 |---|---|---|
-| macOS 13 or later, Apple silicon (arm64) | DMG | Everything, including the live play mode. |
-| Windows 10 or later, x64 | NSIS installer | Everything except the live play mode. |
+| macOS 13 or later, Apple silicon (arm64) | DMG | All features, including the live play mode. |
+| Windows 10 or later, x64 | NSIS installer | All features except the live play mode. Built and smoke-tested in CI (silent install, `studio doctor`, smoke test), not yet checked by hand on a Windows PC; the agent connection to the running app is unverified. |
 
-Play here starts the emulator of your choice on both platforms; the first time, Gen4 Studio asks for one (melonDS, for example). The live play mode, which reads and sets flags and variables in the running game, needs melonDS 1.1 or later and works on macOS only. Linux is best effort and not part of the release builds.
+"Play here" starts the emulator of your choice on both platforms; the first time, Gen4 Studio asks for one (melonDS, for example). The live play mode, which reads and sets flags and variables in the running game, needs melonDS 1.1 or later and works on macOS only. There is no release build for Linux.
 
 <!-- section: install -->
 ## Install
@@ -70,7 +70,7 @@ Download the package for your system from the [latest release](https://github.co
 
 The packages are not signed with a developer certificate yet (macOS: ad-hoc signature, no notarization; Windows: unsigned), so your system warns you the first time you start the app.
 
-**macOS (Gatekeeper).** Open the DMG and drag Gen4 Studio to Applications. On the first start, right-click the app and choose Open, then choose Open again in the dialog. Alternatively, open System Settings, Privacy & Security, and choose Open Anyway. Or remove the quarantine flag in a terminal:
+**macOS (Gatekeeper).** Open the DMG and drag Gen4 Studio to Applications. Start the app once; macOS blocks it. Then open System Settings, Privacy & Security, find the message about Gen4 Studio, choose "Open Anyway" and confirm. On macOS 14 and earlier, right-clicking the app, choosing "Open" and choosing "Open" again in the dialog works too. Or remove the quarantine flag in a terminal:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Gen4 Studio.app"
@@ -85,7 +85,7 @@ You need your own legally obtained ROM file (`.nds`) of Platinum, HeartGold or S
 
 1. On the start screen, choose **New game from ROM…** (or drop the `.nds` file onto the window). Gen4 Studio reads the ROM and tells you whether it has been verified.
 2. Choose a template: Original (the game as it is), Empty region with a starting town, or Data only. Pick a name and a folder, and let Gen4 Studio create the project. This unpacks the ROM into the project folder.
-3. Open **Build** and create your first route: start the wizard for a new area, which copies existing maps into an area with its own place name. Switch to **Tell** to add a figure with dialog, a door or a trainer. **Technical** holds the checks, the build steps and the list of changes against the original.
+3. Open **Build** and create your first route: start the wizard for a new area, which copies existing maps into an area with its own place name. Switch to **Tell** to add a character with dialog, a door or a trainer. **Technical** holds the checks, the build steps and the list of changes against the original.
 4. Choose **Play here**. Gen4 Studio saves, builds and starts your emulator on the result. The first time, it asks which emulator to use.
 5. Choose **Publish…** when you want to share the hack. Enter a version and release notes, and Gen4 Studio writes an xdelta patch against your base ROM, checks that it applies, and records the release. Share the patch, never the ROM.
 
@@ -130,7 +130,7 @@ Gen4 Studio builds on the work of the Gen 4 hacking community. Thank you to:
 - [pret](https://github.com/pret), for the [pokeheartgold](https://github.com/pret/pokeheartgold) and [pokeplatinum](https://github.com/pret/pokeplatinum) decompilations, a source of flag and constant names.
 - [hg-engine](https://github.com/BluRosie/hg-engine), the engine hack that many HeartGold and SoulSilver projects build on.
 - [PokeAPI](https://github.com/PokeAPI/pokeapi), for the species, move and item names.
-- [melonDS](https://melonds.kuribo64.net/), the emulator behind Play here, and the [melonDS DS](https://github.com/JesseTG/melonds-ds) core our game tests run on.
+- [melonDS](https://melonds.kuribo64.net/), the emulator behind "Play here", and the [melonDS DS](https://github.com/JesseTG/melonds-ds) core our game tests run on.
 - The [DS Pokémon Hacking Wiki](https://ds-pokemon-hacking.github.io/), for documenting how the games work.
 - The Kingdom of DS ROM Hacking community, for years of shared knowledge.
 
