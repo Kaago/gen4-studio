@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest an idea or an improvement for Gen4 Studio
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. For a larger change, please describe the problem first; the solution can follow in the discussion.
+
+        Please do not attach a ROM, a save game or any file derived from one.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How could Gen4 Studio help? Sketches and examples are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you considered, or how you work around it now.
+  - type: dropdown
+    id: games
+    attributes:
+      label: Games
+      description: The games this is about.
+      multiple: true
+      options:
+        - Pokémon Diamond
+        - Pokémon Pearl
+        - Pokémon Platinum
+        - Pokémon HeartGold
+        - Pokémon SoulSilver
+        - All of them
