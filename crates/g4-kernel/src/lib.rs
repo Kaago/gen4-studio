@@ -1,3 +1,9 @@
+#[macro_use]
+extern crate rust_i18n;
+
+// The messages of the kernel: `locales/{en,de}.yml`, English is the fallback.
+i18n!("locales", fallback = "en");
+
 pub mod base;
 pub mod build;
 pub mod checks;
@@ -9,6 +15,8 @@ pub mod error;
 pub mod export;
 mod fsutil;
 pub mod git;
+/// The locale of the process and the check of the message catalogs.
+pub mod i18n;
 pub mod map_import;
 pub mod original;
 pub mod patch;

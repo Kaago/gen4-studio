@@ -7,6 +7,10 @@ version = "0.1.0-rc.2"
 edition = "2024"
 license = "MIT"
 
+[workspace.dependencies]
+# The message catalogs of the kernel and the Tauri crate (`locales/{en,de}.yml`, `t!`).
+rust-i18n = "4.2.4"
+
 [profile.dev.package.ds-rom]
 opt-level = 3
 

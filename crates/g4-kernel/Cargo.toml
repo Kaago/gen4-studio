@@ -24,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 # `preserve_order`: header fields in the order uxie declares them (`original::header_fields`).
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
+rust-i18n = { workspace = true }
 tempfile = { version = "3", optional = true }
 clap = { version = "4", features = ["derive"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

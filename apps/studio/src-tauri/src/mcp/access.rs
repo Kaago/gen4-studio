@@ -288,6 +288,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("world_import_tmj", Kind::Write),
     // Painting (6.4a, over `g4_call` only): adding or removing a layer is one undo step.
     ("world_layers", Kind::Write),
+    // The language is the user's (Settings) or the environment's (`G4_LANG`), not an agent's.
+    ("set_locale", APP_ONLY),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -587,6 +589,7 @@ mod tests {
                 ("restore_text_project", Kind::Unavailable("Nur in der App")),
                 ("reveal_path", Kind::Unavailable("Nur in der App")),
                 ("revert_text_project", Kind::Unavailable("Nur in der App")),
+                ("set_locale", Kind::Unavailable("Nur in der App")),
             ]
         );
         let mut depends: Vec<&str> = of(|k| *k == Kind::Depends)
