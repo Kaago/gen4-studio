@@ -118,7 +118,7 @@ Kein Test riss unter Last; keine Wiederholung und kein Fix nötig. Die strengen 
 ## (4) Hand und Blick
 
 - [ ] **Blick Muster im Overlay** (Agent + Blick): Hell, Dunkel, Kompakt mit den Mustern und dem Kantensatz-Editor, Bilder `target/agent/gate-2026-11-08/6-4b/blick-*.png` (vom Agenten beschrieben in `browser.md`), dazu `klippe.png` unter `{pt,hg}-klippe/`. Ob der Faktor 0,55 der Musterlinien im Dunkel-Thema reicht (Plan „Offen“), entscheidet dieser Blick. Beim Nutzer offen.
-- [ ] **`.fig`** „Gelände malen: Kantensatz-Editor“ (Palette, Ebenen, Kantensatz-Editor offen) und dieselbe Dunkel, „Gelände-Muster“, Brett „Komponenten (App): Kantensatz“: **nicht gerendert**, OpenPencil auf 127.0.0.1:7600 antwortete nicht (HTTP 502, kein Dienst; Task 11). Vorlage `design-system/openpencil/beispiele/kantensatz.body.js` lief gegen eine Attrappe der Bausteine fehlerfrei (886 / 715 / 409 Knoten, hell und dunkel). Die Frames werden auf `main` nach dem Merge gerendert, sobald OpenPencil antwortet (Anleitung `NACHTRAG-6-4b.md`). Offen.
+- [x] **`.fig`** „Gelände malen: Kantensatz-Editor“ (Palette, Ebenen, Kantensatz-Editor offen) und dieselbe Dunkel, „Gelände-Muster“, Brett „Komponenten (App): Kantensatz“: **eingespielt am 2026-11-09** (Branch `phase-6-fig-nachtraege-3` auf main `3294aef1`; beim Gate antwortete OpenPencil auf 127.0.0.1:7600 nicht, HTTP 502, Task 11). Auf „App: Werkbank“ Reihe 9: Kantensatz-Editor hell (x 0, y 9000) und dunkel (x 1520, y 9000), „Gelände-Muster“ (x 3040, y 9000); auf „Komponenten“ das Brett „Kantensatz“ (x 3440, y 20220); im Brett „Stand der App“ die Zeile „Gelände malen (6.4a, 6.4b)“. Aus `design-system/openpencil/beispiele/kantensatz.body.js`, korrigiert nach dem Bild (Palette auf die erste Reihe Boden gekürzt, Raster mit `raum/12`, Muster als Inline-SVG statt Zeichen, die OpenPencil nicht setzt, „Gelände-Muster“ mit Liste und Scharnier von Route 201, Chips im Brett breiter); der Inspector reicht bis „Kante N“ unter dem Raster, die Felder darunter liegen wie in der App unter der Kante der Gruppe. Verglichen mit Nachtrag und README (die Bilder unter `target/agent/gate-2026-11-08/6-4b/` lagen im Haupt-Checkout nicht vor). Offen bleiben `terrain` und `cliff` in der Symbolreihe des Bretts „Komponenten (App)“ (keine Vorlage). Anleitung und Befunde `design-system/openpencil/NACHTRAG-6-4b.md`.
 - [ ] **Hand, melonDS:** `out.nds` von `pt-klippe` (`_testkopien/6-4b-szen-pt_DSPRE_contents/build/out.nds`, mit einer Kopie von `_testkopien/_saves/CPUD-zimmer.sav`) starten, über die Tür (44, 21) auf die gemalte Karte, die Klippe westlich (x 34–40, z 4–8 im Spiel) von oben und unten ansehen (Rand oben auf dem Plateau, Wand an der Südkante) und von Süden gegen den Rand laufen (hält auf (37, 9)). Beim Nutzer offen.
 - [ ] **`scripts/gate.sh` auf main** (Hauptsitzung, nach dem Merge). Offen.
 
@@ -136,7 +136,7 @@ Kein Test riss unter Last; keine Wiederholung und kein Fix nötig. Die strengen 
 | (2) Regression `pt-gemalt`, `hg-gemalt` | Agent | bestanden (Rückgabe 0, 17 Erwartungen) | 2026-11-08 |
 | (3) Browser | Agent | bestanden mit Abweichungen (Zelle (1, 21) statt neben Zweiblattdorf, Route 203 statt 201, Striche als synthetischer Zug): 13 Plätze = 13 Einträge, Plus 0 Abweichungen über 1 024 Zellen, Klippe 18 / 18, Muster sichtbar, ⌘Z → `git status` leer | 2026-11-08 |
 | (4) Blick Muster im Overlay, Hell, Dunkel, Kompakt, `klippe` | Agent + Blick | vom Agenten beschrieben, beim Nutzer offen | – |
-| (4) `.fig` Palette, Ebenen, Kantensatz-Editor | Agent + Blick | offen: OpenPencil antwortete nicht, Rendern auf main nach dem Merge | – |
+| (4) `.fig` Palette, Ebenen, Kantensatz-Editor | Agent + Blick | eingespielt: Kantensatz-Editor hell und dunkel und „Gelände-Muster“ auf „App: Werkbank“ (Reihe 9), Brett „Kantensatz“ auf „Komponenten“, die Zeile im Brett „Stand der App“; Branch `phase-6-fig-nachtraege-3` (`design-system/openpencil/NACHTRAG-6-4b.md`) | 2026-11-09 |
 | (4) melonDS `pt-klippe` | Hand | offen | – |
 
 Zahlentabelle (gated Läufe Task 9, Szenarien Task 10; NSBMD und BDHC aus der Zeile `smart-cliff` nach beiden Klippen, Anteil von 0xF000; Last = 1-Minuten-Last vor dem gated Lauf / vor `world_bake` / vor `vanilla_checks`):
@@ -173,7 +173,6 @@ Die Abschluss-Review des ganzen Branches (Rulings 13 bis 16) brachte eine Fix-Ru
 ## Offen
 
 - `scripts/gate.sh` als Ganzes auf main (Hauptsitzung, nach dem Merge).
-- `.fig`-Frames von 6.4b auf main rendern, sobald OpenPencil antwortet (`NACHTRAG-6-4b.md`).
 - Blick auf die Muster im Overlay (Hell, Dunkel, Kompakt; Lesbarkeit des Faktors 0,55 im Dunkel-Thema), den Kantensatz-Editor und das Bild `klippe`; melonDS mit `out.nds` von `pt-klippe` (Klippe von oben und unten) (Nutzer).
 - Plan „Offen für die Umsetzung“: „Klippe neben Rampe“ (entartete Wand-Vierecke) und „zwei Matrizen mit derselben Karte“ (die Naht folgt der ersten Matrix) sind nicht im Gate geprüft; sie zeigen sich beim Malen.
 - Seit dem Merge von 6.5b (`b93a2bb5`): Kantensätze sind im TMJ bewusst nicht abgebildet (Plan „Schnittstellen“, `wangsets` später).
