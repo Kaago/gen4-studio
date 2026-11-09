@@ -193,6 +193,13 @@ Die Zahlen der Tabelle sind Muster. Ein Objekt liegt auf dem Raster, wenn seine 
 einer Überschreibung Breite und Höhe) ganze Vielfache von 16 Pixeln zwischen 0 und 4 096 sind und
 es in der Karte bleibt; ein Teilmodell braucht eine Kachel der Rolle `piece`.
 
+Die Kachelzahl folgt dem Paket: bringt eine Freiform eine neue Textur ins Paket, hat das Tileset
+danach eine Kachel mehr (gesehen am abgeleiteten Tileset von Paket 0006 ohne Tileset-Datei:
+78 → 79, die Textur als Kachel der Rolle `ground`). Eine TMJ, die vorher exportiert wurde, lehnt der
+Import dann mit „tilesets[0].tilecount: Das Tileset hat 78 Kacheln, Paket 0006 hat 79.“ ab; nach
+dem Hinzufügen von Texturen die TMJ neu exportieren (Befund N3 in
+[phase-6-5b-gate.md](../phase-6-5b-gate.md)).
+
 ## Rückweg ohne Änderung (Round-Trip)
 
 Für eine **kanonische** Welt (Token, wie die Writer sie schreiben: jede Welt, die ein Store nach
