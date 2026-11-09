@@ -3,12 +3,14 @@
 # clippy and the Rust tests: no ROM, no save game, no secret.
 #
 # Cost: the standard runners of GitHub Actions are free for public repositories, macOS included.
-# That is why gate-macos now runs on every pull request to main and on every push to main (not for
-# a change that only touches Markdown, docs/ or design-system/). While the repository was private,
-# hosted minutes cost money (a push to main ran about $1.80, macOS minutes count ten times), and
-# the workflow ran by hand only. gate-windows stays manual: it is slow (see its timeout), not
-# expensive. The ROM-bound part of the full scripts/gate.sh runs on the maintainer's Mac before a
-# merge (docs/dev-setup.md). Start the workflow by hand when a change needs the Windows runner:
+# That is why gate-macos now runs on every pull request to main and on every push to main, with no
+# path filter: the guards of the gate (ROM data, tokens, version, licenses) must see docs-only
+# changes too, and a required gate-macos check must always report. While the repository was
+# private, hosted minutes cost money (a push to main ran about $1.80, macOS minutes count ten
+# times), and the workflow ran by hand only. gate-windows stays manual: it is slow (see its
+# timeout), not expensive. The ROM-bound part of the full scripts/gate.sh runs on the maintainer's
+# Mac before a merge (docs/dev-setup.md). Start the workflow by hand when a change needs the
+# Windows runner:
 #   gh workflow run ci.yml                  gate-macos only
 #   gh workflow run ci.yml -f windows=true  gate-macos and gate-windows
 name: ci
@@ -16,10 +18,8 @@ name: ci
 on:
   pull_request:
     branches: [main]
-    paths-ignore: ['**.md', 'docs/**', 'design-system/**']
   push:
     branches: [main]
-    paths-ignore: ['**.md', 'docs/**', 'design-system/**']
   workflow_dispatch:
     inputs:
       windows:
@@ -27,11 +27,11 @@ on:
         type: boolean
         default: false
 
-# A newer run for the same pull request (or, for a push or a manual start, the same ref) replaces
-# the run before it.
+# A newer run for the same pull request replaces the run before it. Runs of pushes to main and
+# manual starts are never cancelled, so two quick merges to main each get their result.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
