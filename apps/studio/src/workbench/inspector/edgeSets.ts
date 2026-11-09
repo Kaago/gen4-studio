@@ -1,24 +1,36 @@
 import type { EdgePlace, EdgeSetJson, EdgeSetOp, TilesetDto } from "../../api.world";
+import { t } from "../../i18n";
 import { tileParts } from "../../world/paint/ops";
 
-/** The name of each place in the UI, as the kernel names it in its messages („Ecke innen NW“). */
-export const PLACE_LABEL: Record<EdgePlace, string> = {
-  center: "Mitte",
-  n: "Kante N",
-  e: "Kante O",
-  s: "Kante S",
-  w: "Kante W",
-  outer_nw: "Ecke außen NW",
-  outer_ne: "Ecke außen NO",
-  outer_sw: "Ecke außen SW",
-  outer_se: "Ecke außen SO",
-  inner_nw: "Ecke innen NW",
-  inner_ne: "Ecke innen NO",
-  inner_sw: "Ecke innen SW",
-  inner_se: "Ecke innen SO",
-  diag_nwse: "Diagonale NW–SO",
-  diag_nesw: "Diagonale NO–SW",
-};
+/** The catalog key of each place's name (`workbench:edgeSets.place.<key>`). */
+const PLACE_KEYS = {
+  center: "center",
+  n: "n",
+  e: "e",
+  s: "s",
+  w: "w",
+  outer_nw: "outerNw",
+  outer_ne: "outerNe",
+  outer_sw: "outerSw",
+  outer_se: "outerSe",
+  inner_nw: "innerNw",
+  inner_ne: "innerNe",
+  inner_sw: "innerSw",
+  inner_se: "innerSe",
+  diag_nwse: "diagNwse",
+  diag_nesw: "diagNesw",
+} as const satisfies Record<EdgePlace, string>;
+
+/**
+ * The name of each place in the UI, as the kernel names it in its messages („Ecke innen NW“). Each entry is read from the catalog when it
+ * is accessed, in the language that is shown then (never at module scope).
+ */
+export const PLACE_LABEL: Readonly<Record<EdgePlace, string>> = Object.defineProperties(
+  {} as Record<EdgePlace, string>,
+  Object.fromEntries(
+    (Object.entries(PLACE_KEYS) as [EdgePlace, (typeof PLACE_KEYS)[EdgePlace]][]).map(([place, key]) => [place, { enumerable: true, get: () => t(`workbench:edgeSets.place.${key}`) }]),
+  ),
+);
 
 /**
  * The places in the editor's grid (rule „Kantensatz-Editor“): the 3 × 3 block of the area with its edges and outer corners, the 2 × 2

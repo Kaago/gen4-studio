@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { tilesetEdit, tilesetSave } from "../../api";
 import type { TileBehavior } from "../../api";
 import type { TileChange, TileJson, TileRole, TilesetDto } from "../../api.world";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
 import { Button, Checkbox, InspectorRow, NumberField, Section, SelectField, TextField, checkNumber } from "../../ui/primitives";
 import type { SelectOption } from "../../ui/primitives";
 import { loadNames } from "../../world/scene/tileNames";
@@ -12,21 +14,15 @@ import { useSectionOpen } from "./foldState";
 import styles from "./TileEditor.module.css";
 
 /** The six roles in the order of the field „Rolle“. */
-const ROLES: readonly SelectOption<TileRole>[] = [
-  { value: "ground", label: "Boden" },
-  { value: "wall", label: "Wand" },
-  { value: "ramp", label: "Rampe" },
-  { value: "water", label: "Wasser" },
-  { value: "grass", label: "Gras" },
-  { value: "piece", label: "Teilmodell" },
-];
+const ROLES: readonly TileRole[] = ["ground", "wall", "ramp", "water", "grass", "piece"];
+
+/** The choices of the field „Rolle“, named in the language that is shown when called. */
+const roleOptions = (): SelectOption<TileRole>[] => ROLES.map((role) => ({ value: role, label: translate(`workbench:tileEditor.role.${role}`) }));
 
 /** Where a tile's defaults come from, as a sentence; the synthetic test tileset has none. */
-const ORIGIN: Partial<Record<TileJson["origin"], string>> = {
-  vanilla: "Aus den Vanilla-Karten abgeleitet",
-  unclear: "Nicht eindeutig, Vorgabe Boden",
-  user: "Von dir gesetzt",
-};
+const ORIGINS: ReadonlySet<TileJson["origin"]> = new Set(["vanilla", "unclear", "user"]);
+const originText = (origin: TileJson["origin"]): string | undefined =>
+  ORIGINS.has(origin) ? translate(`workbench:tileEditor.origin.${origin as "vanilla" | "unclear" | "user"}`) : undefined;
 
 /** Bit 7 of the collision byte blocks the cell. */
 const BLOCKED = 0x80;
@@ -41,12 +37,13 @@ const hex2 = (n: number) => `0x${n.toString(16).toUpperCase().padStart(2, "0")}`
  * edge set editor uses it for the wall of all tiles of a set.
  */
 export function WallField({ wall, last, disabled, onCommit }: { wall: number | undefined; last: number; disabled: boolean; onCommit: (wall: number | null) => void }) {
+  const { t } = useTranslation("workbench");
   const [error, setError] = useState<string | undefined>();
   useEffect(() => setError(undefined), [wall]);
   return (
     <TextField
-      label="Wand"
-      placeholder="keine"
+      label={t("tileEditor.wall")}
+      placeholder={t("tileEditor.none")}
       value={wall === undefined ? "" : digitsOf(wall)}
       error={error}
       disabled={disabled}
@@ -58,7 +55,7 @@ export function WallField({ wall, last, disabled, onCommit }: { wall: number | u
           return;
         }
         const checked = checkNumber(text, "hex", 0, last);
-        if (!checked.ok) return setError(`Eine Kachel von 0000 bis ${digitsOf(last)}.`);
+        if (!checked.ok) return setError(t("tileEditor.wallRange", { last: digitsOf(last) }));
         setError(undefined);
         if (checked.value !== wall) onCommit(checked.value);
       }}
@@ -91,6 +88,7 @@ export function TileEditor({
   /** Where the behaviour names come from (tests, the gallery). */
   names?: () => Promise<ReadonlyMap<number, TileBehavior>>;
 }): JSX.Element {
+  const { t } = useTranslation("workbench");
   const [open, toggle] = useSectionOpen("matrixCell:tile", true);
   const tinker = depthAtLeast(depth, "tuefteln");
   const [behaviors, setBehaviors] = useState<ReadonlyMap<number, TileBehavior>>(new Map());
@@ -111,7 +109,7 @@ export function TileEditor({
 
   const pkg = tileset.package;
   const tiles = tileset.tileset.tiles;
-  const t = tiles[tile];
+  const shown = tiles[tile];
   const locked = !tileset.stored || working;
   const digits = digitsOf(tile);
 
@@ -129,54 +127,54 @@ export function TileEditor({
   }
   const edit = (change: Omit<TileChange, "tile">) => void run(() => tilesetEdit(pkg, [{ tile, ...change }]));
 
-  const origin = t ? ORIGIN[t.origin] : undefined;
-  const kindName = t ? behaviors.get(t.kind)?.name : undefined;
+  const origin = shown ? originText(shown.origin) : undefined;
+  const kindName = shown ? behaviors.get(shown.kind)?.name : undefined;
   return (
     <div data-tile-editor="">
-      <Section title={`Kachel ${digits}`} open={open} onToggle={toggle}>
+      <Section title={t("tileEditor.title", { digits })} open={open} onToggle={toggle}>
         <div className={styles.body}>
           {!tileset.stored && (
             <div className={styles.save}>
               <Button kind="secondary" size="s" data-tileset-save="" aria-disabled={working || undefined} onClick={() => void run(() => tilesetSave(pkg))}>
-                Tileset im Projekt anlegen
+                {t("edgeSetEditor.saveTileset")}
               </Button>
-              <p className={styles.note}>Die Vorgaben stehen dann in data/tilesets/{String(pkg).padStart(4, "0")}.json und gelten für alle Welt-Karten dieses Pakets.</p>
+              <p className={styles.note}>{t("tileEditor.saveNote", { package: String(pkg).padStart(4, "0") })}</p>
             </div>
           )}
-          {t === undefined ? (
-            <p className={styles.note}>Das Tileset hat keine Kachel {digits}.</p>
+          {shown === undefined ? (
+            <p className={styles.note}>{t("tileEditor.noTile", { digits })}</p>
           ) : (
             <>
-              <InspectorRow label="Rolle">
-                <SelectField label="Rolle" value={t.role} options={ROLES} disabled={locked} onChange={(role) => role !== t.role && edit({ role })} />
+              <InspectorRow label={t("tileEditor.roleLabel")}>
+                <SelectField label={t("tileEditor.roleLabel")} value={shown.role} options={roleOptions()} disabled={locked} onChange={(role) => role !== shown.role && edit({ role })} />
               </InspectorRow>
               {tinker ? (
-                <InspectorRow label="Gelände" hint={`${hex2(t.kind)}${kindName ? ` ${kindName}` : ""}`}>
-                  <NumberField label="Gelände" value={t.kind} bits={8} base="hex" disabled={locked} onCommit={(kind) => edit({ kind })} />
+                <InspectorRow label={t("tileEditor.terrain")} hint={`${hex2(shown.kind)}${kindName ? ` ${kindName}` : ""}`}>
+                  <NumberField label={t("tileEditor.terrain")} value={shown.kind} bits={8} base="hex" disabled={locked} onCommit={(kind) => edit({ kind })} />
                 </InspectorRow>
               ) : (
-                <InspectorRow label="Gelände">
-                  <SelectField label="Gelände" value={t.kind} options={kinds} disabled={locked} onChange={(kind) => kind !== t.kind && edit({ kind })} />
+                <InspectorRow label={t("tileEditor.terrain")}>
+                  <SelectField label={t("tileEditor.terrain")} value={shown.kind} options={kinds} disabled={locked} onChange={(kind) => kind !== shown.kind && edit({ kind })} />
                 </InspectorRow>
               )}
-              <InspectorRow label="Blockiert">
+              <InspectorRow label={t("tileEditor.blocked")}>
                 <Checkbox
-                  label="Blockiert"
-                  checked={(t.collision & BLOCKED) !== 0}
+                  label={t("tileEditor.blocked")}
+                  checked={(shown.collision & BLOCKED) !== 0}
                   disabled={locked}
-                  onChange={(on) => edit({ collision: on ? t.collision | BLOCKED : t.collision & ~BLOCKED })}
+                  onChange={(on) => edit({ collision: on ? shown.collision | BLOCKED : shown.collision & ~BLOCKED })}
                 />
               </InspectorRow>
               {family === "hgss" && (
-                <InspectorRow label="Schrittgeräusch" hint="0 bis 127">
-                  <NumberField label="Schrittgeräusch" value={t.sound ?? 0} max={127} bits={8} disabled={locked} showBase={tinker} onCommit={(sound) => edit({ sound })} />
+                <InspectorRow label={t("tileEditor.stepSound")} hint={t("inspectorField.range", { max: 127 })}>
+                  <NumberField label={t("tileEditor.stepSound")} value={shown.sound ?? 0} max={127} bits={8} disabled={locked} showBase={tinker} onCommit={(sound) => edit({ sound })} />
                 </InspectorRow>
               )}
-              <InspectorRow label="Wand" hint="Kachelnummer, leer = keine">
-                <WallField wall={t.wall} last={Math.max(0, tiles.length - 1)} disabled={locked} onCommit={(wall) => edit({ wall })} />
+              <InspectorRow label={t("tileEditor.wall")} hint={t("tileEditor.wallHint")}>
+                <WallField wall={shown.wall} last={Math.max(0, tiles.length - 1)} disabled={locked} onCommit={(wall) => edit({ wall })} />
               </InspectorRow>
               {origin && (
-                <p className={styles.note} data-tile-origin={t.origin}>
+                <p className={styles.note} data-tile-origin={shown.origin}>
                   {origin}
                 </p>
               )}

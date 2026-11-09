@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { readScript, saveLevelScript } from "../../api";
 import type { FlagKind, HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "../../api";
 import { FlagField } from "../../flags/FlagField";
@@ -8,10 +9,10 @@ import { Button, Notice, NumberField, Section, SelectField } from "../../ui/prim
 import { id4, termLabel } from "../terms";
 import styles from "./Editor.module.css";
 import { useSectionOpen } from "./foldState";
-import { CONDITION_MAX, ENTRY_SCRIPT_MAX, HEADER_ENTRY_TYPES, HINT_NO_MESSAGES, HINT_NO_MESSAGES_DETAIL, HINT_ZERO_VAR, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, headerEntries, removeEntry, runsDuringMapSetup, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
+import { CONDITION_MAX, ENTRY_SCRIPT_MAX, HEADER_ENTRY_TYPES, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, headerEntries, hintNoMessages, hintNoMessagesDetail, hintZeroVar, removeEntry, runsDuringMapSetup, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
 import type { HeaderEntryType, VarCondition } from "./levelScript";
 import table from "./LevelScriptSection.module.css";
-import { ADOPT_HINT, openScriptNumber } from "./scriptNav";
+import { adoptHint, openScriptNumber } from "./scriptNav";
 
 interface Props {
   header: HeaderSummary;
@@ -42,7 +43,8 @@ const saves = new LevelScriptSaves((file, doc) => saveLevelScript(file, doc));
 
 type Loaded = { project: ProjectInfo | null; file: number; doc: LevelScriptDoc | null };
 
-const TRIGGER_OPTIONS = HEADER_ENTRY_TYPES.map((t) => ({ value: t, label: TRIGGER_LABELS[t] }));
+/** The choices of a trigger field, named in the language that is shown when called. */
+const triggerOptions = () => HEADER_ENTRY_TYPES.map((type) => ({ value: type, label: TRIGGER_LABELS[type] }));
 
 /**
  * The "Level-Script" section of the header editor (spec §8.3): the entries rotom's JSON holds, as rows. Every change is
@@ -51,6 +53,7 @@ const TRIGGER_OPTIONS = HEADER_ENTRY_TYPES.map((t) => ({ value: t, label: TRIGGE
  * section away neither drops the document nor a save that is under way.
  */
 export function LevelScriptSection({ header, levelScriptId, project, adopted, revision, onOpenScript, onCreate, onSaved, isCurrentProject, onError, depth, onShowFlag }: Props) {
+  const { t } = useTranslation("workbench");
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const callbacks = useRef({ onSaved, isCurrentProject, onError });
   callbacks.current = { onSaved, isCurrentProject, onError };
@@ -104,27 +107,27 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
   if (file === 0) {
     return container(
       <div className={styles.actions}>
-        <span className={styles.note}>Kein Level-Script — </span>
+        <span className={styles.note}>{t("levelScriptSection.none")}</span>
         <Button kind="secondary" size="s" disabled={!adopted} onClick={() => void onCreate()}>
-          Anlegen
+          {t("levelScriptSection.create")}
         </Button>
         {!adopted && (
           <span role="note" className={styles.note}>
-            {ADOPT_HINT}
+            {adoptHint()}
           </span>
         )}
       </div>,
     );
   }
-  if (!adopted) return container(<p className={styles.note}>{ADOPT_HINT}</p>);
+  if (!adopted) return container(<p className={styles.note}>{adoptHint()}</p>);
   // What belongs to another file or project (the header changed, another project opened) is not shown.
-  if (loaded === null || loaded.file !== file || loaded.project !== project) return container(<p className={styles.note}>Lade …</p>);
+  if (loaded === null || loaded.file !== file || loaded.project !== project) return container(<p className={styles.note}>{t("levelScriptSection.loading")}</p>);
   if (loaded.doc === null) {
     return container(
       <div className={styles.actions}>
-        <span className={styles.warn}>Datei {id4(file)} ist kein Level-Script</span>
+        <span className={styles.warn}>{t("levelScriptSection.notALevelScript", { file: id4(file) })}</span>
         <Button kind="quiet" size="s" disabled>
-          Als JSON öffnen
+          {t("levelScriptSection.openAsJson")}
         </Button>
       </div>,
     );
@@ -158,7 +161,8 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
   const numberField = (label: string, value: number, max: number, onCommit: (n: number) => void) => (
     <NumberField label={label} value={value} max={max} bits={max > CONDITION_MAX ? 32 : 16} onCommit={onCommit} />
   );
-  const triggerField = (label: string, value: HeaderEntryType, onChange: (t: HeaderEntryType) => void) => <SelectField label={label} value={value} options={TRIGGER_OPTIONS} onChange={onChange} />;
+  const options = triggerOptions();
+  const triggerField = (label: string, value: HeaderEntryType, onChange: (type: HeaderEntryType) => void) => <SelectField label={label} value={value} options={options} onChange={onChange} />;
   // A condition's variable: its name and the picker, in Tüfteln with the number field (`field` names the chip: `var:1`, `var:new`).
   const showVar = onShowFlag ? (n: number) => onShowFlag("var", n) : undefined;
   const varField = (label: string, field: string, value: number, onCommit: (n: number) => void) => (
@@ -172,7 +176,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
   };
   const addCondition = () => {
     // var 0 ends the table in the file: such a row is not added.
-    if (cond.var === 0) return setAddHint(HINT_ZERO_VAR);
+    if (cond.var === 0) return setAddHint(hintZeroVar());
     edit((d) => addVarCondition(d, { var: cond.var, value: cond.value, script_id: cond.script }));
     setCond({ var: 0, value: 0, script: 0 });
   };
@@ -184,8 +188,8 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
         <span className={styles.mono}>
           {termLabel("levelScript")} {id4(file)}
         </span>
-        <Button kind="quiet" size="s" onClick={() => onOpenScript(file)} title={`Zeigt ${termLabel("levelScript")} ${id4(file)} im Panel „Script“ als JSON`}>
-          Als JSON öffnen
+        <Button kind="quiet" size="s" onClick={() => onOpenScript(file)} title={t("levelScriptSection.openAsJsonTitle", { file: id4(file) })}>
+          {t("levelScriptSection.openAsJson")}
         </Button>
       </div>
       {hints.length > 0 && (
@@ -194,15 +198,15 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
             {hints.map((hint) => (
               <div key={hint}>{hint}</div>
             ))}
-            <div>Nicht gespeichert, bis das Level-Script gültig ist.</div>
+            <div>{t("levelScriptSection.notSaved")}</div>
           </Notice>
         </div>
       )}
       <div className={table.scroll}>
-        <table aria-label="Kopfeinträge" className={table.table}>
+        <table aria-label={t("levelScriptSection.headerEntries")} className={table.table}>
           <thead>
             <tr>
-              <th>Auslöser</th>
+              <th>{t("levelScriptSection.trigger")}</th>
               <th>{termLabel("script")}</th>
               <th />
             </tr>
@@ -211,23 +215,23 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
             {entries.length === 0 && (
               <tr>
                 <td colSpan={3} className={table.empty}>
-                  Keine Kopfeinträge.
+                  {t("levelScriptSection.noHeaderEntries")}
                 </td>
               </tr>
             )}
             {entries.map((entry, i) => (
               <tr key={i}>
                 <td>
-                  {triggerField(`Auslöser ${i + 1}`, entry.type, (t) => edit((d) => setEntryType(d, i, t)))}
+                  {triggerField(t("levelScriptSection.triggerN", { n: i + 1 }), entry.type, (type) => edit((d) => setEntryType(d, i, type)))}
                   {runsDuringMapSetup(entry.type) && (
-                    <p role="note" title={HINT_NO_MESSAGES_DETAIL} className={`${styles.warn} ${table.hint}`}>
-                      {HINT_NO_MESSAGES}
+                    <p role="note" title={hintNoMessagesDetail()} className={`${styles.warn} ${table.hint}`}>
+                      {hintNoMessages()}
                     </p>
                   )}
                 </td>
                 <td>
                   {entry.type === "on_var_condition" ? (
-                    <span className={table.empty}>siehe unten</span>
+                    <span className={table.empty}>{t("levelScriptSection.seeBelow")}</span>
                   ) : (
                     numberField(`${termLabel("script")} ${i + 1}`, entry.script_id ?? 0, ENTRY_SCRIPT_MAX, (n) => edit((d) => setEntryScript(d, i, n)))
                   )}
@@ -235,10 +239,10 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
                 <td>
                   <div className={table.buttons}>
                     <Button kind="quiet" size="s" disabled={entry.type === "on_var_condition"} onClick={() => openNumber(entry.script_id ?? 0)}>
-                      Öffnen
+                      {t("levelScriptSection.open")}
                     </Button>
                     <Button kind="quiet" size="s" onClick={() => edit((d) => removeEntry(d, { list: "header_entries", index: i }))}>
-                      Entfernen
+                      {t("levelScriptSection.remove")}
                     </Button>
                   </div>
                 </td>
@@ -248,18 +252,18 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
         </table>
       </div>
       <div className={table.add}>
-        {triggerField("Neuer Auslöser", type, setType)}
-        {type !== "on_var_condition" && numberField(`Neues ${termLabel("script")}`, script, ENTRY_SCRIPT_MAX, setScript)}
+        {triggerField(t("levelScriptSection.newTrigger"), type, setType)}
+        {type !== "on_var_condition" && numberField(t("levelScriptSection.newScript"), script, ENTRY_SCRIPT_MAX, setScript)}
         <Button kind="secondary" size="s" onClick={addEntry}>
-          Eintrag hinzufügen
+          {t("levelScriptSection.addEntry")}
         </Button>
       </div>
       <div className={table.scroll}>
-        <table aria-label="Variablen-Bedingungen" className={table.table}>
+        <table aria-label={t("levelScriptSection.varConditions")} className={table.table}>
           <thead>
             <tr>
-              <th>Variable</th>
-              <th>Wert</th>
+              <th>{t("levelScriptSection.variable")}</th>
+              <th>{t("levelScriptSection.value")}</th>
               <th>{termLabel("script")}</th>
               <th />
             </tr>
@@ -268,22 +272,22 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
             {conditions.length === 0 && (
               <tr>
                 <td colSpan={4} className={table.empty}>
-                  Keine Variablen-Bedingungen.
+                  {t("levelScriptSection.noVarConditions")}
                 </td>
               </tr>
             )}
             {conditions.map((c, i) => (
               <tr key={i}>
-                <td>{varField(`Variable ${i + 1}`, `var:${i + 1}`, c.var, (n) => patchCondition(i, { var: n }))}</td>
-                <td>{numberField(`Wert ${i + 1}`, c.value, CONDITION_MAX, (n) => patchCondition(i, { value: n }))}</td>
-                <td>{numberField(`${termLabel("script")} der Bedingung ${i + 1}`, c.script_id, CONDITION_MAX, (n) => patchCondition(i, { script_id: n }))}</td>
+                <td>{varField(t("levelScriptSection.variableN", { n: i + 1 }), `var:${i + 1}`, c.var, (n) => patchCondition(i, { var: n }))}</td>
+                <td>{numberField(t("levelScriptSection.valueN", { n: i + 1 }), c.value, CONDITION_MAX, (n) => patchCondition(i, { value: n }))}</td>
+                <td>{numberField(t("levelScriptSection.conditionScriptN", { n: i + 1 }), c.script_id, CONDITION_MAX, (n) => patchCondition(i, { script_id: n }))}</td>
                 <td>
                   <div className={table.buttons}>
                     <Button kind="quiet" size="s" onClick={() => openNumber(c.script_id)}>
-                      Öffnen
+                      {t("levelScriptSection.open")}
                     </Button>
                     <Button kind="quiet" size="s" onClick={() => edit((d) => removeEntry(d, { list: "var_conditions", index: i }))}>
-                      Entfernen
+                      {t("levelScriptSection.remove")}
                     </Button>
                   </div>
                 </td>
@@ -293,11 +297,11 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
         </table>
       </div>
       <div className={table.add}>
-        {varField("Neue Variable", "var:new", cond.var, (n) => setCond((c) => ({ ...c, var: n })))}
-        {numberField("Neuer Wert", cond.value, CONDITION_MAX, (n) => setCond({ ...cond, value: n }))}
-        {numberField(`${termLabel("script")} der neuen Bedingung`, cond.script, CONDITION_MAX, (n) => setCond({ ...cond, script: n }))}
+        {varField(t("levelScriptSection.newVariable"), "var:new", cond.var, (n) => setCond((c) => ({ ...c, var: n })))}
+        {numberField(t("levelScriptSection.newValue"), cond.value, CONDITION_MAX, (n) => setCond({ ...cond, value: n }))}
+        {numberField(t("levelScriptSection.newConditionScript"), cond.script, CONDITION_MAX, (n) => setCond({ ...cond, script: n }))}
         <Button kind="secondary" size="s" onClick={addCondition}>
-          Bedingung hinzufügen
+          {t("levelScriptSection.addCondition")}
         </Button>
       </div>
       {addHint !== null && (

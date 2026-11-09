@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ScriptFiles } from "../../data/useDataArea";
 import { Button, DSScreen, Dialog, Notice } from "../../ui/primitives";
 import { pages } from "../text/textModel";
@@ -28,6 +29,7 @@ export interface DialogEditorProps {
  * dialog is read again; ⌘Z in the app changes `revision` and the editor reads it once more. Esc and „Schließen“ close it.
  */
 export function DialogEditor({ target, revision, onClose, onChanged, onError, scriptFiles }: DialogEditorProps) {
+  const { t } = useTranslation("workbench");
   const { dialog, error, reload } = useDialog(target, revision);
   const [chosen, setChosen] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -68,24 +70,24 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
   if (error !== null) {
     body = <Notice kind="error">{error}</Notice>;
   } else if (dialog === null) {
-    body = <p className={styles.note}>Lese …</p>;
+    body = <p className={styles.note}>{t("dialogEditor.reading")}</p>;
   } else if (source?.kind !== "local") {
     body = <Notice kind="info">{dialogSummary(dialog)}</Notice>;
   } else if (messages.length === 0) {
-    body = <p className={styles.note}>Das Script dieser Figur zeigt keine Nachricht.</p>;
+    body = <p className={styles.note}>{t("dialogEditor.noMessage")}</p>;
   } else {
     body = (
       <div className={styles.columns}>
         <DialogMessages kind={target.kind} distinct={distinct} currentKey={currentKey} onChoose={choose} onDraft={(key, text) => setDraft({ key, text })} writes={writes} />
         <div className={styles.preview}>
-          <span className={styles.caption}>{current === null ? "" : `Nachricht ${current.index}`}</span>
+          <span className={styles.caption}>{current === null ? "" : t("dialogEditor.message", { index: current.index })}</span>
           <DSScreen variant={variant} pages={shown} page={pageIndex} scale={1} />
           <div className={styles.pager}>
-            <Button kind="quiet" size="s" aria-label="Vorige Seite" disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)}>
+            <Button kind="quiet" size="s" aria-label={t("dialogEditor.previousPage")} disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)}>
               ‹
             </Button>
-            <span className={styles.page}>{`Seite ${pageIndex + 1} von ${total}`}</span>
-            <Button kind="quiet" size="s" aria-label="Nächste Seite" disabled={pageIndex >= total - 1} onClick={() => setPage(pageIndex + 1)}>
+            <span className={styles.page}>{t("dialogEditor.page", { page: pageIndex + 1, total })}</span>
+            <Button kind="quiet" size="s" aria-label={t("dialogEditor.nextPage")} disabled={pageIndex >= total - 1} onClick={() => setPage(pageIndex + 1)}>
               ›
             </Button>
           </div>
@@ -99,9 +101,9 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
       open
       size="wide"
       onOpenChange={(open) => !open && onClose()}
-      title={`Dialog von ${target.title}`}
+      title={t("dialogEditor.title", { title: target.title })}
       data={{ "data-dialog-editor": "" }}
-      actions={[{ label: "Schließen", kind: "primary", onClick: onClose }]}
+      actions={[{ label: t("dialogEditor.close"), kind: "primary", onClick: onClose }]}
     >
       <div className={styles.layout}>
         {notice !== null && <Notice kind={notice.kind}>{notice.text}</Notice>}

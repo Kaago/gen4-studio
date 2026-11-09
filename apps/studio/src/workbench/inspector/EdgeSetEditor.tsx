@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { tilesetEdit, tilesetSave } from "../../api";
 import type { EdgePlace, EdgeSetJson, EdgeSetOp, TileChange, TilesetDto } from "../../api.world";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
 import { Button, InspectorRow, NumberField, Section, Segmented, TextField, Tooltip } from "../../ui/primitives";
 import type { SegmentedOption } from "../../ui/primitives";
 import { tileImage } from "../../world/paint/paletteImages";
@@ -18,9 +20,10 @@ import styles from "./EdgeSetEditor.module.css";
 export const RISE_MIN = 1;
 export const RISE_MAX = 8;
 
-const BLOCKS: readonly SegmentedOption<"upper" | "lower">[] = [
-  { value: "upper", label: "Obere Zelle" },
-  { value: "lower", label: "Untere Zelle" },
+/** Which cell of the cliff is blocked, in the language that is shown when called. */
+const blocks = (): SegmentedOption<"upper" | "lower">[] => [
+  { value: "upper", label: translate("workbench:edgeSetEditor.upperCell") },
+  { value: "lower", label: translate("workbench:edgeSetEditor.lowerCell") },
 ];
 
 /** The grid in its three blocks: 3 × 3 (area, edges, outer corners), 2 × 2 (inner corners), the row of the diagonals. */
@@ -31,17 +34,18 @@ const GRID_BLOCKS: EdgePlace[][][] = [PLACE_GRID.slice(0, 3), PLACE_GRID.slice(3
 /** „13 von 13 Plätzen · Diagonalen 0 von 2“. */
 function countText(set: EdgeSetJson): string {
   const c = completeness(set);
-  return `${c.places} von 13 Plätzen · Diagonalen ${c.diagonals} von 2`;
+  return translate("workbench:edgeSetEditor.count", { places: c.places, diagonals: c.diagonals });
 }
 
 /** „2 Kacheln“, „1 Kachel“, „keine Kachel“. */
-const tilesWord = (n: number) => (n === 0 ? "keine Kachel" : n === 1 ? "1 Kachel" : `${n} Kacheln`);
+const tilesWord = (n: number) => (n === 0 ? translate("workbench:edgeSetEditor.noTile") : translate("workbench:edgeSetEditor.tiles", { count: n }));
 
 /** A free proposal for a new set's name: „Satz <n>“ from the number of sets on. */
 function proposedName(sets: readonly EdgeSetJson[]): string {
+  const name = (n: number) => translate("workbench:edgeSetEditor.proposedName", { n });
   let n = sets.length + 1;
-  while (sets.some((s) => s.name === `Satz ${n}`)) n += 1;
-  return `Satz ${n}`;
+  while (sets.some((s) => s.name === name(n))) n += 1;
+  return name(n);
 }
 
 /**
@@ -66,7 +70,7 @@ export function useEdgeSetEdits(tileset: TilesetDto | null | undefined): {
   const edit = useCallback(async (changes: TileChange[], sets: EdgeSetOp[]) => {
     const base = current.current;
     if (!base) return;
-    if (running.current) throw new Error("Die vorige Änderung am Kantensatz läuft noch.");
+    if (running.current) throw new Error(translate("workbench:edgeSetEditor.stillRunning"));
     running.current = true;
     setBusy(true);
     try {
@@ -130,6 +134,7 @@ export function EdgeSetEditor({
   /** Where the pictures come from (the gallery has none). */
   image?: (pkg: number, texture: string) => Promise<ImageBitmap | null>;
 }): JSX.Element {
+  const { t } = useTranslation("workbench");
   const [open, toggle] = useSectionOpen("matrixCell:edgeSets", true);
   const tinker = depthAtLeast(depth, "tuefteln");
   const group = useId();
@@ -168,8 +173,8 @@ export function EdgeSetEditor({
 
   function create() {
     const wanted = name.trim();
-    if (wanted === "") return setNameError("Ein Kantensatz braucht einen Namen.");
-    if (sets.some((s) => s.name === wanted)) return setNameError(`Einen Kantensatz „${wanted}“ gibt es schon.`);
+    if (wanted === "") return setNameError(t("edgeSetEditor.nameMissing"));
+    if (sets.some((s) => s.name === wanted)) return setNameError(t("edgeSetEditor.nameTaken", { name: wanted }));
     void run(
       () => edit([], [{ put: newSet(wanted, tile) }]),
       () => onActive(wanted),
@@ -179,11 +184,11 @@ export function EdgeSetEditor({
   /** The face of a token: the picture of its tile turned like the mesh, else its role's colour. */
   function face(token: string) {
     const parts = tileParts(token);
-    const t = parts ? tiles[Number.parseInt(parts.digits, 16)] : undefined;
-    if (!parts || !t) return <span className={styles.unknown} aria-hidden="true" />;
-    return <TileFace bitmap={pictures.get(t.texture) ?? null} role={t.role} rotate={parts.rotate} flip={parts.flip} />;
+    const found = parts ? tiles[Number.parseInt(parts.digits, 16)] : undefined;
+    if (!parts || !found) return <span className={styles.unknown} aria-hidden="true" />;
+    return <TileFace bitmap={pictures.get(found.texture) ?? null} role={found.role} rotate={parts.rotate} flip={parts.flip} />;
   }
-  const tileWord = (token: string) => (tinker ? token : `Kachel ${tileParts(token)?.digits ?? token}`);
+  const tileWord = (token: string) => (tinker ? token : t("edgeSetEditor.tile", { digits: tileParts(token)?.digits ?? token }));
 
   // The wall all tiles of the set share, the places and the outside (empty when they differ or have none).
   const wallTiles = set ? setTiles(set) : [];
@@ -193,23 +198,23 @@ export function EdgeSetEditor({
 
   return (
     <div data-edge-sets="">
-      <Section title="Kantensätze" open={open} onToggle={toggle}>
+      <Section title={t("edgeSetEditor.title")} open={open} onToggle={toggle}>
         <div className={styles.body}>
           {!tileset.stored && (
             <div className={styles.save}>
               <Button kind="secondary" size="s" data-tileset-save="" aria-disabled={working || undefined} onClick={() => void run(save)}>
-                Tileset im Projekt anlegen
+                {t("edgeSetEditor.saveTileset")}
               </Button>
-              <p className={styles.note}>Kantensätze stehen in data/tilesets/{String(tileset.package).padStart(4, "0")}.json; erst dann lassen sie sich anlegen und ändern.</p>
+              <p className={styles.note}>{t("edgeSetEditor.saveNote", { package: String(tileset.package).padStart(4, "0") })}</p>
             </div>
           )}
           {sets.length === 0 ? (
-            <p className={styles.note}>Noch kein Kantensatz. Ein neuer nimmt die gewählte Palettenkachel als Außenfläche.</p>
+            <p className={styles.note}>{t("edgeSetEditor.none")}</p>
           ) : (
             <ul className={styles.rows}>
               {sets.map((s) => (
                 <li key={s.name} className={styles.row} data-edge-set={s.name}>
-                  <input type="radio" className={styles.radio} name={group} aria-label="Aktiv" checked={s.name === active} onChange={() => onActive(s.name)} />
+                  <input type="radio" className={styles.radio} name={group} aria-label={t("edgeSetEditor.active")} checked={s.name === active} onChange={() => onActive(s.name)} />
                   <span className={styles.name}>{s.name}</span>
                   <span className={styles.count}>{countText(s)}</span>
                 </li>
@@ -219,7 +224,7 @@ export function EdgeSetEditor({
           <div className={styles.add}>
             <div className={styles.grow}>
               <TextField
-                label="Name des neuen Kantensatzes"
+                label={t("edgeSetEditor.newName")}
                 value={name}
                 error={nameError}
                 disabled={locked}
@@ -231,13 +236,13 @@ export function EdgeSetEditor({
               />
             </div>
             <Button kind="secondary" size="s" disabled={locked} onClick={create}>
-              Neuer Kantensatz
+              {t("edgeSetEditor.add")}
             </Button>
           </div>
           <div data-cliff-rise="">
-            <InspectorRow label="Stufen der Klippe" hint="1 bis 8, je Stufe 8 E">
+            <InspectorRow label={t("edgeSetEditor.rise")} hint={t("edgeSetEditor.riseHint")}>
               <NumberField
-                label="Stufen der Klippe"
+                label={t("edgeSetEditor.rise")}
                 value={rise}
                 min={RISE_MIN}
                 max={RISE_MAX}
@@ -286,39 +291,39 @@ export function EdgeSetEditor({
                 ))}
               </div>
               {place === null ? (
-                <p className={styles.note}>Einen Platz wählen, dann eine Kachel in der Palette: sie kommt mit ihrer Drehung (Z, X) in den Platz.</p>
+                <p className={styles.note}>{t("edgeSetEditor.choosePlace")}</p>
               ) : (
                 <div className={styles.variants} data-edge-variants={place}>
                   <span className={styles.variantsTitle}>{PLACE_LABEL[place]}</span>
-                  {variants.length === 0 && <p className={styles.note}>Noch keine Kachel: ein Klick in der Palette hängt eine an.</p>}
+                  {variants.length === 0 && <p className={styles.note}>{t("edgeSetEditor.noVariant")}</p>}
                   <div className={styles.chips}>
                     {variants.map((token) => (
                       <span key={token} className={styles.chip} data-edge-variant={token}>
                         <span className={styles.chipFace}>{face(token)}</span>
                         {tileWord(token)}
-                        <Button kind="quiet" size="s" aria-label={`${tileWord(token)} entfernen`} disabled={locked} onClick={() => put(withoutVariant(set, place, token))}>
-                          Entfernen
+                        <Button kind="quiet" size="s" aria-label={t("edgeSetEditor.removeTile", { tile: tileWord(token) })} disabled={locked} onClick={() => put(withoutVariant(set, place, token))}>
+                          {t("edgeSetEditor.remove")}
                         </Button>
                       </span>
                     ))}
                   </div>
                 </div>
               )}
-              <InspectorRow label="Außen">
+              <InspectorRow label={t("edgeSetEditor.outside")}>
                 <div className={styles.inline}>
                   <span className={styles.chipFace}>{face(set.outside)}</span>
                   <span className={styles.name}>{tileWord(set.outside)}</span>
                   <Button kind="quiet" size="s" data-edge-outside="" disabled={locked || tile === set.outside} onClick={() => put({ ...set, outside: tile })}>
-                    Aktive Kachel übernehmen
+                    {t("edgeSetEditor.useActiveTile")}
                   </Button>
                 </div>
               </InspectorRow>
               <div data-edge-block="">
-                <InspectorRow label="Blockiert an der Klippe">
+                <InspectorRow label={t("edgeSetEditor.blocked")}>
                   <Segmented
-                    ariaLabel="Blockiert an der Klippe"
+                    ariaLabel={t("edgeSetEditor.blocked")}
                     size="s"
-                    options={BLOCKS.map((o) => ({ ...o, disabled: locked }))}
+                    options={blocks().map((o) => ({ ...o, disabled: locked }))}
                     value={set.block ?? "upper"}
                     onChange={(block) => {
                       const { block: _old, ...rest } = set;
@@ -328,12 +333,12 @@ export function EdgeSetEditor({
                 </InspectorRow>
               </div>
               <div data-edge-wall="">
-                <InspectorRow label="Wand" hint="Für jede Kachel des Satzes, auch Außen; Kachelnummer, leer = keine">
+                <InspectorRow label={t("edgeSetEditor.wall")} hint={t("edgeSetEditor.wallHint")}>
                   <WallField
                     wall={commonWall}
                     last={Math.max(0, tiles.length - 1)}
                     disabled={locked || wallTiles.length === 0}
-                    onCommit={(wall) => put(set, wallTiles.map((t) => ({ tile: t, wall })))}
+                    onCommit={(wall) => put(set, wallTiles.map((index) => ({ tile: index, wall })))}
                   />
                 </InspectorRow>
               </div>
@@ -352,7 +357,7 @@ export function EdgeSetEditor({
                     )
                   }
                 >
-                  Satz entfernen
+                  {t("edgeSetEditor.removeSet")}
                 </Button>
               </div>
             </div>

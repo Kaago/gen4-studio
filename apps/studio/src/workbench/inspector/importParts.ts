@@ -1,130 +1,145 @@
+import i18next from "i18next";
 import type { BudgetState, MapPart, PartMessage, PartReport, TexturePreview, TmjError, TmjImportReport } from "../../api";
+import { t } from "../../i18n";
 import type { PickerItem } from "../../ui/primitives";
 import type { CheckState } from "../../ui/primitives/CheckList";
-import { id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 
-/** The German name of a map part. */
-export const PART_NAME: Record<MapPart, string> = {
-  model: "Modell",
-  permissions: "Kollision",
-  buildings: "Gebäude",
-  bdhc: "BDHC (Laufhöhen)",
-  bgs: "Hintergrundklang",
-  whole: "Ganze Karte",
-  textures: "Texturen",
+/** The name of a map part in the language that is shown. */
+export const partName = (part: MapPart): string => t(`workbench:importParts.partName.${part}`);
+
+/**
+ * The catalog key of the sentence of every code the part checks give (`g4_kernel::map_import::PartCode`; the Rust test
+ * `commands::map_import::tests::every_part_code_has_its_german_sentence` holds this list against `PartCode::ALL`, one line per code). The
+ * sentences live in `workbench:importParts.part.<key>`: an error or a warning with its way out, a hint as a note. In a sentence `{n}` is
+ * argument n as the kernel gives it, `{n:num}` a number in the digits of the language („65.000“, "65,000"), `{n:family}` a game family,
+ * `{n:dec}` a decimal number with the language's decimal mark („7,6“, "7.6"), `{n:ignored}` the parts of a model left out (tokens joined
+ * by `,`, each as a word of the language). `fill` puts them in; i18next does not (it interpolates `{{name}}`).
+ */
+export const PART_TEXTS: Readonly<Record<string, string>> = {
+  "model.invalid": "modelInvalid",
+  "model.blocks": "modelBlocks",
+  "model.count": "modelCount",
+  "model.too-big": "modelTooBig",
+  "model.unaligned": "modelUnaligned",
+  "model.texture-removed": "modelTextureRemoved",
+  "model.bdhc-unchanged": "modelBdhcUnchanged",
+  "model.textures-missing": "modelTexturesMissing",
+  "model.textures-unreadable": "modelTexturesUnreadable",
+  "model.textures-no-header": "modelTexturesNoHeader",
+  "model.textures-unchecked": "modelTexturesUnchecked",
+  "permissions.size": "permissionsSize",
+  "buildings.size": "buildingsSize",
+  "buildings.unreadable": "buildingsUnreadable",
+  "bdhc.magic": "bdhcMagic",
+  "bdhc.short": "bdhcShort",
+  "bdhc.too-big": "bdhcTooBig",
+  "bdhc.counters": "bdhcCounters",
+  "bgs.family": "bgsFamily",
+  "bgs.short": "bgsShort",
+  "bgs.signature": "bgsSignature",
+  "bgs.length": "bgsLength",
+  "whole.unreadable": "wholeUnreadable",
+  "whole.invalid": "wholeInvalid",
+  "whole.bgs-dropped": "wholeBgsDropped",
+  "whole.foreign": "wholeForeign",
+  "whole.blank-bgs": "wholeBlankBgs",
+  "whole.buildings-tail": "wholeBuildingsTail",
+  "part.duplicate": "partDuplicate",
+  "bdhc.structure": "bdhcStructure",
+  "model.source-unreadable": "modelSourceUnreadable",
+  "model.file-missing": "modelFileMissing",
+  "model.file-outside": "modelFileOutside",
+  "model.no-geometry": "modelNoGeometry",
+  "model.material-untextured": "modelMaterialUntextured",
+  "model.uv-missing": "modelUvMissing",
+  "model.out-of-range": "modelOutOfRange",
+  "model.uv-range": "modelUvRange",
+  "model.texture-count": "modelTextureCount",
+  "model.converted": "modelConverted",
+  "model.faces-dropped": "modelFacesDropped",
+  "model.parts-ignored": "modelPartsIgnored",
+  "part.no-area": "partNoArea",
+  "texture.side": "textureSide",
+  "texture.name": "textureName",
+  "texture.taken": "textureTaken",
+  "texture.pack-full": "texturePackFull",
+  "texture.unreadable": "textureUnreadable",
+  "texture.new": "textureNew",
+  "texture.reused": "textureReused",
+  "texture.vram-high": "textureVramHigh",
+};
+
+/** The catalog key of each game family's word (`workbench:importParts.family.<key>`). */
+const FAMILY_KEYS: Readonly<Record<string, "pt" | "hgss" | "dp">> = { Pt: "pt", Hgss: "hgss", Dp: "dp" };
+
+/** The catalog key of each token of `model.parts-ignored` (`workbench:importParts.ignored.<key>`; an unknown token stays as it is). */
+const IGNORED_KEYS: Readonly<Record<string, "lines" | "points" | "animations" | "skins" | "cameras" | "lights" | "vertexColours" | "textureOptions">> = {
+  lines: "lines",
+  points: "points",
+  animations: "animations",
+  skins: "skins",
+  cameras: "cameras",
+  lights: "lights",
+  "vertex-colours": "vertexColours",
+  "texture-options": "textureOptions",
 };
 
 /**
- * The German sentence of every code the part checks give (`g4_kernel::map_import::PartCode`; the Rust test
- * `commands::map_import::tests::every_part_code_has_its_german_sentence` holds this list against `PartCode::ALL`): an error or a warning
- * with its way out, a hint as a note. In a sentence `{n}` is argument n as the kernel gives it, `{n:num}` a number in German digits
- * („65.000“), `{n:family}` a game family, `{n:dec}` a decimal number with a German comma („7,6“), `{n:ignored}` the parts of a model left out (tokens joined by `,`, each as a German word).
+ * What a part check says, as the dialog shows it: the sentence of its code in the language that is shown; the kernel's (English)
+ * sentence for a code it does not know.
  */
-export const PART_TEXTS: Readonly<Record<string, string>> = {
-  "model.invalid": "Die Datei ist kein gültiges NSBMD-Modell ({0}). Wähle ein Kartenmodell im NSBMD-Format.",
-  "model.blocks": "Die Datei hat {0:num} Modellblöcke (MDL0), das Spiel braucht genau einen. Exportiere das Modell mit genau einem Modellblock.",
-  "model.count": "Der Modellblock enthält {0:num} Modelle, das Spiel braucht genau eines. Exportiere nur das Kartenmodell.",
-  "model.too-big": "Das Modell ist {0:num} Byte groß, erlaubt sind {1:num}. Wähle ein kleineres Modell.",
-  "model.unaligned": "Das Modell ist {0:num} Byte groß, keine durch 4 teilbare Länge. Exportiere es neu, wenn die Karte im Spiel falsch aussieht.",
-  "model.texture-removed": "Der eingebettete Texturblock ({0:num} Byte) wird entfernt; die Karte nutzt die Texturen ihres Gebiets.",
-  "model.bdhc-unchanged": "BDHC bleibt unverändert, Laufhöhen prüfen.",
-  "model.textures-missing": "{0:num} Texturnamen fehlen im Gebiets-Paket {1} ({2}). Sieh dir die Karte nach dem Import in der Szene an.",
-  "model.textures-unreadable": "Texturnamen nicht geprüft: die Materialien des Modells sind nicht lesbar. Sieh dir die Karte nach dem Import in der Szene an.",
-  "model.textures-no-header": "Texturnamen nicht geprüft: kein Header zeigt diese Karte. Sieh dir die Karte nach dem Import in der Szene an.",
-  "model.textures-unchecked": "Texturnamen nicht geprüft ({0}). Sieh dir die Karte nach dem Import in der Szene an.",
-  "permissions.size": "Die Kollision ist {0:num} Byte groß, erwartet sind genau {1:num}. Wähle eine vollständige .per-Datei.",
-  "buildings.size": "Die Gebäude sind {0:num} Byte groß, kein Vielfaches von {1:num}. Wähle eine vollständige .bld-Datei.",
-  "buildings.unreadable": "Die Gebäude sind nicht lesbar. Wähle eine andere .bld-Datei.",
-  "bdhc.magic": "Die Datei beginnt nicht mit „BDHC“ und ist kein Terrain. Wähle eine .bdhc-Datei.",
-  "bdhc.short": "Das Terrain ist {0:num} Byte groß, kürzer als sein Kopf mit {1:num} Byte. Wähle eine vollständige .bdhc-Datei.",
-  "bdhc.too-big": "Die Terraindaten sind {0:num} Byte groß, erlaubt sind {1:num}. Wähle ein Terrain mit weniger Flächen.",
-  "bdhc.counters": "Das Terrain ist {0:num} Byte groß, seine Zähler beschreiben {1:num}. Wähle eine unbeschädigte .bdhc-Datei.",
-  "bgs.family": "Hintergrundklang gibt es nur in HeartGold und SoulSilver. Lass diesen Teil weg.",
-  "bgs.short": "Der Hintergrundklang ist {0:num} Byte groß, kürzer als 4. Wähle eine vollständige .bgs-Datei.",
-  "bgs.signature": "Der Hintergrundklang hat die Kennung {0} statt {1}. Wähle eine .bgs-Datei aus HeartGold oder SoulSilver.",
-  "bgs.length": "Der Hintergrundklang ist {0:num} Byte groß, nennt aber {1:num}. Wähle eine unbeschädigte .bgs-Datei.",
-  "whole.unreadable": "Die Datei ist keine Kartendatei von Platin oder HeartGold/SoulSilver ({1}). Wähle eine Kartendatei (.bin) eines dieser Spiele.",
-  "whole.invalid": "Die Kartendatei ist ungültig ({0}). Wähle eine unbeschädigte Kartendatei.",
-  "whole.bgs-dropped": "Der Hintergrundklang ({0:num} Byte) fällt weg, Platin hat keinen. Übernimm die Karte ohne ihn oder wähle eine andere.",
-  "whole.foreign": "Kartendatei von {0:family}: ihre Gebäude bleiben weg, außer du schaltest „Gebäude übernehmen“ ein.",
-  "whole.blank-bgs": "Ein leerer Hintergrundklang-Block wird angelegt.",
-  "whole.buildings-tail": "{0:num} Byte nach den Gebäuden bleiben erhalten.",
-  "part.duplicate": "Für diesen Teil sind mehrere Dateien gewählt. Wähle je Teil nur eine Datei.",
-  "bdhc.structure": "Das Terrain ist beschädigt ({0}). Wähle eine unbeschädigte .bdhc-Datei.",
-  "model.source-unreadable": "Die Datei ist kein lesbares {0}-Modell ({1}). Exportiere das Modell neu als OBJ oder glTF.",
-  "model.file-missing": "Die Datei {0}, auf die das Modell verweist, fehlt. Lege sie neben das Modell oder exportiere es neu.",
-  "model.file-outside": "Das Modell verweist auf {0} außerhalb seines Ordners. Lege Material und Texturen in den Ordner des Modells.",
-  "model.no-geometry": "Das Modell enthält keine Flächen. Wähle ein Modell mit Flächen oder eine größere Einheit.",
-  "model.material-untextured": "Das Material „{0}“ hat keine Textur, und das Gebiets-Paket hat keine Textur dieses Namens. Gib dem Material eine PNG-Textur.",
-  "model.uv-missing": "Flächen mit dem Material „{0}“ haben keine Texturkoordinaten. Exportiere das Modell mit UV.",
-  "model.out-of-range": "Eine Ecke liegt bei ({0}, {1}, {2}), außerhalb von {3} bis {4} Einheiten. Verkleinere das Modell oder wähle eine kleinere Einheit.",
-  "model.uv-range": "Die Textur {0} läuft auf einer Fläche über {2:num} Texel in {1}; das Spiel trägt höchstens 2.047. Teile die Fläche oder wiederhole die Textur seltener.",
-  "model.texture-count": "Das Modell nutzt {0:num} Texturen, ein Kartenmodell trägt höchstens {1:num}. Fasse Materialien zusammen.",
-  "model.converted": "{0}-Modell umgewandelt: {1:num} Flächen, {2:num} Vierecke, {3:num} Dreiecke, {4:num} Streifen.",
-  "model.faces-dropped": "{0:num} Flächen fallen weg: nach dem Runden auf ganze Einheiten haben sie keine Fläche mehr.",
-  "model.parts-ignored": "Nicht übernommen: {0:ignored}.",
-  "part.no-area": "Kein Header zeigt die Karte {0}; ohne Gebiet gibt es kein Texturpaket und kein Licht. Setze die Karte zuerst in eine Matrix mit Header.",
-  "texture.side": "Die Textur {0} ist {1} × {2} Pixel groß; jede Seite muss eine Zweierpotenz von 8 bis 1.024 sein. Skaliere das Bild.",
-  "texture.name": "„{0}“ taugt nicht als Texturname (höchstens 16 Zeichen, ASCII ohne Leerzeichen). Benenne die Datei um.",
-  "texture.taken": "Der Name {1} ist im Gebiets-Paket schon vergeben. Benenne die Datei um; Ersetzen gibt es nicht.",
-  "texture.pack-full": "Das Gebiets-Paket ist voll ({0}: {1:num}, höchstens {2:num}). Nimm weniger oder kleinere Texturen.",
-  "texture.unreadable": "Das Bild {0} lässt sich nicht lesen ({1}). Wähle ein PNG.",
-  "texture.new": "Neue Textur {0}: {1} × {2}, {3} Farben, mittlerer Farbfehler {4:dec}.",
-  "texture.reused": "Die Textur {0} steht schon im Gebiets-Paket und wird benutzt, nicht neu angehängt.",
-  "texture.vram-high": "Gebiet {0}: die Texturen belegen {1:num} B VRAM, mehr als das größte Vanilla-Gebiet ({2:num} B). Prüfe die Karte im Spiel.",
-};
-
-const FAMILY_WORDS: Readonly<Record<string, string>> = { Pt: "Platin", Hgss: "HeartGold/SoulSilver", Dp: "Diamant/Perl" };
-
-/** The German word of each token of `model.parts-ignored` (an unknown token stays as it is). */
-const IGNORED_WORDS: Readonly<Record<string, string>> = {
-  lines: "Linien",
-  points: "Punkte",
-  animations: "Animationen",
-  skins: "Skelette",
-  cameras: "Kameras",
-  lights: "Lichter",
-  "vertex-colours": "Eckenfarben",
-  "texture-options": "Texturoptionen",
-};
-
-/** What a part check says, as the dialog shows it: the German sentence of its code; the kernel's (English) sentence for a code it does not know. */
 export function partText({ code, args, message }: PartMessage): string {
-  const text = PART_TEXTS[code];
-  return text === undefined ? message : fill(text, args);
+  const key = PART_TEXTS[code];
+  return key === undefined ? message : fill(t(`workbench:importParts.part.${key}` as "workbench:importParts.part.modelInvalid"), args);
 }
 
 /**
- * The German sentence of the codes of world maps and the Tiled exchange (6.5b) that the import dialog and „Quelle“ show; apart from
- * PART_TEXTS, which holds exactly `PartCode::ALL`. Placeholders as in PART_TEXTS.
+ * The catalog key of the sentence of the codes of world maps and the Tiled exchange (6.5b) that the import dialog and „Quelle“ show
+ * (`workbench:importParts.world.<key>`); apart from PART_TEXTS, which holds exactly `PartCode::ALL`. Placeholders as in PART_TEXTS.
  */
 export const WORLD_TEXTS: Readonly<Record<string, string>> = {
-  "world.side-file": "Das Beifile {0} fehlt oder lässt sich nicht lesen. Füge das Modell neu hinzu.",
-  "world.adopt-texture": "Ein Material der Karte bindet keine Textur ihres Gebiets-Pakets; Form 2 geht für diese Karte nicht, Form 1 schon.",
-  "tmj.buildings-ignored": "Die Gebäude der Tiled-Datei weichen von denen der Karte ab und werden nicht übernommen; Gebäude bearbeitest du im Studio.",
+  "world.side-file": "worldSideFile",
+  "world.adopt-texture": "worldAdoptTexture",
+  "tmj.buildings-ignored": "tmjBuildingsIgnored",
 };
 
 /** A message of a world map or a TMJ import: its sentence from WORLD_TEXTS, else as a part check says it. */
 export function worldText(m: PartMessage): string {
-  const text = WORLD_TEXTS[m.code];
-  return text === undefined ? partText(m) : fill(text, m.args);
+  const key = WORLD_TEXTS[m.code];
+  return key === undefined ? partText(m) : fill(t(`workbench:importParts.world.${key}` as "workbench:importParts.world.worldSideFile"), m.args);
 }
+
+/** A whole number in the digits of the language that is shown („65.000“, "65,000"). */
+const num = (n: number) => n.toLocaleString(i18next.language);
+
+/** The decimal mark of the language that is shown („,“ in German, "." in English). */
+const decimalMark = () => new Intl.NumberFormat(i18next.language).formatToParts(1.5).find((p) => p.type === "decimal")?.value ?? ".";
 
 /** `text` with its placeholders filled from `args` (see PART_TEXTS). */
 function fill(text: string, args: readonly string[]): string {
   return text.replace(/\{(\d+)(?::(num|family|dec|ignored))?\}/g, (_, n: string, format?: string) => {
     const value = args[Number(n)] ?? "";
-    if (format === "num" && /^\d+$/.test(value)) return Number(value).toLocaleString("de-DE");
-    if (format === "family") return FAMILY_WORDS[value] ?? value;
-    if (format === "dec") return value.replace(".", ",");
-    if (format === "ignored") return value.split(",").map((token) => IGNORED_WORDS[token] ?? token).join(", ");
+    if (format === "num" && /^\d+$/.test(value)) return num(Number(value));
+    if (format === "family") {
+      const key = FAMILY_KEYS[value];
+      return key === undefined ? value : t(`workbench:importParts.family.${key}`);
+    }
+    if (format === "dec") return value.replace(".", decimalMark());
+    if (format === "ignored") {
+      return value
+        .split(",")
+        .map((token) => {
+          const key = IGNORED_KEYS[token];
+          return key === undefined ? token : t(`workbench:importParts.ignored.${key}`);
+        })
+        .join(", ");
+    }
     return value;
   });
 }
 
 const FORMAT_WORDS: Readonly<Record<string, string>> = { obj: "OBJ", gltf: "glTF" };
-
-const de = (n: number) => n.toLocaleString("de-DE");
 
 /**
  * The lines under a converted part (model or textures): „OBJ · 6 Vierecke · 0 Dreiecke · 2 Streifen“ for a model, one per texture
@@ -137,18 +152,18 @@ export function previewLines(r: PartReport): string[] {
   const lines: string[] = [];
   if (p.model !== null) {
     const { format, stats, strips } = p.model;
-    lines.push(`${FORMAT_WORDS[format] ?? format} · ${de(stats.quads)} Vierecke · ${de(stats.triangles)} Dreiecke · ${de(strips)} Streifen`);
+    lines.push(t("workbench:importParts.modelLine", { format: FORMAT_WORDS[format] ?? format, quads: num(stats.quads), triangles: num(stats.triangles), strips: num(strips) }));
   }
   lines.push(...textureLines(p.textures));
-  lines.push(`VRAM des Gebiets ${de(p.vram_bytes)} B · Vanilla höchstens ${de(p.vram_limit)} B`);
+  lines.push(t("workbench:importParts.vramLine", { used: num(p.vram_bytes), max: num(p.vram_limit) }));
   return lines;
 }
 
 /** One line per texture: „g4_imp_cube · 16 × 16 · 16 Farben · neu“, a texture of the pack „g4_imp_cube · 16 × 16 · im Paket“. */
 export function textureLines(textures: readonly TexturePreview[]): string[] {
-  return textures.map((t) => {
-    const size = `${t.width} × ${t.height}`;
-    return t.new ? `${t.name} · ${size} · ${t.colors} Farben · neu` : `${t.name} · ${size} · im Paket`;
+  return textures.map((texture) => {
+    const words = { name: texture.name, size: `${texture.width} × ${texture.height}` };
+    return texture.new ? t("workbench:importParts.textureNew", { ...words, colors: texture.colors }) : t("workbench:importParts.textureInPack", words);
   });
 }
 
@@ -163,16 +178,16 @@ export function modelBudget(bytes: number): { used: number; max: number; state: 
 
 /** What a TMJ would change: „2 Ebenen, 17 Zellen geändert“ (singular for one), „Keine Änderung.“ when the file equals the world (no bake). */
 export function tmjChangeText(r: TmjImportReport): string {
-  if (r.bake === null) return "Keine Änderung.";
-  const layers = r.layers === 1 ? "1 Ebene" : `${de(r.layers)} Ebenen`;
-  const cells = r.cells === 1 ? "1 Zelle" : `${de(r.cells)} Zellen`;
-  return `${layers}, ${cells} geändert`;
+  if (r.bake === null) return t("workbench:importParts.noChange");
+  const layers = t("workbench:importParts.layers", { count: r.layers, n: num(r.layers) });
+  const cells = t("workbench:importParts.cells", { count: r.cells, n: num(r.cells) });
+  return t("workbench:importParts.changed", { layers, cells });
 }
 
 /** The errors of a TMJ as lines: the first three „path: message“ (the message alone without a path: no JSON, no TMJ), then „… und 2 weitere“. */
 export function tmjErrorLines(errors: readonly TmjError[]): string[] {
   const lines = errors.slice(0, 3).map((e) => (e.path ? `${e.path}: ${e.message}` : e.message));
-  if (errors.length > 3) lines.push(`… und ${de(errors.length - 3)} weitere`);
+  if (errors.length > 3) lines.push(t("workbench:importParts.moreErrors", { n: num(errors.length - 3) }));
   return lines;
 }
 
@@ -180,16 +195,16 @@ export function tmjErrorLines(errors: readonly TmjError[]): string[] {
 export const isForeignWhole = (r: PartReport) => r.part === "whole" && r.notes.some((n) => n.code === "whole.foreign");
 
 /** "1 Teil" / "3 Teile". */
-export const partsWord = (n: number) => `${n} ${n === 1 ? "Teil" : "Teile"}`;
+export const partsWord = (n: number) => t("workbench:importParts.parts", { count: n });
 
 /**
  * A broken model or terrain inside a whole map file: the kernel gives the code of the model or terrain check (its English message starts
  * with „model: “ or „terrain: “), whose own way out names a model or terrain file. The way out here is another map file; the kernel's reason
- * is the detail in brackets.
+ * is the detail in brackets (`sentence` is the catalog key under `workbench:importParts`).
  */
-const WHOLE_INNER: readonly [prefix: string, lead: string, kernel: string][] = [
-  ["model.", "Das Modell in der Kartendatei ist ungültig", "model: "],
-  ["bdhc.", "Das Terrain in der Kartendatei ist beschädigt", "terrain: "],
+const WHOLE_INNER: readonly [prefix: string, sentence: "wholeModelInvalid" | "wholeTerrainDamaged", kernel: string][] = [
+  ["model.", "wholeModelInvalid", "model: "],
+  ["bdhc.", "wholeTerrainDamaged", "terrain: "],
 ];
 
 /** How a part shows in the check list: an otherwise fine part with 0 bytes (no buildings, an empty BGS) is a hint, not a ready part. */
@@ -197,13 +212,13 @@ export function partView(r: PartReport): {
   state: CheckState;
   message: string | null;
 } {
-  if (r.state.kind === "ok") return r.size === 0 ? { state: "info", message: "Leer, wird nicht übernommen" } : { state: "ok", message: null };
+  if (r.state.kind === "ok") return r.size === 0 ? { state: "info", message: t("workbench:importParts.empty") } : { state: "ok", message: null };
   const { code, message } = r.state;
   const inner = r.part === "whole" && r.state.kind === "error" ? WHOLE_INNER.find(([prefix]) => code.startsWith(prefix)) : undefined;
   if (inner) {
-    const [, lead, kernel] = inner;
+    const [, sentence, kernel] = inner;
     const why = (message.startsWith(kernel) ? message.slice(kernel.length) : message).replace(/[.!?]$/, "");
-    return { state: "error", message: `${lead} (${why}). Wähle eine andere Kartendatei.` };
+    return { state: "error", message: t(`workbench:importParts.${sentence}`, { why }) };
   }
   return { state: r.state.kind, message: partText(r.state) };
 }
@@ -215,7 +230,7 @@ export const preselected = (r: PartReport) => r.state.kind !== "error" && r.size
 export function sourceMapItems(mapCount: number, target: number): PickerItem[] {
   return Array.from({ length: mapCount }, (_, i) => ({
     id: i,
-    label: `Karte ${id4(i)}`,
+    label: `${termLabel("map")} ${id4(i)}`,
     tech: String(i),
     area: "welt" as const,
     disabled: i === target,

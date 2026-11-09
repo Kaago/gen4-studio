@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { worldLayers } from "../../api.world";
 import type { LayerOp, WorldJson } from "../../api.world";
 import { Button, IconButton, Section, TextField } from "../../ui/primitives";
@@ -38,12 +39,13 @@ export function LayerList({
   /** Where adding and removing go (the gallery writes nothing). */
   edit?: (op: LayerOp) => Promise<unknown>;
 }): JSX.Element {
+  const { t } = useTranslation("workbench");
   const [open, toggle] = useSectionOpen("matrixCell:layers", true);
   const group = useId();
   const count = world.layers.length;
-  const [name, setName] = useState(`Ebene ${count}`);
+  const [name, setName] = useState(() => t("layerList.proposedName", { n: count }));
   // Another number of layers proposes the next number again.
-  useEffect(() => setName(`Ebene ${count}`), [count]);
+  useEffect(() => setName(t("layerList.proposedName", { n: count })), [count, t]);
   const [busy, setBusy] = useState(false);
   const run = async (op: LayerOp) => {
     setBusy(true);
@@ -59,21 +61,21 @@ export function LayerList({
   };
   return (
     <div data-paint-layers="">
-      <Section title="Ebenen" open={open} onToggle={toggle}>
+      <Section title={t("layerList.title")} open={open} onToggle={toggle}>
         <div className={styles.body}>
           <ul className={styles.rows}>
             {world.layers.map((layer, i) => {
               const isHidden = hidden.has(i);
               return (
                 <li key={i} className={styles.row} data-layer-row={i}>
-                  <input type="radio" className={styles.radio} name={group} aria-label="Aktiv" checked={active === i} onChange={() => onActive(i)} />
+                  <input type="radio" className={styles.radio} name={group} aria-label={t("layerList.active")} checked={active === i} onChange={() => onActive(i)} />
                   <span className={styles.name}>
-                    {layer.name} · {layer.role === "ground" ? "Boden" : "Überlagerung"}
+                    {layer.name} · {layer.role === "ground" ? t("layerList.ground") : t("layerList.overlay")}
                   </span>
-                  <IconButton label={isHidden ? "Zeigen" : "Verbergen"} icon={isHidden ? "eyeSlash" : "eye"} pressed={isHidden} onClick={() => onToggle(i)} />
+                  <IconButton label={isHidden ? t("layerList.show") : t("layerList.hide")} icon={isHidden ? "eyeSlash" : "eye"} pressed={isHidden} onClick={() => onToggle(i)} />
                   {layer.role !== "ground" && (
                     <Button kind="quiet" size="s" disabled={busy} onClick={() => void run({ remove: { layer: i } })}>
-                      Entfernen
+                      {t("layerList.remove")}
                     </Button>
                   )}
                 </li>
@@ -82,10 +84,10 @@ export function LayerList({
           </ul>
           <div className={styles.add}>
             <div className={styles.grow}>
-              <TextField label="Name der neuen Ebene" value={name} onChange={setName} onCommit={setName} />
+              <TextField label={t("layerList.newName")} value={name} onChange={setName} onCommit={setName} />
             </div>
             <Button kind="secondary" size="s" disabled={busy} onClick={() => void run({ add: { name: name.trim() } })}>
-              Ebene hinzufügen
+              {t("layerList.add")}
             </Button>
           </div>
         </div>

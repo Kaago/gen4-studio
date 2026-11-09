@@ -1,9 +1,18 @@
 import { resolveScript } from "../../api";
 import type { HeaderSummary } from "../../api";
+import { t } from "../../i18n";
+import workbenchDe from "../../i18n/locales/de/workbench.json";
 import { id4, termLabel } from "../terms";
 
 /** Shown instead of the open and new buttons while rotom has not taken the scripts over (the commands would fail). */
-export const ADOPT_HINT = "Erst Scripts übernehmen (Panel „Script“)";
+export const adoptHint = (): string => t("workbench:scriptNav.adoptHint");
+
+/**
+ * The German sentence of `adoptHint` (read from the German catalog, so it has one source), for `WorldTree.tsx` (outside this folder's
+ * migration) until it reads `adoptHint()`.
+ * @deprecated Use `adoptHint()`: this one stays German in English.
+ */
+export const ADOPT_HINT: string = workbenchDe.scriptNav.adoptHint;
 
 /**
  * Opens script `n` as the game finds it from `header` (its own script file, or the shared ones): the script
@@ -17,10 +26,10 @@ export async function openScriptNumber(header: number, n: number, onOpenScript: 
         onOpenScript(target.file, target.line);
         return;
       case "ambiguous":
-        onError(`${termLabel("script")} ${n} liegt in mehreren Dateien: ${target.candidates.map(id4).join(", ")}`);
+        onError(t("workbench:scriptNav.ambiguous", { script: termLabel("script"), n, files: target.candidates.map(id4).join(", ") }));
         return;
       case "unknown":
-        onError(`${termLabel("script")} ${n} ist nicht auffindbar`);
+        onError(t("workbench:scriptNav.unknown", { script: termLabel("script"), n }));
         return;
     }
   } catch (e) {

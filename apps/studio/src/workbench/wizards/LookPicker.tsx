@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, Picker } from "../../ui/primitives";
@@ -39,6 +40,7 @@ interface Props {
  * it and the template's map drawn in it.
  */
 export function LookPicker({ headers, template, value, onChange, depth = "tuefteln", disabled }: Props) {
+  const { t } = useTranslation("workbench");
   const [open, setOpen] = useState(false);
   const looks = useMemo(() => lookItems(headers, template), [headers, template]);
   // A failed read only leaves the pictures out.
@@ -56,7 +58,7 @@ export function LookPicker({ headers, template, value, onChange, depth = "tuefte
           {lookText(looks, value, depth)}
         </Button>
       </div>
-      <Picker open={open} onOpenChange={setOpen} title="Aussehen wählen" items={items} placeholder="Ort suchen" onPick={(item) => onChange(Number(item.id))} />
+      <Picker open={open} onOpenChange={setOpen} title={t("lookPicker.title")} items={items} placeholder={t("lookPicker.search")} onPick={(item) => onChange(Number(item.id))} />
     </>
   );
 }

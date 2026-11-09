@@ -1,4 +1,5 @@
 import type { EventKind, EventPatch, EventsDto } from "../../api";
+import { t } from "../../i18n";
 import { KIND_LABELS, eventAt } from "../../world/events";
 import { termLabel } from "../terms";
 import type { Depth } from "../../ui/frame/shellState";
@@ -24,19 +25,29 @@ export interface EventFieldSpec {
   pick?: "flag" | "var";
 }
 
+/**
+ * A named choice whose label is read from the catalog each time it is shown, in the language that is shown then: the tables below
+ * live at module scope, where i18next is not ready yet. Copying a choice (`{ ...c }`) reads its label at that moment.
+ */
+function choice(value: number, label: () => string): { value: number; label: string } {
+  return {
+    value,
+    get label() {
+      return label();
+    },
+  };
+}
+
 /** The way an object faces; the game stores it as 0 to 3. */
 export const FACINGS = [
-  { value: 0, label: "Oben" },
-  { value: 1, label: "Unten" },
-  { value: 2, label: "Links" },
-  { value: 3, label: "Rechts" },
+  choice(0, () => t("workbench:eventFields.facing.up")),
+  choice(1, () => t("workbench:eventFields.facing.down")),
+  choice(2, () => t("workbench:eventFields.facing.left")),
+  choice(3, () => t("workbench:eventFields.facing.right")),
 ];
 
 /** Whether an object is a trainer who sees the player (`trainer_type`); other stored values stay visible. */
-export const SIGHTLINES = [
-  { value: 0, label: "Aus" },
-  { value: 1, label: "Trainer sieht dich" },
-];
+export const SIGHTLINES = [choice(0, () => t("workbench:eventFields.sightline.off")), choice(1, () => t("workbench:eventFields.sightline.seesYou"))];
 
 /** Largest sight range in tiles the field offers. */
 export const SIGHT_MAX = 15;
@@ -65,45 +76,50 @@ function positionRange(kind: EventKind): { min: number; max: number } {
 function baseFieldSpecs(kind: EventKind, family: string | null): EventFieldSpec[] {
   const pos = positionRange(kind);
   const position: EventFieldSpec[] = [
-    { key: "x", label: "x (Kachel)", ...pos },
-    { key: "z", label: "z (Kachel)", ...pos },
+    { key: "x", label: t("workbench:eventFields.x"), ...pos },
+    { key: "z", label: t("workbench:eventFields.z"), ...pos },
   ];
   switch (kind) {
     case "warp":
       return [
         ...position,
-        { key: "dest_warp_id", label: "Ziel-Warp", ...U16, from: "erzaehlen" },
-        ...(family === "Hgss" ? [{ key: "height", label: "Höhe", min: 0, max: 0xffff_ffff } satisfies EventFieldSpec] : []),
+        { key: "dest_warp_id", label: t("workbench:eventFields.destWarp"), ...U16, from: "erzaehlen" },
+        ...(family === "Hgss" ? [{ key: "height", label: t("workbench:eventFields.height"), min: 0, max: 0xffff_ffff } satisfies EventFieldSpec] : []),
       ];
     case "object":
       return [
         ...position,
-        { key: "local_id", label: "Lokale ID", ...U16 },
-        { key: "graphics_id", label: "Grafik", ...U16, from: "erzaehlen" },
-        { key: "movement_type", label: "Bewegung", ...U16, from: "erzaehlen" },
-        { key: "dir", label: "Blickrichtung", ...I16, options: FACINGS, from: "erzaehlen" },
+        { key: "local_id", label: t("workbench:eventFields.localId"), ...U16 },
+        { key: "graphics_id", label: t("workbench:eventFields.graphics"), ...U16, from: "erzaehlen" },
+        { key: "movement_type", label: t("workbench:eventFields.movementType"), ...U16, from: "erzaehlen" },
+        { key: "dir", label: t("workbench:eventFields.dir"), ...I16, options: FACINGS, from: "erzaehlen" },
         { key: "script", label: termLabel("script"), ...U16, from: "erzaehlen" },
-        { key: "trainer_type", label: "Sichtlinie", ...U16, options: SIGHTLINES },
-        { key: "sight", label: "Sichtweite", min: 0, max: SIGHT_MAX },
-        { key: "hidden_flag", label: "Sichtbarkeits-Flag", ...U16, pick: "flag" },
+        { key: "trainer_type", label: t("workbench:eventFields.trainerType"), ...U16, options: SIGHTLINES },
+        { key: "sight", label: t("workbench:eventFields.sight"), min: 0, max: SIGHT_MAX },
+        { key: "hidden_flag", label: t("workbench:eventFields.hiddenFlag"), ...U16, pick: "flag" },
       ];
     case "coord":
-      return [...position, { key: "width", label: "Breite", ...U16 }, { key: "length", label: "Länge", ...U16 }, { key: "script", label: termLabel("script"), ...U16 }];
+      return [
+        ...position,
+        { key: "width", label: t("workbench:eventFields.width"), ...U16 },
+        { key: "length", label: t("workbench:eventFields.length"), ...U16 },
+        { key: "script", label: termLabel("script"), ...U16 },
+      ];
     case "bg":
-      return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: termLabel("script"), ...U16 }];
+      return [...position, { key: "event_type", label: t("workbench:eventFields.eventType"), ...U16 }, { key: "script", label: termLabel("script"), ...U16 }];
   }
 }
 
 /** What a coordinate trigger watches (3d.1): its variable, picked like a flag, and the value at which it fires; after „Script“. */
-const TRIGGER_VAR_FIELDS: EventFieldSpec[] = [
-  { key: "var", label: "Variable", ...U16, pick: "var" },
-  { key: "value", label: "Wert", ...U16 },
+const triggerVarFields = (): EventFieldSpec[] => [
+  { key: "var", label: t("workbench:eventFields.var"), ...U16, pick: "var" },
+  { key: "value", label: t("workbench:eventFields.value"), ...U16 },
 ];
 
 /** The number fields of an event in display order (see `baseFieldSpecs`), a trigger's variable and value last. */
 export function eventFieldSpecs(kind: EventKind, family: string | null): EventFieldSpec[] {
   const specs = baseFieldSpecs(kind, family);
-  return kind === "coord" ? [...specs, ...TRIGGER_VAR_FIELDS] : specs;
+  return kind === "coord" ? [...specs, ...triggerVarFields()] : specs;
 }
 
 /**
@@ -112,53 +128,62 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
  * the figures of Platinum DE and HeartGold DE (31.10.2026): every value at least five figures use has a word. 47 (DSPRE: „Crashes game
  * (?)“) is used by 118 Platinum figures, all with graphics id 100 and none in HeartGold: the berry plants of Sinnoh's soft soil.
  */
-export const MOVEMENT_WORDS: { value: number; label: string }[] = [
-  { value: 0, label: "Steht still" },
-  { value: 2, label: "Schaut sich um" },
-  { value: 3, label: "Geht umher" },
-  { value: 4, label: "Geht auf und ab" },
-  { value: 5, label: "Geht hin und her" },
-  { value: 6, label: "Schaut nach oben und links" },
-  { value: 7, label: "Schaut nach oben und rechts" },
-  { value: 8, label: "Schaut nach unten und links" },
-  { value: 9, label: "Schaut nach unten und rechts" },
-  { value: 10, label: "Schaut nach oben, unten und links" },
-  { value: 11, label: "Schaut nach oben, rechts und unten" },
-  { value: 12, label: "Schaut nach rechts, links und oben" },
-  { value: 13, label: "Schaut nach rechts, links und unten" },
-  { value: 14, label: "Blickt nach oben" },
-  { value: 15, label: "Blickt nach unten" },
-  { value: 16, label: "Blickt nach links" },
-  { value: 17, label: "Blickt nach rechts" },
-  { value: 18, label: "Dreht sich gegen den Uhrzeigersinn" },
-  { value: 19, label: "Dreht sich im Uhrzeigersinn" },
-  { value: 20, label: "Läuft auf und ab" },
-  { value: 44, label: "Läuft eine Runde im Uhrzeigersinn" },
-  { value: 45, label: "Schaut nach oben und unten" },
-  { value: 46, label: "Schaut nach rechts und links" },
-  { value: 47, label: "Beerenpflanze" },
-  { value: 48, label: "Folgt dem Spieler" },
-  { value: 51, label: "Versteckt im Schnee" },
-  { value: 53, label: "Versteckt unter der Erde" },
-  { value: 54, label: "Versteckt im Gras" },
-];
+const MOVEMENTS = [
+  [0, "standsStill"],
+  [2, "looksAround"],
+  [3, "walksAround"],
+  [4, "walksUpAndDown"],
+  [5, "walksLeftAndRight"],
+  [6, "looksUpAndLeft"],
+  [7, "looksUpAndRight"],
+  [8, "looksDownAndLeft"],
+  [9, "looksDownAndRight"],
+  [10, "looksUpDownAndLeft"],
+  [11, "looksUpRightAndDown"],
+  [12, "looksRightLeftAndUp"],
+  [13, "looksRightLeftAndDown"],
+  [14, "facesUp"],
+  [15, "facesDown"],
+  [16, "facesLeft"],
+  [17, "facesRight"],
+  [18, "spinsCounterclockwise"],
+  [19, "spinsClockwise"],
+  [20, "pacesUpAndDown"],
+  [44, "walksClockwiseLoop"],
+  [45, "looksUpAndDown"],
+  [46, "looksRightAndLeft"],
+  [47, "berryPlant"],
+  [48, "followsThePlayer"],
+  [51, "hiddenInSnow"],
+  [53, "hiddenUnderground"],
+  [54, "hiddenInGrass"],
+] as const;
+
+export const MOVEMENT_WORDS: { value: number; label: string }[] = MOVEMENTS.map(([value, word]) => choice(value, () => t(`workbench:eventFields.movement.${word}`)));
 
 /** The choices of the field „Bewegung“ in Erzählen: the words, and a stored value without one as „Bewegung N“. */
 export function movementOptions(value: number): { value: number; label: string }[] {
-  return MOVEMENT_WORDS.some((w) => w.value === value) ? MOVEMENT_WORDS : [...MOVEMENT_WORDS, { value, label: `Bewegung ${value}` }];
+  return MOVEMENT_WORDS.some((w) => w.value === value) ? MOVEMENT_WORDS : [...MOVEMENT_WORDS, { value, label: t("workbench:eventFields.movementN", { value }) }];
 }
 
 /** What Erzählen calls the fields it shows (the movement becomes a choice of words). */
-const NARRATING: Partial<Record<EventFieldKey, Partial<EventFieldSpec>>> = {
-  graphics_id: { label: "Aussehen" },
-  movement_type: { options: MOVEMENT_WORDS },
-  dest_warp_id: { label: "Tür" },
+const narrating = (key: EventFieldKey): Partial<EventFieldSpec> | undefined => {
+  switch (key) {
+    case "graphics_id":
+      return { label: t("workbench:eventFields.look") };
+    case "movement_type":
+      return { options: MOVEMENT_WORDS };
+    case "dest_warp_id":
+      return { label: t("workbench:eventFields.door") };
+    default:
+      return undefined;
+  }
 };
 
 /** The fields of an event `depth` shows, in its words: Erzählen only those from Erzählen, Bauen and Tüfteln `eventFieldSpecs` as it is. */
 export function eventFieldsAt(kind: EventKind, family: string | null, depth: Depth): EventFieldSpec[] {
   const specs = shownFields(eventFieldSpecs(kind, family), depth);
-  return depthAtLeast(depth, "bauen") ? specs : specs.map((s) => ({ ...s, ...NARRATING[s.key] }));
+  return depthAtLeast(depth, "bauen") ? specs : specs.map((s) => ({ ...s, ...narrating(s.key) }));
 }
 
 const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length", "trainer_type", "sight"];
@@ -205,7 +230,7 @@ export function eventBackend(
       const events = await deps.getEvents(file);
       deps.onEvents?.(events);
       const event = eventAt(events, kind, index);
-      if (!event) throw new Error(`${KIND_LABELS[kind]} ${index} existiert in Event-Datei ${file} nicht (mehr)`);
+      if (!event) throw new Error(t("workbench:eventFields.gone", { kind: KIND_LABELS[kind], index, file }));
       return (last = event);
     },
     set: async (index, record) => {

@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { EventKind } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { EntityIdLine } from "../../textproject/EntityIdLine";
 import { Badge, EntityStateBadge, Icon, Menu } from "../../ui/primitives";
 import type { EntityState, IconName, MenuEntry } from "../../ui/primitives";
+import { t } from "../../i18n";
+import { termLabel } from "../terms";
 import styles from "./InspectorHead.module.css";
 
 /** What the inspector shows, as the head names it. */
@@ -14,18 +17,18 @@ export type InspectorKind = "figure" | "door" | "trigger" | "sign" | "building" 
  * The word of each kind in the eyebrow and its symbol. Erzählen and Bauen speak of the game; Tüfteln says "Header" for an area, a room or a
  * place and "Area-Data" for the look (`tinker`), the other words are the same in every depth.
  */
-const KINDS: Record<InspectorKind, { word: string; tinker?: string; icon: IconName }> = {
-  figure: { word: "Figur", icon: "figure" },
-  door: { word: "Tür", icon: "door" },
-  trigger: { word: "Auslöser", icon: "trigger" },
-  sign: { word: "Schild", icon: "sign" },
-  building: { word: "Gebäude", icon: "building" },
-  map: { word: "Karte", icon: "map" },
-  area: { word: "Gebiet", tinker: "Header", icon: "outside" },
-  room: { word: "Raum", tinker: "Header", icon: "room" },
+const KINDS: Record<InspectorKind, { word: () => string; tinker?: () => string; icon: IconName }> = {
+  figure: { word: () => t("workbench:inspectorHead.figure"), icon: "figure" },
+  door: { word: () => t("workbench:inspectorHead.door"), icon: "door" },
+  trigger: { word: () => t("workbench:inspectorHead.trigger"), icon: "trigger" },
+  sign: { word: () => t("workbench:inspectorHead.sign"), icon: "sign" },
+  building: { word: () => t("workbench:inspectorHead.building"), icon: "building" },
+  map: { word: () => termLabel("map"), icon: "map" },
+  area: { word: () => termLabel("area"), tinker: () => termLabel("header"), icon: "outside" },
+  room: { word: () => termLabel("room"), tinker: () => termLabel("header"), icon: "room" },
   /** A header that is neither an area nor a room in the world tree (the landscape, a header without maps). */
-  place: { word: "Ort", tinker: "Header", icon: "place" },
-  look: { word: "Aussehen", tinker: "Area-Data", icon: "look" },
+  place: { word: () => termLabel("place"), tinker: () => termLabel("header"), icon: "place" },
+  look: { word: () => t("workbench:inspectorHead.look"), tinker: () => termLabel("areaData"), icon: "look" },
 };
 
 /** The kind of an event class: a warp is the door, an object the figure, a trigger the trigger, a background event the sign. */
@@ -56,6 +59,8 @@ export interface InspectorHeadProps {
 
 /** The head every inspector view shares: the kind as an eyebrow with its symbol, the title, the ident, the badges and the actions. */
 export function InspectorHead({ kind, title, ident, entityId, state, unsaved, locked, irreversible, badges: more, actions, depth }: InspectorHeadProps) {
+  // The kind's words (`KINDS`) are read at render time; the hook renders the head again when the language changes.
+  const { t } = useTranslation("workbench");
   const { word, tinker, icon } = KINDS[kind];
   const badges = state != null || unsaved || locked || irreversible || more != null;
   return (
@@ -63,7 +68,7 @@ export function InspectorHead({ kind, title, ident, entityId, state, unsaved, lo
       <div className={styles.text}>
         <span className={styles.eyebrow} data-eyebrow="">
           <Icon name={icon} />
-          {depthAtLeast(depth, "tuefteln") && tinker !== undefined ? tinker : word}
+          {depthAtLeast(depth, "tuefteln") && tinker !== undefined ? tinker() : word()}
         </span>
         <h2 className={styles.title}>{title}</h2>
         {ident && (
@@ -84,7 +89,7 @@ export function InspectorHead({ kind, title, ident, entityId, state, unsaved, lo
       )}
       {actions && actions.length > 0 && (
         <div className={styles.actions}>
-          <Menu label="Aktionen" trigger={<Icon name="more" />} items={actions} />
+          <Menu label={t("inspectorHead.actions")} trigger={<Icon name="more" />} items={actions} />
         </div>
       )}
     </header>

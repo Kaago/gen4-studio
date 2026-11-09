@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, getBuildingGlb, getMap, updateBuilding } from "../../api";
 import type { AssetId, BuildingDto, MemberCounts } from "../../api";
 import { useReset } from "../../original/OriginalContext";
@@ -6,9 +7,10 @@ import { resetEntry } from "../../original/resetEntry";
 import { useBuildingModelKind } from "../../original/useBuildingModelKind";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
 import { Button, InspectorRow, Kbd, NumberField, TextField } from "../../ui/primitives";
-import { id4 } from "../terms";
-import { BUILDING_FIELDS, BUILDING_POSITION_FIELDS, BUILDING_SCALE_FIELDS, buildingBackend, parseNumberField } from "./buildingFields";
+import { id4, termLabel } from "../terms";
+import { BUILDING_FIELDS, buildingBackend, buildingPositionFields, buildingScaleFields, parseNumberField } from "./buildingFields";
 import type { BuildingFieldSpec } from "./buildingFields";
 import styles from "./Editor.module.css";
 import { isDirty } from "./dirtyAssets";
@@ -42,12 +44,13 @@ type Preview = { model: number; state: "loading" } | { model: number; state: "ok
 async function readBuilding(map: number, index: number): Promise<{ building: BuildingDto; count: number }> {
   const { buildings } = await getMap(map);
   const building = buildings[index];
-  if (!building) throw new Error(`Gebäude ${index + 1} existiert in Karte ${map} nicht (mehr)`);
+  if (!building) throw new Error(translate("workbench:buildingEditor.gone", { n: index + 1, map }));
   return { building, count: buildings.length };
 }
 
 /** A decimal number (positions and scales are fractions of a tile): a text field that refuses what is not a number and says how to write one. */
 function DecimalField({ label, value, onCommit }: { label: string; value: number; onCommit: (n: number) => void }) {
+  const { t } = useTranslation("workbench");
   const [error, setError] = useState<string | undefined>();
   // A new value from the model makes an old refusal moot.
   useEffect(() => setError(undefined), [value]);
@@ -59,7 +62,7 @@ function DecimalField({ label, value, onCommit }: { label: string; value: number
       onChange={() => setError(undefined)}
       onCommit={(text) => {
         const n = parseNumberField(text);
-        if (n === null) return setError("Das ist keine Zahl. Gib z. B. 1.5 ein.");
+        if (n === null) return setError(t("buildingEditor.notANumber"));
         setError(undefined);
         if (n !== value) onCommit(n);
       }}
@@ -74,6 +77,7 @@ function DecimalField({ label, value, onCommit }: { label: string; value: number
  * one building (see `EditSession`).
  */
 export function BuildingEditor({ map, index, context, depth }: { map: number; index: number; context: BuildingEditorContext; depth: Depth }) {
+  const { t } = useTranslation("workbench");
   const { areaDataId, areaRevision = 0, counts, dirty, revision, onChanged, onAdd, onDelete, onError } = context;
   const reset = useReset();
   const modelKind = useBuildingModelKind(areaDataId, areaRevision);
@@ -81,7 +85,7 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
   const [preview, setPreview] = useState<Preview | null>(null);
-  // How many buildings the map has, for "Gebäude 3 von 5".
+  // How many buildings the map has, for „Gebäude 3 von 5“.
   const [count, setCount] = useState<number | null>(null);
   const callbacks = useRef({ onChanged, onError });
   callbacks.current = { onChanged, onError };
@@ -131,8 +135,8 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
   }, [modelId, areaDataId]);
 
   const commit = (key: string, label: string, value: number) => void session.current?.commit(key, label, value);
-  const title = count === null ? `Gebäude ${index + 1}` : `Gebäude ${index + 1} von ${count}`;
-  const ident = `Karte ${id4(map)}`;
+  const title = count === null ? t("buildingEditor.title", { n: index + 1 }) : t("buildingEditor.titleOf", { n: index + 1, count });
+  const ident = `${termLabel("map")} ${id4(map)}`;
   if (building === null) {
     return (
       <div className={styles.panel}>
@@ -151,10 +155,10 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
     preview === null || preview.model !== building.model_id
       ? ""
       : preview.state === "loading"
-        ? "Lade Modell …"
+        ? t("buildingEditor.modelLoading")
         : preview.state === "ok"
-          ? `Modell geladen (${Math.max(1, Math.round(preview.bytes / 1024))} KB)`
-          : `Modell nicht geladen, die 3D-Ansicht zeigt eine Box: ${preview.text}`;
+          ? t("buildingEditor.modelLoaded", { kb: Math.max(1, Math.round(preview.bytes / 1024)) })
+          : t("buildingEditor.modelFailed", { error: preview.text });
 
   return (
     <div className={styles.panel}>
@@ -164,39 +168,37 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
         ident={ident}
         unsaved={isDirty(dirty, "Map", map)}
         actions={[
-          { label: "Löschen", detail: <Kbd keys="Entf" />, onSelect: () => void onDelete(map, index) },
+          { label: t("eventEditor.delete"), detail: <Kbd keys={t("eventEditor.deleteKey")} />, onSelect: () => void onDelete(map, index) },
           "separator",
           // The building's model, from the archive the scene takes it from; while the area data is read that is not known yet.
-          resetEntry({ kind: modelKind ?? "building_model", index: building.model_id }, modelKind === null ? null : reset.status, reset.open, "Gebäudemodell auf Original zurücksetzen…"),
+          resetEntry({ kind: modelKind ?? "building_model", index: building.model_id }, modelKind === null ? null : reset.status, reset.open, t("buildingEditor.resetModel")),
         ]}
         depth={depth}
       />
       <div className={styles.body}>
         <div key={refused}>
-          <InspectorRow label="Modell" hint={modelMax === undefined ? undefined : `außen 0 bis ${modelMax}`}>
-            <NumberField label="Modellnummer" value={building.model_id} bits={32} onCommit={(n) => commit("model_id", "Modell", n)} showBase={depthAtLeast(depth, "tuefteln")} />
+          <InspectorRow label={t("buildingEditor.model")} hint={modelMax === undefined ? undefined : t("buildingEditor.modelRange", { max: modelMax })}>
+            <NumberField label={t("buildingEditor.modelNumber")} value={building.model_id} bits={32} onCommit={(n) => commit("model_id", t("buildingEditor.model"), n)} showBase={depthAtLeast(depth, "tuefteln")} />
           </InspectorRow>
           <div className={styles.actions}>
             <Button kind="quiet" size="s" onClick={() => void Promise.resolve(onChanged(map, building.model_id)).then(() => check(building.model_id))} disabled={preview?.state === "loading"}>
-              Vorschau laden
+              {t("buildingEditor.loadPreview")}
             </Button>
             <span className={preview?.state === "error" ? `${styles.note} ${styles.error}` : styles.note}>{previewText}</span>
           </div>
-          {BUILDING_POSITION_FIELDS.map(decimalRow)}
-          {BUILDING_SCALE_FIELDS.map(decimalRow)}
-          <InspectorRow label="Rotation" hint="Nur lesbar: Das Spiel ignoriert die Rotation von Karten-Gebäuden; sie bleibt unverändert erhalten.">
+          {buildingPositionFields().map(decimalRow)}
+          {buildingScaleFields().map(decimalRow)}
+          <InspectorRow label={t("buildingEditor.rotation")} hint={t("buildingEditor.rotationReadOnly")}>
             <span className={styles.mono}>{building.rotation.join(" ")}</span>
           </InspectorRow>
         </div>
         {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "building", map, index }} source={{ kind: "building", building }} />}
         <div className={styles.actions}>
           <Button kind="secondary" onClick={() => void onAdd(map)}>
-            Neues Gebäude
+            {t("buildingEditor.add")}
           </Button>
         </div>
-        <p className={styles.note}>
-          Ziehen in der 3D-Ansicht verschiebt das Gebäude in Halb-Kachel-Schritten. Neue Gebäude entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Gebäude nach Rückfrage.
-        </p>
+        <p className={styles.note}>{t("buildingEditor.dragNote")}</p>
       </div>
     </div>
   );

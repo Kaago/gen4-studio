@@ -1,4 +1,5 @@
 import type { BuildingDto, BuildingPatch } from "../../api";
+import { t } from "../../i18n";
 import type { RecordBackend, RecordFields } from "./headerCommit";
 
 /** The editable number fields of a building, in display order. `step` is the arrow step of the input. */
@@ -8,16 +9,18 @@ export interface BuildingFieldSpec {
   step: number;
 }
 
-export const BUILDING_POSITION_FIELDS: BuildingFieldSpec[] = [
-  { key: "x", label: "x (Kacheln)", step: 0.5 },
-  { key: "y", label: "y (Höhe, Kacheln)", step: 0.5 },
-  { key: "z", label: "z (Kacheln)", step: 0.5 },
+/** The position fields, labelled in the language that is shown when called. */
+export const buildingPositionFields = (): BuildingFieldSpec[] => [
+  { key: "x", label: t("workbench:buildingFields.x"), step: 0.5 },
+  { key: "y", label: t("workbench:buildingFields.y"), step: 0.5 },
+  { key: "z", label: t("workbench:buildingFields.z"), step: 0.5 },
 ];
 
-export const BUILDING_SCALE_FIELDS: BuildingFieldSpec[] = [
-  { key: "sx", label: "Skalierung x", step: 0.25 },
-  { key: "sy", label: "Skalierung y", step: 0.25 },
-  { key: "sz", label: "Skalierung z", step: 0.25 },
+/** The scale fields, labelled in the language that is shown when called. */
+export const buildingScaleFields = (): BuildingFieldSpec[] => [
+  { key: "sx", label: t("workbench:buildingFields.sx"), step: 0.25 },
+  { key: "sy", label: t("workbench:buildingFields.sy"), step: 0.25 },
+  { key: "sz", label: t("workbench:buildingFields.sz"), step: 0.25 },
 ];
 
 const KEYS = ["model_id", "x", "y", "z", "sx", "sy", "sz"] as const;

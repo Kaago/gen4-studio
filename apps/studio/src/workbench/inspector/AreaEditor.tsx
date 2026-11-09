@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { getAreaData, setAreaData } from "../../api";
 import type { AreaDataDto, AssetId, MemberCounts } from "../../api";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
-import { id4, termFor } from "../terms";
+import { id4, termLabel } from "../terms";
 import { areaFieldSpecs, AREA_FIELDS, areaValue } from "./areaFields";
 import styles from "./Editor.module.css";
 import { Field } from "./Field";
@@ -34,6 +35,7 @@ export interface AreaEditorContext {
  * one record (see `EditSession`).
  */
 export function AreaEditor({ id, context, depth }: { id: number; context: AreaEditorContext; depth: Depth }) {
+  const { t } = useTranslation("workbench");
   const { counts, dirty, revision, onChanged, onError } = context;
   const reset = useReset();
   const [area, setArea] = useState<AreaDataDto | null>(null);
@@ -69,22 +71,22 @@ export function AreaEditor({ id, context, depth }: { id: number; context: AreaEd
     <div className={styles.panel}>
       <InspectorHead
         kind="look"
-        title={`Area-Data ${id4(id)}`}
+        title={`${termLabel("areaData")} ${id4(id)}`}
         unsaved={isDirty(dirty, "AreaData", id)}
         // The two textures the area data names (as edited, unsaved or not); the area data itself has no reset.
         actions={
           area === null
             ? undefined
             : [
-                resetEntry({ kind: "map_texture", index: area.map_tileset }, reset.status, reset.open, "Kartentextur auf Original zurücksetzen…"),
-                resetEntry({ kind: "building_texture", index: area.buildings_tileset }, reset.status, reset.open, "Gebäudetextur auf Original zurücksetzen…"),
+                resetEntry({ kind: "map_texture", index: area.map_tileset }, reset.status, reset.open, t("areaEditor.resetMapTexture")),
+                resetEntry({ kind: "building_texture", index: area.buildings_tileset }, reset.status, reset.open, t("areaEditor.resetBuildingTexture")),
               ]
         }
         depth={depth}
       />
       <div className={styles.body}>
         {area === null ? (
-          <p className={styles.note}>Lade Area-Data …</p>
+          <p className={styles.note}>{t("areaEditor.loading")}</p>
         ) : (
           <div key={refused}>
             {shownFields(areaFieldSpecs(area.family), depth).map((spec) => (
@@ -94,11 +96,9 @@ export function AreaEditor({ id, context, depth }: { id: number; context: AreaEd
         )}
         {depthAtLeast(depth, "tuefteln") && area !== null && <TechnicalSection model={{ kind: "area", id }} source={{ kind: "area", area }} />}
         {!depthAtLeast(depth, "bauen") ? (
-          <p className={styles.note}>Erzählen wählt das Aussehen am Ort; Tilesets und Licht stellst du in Bauen ein.</p>
+          <p className={styles.note}>{t("areaEditor.noteTell")}</p>
         ) : (
-          <p className={styles.note}>
-            Das Karten-Tileset bestimmt die Texturen aller Karten, deren {termFor("header", depth)} diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.
-          </p>
+          <p className={styles.note}>{depthAtLeast(depth, "tuefteln") ? t("areaEditor.noteTinker") : t("areaEditor.noteBuild")}</p>
         )}
       </div>
     </div>

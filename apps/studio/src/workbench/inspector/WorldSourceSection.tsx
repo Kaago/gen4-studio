@@ -1,27 +1,31 @@
 import { useEffect, useId, useRef, useState } from "react";
+import i18next from "i18next";
+import { useTranslation } from "react-i18next";
 import { errorText, worldAdopt, worldBake, worldToBinary } from "../../api";
 import type { WorldAdoptReport, WorldBakeReport } from "../../api";
+import { t } from "../../i18n";
 import { Button, Notice, Section } from "../../ui/primitives";
 import { useSectionOpen } from "./foldState";
 import styles from "./WorldSourceSection.module.css";
 
 /** Why „Karte als Quelle übernehmen“ is locked outside a text project. */
-export const ADOPT_NEEDS_TEXT_PROJECT = "Boden malen gibt es im Textprojekt (Technik › Textprojekt).";
+export const adoptNeedsTextProject = (): string => t("workbench:worldSourceSection.needsTextProject");
 
-const number = (n: number) => n.toLocaleString("de-DE");
+/** A number with the thousands separator of the language that is shown. */
+const number = (n: number) => n.toLocaleString(i18next.language);
 
 /** The notice after „Karte als Quelle übernehmen“: how many cells the world's whole steps put off the sampled height. */
 export function adoptedText(report: WorldAdoptReport): string {
   const n = report.deviations.length;
-  if (n === 0) return "Übernommen.";
-  return n === 1 ? "Übernommen. 1 Kachel weicht von der Höhe ab." : `Übernommen. ${number(n)} Kacheln weichen von der Höhe ab.`;
+  if (n === 0) return t("workbench:worldSourceSection.adopted");
+  return t("workbench:worldSourceSection.adoptedDeviations", { count: n, n: number(n) });
 }
 
 /** The notice after „Als glTF übernehmen (Form 2)“: the polygons of the vanilla model and the faces the baker drew. */
 export function adoptedGltfText(report: WorldAdoptReport): string {
   const f = report.form2;
   if (f == null) return adoptedText(report);
-  return `Übernommen als glTF: ${number(f.vanilla.polygons)} Vanilla-Polygone, ${number(f.baked.faces)} gebackene Flächen.`;
+  return t("workbench:worldSourceSection.adoptedGltf", { polygons: number(f.vanilla.polygons), faces: number(f.baked.faces) });
 }
 
 /** The bake as read: the report, or the command's refusal (a world whose rows do not read). */
@@ -29,7 +33,7 @@ type BakeRead = { map: number; revision: number; bake: WorldBakeReport | null; e
 
 /** The bake line of a world map: model and terrain sizes (the BDHC payload, as „Budget“ and the check `world.budget` count it) when the baker took it, else the sentence of its first error. */
 function BakeLine({ read }: { read: BakeRead | undefined }) {
-  if (read === undefined) return <p className={styles.note}>Wird gelesen …</p>;
+  if (read === undefined) return <p className={styles.note}>{t("workbench:worldSourceSection.reading")}</p>;
   if (read.error !== null) {
     return (
       <div data-world-bake="refused">
@@ -43,13 +47,13 @@ function BakeLine({ read }: { read: BakeRead | undefined }) {
   if (!bake.ok || first !== undefined) {
     return (
       <div data-world-bake="refused">
-        <Notice kind="error">{first?.message ?? "Das Backen wurde abgelehnt."}</Notice>
+        <Notice kind="error">{first?.message ?? t("workbench:worldSourceSection.bakeRefused")}</Notice>
       </div>
     );
   }
   return (
     <p className={styles.text} data-world-bake="ok">
-      Gebacken · Modell {number(bake.model_bytes)} B · Terrain {number(bake.bdhc_payload)} B
+      {t("workbench:worldSourceSection.baked", { model: number(bake.model_bytes), terrain: number(bake.bdhc_payload) })}
     </p>
   );
 }
@@ -76,6 +80,8 @@ export function WorldSourceSection({
   onChanged?: (map: number) => void | Promise<void>;
   onError?: (e: unknown) => void;
 }) {
+  // Renders the section again when the language changes; the words are read at render time.
+  useTranslation("workbench");
   const [open, toggle] = useSectionOpen("matrixCell:source", true);
   const [working, setWorking] = useState(false);
   // The notice of the last adoption, for the map it belongs to.
@@ -141,21 +147,21 @@ export function WorldSourceSection({
   const shown = read?.map === map ? read : undefined;
   return (
     <div data-world-source={world ? "world" : "binary"}>
-      <Section title="Quelle" open={open} onToggle={toggle}>
+      <Section title={t("workbench:worldSourceSection.title")} open={open} onToggle={toggle}>
         <div className={styles.body}>
           {world ? (
             <>
-              <p className={styles.text}>Welt-Karte</p>
+              <p className={styles.text}>{t("workbench:worldSourceSection.worldMap")}</p>
               <BakeLine read={shown} />
               <div className={styles.actions}>
                 <Button kind="secondary" size="s" aria-disabled={working || undefined} onClick={() => void toBinary()}>
-                  Als binäre Karte übernehmen
+                  {t("workbench:worldSourceSection.toBinary")}
                 </Button>
               </div>
             </>
           ) : (
             <>
-              <p className={styles.text}>Binäre Karte aus dem ROM oder aus DSPRE.</p>
+              <p className={styles.text}>{t("workbench:worldSourceSection.binaryMap")}</p>
               <div className={styles.actions}>
                 <Button
                   kind="secondary"
@@ -166,7 +172,7 @@ export function WorldSourceSection({
                   aria-describedby={textProject ? undefined : reasonId}
                   onClick={() => textProject && void adopt()}
                 >
-                  Karte als Quelle übernehmen
+                  {t("workbench:worldSourceSection.adopt")}
                 </Button>
                 <Button
                   kind="secondary"
@@ -177,12 +183,12 @@ export function WorldSourceSection({
                   aria-describedby={textProject ? undefined : reasonId}
                   onClick={() => textProject && void adoptGltf()}
                 >
-                  Als glTF übernehmen (Form 2)
+                  {t("workbench:worldSourceSection.adoptGltf")}
                 </Button>
               </div>
               {!textProject && (
                 <p id={reasonId} className={styles.note}>
-                  {ADOPT_NEEDS_TEXT_PROJECT}
+                  {adoptNeedsTextProject()}
                 </p>
               )}
             </>

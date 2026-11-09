@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { placeSlots, renamePlace } from "../../api";
 import type { HeaderSummary } from "../../api";
+import { t } from "../../i18n";
 import { Dialog, Notice, TextField } from "../../ui/primitives";
 import { useWorld } from "../WorkbenchContext";
 import { countUsers, nameWarning } from "./placeChoices";
@@ -21,8 +23,7 @@ export interface RenamePlaceDialogProps {
 
 /** How far a rename reaches: every area and room with the place, and the place of capture of Pokémon caught there. */
 function reachText(count: number): string {
-  const what = count === 1 ? "1 Gebiet oder Raum" : `alle ${count} Gebiete und Räume`;
-  return `Trifft ${what} mit diesem Ort und den Fundort gefangener Pokémon.`;
+  return t("workbench:renamePlaceDialog.reach", { count });
 }
 
 /** „Ort umbenennen“: a new name for the place at `index`, with how far the rename reaches. Mounted anew for every opening. */
@@ -31,6 +32,8 @@ export function RenamePlaceDialog(props: RenamePlaceDialogProps) {
 }
 
 function RenameForm({ index, headers, onClose, onRenamed, onError }: RenamePlaceDialogProps) {
+  // Renders the dialog again when the language changes; the words below are read at render time.
+  useTranslation("workbench");
   const { world } = useWorld();
   const carriers = headers.filter((h) => h.location_index === index);
   const users = countUsers(carriers, world);
@@ -78,14 +81,14 @@ function RenameForm({ index, headers, onClose, onRenamed, onError }: RenamePlace
       onOpenChange={(open) => {
         if (!open) leave();
       }}
-      title="Ort umbenennen"
+      title={t("workbench:renamePlaceDialog.title")}
       actions={[
-        { label: "Abbrechen", onClick: leave },
-        { label: "Umbenennen", kind: "primary", onClick: () => void rename(), disabled: name.trim() === "" },
+        { label: t("workbench:renamePlaceDialog.cancel"), onClick: leave },
+        { label: t("workbench:renamePlaceDialog.rename"), kind: "primary", onClick: () => void rename(), disabled: name.trim() === "" },
       ]}
     >
       <div className={styles.form} data-rename-place="" aria-busy={working}>
-        <TextField label="Name des Orts" showLabel value={name} onChange={setName} onCommit={setName} disabled={working} />
+        <TextField label={t("workbench:renamePlaceDialog.name")} showLabel value={name} onChange={setName} onCommit={setName} disabled={working} />
         <Notice kind="info">{reachText(users)}</Notice>
         {long && <Notice kind="warning">{long}</Notice>}
       </div>

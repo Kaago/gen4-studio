@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary, MatrixDto } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
@@ -45,6 +46,7 @@ function areaRect(world: World | null, matrix: MatrixDto, header: number | null 
  * `height` cells is selected there, or marked red with the reason when it falls on an area or past the edge.
  */
 export function PlaceOnWorldMap({ world, matrix, headers, width, height, value, onChange, depth, focus }: Props) {
+  const { t } = useTranslation("workbench");
   const box = useRef<HTMLDivElement>(null);
   const block = useMemo(() => (matrix && value ? targetBlock(matrix, value, width, height) : null), [matrix, value, width, height]);
 
@@ -63,17 +65,17 @@ export function PlaceOnWorldMap({ world, matrix, headers, width, height, value, 
     }
   }, [matrix]);
 
-  if (!matrix) return <p className={parts.note}>Lade …</p>;
+  if (!matrix) return <p className={parts.note}>{t("placeOnWorldMap.loading")}</p>;
   const headerCells = matrix.headers;
   /** Empty and landscape cells take the corner; a cell of an area does not (the same cells `targetBlock` counts free). */
   const pick = (x: number, y: number) => {
     const i = y * matrix.width + x;
     if (!isFilled(matrix.maps[i]) || (headerCells?.[i] ?? 0) === 0) onChange({ x, y });
   };
-  const label = !depthAtLeast(depth, "tuefteln") ? `${termLabel("worldMap")}, ${matrix.height} Zeilen, ${matrix.width} Spalten` : undefined;
+  const label = !depthAtLeast(depth, "tuefteln") ? t("placeOnWorldMap.gridLabel", { map: termLabel("worldMap"), rows: matrix.height, columns: matrix.width }) : undefined;
   return (
     <>
-      <p className={parts.note}>Die Zelle anklicken, an der die linke obere {termLabel("map")} des neuen {termLabel("area")}s liegen soll.</p>
+      <p className={parts.note}>{t("placeOnWorldMap.hint")}</p>
       <div ref={box} className={styles.map}>
         <AreaGrid
           matrix={matrix}
@@ -87,7 +89,7 @@ export function PlaceOnWorldMap({ world, matrix, headers, width, height, value, 
           label={label}
         />
       </div>
-      {block && !block.ok && <Notice kind="error">Der Block muss auf freie Zellen oder Landschaft fallen.</Notice>}
+      {block && !block.ok && <Notice kind="error">{t("placeOnWorldMap.blocked")}</Notice>}
     </>
   );
 }

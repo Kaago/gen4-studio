@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Section } from "../../ui/primitives";
 import type { InspectorModel } from "../Inspector";
 import { useSectionOpen } from "./foldState";
@@ -10,16 +11,17 @@ import type { TechnicalSource } from "./technical";
  * hex value. Closed until opened. Editors render it only in Tüfteln, once their record is loaded.
  */
 export function TechnicalSection({ model, source }: { model: InspectorModel; source: TechnicalSource }) {
+  const { t } = useTranslation("workbench");
   const [open, toggle] = useSectionOpen("technisch", false);
   const path = filePath(model);
   return (
-    <Section title="Technisch" open={open} onToggle={toggle}>
+    <Section title={t("technicalSection.title")} open={open} onToggle={toggle}>
       <dl className={styles.facts}>
-        <dt>Asset</dt>
+        <dt>{t("technicalSection.asset")}</dt>
         <dd>{assetLine(model)}</dd>
         {path !== null && (
           <>
-            <dt>Datei</dt>
+            <dt>{t("technicalSection.file")}</dt>
             <dd>{path}</dd>
           </>
         )}
@@ -27,9 +29,9 @@ export function TechnicalSection({ model, source }: { model: InspectorModel; sou
       <table className={styles.table}>
         <thead>
           <tr>
-            <th scope="col">Feld</th>
-            <th scope="col">Dez</th>
-            <th scope="col">Hex</th>
+            <th scope="col">{t("technicalSection.field")}</th>
+            <th scope="col">{t("technicalSection.dec")}</th>
+            <th scope="col">{t("technicalSection.hex")}</th>
           </tr>
         </thead>
         <tbody>

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, getTextArchive, placeSlots } from "../../api";
 import type { HeaderFamily, HeaderSummary, PlaceChoice, PlaceSlots } from "../../api";
 import { Button, Notice, Picker, Segmented, TextField } from "../../ui/primitives";
 import type { PickerItem, SegmentedOption } from "../../ui/primitives";
 import { UNNAMED_PLACE, placeColor } from "../places";
-import { DP_PLACES, nameWarning, placeItems, placeKeyOf, reuseWarning } from "../places/placeChoices";
+import { dpPlaces, nameWarning, placeItems, placeKeyOf, reuseWarning } from "../places/placeChoices";
 import { NO_PLACE_INDEX } from "../worldModel";
 import { LookPicker } from "./LookPicker";
 import { placeError } from "./wizardSpecs";
@@ -32,14 +33,13 @@ interface Props {
 
 type Mode = "existing" | "new";
 
-const NO_PLACE_SHORT = "Kein Ort";
-
 /**
  * The step „Ort“ of the wizards in Bauen: an existing place (a button with its colour and name opens the picker „Ort wählen“) or a new
  * one (its name, with the notes of „Neuer Ort“ in the inspector: a name longer than the game shows, the slot of an unused Sinnoh name
  * on a full bank); below, „Aussehen wie …“ picks the look.
  */
 export function PlaceStep({ value, onChange, headers, template, family, name }: Props) {
+  const { t } = useTranslation("workbench");
   const [picking, setPicking] = useState(false);
   const [names, setNames] = useState<string[] | null>(null);
   const [slots, setSlots] = useState<PlaceSlots | null>(null);
@@ -90,8 +90,8 @@ export function PlaceStep({ value, onChange, headers, template, family, name }: 
 
   const locked = family === "DP";
   const modes: SegmentedOption<Mode>[] = [
-    { value: "existing", label: "Vorhandener Ort" },
-    { value: "new", label: "Neuer Ort", disabled: locked },
+    { value: "existing", label: t("placeStep.existing") },
+    { value: "new", label: t("placeStep.new"), disabled: locked },
   ];
 
   let body;
@@ -102,7 +102,7 @@ export function PlaceStep({ value, onChange, headers, template, family, name }: 
       <>
         <div className={parts.field}>
           <TextField
-            label="Name des neuen Orts"
+            label={t("placeStep.newName")}
             showLabel
             value={place.New}
             onChange={(text) => set({ place: { New: text } })}
@@ -117,20 +117,20 @@ export function PlaceStep({ value, onChange, headers, template, family, name }: 
   } else {
     const index = place.Existing;
     const known = names?.[index] ?? headers.find((h) => h.location_index === index)?.location_name ?? "";
-    const label = index === NO_PLACE_INDEX ? NO_PLACE_SHORT : known.trim() || UNNAMED_PLACE;
+    const label = index === NO_PLACE_INDEX ? t("placeStep.noPlace") : known.trim() || UNNAMED_PLACE;
     body = (
       <>
-        <Button kind="secondary" size="s" data-place-picker="" title="Ort wählen" onClick={() => setPicking(true)}>
+        <Button kind="secondary" size="s" data-place-picker="" title={t("placeStep.choose")} onClick={() => setPicking(true)}>
           <span className={styles.dot} style={{ background: placeColor(placeKeyOf(index, known)) }} /* dyn */ />
           {label}
         </Button>
         <Picker
           open={picking}
           onOpenChange={setPicking}
-          title="Ort wählen"
+          title={t("placeStep.choose")}
           items={items}
-          placeholder="Ort suchen"
-          emptyText={names !== null ? undefined : readError !== null ? "Orte nicht lesbar." : "Lade Orte …"}
+          placeholder={t("placeStep.search")}
+          emptyText={names !== null ? undefined : readError !== null ? t("placeStep.unreadable") : t("placeStep.loading")}
           onPick={(item) => set({ place: { Existing: Number(item.id) } })}
         />
       </>
@@ -140,14 +140,14 @@ export function PlaceStep({ value, onChange, headers, template, family, name }: 
   return (
     <>
       <section className={parts.column}>
-        <h3 className={parts.heading}>Ort</h3>
-        <Segmented ariaLabel="Ort" options={modes} value={creating ? "new" : "existing"} onChange={choose} />
-        {locked && <p className={parts.note}>{DP_PLACES}</p>}
+        <h3 className={parts.heading}>{t("placeStep.place")}</h3>
+        <Segmented ariaLabel={t("placeStep.place")} options={modes} value={creating ? "new" : "existing"} onChange={choose} />
+        {locked && <p className={parts.note}>{dpPlaces()}</p>}
         {body}
         {readError !== null && <Notice kind="error">{readError}</Notice>}
       </section>
       <section className={parts.column}>
-        <h3 className={parts.heading}>Aussehen</h3>
+        <h3 className={parts.heading}>{t("placeStep.look")}</h3>
         <LookPicker headers={headers} template={template} value={value.areaDataId} onChange={(areaDataId) => set({ areaDataId })} depth="bauen" />
       </section>
     </>

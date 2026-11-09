@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { NameTablesDto } from "../../api";
+import { t as translate } from "../../i18n";
 import { monIcon, monIconKey, useIcon } from "../../data/icons";
 import { ClassSprite } from "../../data/trainer/ClassSprite";
 import { TrainerBattlePreview } from "../../data/trainer/TrainerBattlePreview";
@@ -15,8 +17,8 @@ export interface TeamRow {
   level: number;
 }
 
-/** What a trainer without a name is called in the wizard (its summary says the same). */
-export const NO_NAME = "Ohne Namen";
+/** What a trainer without a name is called in the wizard (its summary says the same), in the language that is shown. */
+export const noName = (): string => translate("workbench:trainerPreview.noName");
 
 /**
  * A place of the wizard's team as a card with the species' menu icon (from the icon cache, no data context); a place without a species is
@@ -38,6 +40,7 @@ export function TeamRowCard({
   dataAttrs?: RowDataAttrs;
   labelPrefix?: string;
 }) {
+  const { t } = useTranslation("workbench");
   const species = row.species;
   const iconUrl = useIcon(species === null ? null : monIconKey(species), () => monIcon(species ?? 0), true);
   const name = species === null ? undefined : speciesName(names?.species ?? [], species);
@@ -49,7 +52,7 @@ export function TeamRowCard({
       level={species === null ? undefined : row.level}
       iconUrl={iconUrl}
       slot={slot + 1}
-      ariaLabel={`${labelPrefix}${name === undefined ? `Platz ${slot + 1}: leer` : `Platz ${slot + 1}: ${name}, Level ${row.level}`}`}
+      ariaLabel={`${labelPrefix}${name === undefined ? t("trainerPreview.slotEmpty", { n: slot + 1 }) : t("trainerPreview.slot", { n: slot + 1, name, level: row.level })}`}
       onClick={onClick}
       dataAttrs={dataAttrs}
     />
@@ -73,6 +76,7 @@ export interface TrainerPreviewProps {
  * team as compact cards. It follows the form as it is typed; it reads no data context (the wizard runs outside the data areas).
  */
 export function TrainerPreview({ cls, name, party, names, classes, onSlot }: TrainerPreviewProps) {
+  const { t } = useTranslation("workbench");
   const [foe, setFoe] = useState<Foe>("trainer");
   const clsName = className(classes, cls);
   const own = name.trim();
@@ -81,20 +85,20 @@ export function TrainerPreview({ cls, name, party, names, classes, onSlot }: Tra
   const first: FirstMon | null =
     mon && mon.species !== null ? { name: speciesName(names?.species ?? [], mon.species), level: mon.level, sprite: { species: mon.species, side: "front" } } : null;
   return (
-    <section className={styles.preview} aria-label="Vorschau des Trainers" data-trainer-preview="">
+    <section className={styles.preview} aria-label={t("trainerPreview.label")} data-trainer-preview="">
       <header className={styles.head}>
         <ClassSprite cls={cls} name={title} size={80} />
         <div className={styles.headText}>
-          <span className={styles.name}>{own === "" ? NO_NAME : own}</span>
+          <span className={styles.name}>{own === "" ? noName() : own}</span>
           <span className={styles.cls}>{clsName}</span>
         </div>
       </header>
-      <h3 className={styles.heading}>Kampfvorschau</h3>
+      <h3 className={styles.heading}>{t("trainerPreview.battle")}</h3>
       <TrainerBattlePreview cls={cls} title={title} first={first} foe={foe} onFoe={setFoe} />
-      <h3 className={styles.heading}>Team</h3>
+      <h3 className={styles.heading}>{t("trainerPreview.team")}</h3>
       <div className={styles.team}>
         {party.map((row, i) => (
-          <TeamRowCard key={i} row={row} slot={i} names={names} onClick={() => onSlot(i)} dataAttrs={{ "data-preview-slot": i }} labelPrefix="Vorschau, " />
+          <TeamRowCard key={i} row={row} slot={i} names={names} onClick={() => onSlot(i)} dataAttrs={{ "data-preview-slot": i }} labelPrefix={`${t("trainerPreview.preview")}, `} />
         ))}
       </div>
     </section>

@@ -1,14 +1,14 @@
+import { useTranslation } from "react-i18next";
 import type { NextStep } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Notice, RecipeButton } from "../../ui/primitives";
 import type { Area, IconName } from "../../ui/primitives";
 import { RECIPE_BAR } from "../recipes";
-import { termLabel } from "../terms";
 import styles from "./WizardResult.module.css";
 
 interface DoneProps {
-  /** What was made, e.g. "Gebiet angelegt". */
+  /** What was made, e.g. „Gebiet angelegt“. */
   title: string;
   lines: string[];
   next: string[];
@@ -37,6 +37,7 @@ function stepLook(id: string): { icon: IconName; area: Area } {
  * after them (the frame adds "Zeigen" and "Hier spielen").
  */
 export function DoneResult({ title, lines, next, steps = [], onStep }: DoneProps) {
+  const { t } = useTranslation("workbench");
   return (
     <div className={styles.result}>
       <Notice kind="success" title={title}>
@@ -46,7 +47,7 @@ export function DoneResult({ title, lines, next, steps = [], onStep }: DoneProps
           </p>
         ))}
       </Notice>
-      <h3 className={styles.heading}>Als Nächstes</h3>
+      <h3 className={styles.heading}>{t("wizardResult.next")}</h3>
       {steps.length > 0 && (
         <div className={styles.steps} data-next-steps="">
           {steps.map((s) => (
@@ -56,7 +57,7 @@ export function DoneResult({ title, lines, next, steps = [], onStep }: DoneProps
               label={s.label}
               icon={stepLook(s.id).icon}
               area={stepLook(s.id).area}
-              reason={s.available ? null : (s.reason ?? "Noch nicht verfügbar")}
+              reason={s.available ? null : (s.reason ?? t("wizardResult.notAvailable"))}
               onClick={() => onStep?.(s.id)}
               size="s"
             />
@@ -74,14 +75,14 @@ export function DoneResult({ title, lines, next, steps = [], onStep }: DoneProps
 
 /** The result step of a wizard that failed after it had created members: what the backend says stayed behind, and where to finish by hand. */
 export function PartialResult({ message, depth = "tuefteln" }: { message: string; depth?: Depth }) {
+  const { t } = useTranslation("workbench");
   return (
     <div className={styles.result}>
-      <Notice kind="warning" title="Anlegen unterbrochen">
+      <Notice kind="warning" title={t("wizardResult.interrupted")}>
         <p className={styles.line}>{message}</p>
       </Notice>
       <p className={styles.line}>
-        Was schon angelegt ist, bleibt bestehen und lässt sich nicht rückgängig machen.{" "}
-        {!depthAtLeast(depth, "tuefteln") ? "Den Rest in der Welt von Hand fertigstellen." : `Den Rest im ${termLabel("matrix")}-Tab und im ${termLabel("header")}-Editor von Hand fertigstellen.`}
+        {t("wizardResult.kept")} {!depthAtLeast(depth, "tuefteln") ? t("wizardResult.restBuild") : t("wizardResult.restTinker")}
       </p>
     </div>
   );

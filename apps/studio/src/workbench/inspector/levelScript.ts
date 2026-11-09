@@ -1,17 +1,20 @@
 import type { LevelScriptDoc, SaveScriptDto } from "../../api";
+import { t } from "../../i18n";
 
 /** What starts a header entry of a level script (rotom's `type`). */
 export type HeaderEntryType = "on_load" | "on_resume" | "on_transition" | "on_var_condition";
 
-export const TRIGGER_LABELS: Record<HeaderEntryType, string> = {
-  on_load: "Beim Laden (on_load)",
-  on_resume: "Beim Fortsetzen (on_resume)",
-  on_transition: "Beim Betreten (on_transition)",
-  on_var_condition: "Variablen-Bedingungen (on_var_condition)",
-};
-
 /** The triggers in the order the selection lists them. */
-export const HEADER_ENTRY_TYPES = Object.keys(TRIGGER_LABELS) as HeaderEntryType[];
+export const HEADER_ENTRY_TYPES: readonly HeaderEntryType[] = ["on_load", "on_resume", "on_transition", "on_var_condition"];
+
+/** The catalog key of each trigger's name (`workbench:levelScript.trigger.<key>`). */
+const TRIGGER_KEYS = { on_load: "onLoad", on_resume: "onResume", on_transition: "onTransition", on_var_condition: "onVarCondition" } as const satisfies Record<HeaderEntryType, string>;
+
+/** The name of each trigger, read from the catalog when it is accessed (in the language that is shown then, never at module scope). */
+export const TRIGGER_LABELS: Readonly<Record<HeaderEntryType, string>> = Object.defineProperties(
+  {} as Record<HeaderEntryType, string>,
+  Object.fromEntries(HEADER_ENTRY_TYPES.map((type) => [type, { enumerable: true, get: () => t(`workbench:levelScript.trigger.${TRIGGER_KEYS[type]}`) }])),
+);
 
 /** A row of `header_entries`; `on_var_condition` has no script (its scripts are in `var_conditions`). */
 export interface HeaderEntry {
@@ -97,14 +100,13 @@ export function setVarCondition(doc: LevelScriptDoc, index: number, patch: Parti
 export const runsDuringMapSetup = (type: HeaderEntryType): boolean => type !== "on_var_condition";
 
 /** The hint next to an entry that runs while the map is set up (gate 3b.2, finding 14: a message there leaves the map black). */
-export const HINT_NO_MESSAGES = "Script ohne Nachricht und ohne Warten auf Eingaben, sonst bleibt die Karte schwarz.";
-export const HINT_NO_MESSAGES_DETAIL =
-  "Dieser Auslöser läuft beim Aufbau der Karte in einem Zug, das Spiel zeigt dazwischen kein Bild. Ein Script, das eine Nachricht zeigt (Message) oder auf eine Taste wartet (WaitButton), kommt dort nicht weiter: die Karte bleibt schwarz und die Figur hängt. Eine Nachricht beim Betreten braucht eine Variablen-Bedingung, deren Script die Variable selbst umstellt.";
+export const hintNoMessages = (): string => t("workbench:levelScript.hintNoMessages");
+export const hintNoMessagesDetail = (): string => t("workbench:levelScript.hintNoMessagesDetail");
 
 /** What rotom's `validate` refuses (src/decompiler/levelscript.rs LevelScript::validate), as hints in the form's words. */
-export const HINT_ZERO_VAR = "Variable 0 beendet die Tabelle — bitte eine Variable angeben";
-export const HINT_DUPLICATE_VAR_TRIGGER = `Nur der erste Eintrag „${TRIGGER_LABELS.on_var_condition}“ zählt`;
-export const HINT_CONDITIONS_WITHOUT_TRIGGER = `Variablen-Bedingungen brauchen einen Eintrag „${TRIGGER_LABELS.on_var_condition}“`;
+export const hintZeroVar = (): string => t("workbench:levelScript.hintZeroVar");
+export const hintDuplicateVarTrigger = (): string => t("workbench:levelScript.hintDuplicateVarTrigger", { trigger: TRIGGER_LABELS.on_var_condition });
+export const hintConditionsWithoutTrigger = (): string => t("workbench:levelScript.hintConditionsWithoutTrigger", { trigger: TRIGGER_LABELS.on_var_condition });
 
 /**
  * Why rotom would reject `doc` (empty when it would not). A document in such a state is not saved: the form shows the
@@ -114,9 +116,9 @@ export function validationHints(doc: LevelScriptDoc): string[] {
   const triggers = headerEntries(doc).filter((e) => e.type === "on_var_condition").length;
   const conditions = varConditions(doc);
   const hints: string[] = [];
-  if (triggers > 1) hints.push(HINT_DUPLICATE_VAR_TRIGGER);
-  if (conditions.length > 0 && triggers === 0) hints.push(HINT_CONDITIONS_WITHOUT_TRIGGER);
-  if (conditions.some((c) => c.var === 0)) hints.push(HINT_ZERO_VAR);
+  if (triggers > 1) hints.push(hintDuplicateVarTrigger());
+  if (conditions.length > 0 && triggers === 0) hints.push(hintConditionsWithoutTrigger());
+  if (conditions.some((c) => c.var === 0)) hints.push(hintZeroVar());
   return hints;
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { MATRIX_EMPTY, duplicateMap, getMap, setMatrixCell, worldAdopt } from "../../api";
 import type { EdgePlace } from "../../api.world";
 import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
@@ -9,6 +10,7 @@ import { useTextProject } from "../../textproject/TextProjectContext";
 import { resetEntry } from "../../original/resetEntry";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
 import { Button, InspectorRow, Notice, NumberField, Picker, Reference, TextField, checkNumber } from "../../ui/primitives";
 import type { MenuEntry, PickerItem } from "../../ui/primitives";
 import type { HeaderIdentity } from "../headerIdentity";
@@ -33,7 +35,7 @@ import { RawRowSection } from "./RawRowSection";
 import { TechnicalSection } from "./TechnicalSection";
 import { TileEditor } from "./TileEditor";
 import { TilePalette } from "./TilePalette";
-import { ADOPT_NEEDS_TEXT_PROJECT, WorldSourceSection, adoptedText } from "./WorldSourceSection";
+import { WorldSourceSection, adoptNeedsTextProject, adoptedText } from "./WorldSourceSection";
 
 /** What the cell editor needs from App. */
 export interface MatrixCellContext {
@@ -68,13 +70,14 @@ const NO_LAYERS: ReadonlySet<number> = new Set();
 
 /** The map of a cell: a number from 0 to `max`, or nothing for a cell without a map. An entry outside that is refused with its limit. */
 function MapField({ map, max, onCommit }: { map: number | null; max: number; onCommit: (next: number | "empty") => void }) {
+  const { t } = useTranslation("workbench");
   const [error, setError] = useState<string | undefined>();
   // A new value from the matrix makes an old refusal moot.
   useEffect(() => setError(undefined), [map]);
   return (
     <TextField
-      label="Karte"
-      placeholder="leer"
+      label={termLabel("map")}
+      placeholder={t("matrixCellEditor.empty")}
       value={map === null ? "" : String(map)}
       error={error}
       onChange={() => setError(undefined)}
@@ -107,11 +110,11 @@ function areasOn(world: World | null, index: number) {
  */
 function matrixWords(world: World | null, index: number, headers: readonly HeaderSummary[], identify: (header: HeaderSummary) => HeaderIdentity): string {
   const maps = world?.worldMaps.filter((m) => m.matrix === index) ?? [];
-  if (maps.length > 0) return maps.map((m) => m.name).join(" und ");
+  if (maps.length > 0) return maps.map((m) => m.name).join(` ${translate("workbench:matrixCellEditor.and")} `);
   const own = world?.moreAreas.find((a) => a.matrix === index);
   if (own) return own.name;
   const user = headers.find((h) => h.matrix_id === index);
-  return user ? identify(user).name : "Raumplan";
+  return user ? identify(user).name : translate("workbench:matrixCellEditor.roomPlan");
 }
 
 /**
@@ -133,6 +136,7 @@ function OwnerField({
   goTo: (target: NavTarget) => void;
   onCommit: (header: number) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const { world } = useWorld();
   const [picking, setPicking] = useState(false);
   const items = useMemo<PickerItem[]>(() => {
@@ -142,33 +146,33 @@ function OwnerField({
       area.headers.forEach((h, i) => {
         if (seen.has(h.id)) return;
         seen.add(h.id);
-        areas.push({ id: h.id, label: area.headers.length > 1 ? `${area.name}, Abschnitt ${i + 1}` : area.name });
+        areas.push({ id: h.id, label: area.headers.length > 1 ? t("matrixCellEditor.section", { name: area.name, n: i + 1 }) : area.name });
       });
     }
     return [{ id: LANDSCAPE, label: termLabel("landscape"), description: termShort("landscape") }, ...areas];
-  }, [world, matrix]);
+  }, [world, matrix, t]);
   const owner = header === LANDSCAPE ? undefined : headers.find((h) => h.id === header);
   return (
     <>
-      <InspectorRow label="Gehört zu">
+      <InspectorRow label={t("matrixCellEditor.belongsTo")}>
         <div className={styles.inline}>
           {header === LANDSCAPE ? (
             <span>{termLabel("landscape")}</span>
           ) : (
-            <Reference area="welt" label={owner ? identify(owner).name : `Nummer ${id4(header)}`} onOpen={() => goTo({ kind: "header", id: header })} />
+            <Reference area="welt" label={owner ? identify(owner).name : t("matrixCellEditor.number", { id: id4(header) })} onOpen={() => goTo({ kind: "header", id: header })} />
           )}
-          <Button kind="quiet" size="s" aria-label="Gehört zu ändern…" data-cell-owner="" onClick={() => setPicking(true)}>
-            Ändern…
+          <Button kind="quiet" size="s" aria-label={t("matrixCellEditor.changeBelongsTo")} data-cell-owner="" onClick={() => setPicking(true)}>
+            {t("inspectorField.change")}
           </Button>
         </div>
       </InspectorRow>
       <Picker
         open={picking}
         onOpenChange={setPicking}
-        title="Gehört zu"
+        title={t("matrixCellEditor.belongsTo")}
         items={items}
-        placeholder="Gebiet suchen …"
-        emptyText="Kein Gebiet passt zur Suche."
+        placeholder={t("matrixCellEditor.searchArea")}
+        emptyText={t("matrixCellEditor.noArea")}
         onPick={(item) => Number(item.id) !== header && onCommit(Number(item.id))}
       />
     </>
@@ -221,6 +225,7 @@ function PaintAdoptNote({
   onAdopted: (text: string) => void;
   onError: (e: unknown) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const [working, setWorking] = useState(false);
   const reasonId = useId();
   async function adopt() {
@@ -238,7 +243,7 @@ function PaintAdoptNote({
   }
   return (
     <div data-paint-binary="">
-      <Notice kind="info">Boden malen: Karte als Quelle übernehmen</Notice>
+      <Notice kind="info">{t("matrixCellEditor.paintAdoptNote")}</Notice>
       <div className={styles.actions}>
         <Button
           kind="secondary"
@@ -249,12 +254,12 @@ function PaintAdoptNote({
           aria-describedby={textProject ? undefined : reasonId}
           onClick={() => void adopt()}
         >
-          Karte als Quelle übernehmen
+          {t("worldSourceSection.adopt")}
         </Button>
       </div>
       {!textProject && (
         <p id={reasonId} className={styles.note}>
-          {ADOPT_NEEDS_TEXT_PROJECT}
+          {adoptNeedsTextProject()}
         </p>
       )}
     </div>
@@ -266,6 +271,7 @@ const tileFamily = (family: string | null | undefined): "pt" | "hgss" => (family
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
+  const { t } = useTranslation("workbench");
   const { dirty, headers, identify, headerCount, goTo, counts, revision, mapRevision = 0, onEdited, onCountsChanged, onError, onMapImported, checks, painting = false, family = null } = context;
   const matrix = useMatrix(index, revision, onError);
   const textProject = useTextProject().active;
@@ -285,7 +291,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   // The edits of the edge sets, shared by the palette's append and the section: one at a time, each building on the last set written.
   const edgeEdits = useEdgeSetEdits(paint.tileset);
 
-  const cell = `Zelle ${x}, ${y}`;
+  const cell = t("matrixCellEditor.cell", { x, y });
   // Bauen speaks of the world map and the area a cell belongs to; Tüfteln keeps the matrix ("Raster") and the header.
   const tinker = depthAtLeast(depth, "tuefteln");
   // Bauen names the map by its world map, area or room, never by its number (a cell outside or a matrix still loading).
@@ -303,9 +309,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
     return (
       <div className={styles.panel}>
         <InspectorHead kind="map" title={cell} ident={matrixName} unsaved={unsaved} depth={depth} />
-        <p className={styles.note}>
-          Die Zelle liegt außerhalb {tinker ? "des Rasters" : "der Karten"} ({matrix.width} × {matrix.height}).
-        </p>
+        <p className={styles.note}>{t(tinker ? "matrixCellEditor.outsideGrid" : "matrixCellEditor.outsideMaps", { width: matrix.width, height: matrix.height })}</p>
       </div>
     );
   }
@@ -318,7 +322,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   // Bauen names the cell by its map and where it lies (the area or room); Tüfteln keeps the codes of the matrix and the header.
   // Header 0 is the landscape, not a place a cell lies in.
   const place = header === null || header === 0 ? undefined : headers.find((h) => h.id === header);
-  const title = tinker ? cell : map === null ? "Leere Zelle" : `Karte ${id4(map)}`;
+  const title = tinker ? cell : map === null ? t("matrixCellEditor.emptyCell") : `${termLabel("map")} ${id4(map)}`;
   const ident = tinker ? `${matrixName} · ${cellLabel(map, header)}` : place ? `${cell} · ${identify(place).name}` : cell;
 
   /** Writes the changed field of this cell; always refreshes afterwards, also after a refusal. */
@@ -358,11 +362,11 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
     ...(map === null
       ? []
       : [
-          { label: "Teile importieren…", onSelect: () => setPartsDialog("import") },
-          { label: "Teile exportieren…", onSelect: () => setPartsDialog("export") },
+          { label: t("matrixCellEditor.importParts"), onSelect: () => setPartsDialog("import") },
+          { label: t("matrixCellEditor.exportParts"), onSelect: () => setPartsDialog("export") },
         ]),
-    { label: "Duplizieren", disabled: map === null || working, onSelect: () => map !== null && void duplicate(map) },
-    ...(map === null ? [] : [{ label: "Löschen…", onSelect: () => remove.open({ kind: "map", index: map }) }]),
+    { label: t("matrixCellEditor.duplicate"), disabled: map === null || working, onSelect: () => map !== null && void duplicate(map) },
+    ...(map === null ? [] : [{ label: t("matrixCellEditor.delete"), onSelect: () => remove.open({ kind: "map", index: map }) }]),
     ...(map === null ? [] : ["separator" as const, resetEntry({ kind: "map", index: map }, reset.status, reset.open)]),
   ];
   // How the cell's map stands in the saved project against the base.
@@ -409,7 +413,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
           <PaintAdoptNote map={map} textProject={textProject} onChanged={onMapImported} onAdopted={(text) => setAdopted({ map, text })} onError={onError} />
         )}
         {map !== null && painting && isWorld === true && adopted?.map === map && <Notice kind="success">{adopted.text}</Notice>}
-        <InspectorRow label="Karte" hint={`0 bis ${mapMax}, leer = keine Karte`}>
+        <InspectorRow label={termLabel("map")} hint={t("matrixCellEditor.mapRange", { max: mapMax })}>
           <MapField map={map} max={mapMax} onCommit={commitMap} />
         </InspectorRow>
         {map !== null && (
@@ -430,7 +434,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         {header !== null && !tinker ? (
           <OwnerField matrix={index} header={header} headers={headers} identify={identify} goTo={goTo} onCommit={commitHeader} />
         ) : header !== null ? (
-          <InspectorRow label={headerWord} hint={`0 bis ${headerMax}`}>
+          <InspectorRow label={headerWord} hint={t("inspectorField.range", { max: headerMax })}>
             <div className={styles.inline}>
               <div className={styles.grow}>
                 <NumberField label={headerWord} value={header} max={headerMax} bits={16} onCommit={commitHeader} showBase={depthAtLeast(depth, "tuefteln")} />
@@ -440,11 +444,11 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
           </InspectorRow>
         ) : (
           // A room's cells have no area section: Bauen just leaves the field out, Tüfteln says where to switch the section on.
-          tinker && <p className={styles.note}>Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar).</p>
+          tinker && <p className={styles.note}>{t("matrixCellEditor.noHeaderSection")}</p>
         )}
         {/* Without an altitude section the height reads 0; the first height written makes the kernel add the section. */}
-        <InspectorRow label="Höhe" hint="0 bis 255">
-          <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depthAtLeast(depth, "tuefteln")} />
+        <InspectorRow label={t("matrixCellEditor.height")} hint={t("inspectorField.range", { max: 255 })}>
+          <NumberField label={t("matrixCellEditor.height")} value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depthAtLeast(depth, "tuefteln")} />
         </InspectorRow>
         {/* While painting a world map: its palette, layers and the chosen tile, before „Quelle“ and „Budget“. */}
         {map !== null && paintWorld && (
@@ -503,10 +507,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         {map !== null && depthAtLeast(depth, "bauen") && <MapBudgetSection map={map} revision={revision + mapRevision} depth={depth} onError={onError} bake={painted?.bake} />}
         {depthAtLeast(depth, "tuefteln") && <RawRowSection matrix={matrix} x={x} y={y} />}
         {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
-        <p className={styles.note}>
-          „Duplizieren“ (Menü „Aktionen“) trägt eine Kopie der Karte in diese Zelle ein und lässt sich nicht rückgängig machen: Die Kopie ist sofort als neue
-          Karte am Ende des Archivs vorhanden.
-        </p>
+        <p className={styles.note}>{t("matrixCellEditor.duplicateNote")}</p>
       </div>
     </div>
   );
