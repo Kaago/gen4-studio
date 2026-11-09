@@ -126,6 +126,7 @@ Was nur der Nutzer beurteilen kann, der Reihe nach (die Kopien liegen unter `/Us
 7. [ ] **Tiled 1.10:** die exportierte `6-5b-web_DSPRE_contents/build/0000.tmj` in Tiled 1.10 öffnen. Darauf achten: die Ebenen „Boden“ (und weitere Welt-Ebenen), „Höhe“, „Teilmodelle“, „Gebäude (nur Ansicht)“, falls die Welt sie hat auch „Rampen“ und „Permissions“, sind da, die Kachelbilder aus `0000.tiles/` laden (keine roten Kreuze), die Karte gleicht der Szene. Eine Zelle mit einer anderen Kachel bemalen, speichern. Im Studio „Teile importieren…“ › dieselbe Datei: die Zeile „Tiled (TMJ)“ nennt eine geänderte Zelle; „übernehmen“ ergibt **genau einen** Verlaufseintrag „Tiled importiert: Karte 0000“, die Szene zeigt die neue Kachel an der Stelle; ⌘Z nimmt ihn zurück. Auch prüfen, ob eine ältere Tiled-Fassung (falls vorhanden) die Bildsammlung ohne `grid` liest (Plan „Offen“). Beim Nutzer offen.
 8. [ ] **DSPRE öffnet eine Form-2-Karte:** auf einer Kopie Karte 0184 (oder Zweiblattdorf Karte 0000) mit „Als glTF übernehmen (Form 2)“ übernehmen, speichern und bauen (Technik › „Prüfen und Bauen“ › „Bauen“). Den Projektordner bzw. die gebaute `out.nds` in DSPRE öffnen, die Karte im Karten-Editor laden. Darauf achten: Modell, Terrain (BDHC) und Permissions lesen sich ohne Fehler; das Modell gleicht dem Vanilla-Modell bis auf die dokumentierte Polygonzahl. Beim Nutzer offen.
 9. [ ] **`scripts/gate.sh` auf main** nach dem Merge (Hauptsitzung): grün, mit `tests/world_freeform.rs` im Schritt der gated Tests je Projekt. Erst dieser Lauf belegt den Stand nach dem Merge von 6.4a für die gated Tests. Offen.
+10. [x] **Frames 6.5b in der `.fig`** (09.11.2026, Branch `phase-6-fig-nachtraege-2`; beim Schreiben des Design-Nachtrags antwortete OpenPencil nicht): „Teile importieren: Freiform und Tiled“ hell (x 0, y 7000) und dunkel (x 1520, y 7000) und „Quelle: Als glTF übernehmen“ hell (x 0, y 8000) und dunkel (x 1520, y 8000) auf der Seite „App: Werkbank“, aus `design-system/openpencil/beispiele/welt-austausch.body.js`, die Zeile „Kartenteile importieren“ im Brett „Stand der App“; Anleitung `design-system/openpencil/NACHTRAG-6-5b.md`.
 
 ## Ergebnis
 
@@ -146,6 +147,7 @@ Was nur der Nutzer beurteilen kann, der Reihe nach (die Kopien liegen unter `/Us
 | (4) 7 Tiled 1.10 | Hand | offen | – |
 | (4) 8 DSPRE öffnet eine Form-2-Karte | Hand | offen | – |
 | (4) 9 `scripts/gate.sh` auf main | Agent (Hauptsitzung) | offen | – |
+| (4) 10 Frames 6.5b in der `.fig` | Agent | bestanden: zwei Frames je hell und dunkel auf „App: Werkbank“ (Reihe 7 und 8), die Zeile im Brett „Stand der App“; Branch `phase-6-fig-nachtraege-2` (`design-system/openpencil/NACHTRAG-6-5b.md`) | 2026-11-09 |
 
 Zahlentabelle (gated Läufe auf `360ff844` nach 10b, `vanilla_checks` auf `c142156f`; Form 2 auf Karte 0000 = Zweiblattdorf bzw. Neuborkia; Polygone V/D = Vierecke/Dreiecke; Last = 1-Minuten-Last vor dem gated Lauf / vor `vanilla_checks`):
 

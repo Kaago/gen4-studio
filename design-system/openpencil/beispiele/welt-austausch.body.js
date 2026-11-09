@@ -15,12 +15,12 @@
   // Texte aus design-system/README.md, „Nachtrag 6.5b“. Beispielwerte, keine Spieldaten: das Testmodell g4_imp_cube ist selbst erzeugt
   // (g4k import-samples), die Lage folgt dem Szenario pt-freiform (Zelle 13, 19); Größen und Polygonzahlen sind Beispiele (die Zahlen von Form 2
   // nach der Messung auf Platin DE, Karte 0, aus docs/formats/world_map.md), der Material- und Paketname der Ablehnung ein Muster.
-  // Nicht gerendert: OpenPencil antwortete beim Schreiben mit HTTP 502, die .fig wird in diesem Branch nicht angefasst; gerendert wird auf main
-  // nach dem Merge (Anleitung: openpencil/NACHTRAG-6-5b.md). Maße und Umbrüche dann mit dem Bild und der Test-Umgebung abgleichen.
-  // Dunkel: bash ../build-screen.sh welt-austausch --dunkel.
+  // Gerendert am 09.11.2026 auf main nach dem Merge (App: Werkbank, 'import' Reihe 7, 'quelle' Reihe 8; hell x 0, dunkel x 1520), 'quelle' nach
+  // einem Korrekturlauf (Meldungen mit Satzbreite, siehe NoticeQ); beim Schreiben antwortete OpenPencil nicht (Anleitung: openpencil/NACHTRAG-6-5b.md).
+  // Dunkel: bash ../build-screen.sh welt-austausch --dunkel (der Name trägt dann „(Dunkel)“).
   const MODE = 'import';
   if (HX_DUNKEL) Object.assign(HX, HX_DUNKEL);
-  const NAMES = { import: 'Teile importieren: Freiform und Tiled', quelle: 'Quelle: Als glTF übernehmen' };
+  const NAMES = { import: 'Teile importieren: Freiform und Tiled' + (DARK ? ' (Dunkel)' : ''), quelle: 'Quelle: Als glTF übernehmen' + (DARK ? ' (Dunkel)' : '') };
   const W = 480;
   const IW = W - 40;
   const de = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -128,11 +128,15 @@
   // seitlich; Tasten sekundär klein in einer Zeile, die umbricht (Abstand raum/8); Meldungen über Notice -----
   const PW = 340;
   const QW = PW - 16;
-  // Die Zeile bricht in der App um (flex-wrap): bei 324 px Breite passen die beiden Tasten nicht nebeneinander, also hier untereinander.
+  // Die Zeile bricht in der App um (flex-wrap): bei 324 px Breite passen die beiden Tasten nicht nebeneinander (zusammen gut 400), also hier untereinander.
   const Tasten = () => <Frame name="Tasten" flex="col" items="start" gap={8} w={QW}>
     {Btn({ label: 'Karte als Quelle übernehmen', small: true })}
     {Btn({ label: 'Als glTF übernehmen (Form 2)', small: true })}
   </Frame>;
+  // Meldung wie Notice() aus jsx-lib-app, aber mit fester Breite des Satzes (Abschnitt 324, Rand 2 × 12, Symbol 18 + Abstand 8): Notice() gibt dem
+  // Text keine Breite, die langen Sätze liefen im ersten Bild (09.11.2026) über den Rand des Inspectors hinaus
+  const NoticeQ = (text, art) => { const m = { ok: ['status/erfolg-flaeche', 'ph:check-circle-fill', 'ok'], fehler: ['status/fehler-flaeche', 'ph:x-circle-fill', 'f'] }[art];
+    return <Frame name={'Meldung ' + art} flex="row" items="start" gap={8} px={12} py={8} w="fill" rounded={6} bg={v(m[0])}>{I(m[1], 18, m[2])}{T(text, { width: QW - 24 - 26 })}</Frame>; };
   const Binaer = (meldung) => <Frame name="Quelle (binär)" flex="col" gap={6} px={8} py={4} w="fill">
     {T('Binäre Karte aus dem ROM oder aus DSPRE.', { width: QW })}
     {Tasten()}
@@ -152,6 +156,6 @@
 
   return <Frame name={NAMES.quelle} flex="row" items="start" gap={24} p={24} w={PW * 3 + 96} rounded={10} bg={v('flaeche/deck')}>
     {Panel('Karte 0000', 'Zelle 3, 27 · Zweiblattdorf', Binaer(null))}
-    {Panel('Karte 0000', 'Zelle 3, 27 · Zweiblattdorf', Welt(['38.224', '146'], Notice('Übernommen als glTF: 815 Vanilla-Polygone, 816 gebackene Flächen.', 'ok')))}
-    {Panel('Karte 0123', 'Zelle 5, 2 · Route 201', Binaer(Notice('Material „lake_lm2“ der Karte 0123 bindet keine Textur des Pakets 0006; Form 2 geht für diese Karte nicht, Form 1 schon. (world.adopt-texture)', 'fehler')))}
+    {Panel('Karte 0000', 'Zelle 3, 27 · Zweiblattdorf', Welt(['38.224', '146'], NoticeQ('Übernommen als glTF: 815 Vanilla-Polygone, 816 gebackene Flächen.', 'ok')))}
+    {Panel('Karte 0123', 'Zelle 5, 2 · Route 201', Binaer(NoticeQ('Material „lake_lm2“ der Karte 0123 bindet keine Textur des Pakets 0006; Form 2 geht für diese Karte nicht, Form 1 schon. (world.adopt-texture)', 'fehler')))}
   </Frame>;
