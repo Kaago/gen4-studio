@@ -1,4 +1,5 @@
 import { useRef, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog, TextField } from "../ui/primitives";
 import { answerRequest, currentRequest, subscribeRequests } from "./dialogs";
 import type { WebRequest } from "./dialogs";
@@ -27,6 +28,7 @@ function requestId(request: WebRequest): number {
  * keystroke, so there is no draft to take back first). Enter in the field takes the path.
  */
 function RequestDialog({ request }: { request: WebRequest }) {
+  const { t } = useTranslation("platform");
   const [path, setPath] = useState(request.kind === "path" ? request.initial : "");
   const pathRef = useRef(path);
   pathRef.current = path;
@@ -40,11 +42,11 @@ function RequestDialog({ request }: { request: WebRequest }) {
       <Dialog
         open
         onOpenChange={onOpenChange}
-        title="Rückfrage"
+        title={t("webDialog.question")}
         description={request.message}
         actions={[
-          { label: "Nein", onClick: () => answerRequest(false) },
-          { label: "Ja", kind: request.level === "warning" ? "danger" : "primary", onClick: () => answerRequest(true) },
+          { label: t("webDialog.no"), onClick: () => answerRequest(false) },
+          { label: t("webDialog.yes"), kind: request.level === "warning" ? "danger" : "primary", onClick: () => answerRequest(true) },
         ]}
       />
     );
@@ -55,8 +57,8 @@ function RequestDialog({ request }: { request: WebRequest }) {
       onOpenChange={onOpenChange}
       title={request.title}
       actions={[
-        { label: "Abbrechen", onClick: () => answerRequest(null) },
-        { label: "OK", kind: "primary", onClick: () => answerRequest(pathRef.current) },
+        { label: t("webDialog.cancel"), onClick: () => answerRequest(null) },
+        { label: t("webDialog.ok"), kind: "primary", onClick: () => answerRequest(pathRef.current) },
       ]}
     >
       <div
@@ -67,7 +69,7 @@ function RequestDialog({ request }: { request: WebRequest }) {
           answerRequest(pathRef.current);
         }}
       >
-        <TextField label="Pfad" showLabel value={path} onChange={setPath} onCommit={setPath} />
+        <TextField label={t("webDialog.path")} showLabel value={path} onChange={setPath} onCommit={setPath} />
       </div>
     </Dialog>
   );

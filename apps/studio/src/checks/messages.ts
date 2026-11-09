@@ -87,7 +87,27 @@ export const CHECK_CODES: readonly string[] = Object.keys(CHECK_MESSAGES);
 /** Where a finding is listed in the Problems panel: by its subject; the project's own files (an archive that cannot be read) apart. */
 export type CheckArea = "welt" | "scripts" | "texte" | "pokemon" | "projekt";
 
-export const AREA_LABELS: Readonly<Record<CheckArea, string>> = { welt: "Welt", scripts: "Scripts", texte: "Texte", pokemon: "Pokémon", projekt: "Projekt" };
+/** The name of an area of the Problems panel in the language shown (`checks:_words.areas`). */
+export const areaLabel = (area: CheckArea): string => t(`checks:_words.areas.${area}`);
+
+/** The names of the areas, each read when it is asked for (a getter: i18next is not ready at module scope, and the language may switch). */
+export const AREA_LABELS: Readonly<Record<CheckArea, string>> = {
+  get welt() {
+    return areaLabel("welt");
+  },
+  get scripts() {
+    return areaLabel("scripts");
+  },
+  get texte() {
+    return areaLabel("texte");
+  },
+  get pokemon() {
+    return areaLabel("pokemon");
+  },
+  get projekt() {
+    return areaLabel("projekt");
+  },
+};
 
 const AREA_OF: Readonly<Record<SubjectKind, CheckArea>> = {
   header: "welt",
@@ -142,27 +162,35 @@ export function checkMessage(code: string): CheckMessage | null {
 export const checkTitle = (code: string, depth: Depth): string =>
   (!depthAtLeast(depth, "tuefteln") ? wordOf(code, "building.title") : undefined) ?? wordOf(code, "title") ?? code;
 
-/** Field names of headers, area data and trainers in the words of the editors. */
-const FIELD_WORDS: Readonly<Record<string, string>> = {
-  matrix_id: "Matrix",
-  event_file_id: "Eventdatei",
-  script_file_id: "Scriptdatei",
-  level_script_id: "Level-Script",
-  text_archive_id: "Textarchiv",
-  area_data_id: "Area-Data",
-  wild_pokemon: "Begegnungen",
-  map_tileset: "Karten-Texturen",
-  buildings_tileset: "Gebäude-Texturen",
-  class: "Klasse",
-  items: "Gegenstand",
-  species: "Pokémon",
-  item: "Gegenstand",
-  moves: "Attacke",
+/** Field names of headers, area data and trainers in the words of the editors: the kernel's field name, and its key in `checks:_words.fields`. */
+const FIELD_WORDS = {
+  matrix_id: "matrixId",
+  event_file_id: "eventFileId",
+  script_file_id: "scriptFileId",
+  level_script_id: "levelScriptId",
+  text_archive_id: "textArchiveId",
+  area_data_id: "areaDataId",
+  wild_pokemon: "wildPokemon",
+  map_tileset: "mapTileset",
+  buildings_tileset: "buildingsTileset",
+  class: "class",
+  items: "items",
+  species: "species",
+  item: "item",
+  moves: "moves",
+} as const;
+const fieldWord = (field: string): string | undefined => {
+  const key = (FIELD_WORDS as Readonly<Record<string, (typeof FIELD_WORDS)[keyof typeof FIELD_WORDS]>>)[field];
+  return key === undefined ? undefined : t(`checks:_words.fields.${key}`);
 };
 
-/** The field and asset words Bauen says instead of a matrix or a header. */
-const BUILDING_FIELD_WORDS: Readonly<Record<string, string>> = { matrix_id: "Weltkarte" };
-const BUILDING_ASSET_WORDS: Partial<Record<AssetKind, string>> = { Matrix: "Weltkarte", HeaderTable: "Ortstabelle", DynamicHeaders: "Ortsdateien" };
+/** The field and asset words Bauen says instead of a matrix or a header (`checks:_words.building`). */
+const buildingFieldWord = (field: string): string | undefined => (field === "matrix_id" ? t("checks:_words.building.matrixId") : undefined);
+const BUILDING_ASSET_KEYS = { Matrix: "matrix", HeaderTable: "headerTable", DynamicHeaders: "dynamicHeaders" } as const;
+const buildingAssetWord = (kind: AssetKind): string | undefined => {
+  const key = (BUILDING_ASSET_KEYS as Partial<Record<AssetKind, (typeof BUILDING_ASSET_KEYS)[keyof typeof BUILDING_ASSET_KEYS]>>)[kind];
+  return key === undefined ? undefined : t(`checks:_words.building.${key}`);
+};
 
 /** The kernel's names of asset kinds (`AssetKind::label`), for `asset.unreadable`. */
 const ASSET_KINDS: Readonly<Record<string, AssetKind>> = {
@@ -200,8 +228,8 @@ const ASSET_KINDS: Readonly<Record<string, AssetKind>> = {
 /** „Eventdatei 0411“, or „Das Archiv Pokémon-Daten“ for a whole archive (no index). */
 function assetName(kind: string, index: string, depth: Depth): string {
   const known = ASSET_KINDS[kind];
-  const word = known ? ((!depthAtLeast(depth, "tuefteln") ? BUILDING_ASSET_WORDS[known] : undefined) ?? kindLabel(known)) : kind;
-  return index === "" ? `Das Archiv ${word}` : `${word} ${id4(Number(index))}`;
+  const word = known ? ((!depthAtLeast(depth, "tuefteln") ? buildingAssetWord(known) : undefined) ?? kindLabel(known)) : kind;
+  return index === "" ? t("checks:_words.wholeArchive", { word }) : `${word} ${id4(Number(index))}`;
 }
 
 /** Puts the arguments into `text` (see `CheckMessage`). */
@@ -209,7 +237,7 @@ function fill(text: string, args: readonly string[], depth: Depth): string {
   return text.replace(/\{(\d+)(?::(id|field))?\}/g, (_, n: string, format?: string) => {
     const value = args[Number(n)] ?? "";
     if (format === "id" && /^\d+$/.test(value)) return id4(Number(value));
-    if (format === "field") return (!depthAtLeast(depth, "tuefteln") ? BUILDING_FIELD_WORDS[value] : undefined) ?? FIELD_WORDS[value] ?? value;
+    if (format === "field") return (!depthAtLeast(depth, "tuefteln") ? buildingFieldWord(value) : undefined) ?? fieldWord(value) ?? value;
     return value;
   });
 }
@@ -226,7 +254,7 @@ export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "
     const [kind = "", index = "", why = ""] = f.args;
     const name = assetName(kind, index, depth);
     if (f.key.startsWith("locked:")) {
-      return `${name} ist gesperrt (${why}): das Studio würde sie nicht Byte für Byte zurückschreiben. Stelle die Datei wieder her, dann lässt sie sich ändern.`;
+      return t("checks:_words.locked", { name, why });
     }
     return fill(text, f.args, depth).replace("{asset}", name);
   }
@@ -235,15 +263,21 @@ export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "
 
 /** Where a finding is, as the kernel names it („Header 0012 · Matrix“); Bauen says „Ort 0012 · Weltkarte“. */
 export function findingLabel(f: Pick<CheckProblemDto, "label">, depth: Depth): string {
-  return !depthAtLeast(depth, "tuefteln") ? f.label.replace(/\bHeader\b/g, "Ort").replace(/\bMatrix\b/g, "Weltkarte") : f.label;
+  if (depthAtLeast(depth, "tuefteln")) return f.label;
+  const place = t("checks:_words.building.header");
+  const worldMap = t("checks:_words.building.matrix");
+  return f.label.replace(/\bHeader\b/g, place).replace(/\bMatrix\b/g, worldMap);
 }
 
-const PROGRESS_WORDS: Readonly<Record<ChecksProgressDto["label"], string>> = { cheap: "Welt und Daten", load: "Dateien", scripts: "Scripts", texts: "Texte" };
+/** The passes a progress names, by the kernel's label: the key of each in `checks:_words.progress`. */
+const PROGRESS_KEYS = { cheap: "cheap", load: "load", scripts: "scripts", texts: "texts" } as const satisfies Record<ChecksProgressDto["label"], string>;
 
 /** „Prüft … Texte 312/724“: how far a running pass got; „Prüft …“ before it says. */
 export function progressText(progress: ChecksProgressDto | null | undefined): string {
-  if (!progress) return "Prüft …";
-  return `Prüft … ${PROGRESS_WORDS[progress.label] ?? progress.label} ${progress.done}/${progress.total}`;
+  if (!progress) return t("checks:_words.checking");
+  const key = (PROGRESS_KEYS as Readonly<Record<string, (typeof PROGRESS_KEYS)[keyof typeof PROGRESS_KEYS]>>)[progress.label];
+  const what = key === undefined ? progress.label : t(`checks:_words.progress.${key}`);
+  return t("checks:_words.checkingPass", { what, done: progress.done, total: progress.total });
 }
 
 /** The project's ignore file; a report names it as `skipped` code when it could not be read. */
@@ -254,17 +288,23 @@ const ONE_FILE = /^(level )?script file (\d+) is not checked: (.+)$/;
 
 /**
  * A check that did not run, or left part of its work undone, as a hint line („Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.“):
- * German sentences with the way out, the kernel's reason only as a detail in brackets.
+ * sentences in the language shown with the way out, the kernel's reason only as a detail in brackets.
  */
 export function skippedText({ code, why }: { code: string; why: string }, depth: Depth): string {
   // Not a check: the ignore file could not be read when the project opened (ruling R15).
-  if (code === IGNORE_FILE) return `${IGNORE_FILE} ist nicht lesbar (${why}): nichts ist ausgeblendet oder abgeschaltet, und das Studio schreibt die Datei nicht. Repariere oder lösche sie, dann geht beides wieder.`;
+  if (code === IGNORE_FILE) return t("checks:_words.skipped.ignoreFile", { file: IGNORE_FILE, why });
   const title = checkTitle(code, depth);
-  if (why === "scripts not adopted") return `${title}: nicht geprüft, die Scripts sind nicht übernommen. Übernimm sie unter Script, dann prüft das Studio sie.`;
+  if (why === "scripts not adopted") return t("checks:_words.skipped.notAdopted", { title });
   const common = COMMON_SCRIPTS.exec(why);
-  if (common) return `${title}: ${common[1]} Common-Scripts ohne ${!depthAtLeast(depth, "tuefteln") ? "Ort" : "Header"} nicht geprüft.`;
+  if (common) {
+    const count = Number(common[1]);
+    return !depthAtLeast(depth, "tuefteln") ? t("checks:_words.skipped.commonBuilding", { title, count }) : t("checks:_words.skipped.commonTech", { title, count });
+  }
   const file = ONE_FILE.exec(why);
-  if (file) return `${title}: ${file[1] ? "Level-Script" : "Scriptdatei"} ${id4(Number(file[2]))} nicht geprüft (${file[3]}). Behebe den Fehler in der Datei, dann prüft das Studio sie.`;
+  if (file) {
+    const kind = file[1] ? t("checks:_words.skipped.levelScript") : t("checks:_words.skipped.scriptFile");
+    return t("checks:_words.skipped.oneFile", { title, kind, id: id4(Number(file[2])), why: file[3] });
+  }
   // Mostly a file that cannot be read (the header table, an archive): its finding „Datei nicht lesbar“ names it.
-  return `${title}: nicht geprüft (${why}). Sieh unter „${checkTitle("asset.unreadable", depth)}“ nach, was fehlt, und prüfe dann erneut.`;
+  return t("checks:_words.skipped.other", { title, why, unreadable: checkTitle("asset.unreadable", depth) });
 }

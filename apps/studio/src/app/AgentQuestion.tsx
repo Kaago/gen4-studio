@@ -1,5 +1,6 @@
 import type { AgentAnswer, QuestionDto } from "../api";
 import { useRef } from "react";
+import { t } from "../i18n";
 import { Dialog } from "../ui/primitives";
 import type { DialogAction } from "../ui/primitives";
 
@@ -21,25 +22,27 @@ export function projectName(project: string): string {
  * main button; confirming, „Zulassen“ carries the danger colour.
  */
 function contentOf(question: QuestionDto): { title: string; text: string; answers: readonly [string, AgentAnswer, DialogAction["kind"]][] } {
-  const client = `„${question.client}“`;
+  const client = question.client;
   if (question.kind === "connect") {
-    const project = question.project === null ? "das offene Projekt" : `das Projekt „${projectName(question.project)}“`;
     return {
-      title: "Agent möchte zugreifen",
-      text: `${client} möchte auf ${project} zugreifen.`,
+      title: t("app:agentQuestion.connectTitle"),
+      text:
+        question.project === null
+          ? t("app:agentQuestion.connectOpenProject", { client })
+          : t("app:agentQuestion.connectProject", { client, project: projectName(question.project) }),
       answers: [
-        ["Ablehnen", "deny", "secondary"],
-        ["Lesen", "read", "primary"],
-        ["Lesen und bearbeiten", "write", "secondary"],
+        [t("app:agentQuestion.deny"), "deny", "secondary"],
+        [t("app:agentQuestion.read"), "read", "primary"],
+        [t("app:agentQuestion.write"), "write", "secondary"],
       ],
     };
   }
   return {
-    title: "Agent möchte etwas Unumkehrbares tun",
-    text: `${client} möchte: ${question.what ?? "etwas Unumkehrbares"} (lässt sich nicht rückgängig machen).`,
+    title: t("app:agentQuestion.confirmTitle"),
+    text: t("app:agentQuestion.confirmText", { client, what: question.what ?? t("app:agentQuestion.somethingIrreversible") }),
     answers: [
-      ["Ablehnen", "deny", "secondary"],
-      ["Zulassen", "allow", "danger"],
+      [t("app:agentQuestion.deny"), "deny", "secondary"],
+      [t("app:agentQuestion.allow"), "allow", "danger"],
     ],
   };
 }

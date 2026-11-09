@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 /** The language server as the script panel last saw it: "aus" while the project is not adopted or the panel is gone. */
 export type LspToolState = "aus" | "startet" | "bereit" | "fehlt" | "fehler";
 /** apicula as the map pictures found it: "unbekannt" until a picture was made or failed for a missing tool. */
@@ -59,5 +61,5 @@ export function readyCount(status: ToolStatus): number {
 
 /** "2 von 2 bereit". */
 export function toolsText(status: ToolStatus): string {
-  return `${readyCount(status)} von 2 bereit`;
+  return t("app:toolStatus.ready", { ready: readyCount(status), total: 2 });
 }

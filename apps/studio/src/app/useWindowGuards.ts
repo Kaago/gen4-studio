@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "../platform/dialogs";
 import { errorText } from "../api";
+import { t } from "../i18n";
 import type { Message } from "./message";
 
 /** Closing or quitting the app asks before unsaved edits (`dirtyRef`, read when asked) are discarded. */
@@ -17,7 +18,7 @@ export function useWindowGuards(dirtyRef: MutableRefObject<number>, setMessage: 
     let disposed = false;
     getCurrentWindow()
       .onCloseRequested(async (e) => {
-        if (dirtyRef.current > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) {
+        if (dirtyRef.current > 0 && !(await ask(t("app:unsaved.discard"), { kind: "warning" }))) {
           e.preventDefault();
         }
       })
@@ -44,7 +45,7 @@ export function useWindowGuards(dirtyRef: MutableRefObject<number>, setMessage: 
       if (asking) return;
       asking = true;
       try {
-        if (await ask("Ungespeicherte Änderungen verwerfen und beenden?", { kind: "warning" })) {
+        if (await ask(t("app:unsaved.discardAndQuit"), { kind: "warning" })) {
           await invoke("force_quit");
         }
       } catch (e) {

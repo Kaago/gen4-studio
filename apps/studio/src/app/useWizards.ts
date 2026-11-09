@@ -19,10 +19,10 @@ interface WizardsParams {
    * was left after it wrote (with null: only read), and by `created`.
    */
   onCreated: (created: Created | null) => Promise<void>;
-  /** A wizard opens: the app shows the world (its step bar is in the world's hinge) and puts the tool back on "Auswählen". */
+  /** A wizard opens: the app shows the world (its step bar is in the world's hinge) and puts the tool back on „Auswählen“. */
   onOpen?: () => void;
   /**
-   * A wizard was left without showing what it made ("Abbrechen", Escape, "Schließen"): the app goes back to the area it was opened from,
+   * A wizard was left without showing what it made ("Abbrechen", Escape, „Schließen“): the app goes back to the area it was opened from,
    * in the same render as the wizard goes. The focus then goes back to what had it (`returnFocus`).
    */
   onLeave?: () => void;

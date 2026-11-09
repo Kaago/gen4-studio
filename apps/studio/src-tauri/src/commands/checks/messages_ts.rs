@@ -60,13 +60,18 @@ fn entries() -> Vec<Entry> {
         .collect()
 }
 
-/// The codes of a catalog in file order; every entry must carry a title and a sentence.
+/// The codes of a catalog in file order; every entry must carry a title and a sentence. A key
+/// starting with `_` is no check code but the words the checks' frontend shares (`_words`).
 fn catalog_codes(lang: &str, json: &str) -> Vec<String> {
     let Value::Object(catalog) = serde_json::from_str(json)
         .unwrap_or_else(|e| panic!("{lang}/checks.json is not JSON: {e}"))
     else {
         panic!("{lang}/checks.json is not an object keyed by check code");
     };
+    let catalog: Vec<(&String, &Value)> = catalog
+        .iter()
+        .filter(|(key, _)| !key.starts_with('_'))
+        .collect();
     for (code, entry) in &catalog {
         for field in ["title", "text"] {
             let word = entry.get(field).and_then(Value::as_str).unwrap_or("");
@@ -76,7 +81,7 @@ fn catalog_codes(lang: &str, json: &str) -> Vec<String> {
             );
         }
     }
-    catalog.keys().cloned().collect()
+    catalog.into_iter().map(|(code, _)| code.clone()).collect()
 }
 
 fn group_name(group: Group) -> &'static str {

@@ -230,5 +230,64 @@
   "text.json-broken": {
     "title": "Textarchiv nicht lesbar",
     "text": "Textarchiv {0:id} ist nicht lesbar ({1}). Repariere die JSON-Datei oder stelle sie wieder her."
+  },
+  "_words": {
+    "areas": {
+      "welt": "Welt",
+      "scripts": "Scripts",
+      "texte": "Texte",
+      "pokemon": "Pokémon",
+      "projekt": "Projekt"
+    },
+    "fields": {
+      "matrixId": "Matrix",
+      "eventFileId": "Eventdatei",
+      "scriptFileId": "Scriptdatei",
+      "levelScriptId": "Level-Script",
+      "textArchiveId": "Textarchiv",
+      "areaDataId": "Area-Data",
+      "wildPokemon": "Begegnungen",
+      "mapTileset": "Karten-Texturen",
+      "buildingsTileset": "Gebäude-Texturen",
+      "class": "Klasse",
+      "items": "Gegenstand",
+      "species": "Pokémon",
+      "item": "Gegenstand",
+      "moves": "Attacke"
+    },
+    "building": {
+      "matrixId": "Weltkarte",
+      "matrix": "Weltkarte",
+      "headerTable": "Ortstabelle",
+      "dynamicHeaders": "Ortsdateien",
+      "header": "Ort"
+    },
+    "wholeArchive": "Das Archiv {{word}}",
+    "locked": "{{name}} ist gesperrt ({{why}}): das Studio würde sie nicht Byte für Byte zurückschreiben. Stelle die Datei wieder her, dann lässt sie sich ändern.",
+    "progress": {
+      "cheap": "Welt und Daten",
+      "load": "Dateien",
+      "scripts": "Scripts",
+      "texts": "Texte"
+    },
+    "checking": "Prüft …",
+    "checkingPass": "Prüft … {{what}} {{done}}/{{total}}",
+    "skipped": {
+      "ignoreFile": "{{file}} ist nicht lesbar ({{why}}): nichts ist ausgeblendet oder abgeschaltet, und das Studio schreibt die Datei nicht. Repariere oder lösche sie, dann geht beides wieder.",
+      "notAdopted": "{{title}}: nicht geprüft, die Scripts sind nicht übernommen. Übernimm sie unter Script, dann prüft das Studio sie.",
+      "commonBuilding_one": "{{title}}: {{count}} Common-Scripts ohne Ort nicht geprüft.",
+      "commonBuilding_other": "{{title}}: {{count}} Common-Scripts ohne Ort nicht geprüft.",
+      "commonTech_one": "{{title}}: {{count}} Common-Scripts ohne Header nicht geprüft.",
+      "commonTech_other": "{{title}}: {{count}} Common-Scripts ohne Header nicht geprüft.",
+      "levelScript": "Level-Script",
+      "scriptFile": "Scriptdatei",
+      "oneFile": "{{title}}: {{kind}} {{id}} nicht geprüft ({{why}}). Behebe den Fehler in der Datei, dann prüft das Studio sie.",
+      "other": "{{title}}: nicht geprüft ({{why}}). Sieh unter „{{unreadable}}“ nach, was fehlt, und prüfe dann erneut."
+    },
+    "mark": {
+      "error": "Fehler gefunden",
+      "warning": "Warnung gefunden",
+      "title": "{{label}}, siehe Probleme"
+    }
   }
 }

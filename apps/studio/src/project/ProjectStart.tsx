@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Created } from "../api";
 import { Hinge } from "../ui/frame/Hinge";
 import { StartPane } from "../ui/frame/StartPane";
 import type { StartPaneProps } from "../ui/frame/StartPane";
 import { DSScreen, Icon, Notice } from "../ui/primitives";
 import { WizardSlotScope } from "../workbench/wizards/WizardFrame";
-import { NewProjectWizard, TEMPLATE_NAMES } from "./NewProjectWizard";
+import { NewProjectWizard, templateName } from "./NewProjectWizard";
 import type { WizardChoice } from "./NewProjectWizard";
 import { gameName, languageName } from "./projectName";
 import { useRomDrop } from "./romDrop";
@@ -18,7 +19,7 @@ export type ProjectStartProps = StartPaneProps & {
   /** The open wizard "Neues Spiel aus ROM" (null: none); kept by App, so the palette can open it. */
   wizard: StartWizardRequest | null;
   onWizard: (request: StartWizardRequest | null) => void;
-  /** "Öffnen" on the wizard's result. */
+  /** „Öffnen“ on the wizard's result. */
   onOpenCreated: (created: Created) => void;
   /** Says something while the wizard is open (the start pane, which shows refusals, is not there then): a drop onto the wizard. */
   onNotice?: (text: string) => void;
@@ -30,29 +31,30 @@ const NO_PROBLEMS = { errors: 0, warnings: 0, infos: 0 };
 
 /** The view above the wizard: the ROM's header title on a DS screen, like the label of a cartridge, and what was chosen so far. */
 function StartSchau({ choice }: { choice: WizardChoice | null }) {
+  const { t } = useTranslation("project");
   const rom = choice?.rom ?? null;
   return (
-    <section className={styles.schau} data-start-schau="" aria-label="Vorschau">
+    <section className={styles.schau} data-start-schau="" aria-label={t("start.preview")}>
       <div className={styles.preview}>
         <div className={styles.screen}>
           <DSScreen
             variant="empty"
             pages={[]}
             page={0}
-            background={<span className={rom ? styles.title : `${styles.title} ${styles.none}`}>{rom ? rom.title : "Noch keine ROM"}</span>}
+            background={<span className={rom ? styles.title : `${styles.title} ${styles.none}`}>{rom ? rom.title : t("start.noRom")}</span>}
           />
         </div>
         <dl className={styles.facts}>
           <div>
-            <dt>Spiel</dt>
+            <dt>{t("wizard.facts.game")}</dt>
             <dd>{rom ? `${gameName(rom)} (${languageName(rom.language)})` : "–"}</dd>
           </div>
           <div>
-            <dt>Vorlage</dt>
-            <dd>{choice ? `${TEMPLATE_NAMES[choice.template]}${choice.textProject ? ", als Textprojekt" : ""}${choice.git ? ", mit Git" : ""}` : "–"}</dd>
+            <dt>{t("wizard.facts.template")}</dt>
+            <dd>{choice ? `${templateName(choice.template)}${choice.textProject ? t("wizard.summary.asTextProject") : ""}${choice.git ? t("wizard.summary.withGit") : ""}` : "–"}</dd>
           </div>
           <div>
-            <dt>Ziel</dt>
+            <dt>{t("start.dest")}</dt>
             <dd className={styles.code}>{choice?.dest ?? "–"}</dd>
           </div>
         </dl>
@@ -63,13 +65,14 @@ function StartSchau({ choice }: { choice: WizardChoice | null }) {
 
 /** The frame over the start while a ROM is dragged over it: the whole surface is the slot it goes into. */
 export function DropHint() {
+  const { t } = useTranslation("project");
   return (
     <div className={styles.drop}>
       <span className={styles.dropIcon} aria-hidden="true">
         <Icon name="game" />
       </span>
-      <p className={styles.dropTitle}>ROM hier ablegen</p>
-      <p className={styles.dropText}>Eine .nds-Datei, deine eigene ROM.</p>
+      <p className={styles.dropTitle}>{t("start.dropTitle")}</p>
+      <p className={styles.dropText}>{t("start.dropText")}</p>
     </div>
   );
 }

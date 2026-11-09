@@ -1,41 +1,37 @@
 import { errorText, projectPreviewSet } from "../api";
 import type { PreviewDto } from "../api";
+import { t } from "../i18n";
 import { openPath } from "../platform/dialogs";
 import { toast } from "../ui/frame/toasts";
 
-/** The sentence for each code a refused preview picture carries in its message (phase 4.0 design, §3.5). */
-const SENTENCES: Record<string, string> = {
-  "preview.format": "Das Bild ist weder PNG noch JPEG. Wähle eine PNG- oder JPEG-Datei.",
-  "preview.too_large": "Das Bild ist zu groß (höchstens 32 MB und 8192 × 8192 Pixel). Wähle ein kleineres Bild.",
-  "preview.unreadable": "Das Bild lässt sich nicht lesen. Wähle eine andere Datei.",
-};
+/** The catalog key of the sentence for each code a refused preview picture carries in its message (phase 4.0 design, §3.5). */
+const SENTENCES = { "preview.format": "format", "preview.too_large": "tooLarge", "preview.unreadable": "unreadable" } as const;
 
 const CODE = /\bpreview\.(format|too_large|unreadable)\b/;
 
 /**
- * The bridge's own refusals of a path or of arguments (`bridge/roots.rs`, `dispatch.rs`) and the transport's („Brücke nicht erreichbar“,
- * `platform/transport.ts`): German already, they keep their text.
+ * The bridge's own refusals of a path or of arguments (`bridge/roots.rs`, `dispatch.rs`, German) and the transport's („Brücke nicht
+ * erreichbar“, `platform/transport.ts`, in the language shown): they say what happened already and keep their text.
  */
-const GERMAN = /^(Pfad liegt außerhalb|Pfad ist kein gültiger Text|Ungültige Argumente|Brücke|Kein Tauri)/;
-
-/** Any other failure of a write: the kernel's or the system's own text is English and names no way out („Permission denied (os error 13)“). */
-const OTHER = "Das Vorschaubild ließ sich nicht ändern. Prüfe, ob der Projektordner noch da ist und du darin schreiben darfst.";
+const OWN_WORDS = /^(Pfad liegt außerhalb|Pfad ist kein gültiger Text|Ungültige Argumente|Brücke|Kein Tauri|Bridge|No Tauri)/;
 
 /**
- * The toast text of a failed preview write: the sentence of its code, the bridge's German refusal, the German sentence of an `Error` the app
- * throws itself (no map at the chosen cell, a lost WebGL context), else a German sentence that says what to check.
+ * The toast text of a failed preview write: the sentence of its code, the bridge's own refusal, the sentence of an `Error` the app throws
+ * itself (no map at the chosen cell, a lost WebGL context), else a sentence that says what to check.
  */
 export function previewErrorText(e: unknown): string {
   const text = errorText(e);
   const code = CODE.exec(text)?.[0];
-  if (code !== undefined && SENTENCES[code]) return SENTENCES[code];
+  const key = code === undefined ? undefined : (SENTENCES as Readonly<Record<string, (typeof SENTENCES)[keyof typeof SENTENCES]>>)[code];
+  if (key !== undefined) return t(`project:preview.${key}`);
   if (e instanceof Error) return e.message;
-  return GERMAN.test(text) ? text : OTHER;
+  // Any other failure of a write: the kernel's or the system's own text is English and names no way out („Permission denied (os error 13)“).
+  return OWN_WORDS.test(text) ? text : t("project:preview.other");
 }
 
 /** Asks for a picture file (PNG or JPEG) for the preview; null when cancelled. In the browser the path is typed into the page. */
 export async function choosePreviewFile(): Promise<string | null> {
-  return openPath({ directory: false, title: "Vorschaubild wählen", filters: [{ name: "Bilder (PNG, JPEG)", extensions: ["png", "jpg", "jpeg"] }] });
+  return openPath({ directory: false, title: t("project:preview.choose"), filters: [{ name: t("project:preview.filter"), extensions: ["png", "jpg", "jpeg"] }] });
 }
 
 /**
@@ -58,7 +54,7 @@ export async function changePreview(how: "choose" | "remove", path?: string): Pr
   }
   try {
     const preview = await projectPreviewSet(file === null ? where : { ...where, file });
-    toast.info(file === null ? "Vorschaubild entfernt" : "Vorschaubild gesetzt");
+    toast.info(file === null ? t("project:preview.removed") : t("project:preview.set"));
     return preview;
   } catch (e) {
     toast.error(previewErrorText(e));

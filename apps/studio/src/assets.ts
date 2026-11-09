@@ -1,49 +1,18 @@
 import type { AssetId, AssetKind } from "./api";
+import { t } from "./i18n";
 
-const KIND_LABELS: Record<AssetKind, string> = {
-  Map: "Karte",
-  Matrix: "Matrix",
-  AreaData: "Area-Data",
-  Event: "Eventdatei",
-  TextArchive: "Textarchiv",
-  MapTexture: "Karten-Textur",
-  BuildingTexture: "Gebäude-Textur",
-  BuildingModel: "Gebäudemodell",
-  InteriorBuildingModel: "Innen-Gebäudemodell",
-  HeaderTable: "Header-Tabelle",
-  DynamicHeaders: "Dynamische Header",
-  Script: "Scriptdatei",
-  Encounter: "Begegnungen",
-  Personal: "Pokémon-Daten",
-  Learnset: "Lernset",
-  Evolution: "Entwicklung",
-  Move: "Attacke",
-  Item: "Gegenstand",
-  TrainerProperties: "Trainer-Eigenschaften",
-  TrainerParty: "Trainer-Team",
-  TrainerTextTable: "Trainertexte",
-  TrainerTextOffsets: "Trainertext-Offsets",
-  ItemIcons: "Gegenstand-Symbole",
-  MonIcons: "Pokémon-Symbole",
-  Trainer: "Trainer",
-  PokemonBattleSprites: "Kampfbild",
-  OtherPokemonBattleSprites: "Formen-Kampfbild",
-  TrainerGraphics: "Trainerbild",
-  EggMoves: "Ei-Attacken",
-  WorldMap: "Welt",
-};
-
-/** German display name of an asset kind. */
+/** Display name of an asset kind in the language shown (`common:assets.kinds`, its key the kind with a small first letter). */
 export function kindLabel(kind: AssetKind): string {
-  return KIND_LABELS[kind];
+  const key = `${kind.charAt(0).toLowerCase()}${kind.slice(1)}` as Uncapitalize<AssetKind>;
+  return t(`common:assets.kinds.${key}`);
 }
 
-/** "Karte 0000": German kind name and four-digit member index. */
+/** "Karte 0000": the kind's name and four-digit member index. */
 export function assetLabel(asset: AssetId): string {
   return `${kindLabel(asset.kind)} ${String(asset.index).padStart(4, "0")}`;
 }
 
 /** Message of the bar when an asset changed on disk behind the editor's back. */
 export function staleText(asset: AssetId): string {
-  return `${assetLabel(asset)} wurde außerhalb geändert.`;
+  return t("common:assets.stale", { asset: assetLabel(asset) });
 }

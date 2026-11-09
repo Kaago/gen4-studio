@@ -3,6 +3,7 @@ import type { MutableRefObject } from "react";
 import type { DockviewApi } from "dockview-react";
 import { errorText, getAreaData, getMatrix, listHeaders } from "../api";
 import type { FlagKind, HeaderSummary, MatrixDto } from "../api";
+import { t } from "../i18n";
 import type { Message } from "./message";
 import { fetchCurrent } from "../reload";
 import { tilesetKey } from "../workbench/inspector/areaFields";
@@ -142,7 +143,7 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
         const key = tilesetKey(await getAreaData(area));
         if (dispatch({ type: "tilesetRead", area, key, reload }).kind === "models") bus.emit({ topic: "modelsReload" });
       } catch (e) {
-        if (dispatch({ type: "tilesetFailed", area }).kind === "report") setMessage({ kind: "error", text: `Area-Daten ${area} nicht lesbar: ${errorText(e)}` });
+        if (dispatch({ type: "tilesetFailed", area }).kind === "report") setMessage({ kind: "error", text: t("app:sceneSync.areaDataUnreadable", { area, reason: errorText(e) }) });
       }
     },
     [bus, dispatch, setMessage],
@@ -350,7 +351,7 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
       } else if (next.thread !== undefined) {
         onOpenThread?.(next.thread);
       } else if (target.kind === "header") {
-        setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });
+        setMessage({ kind: "error", text: t("app:sceneSync.noHeader", { id: String(target.id).padStart(4, "0") }) });
       }
       return;
     }

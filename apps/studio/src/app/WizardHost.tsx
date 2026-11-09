@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { t } from "../i18n";
 import type { World } from "../workbench/worldModel";
 import type { AdoptProgressDto, AdoptReportDto, AreaReport, AreaSpec, AssetId, DraftDto, HeaderSummary, MatrixSummary, MemberCounts, ProjectInfo, RegionReport, RoomReport, RoomSpec, ScriptsStatusDto, WarpLink } from "../api";
 import { errorText, releases } from "../api";
@@ -124,7 +125,7 @@ export function WizardHost(props: Props) {
   };
   const placeName = (id: number) => {
     const h = headerOf(id);
-    return h ? `„${headerLabel(h)}“` : "dem Ort";
+    return h ? t("app:wizardHost.quotedPlace", { name: headerLabel(h) }) : t("app:wizardHost.unknownPlace");
   };
   // What a recipe made, shown as „Zeigen“ shows it: the place it went into (the one of door A for two doors).
   const recipeMade = (header: number, announcement: string): Created => ({ matrix: headerOf(header)?.matrix_id ?? shownMatrix ?? 0, header, announcement });
@@ -197,7 +198,7 @@ export function WizardHost(props: Props) {
     case "publish":
       return <PublishHost {...props.publish} />;
     case "new_figure": {
-      const figureMade = (input: { header: number }) => recipeMade(input.header, `Figur in ${placeName(input.header)} aufgestellt`);
+      const figureMade = (input: { header: number }) => recipeMade(input.header, t("app:wizardHost.figurePlaced", { place: placeName(input.header) }));
       return (
         <NewFigureWizard
           depth={depth}
@@ -231,7 +232,7 @@ export function WizardHost(props: Props) {
       );
     }
     case "connect_doors": {
-      const doorsMade = (input: { a: { header: number }; b: { header: number } }) => recipeMade(input.a.header, `Türen verbunden: ${placeName(input.a.header)} und ${placeName(input.b.header)}`);
+      const doorsMade = (input: { a: { header: number }; b: { header: number } }) => recipeMade(input.a.header, t("app:wizardHost.doorsConnected", { a: placeName(input.a.header), b: placeName(input.b.header) }));
       // Door A from the scene: the tile last hovered when it shows that place (a door there is offered by the wizard).
       const a = request.prefill?.a;
       const startA = a ? (a.warp !== undefined || a.tile !== undefined ? a : startAt({ header: a.header })) : startAt(undefined);
@@ -251,7 +252,7 @@ export function WizardHost(props: Props) {
       );
     }
     case "new_trainer_here": {
-      const trainerMade = (input: { header: number; name: string }) => recipeMade(input.header, `Trainer „${input.name}“ in ${placeName(input.header)} aufgestellt`);
+      const trainerMade = (input: { header: number; name: string }) => recipeMade(input.header, t("app:wizardHost.trainerPlaced", { name: input.name, place: placeName(input.header) }));
       return (
         <NewTrainerHereWizard
           depth={depth}

@@ -1,4 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 import { inTauri, invoke } from "./platform/transport";
 import type { CheckFieldsDto } from "./api.checks";
 import type { RefDto } from "./api.data";
@@ -949,7 +950,7 @@ export const validateText = (text: string) => invoke<ProblemDto[]>("validate_tex
 export async function lspStart(onMessage: (body: string) => void): Promise<void> {
   // The dev bridge has no channels: no language services in the browser, as when rotom-lsp is missing.
   if (!inTauri()) {
-    return Promise.reject({ code: "tool_missing", message: "rotom-lsp fehlt — Completion und Diagnosen aus", asset: null });
+    return Promise.reject({ code: "tool_missing", message: t("common:lsp.missing"), asset: null });
   }
   const channel = new Channel<string>();
   channel.onmessage = onMessage;
@@ -1066,7 +1067,7 @@ export interface WorldMeta {
 
 /** The world file as read: `broken` says why it could not be (then `meta` is empty and the file is left alone). */
 export const worldMetaGet = () => invoke<{ meta: WorldMeta; broken: string | null }>("world_meta_get");
-/** Writes the world file at once. Rejects while the file is broken ("g4-world.json ist beschädigt: … Repariere oder lösche die Datei."). */
+/** Writes the world file at once. Rejects while the file is broken („g4-world.json ist beschädigt: … Repariere oder lösche die Datei.“). */
 export const worldMetaSet = (meta: WorldMeta) => invoke<void>("world_meta_set", { meta });
 
 /** Room for new places in the location bank (`bank`, a text archive): `free` names can still be appended (256 at most);

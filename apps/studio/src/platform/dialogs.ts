@@ -1,4 +1,5 @@
 import { ask as tauriAsk, open as tauriOpen, save as tauriSave } from "@tauri-apps/plugin-dialog";
+import { t } from "../i18n";
 import { inTauri } from "./transport";
 
 /**
@@ -84,7 +85,7 @@ export async function openPath(opts: { directory: boolean; title?: string; filte
     const chosen = await tauriOpen({ directory: opts.directory, multiple: false, title: opts.title, ...(opts.filters ? { filters: opts.filters } : {}) });
     return typeof chosen === "string" ? chosen : null;
   }
-  const title = opts.title ?? (opts.directory ? "Ordner wählen" : "Datei wählen");
+  const title = opts.title ?? (opts.directory ? t("platform:dialogs.chooseFolder") : t("platform:dialogs.chooseFile"));
   return new Promise((resolve) => enqueue({ kind: "path", title, initial: lastPath(), resolve }));
 }
 
@@ -106,7 +107,7 @@ export async function savePath(opts: { defaultPath?: string; title?: string }): 
     });
     return typeof chosen === "string" ? chosen : null;
   }
-  const title = opts.title ?? "Speichern unter";
+  const title = opts.title ?? t("platform:dialogs.saveAs");
   return new Promise((resolve) => enqueue({ kind: "path", title, initial: opts.defaultPath ?? lastPath(), resolve }));
 }
 

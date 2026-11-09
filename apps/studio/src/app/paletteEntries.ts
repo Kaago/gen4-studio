@@ -1,4 +1,5 @@
 import type { DataRowDto, HeaderSummary, ScriptFileDto, TrainerRowExtra } from "../api";
+import { t } from "../i18n";
 import { itemPrice, moveType, rowLabel, speciesTypes } from "../data/dataModel";
 import { encounterRowLabel, rowUsers, usedByText } from "../data/encounters/encounterModel";
 import type { PickerItem } from "../ui/primitives";
@@ -66,7 +67,7 @@ export interface CommandState {
   hasList: boolean;
   /** Inside the Tauri window, where ⌘R plays (in a browser it reloads the page). */
   inApp: boolean;
-  /** The deck "Layout zurücksetzen" puts back: the shown one, or the world's on an area without a deck. */
+  /** The deck „Layout zurücksetzen“ puts back: the shown one, or the world's on an area without a deck. */
   deck: DeckArea;
   /** Whether the shown area has a dock (`deck` is then the shown one): only there is a view to maximize or arrange. */
   docked: boolean;
@@ -109,96 +110,100 @@ export interface PaletteSource {
   commands: CommandState;
 }
 
-const NO_PROJECT = "Erst ein Projekt öffnen";
-const BUSY = "Erst Speichern oder Bauen abwarten";
-const NO_LIST = "Dieser Bereich hat keine Liste";
-const NO_CELL = "Erst eine Karte wählen (in 3D auf den Boden klicken)";
-const NO_SCENE = "Erst die 3D-Ansicht zeigen";
-/** Why the 3D view has no picture to take: no place is shown (also the reason in the tab menu of „3D“ and the toast, see App). */
-export const NO_PLACE = "Erst einen Ort zeigen";
-const WIZARD_OPEN = "Erst den Assistenten abschließen oder abbrechen";
-const WORLD_ONLY = "Nur in der Welt";
-const NO_VIEW = "Dieser Bereich hat keine Schau";
-const FLOATS = "Der Inspector schwebt schon";
-const DOCKED = "Der Inspector ist angedockt";
-const DECK_NAME: Record<DeckArea, string> = { welt: "Welt", texte: "Texte", pokemon: "Pokémon", gegenstaende: "Gegenstände" };
+/**
+ * Why the 3D view has no picture to take: no place is shown (also the reason in the tab menu of „3D“ and the toast, see App). A catalog key:
+ * `t(NO_PLACE)` reads it in the language shown.
+ */
+export const NO_PLACE = "app:palette.locks.noPlace";
 
 /** "Verwendet von Header 0412, 0413" (lower case "verwendet" after a comma): the headers that use an archive or a script file. */
-const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" : "verwendet"} von ${termLabel("header")} ${ids.map(id4).join(", ")}`;
+const usedBy = (ids: readonly number[], first = true) =>
+  t(first ? "app:palette.usedBy" : "app:palette.usedByAfterComma", { term: termLabel("header"), ids: ids.map(id4).join(", ") });
 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
 function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[] {
   const { busy, hasList, inApp, deck, docked, inspectorFloats, cellChosen, placeShown, wizard, gitSetup = false, publishLocked = null, commitAll = false } = commands;
+  // The reasons a command waits, read when the palette builds its entries (in the language shown).
+  const NO_PROJECT = t("app:palette.locks.noProject");
+  const BUSY = t("app:palette.locks.busy");
+  const NO_LIST = t("app:palette.locks.noList");
+  const NO_CELL = t("app:palette.locks.noCell");
+  const NO_SCENE = t("app:palette.locks.noScene");
+  const WIZARD_OPEN = t("app:palette.locks.wizardOpen");
+  const WORLD_ONLY = t("app:palette.locks.worldOnly");
+  const NO_VIEW = t("app:palette.locks.noView");
+  const FLOATS = t("app:palette.locks.floats");
+  const DOCKED = t("app:palette.locks.docked");
   // Why a command that works on the open project cannot run now (null: it can).
   const project = !hasProject ? NO_PROJECT : busy ? BUSY : null;
   // Only the world's dock has the Werkbank and an inspector; every dock has the Doppeldeck.
   const world = docked && deck === "welt" ? null : WORLD_ONLY;
   const view = docked ? null : NO_VIEW;
   const specs: CommandSpec[] = [
-    { command: "open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", locked: busy ? BUSY : null },
+    { command: "open", label: t("app:palette.open"), icon: "open", shortcut: "⌘O", locked: busy ? BUSY : null },
     // Creating a project changes nothing of the open one; it is opened only when the user asks.
-    { command: "newGame", label: "Neues Spiel aus ROM…", icon: "plus", locked: wizard ? WIZARD_OPEN : busy ? BUSY : null },
-    { command: "save", label: "Speichern", icon: "save", shortcut: "⌘S", locked: project },
-    { command: "build", label: "Bauen", icon: "build", locked: project },
-    { command: "play", label: "Hier spielen", icon: "play", shortcut: inApp ? "⌘R" : undefined, locked: project },
-    { command: "area", label: "Gebiet anlegen…", icon: "plus", locked: hasProject ? null : NO_PROJECT },
-    { command: "room", label: "Raum anlegen…", icon: "room", locked: hasProject ? null : NO_PROJECT },
-    { command: "clearWorld", label: "Welt leeren…", icon: "world", description: "Leere Region mit Startstadt", locked: hasProject ? null : NO_PROJECT },
+    { command: "newGame", label: t("app:palette.newGame"), icon: "plus", locked: wizard ? WIZARD_OPEN : busy ? BUSY : null },
+    { command: "save", label: t("app:palette.save"), icon: "save", shortcut: "⌘S", locked: project },
+    { command: "build", label: t("app:palette.build"), icon: "build", locked: project },
+    { command: "play", label: t("app:palette.play"), icon: "play", shortcut: inApp ? "⌘R" : undefined, locked: project },
+    { command: "area", label: t("app:palette.area"), icon: "plus", locked: hasProject ? null : NO_PROJECT },
+    { command: "room", label: t("app:palette.room"), icon: "room", locked: hasProject ? null : NO_PROJECT },
+    { command: "clearWorld", label: t("app:palette.clearWorld"), icon: "world", description: t("app:palette.clearWorldHint"), locked: hasProject ? null : NO_PROJECT },
     {
       command: "importParts",
-      label: "Teile in die Karte importieren…",
+      label: t("app:palette.importParts"),
       icon: "plus",
       area: "welt",
-      description: "In die gewählte Karte",
+      description: t("app:palette.importPartsHint"),
       locked: project ?? (cellChosen ? null : NO_CELL),
     },
     // Phase 4.0 §3.5: the project's own preview picture from the scene; it changes no data of the project (no busy lock, as the wizards).
     // In the world the command brings the 3D view to the front itself (`uncover`, as from the tab menu), so it locks only outside it and while no place is shown (no scene then).
     {
       command: "previewFrom3d",
-      label: "Als Vorschaubild: 3D-Ansicht",
+      label: t("app:palette.previewFrom3d"),
       icon: "world",
       area: "welt",
-      description: "Das Bild der Ansicht auf die Projektkarte",
-      locked: hasProject ? (world !== null ? NO_SCENE : placeShown ? null : NO_PLACE) : NO_PROJECT,
+      description: t("app:palette.previewFrom3dHint"),
+      locked: hasProject ? (world !== null ? NO_SCENE : placeShown ? null : t(NO_PLACE)) : NO_PROJECT,
     },
     {
       command: "previewFromMap",
-      label: "Als Vorschaubild: Kartenbild der gewählten Karte",
+      label: t("app:palette.previewFromMap"),
       icon: "map",
       area: "welt",
-      description: "Das Kartenbild auf die Projektkarte",
+      description: t("app:palette.previewFromMapHint"),
       locked: hasProject ? (cellChosen ? null : NO_CELL) : NO_PROJECT,
     },
-    { command: "list", label: "Liste ein/aus", icon: "list", locked: hasList ? null : NO_LIST },
-    { command: "arrangeWerkbank", label: "Anordnung: Werkbank", icon: "werkbank", description: "Die Schau mit dem Inspector daneben", locked: world },
-    { command: "arrangeDoppeldeck", label: "Anordnung: Doppeldeck", icon: "doppeldeck", description: deck === "welt" ? "Die Schau über Inspector, Script und Probleme" : "Die Schau über dem Bearbeiten", locked: view },
-    { command: "layout", label: "Layout zurücksetzen", icon: "layers", description: `${DECK_NAME[deck]} in der gewählten Anordnung neu aufbauen` },
-    { command: "maximize", label: "Schau maximieren", icon: "maximize", description: "Oder wiederherstellen, auch mit Esc", locked: view },
-    { command: "floatInspector", label: "Inspector schweben lassen", icon: "float", description: "Am rechten Rand der Schau", locked: world ?? (inspectorFloats ? FLOATS : null) },
-    { command: "dockInspector", label: "Inspector andocken", icon: "dock", description: "Dahin, wo die Anordnung ihn hat", locked: world ?? (inspectorFloats ? null : DOCKED) },
-    { command: "theme", label: "Thema wechseln", icon: "sun" },
-    { command: "density", label: "Dichte wechseln", icon: "density" },
-    { command: "terms", label: "Begriffe", icon: "help" },
-    { command: "settings", label: "Einstellungen", icon: "settings" },
-    { command: "welt", label: "Bereich Welt", icon: "world", area: "welt" },
-    { command: "geschichten", label: "Bereich Geschichten", icon: "stories", area: "geschichten" },
-    { command: "texte", label: "Bereich Texte", icon: "texts", area: "texte" },
-    { command: "pokemon", label: "Bereich Pokémon", icon: "pokemon", area: "pokemon" },
-    { command: "trainer", label: "Trainer öffnen", icon: "pokemon", area: "pokemon", description: "Die Trainer im Bereich Pokémon" },
-    { command: "moves", label: "Attacken öffnen", icon: "pokemon", area: "pokemon", description: "Die Attacken im Bereich Pokémon" },
-    { command: "gegenstaende", label: "Bereich Gegenstände", icon: "items", area: "gegenstaende" },
-    { command: "technik", label: "Bereich Technik", icon: "tech", area: "technik" },
+    { command: "list", label: t("app:palette.list"), icon: "list", locked: hasList ? null : NO_LIST },
+    { command: "arrangeWerkbank", label: t("app:palette.arrangeWerkbank"), icon: "werkbank", description: t("app:palette.arrangeWerkbankHint"), locked: world },
+    { command: "arrangeDoppeldeck", label: t("app:palette.arrangeDoppeldeck"), icon: "doppeldeck", description: deck === "welt" ? t("app:palette.arrangeDoppeldeckWorld") : t("app:palette.arrangeDoppeldeckOther"), locked: view },
+    { command: "layout", label: t("app:palette.layout"), icon: "layers", description: t("app:palette.layoutHint", { area: t(`app:palette.deck.${deck}`) }) },
+    { command: "maximize", label: t("app:palette.maximize"), icon: "maximize", description: t("app:palette.maximizeHint"), locked: view },
+    { command: "floatInspector", label: t("app:palette.floatInspector"), icon: "float", description: t("app:palette.floatInspectorHint"), locked: world ?? (inspectorFloats ? FLOATS : null) },
+    { command: "dockInspector", label: t("app:palette.dockInspector"), icon: "dock", description: t("app:palette.dockInspectorHint"), locked: world ?? (inspectorFloats ? null : DOCKED) },
+    { command: "theme", label: t("app:palette.theme"), icon: "sun" },
+    { command: "density", label: t("app:palette.density"), icon: "density" },
+    { command: "terms", label: t("app:palette.terms"), icon: "help" },
+    { command: "settings", label: t("app:palette.settings"), icon: "settings" },
+    { command: "welt", label: t("app:palette.areaWelt"), icon: "world", area: "welt" },
+    { command: "geschichten", label: t("app:palette.areaGeschichten"), icon: "stories", area: "geschichten" },
+    { command: "texte", label: t("app:palette.areaTexte"), icon: "texts", area: "texte" },
+    { command: "pokemon", label: t("app:palette.areaPokemon"), icon: "pokemon", area: "pokemon" },
+    { command: "trainer", label: t("app:palette.trainer"), icon: "pokemon", area: "pokemon", description: t("app:palette.trainerHint") },
+    { command: "moves", label: t("app:palette.moves"), icon: "pokemon", area: "pokemon", description: t("app:palette.movesHint") },
+    { command: "gegenstaende", label: t("app:palette.areaGegenstaende"), icon: "items", area: "gegenstaende" },
+    { command: "technik", label: t("app:palette.areaTechnik"), icon: "tech", area: "technik" },
     // Only for a project in no repository (never a repository inside one); it commits the saved state, so it waits like saving.
-    ...(hasProject && gitSetup ? [{ command: "gitSetup", label: "Git einrichten…", icon: "git", locked: busy ? BUSY : null } satisfies CommandSpec] : []),
+    ...(hasProject && gitSetup ? [{ command: "gitSetup", label: t("app:palette.gitSetup"), icon: "git", locked: busy ? BUSY : null } satisfies CommandSpec] : []),
     // The wizard builds and writes the release on the session's build path: it waits for a found base ROM, a save or build, and another wizard.
-    { command: "publish", label: "Veröffentlichen…", icon: "publish", locked: !hasProject ? NO_PROJECT : (publishLocked ?? (busy ? BUSY : wizard ? WIZARD_OPEN : null)) },
+    { command: "publish", label: t("app:palette.publish"), icon: "publish", locked: !hasProject ? NO_PROJECT : (publishLocked ?? (busy ? BUSY : wizard ? WIZARD_OPEN : null)) },
     // Only with the project's own repository; it commits the saved state, so it waits like saving.
-    ...(hasProject && commitAll ? [{ command: "commitAll", label: "Stand sichern…", icon: "git", locked: busy ? BUSY : null } satisfies CommandSpec] : []),
+    ...(hasProject && commitAll ? [{ command: "commitAll", label: t("app:palette.commitAll"), icon: "git", locked: busy ? BUSY : null } satisfies CommandSpec] : []),
     // Geschichten › Fäden (3d.6) and › Flags und Variablen (3d.1, moved from Technik with 3d.6).
-    { command: "threads", label: "Fäden", icon: "thread", area: "geschichten", locked: hasProject ? null : NO_PROJECT },
-    { command: "flags", label: "Flags und Variablen", icon: "flag", area: "geschichten", locked: hasProject ? null : NO_PROJECT },
+    { command: "threads", label: t("app:palette.threads"), icon: "thread", area: "geschichten", locked: hasProject ? null : NO_PROJECT },
+    { command: "flags", label: t("app:palette.flags"), icon: "flag", area: "geschichten", locked: hasProject ? null : NO_PROJECT },
   ];
   return specs.map(({ command, label, icon, area, shortcut, description, locked }) => ({
     id: `cmd-${command}`,
@@ -218,14 +223,14 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
 function trainerPlaces(row: DataRowDto): string {
   const extra = row.extra as TrainerRowExtra | null;
   if (!extra || !Array.isArray(extra.places)) return "";
-  return extra.places.length === 0 ? "Ohne Ort" : [...new Set(extra.places.map((p) => p.name))].join(", ");
+  return extra.places.length === 0 ? t("app:palette.noPlace") : [...new Set(extra.places.map((p) => p.name))].join(", ");
 }
 
 /** „Begegnungsdatei, verwendet von 2 Orten“, „Begegnungsdatei, ohne Ort“; empty for a locked row. */
 function encounterUses(row: DataRowDto): string {
   if (row.extra === null) return "";
   const n = rowUsers(row).length;
-  return `Begegnungsdatei, ${n === 0 ? "ohne Ort" : usedByText(n)}`;
+  return t("app:palette.encounterUses", { uses: n === 0 ? t("app:palette.noPlaceAfterComma") : usedByText(n) });
 }
 
 /**
@@ -291,7 +296,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
     entries.push({
       id: `archive-${row.index}`,
       // Like the texts' list: the place the archive is named after, else what it is.
-      label: row.place ?? (row.users.length > 0 ? "Ohne Ortsnamen" : termLabel("textArchive")),
+      label: row.place ?? (row.users.length > 0 ? t("app:palette.noPlaceName") : termLabel("textArchive")),
       // R10: the second line starts with what the row is, so typing "textarchiv" finds every archive (an unused one is named so already).
       description: row.users.length > 0 ? `${termLabel("textArchive")}, ${usedBy(row.users, false)}` : undefined,
       tech: id4(row.index),
@@ -307,7 +312,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
     entries.push({
       id: `script-${file.file}`,
       label: file.kind === "levelScript" ? termLabel("levelScript") : termLabel("scriptFile"),
-      description: file.headers.length > 0 ? usedBy(file.headers) : "Ohne Header",
+      description: file.headers.length > 0 ? usedBy(file.headers) : t("app:palette.noHeader"),
       tech: id4(file.file),
       icon: "script",
       group: "Scripts",

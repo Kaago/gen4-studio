@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { Language } from "../i18n";
 import { Kbd, Segmented } from "../ui/primitives";
@@ -20,67 +21,73 @@ export type SettingsAreaProps = {
   onTheme: (t: Theme) => void;
   onDensity: (d: Density) => void;
   onLanguage: (l: Language) => void;
+  /** The language was just switched (which remounted this surface): the pressed language option takes the focus when it mounts. */
+  focusLanguage?: boolean;
   onPickEmulator: () => void;
   /** The column Agenten (local MCP clients in the running app). */
   agents: AgentsSettingsProps;
 };
 
-const THEMES: readonly SegmentedOption<Theme>[] = [
-  { value: "hell", label: "Hell", icon: "sun" },
-  { value: "dunkel", label: "Dunkel", icon: "moon" },
-  { value: "system", label: "Wie System", icon: "system" },
-];
-
-const DENSITIES: readonly SegmentedOption<Density>[] = [
-  { value: "komfort", label: "Komfort" },
-  { value: "kompakt", label: "Kompakt" },
-];
-
 /**
  * The surface of the area Einstellungen: appearance, emulator, the app's shortcuts (read only) and the agents. Every change applies at
  * once, for every project (the agents' grant of the open project is the one setting per project).
  */
-export function SettingsArea({ theme, density, language, emulatorPath, onTheme, onDensity, onLanguage, onPickEmulator, agents }: SettingsAreaProps) {
+export function SettingsArea({ theme, density, language, emulatorPath, onTheme, onDensity, onLanguage, focusLanguage = false, onPickEmulator, agents }: SettingsAreaProps) {
   const { t } = useTranslation("app");
   // Built per render, not at module scope: the labels follow the language the user just switched to.
+  const themes: readonly SegmentedOption<Theme>[] = [
+    { value: "hell", label: t("settings.themeLight"), icon: "sun" },
+    { value: "dunkel", label: t("settings.themeDark"), icon: "moon" },
+    { value: "system", label: t("settings.themeSystem"), icon: "system" },
+  ];
+  const densities: readonly SegmentedOption<Density>[] = [
+    { value: "komfort", label: t("settings.densityComfort") },
+    { value: "kompakt", label: t("settings.densityCompact") },
+  ];
   const languages: readonly SegmentedOption<Language>[] = [
     { value: "system", label: t("settings.languageSystem") },
     { value: "de", label: t("settings.languageDe") },
     { value: "en", label: t("settings.languageEn") },
   ];
+  // A switch remounts the app below the frame: the focus, which was on the option just pressed, goes back to it.
+  const languageField = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusLanguage) languageField.current?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus();
+    // Only when this surface mounts: a later render must not pull the focus.
+  }, []);
   return (
     <section className={styles.area} aria-labelledby="settings-title">
       <h1 id="settings-title" className={styles.title}>
-        Einstellungen
+        {t("settings.title")}
       </h1>
       <div className={styles.columns}>
         <section className={styles.column} aria-labelledby="settings-look">
           <h2 id="settings-look" className={styles.heading}>
-            Darstellung
+            {t("settings.look")}
           </h2>
           <div className={styles.field}>
-            <span className={styles.label}>Thema</span>
-            <Segmented options={THEMES} value={theme} onChange={onTheme} ariaLabel="Thema" />
+            <span className={styles.label}>{t("settings.theme")}</span>
+            <Segmented options={themes} value={theme} onChange={onTheme} ariaLabel={t("settings.theme")} />
           </div>
           <div className={styles.field}>
-            <span className={styles.label}>Dichte</span>
-            <Segmented options={DENSITIES} value={density} onChange={onDensity} ariaLabel="Dichte" />
-            <p className={styles.hint}>Kompakt: Zeilen 24 statt 32 px hoch</p>
+            <span className={styles.label}>{t("settings.density")}</span>
+            <Segmented options={densities} value={density} onChange={onDensity} ariaLabel={t("settings.density")} />
+            <p className={styles.hint}>{t("settings.densityHint")}</p>
           </div>
-          <div className={styles.field}>
+          <div className={styles.field} ref={languageField}>
             <span className={styles.label}>{t("settings.language")}</span>
             <Segmented options={languages} value={language} onChange={onLanguage} ariaLabel={t("settings.language")} />
           </div>
         </section>
         <section className={styles.column} aria-labelledby="settings-emulator">
           <h2 id="settings-emulator" className={styles.heading}>
-            Emulator
+            {t("settings.emulator")}
           </h2>
           <EmulatorRow path={emulatorPath} onPick={onPickEmulator} />
         </section>
         <section className={styles.column} aria-labelledby="settings-keys">
           <h2 id="settings-keys" className={styles.heading}>
-            Tastenkürzel
+            {t("settings.keys")}
           </h2>
           <dl className={styles.keys}>
             {Object.entries(SHORTCUTS).map(([action, { keys, label }]) => (

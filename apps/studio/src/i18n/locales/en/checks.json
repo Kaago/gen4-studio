@@ -230,5 +230,64 @@
   "text.json-broken": {
     "title": "Text archive cannot be read",
     "text": "Text archive {0:id} cannot be read ({1}). Repair the JSON file or restore it."
+  },
+  "_words": {
+    "areas": {
+      "welt": "World",
+      "scripts": "Scripts",
+      "texte": "Texts",
+      "pokemon": "Pokémon",
+      "projekt": "Project"
+    },
+    "fields": {
+      "matrixId": "Matrix",
+      "eventFileId": "Event file",
+      "scriptFileId": "Script file",
+      "levelScriptId": "Level script",
+      "textArchiveId": "Text archive",
+      "areaDataId": "Area data",
+      "wildPokemon": "Encounters",
+      "mapTileset": "Map textures",
+      "buildingsTileset": "Building textures",
+      "class": "Class",
+      "items": "Item",
+      "species": "Pokémon",
+      "item": "Item",
+      "moves": "Move"
+    },
+    "building": {
+      "matrixId": "World map",
+      "matrix": "World map",
+      "headerTable": "Place table",
+      "dynamicHeaders": "Place files",
+      "header": "Place"
+    },
+    "wholeArchive": "The archive {{word}}",
+    "locked": "{{name}} is locked ({{why}}): Gen4 Studio would not write it back byte for byte. Restore the file, then it can be changed.",
+    "progress": {
+      "cheap": "World and data",
+      "load": "Files",
+      "scripts": "Scripts",
+      "texts": "Texts"
+    },
+    "checking": "Checking…",
+    "checkingPass": "Checking… {{what}} {{done}}/{{total}}",
+    "skipped": {
+      "ignoreFile": "{{file}} is unreadable ({{why}}): nothing is hidden or switched off, and Gen4 Studio does not write the file. Repair or delete it, then both work again.",
+      "notAdopted": "{{title}}: not checked, the scripts are not adopted. Adopt them under Script, then Gen4 Studio checks them.",
+      "commonBuilding_one": "{{title}}: {{count}} common script without a place not checked.",
+      "commonBuilding_other": "{{title}}: {{count}} common scripts without a place not checked.",
+      "commonTech_one": "{{title}}: {{count}} common script without a header not checked.",
+      "commonTech_other": "{{title}}: {{count}} common scripts without a header not checked.",
+      "levelScript": "Level script",
+      "scriptFile": "Script file",
+      "oneFile": "{{title}}: {{kind}} {{id}} not checked ({{why}}). Fix the error in the file, then Gen4 Studio checks it.",
+      "other": "{{title}}: not checked ({{why}}). Look under “{{unreadable}}” for what is missing, then check again."
+    },
+    "mark": {
+      "error": "Error found",
+      "warning": "Warning found",
+      "title": "{{label}}, see Problems"
+    }
   }
 }

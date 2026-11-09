@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AssetId, HeaderSummary, ProjectInfo, StoryReport } from "../api";
+import { t } from "../i18n";
 import { NewStoryDialog, createStory } from "../stories/NewStoryDialog";
 import type { NewStoryRequest } from "../stories/NewStoryDialog";
 import { StoryRecipeDialog } from "../stories/recipes/StoryRecipeDialog";
@@ -60,7 +61,7 @@ export function StoryRecipeHost({ request, onClose, project, revision, headers, 
         revision={revision}
         headers={headers}
         onApplied={(outcome, applied) => {
-          toast.info(`Schritt „${applied.name}“ angelegt`);
+          toast.info(t("app:storyRecipe.stepCreated", { name: applied.name }));
           onClose();
           void Promise.resolve(onApplied(outcome.changed)).catch(onError);
         }}

@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import type { AssetId } from "./api";
 import { isCmdError } from "./api";
+import { t } from "./i18n";
 import type { DiffSubject } from "./api.git";
 import { inTauri, invoke } from "./platform/transport";
 
@@ -151,27 +152,28 @@ export function countKey(target: ResetTarget): string {
   return target.kind === "text_message" ? "text_archive" : target.kind;
 }
 
-const WORDS: Record<Exclude<ResetKind, "text_message">, string> = {
-  map: "Karte",
-  event_file: "Eventdatei",
-  text_archive: "Textarchiv",
-  trainer: "Trainer",
-  species: "Pokémon",
-  encounter: "Begegnungsdatei",
-  header: "Header",
-  script: "Scriptdatei",
-  map_texture: "Kartentextur",
-  building_texture: "Gebäudetextur",
-  building_model: "Gebäudemodell",
-  interior_building_model: "Innenraum-Gebäudemodell",
-};
+/** The catalog key of each kind's label (`common:resetTarget`), with the four-digit index as `{{id}}`. */
+const LABEL_KEY = {
+  map: "common:resetTarget.map",
+  event_file: "common:resetTarget.eventFile",
+  text_archive: "common:resetTarget.textArchive",
+  trainer: "common:resetTarget.trainer",
+  species: "common:resetTarget.species",
+  encounter: "common:resetTarget.encounter",
+  header: "common:resetTarget.header",
+  script: "common:resetTarget.script",
+  map_texture: "common:resetTarget.mapTexture",
+  building_texture: "common:resetTarget.buildingTexture",
+  building_model: "common:resetTarget.buildingModel",
+  interior_building_model: "common:resetTarget.interiorBuildingModel",
+} as const satisfies Record<Exclude<ResetKind, "text_message">, string>;
 
 const id4 = (n: number) => String(n).padStart(4, "0");
 
-/** The German name of the entity as the kernel gives it (`ResetTarget::label`): „Karte 0003“, „Nachricht 2 in Textarchiv 0005“. */
+/** The name of the entity as the kernel gives it (`ResetTarget::label`), in the language shown: „Karte 0003“, „Nachricht 2 in Textarchiv 0005“. */
 export function targetLabel(target: ResetTarget): string {
-  if (target.kind === "text_message") return `Nachricht ${target.message} in Textarchiv ${id4(target.archive)}`;
-  return `${WORDS[target.kind]} ${id4(targetIndex(target))}`;
+  if (target.kind === "text_message") return t("common:resetTarget.textMessage", { message: target.message, archive: id4(target.archive) });
+  return t(LABEL_KEY[target.kind], { id: id4(targetIndex(target)) });
 }
 
 /** The sentence of a failed plan or reset: the kernel's German text; a locked asset only its German reason (after „… is read-only: “). */

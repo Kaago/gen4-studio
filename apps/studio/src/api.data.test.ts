@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "i18next";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
@@ -10,6 +11,7 @@ import {
   dataGet,
   dataList,
   dataRaw,
+  fieldLabel,
   fieldLabels,
   getBattleSprite,
   getItemIcon,
@@ -176,6 +178,25 @@ describe("fieldLabels", () => {
     expect(fieldLabels.trainer.item0).toBe("Gegenstand 1");
     for (const table of Object.values(fieldLabels)) {
       for (const label of Object.values(table)) expect(label).not.toMatch(/\./);
+    }
+  });
+});
+
+describe("fieldLabel", () => {
+  afterEach(() => i18next.changeLanguage("de"));
+
+  it("reads every field of fieldLabels from the catalog, in German the table's own word", () => {
+    for (const [kind, table] of Object.entries(fieldLabels)) {
+      for (const [field, german] of Object.entries(table)) expect(fieldLabel(kind as keyof typeof fieldLabels, field as never), `${kind}.${field}`).toBe(german);
+    }
+  });
+
+  it("names a field in English when English is shown", async () => {
+    await i18next.changeLanguage("en");
+    expect(fieldLabel("species", "sp_attack")).toBe("Sp. Atk");
+    expect(fieldLabel("move", "power")).toBe("Power");
+    for (const [kind, table] of Object.entries(fieldLabels)) {
+      for (const field of Object.keys(table)) expect(i18next.exists(`common:fieldLabels.${kind}.${field}`, { lng: "en", fallbackLng: false }), `${kind}.${field}`).toBe(true);
     }
   });
 });
