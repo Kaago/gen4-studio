@@ -1,4 +1,5 @@
 import type { DataDocDto, DataPatch, DataRowDto, LearnEntryDto, PartyFormatDto, PartyMonDto, ProblemDto, ProjectInfo, TrainerRowExtra } from "../../api";
+import i18next from "i18next";
 import { t } from "../../i18n";
 import type { SegmentedOption, SelectOption } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
@@ -379,7 +380,7 @@ export function groupRows(rows: readonly DataRowDto[], mode: GroupMode, showDele
     if (places.length === 0) add(NONE_KEY, t("data:trainer.group.noPlace"), row);
     for (const place of places) add(`p:${place.name}`, place.name, row);
   }
-  const named = [...groups.values()].filter((g) => g.key !== NONE_KEY).sort((a, b) => a.label.localeCompare(b.label, "de"));
+  const named = [...groups.values()].filter((g) => g.key !== NONE_KEY).sort((a, b) => a.label.localeCompare(b.label, i18next.language));
   const none = groups.get(NONE_KEY);
   return none ? [...named, none] : named;
 }

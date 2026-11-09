@@ -3,7 +3,7 @@ import type { DataRowDto, FieldValueDto, ItemEntryDto, ItemRowExtra, ProjectInfo
 import { t } from "../../i18n";
 import type { SelectOption } from "../../ui/primitives";
 import { pokemonTypes, typeName } from "../../ui/primitives/pokemonTypes";
-import { POCKET_IDS, lockReason, pocketName } from "../dataModel";
+import { POCKET_IDS, lockReason, pocketName, typeOption } from "../dataModel";
 
 /** A field of an item as `DataPatch` `Item` names it. */
 export type ItemField = keyof typeof fieldLabels.item;
@@ -67,9 +67,9 @@ const options = (names: Readonly<Record<number, FunctionName>>): readonly Select
 
 /** The field functions both families share (the use-function table of pokeplatinum and pokeheartgold), named after the items using them. */
 type FunctionName =
-  | "none" | "medicine" | "townMap" | "bicycle" | "journal" | "tmHm" | "mail" | "berry" | "poffinCase" | "palPad" | "poketchRadar" | "wailmerPail" | "honey" | "vsSeeker"
+  | "none" | "medicine" | "townMap" | "bicycle" | "journal" | "tmHm" | "mail" | "berry" | "poffinCase" | "palPad" | "poketchRadar" | "sprayduck" | "honey" | "vsSeeker"
   | "oldRod" | "goodRod" | "superRod" | "protectionAndCases" | "evolutionStone" | "escapeRope" | "azureFlute" | "explorerKit" | "mulch" | "vsRecorder" | "gracidea"
-  | "apricornBox" | "plantingSet" | "unownReport" | "itemFinder" | "gbSounds";
+  | "apricornBox" | "berryPots" | "unownReport" | "itemFinder" | "gbSounds";
 
 const SHARED_FUNCTIONS: Readonly<Record<number, FunctionName>> = {
   0: "none",
@@ -83,7 +83,7 @@ const SHARED_FUNCTIONS: Readonly<Record<number, FunctionName>> = {
   9: "poffinCase",
   10: "palPad",
   11: "poketchRadar",
-  12: "wailmerPail",
+  12: "sprayduck",
   14: "honey",
   15: "vsSeeker",
   16: "oldRod",
@@ -101,7 +101,7 @@ const SHARED_FUNCTIONS: Readonly<Record<number, FunctionName>> = {
  */
 export const FIELD_FUNCTIONS: Readonly<Record<"Pt" | "Hgss", readonly SelectOption<number>[]>> = {
   Pt: options({ ...SHARED_FUNCTIONS, 3: "explorerKit", 13: "mulch", 23: "vsRecorder", 24: "gracidea" }),
-  Hgss: options({ ...SHARED_FUNCTIONS, 23: "apricornBox", 24: "plantingSet", 25: "unownReport", 26: "itemFinder", 27: "gbSounds", 28: "gracidea", 29: "vsRecorder" }),
+  Hgss: options({ ...SHARED_FUNCTIONS, 23: "apricornBox", 24: "berryPots", 25: "unownReport", 26: "itemFinder", 27: "gbSounds", 28: "gracidea", 29: "vsRecorder" }),
 };
 
 /** The field functions of the project's family (Diamond and Pearl, locked anyway, take Platinum's); a value they lack is "Funktion N". */
@@ -127,7 +127,7 @@ export function battleFunctions(value: number): readonly SelectOption<number>[] 
 export const NO_GIFT_TYPE = 31;
 /** The natural gift types: the 18 types and 31 for none. */
 export const GIFT_TYPES: readonly SelectOption<number>[] = [
-  ...pokemonTypes.map((type) => ({ value: type.id, label: type.name })),
+  ...pokemonTypes.map((type) => typeOption(type.id)),
   {
     value: NO_GIFT_TYPE,
     get label() {

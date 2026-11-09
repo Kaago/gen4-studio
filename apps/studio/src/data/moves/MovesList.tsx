@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { DataRowDto, MoveRowExtra } from "../../api";
 import { FilterChips, SelectField, TypeBadge, pokemonTypes } from "../../ui/primitives";
+import { typeName } from "../../ui/primitives/pokemonTypes";
 import type { SelectOption } from "../../ui/primitives";
 import { DataList } from "../DataList";
 import { categoryNames } from "../dataModel";
@@ -27,8 +28,8 @@ export function MovesList() {
   const { rows, dirty } = useDataArea("pokemon");
   const { filter, setFilter } = useDataSearch("pokemon");
   const options = useMemo(
-    () => pokemonTypes.map((t) => ({ value: String(t.id), label: t.name, type: t.id, count: rows.filter((r) => extraOf(r)?.type === t.id).length })),
-    [rows],
+    () => pokemonTypes.map((type) => ({ value: String(type.id), label: typeName(type.id), type: type.id, count: rows.filter((r) => extraOf(r)?.type === type.id).length })),
+    [rows, t],
   );
   const categories = useMemo<readonly SelectOption<number>[]>(() => [{ value: -1, label: t("movesList.allCategories") }, ...categoryNames().map((label, value) => ({ value, label }))], [t]);
   const chosen = useMemo(() => new Set(filter.types.map(String)), [filter.types]);

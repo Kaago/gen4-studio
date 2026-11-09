@@ -4,6 +4,7 @@ import type { DataRowDto, SpeciesRowExtra } from "../../api";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { FilterChips, pokemonTypes } from "../../ui/primitives";
+import { typeName } from "../../ui/primitives/pokemonTypes";
 import { DataList, RowIcon } from "../DataList";
 import { monIcon, monIconKey } from "../icons";
 import { useDataArea, useDataSearch } from "../useDataArea";
@@ -25,13 +26,13 @@ export function PokedexList() {
   const { filter, setFilter } = useDataSearch("pokemon");
   const options = useMemo(
     () =>
-      pokemonTypes.map((t) => ({
-        value: String(t.id),
-        label: t.name,
-        type: t.id,
-        count: rows.filter((r) => typesOf(r).includes(t.id)).length,
+      pokemonTypes.map((type) => ({
+        value: String(type.id),
+        label: typeName(type.id),
+        type: type.id,
+        count: rows.filter((r) => typesOf(r).includes(type.id)).length,
       })),
-    [rows],
+    [rows, t],
   );
   const chosen = useMemo(() => new Set(filter.types.map(String)), [filter.types]);
   const onTypes = useCallback((next: Set<string>) => setFilter({ ...filter, types: [...next].map(Number) }), [filter, setFilter]);

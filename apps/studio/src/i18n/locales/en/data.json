@@ -178,6 +178,7 @@
     "edit": "Edit {{title}}"
   },
   "none": "None",
+  "percent": "{{value}}%",
   "trainerView": {
     "teamCard": "Slot {{slot}}: {{name}}, level {{level}}, open in the Pokédex",
     "inWorld": "Placed in the world",
@@ -418,7 +419,7 @@
     "ppHint": "with PP Up at most {{max}}",
     "priorityHint": "from −7 to +5, higher attacks first",
     "percentHint": "in percent",
-    "behaviour": "Behaviour",
+    "behaviour": "Behavior",
     "effectId": "Effect ID",
     "effectHint": "Index of the battle scripts",
     "traitsByte": "Traits byte {{hex}}",
@@ -448,7 +449,7 @@
       "poffinCase": "Poffin Case",
       "palPad": "Pal Pad",
       "poketchRadar": "Poké Radar",
-      "wailmerPail": "Wailmer Pail",
+      "sprayduck": "Sprayduck",
       "honey": "Honey",
       "vsSeeker": "Vs. Seeker",
       "oldRod": "Old Rod",
@@ -463,7 +464,7 @@
       "vsRecorder": "Vs. Recorder",
       "gracidea": "Gracidea",
       "apricornBox": "Apricorn Box",
-      "plantingSet": "Planting set",
+      "berryPots": "Berry Pots",
       "unownReport": "Unown Report",
       "itemFinder": "Itemfinder",
       "gbSounds": "GB Sounds"
@@ -563,9 +564,9 @@
       }
     },
     "hours": {
-      "morning": "4–9 o'clock",
-      "day": "10–19 o'clock",
-      "night": "20–3 o'clock"
+      "morning": "4–9 AM",
+      "day": "10 AM–7 PM",
+      "night": "8 PM–3 AM"
     },
     "columns": {
       "pokemon": "Pokémon",
@@ -587,8 +588,8 @@
       "dualFireRed": "Dual-slot FireRed",
       "dualLeafGreen": "Dual-slot LeafGreen",
       "radio": "Radio",
-      "radioHoenn": "Radio Hoenn",
-      "radioSinnoh": "Radio Sinnoh",
+      "radioHoenn": "Hoenn Sound",
+      "radioSinnoh": "Sinnoh Sound",
       "landSwarm": "Swarm in grass",
       "surfSwarm": "Swarm while surfing",
       "nightFish": "Fishing at night",
@@ -612,7 +613,7 @@
       "radioSinnoh": "with the Sinnoh sound on the radio",
       "swarmHeaders": "during a swarm (only at the 20 swarm places)",
       "night": "at night",
-      "hours": "from {{from}} to {{to}} o'clock",
+      "hours": "from {{from}}:00 to {{to}}:00",
       "gba": "with {{game}} in the GBA slot"
     },
     "replaces": "{{method}} slot {{slots}}",
@@ -737,7 +738,7 @@
     "locked": "{{reason}}. This file is locked.",
     "warnings": "Warnings",
     "whoWaits": "Who waits here",
-    "whoWaitsNote": "in the grass, share by time of day (Morning 4–9, Day 10–19, Night 20–3 o'clock)",
+    "whoWaitsNote": "in the grass, share by time of day (Morning 4–9 AM, Day 10 AM–7 PM, Night 8 PM–3 AM)",
     "grassRateZero": "Grass rate 0: there are no encounters in the grass here.",
     "nobody": "Nobody waits in the grass."
   },
@@ -908,11 +909,11 @@
   },
   "abilitiesTab": {
     "abilities": "Abilities",
-    "abilitiesNote": "a specimen has one of the two",
+    "abilitiesNote": "a Pokémon has one of the two",
     "types": "Types",
     "typesNote": "the same twice means one type",
     "heldInWild": "Held in the wild",
-    "heldInWildNote": "what wild specimens can hold"
+    "heldInWildNote": "what wild Pokémon can hold"
   },
   "evolutionTab": {
     "method": "Method",

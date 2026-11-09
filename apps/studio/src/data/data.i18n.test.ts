@@ -1,10 +1,10 @@
 import i18next from "i18next";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { filterText, lockReason, pocketLabel, rowLabel } from "./dataModel";
+import { TYPE_OPTIONS, filterText, lockReason, pocketLabel, rowLabel } from "./dataModel";
 import { TARGETS, flagLabel, FLAGS, usesText } from "./moves/moveModel";
 import { FIELD_GROUPS, fieldFunctions, sharedNote } from "./items/itemModel";
 import { EGG_GROUPS, EVO_METHODS, GENDER, TABS, hatchText, lockText } from "./pokedex/pokedexModel";
-import { TIME_COLUMNS, methodTabs, replacedByText, usedByText, warningText } from "./encounters/encounterModel";
+import { TIME_COLUMNS, TIME_HOURS, methodTabs, replacedByText, shareText, usedByText, warningText } from "./encounters/encounterModel";
 import { AI_LEVELS, TEXT_KINDS, bitLabel, partialTrainer, problemText } from "./trainer/trainerModel";
 
 // The tables of the data areas hold their words as getters and the functions read the catalog when they are called: in English they are
@@ -45,8 +45,11 @@ describe("the data areas in English", () => {
     expect(sharedNote(21)).toBe("Shares data with 21 items");
     expect(methodTabs("Pt").map((t) => t.label)).toEqual(["Grass", "Surf", "Old Rod", "Good Rod", "Super Rod", "Replacements"]);
     expect(TIME_COLUMNS.map((c) => c.label)).toEqual(["Morning", "Day", "Night"]);
-    expect(replacedByText([{ list: "day", entry: 0, when: "from 10 to 19 o'clock", in_file: true }])).toBe("Day 1 (from 10 to 19 o'clock)");
+    expect(replacedByText([{ list: "day", entry: 0, when: "from 10 to 19 o'clock", in_file: true }])).toBe("Day 1 (from 10:00 to 19:00)");
     expect(usedByText(3)).toBe("used by 3 places");
+    expect(shareText(25)).toBe("25%");
+    expect(TYPE_OPTIONS.map((o) => o.value)).toEqual(Array.from({ length: 18 }, (_, i) => i));
+    expect(Object.values(TIME_HOURS)).toEqual(["4–9 AM", "10 AM–7 PM", "8 PM–3 AM"]);
     expect(warningText("grass rate 200 acts like 0: the method never runs", (id) => `Species ${id}`)).toContain("Grass rate 200 acts like 0");
     expect(AI_LEVELS.map((l) => l.label)).toEqual(["simple", "smart", "expert", "custom"]);
     expect(TEXT_KINDS.map((k) => k.label)).toEqual(["Before the battle", "Defeat", "After"]);

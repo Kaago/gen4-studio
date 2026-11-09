@@ -178,6 +178,7 @@
     "edit": "{{title}} bearbeiten"
   },
   "none": "Keine",
+  "percent": "{{value}} %",
   "trainerView": {
     "teamCard": "Platz {{slot}}: {{name}}, Level {{level}}, im Pokédex öffnen",
     "inWorld": "Steht in der Welt",
@@ -448,7 +449,7 @@
       "poffinCase": "Knurspbox",
       "palPad": "Adressbuch",
       "poketchRadar": "Pokéradar",
-      "wailmerPail": "Entonkanne",
+      "sprayduck": "Entonkanne",
       "honey": "Honig",
       "vsSeeker": "Kampffahnder",
       "oldRod": "Angel",
@@ -463,7 +464,7 @@
       "vsRecorder": "Kampfkamera",
       "gracidea": "Gracidea",
       "apricornBox": "Aprikokobox",
-      "plantingSet": "Pflanzset",
+      "berryPots": "Pflanzset",
       "unownReport": "Icognitoheft",
       "itemFinder": "Itemradar",
       "gbSounds": "GB-Player"

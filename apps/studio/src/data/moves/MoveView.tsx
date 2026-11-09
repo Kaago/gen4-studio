@@ -116,7 +116,7 @@ function Facts({ v }: { v: MoveValues }) {
       </div>
       <div className={styles.figures}>
         <p className={styles.figure}>{power === 0 ? t("moveView.noPower") : <><span className={styles.figureValue}>{power}</span> {t("moveView.power")}</>}</p>
-        <p className={styles.figure}>{accuracy === 0 ? t("moveView.alwaysHits") : <><span className={styles.figureValue}>{`${accuracy} %`}</span> {t("moveView.accuracy")}</>}</p>
+        <p className={styles.figure}>{accuracy === 0 ? t("moveView.alwaysHits") : <><span className={styles.figureValue}>{t("percent", { value: accuracy })}</span> {t("moveView.accuracy")}</>}</p>
         <p className={styles.figure}>
           <span className={styles.figureValue}>{v.pp ?? 0}</span> {t("moveView.pp")}
         </p>

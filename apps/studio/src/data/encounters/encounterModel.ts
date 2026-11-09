@@ -96,7 +96,7 @@ export function slotColumns(family: string, method: EncounterMethod): TableColum
 export const slotText = (slot: number): string => t("data:encounterModel.slot", { n: slot + 1 });
 
 /** „20 %“. */
-export const shareText = (share: number): string => `${share} %`;
+export const shareText = (share: number): string => t("data:percent", { value: share });
 
 /** Whether a slot holds nothing (species and levels 0, in every column): valid, shown muted. */
 export function isEmptySlot(slot: SlotDto): boolean {

@@ -5,16 +5,15 @@ import { dataRaw, errorText, fieldLabels } from "../../api";
 import type { RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
 import { depthAtLeast } from "../../ui/frame/shellState";
-import { Checkbox, EmptyState, HexBlock, InspectorRow, Notice, NumberField, Segmented, SelectField, pokemonTypes } from "../../ui/primitives";
+import { Checkbox, EmptyState, HexBlock, InspectorRow, Notice, NumberField, Segmented, SelectField } from "../../ui/primitives";
 import type { NumberFieldProps, SegmentedOption, SelectOption } from "../../ui/primitives";
+import { TYPE_OPTIONS } from "../dataModel";
 import { useDataArea } from "../useDataArea";
 import { CATEGORIES, FLAGS, NAMED_FLAGS, TARGETS, categoryName, flagLabel, hasFlag, hex2, lockText, moveLabel, moveValues, ppMax, withFlag } from "./moveModel";
 import type { MoveFlag, MoveField, MoveValues } from "./moveModel";
 import { useMove } from "./useMove";
 import type { MoveDoc } from "./useMove";
 import styles from "./Moves.module.css";
-
-const TYPES: readonly SelectOption<number>[] = pokemonTypes.map((t) => ({ value: t.id, label: t.name }));
 
 /** The three categories; a value the games do not know shows as a fourth, locked choice ("Wert 3"). */
 function categoryOptions(value: number): SegmentedOption<string>[] {
@@ -72,7 +71,7 @@ function BaseColumn({ e }: { e: Editing }) {
   const category = e.v.category ?? 0;
   return (
     <Column title={t("moveHand.baseValues")}>
-      <MoveSelect e={e} field="move_type" options={TYPES} />
+      <MoveSelect e={e} field="move_type" options={TYPE_OPTIONS} />
       <InspectorRow label={t("moveHand.category")}>
         <div data-field="category">
           <Segmented ariaLabel={t("moveHand.category")} size="s" options={categoryOptions(category)} value={String(category)} onChange={(value) => e.set("category", Number(value))} />

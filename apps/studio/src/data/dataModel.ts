@@ -1,7 +1,8 @@
 import type { DataRowDto, HeaderSummary, ItemRowExtra, MoveRowExtra, SpeciesRowExtra } from "../api";
 import { t } from "../i18n";
 import type { DataSelectKey, PokemonSub } from "../ui/frame/shellState";
-import { typeName } from "../ui/primitives/pokemonTypes";
+import type { SelectOption } from "../ui/primitives";
+import { pokemonTypes, typeName } from "../ui/primitives/pokemonTypes";
 import { encounterRowLabel } from "./encounters/encounterModel";
 import { PLACEHOLDER_REASON, placeholderText, trainerRowLabel } from "./trainer/trainerModel";
 
@@ -113,6 +114,17 @@ export function lockReason(locked: string): string {
   const part = LOCK_PART[m[1]!];
   return t("data:dataModel.lockLengths", { word: part === undefined ? m[1] : t(`data:dataModel.lockParts.${part}`), id: m[2], actual: m[3], expected: m[4] });
 }
+
+/** A type as a choice; its `label` is read when asked for (the type names follow the language shown), never when this module loads. */
+export const typeOption = (id: number): SelectOption<number> => ({
+  value: id,
+  get label() {
+    return typeName(id);
+  },
+});
+
+/** The eighteen types of the fourth generation as choices (9 is the ???-type). */
+export const TYPE_OPTIONS: readonly SelectOption<number>[] = pokemonTypes.map((type) => typeOption(type.id));
 
 /** The types of a species row in words ("Normal, Flug"; one type once); empty for a locked row. */
 export function speciesTypes(row: DataRowDto): string {
