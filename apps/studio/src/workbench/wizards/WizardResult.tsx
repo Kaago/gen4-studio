@@ -4,7 +4,7 @@ import type { Depth } from "../../ui/frame/shellState";
 import { Notice, RecipeButton } from "../../ui/primitives";
 import type { Area, IconName } from "../../ui/primitives";
 import { RECIPE_BAR } from "../recipes";
-import { TERMS } from "../terms";
+import { termLabel } from "../terms";
 import styles from "./WizardResult.module.css";
 
 interface DoneProps {
@@ -81,7 +81,7 @@ export function PartialResult({ message, depth = "tuefteln" }: { message: string
       </Notice>
       <p className={styles.line}>
         Was schon angelegt ist, bleibt bestehen und lässt sich nicht rückgängig machen.{" "}
-        {!depthAtLeast(depth, "tuefteln") ? "Den Rest in der Welt von Hand fertigstellen." : `Den Rest im ${TERMS.matrix.label}-Tab und im ${TERMS.header.label}-Editor von Hand fertigstellen.`}
+        {!depthAtLeast(depth, "tuefteln") ? "Den Rest in der Welt von Hand fertigstellen." : `Den Rest im ${termLabel("matrix")}-Tab und im ${termLabel("header")}-Editor von Hand fertigstellen.`}
       </p>
     </div>
   );

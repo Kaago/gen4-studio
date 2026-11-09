@@ -1,6 +1,6 @@
 import type { EventKind, EventPatch, EventsDto } from "../../api";
 import { KIND_LABELS, eventAt } from "../../world/events";
-import { TERMS } from "../terms";
+import { termLabel } from "../terms";
 import type { Depth } from "../../ui/frame/shellState";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import { shownFields } from "./fields";
@@ -82,15 +82,15 @@ function baseFieldSpecs(kind: EventKind, family: string | null): EventFieldSpec[
         { key: "graphics_id", label: "Grafik", ...U16, from: "erzaehlen" },
         { key: "movement_type", label: "Bewegung", ...U16, from: "erzaehlen" },
         { key: "dir", label: "Blickrichtung", ...I16, options: FACINGS, from: "erzaehlen" },
-        { key: "script", label: TERMS.script.label, ...U16, from: "erzaehlen" },
+        { key: "script", label: termLabel("script"), ...U16, from: "erzaehlen" },
         { key: "trainer_type", label: "Sichtlinie", ...U16, options: SIGHTLINES },
         { key: "sight", label: "Sichtweite", min: 0, max: SIGHT_MAX },
         { key: "hidden_flag", label: "Sichtbarkeits-Flag", ...U16, pick: "flag" },
       ];
     case "coord":
-      return [...position, { key: "width", label: "Breite", ...U16 }, { key: "length", label: "Länge", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
+      return [...position, { key: "width", label: "Breite", ...U16 }, { key: "length", label: "Länge", ...U16 }, { key: "script", label: termLabel("script"), ...U16 }];
     case "bg":
-      return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
+      return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: termLabel("script"), ...U16 }];
   }
 }
 

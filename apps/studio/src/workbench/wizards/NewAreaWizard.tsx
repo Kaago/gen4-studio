@@ -7,7 +7,7 @@ import { Checkbox, Notice, Segmented, SelectField, TextField } from "../../ui/pr
 import { AreaGrid, cellKey } from "../AreaGrid";
 import { buildPlaces, placeColor } from "../places";
 import { useMatrix } from "../useMatrix";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel, termPlural } from "../terms";
 import type { World } from "../worldModel";
 import { targetBlock } from "../worldMapView";
 import { useStableCallback } from "../../app/useStable";
@@ -24,7 +24,7 @@ import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
-import { areaLayout, areaPlace, areaResult, buildingSources, roomPlace, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, PICK_TARGET, placeError, placeForm, newHeaderValue, overviewNote, partialText, planSpec, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection, worldMapChoices } from "./wizardSpecs";
+import { areaLayout, areaPlace, areaResult, buildingSources, roomPlace, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, pickTarget, placeError, placeForm, newHeaderValue, overviewNote, partialText, planSpec, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection, worldMapChoices } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 import parts from "./WizardStep.module.css";
 import styles from "./NewAreaWizard.module.css";
@@ -235,12 +235,12 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
 
   // Bauen names the sources (world maps, „Weitere Gebiete“); Tüfteln lists every raster by number.
   const matrixOptions = useMemo(
-    () => (building ? buildingSources(world, headers, sourceMatrix) : matrices.map((m) => ({ value: m.index, label: `${TERMS.matrix.label} ${id4(m.index)} ${m.name} (${m.width} × ${m.height})` }))),
+    () => (building ? buildingSources(world, headers, sourceMatrix) : matrices.map((m) => ({ value: m.index, label: `${termLabel("matrix")} ${id4(m.index)} ${m.name} (${m.width} × ${m.height})` }))),
     [building, world, headers, sourceMatrix, matrices],
   );
   const worldMapName = worldMaps.find((m) => m.matrix === form.worldMap)?.name ?? "";
   const summaryLines = "spec" in built ? areaSummary(built.spec, headers, links, depth, { name: worldMapName, replaced: block?.replaced ?? 0 }) : null;
-  const lageOptions = [{ value: OWN_MAP, label: "Eigene Karte (über Türen verbunden)" }, ...worldMaps.map((m) => ({ value: `w${m.matrix}`, label: `Auf der ${TERMS.worldMap.label} ${m.name} (nahtlos begehbar)` }))];
+  const lageOptions = [{ value: OWN_MAP, label: "Eigene Karte (über Türen verbunden)" }, ...worldMaps.map((m) => ({ value: `w${m.matrix}`, label: `Auf der ${termLabel("worldMap")} ${m.name} (nahtlos begehbar)` }))];
 
   /** A choice of „Wo liegt das Gebiet?“: the cell chosen on a world map stays for when the user comes back to it. */
   function chooseLage(value: string) {
@@ -263,7 +263,7 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
       }
     : {
         id: "header",
-        title: TERMS.header.label,
+        title: termLabel("header"),
         canNext: true,
         content: (
           <HeaderChoice
@@ -292,13 +292,13 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
       content: (
         <>
           <section className={`${parts.column} ${parts.wide}`}>
-            <h3 className={parts.heading}>{building ? `${TERMS.map.plural} aus einer ${TERMS.worldMap.label} oder einem ${TERMS.area.label}` : `${TERMS.map.plural} aus einem ${TERMS.matrix.label}`}</h3>
+            <h3 className={parts.heading}>{building ? `${termPlural("map")} aus einer ${termLabel("worldMap")} oder einem ${termLabel("area")}` : `${termPlural("map")} aus einem ${termLabel("matrix")}`}</h3>
             {matrixOptions.length > 0 && sourceMatrix !== null && (
               <div className={parts.field}>
-                <SelectField label={building ? "Quelle" : `${TERMS.matrix.label} der Quelle`} showLabel value={sourceMatrix} options={matrixOptions} onChange={chooseSource} />
+                <SelectField label={building ? "Quelle" : `${termLabel("matrix")} der Quelle`} showLabel value={sourceMatrix} options={matrixOptions} onChange={chooseSource} />
               </div>
             )}
-            <p className={parts.note}>{TERMS.map.plural} anklicken; Umschalt-Klick wählt das Rechteck bis zur letzten Zelle.</p>
+            <p className={parts.note}>{termPlural("map")} anklicken; Umschalt-Klick wählt das Rechteck bis zur letzten Zelle.</p>
             {matrix ? (
               <PickGrid
                 matrix={matrix}
@@ -309,26 +309,26 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
                 last={anchor}
                 onCellClick={onCell}
                 depth={depth}
-                label={building ? gridLabel(`${TERMS.map.plural} der Quelle`, matrix) : undefined}
+                label={building ? gridLabel(`${termPlural("map")} der Quelle`, matrix) : undefined}
               />
             ) : (
-              <p className={parts.note}>{sourceMatrix === null ? (overviewNote(matricesLoaded, matricesFailed) ?? (building ? `Keine ${TERMS.worldMap.label} vorhanden.` : `Kein ${TERMS.matrix.label} vorhanden.`)) : "Lade …"}</p>
+              <p className={parts.note}>{sourceMatrix === null ? (overviewNote(matricesLoaded, matricesFailed) ?? (building ? `Keine ${termLabel("worldMap")} vorhanden.` : `Kein ${termLabel("matrix")} vorhanden.`)) : "Lade …"}</p>
             )}
           </section>
           <section className={parts.column}>
             <h3 className={parts.heading}>Dazu per Nummer</h3>
             <div className={parts.field}>
               <TextField
-                label={`${TERMS.map.plural} per Nummer`}
+                label={`${termPlural("map")} per Nummer`}
                 showLabel
                 value={form.manualMaps.join(", ")}
                 onCommit={setManual}
                 placeholder="z. B. 12, 13"
-                error={rejected.length > 0 ? `Nicht übernommen (keine ${TERMS.map.label} von 0 bis ${mapMax}): ${rejected.join(", ")}` : undefined}
+                error={rejected.length > 0 ? `Nicht übernommen (keine ${termLabel("map")} von 0 bis ${mapMax}): ${rejected.join(", ")}` : undefined}
               />
             </div>
             <p className={parts.text}>
-              {pickedCount} {pickedCount === 1 ? TERMS.map.label : TERMS.map.plural} gewählt.
+              {pickedCount} {pickedCount === 1 ? termLabel("map") : termPlural("map")} gewählt.
             </p>
           </section>
         </>
@@ -348,18 +348,18 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
             <Checkbox label="ohne Gebäude" checked={form.clearBuildings} onChange={(clearBuildings) => setForm((f) => ({ ...f, clearBuildings }))} />
             {/* Bauen always gives the new area its cells (`areaSpec`). */}
             {/* An area on a world map takes the world map's cells: the switch does not apply there. */}
-            {!building && form.worldMap === null && <Checkbox label={`${TERMS.header.label}-Abschnitt anlegen`} checked={form.withHeaders} onChange={(withHeaders) => setForm((f) => ({ ...f, withHeaders }))} />}
+            {!building && form.worldMap === null && <Checkbox label={`${termLabel("header")}-Abschnitt anlegen`} checked={form.withHeaders} onChange={(withHeaders) => setForm((f) => ({ ...f, withHeaders }))} />}
             {worldMaps.length > 0 && (
               <>
-                <h3 className={parts.heading}>Wo liegt das {TERMS.area.label}?</h3>
+                <h3 className={parts.heading}>Wo liegt das {termLabel("area")}?</h3>
                 <Segmented ariaLabel="Lage" options={lageOptions} value={form.worldMap === null ? OWN_MAP : `w${form.worldMap}`} onChange={chooseLage} wrap />
               </>
             )}
             {/* Still to choose a cell of the world map: the grid's hint says so, no error. */}
-            {"error" in built && built.error !== PICK_TARGET && <Notice kind="error">{built.error}</Notice>}
+            {"error" in built && built.error !== pickTarget() && <Notice kind="error">{built.error}</Notice>}
           </section>
           <section className={`${parts.column} ${parts.wide}`}>
-            <h3 className={parts.heading}>{form.worldMap === null ? "Vorschau" : `${TERMS.worldMap.label} ${worldMapName}`}</h3>
+            <h3 className={parts.heading}>{form.worldMap === null ? "Vorschau" : `${termLabel("worldMap")} ${worldMapName}`}</h3>
             {form.worldMap !== null ? (
               <PlaceOnWorldMap
                 world={world}

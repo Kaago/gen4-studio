@@ -5,7 +5,7 @@ import type { Depth } from "../ui/frame/shellState";
 import { Notice } from "../ui/primitives";
 import { AdoptProgress } from "../workbench/script/AdoptBox";
 import { nextStepsFor } from "../workbench/recipes";
-import { TERMS, id4 } from "../workbench/terms";
+import { id4, termLabel, termPlural } from "../workbench/terms";
 import { DraftNotes } from "../workbench/wizards/DraftNotes";
 import { useDraftPlan } from "../workbench/wizards/useDraftPlan";
 import { DoneResult } from "../workbench/wizards/WizardResult";
@@ -55,7 +55,7 @@ const REFUSALS: Record<string, string> = {
 };
 
 /** The town as the game names it, else its header. */
-const townOf = (plan: RegionPlan) => plan.town_name || `${TERMS.header.label} ${id4(plan.start_header)}`;
+const townOf = (plan: RegionPlan) => plan.town_name || `${termLabel("header")} ${id4(plan.start_header)}`;
 
 /** What the app says once it showed the town: "Welt geleert, Zweiblattdorf bleibt." */
 export const clearedAnnouncement = (report: RegionReport) => `Welt geleert, ${townOf(report.plan)} bleibt.`;
@@ -239,7 +239,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
         </Notice>,
       );
     }
-    if (binary > 0) needs.push(<p key="binary" className={parts.note}>{`${binary} ${binary === 1 ? TERMS.scriptFile.label : TERMS.scriptFile.plural} ließen sich nicht dekompilieren und bleiben binär.`}</p>);
+    if (binary > 0) needs.push(<p key="binary" className={parts.note}>{`${binary} ${binary === 1 ? termLabel("scriptFile") : termPlural("scriptFile")} ließen sich nicht dekompilieren und bleiben binär.`}</p>);
     if (unsaved > 0) {
       needs.push(
         <Notice key="save" kind="warning" actions={[{ label: "Speichern", onClick: () => void save() }]}>

@@ -4,7 +4,7 @@ import { Badge, Button, Notice, NumberField, Reference, Segmented, TextField } f
 import type { SegmentedOption } from "../../ui/primitives";
 import { headerLabel } from "../headers";
 import { HeaderPicker } from "../inspector/HeaderPicker";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel, termPlural } from "../terms";
 import { INTERNAL_NAME_MAX, internalName, specialHeader } from "./wizardSpecs";
 import type { HeaderChoiceValue } from "./wizardSpecs";
 import styles from "./WizardStep.module.css";
@@ -38,7 +38,7 @@ type EventFileKey = "Keep" | "New" | "Copy";
 
 /** The usage a header row shows: how many warps lead there, and whether that makes it look free (a special header never does). */
 function usage(h: HeaderSummary, incoming: number): string {
-  if (specialHeader(h) !== null) return `Warps hierher: ${incoming}, Sonder-${TERMS.header.label}, nicht frei`;
+  if (specialHeader(h) !== null) return `Warps hierher: ${incoming}, Sonder-${termLabel("header")}, nicht frei`;
   return incoming === 0 ? "Warps hierher: 0, wirkt unbenutzt" : `Warps hierher: ${incoming}`;
 }
 
@@ -71,8 +71,8 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
   const noHeader = chosen === null && !creating;
 
   const modes: SegmentedOption<Mode>[] = [
-    { value: "existing", label: `Vorhandenen ${TERMS.header.label} umstellen` },
-    { value: "new", label: `Neuer ${TERMS.header.label}`, disabled: !canCreate },
+    { value: "existing", label: `Vorhandenen ${termLabel("header")} umstellen` },
+    { value: "new", label: `Neuer ${termLabel("header")}`, disabled: !canCreate },
   ];
   const eventFiles: SegmentedOption<EventFileKey>[] = [
     { value: "Keep", label: "Behalten" },
@@ -92,22 +92,22 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
   return (
     <>
       <section className={styles.column}>
-        <h3 className={styles.heading}>{TERMS.header.label}</h3>
+        <h3 className={styles.heading}>{termLabel("header")}</h3>
         <div className={styles.mode}>
           <Segmented
-            ariaLabel={`Art des ${TERMS.header.label}s`}
+            ariaLabel={`Art des ${termLabel("header")}s`}
             options={modes}
             value={creating ? "new" : "existing"}
             onChange={(mode) => set(mode === "new" ? { header: null, newHeader: { template, internalName: defaultName } } : { newHeader: null })}
           />
           {unsupported && <Badge kind="ptHgssOnly" />}
         </div>
-        {patch === null && patchError === null && <p className={styles.note}>Prüfe, ob neue {TERMS.header.plural} möglich sind …</p>}
-        {unsupported && <p className={styles.note}>Neue {TERMS.header.plural} gibt es nur für Platin und HeartGold/SoulSilver.</p>}
+        {patch === null && patchError === null && <p className={styles.note}>Prüfe, ob neue {termPlural("header")} möglich sind …</p>}
+        {unsupported && <p className={styles.note}>Neue {termPlural("header")} gibt es nur für Platin und HeartGold/SoulSilver.</p>}
         {patch?.supported === true && !patch.applied && (
-          <Notice kind="warning" title={`${TERMS.patch.label} „Dynamische Header“ nötig`}>
+          <Notice kind="warning" title={`${termLabel("patch")} „Dynamische Header“ nötig`}>
             <p className={styles.text}>
-              Der Patch ändert Bytes im Spielcode (arm9.bin). Die {TERMS.header.plural} liegen danach in einer Datei je {TERMS.header.label}. Das lässt sich nicht zurücknehmen; die Sicherung
+              Der Patch ändert Bytes im Spielcode (arm9.bin). Die {termPlural("header")} liegen danach in einer Datei je {termLabel("header")}. Das lässt sich nicht zurücknehmen; die Sicherung
               arm9.bin.backup wird angelegt. DSPRE kennt den Patch und zeigt ihn als angewendet.
             </p>
             <div className={styles.actions}>
@@ -119,10 +119,10 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
           </Notice>
         )}
         {patch?.applied === true && patch.repairable && (
-          <Notice kind="error" title={`${TERMS.patch.label} „Dynamische Header“ fehlerhaft`}>
+          <Notice kind="error" title={`${termLabel("patch")} „Dynamische Header“ fehlerhaft`}>
             <p className={styles.text}>
               Der Patch ruft im Spielcode eine falsche Funktion auf: das Spiel bleibt nach dem Intro schwarz. So haben ihn DSPRE und ältere Studio-Versionen für Platin (deutsch, französisch,
-              italienisch, spanisch) geschrieben. Die Reparatur ändert 4 Bytes in arm9.bin; die {TERMS.header.plural} bleiben, wie sie sind.
+              italienisch, spanisch) geschrieben. Die Reparatur ändert 4 Bytes in arm9.bin; die {termPlural("header")} bleiben, wie sie sind.
             </p>
             <div className={styles.actions}>
               <Button kind="secondary" size="s" disabled={patchBusy} onClick={() => void onRepairPatch()}>
@@ -137,9 +137,9 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
 
       {creating && value.newHeader !== null ? (
         <section className={styles.column}>
-          <h3 className={styles.heading}>Neuer {TERMS.header.label}</h3>
+          <h3 className={styles.heading}>Neuer {termLabel("header")}</h3>
           <p className={styles.text}>
-            Kopie von {TERMS.header.label} {id4(template)}
+            Kopie von {termLabel("header")} {id4(template)}
             {templateHeader ? ` „${headerLabel(templateHeader)}“` : ""}
           </p>
           <div className={styles.field}>
@@ -148,7 +148,7 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
               showLabel
               value={value.newHeader.internalName}
               onCommit={(text) => set({ newHeader: { template, internalName: internalName(text) } })}
-              hint={`Wird ${TERMS.header.label} ${id4(newId)}; höchstens ${INTERNAL_NAME_MAX} Zeichen: A bis Z, 0 bis 9 und _.`}
+              hint={`Wird ${termLabel("header")} ${id4(newId)}; höchstens ${INTERNAL_NAME_MAX} Zeichen: A bis Z, 0 bis 9 und _.`}
             />
           </div>
         </section>
@@ -163,7 +163,7 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
               <p className={styles.text}>Warps hierher: {incomingCount(chosen.id)}</p>
               {specialHeader(chosen) !== null ? (
                 <Notice kind="warning">
-                  Sonder-{TERMS.header.label}: {specialHeader(chosen)}. Nicht frei, auch wenn kein Warp hierher führt; einen anderen oder „Neuer {TERMS.header.label}“ wählen.
+                  Sonder-{termLabel("header")}: {specialHeader(chosen)}. Nicht frei, auch wenn kein Warp hierher führt; einen anderen oder „Neuer {termLabel("header")}“ wählen.
                 </Notice>
               ) : (
                 incomingCount(chosen.id) === 0 && <p className={styles.warn}>wirkt unbenutzt: nichts führt hierher</p>
@@ -171,15 +171,15 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
             </>
           ) : (
             <p className={styles.note}>
-              Kein {TERMS.header.label} gewählt: nur das {TERMS.matrix.label} wird angelegt.
+              Kein {termLabel("header")} gewählt: nur das {termLabel("matrix")} wird angelegt.
             </p>
           )}
           <div className={styles.actions}>
             <Button kind="secondary" size="s" icon="search" onClick={() => setPicking(true)}>
-              {TERMS.header.label} wählen…
+              {termLabel("header")} wählen…
             </Button>
             <Button kind="quiet" size="s" disabled={value.header === null} onClick={() => set({ header: null })}>
-              Keinen {TERMS.header.label} umstellen
+              Keinen {termLabel("header")} umstellen
             </Button>
           </div>
           <HeaderPicker
@@ -187,17 +187,17 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
             onOpenChange={setPicking}
             headers={headers}
             onPick={(id) => set({ header: id })}
-            title={`${TERMS.header.label} wählen`}
+            title={`${termLabel("header")} wählen`}
             describe={describe}
           />
         </section>
       )}
 
       <section className={styles.column}>
-        <h3 className={styles.heading}>Daten des {TERMS.header.label}s</h3>
+        <h3 className={styles.heading}>Daten des {termLabel("header")}s</h3>
         <div className={styles.field}>
           <NumberField
-            label={TERMS.areaData.label}
+            label={termLabel("areaData")}
             showLabel
             min={0}
             max={areaMax}
@@ -205,14 +205,14 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
             disabled={noHeader}
             onCommit={(n) => set({ areaDataId: n })}
             onClear={() => set({ areaDataId: null })}
-            hint={`0 bis ${areaMax}; leer lassen behält die des ${TERMS.header.label}s.`}
+            hint={`0 bis ${areaMax}; leer lassen behält die des ${termLabel("header")}s.`}
           />
         </div>
         <div className={styles.group}>
-          <span className={styles.label}>{TERMS.eventFile.label}</span>
-          <Segmented ariaLabel={TERMS.eventFile.label} options={eventFiles.map((o) => (noHeader ? { ...o, disabled: true } : o))} value={eventFileKey} onChange={chooseEventFile} />
-          {creating && <p className={styles.note}>Behalten teilt die {TERMS.eventFile.label} mit {TERMS.header.label} {id4(template)}.</p>}
-          {copySource === null && <p className={styles.note}>Die Quelle hat keine {TERMS.eventFile.label} zum Kopieren.</p>}
+          <span className={styles.label}>{termLabel("eventFile")}</span>
+          <Segmented ariaLabel={termLabel("eventFile")} options={eventFiles.map((o) => (noHeader ? { ...o, disabled: true } : o))} value={eventFileKey} onChange={chooseEventFile} />
+          {creating && <p className={styles.note}>Behalten teilt die {termLabel("eventFile")} mit {termLabel("header")} {id4(template)}.</p>}
+          {copySource === null && <p className={styles.note}>Die Quelle hat keine {termLabel("eventFile")} zum Kopieren.</p>}
         </div>
       </section>
     </>

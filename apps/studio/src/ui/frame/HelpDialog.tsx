@@ -1,5 +1,6 @@
 import { Dialog } from "../primitives";
-import { TERMS } from "../../workbench/terms";
+import { TERMS, termLabel, termShort } from "../../workbench/terms";
+import type { TermKey } from "../../workbench/terms";
 import styles from "./HelpDialog.module.css";
 
 export type HelpDialogProps = {
@@ -12,13 +13,13 @@ export function HelpDialog({ open, onOpenChange }: HelpDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Hilfe" description="Die Begriffe, mit denen das Studio die Welt des Spiels beschreibt.">
       <dl className={styles.terms}>
-        {Object.entries(TERMS).map(([key, term]) => (
+        {(Object.keys(TERMS) as TermKey[]).map((key) => (
           <div key={key} className={styles.term}>
             <dt className={styles.name}>
-              {term.label}
-              {term.tech && <span className={styles.tech}> ({term.tech})</span>}
+              {termLabel(key)}
+              {TERMS[key].tech && <span className={styles.tech}> ({TERMS[key].tech})</span>}
             </dt>
-            <dd className={styles.short}>{term.short}</dd>
+            <dd className={styles.short}>{termShort(key)}</dd>
           </div>
         ))}
       </dl>

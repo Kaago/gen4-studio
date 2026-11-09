@@ -2,7 +2,7 @@ import { isCmdError } from "../api";
 import type { BgDto, CoordDto, EventKind, EventsDto, HeaderSummary, MatrixDto, ObjectDto, WarpDto } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
-import { TERMS, termFor } from "../workbench/terms";
+import { termFor, termLabel } from "../workbench/terms";
 import { eventColor } from "./colors";
 import { MAP_SIZE } from "./layout";
 
@@ -58,11 +58,11 @@ export function eventTitle(kind: EventKind, data: EventData, depth: Depth, destN
     }
     case "coord": {
       const c = data as CoordDto;
-      return `Trigger ${c.index} · ${TERMS.script.label} ${c.script}`;
+      return `Trigger ${c.index} · ${termLabel("script")} ${c.script}`;
     }
     case "bg": {
       const b = data as BgDto;
-      return `Hintergrund-Event ${b.index} · ${TERMS.script.label} ${b.script}`;
+      return `Hintergrund-Event ${b.index} · ${termLabel("script")} ${b.script}`;
     }
   }
 }
@@ -76,7 +76,7 @@ export function eventDetails(kind: EventKind, data: EventData): string {
     }
     case "object": {
       const o = data as ObjectDto;
-      return `Position x ${o.x}, z ${o.z}, y ${o.y} · Grafik ${o.graphics_id} · Bewegung ${o.movement_type} · ${TERMS.script.label} ${o.script}`;
+      return `Position x ${o.x}, z ${o.z}, y ${o.y} · Grafik ${o.graphics_id} · Bewegung ${o.movement_type} · ${termLabel("script")} ${o.script}`;
     }
     case "coord": {
       const c = data as CoordDto;

@@ -1,5 +1,5 @@
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
-import { TERMS, id4 } from "./terms";
+import { id4, termLabel, termPlural } from "./terms";
 
 export type PlaceKind = "outside" | "inside";
 
@@ -94,7 +94,7 @@ export function placeColor(key: string): string {
 /** "1 Karte", "4 Karten (2 × 2)"; null when the overview does not know the room's matrix. */
 export function mapsText({ mapCount, size }: PlaceHeader): string | null {
   if (mapCount === 0) return null;
-  const maps = `${mapCount} ${mapCount === 1 ? TERMS.map.label : TERMS.map.plural}`;
+  const maps = `${mapCount} ${mapCount === 1 ? termLabel("map") : termPlural("map")}`;
   return size ? `${maps} (${size})` : maps;
 }
 
@@ -111,7 +111,7 @@ export interface ScriptChild {
  * script (0 means none).
  */
 export function scriptChildren(header: Pick<HeaderSummary, "script_file_id" | "level_script_id">): ScriptChild[] {
-  const children: ScriptChild[] = [{ kind: "script", file: header.script_file_id, label: `${TERMS.scriptFile.label} ${id4(header.script_file_id)}` }];
-  if (header.level_script_id !== 0) children.push({ kind: "levelScript", file: header.level_script_id, label: `${TERMS.levelScript.label} ${id4(header.level_script_id)}` });
+  const children: ScriptChild[] = [{ kind: "script", file: header.script_file_id, label: `${termLabel("scriptFile")} ${id4(header.script_file_id)}` }];
+  if (header.level_script_id !== 0) children.push({ kind: "levelScript", file: header.level_script_id, label: `${termLabel("levelScript")} ${id4(header.level_script_id)}` });
   return children;
 }

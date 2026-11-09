@@ -11,7 +11,7 @@ import type { Depth } from "../../ui/frame/shellState";
 import { Badge, Button, CheckList, EmptyState, Icon, Notice, PanelHead, Reference, Section } from "../../ui/primitives";
 import type { Area, CheckRow } from "../../ui/primitives";
 import { useSectionFolds } from "../inspector/foldState";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel, termPlural } from "../terms";
 import type { NavTarget } from "../navigation";
 import { FixDialog } from "./FixDialog";
 import { NO_STATE_HINT_FILE, buildProblemText, countsText, encounterFileOf, findingId, isFinding, problemTarget, scriptFileOf, textArchiveOf, trainerOf } from "./problems";
@@ -36,13 +36,13 @@ const SEVERITY_LABEL: Record<ProblemRow["severity"], string> = { error: "Fehler"
 export function fileLabel(path: string): string {
   if (path === NO_STATE_HINT_FILE) return "Bauzustand";
   const script = scriptFileOf(path);
-  if (script !== null) return `${path.endsWith(".rotom") ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(script)}`;
+  if (script !== null) return `${path.endsWith(".rotom") ? termLabel("scriptFile") : termLabel("levelScript")} ${id4(script)}`;
   const encounter = encounterFileOf(path);
   if (encounter !== null) return `Begegnungen ${id4(encounter)}`;
   const trainer = trainerOf(path);
   if (trainer !== null) return `Trainer ${id4(trainer)}`;
   const archive = textArchiveOf(path);
-  return archive !== null ? `${TERMS.textArchive.label} ${id4(archive)}` : path;
+  return archive !== null ? `${termLabel("textArchive")} ${id4(archive)}` : path;
 }
 
 /** The area a file belongs to: scripts are Welt, text archives Texte, encounter files and trainers Pokémon, anything else (a project file) Technik. */
@@ -343,7 +343,7 @@ export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context:
         ) : rows.length === 0 && pending === "unchecked" ? (
           <EmptyState what="Nicht geprüft." why={UNCHECKED_WHY} />
         ) : rows.length === 0 ? (
-          <EmptyState what={`Keine ${TERMS.problem.plural}.`} why="Beim Speichern eines Scripts oder Texts landen Fehler hier." />
+          <EmptyState what={`Keine ${termPlural("problem")}.`} why="Beim Speichern eines Scripts oder Texts landen Fehler hier." />
         ) : (
           <ProblemsTable rows={rows} depth={depth} goTo={goTo} checks={checks} />
         )}

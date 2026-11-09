@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { errorText } from "../../api";
 import type { AdoptProgressDto, AdoptReportDto } from "../../api";
 import { Button, Notice } from "../../ui/primitives";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel, termPlural } from "../terms";
 import styles from "./AdoptBox.module.css";
 
 export interface AdoptBoxProps {
@@ -37,14 +37,14 @@ export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {
 
   return (
     <div className={styles.box}>
-      <Notice kind="info" title={`${TERMS.script.plural} übernehmen`}>
+      <Notice kind="info" title={`${termPlural("script")} übernehmen`}>
         {phase.kind === "done" ? (
           <Report report={phase.report} onClose={onClose} />
         ) : (
           <div className={styles.body}>
             <p className={styles.text}>
               Das Studio legt <code className={styles.code}>rotom.toml</code> und <code className={styles.code}>.rotom/</code> im Projekt an und dekompiliert alle {fileCount}{" "}
-              {TERMS.scriptFile.plural} nach <code className={styles.code}>expanded/scripts/</code>. DSPRE benutzt danach dieselben Quellen und schaltet seinen alten
+              {termPlural("scriptFile")} nach <code className={styles.code}>expanded/scripts/</code>. DSPRE benutzt danach dieselben Quellen und schaltet seinen alten
               Scripteditor ab.
             </p>
             {phase.kind === "running" ? (
@@ -75,7 +75,7 @@ export function AdoptProgress({ progress, total }: { progress: AdoptProgressDto 
         <div className={styles.fill} style={{ width: `${share}%` } /* dyn */} />
       </div>
       <span className={styles.count}>
-        {done} / {progress?.total ?? total} {TERMS.scriptFile.plural}
+        {done} / {progress?.total ?? total} {termPlural("scriptFile")}
       </span>
     </div>
   );
@@ -85,7 +85,7 @@ function Report({ report, onClose }: { report: AdoptReportDto; onClose: () => vo
   return (
     <div className={styles.body}>
       <p className={styles.text}>
-        {report.decompiled} {TERMS.scriptFile.plural} dekompiliert, {report.skipped_empty} leere übersprungen
+        {report.decompiled} {termPlural("scriptFile")} dekompiliert, {report.skipped_empty} leere übersprungen
         {report.failed.length > 0 ? `, ${report.failed.length} fehlgeschlagen` : ""}.
       </p>
       {report.failed.length > 0 && (
@@ -94,7 +94,7 @@ function Report({ report, onClose }: { report: AdoptReportDto; onClose: () => vo
           <ul className={styles.failed}>
             {report.failed.map(([file, message]) => (
               <li key={file}>
-                {TERMS.scriptFile.label} {id4(file)}: {message}
+                {termLabel("scriptFile")} {id4(file)}: {message}
               </li>
             ))}
           </ul>

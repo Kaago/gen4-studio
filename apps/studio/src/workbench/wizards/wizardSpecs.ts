@@ -7,7 +7,7 @@ import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
 import { UNNAMED_PLACE } from "../places";
 import { nextStepsFor } from "../recipes";
-import { TERMS, id4, numberText } from "../terms";
+import { TERMS, id4, numberText, termLabel, termPlural } from "../terms";
 import type { WarpTile } from "../warpTile";
 import type { World } from "../worldModel";
 import { lookItems, lookText } from "./looks";
@@ -223,7 +223,7 @@ export function planSpec<T extends { header: AssignHeader | null }>(spec: T, pat
 }
 
 /** What `areaSpec` says while a world map is chosen and no cell on it yet: the step's grid hint asks for it, so the step shows no error. */
-export const PICK_TARGET = `Die Zelle wählen, an der das ${TERMS.area.label} auf der ${TERMS.worldMap.label} liegen soll.`;
+export const pickTarget = (): string => `Die Zelle wählen, an der das ${termLabel("area")} auf der ${termLabel("worldMap")} liegen soll.`;
 
 /**
  * The backend request for the form, or what is wrong with it. `headerCount` is the number of headers there are now:
@@ -232,12 +232,12 @@ export const PICK_TARGET = `Die Zelle wählen, an der das ${TERMS.area.label} au
  */
 export function areaSpec(form: AreaForm, headerCount: number, depth: Depth): { spec: AreaSpec } | { error: string } {
   const { width, height, cells } = areaLayout(form);
-  if (cells.length === 0) return { error: `Mindestens eine ${TERMS.map.label} wählen.` };
+  if (cells.length === 0) return { error: `Mindestens eine ${termLabel("map")} wählen.` };
   if (width > MAX_SIDE || height > MAX_SIDE) return { error: `Höchstens ${MAX_SIDE} Spalten/Zeilen.` };
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
   const target = form.worldMap === null ? null : form.target;
-  if (form.worldMap !== null && target?.matrix !== form.worldMap) return { error: PICK_TARGET };
+  if (form.worldMap !== null && target?.matrix !== form.worldMap) return { error: pickTarget() };
   let header: AssignHeader | null;
   if (!depthAtLeast(depth, "tuefteln")) {
     if (form.newHeader === null) return { error: "Vorlage wählen." };
@@ -274,17 +274,17 @@ const quoted = (name: string | null): string => (name === null || name.trim() ==
  * included.
  */
 function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[], target: AreaTarget | null = null): string {
-  const raster = target ? `${TERMS.matrix.label} ${id4(target.matrix)}` : `das neue ${TERMS.matrix.label}`;
-  const area = assign.area_data_id === null ? "" : `, ${TERMS.areaData.label} ${id4(assign.area_data_id)}`;
+  const raster = target ? `${termLabel("matrix")} ${id4(target.matrix)}` : `das neue ${termLabel("matrix")}`;
+  const area = assign.area_data_id === null ? "" : `, ${termLabel("areaData")} ${id4(assign.area_data_id)}`;
   const created = assign.new_header;
   if (created) {
     // "Keep" on a new header keeps what the copy has: the template's event file, which both headers then share.
-    const file = assign.event_file === "Keep" ? `behalten (geteilt mit ${TERMS.header.label} ${id4(created.template)})` : eventFileText(assign.event_file);
-    return `Der Assistent legt ${TERMS.header.label} ${id4(assign.id)}${quoted(created.internal_name)} neu an (Kopie von ${id4(created.template)}) und stellt ihn auf ${raster} um${area}, ${TERMS.eventFile.label}: ${file}.`;
+    const file = assign.event_file === "Keep" ? `behalten (geteilt mit ${termLabel("header")} ${id4(created.template)})` : eventFileText(assign.event_file);
+    return `Der Assistent legt ${termLabel("header")} ${id4(assign.id)}${quoted(created.internal_name)} neu an (Kopie von ${id4(created.template)}) und stellt ihn auf ${raster} um${area}, ${termLabel("eventFile")}: ${file}.`;
   }
   const assigned = headers.find((h) => h.id === assign.id);
   const name = assigned ? ` „${headerLabel(assigned)}“` : "";
-  return `Stellt ${TERMS.header.label} ${id4(assign.id)}${name} auf ${raster} um${area}, ${TERMS.eventFile.label}: ${eventFileText(assign.event_file)}.`;
+  return `Stellt ${termLabel("header")} ${id4(assign.id)}${name} auf ${raster} um${area}, ${termLabel("eventFile")}: ${eventFileText(assign.event_file)}.`;
 }
 
 /**
@@ -299,7 +299,7 @@ function inUseLine(assign: AssignHeader, headers: readonly HeaderSummary[], link
   if (incoming === 0 || !assigned) return null;
   // The technical word, as in the header choice's "Warps hierher".
   const warps = incoming === 1 ? `1 ${TERMS.warp.tech} führt` : `${incoming} ${TERMS.warp.tech}s führen`;
-  return `Achtung: ${TERMS.header.label} ${id4(assign.id)} wird benutzt (${warps} hierher); er verliert sein bisheriges ${TERMS.matrix.label} ${id4(assigned.matrix_id)}.`;
+  return `Achtung: ${termLabel("header")} ${id4(assign.id)} wird benutzt (${warps} hierher); er verliert sein bisheriges ${termLabel("matrix")} ${id4(assigned.matrix_id)}.`;
 }
 
 const NOT_UNDOABLE = "Anlegen lässt sich nicht rückgängig machen.";
@@ -309,7 +309,7 @@ function specialLine(assign: AssignHeader, headers: readonly HeaderSummary[]): s
   if (assign.new_header) return null;
   const assigned = headers.find((h) => h.id === assign.id);
   const why = assigned ? specialHeader(assigned) : null;
-  return why === null ? null : `Achtung: ${TERMS.header.label} ${id4(assign.id)} ist ein Sonder-${TERMS.header.label} (${why}).`;
+  return why === null ? null : `Achtung: ${termLabel("header")} ${id4(assign.id)} ist ein Sonder-${termLabel("header")} (${why}).`;
 }
 
 /** The place a new area or room gets, in words: „Neuer Ort „Neuheim“.“, „Ort: Zweiblattdorf.“ (a place no header carries yet by its number). */
@@ -333,7 +333,7 @@ function buildingLines(assign: AssignHeader, headers: readonly HeaderSummary[]):
 }
 
 /** "Karte 0521" or "Karten 0521, 0522". */
-const mapList = (maps: readonly number[]): string => `${maps.length === 1 ? TERMS.map.label : TERMS.map.plural} ${maps.map(id4).join(", ")}`;
+const mapList = (maps: readonly number[]): string => `${maps.length === 1 ? termLabel("map") : termPlural("map")} ${maps.map(id4).join(", ")}`;
 
 /** Where an area on a world map lies: the world map's name and the landscape cells its maps replace (see `targetBlock`). */
 export interface TargetPlace {
@@ -346,9 +346,9 @@ function targetLine(target: AreaTarget, place: TargetPlace, depth: Depth): strin
   const n = place.replaced;
   if (!depthAtLeast(depth, "tuefteln")) {
     const replaced = n === 0 ? "" : `; ersetzt ${n} ${n === 1 ? "Landschaftskarte" : "Landschaftskarten"}`;
-    return `Liegt auf der ${TERMS.worldMap.label} ${place.name} bei x ${target.x}, y ${target.y} (nahtlos begehbar)${replaced}.`;
+    return `Liegt auf der ${termLabel("worldMap")} ${place.name} bei x ${target.x}, y ${target.y} (nahtlos begehbar)${replaced}.`;
   }
-  return `Ziel: ${TERMS.matrix.label} ${id4(target.matrix)}, Zelle ${target.x}, ${target.y}; ${n} ${n === 1 ? "Landschaftszelle wird" : "Landschaftszellen werden"} ersetzt.`;
+  return `Ziel: ${termLabel("matrix")} ${id4(target.matrix)}, Zelle ${target.x}, ${target.y}; ${n} ${n === 1 ? "Landschaftszelle wird" : "Landschaftszellen werden"} ersetzt.`;
 }
 
 /**
@@ -359,7 +359,7 @@ export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], l
   const buildings = spec.cells.every((c) => c.clear_buildings) ? "ohne Gebäude" : "mit Gebäuden";
   const target = spec.target ?? null;
   if (!depthAtLeast(depth, "tuefteln")) {
-    const lines = [`Legt das ${TERMS.area.label} „${spec.name}“ mit ${spec.width} × ${spec.height} ${TERMS.map.plural} an.`];
+    const lines = [`Legt das ${termLabel("area")} „${spec.name}“ mit ${spec.width} × ${spec.height} ${termPlural("map")} an.`];
     if (target) lines.push(targetLine(target, place, depth));
     lines.push(`Kopiert ${mapList(spec.cells.map((c) => c.source_map))}, ${buildings}.`);
     if (spec.header !== null) lines.push(...buildingLines(spec.header, headers));
@@ -367,11 +367,11 @@ export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], l
     return lines;
   }
   const lines = target
-    ? [`Legt das ${TERMS.area.label} „${spec.name}“ (${spec.width} × ${spec.height}) ohne neues ${TERMS.matrix.label} an.`, targetLine(target, place, depth)]
-    : [`Legt ${TERMS.matrix.label} „${spec.name}“ (${spec.width} × ${spec.height})${spec.with_headers ? ` mit ${TERMS.header.label}-Abschnitt` : ""} an.`];
-  const copies = spec.cells.map((c) => `${TERMS.map.label} ${id4(c.source_map)} → Zelle (${c.x}, ${c.y})`).join(", ");
+    ? [`Legt das ${termLabel("area")} „${spec.name}“ (${spec.width} × ${spec.height}) ohne neues ${termLabel("matrix")} an.`, targetLine(target, place, depth)]
+    : [`Legt ${termLabel("matrix")} „${spec.name}“ (${spec.width} × ${spec.height})${spec.with_headers ? ` mit ${termLabel("header")}-Abschnitt` : ""} an.`];
+  const copies = spec.cells.map((c) => `${termLabel("map")} ${id4(c.source_map)} → Zelle (${c.x}, ${c.y})`).join(", ");
   lines.push(`Kopiert ${copies}, ${buildings}.`);
-  lines.push(spec.header === null ? `Stellt keinen ${TERMS.header.label} um.` : assignLine(spec.header, headers, target));
+  lines.push(spec.header === null ? `Stellt keinen ${termLabel("header")} um.` : assignLine(spec.header, headers, target));
   const warnings = spec.header === null ? [] : [specialLine(spec.header, headers), inUseLine(spec.header, headers, links)];
   for (const warning of warnings) if (warning) lines.push(warning);
   lines.push(NOT_UNDOABLE);
@@ -405,30 +405,30 @@ export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "t
     const count = report.maps.length;
     return {
       steps,
-      lines: [`${TERMS.area.label} „${spec.name}“ angelegt: ${count} ${count === 1 ? TERMS.map.label : TERMS.map.plural}.`, ...(snapshot ? [snapshot] : [])],
+      lines: [`${termLabel("area")} „${spec.name}“ angelegt: ${count} ${count === 1 ? termLabel("map") : termPlural("map")}.`, ...(snapshot ? [snapshot] : [])],
       // An area on a world map lies beside its neighbours: no door needed.
-      next: [spec.target ? SEAMLESS : `Mit der Welt verbinden: ${SET_DOOR}`, `Ansehen: „Zeigen“ öffnet das neue ${TERMS.area.label}`],
+      next: [spec.target ? SEAMLESS : `Mit der Welt verbinden: ${SET_DOOR}`, `Ansehen: „Zeigen“ öffnet das neue ${termLabel("area")}`],
     };
   }
   // An area on a world map made no raster: it went into the world map's.
   const lines = [
     spec.target
-      ? `${TERMS.area.label} „${spec.name}“ (${spec.width} × ${spec.height}) in ${TERMS.matrix.label} ${id4(report.matrix)} angelegt.`
-      : `${TERMS.matrix.label} ${id4(report.matrix)} „${spec.name}“ (${spec.width} × ${spec.height}) angelegt.`,
+      ? `${termLabel("area")} „${spec.name}“ (${spec.width} × ${spec.height}) in ${termLabel("matrix")} ${id4(report.matrix)} angelegt.`
+      : `${termLabel("matrix")} ${id4(report.matrix)} „${spec.name}“ (${spec.width} × ${spec.height}) angelegt.`,
   ];
   const maps = report.maps.map(([, , map]) => id4(map)).join(", ");
-  lines.push(`${report.maps.length === 1 ? TERMS.map.label : TERMS.map.plural} ${maps} kopiert.`);
+  lines.push(`${report.maps.length === 1 ? termLabel("map") : termPlural("map")} ${maps} kopiert.`);
   if (report.header !== null) {
-    const file = report.event_file === null ? "" : `, ${TERMS.eventFile.label} ${id4(report.event_file)}`;
-    lines.push(`${headerResultName(report.header, spec.header)} zeigt jetzt auf ${TERMS.matrix.label} ${id4(report.matrix)}${file}.`);
+    const file = report.event_file === null ? "" : `, ${termLabel("eventFile")} ${id4(report.event_file)}`;
+    lines.push(`${headerResultName(report.header, spec.header)} zeigt jetzt auf ${termLabel("matrix")} ${id4(report.matrix)}${file}.`);
   }
   if (snapshot) lines.push(snapshot);
   return {
     lines,
     steps,
     next: [
-      spec.target ? `Nahtlos begehbar: vom Nachbargebiet in ${TERMS.matrix.label} ${id4(report.matrix)} aus hinüberlaufen.` : `Mit der Welt verbinden: ${SET_DOOR} (Ziel im Event-Editor wählen)`,
-      `Karten prüfen: ${TERMS.matrix.label}-Tab`,
+      spec.target ? `Nahtlos begehbar: vom Nachbargebiet in ${termLabel("matrix")} ${id4(report.matrix)} aus hinüberlaufen.` : `Mit der Welt verbinden: ${SET_DOOR} (Ziel im Event-Editor wählen)`,
+      `Karten prüfen: ${termLabel("matrix")}-Tab`,
     ],
   };
 }
@@ -436,7 +436,7 @@ export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "t
 /** The header a result names: a header the wizard made is called new, with its internal name. */
 function headerResultName(id: number, assign: AssignHeader | null): string {
   const created = assign?.new_header;
-  return created ? `Neuer ${TERMS.header.label} ${id4(id)}${quoted(created.internal_name)} (Kopie von ${id4(created.template)})` : `${TERMS.header.label} ${id4(id)}`;
+  return created ? `Neuer ${termLabel("header")} ${id4(id)}${quoted(created.internal_name)} (Kopie von ${id4(created.template)})` : `${termLabel("header")} ${id4(id)}`;
 }
 
 const hasMap = (matrix: MatrixDto, x: number, y: number): number | null => {
@@ -535,27 +535,29 @@ export const overviewNote = (loaded: boolean, failed: boolean): string | null =>
  */
 export const isLateFailure = (e: unknown): boolean => isCmdError(e) && e.code === "partial";
 
-const MEMBER_WORDS: Record<string, string> = {
-  header: TERMS.header.label,
-  headers: TERMS.header.plural,
-  matrix: TERMS.matrix.label,
-  matrices: TERMS.matrix.plural,
-  map: TERMS.map.label,
-  maps: TERMS.map.plural,
-  "event file": TERMS.eventFile.label,
-  "event files": TERMS.eventFile.plural,
-};
+/** The words of the members a failed run names, in the language that is shown (resolved when asked, not at module scope). */
+const memberWords = (): Record<string, string> => ({
+  header: termLabel("header"),
+  headers: termPlural("header"),
+  matrix: termLabel("matrix"),
+  matrices: termPlural("matrix"),
+  map: termLabel("map"),
+  maps: termPlural("map"),
+  "event file": termLabel("eventFile"),
+  "event files": termPlural("eventFile"),
+});
 
-const STEP_WORDS: Record<string, string> = {
-  "header creation": `${TERMS.header.label} anlegen`,
-  "map copy": `${TERMS.map.label} kopieren`,
-  "matrix creation": `${TERMS.matrix.label} anlegen`,
-  "event file": `${TERMS.eventFile.label} anlegen`,
-  "matrix edit": `${TERMS.matrix.label} ändern`,
-  "header edit": `${TERMS.header.label} umstellen`,
+/** The words of the steps of a failed run. */
+const stepWords = (): Record<string, string> => ({
+  "header creation": `${termLabel("header")} anlegen`,
+  "map copy": `${termLabel("map")} kopieren`,
+  "matrix creation": `${termLabel("matrix")} anlegen`,
+  "event file": `${termLabel("eventFile")} anlegen`,
+  "matrix edit": `${termLabel("matrix")} ändern`,
+  "header edit": `${termLabel("header")} umstellen`,
   "warp edit": `${TERMS.warp.tech} setzen`,
   "door tile": "Tür-Kachel setzen",
-};
+});
 
 /** Bauen's article for the new area or room as the one member of its kind („das Gebiet“, „der Raum“). */
 const BUILDING_ARTICLE = { area: "das", room: "der" } as const;
@@ -565,7 +567,8 @@ const BUILDING_ARTICLE = { area: "das", room: "der" } as const;
  * wizard's step „Anordnung“). Both are named without their numbers.
  */
 function buildingWords(kind: "area" | "room"): { members: Record<string, string>; steps: Record<string, string> } {
-  const { label, plural } = TERMS[kind];
+  const label = termLabel(kind);
+  const plural = termPlural(kind);
   return {
     members: { header: `${BUILDING_ARTICLE[kind]} ${label}`, headers: `die ${plural}`, matrix: "die Anordnung", matrices: "die Anordnungen" },
     steps: { "header creation": `${label} anlegen`, "matrix creation": "Anordnung anlegen", "matrix edit": "Anordnung ändern", "header edit": `${label} einrichten` },
@@ -596,10 +599,10 @@ export function partialText(message: string, depth: Depth = "tuefteln", kind: "a
     // "header 0593, matrix 0131 and maps 0003, 0004": each group is a word and its ids.
     const groups = [...members.matchAll(/(event files?|headers?|matrix|matrices|maps?) ([\d, ]+?)(?=,? and |, [a-z]|$)/g)];
     if (groups.length === 0) return message;
-    const member = (word: string, ids: string) => building?.members[word] ?? `${MEMBER_WORDS[word] ?? word} ${ids.trim()}`;
+    const member = (word: string, ids: string) => building?.members[word] ?? `${memberWords()[word] ?? word} ${ids.trim()}`;
     said.push(`Angelegt: ${groups.map(([, word, ids]) => member(word, ids)).join(", ")}.`);
   }
-  said.push(`Danach fehlgeschlagen: ${building?.steps[step] ?? STEP_WORDS[step] ?? step} (${reason}).`);
+  said.push(`Danach fehlgeschlagen: ${building?.steps[step] ?? stepWords()[step] ?? step} (${reason}).`);
   return said.join(" ");
 }
 
@@ -701,39 +704,39 @@ export function roomSpec(form: RoomForm, headerCount: number, depth: Depth, chec
   const building = !depthAtLeast(depth, "tuefteln") ? buildingHeader(form, headerCount, form.template) : null;
   if (building !== null && "error" in building) return building;
   const header = building ?? assignHeader(form, headerCount);
-  if (header === null) return { error: `${TERMS.header.label} wählen.` };
+  if (header === null) return { error: `${termLabel("header")} wählen.` };
   // Bauen speaks of the area at the entrance, never of the header outside or its raster.
   const words = building !== null;
   if (form.connect) {
     const inside = [form.insideX, form.insideZ];
     if (inside.some((n) => !Number.isInteger(n) || n < 0 || n > MAP_LAST_TILE)) return { error: `Kachel liegt außerhalb der Karte (0 bis ${MAP_LAST_TILE}).` };
-    if (form.outsideHeader === null) return { error: words ? `${OUTSIDE_AREA} wählen.` : `Außen-${TERMS.header.label} wählen.` };
+    if (form.outsideHeader === null) return { error: words ? `${OUTSIDE_AREA} wählen.` : `Außen-${termLabel("header")} wählen.` };
     if (form.outsideHeader === header.id) {
-      return { error: words ? `Das ${OUTSIDE_AREA} darf nicht der neue ${TERMS.room.label} sein.` : `Der Außen-${TERMS.header.label} darf nicht der ${TERMS.header.label} des neuen ${TERMS.room.label}s sein.` };
+      return { error: words ? `Das ${OUTSIDE_AREA} darf nicht der neue ${termLabel("room")} sein.` : `Der Außen-${termLabel("header")} darf nicht der ${termLabel("header")} des neuen ${termLabel("room")}s sein.` };
     }
     if (form.x === null || form.z === null) return { error: `Kachel der Tür außen eintragen (x und z).` };
     if (outsideMatrix) {
       const size = matrixTiles(outsideMatrix);
       if (form.x < 0 || form.z < 0 || form.x >= size.x || form.z >= size.z) {
-        const where = words ? OF_OUTSIDE_AREA : `des ${TERMS.matrix.label}s`;
+        const where = words ? OF_OUTSIDE_AREA : `des ${termLabel("matrix")}s`;
         return { error: `Kachel x ${form.x}, z ${form.z} liegt außerhalb ${where} (x 0 bis ${size.x - 1}, z 0 bis ${size.z - 1}).` };
       }
       const [cx, cy] = [Math.floor(form.x / 32), Math.floor(form.z / 32)];
       const cell = cy * outsideMatrix.width + cx;
       if (outsideMatrix.maps && (outsideMatrix.maps[cell] ?? null) === null) {
-        return { error: `Kachel x ${form.x}, z ${form.z} liegt in Zelle (${cx}, ${cy}) ohne ${TERMS.map.label}.` };
+        return { error: `Kachel x ${form.x}, z ${form.z} liegt in Zelle (${cx}, ${cy}) ohne ${termLabel("map")}.` };
       }
       const owner = outsideMatrix.headers?.[cell];
       if (owner !== undefined && owner !== form.outsideHeader) {
-        if (words) return { error: `Kachel x ${form.x}, z ${form.z} liegt in Zelle (${cx}, ${cy}) eines anderen ${TERMS.area.label}s: dort nimmt das Spiel die ${TERMS.warp.tech}s ${OF_OUTSIDE_AREA} nicht.` };
+        if (words) return { error: `Kachel x ${form.x}, z ${form.z} liegt in Zelle (${cx}, ${cy}) eines anderen ${termLabel("area")}s: dort nimmt das Spiel die ${TERMS.warp.tech}s ${OF_OUTSIDE_AREA} nicht.` };
         return {
-          error: `Kachel x ${form.x}, z ${form.z} liegt in Zelle (${cx}, ${cy}) von ${TERMS.header.label} ${id4(owner)}, nicht von ${id4(form.outsideHeader)}: dort nimmt das Spiel die ${TERMS.warp.tech}s von ${id4(form.outsideHeader)} nicht.`,
+          error: `Kachel x ${form.x}, z ${form.z} liegt in Zelle (${cx}, ${cy}) von ${termLabel("header")} ${id4(owner)}, nicht von ${id4(form.outsideHeader)}: dort nimmt das Spiel die ${TERMS.warp.tech}s von ${id4(form.outsideHeader)} nicht.`,
         };
       }
     }
     const taken = warpOnTile(known.outsideWarps, form.x, form.z);
     if (taken) {
-      const target = words ? "" : ` (Ziel ${TERMS.header.label} ${id4(taken.dest_header_id)})`;
+      const target = words ? "" : ` (Ziel ${termLabel("header")} ${id4(taken.dest_header_id)})`;
       return { error: `Auf Kachel x ${form.x}, z ${form.z} außen liegt schon ${TERMS.warp.tech} ${taken.index}${target}: eine andere Kachel wählen.` };
     }
     // In Bauen the room has a new, empty event file: nothing is kept.
@@ -741,7 +744,7 @@ export function roomSpec(form: RoomForm, headerCount: number, depth: Depth, chec
     const takenInside = kept ? warpOnTile(kept.warps, form.insideX, form.insideZ) : null;
     if (kept && takenInside) {
       return {
-        error: `Auf Kachel x ${form.insideX}, z ${form.insideZ} innen liegt schon ${TERMS.warp.tech} ${takenInside.index} der ${TERMS.eventFile.label} ${id4(kept.file)}, die der ${TERMS.room.label} behält: eine andere Kachel oder „Kopie von …“ wählen.`,
+        error: `Auf Kachel x ${form.insideX}, z ${form.insideZ} innen liegt schon ${TERMS.warp.tech} ${takenInside.index} der ${termLabel("eventFile")} ${id4(kept.file)}, die der ${termLabel("room")} behält: eine andere Kachel oder „Kopie von …“ wählen.`,
       };
     }
   }
@@ -776,20 +779,20 @@ export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], n
   const building = !depthAtLeast(depth, "tuefteln");
   const buildings = spec.clear_buildings ? "ohne Gebäude" : "mit Gebäuden";
   const lines = building
-    ? [`Legt den ${TERMS.room.label} „${spec.name}“ mit einer Kopie der ${TERMS.map.label} ${id4(spec.source_map)} an, ${buildings}.`, ...buildingLines(spec.header, headers)]
-    : [`Legt ${TERMS.matrix.label} „${spec.name}“ mit einer Kopie von ${TERMS.map.label} ${id4(spec.source_map)} an, ${buildings}.`, assignLine(spec.header, headers)];
+    ? [`Legt den ${termLabel("room")} „${spec.name}“ mit einer Kopie der ${termLabel("map")} ${id4(spec.source_map)} an, ${buildings}.`, ...buildingLines(spec.header, headers)]
+    : [`Legt ${termLabel("matrix")} „${spec.name}“ mit einer Kopie von ${termLabel("map")} ${id4(spec.source_map)} an, ${buildings}.`, assignLine(spec.header, headers)];
   if (!building) for (const warning of [specialLine(spec.header, headers), inUseLine(spec.header, headers, links)]) if (warning) lines.push(warning);
   const entrance = spec.entrance;
   if (entrance === null) {
     const why = notConnected ? ` (${notConnected})` : "";
-    lines.push(building ? `Legt keinen Eingang an${why}: später mit ${SET_DOOR} setzen.` : `Legt keinen Eingang an${why}: ${TERMS.warp.label} später im ${TERMS.header.label}-Editor unter „${TERMS.warp.plural}“ setzen.`);
+    lines.push(building ? `Legt keinen Eingang an${why}: später mit ${SET_DOOR} setzen.` : `Legt keinen Eingang an${why}: ${termLabel("warp")} später im ${termLabel("header")}-Editor unter „${termPlural("warp")}“ setzen.`);
   } else {
     const outside = headers.find((h) => h.id === entrance.outside_header);
     const from = building ? (outside ? headerLabel(outside) : `das ${OUTSIDE_AREA}`) : `${id4(entrance.outside_header)}${outside ? ` ${headerLabel(outside)}` : ""}`;
-    lines.push(`Verbindet ${from} (Kachel x ${entrance.x}, z ${entrance.z}) mit dem neuen ${TERMS.room.label}.`);
-    lines.push(`Der Rückweg liegt im neuen ${TERMS.room.label} auf Kachel x ${entrance.inside_x}, z ${entrance.inside_z}.`);
+    lines.push(`Verbindet ${from} (Kachel x ${entrance.x}, z ${entrance.z}) mit dem neuen ${termLabel("room")}.`);
+    lines.push(`Der Rückweg liegt im neuen ${termLabel("room")} auf Kachel x ${entrance.inside_x}, z ${entrance.inside_z}.`);
     if (doors.reused) {
-      const target = building ? "" : ` (bisher Ziel ${TERMS.header.label} ${id4(doors.reused.dest_header_id)})`;
+      const target = building ? "" : ` (bisher Ziel ${termLabel("header")} ${id4(doors.reused.dest_header_id)})`;
       lines.push(`Der kopierte ${TERMS.warp.tech} ${doors.reused.index} auf dieser Kachel${target} wird zum Rückweg; es kommt kein zweiter dazu.`);
     }
     const dead = [doors.outsideTile && !doors.outsideTile.fires ? "außen" : null, doors.insideTile && !doors.insideTile.fires ? "innen" : null].filter((w) => w !== null);
@@ -820,18 +823,18 @@ const SEAMLESS = "Nahtlos begehbar: vom Nachbargebiet aus hinüberlaufen.";
 export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "tuefteln"): WizardOutcome {
   const building = !depthAtLeast(depth, "tuefteln");
   const lines = building
-    ? [`${TERMS.room.label} „${spec.name}“ angelegt: ${TERMS.map.label} ${id4(report.map)}.`]
-    : [`${TERMS.room.label} „${spec.name}“ angelegt: ${TERMS.matrix.label} ${id4(report.matrix)}, ${TERMS.map.label} ${id4(report.map)}.`];
+    ? [`${termLabel("room")} „${spec.name}“ angelegt: ${termLabel("map")} ${id4(report.map)}.`]
+    : [`${termLabel("room")} „${spec.name}“ angelegt: ${termLabel("matrix")} ${id4(report.matrix)}, ${termLabel("map")} ${id4(report.map)}.`];
   if (!building) {
-    const file = report.event_file === null ? "" : `, ${TERMS.eventFile.label} ${id4(report.event_file)}`;
-    lines.push(`${headerResultName(spec.header.id, spec.header)} zeigt jetzt auf ${TERMS.matrix.label} ${id4(report.matrix)}${file}.`);
+    const file = report.event_file === null ? "" : `, ${termLabel("eventFile")} ${id4(report.event_file)}`;
+    lines.push(`${headerResultName(spec.header.id, spec.header)} zeigt jetzt auf ${termLabel("matrix")} ${id4(report.matrix)}${file}.`);
   }
   if (spec.entrance !== null && report.outside_warp !== null && report.inside_warp !== null) {
     const reused = report.inside_warp_reused ? " (der kopierte Warp auf der Kachel, umgestellt)" : "";
-    const outside = building ? "außen" : `in ${TERMS.header.label} ${id4(spec.entrance.outside_header)}`;
-    lines.push(`Eingang: Warp ${report.outside_warp} ${outside}, Rückweg: Warp ${report.inside_warp}${reused} im neuen ${TERMS.room.label}.`);
+    const outside = building ? "außen" : `in ${termLabel("header")} ${id4(spec.entrance.outside_header)}`;
+    lines.push(`Eingang: Warp ${report.outside_warp} ${outside}, Rückweg: Warp ${report.inside_warp}${reused} im neuen ${termLabel("room")}.`);
   }
-  for (const t of report.door_tiles ?? []) lines.push(`Tür-Kachel gesetzt: ${TERMS.map.label} ${id4(t.map)}, Kachel x ${t.x}, z ${t.y} innerhalb der ${TERMS.map.label}.`);
+  for (const t of report.door_tiles ?? []) lines.push(`Tür-Kachel gesetzt: ${termLabel("map")} ${id4(t.map)}, Kachel x ${t.x}, z ${t.y} innerhalb der ${termLabel("map")}.`);
   const snapshot = snapshotLine(report, depth);
   if (snapshot) lines.push(snapshot);
   return {
@@ -839,7 +842,7 @@ export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "t
     steps: nextStepsFor("create_room"),
     next:
       spec.entrance === null
-        ? [`Eingang verbinden: ${SET_DOOR}`, building ? FURNISH : `Innenraum einrichten: ${TERMS.map.label} im Raster-Tab bearbeiten`]
+        ? [`Eingang verbinden: ${SET_DOOR}`, building ? FURNISH : `Innenraum einrichten: ${termLabel("map")} im Raster-Tab bearbeiten`]
         : ["Ausprobieren: speichern, bauen und im Emulator hinein- und zurücklaufen", FURNISH],
   };
 }
@@ -853,24 +856,24 @@ export function templateWarp(events: EventsDto | null): { x: number; z: number }
 // ---------------------------------------------------------------------------------------------------------- recipes of Erzählen (3d.5)
 
 /** What a recipe's `created` names, in words (the members it made first; they stay after undo). */
-const CREATED_WORDS: Partial<Record<AssetKind, string>> = {
+const createdWords = (): Partial<Record<AssetKind, string>> => ({
   Trainer: "Trainer",
-  HeaderTable: TERMS.header.label,
-  Matrix: TERMS.matrix.label,
-  Map: TERMS.map.label,
-  Event: TERMS.eventFile.label,
-  TextArchive: TERMS.textArchive.label,
-  Script: TERMS.scriptFile.label,
-};
+  HeaderTable: termLabel("header"),
+  Matrix: termLabel("matrix"),
+  Map: termLabel("map"),
+  Event: termLabel("eventFile"),
+  TextArchive: termLabel("textArchive"),
+  Script: termLabel("scriptFile"),
+});
 
 /** „Trainer 0042 angelegt (bleibt nach Rückgängig)“: a member a recipe created first. */
-export const createdLine = (created: { kind: AssetKind; index: number }): string => `${CREATED_WORDS[created.kind] ?? created.kind} ${id4(created.index)} angelegt (bleibt nach Rückgängig)`;
+export const createdLine = (created: { kind: AssetKind; index: number }): string => `${createdWords()[created.kind] ?? created.kind} ${id4(created.index)} angelegt (bleibt nach Rückgängig)`;
 
 /** What „Neue Figur“ did, in the kernel's numbers; the next steps are the kernel's (`outcome.next`). */
 export function figureResult(outcome: RecipeOutcome<NewFigureReport>, textProject = true): WizardOutcome {
   const r = outcome.report;
   return {
-    lines: [`Objekt ${r.object} in ${TERMS.eventFile.label} ${id4(r.event_file)}`, `Script #${r.slot}, Nachricht ${r.message} in Archiv ${id4(r.archive)}`, ...outcome.created.map(createdLine)],
+    lines: [`Objekt ${r.object} in ${termLabel("eventFile")} ${id4(r.event_file)}`, `Script #${r.slot}, Nachricht ${r.message} in Archiv ${id4(r.archive)}`, ...outcome.created.map(createdLine)],
     // „Zu einer Geschichte“ opens a story recipe, which needs a text project: outside one it is locked with the kernel's sentence.
     steps: textProject ? outcome.next : outcome.next.map((s) => (s.id === "story_join" ? { ...s, available: false, reason: NOT_A_TEXT_PROJECT } : s)),
     next: ["Ausprobieren: speichern, bauen und die Figur ansprechen"],
@@ -879,8 +882,8 @@ export function figureResult(outcome: RecipeOutcome<NewFigureReport>, textProjec
 
 /** One end of „Tür verbinden“ as it was left: „Tür A: Warp 2 in Eventdatei 0005“, a new one „(neu)“, and the door tile it got. */
 function doorLines(name: "A" | "B", door: DoorReport): string[] {
-  const lines = [`Tür ${name}: Warp ${door.warp} in ${TERMS.eventFile.label} ${id4(door.event_file)}${door.created ? " (neu)" : ""}`];
-  if (door.door_tile) lines.push(`Tür ${name}: Türkachel gesetzt auf ${TERMS.map.label} ${id4(door.door_tile.map)}, Kachel x ${door.door_tile.x}, z ${door.door_tile.y}`);
+  const lines = [`Tür ${name}: Warp ${door.warp} in ${termLabel("eventFile")} ${id4(door.event_file)}${door.created ? " (neu)" : ""}`];
+  if (door.door_tile) lines.push(`Tür ${name}: Türkachel gesetzt auf ${termLabel("map")} ${id4(door.door_tile.map)}, Kachel x ${door.door_tile.x}, z ${door.door_tile.y}`);
   return lines;
 }
 
@@ -909,7 +912,7 @@ export function trainerResult(outcome: RecipeOutcome<NewTrainerHereReport>, inpu
   return {
     lines: [
       ...created,
-      `Objekt ${r.object} in ${TERMS.eventFile.label} ${id4(r.event_file)}, Kampf-Script ${r.script}`,
+      `Objekt ${r.object} in ${termLabel("eventFile")} ${id4(r.event_file)}, Kampf-Script ${r.script}`,
       ...battle,
       ...r.text_problems.map((p) => `Text: ${p.message}`),
     ],

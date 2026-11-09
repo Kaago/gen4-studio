@@ -10,7 +10,7 @@ import { resetEntry } from "../../original/resetEntry";
 import type { EventData } from "../../world/events";
 import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
 import type { NavTarget } from "../navigation";
-import { TERMS, id4, termFor } from "../terms";
+import { id4, termFor, termLabel } from "../terms";
 import { AddEvent } from "./AddEvent";
 import { DialogSection } from "./DialogSection";
 import { dialogTitle } from "../dialog/dialogModel";
@@ -143,12 +143,12 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
     const n = await onAddScript(owner.script_file_id);
     if (n === null) return;
     // The number goes through the edit path like a typed one: undoable, and the event is dirty.
-    if (!(await session.current?.commit("script", TERMS.script.label, n))) return;
+    if (!(await session.current?.commit("script", termLabel("script"), n))) return;
     onOpenScript(owner.script_file_id);
   };
 
   // The event in the words of the ROM: its class and index, and the event file it is in.
-  const ident = `${KIND_LABELS[kind]} ${index} · ${TERMS.eventFile.label} ${id4(file)}`;
+  const ident = `${KIND_LABELS[kind]} ${index} · ${termLabel("eventFile")} ${id4(file)}`;
   if (event === null) {
     return (
       <div className={styles.panel}>
@@ -247,7 +247,7 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
                       </div>
                       {spec.key === "script" && (
                         <>
-                          <Button kind="quiet" size="s" disabled={!scriptsAdopted} onClick={openScript} title={`Öffnet das ${TERMS.script.label} in der Scriptdatei`}>
+                          <Button kind="quiet" size="s" disabled={!scriptsAdopted} onClick={openScript} title={`Öffnet das ${termLabel("script")} in der Scriptdatei`}>
                             Öffnen
                           </Button>
                           <Button
@@ -255,7 +255,7 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
                             size="s"
                             disabled={!scriptsAdopted || readOnly}
                             onClick={() => void newScript()}
-                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des ${depthAtLeast(depth, "tuefteln") ? "Headers" : "Ortes"} an und trägt die Nummer ein`}
+                            title={`Legt ein neues ${termLabel("script")} in der ${termLabel("scriptFile")} des ${depthAtLeast(depth, "tuefteln") ? "Headers" : "Ortes"} an und trägt die Nummer ein`}
                           >
                             Neues Script
                           </Button>

@@ -1,6 +1,6 @@
 import { resolveScript } from "../../api";
 import type { HeaderSummary } from "../../api";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 
 /** Shown instead of the open and new buttons while rotom has not taken the scripts over (the commands would fail). */
 export const ADOPT_HINT = "Erst Scripts übernehmen (Panel „Script“)";
@@ -17,10 +17,10 @@ export async function openScriptNumber(header: number, n: number, onOpenScript: 
         onOpenScript(target.file, target.line);
         return;
       case "ambiguous":
-        onError(`${TERMS.script.label} ${n} liegt in mehreren Dateien: ${target.candidates.map(id4).join(", ")}`);
+        onError(`${termLabel("script")} ${n} liegt in mehreren Dateien: ${target.candidates.map(id4).join(", ")}`);
         return;
       case "unknown":
-        onError(`${TERMS.script.label} ${n} ist nicht auffindbar`);
+        onError(`${termLabel("script")} ${n} ist nicht auffindbar`);
         return;
     }
   } catch (e) {

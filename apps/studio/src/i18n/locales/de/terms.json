@@ -1,1 +1,97 @@
-{}
+{
+  "worldMap": {
+    "label": "Weltkarte",
+    "plural": "Weltkarten",
+    "short": "Die Karten einer Region nebeneinander, zum Beispiel Sinnoh; HeartGold und SoulSilver haben Johto und Kanto."
+  },
+  "area": {
+    "label": "Gebiet",
+    "plural": "Gebiete",
+    "short": "Ein Stück einer Weltkarte mit einem Namen, etwa eine Stadt oder eine Route; Gebiete mit eigener Karte stehen unter \"Weitere Gebiete\"."
+  },
+  "room": {
+    "label": "Raum",
+    "plural": "Räume",
+    "short": "Innenräume, Höhlen und Dungeons; ein Raum gehört zu dem Gebiet, in dem sein Eingang liegt."
+  },
+  "place": {
+    "label": "Ort",
+    "plural": "Orte",
+    "short": "Der Name, den das Spiel beim Betreten zeigt; Gebiete und Räume tragen ihn, mehrere können denselben haben."
+  },
+  "landscape": {
+    "label": "Landschaft",
+    "plural": "Landschaften",
+    "short": "Die Zellen einer Weltkarte, die zu keinem Gebiet gehören: Meer, Berge und Rand."
+  },
+  "header": {
+    "label": "Header",
+    "plural": "Header",
+    "short": "Ein Eintrag der Ortstabelle: verweist auf Matrix, Eventdatei, Area-Data, Musik und Wetter. Nur in Tüfteln; Bauen sagt Gebiet, Raum oder Ort."
+  },
+  "outside": {
+    "label": "Außen",
+    "plural": "Außen",
+    "short": "Ein Header, dessen Raster einen Header-Abschnitt hat (die Region, meist Matrix 0): die Zellen des Rasters sagen, welcher Header wo gilt."
+  },
+  "matrix": {
+    "label": "Raster",
+    "plural": "Raster",
+    "short": "Ein Raster aus Karten, 1 × 1 bis 255 × 255. Nur in Tüfteln; Bauen sagt Weltkarte."
+  },
+  "map": {
+    "label": "Karte",
+    "plural": "Karten",
+    "short": "32 × 32 Kacheln mit Modell, Gebäuden und Kollision."
+  },
+  "warp": {
+    "label": "Eingang / Ausgang",
+    "plural": "Eingänge / Ausgänge",
+    "short": "Ein Warp-Paar verbindet zwei Orte."
+  },
+  "eventFile": {
+    "label": "Eventdatei",
+    "plural": "Eventdateien",
+    "short": "Warps, Objekte, Trigger und Hintergrund-Events eines Ortes."
+  },
+  "areaData": {
+    "label": "Area-Data",
+    "plural": "Area-Data",
+    "short": "Welche Texturen (Tilesets) ein Ort benutzt."
+  },
+  "textArchive": {
+    "label": "Textarchiv",
+    "plural": "Textarchive",
+    "short": "Die Nachrichten eines Ortes; Scripts zeigen sie über die Nummer."
+  },
+  "message": {
+    "label": "Nachricht",
+    "plural": "Nachrichten",
+    "short": "Ein Text eines Textarchivs; Scripts rufen ihn über seine Nummer ab."
+  },
+  "scriptFile": {
+    "label": "Scriptdatei",
+    "plural": "Scriptdateien",
+    "short": "Alle Scripts eines Ortes in einer Datei; Events nennen die Nummer #n darin."
+  },
+  "script": {
+    "label": "Script",
+    "plural": "Scripts",
+    "short": "Ein Ablauf in rotom, zum Beispiel script Main #1."
+  },
+  "levelScript": {
+    "label": "Level-Script",
+    "plural": "Level-Scripts",
+    "short": "Läuft beim Laden oder Betreten der Karte oder wenn eine Variable einen Wert hat."
+  },
+  "problem": {
+    "label": "Problem",
+    "plural": "Probleme",
+    "short": "Ein Fehler oder eine Warnung aus Compile, Text oder Sprachdienst."
+  },
+  "patch": {
+    "label": "ROM-Patch",
+    "plural": "ROM-Patches",
+    "short": "Eine dauerhafte Änderung am Spielcode. Der Patch „Dynamische Header“ verlegt die Header in eine Datei je Header, damit neue angelegt werden können; DSPRE kennt ihn."
+  }
+}

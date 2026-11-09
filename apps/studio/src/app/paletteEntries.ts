@@ -8,7 +8,7 @@ import type { DeckArea } from "../workbench/layout";
 import type { NavTarget } from "../workbench/navigation";
 import { UNNAMED_KEY } from "../workbench/places";
 import type { Place } from "../workbench/places";
-import { TERMS, id4 } from "../workbench/terms";
+import { id4, termLabel, termPlural } from "../workbench/terms";
 import type { ArchiveRow } from "../workbench/text/textModel";
 
 /** What a command of the palette does; App carries it out. */
@@ -124,7 +124,7 @@ const DOCKED = "Der Inspector ist angedockt";
 const DECK_NAME: Record<DeckArea, string> = { welt: "Welt", texte: "Texte", pokemon: "Pokémon", gegenstaende: "Gegenstände" };
 
 /** "Verwendet von Header 0412, 0413" (lower case "verwendet" after a comma): the headers that use an archive or a script file. */
-const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" : "verwendet"} von ${TERMS.header.label} ${ids.map(id4).join(", ")}`;
+const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" : "verwendet"} von ${termLabel("header")} ${ids.map(id4).join(", ")}`;
 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
@@ -270,7 +270,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
     entries.push({
       id: `place-${place.key}`,
       label: place.name,
-      description: `${place.headers.length} ${place.headers.length === 1 ? TERMS.header.label : TERMS.header.plural}`,
+      description: `${place.headers.length} ${place.headers.length === 1 ? termLabel("header") : termPlural("header")}`,
       area: "welt",
       group: "Orte",
       run: { kind: "goTo", target: { kind: "header", id: first.header.id } },
@@ -291,9 +291,9 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
     entries.push({
       id: `archive-${row.index}`,
       // Like the texts' list: the place the archive is named after, else what it is.
-      label: row.place ?? (row.users.length > 0 ? "Ohne Ortsnamen" : TERMS.textArchive.label),
+      label: row.place ?? (row.users.length > 0 ? "Ohne Ortsnamen" : termLabel("textArchive")),
       // R10: the second line starts with what the row is, so typing "textarchiv" finds every archive (an unused one is named so already).
-      description: row.users.length > 0 ? `${TERMS.textArchive.label}, ${usedBy(row.users, false)}` : undefined,
+      description: row.users.length > 0 ? `${termLabel("textArchive")}, ${usedBy(row.users, false)}` : undefined,
       tech: id4(row.index),
       area: "texte",
       group: "Textarchive",
@@ -306,7 +306,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
     if (file.kind === "binary") continue;
     entries.push({
       id: `script-${file.file}`,
-      label: file.kind === "levelScript" ? TERMS.levelScript.label : TERMS.scriptFile.label,
+      label: file.kind === "levelScript" ? termLabel("levelScript") : termLabel("scriptFile"),
       description: file.headers.length > 0 ? usedBy(file.headers) : "Ohne Header",
       tech: id4(file.file),
       icon: "script",

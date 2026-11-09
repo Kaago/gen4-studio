@@ -1,1 +1,18 @@
-{}
+{
+  "syncWords": {
+    "adoptedCount_one": "{{count}} Änderung aus DSPRE übernommen",
+    "adoptedCount_other": "{{count}} Änderungen aus DSPRE übernommen",
+    "appliedCount_one": "{{count}} geänderte Projektdatei übernommen",
+    "appliedCount_other": "{{count}} geänderte Projektdateien übernommen",
+    "conflictsCount_one": "{{count}} Konflikt zwischen Studio und DSPRE",
+    "conflictsCount_other": "{{count}} Konflikte zwischen Studio und DSPRE",
+    "brokenCount_one": "{{count}} Projektdatei ist fehlerhaft",
+    "brokenCount_other": "{{count}} Projektdateien sind fehlerhaft",
+    "conflictListCount_one": "{{count}} Konflikt",
+    "conflictListCount_other": "{{count}} Konflikte",
+    "brokenListCount_one": "{{count}} fehlerhafte Datei",
+    "brokenListCount_other": "{{count}} fehlerhafte Dateien",
+    "moreCount_one": "und {{count}} weitere Abweichung",
+    "moreCount_other": "und {{count}} weitere Abweichungen"
+  }
+}

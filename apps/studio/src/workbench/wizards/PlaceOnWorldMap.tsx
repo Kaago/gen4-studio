@@ -4,7 +4,7 @@ import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Notice } from "../../ui/primitives";
 import { AreaGrid } from "../AreaGrid";
-import { TERMS } from "../terms";
+import { termLabel } from "../terms";
 import { cellBounds, centredPan } from "../worldMap";
 import type { CellRect } from "../sceneScope";
 import type { World } from "../worldModel";
@@ -70,10 +70,10 @@ export function PlaceOnWorldMap({ world, matrix, headers, width, height, value, 
     const i = y * matrix.width + x;
     if (!isFilled(matrix.maps[i]) || (headerCells?.[i] ?? 0) === 0) onChange({ x, y });
   };
-  const label = !depthAtLeast(depth, "tuefteln") ? `${TERMS.worldMap.label}, ${matrix.height} Zeilen, ${matrix.width} Spalten` : undefined;
+  const label = !depthAtLeast(depth, "tuefteln") ? `${termLabel("worldMap")}, ${matrix.height} Zeilen, ${matrix.width} Spalten` : undefined;
   return (
     <>
-      <p className={parts.note}>Die Zelle anklicken, an der die linke obere {TERMS.map.label} des neuen {TERMS.area.label}s liegen soll.</p>
+      <p className={parts.note}>Die Zelle anklicken, an der die linke obere {termLabel("map")} des neuen {termLabel("area")}s liegen soll.</p>
       <div ref={box} className={styles.map}>
         <AreaGrid
           matrix={matrix}

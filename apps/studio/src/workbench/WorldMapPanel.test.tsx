@@ -9,7 +9,7 @@ import { headerIdentity } from "./headerIdentity";
 import { buildWorld } from "./worldModel";
 import type { World } from "./worldModel";
 import { mapsText } from "./places";
-import { TERMS } from "./terms";
+import { termShort } from "./terms";
 import { visibleWords } from "../ui/visibleText";
 import { ThumbnailCache } from "../world/thumbnails";
 import { EntityIdCache, TextProjectProvider } from "../textproject/TextProjectContext";
@@ -123,7 +123,7 @@ describe("WorldMapPanel", () => {
     expect(room.textContent).not.toContain("H1");
     expect(room.textContent).not.toContain("0001");
     expect(room.textContent).toContain(headerIdentity([], headers[1]!).name);
-    expect(container.querySelector('[data-header-id="0"]')?.getAttribute("title")).toBe(TERMS.area.short);
+    expect(container.querySelector('[data-header-id="0"]')?.getAttribute("title")).toBe(termShort("area"));
     await show(context({ matrices: withoutRegion }));
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
     // The views of a read world: the world map with its switcher, the room plan, "Weitere Gebiete".
@@ -162,7 +162,7 @@ describe("WorldMapPanel", () => {
   it("keeps_the_technical_words_in_tinkering", async () => {
     await show(context({ depth: "tuefteln" }));
     expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Header · 0000");
-    expect(container.querySelector('[data-header-id="0"]')?.getAttribute("title")).toBe(TERMS.outside.short);
+    expect(container.querySelector('[data-header-id="0"]')?.getAttribute("title")).toBe(termShort("outside"));
     await show(context({ matrices: withoutRegion, depth: "tuefteln" }));
     expect(container.textContent).toContain("Keine Region gefunden (kein Raster mit Header-Abschnitt).");
   });

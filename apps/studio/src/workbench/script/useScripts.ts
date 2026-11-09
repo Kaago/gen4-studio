@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { addScript, adoptScripts, readScript, saveLevelScript, saveScript, scriptsStatus } from "../../api";
 import type { AdoptProgressDto, AdoptReportDto, CmdError, LevelScriptDoc, ProjectInfo, SaveScriptDto, ScriptSourceDto, ScriptsStatusDto } from "../../api";
 import type { EditBus } from "../../bus/editBus";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
 import { ScriptDocuments, lineOffset } from "./documents";
@@ -98,9 +98,9 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
     const parsed: unknown = JSON.parse(text);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) return parsed as LevelScriptDoc;
   } catch (e) {
-    throw refusal(`${TERMS.levelScript.label} ${id4(file)}: ungültiges JSON (${e instanceof Error ? e.message : String(e)})`);
+    throw refusal(`${termLabel("levelScript")} ${id4(file)}: ungültiges JSON (${e instanceof Error ? e.message : String(e)})`);
   }
-  throw refusal(`${TERMS.levelScript.label} ${id4(file)}: ungültiges JSON (ein Objekt wird erwartet)`);
+  throw refusal(`${termLabel("levelScript")} ${id4(file)}: ungültiges JSON (ein Objekt wird erwartet)`);
 }
 
 /**
@@ -192,7 +192,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
       if (docs.get(file) !== doc) continue;
       const dirty = lf(doc.text) !== doc.savedText;
       if (source === null || source.kind === "binary") {
-        if (dirty) names.push(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`);
+        if (dirty) names.push(`${doc.kind === "script" ? termLabel("scriptFile") : termLabel("levelScript")} ${id4(file)}`);
         // A clean document without a source has nothing to edit; one whose file did not read stays as it is.
         else if (source !== null) applyDisk(file, doc, source, false, note);
         continue;
@@ -212,7 +212,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
         const source = await readScript(file);
         // Another project was opened while the file was read.
         if (latest.current.documents !== docs) return;
-        if (source.kind === "binary") throw refusal(`${TERMS.scriptFile.label} ${id4(file)} ist binär (${source.size} Byte) und lässt sich nicht bearbeiten`);
+        if (source.kind === "binary") throw refusal(`${termLabel("scriptFile")} ${id4(file)} ist binär (${source.size} Byte) und lässt sich nicht bearbeiten`);
         // rotom writes LF; the documents compare LF with LF.
         doc = docs.open(file, source.kind, lf(source.kind === "script" ? source.text : levelScriptText(source.doc)));
       }
@@ -332,7 +332,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
       const dirty = lf(doc.text) !== doc.savedText;
       // The file on disk moved (whether or not the document takes it).
       bumpSaved();
-      const name = `${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`;
+      const name = `${doc.kind === "script" ? termLabel("scriptFile") : termLabel("levelScript")} ${id4(file)}`;
       const refuse = () => (note ? note(name) : latest.current.onError(refusal(changedOutsideText([name]))));
       if (source.kind === "binary") {
         // No source any more (rotom could not decompile what was written): nothing to edit. Typed text stays unless it was given up.

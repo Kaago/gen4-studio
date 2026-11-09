@@ -1,6 +1,6 @@
 import type { HeaderSummary } from "../../api";
 import { UNNAMED_KEY, buildPlaces } from "../places";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 
 /** The archive and message a link led to (`message` null: the first one). */
 export interface TextTarget {
@@ -134,13 +134,13 @@ export function longestLine(text: string): number {
 export const toTextForm = (text: string) => text.replace(/\r\n|\r|\n/g, "\\n");
 
 /** "Textarchiv 0199". */
-export const archiveLabel = (index: number) => `${TERMS.textArchive.label} ${id4(index)}`;
+export const archiveLabel = (index: number) => `${termLabel("textArchive")} ${id4(index)}`;
 
 /** A message number with three digits ("005"), as the table and the heads write it. */
 export const id3 = (index: number) => String(index).padStart(3, "0");
 
 /** "Nachricht 005". */
-export const messageLabel = (index: number) => `${TERMS.message.label} ${id3(index)}`;
+export const messageLabel = (index: number) => `${termLabel("message")} ${id3(index)}`;
 
 /** The headers (ids, in header order) that use each text archive, from the header table the app already holds. */
 export function usersByArchive(headers: readonly HeaderSummary[]): Map<number, number[]> {

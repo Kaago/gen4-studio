@@ -18,7 +18,7 @@ import { sharedText } from "./sharedRooms";
 import { RoomActions, WorldMapActions } from "./RoomActions";
 import type { AreaChoice, RenameTarget } from "./RoomActions";
 import { ShownMark } from "./ShownMark";
-import { TERMS, id4, techLabel } from "./terms";
+import { id4, techLabel, termLabel, termPlural } from "./terms";
 import { sortWorld } from "./worldSort";
 import type { TreeSort } from "./worldSort";
 import type { Area, Room, World, WorldMap } from "./worldModel";
@@ -85,7 +85,7 @@ const OTHER = "group:other";
 const openByDefault = (key: string) => /^w\d+k?$/.test(key);
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-const roomsText = (n: number) => plural(n, TERMS.room.label, TERMS.room.plural);
+const roomsText = (n: number) => plural(n, termLabel("room"), termPlural("room"));
 const areasText = (n: number) => plural(n, "Gebiet", "Gebiete");
 
 /** The worst mark among headers: an error over a warning. */
@@ -197,7 +197,7 @@ function branchesOf(world: World, tinker: boolean): Map<number, string[]> {
 
 /** The hover text of a header row: Tüfteln names id, code and matrix; Bauen leaves it to the row's name. */
 function techTitle(h: HeaderSummary, marked: boolean): string {
-  return `${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`;
+  return `${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${termLabel("matrix")} wird angezeigt)` : ""}`;
 }
 
 /**
@@ -386,13 +386,13 @@ const SEARCH_LIMIT = 100;
 /** "412 Byte" for a script source; the explorer's grey part says what a file is and which headers use it (Bauen: which places). */
 function fileDetails(f: ScriptFileDto, depth: Depth): string {
   const tinker = depthAtLeast(depth, "tuefteln");
-  const word = tinker ? TERMS.header.plural : f.headers.length === 1 ? TERMS.place.label : TERMS.place.plural;
-  const users = f.headers.length === 0 ? `ohne ${tinker ? TERMS.header.label : TERMS.place.label}` : `${word} ${f.headers.map(id4).join(", ")}`;
+  const word = tinker ? termPlural("header") : f.headers.length === 1 ? termLabel("place") : termPlural("place");
+  const users = f.headers.length === 0 ? `ohne ${tinker ? termLabel("header") : termLabel("place")}` : `${word} ${f.headers.map(id4).join(", ")}`;
   return [f.kind === "binary" ? "binär" : null, `${f.size} Byte`, users].filter((part) => part !== null).join(" · ");
 }
 
 const ScriptFileRow = memo(function ScriptFileRow({ file, depth, onOpenScript }: { file: ScriptFileDto; depth: Depth; onOpenScript: (file: number, line?: number) => void }) {
-  const name = `${file.kind === "levelScript" ? TERMS.levelScript.label : TERMS.scriptFile.label} ${id4(file.file)}`;
+  const name = `${file.kind === "levelScript" ? termLabel("levelScript") : termLabel("scriptFile")} ${id4(file.file)}`;
   const contextMenu = useResetMenu({ kind: "script", file: file.file });
   return (
     <TreeRow
@@ -410,7 +410,7 @@ const ScriptFileRow = memo(function ScriptFileRow({ file, depth, onOpenScript }:
 });
 
 const HitRow = memo(function HitRow({ hit, onOpenScript }: { hit: ScriptHitDto; onOpenScript: (file: number, line?: number) => void }) {
-  const text = `${TERMS.scriptFile.label} ${id4(hit.file)} · Zeile ${hit.line} · ${hit.excerpt}`;
+  const text = `${termLabel("scriptFile")} ${id4(hit.file)} · Zeile ${hit.line} · ${hit.excerpt}`;
   return <TreeRow depth={1} label={text} title={text} selected={false} onSelect={() => onOpenScript(hit.file, hit.line)} />;
 });
 
@@ -468,7 +468,7 @@ function ScriptsNode({ info, adopted, depth, onOpenScript }: { info: ProjectInfo
       <TreeRow
         depth={0}
         icon="script"
-        label={TERMS.script.plural}
+        label={termPlural("script")}
         selected={false}
         expanded={open}
         onToggle={toggle}
@@ -517,7 +517,7 @@ function ScriptsNode({ info, adopted, depth, onOpenScript }: { info: ProjectInfo
 export function worldCaption(world: World, headerCount: number, tinker: boolean): string {
   const areas = world.worldMaps.reduce((n, m) => n + m.areas.length, world.moreAreas.length);
   const parts = [plural(world.worldMaps.length, "Weltkarte", "Weltkarten"), areasText(areas), roomsText(world.roomCount)];
-  if (tinker) parts.push(`${headerCount} ${TERMS.header.plural}`);
+  if (tinker) parts.push(`${headerCount} ${termPlural("header")}`);
   return parts.join(", ");
 }
 
@@ -755,7 +755,7 @@ export function WorldTree({
             )}
             {tinker && shown.other.length > 0 && (
               <>
-                {groupRow(OTHER, "Sonstiges", "tinker", shown.other.length, `${shown.other.length} ${TERMS.header.plural}`)}
+                {groupRow(OTHER, "Sonstiges", "tinker", shown.other.length, `${shown.other.length} ${termPlural("header")}`)}
                 {isOpen(OTHER) && shown.other.map((h) => leaf(h, 1, h.location_name || h.internal_name))}
               </>
             )}

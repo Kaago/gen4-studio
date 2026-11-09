@@ -2,7 +2,7 @@ import { headerFamily } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { AssetKind, HeaderFamily, MapHeader } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
-import { TERMS } from "../terms";
+import { termLabel } from "../terms";
 
 /**
  * What an id field points at; pickers get their upper limit from the archive's member count. `music` marks a number field (`u16`) that
@@ -44,8 +44,8 @@ const PICK_U8 = new Set(["area_data_id"]);
 
 const areaData: FieldSpec = { ...pick("area_data_id", "Area-Data", "areaData"), from: "erzaehlen" };
 const matrix = pick("matrix_id", "Matrix", "matrix");
-const script = pick("script_file_id", TERMS.scriptFile.label, "script");
-const levelScript = pick("level_script_id", TERMS.levelScript.label, "script");
+const script = (): FieldSpec => pick("script_file_id", termLabel("scriptFile"), "script");
+const levelScript = (): FieldSpec => pick("level_script_id", termLabel("levelScript"), "script");
 const textArchive = pick("text_archive_id", "Textarchiv", "textArchive");
 const musicDay: FieldSpec = { ...u16("music_day_id", "Musik Tag"), pick: "music", from: "erzaehlen" };
 const musicNight: FieldSpec = { ...u16("music_night_id", "Musik Nacht"), pick: "music", from: "erzaehlen" };
@@ -59,12 +59,12 @@ const flags = u8("flags", "Flags");
  * The editable fields of a header in the order of the uxie struct. The fields uxie calls
  * `unknown*` are left out: they are kept verbatim, not edited.
  */
-const SPECS: Record<HeaderFamily, FieldSpec[]> = {
-  DP: [
+const SPECS: Record<HeaderFamily, () => FieldSpec[]> = {
+  DP: () => [
     areaData,
     matrix,
-    script,
-    levelScript,
+    script(),
+    levelScript(),
     textArchive,
     musicDay,
     musicNight,
@@ -77,11 +77,11 @@ const SPECS: Record<HeaderFamily, FieldSpec[]> = {
     battleBackground,
     flags,
   ],
-  Pt: [
+  Pt: () => [
     areaData,
     matrix,
-    script,
-    levelScript,
+    script(),
+    levelScript(),
     textArchive,
     musicDay,
     musicNight,
@@ -95,14 +95,14 @@ const SPECS: Record<HeaderFamily, FieldSpec[]> = {
     battleBackground,
     flags,
   ],
-  HGSS: [
+  HGSS: () => [
     u8("wild_pokemon", "Begegnungen"),
     areaData,
     u8("worldmap_x", "Weltkarte X"),
     u8("worldmap_y", "Weltkarte Y"),
     matrix,
-    script,
-    levelScript,
+    script(),
+    levelScript(),
     textArchive,
     musicDay,
     musicNight,
@@ -120,7 +120,7 @@ const SPECS: Record<HeaderFamily, FieldSpec[]> = {
 };
 
 export function headerFieldSpecs(family: HeaderFamily): FieldSpec[] {
-  return SPECS[family];
+  return SPECS[family]();
 }
 
 function typeMax(spec: FieldSpec): number {
