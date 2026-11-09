@@ -26,6 +26,7 @@ export type DSPokedexProfileProps = {
 };
 
 const NO_PAGES: Page[] = [];
+
 function Field({ label, value }: { label: string; value: string | undefined }) {
   const { t } = useTranslation("ui");
   return (

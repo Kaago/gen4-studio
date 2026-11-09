@@ -38,7 +38,6 @@ function ceiling(max: number | undefined, bits: number | undefined): number | un
   return byBits === undefined ? max : Math.min(max, byBits);
 }
 
-
 /**
  * A whole-number field. What is typed stays a draft until blur or Enter; an entry that is unreadable or outside
  * `min..max` (or the bit width) is refused with the bound named, keeps the old value, and is never clamped to the bound.

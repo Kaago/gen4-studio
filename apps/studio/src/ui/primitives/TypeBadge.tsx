@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { pokemonType, typeName } from "./pokemonTypes";
 import styles from "./TypeBadge.module.css";
 
@@ -16,6 +17,8 @@ export function typeClass(type: number): string {
 
 /** A Pokémon type: its colour and, never colour alone, its name. */
 export function TypeBadge({ type, size = "m" }: TypeBadgeProps) {
+  // `typeName` reads the catalog; subscribing makes the badge render again when the language changes.
+  useTranslation("ui");
   const unknown = pokemonType(type) === undefined;
   return (
     <span className={`${styles.badge} ${styles[size]} ${typeClass(type)}`} data-type={type} data-unknown={unknown ? "" : undefined}>

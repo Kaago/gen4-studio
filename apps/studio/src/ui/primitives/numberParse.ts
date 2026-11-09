@@ -7,14 +7,14 @@ const HEX = /^-?(?:0x)?[0-9a-f]+$/i;
 
 /** Reads a whole number in the given base; null when the text is empty or not exactly such a number. */
 export function parseNumber(text: string, base: NumberBase): number | null {
-  const t = text.trim();
+  const trimmed = text.trim();
   if (base === "dec") {
-    if (!DEC.test(t)) return null;
-    return finite(Number.parseInt(t, 10));
+    if (!DEC.test(trimmed)) return null;
+    return finite(Number.parseInt(trimmed, 10));
   }
-  if (!HEX.test(t)) return null;
-  const negative = t.startsWith("-");
-  const digits = t.replace(/^-/, "").replace(/^0x/i, "");
+  if (!HEX.test(trimmed)) return null;
+  const negative = trimmed.startsWith("-");
+  const digits = trimmed.replace(/^-/, "").replace(/^0x/i, "");
   const n = Number.parseInt(digits, 16);
   return finite(negative ? -n : n);
 }
