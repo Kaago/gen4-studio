@@ -20,8 +20,9 @@
   // 0000, Mitte 0006, Kanten 0007 bis 000a, Außenecken 000b bis 000e, Innenecken 000f bis 0012); ihre „Bilder“ sind Platzhalter: eine Kantenkachel zeigt
   // ihre Maske als vier Viertel (innen Weg, außen Boden). Das Plus (x 4–12 z 8–10 und x 7–9 z 5–13) und die Klippe (x 20–25 z 20–24, Stufe 2) folgen
   // dem festen Musterfall und dem Browser-Teil (target/agent/gate-2026-11-08/6-4b/browser.md), Karte 0666 in Zelle 1, 21 über Fleetburg.
-  // Nicht gerendert: OpenPencil antwortete beim Schreiben nicht (127.0.0.1:7600, HTTP 502). Die Vorlage ist gegen jsx-lib-app.js geschrieben und mit
-  // einer Attrappe der Bausteine durchgelaufen, aber nie als Bild gesehen (Anleitung: openpencil/NACHTRAG-6-4b.md).
+  // Gerendert am 09.11.2026 (beim Schreiben antwortete OpenPencil nicht): „App: Werkbank“ Reihe 9, x 0 / 1520 / 3040, y 9000; das Brett auf „Komponenten“
+  // bei x 3440, y 20220. Nach dem Bild korrigiert: Palette im Kantensatz-Editor gekürzt (kurz), Abstände wie EdgeSetEditor.module.css, Muster als Inline-SVG,
+  // Liste und Scharnier von Route 201 in 'muster', Chips im Brett breiter (Befunde: openpencil/NACHTRAG-6-4b.md).
   // Dunkel: bash ../build-screen.sh kantensatz --dunkel. Szenenfarben heißen in OpenPencil ohne Präfix: v('gelaende/wasser'), v('hoehe/2').
   const MODE = 'kantensatz';
   if (HX_DUNKEL) Object.assign(HX, HX_DUNKEL);
@@ -89,10 +90,11 @@
     const taste = <Frame name={'Kachel ' + k.n} w={32} h={32} rounded={4} bg={v('flaeche/taste')} stroke={v(o.sel ? 'auswahl/kante' : 'linie/leise')} strokeWidth={o.sel ? 3 : 1} overflow="hidden" flex="row" items="center" justify="center">{Bild(k)}</Frame>;
     return o.tinker ? <Frame flex="col" items="center" gap={2}>{taste}{Mono(k.n, { s: 10, lh: 12 })}</Frame> : taste;
   };
-  // Abschnitt „Palette“: Gruppen nach Rolle, je Reihe höchstens neun Kacheln (die App bricht mit flex-wrap um); target: Notiz des gewählten Platzes
-  const Palette = ({ sel, target, open = true }) => {
-    const groups = ['ground', 'grass', 'water', 'wall', 'ramp', 'piece'].map((role) => [role, KACHELN.filter((k) => k.role === role)]).filter(([, ks]) => ks.length > 0);
-    const reihen = (ks) => Array.from({ length: Math.ceil(ks.length / 9) }, (_, r) => ks.slice(r * 9, r * 9 + 9));
+  // Abschnitt „Palette“: Gruppen nach Rolle, je Reihe höchstens neun Kacheln (die App bricht mit flex-wrap um); target: Notiz des gewählten Platzes.
+  // kurz: nur die erste Reihe der Gruppe Boden (der Frame „Kantensatz-Editor“, damit der Editor unter Palette und Ebenen noch in die Gruppe passt)
+  const Palette = ({ sel, target, open = true, kurz }) => {
+    const groups = ['ground', 'grass', 'water', 'wall', 'ramp', 'piece'].map((role) => [role, KACHELN.filter((k) => k.role === role)]).filter(([, ks]) => ks.length > 0).slice(0, kurz ? 1 : 6);
+    const reihen = (ks) => Array.from({ length: kurz ? 1 : Math.ceil(ks.length / 9) }, (_, r) => ks.slice(r * 9, r * 9 + 9));
     return Section({ title: 'Palette', open, children: <Frame name="Palette" flex="col" gap={8} px={8} pt={4} pb={8} w="fill">
       {target && <Frame name="Ziel (data-palette-target)" flex="row" w="fill">{T('Ein Klick hängt die Kachel (mit Drehung) an den Platz „' + target + '“.', { s: 12, c: 'text/sekundaer', width: 316 })}</Frame>}
       {groups.map(([role, ks]) => <Frame name={'Gruppe ' + ROLLE[role][0]} flex="col" gap={4} w={324}>
@@ -123,14 +125,14 @@
   const Platz = (p, tokens = [], o = {}) => {
     const leer = tokens.length === 0;
     const taste = <Frame name={PLATZ[p].label + (leer ? ' (leer)' : '')} w={40} h={40} rounded={6} bg={leer ? undefined : v('flaeche/taste')} stroke={v(o.sel ? 'auswahl/kante' : 'linie/leise')} strokeWidth={o.sel ? 3 : 1} strokeDash={leer ? [4, 3] : undefined} dashPattern={leer ? [4, 3] : undefined} overflow="hidden" flex="row" items="center" justify="center">
-      {!leer && Bild(kachel(tokens[0].slice(0, 4)), 38)}
+      {!leer && Bild(kachel(tokens[0].slice(0, 4)), o.sel ? 34 : 38)}
       {tokens.length > 1 && <Frame name="Zähler" position="absolute" x={40 - 12} y={40 - 15} px={2} h={15} bg={v('auswahl/kante')} flex="row" items="center">{T(String(tokens.length), { s: 12, lh: 15, c: 'akzent/auf' })}</Frame>}
     </Frame>;
     return <Frame name={'Platz ' + p} flex="col" items="center" gap={2}>{taste}{o.tinker && tokens.length > 0 && Mono(tokens.join(' '), { s: 10, lh: 12 })}</Frame>;
   };
-  // Raster der Plätze: Block 3 × 3, Block 2 × 2, Zeile der Diagonalen
+  // Raster der Plätze: Block 3 × 3, Block 2 × 2, Zeile der Diagonalen (Abstand raum/12 wie .grid: zusammen 320 px, der Inspector hat 324)
   const BLOECKE = [[['outer_nw', 'n', 'outer_ne'], ['w', 'center', 'e'], ['outer_sw', 's', 'outer_se']], [['inner_nw', 'inner_ne'], ['inner_sw', 'inner_se']], [['diag_nwse', 'diag_nesw']]];
-  const Raster = (places, sel, tinker) => <Frame name="Plätze" flex="row" items="start" gap={16} w="fill">
+  const Raster = (places, sel, tinker) => <Frame name="Plätze" flex="row" items="start" gap={12} w="fill">
     {BLOECKE.map((rows, b) => <Frame name={'Block ' + (b + 1)} flex="col" gap={4}>{rows.map((row) => <Frame flex="row" gap={4}>{row.map((p) => Platz(p, places[p], { sel: p === sel, tinker }))}</Frame>)}</Frame>)}
   </Frame>;
   // Varianten-Chip (data-edge-variant): Höhe raum/24, Rand linie/standard, radius/plakette, Fläche flaeche/taste, Bild 16 × 16, „Kachel 0007“, „Entfernen“ leise
@@ -142,18 +144,18 @@
   const BLOCK = (b) => SegS(['Obere Zelle', 'Untere Zelle'], b === 'lower' ? 'Untere Zelle' : 'Obere Zelle');
   const EdgeSets = ({ sets, active, sel, rise = 2, tinker, open = true }) => {
     const set = sets.find((s) => s.name === active);
-    return Section({ title: 'Kantensätze', open, children: <Frame name="Kantensätze" flex="col" gap={8} px={8} pt={4} pb={8} w="fill">
+    return Section({ title: 'Kantensätze', open, children: <Frame name="Kantensätze" flex="col" gap={6} px={8} pt={4} pb={8} w="fill">
       <Frame name="Sätze" flex="col" gap={2} w="fill">{sets.map((s) => SetRow(s.name, s.places, s.name === active))}</Frame>
       <Frame name="Neuer Kantensatz" flex="row" items="center" gap={6} w="fill">{Field('Satz ' + (sets.length + 1), { grow: 1 })}{Btn({ label: 'Neuer Kantensatz', small: true })}</Frame>
       <Frame name="Stufen der Klippe (data-cliff-rise)" flex="col" w="fill">{Row({ label: 'Stufen der Klippe', hint: '1 bis 8, je Stufe 8 E', children: NumField(String(rise)) })}</Frame>
-      {set && <Frame name="Editor (data-edge-editor)" flex="col" gap={8} pt={8} w="fill" strokeWeights={{ top: 1, right: 0, bottom: 0, left: 0 }} stroke={v('linie/leise')}>
+      {set && <Frame name="Editor (data-edge-editor)" flex="col" gap={6} pt={6} w="fill" strokeWeights={{ top: 1, right: 0, bottom: 0, left: 0 }} stroke={v('linie/leise')}>
         {Raster(set.places, sel, tinker)}
         {sel ? <Frame name={'Varianten ' + sel} flex="col" gap={4} w="fill">
           {T(PLATZ[sel].label, { s: 12, c: 'text/sekundaer' })}
           {(set.places[sel] || []).length === 0 ? T('Noch keine Kachel: ein Klick in der Palette hängt eine an.', { s: 12, c: 'text/sekundaer', width: 316 }) : <Frame flex="row" gap={4} w="fill">{set.places[sel].map((t) => Chip(t, tinker))}</Frame>}
         </Frame> : T('Einen Platz wählen, dann eine Kachel in der Palette: sie kommt mit ihrer Drehung (Z, X) in den Platz.', { s: 12, c: 'text/sekundaer', width: 316 })}
         <Frame name="Felder" flex="col" w="fill" ml={-8}>
-          {Row({ label: 'Außen', children: [<Frame w={16} h={16} rounded={4} overflow="hidden">{Bild(kachel(set.outside), 16)}</Frame>, T('Kachel ' + set.outside, { grow: 1, one: true }), Btn({ label: 'Aktive Kachel übernehmen', art: 'Leise', small: true })] })}
+          {Row({ label: 'Außen', children: [<Frame w={16} h={16} rounded={4} overflow="hidden">{Bild(kachel(set.outside), 16)}</Frame>, T('Kachel ' + set.outside), Btn({ label: 'Aktive Kachel übernehmen', art: 'Leise', small: true })] })}
           {Row({ label: 'Blockiert an der Klippe', children: BLOCK(set.block) })}
           {Row({ label: 'Wand', hint: 'Für jede Kachel des Satzes, auch Außen; Kachelnummer, leer = keine', children: Field('0003') })}
         </Frame>
@@ -212,14 +214,14 @@
     TreeRowX({ label: 'Karte 0049', tech: '1, 23', icon: 'ph:mountains', depth: 2 }),
     TreeRowX({ label: 'Figuren', icon: 'ph:person-simple-walk', depth: 1, open: false, count: 19 }),
   ];
-  const Werkbank = ({ name, schauInhalt, inspector, status, undo }) => {
-    const liste = WeltListe({ orte, szene });
+  const Werkbank = ({ name, schauInhalt, inspector, status, undo, liste: [lo, ls] = [orte, szene], crumbs = [['Fleetburg'], ['Karte 0666', 'Zelle 1, 21']] }) => {
+    const liste = WeltListe({ orte: lo, szene: ls });
     const schau = DockGroup({ name: 'Gruppe Schau', tabs: ['3D', 'Weltkarte'], active: '3D', focused: true, h: 548, bg: 'flaeche/welt', children: schauInhalt });
     const unten = DockGroup({ name: 'Gruppe Script und Probleme', tabs: ['Script', 'Probleme'], active: 'Script', focused: false, h: 240, edge: 'top', children: Empty('Kein Script geöffnet.', 'Eine Scriptdatei öffnet sich über den Ort, ein Event oder ein Problem.') });
     const insp = DockGroup({ name: 'Gruppe Inspector', tabs: ['Inspector'], active: 'Inspector', focused: false, w: 340, edge: 'left', children: inspector });
     const dock = <Frame name="Dock Welt" flex="row" w="fill" grow={1}><Frame name="Mitte" flex="col" grow={1} h="fill">{schau}{unten}</Frame>{insp}</Frame>;
     return Window({ name, active: 'welt', dark: DARK, title: { project: 'Sinnoh-Remix', game: 'Platin, DE', unsaved: 2 }, status,
-      children: [liste, <Frame name="Werkbank" flex="col" grow={1} h="fill">{ScharnierOben({ crumbs: [['Fleetburg'], ['Karte 0666', 'Zelle 1, 21']], depth: 'Bauen', light: { e: 0, w: 101, i: 162 }, undo })}{dock}</Frame>] });
+      children: [liste, <Frame name="Werkbank" flex="col" grow={1} h="fill">{ScharnierOben({ crumbs, depth: 'Bauen', light: { e: 0, w: 101, i: 162 }, undo })}{dock}</Frame>] });
   };
   const Kopf = () => InspectorHeadB({ word: 'Karte', icon: 'ph:mountains', title: 'Karte 0666', ident: 'Zelle 1, 21 · Fleetburg', badges: [Badge('Ungespeichert', 'ungespeichert')] });
   const malStatus = (sub, info) => Statusbar({ tool: 'Gelände malen · ' + sub, keys: HINTS[sub], info, problems: '101 Warnungen, 162 Hinweise', build: 'Noch nicht gebaut' });
@@ -229,7 +231,7 @@
     return Werkbank({ name: NAMES.kantensatz, undo: 21,
       schauInhalt: MalSzene({ w: SW, h: SH, children: [SceneBarX(8, 8, { draufsicht: true }), PaintToolbar({ sub: 'Terrain-Pinsel' }), LegendBtn(8, SH - 40)] }),
       inspector: [Kopf(), <Frame name="Abschnitte" flex="col" w="fill">
-        {Palette({ sel: '0007', target: 'Kante N' })}
+        {Palette({ sel: '0007', target: 'Kante N', kurz: true })}
         {Layers()}
         {Zu('Kachel 0007')}
         {EdgeSets({ sets: SAETZE, active: 'Weg', sel: 'n' })}
@@ -239,23 +241,40 @@
   }
 
   // ----- Muster der Schicht „Gelände“ (patterns.ts): die Linien sind die Zellfarbe × 0,55; hier Schwarz mit 45 % darüber (dieselbe Farbe) -----
-  // Zeichen je Muster für Zellen und Legende: Schraffur ╱, Wellen ∿, Punkte ⁘ (3 × 3), Pfeil ↓ (Vorsprung nach Süden; in den Legendenproben ↑ nach Norden wie Legend.tsx), Kreuzschraffur ╳
+  // Die Formen sind die Pfade von PatternMarks (Legend.tsx) im Kasten 12 × 12 als Inline-SVG: Schraffur, Wellen, Punkte (3 × 3), Pfeil, Kreuzschraffur.
+  // Die Zeichen ╱ ∿ ⁘ ╳ der ersten Fassung setzt OpenPencil in Atkinson Hyperlegible Next nicht (leere Zellen im ersten Bild), nur ↓.
+  // Der Pfeil zeigt in der Schau nach Süden (Vorsprünge des Ausschnitts), in den Legendenproben nach Norden wie Legend.tsx.
+  const r2 = (n) => +n.toFixed(2);
+  const STREIFEN = [-9, -6, -3, 0, 3, 6, 9];
+  const SCHRAFFUR = STREIFEN.map((d) => (d < 0 ? 'M0 ' + -d + ' L' + (12 + d) + ' 12' : 'M' + d + ' 0 L12 ' + (12 - d)));
+  const PFAD = {
+    hatch: SCHRAFFUR.join(' '),
+    crosshatch: [...SCHRAFFUR, ...STREIFEN.map((d) => (d <= 0 ? 'M' + (d + 12) + ' 0 L0 ' + (d + 12) : 'M12 ' + d + ' L' + d + ' 12'))].join(' '),
+    waves: [0, 1, 2].map((k) => Array.from({ length: 13 }, (_, x) => (x ? 'L' : 'M') + x + ' ' + r2(12 * (1 - (k + 0.5 - 0.15 * Math.sin((4 * Math.PI * x) / 12)) / 3))).join(' ')).join(' '),
+    dots: [2, 6, 10].flatMap((y) => [2, 6, 10].map((x) => 'M' + r2(x - 1.44) + ' ' + y + ' A1.44 1.44 0 1 0 ' + r2(x + 1.44) + ' ' + y + ' A1.44 1.44 0 1 0 ' + r2(x - 1.44) + ' ' + y + ' Z')).join(' '),
+    nord: 'M6 1.68 L8.7 5.28 L6.72 5.28 L6.72 10.08 L5.28 10.08 L5.28 5.28 L3.3 5.28 Z',
+    sued: 'M6 10.32 L8.7 6.72 L6.72 6.72 L6.72 1.92 L5.28 1.92 L5.28 6.72 L3.3 6.72 Z',
+  };
+  const GEFUELLT = { dots: true, nord: true, sued: true };
   const KLASSEN = [
-    ['Blockiert', 'gelaende/blockiert', 'Schraffur', '╱'],
-    ['Wasser', 'gelaende/wasser', 'Wellen', '∿'],
-    ['Hohes Gras', 'gelaende/hohes-gras', 'Punkte', '⁘'],
-    ['Vorsprung', 'gelaende/vorsprung', 'Pfeil', '↓'],
-    ['Eis', 'gelaende/eis', 'Kreuzschraffur', '╳'],
+    ['Blockiert', 'gelaende/blockiert', 'Schraffur', 'hatch'],
+    ['Wasser', 'gelaende/wasser', 'Wellen', 'waves'],
+    ['Hohes Gras', 'gelaende/hohes-gras', 'Punkte', 'dots'],
+    ['Vorsprung', 'gelaende/vorsprung', 'Pfeil', 'sued'],
+    ['Eis', 'gelaende/eis', 'Kreuzschraffur', 'crosshatch'],
     ['Spezial', 'gelaende/spezial', null, null],
     ['Unbekannt', 'gelaende/unbekannt', null, null],
   ];
   const klasse = (name) => KLASSEN.find((k) => k[0] === name);
-  const Muster = (zeichen, s) => <Frame name="Muster" position="absolute" x={0} y={0} w={s} h={s} opacity={0.45} flex="row" items="center" justify="center">{T(zeichen, { s: Math.round(s * 0.8), lh: s, hex: '#000000', align: 'center' })}</Frame>;
-  const Probe = (name, s = 16) => { const [, tok, , z0] = klasse(name); const z = name === 'Vorsprung' ? '↑' : z0; return <Frame name={'Probe ' + name} w={s} h={s} rounded={3} bg={v(tok)} overflow="hidden">{z && Muster(z, s)}</Frame>; };
+  // Linienstärke im Kasten 12: 1 wie die Legende (Proben bis 16 px), 0,6 auf den Zellen der Schau (28 px), damit die Linien dort nicht dicker als 1,5 px werden
+  const Muster = (art, s) => <Frame name="Muster" position="absolute" x={0} y={0} w={s} h={s} opacity={0.45}>
+    {GEFUELLT[art] ? <svg viewBox="0 0 12 12" size={s}><path d={PFAD[art]} fill="#000000" /></svg> : <svg viewBox="0 0 12 12" size={s}><path d={PFAD[art]} stroke="#000000" fill="none" strokeWidth={s > 20 ? 0.6 : 1} /></svg>}
+  </Frame>;
+  const Probe = (name, s = 16) => { const [, tok, , m0] = klasse(name); const m = m0 === 'sued' ? 'nord' : m0; return <Frame name={'Probe ' + name} w={s} h={s} rounded={3} bg={v(tok)} overflow="hidden">{m && Muster(m, s)}</Frame>; };
 
   // ----- 'muster': ein Ausschnitt mit allen fünf Mustern von oben, Schicht „Gelände“ gedrückt, die Legende offen -----
   if (MODE === 'muster') {
-    const G = 28, ox = 120, oy = 40;
+    const G = 28, ox = SW - 20 * G - 4, oy = 40; // rechtsbündig (x 176), die offene Legende unten links verdeckt nur den Rand
     // Ausschnitt 20 × 14 Zellen: Bäume (blockiert) am Rand, ein Teich, Gras, eine Vorsprungkante nach Süden, Eis, Spezial (Tür), sonst Unbekannt (Boden)
     const art = (x, z) => {
       if (x === 0 || z === 0 || x === 19) return 'Blockiert';
@@ -270,7 +289,7 @@
     for (let z = 0; z < 14; z++) for (let x = 0; x < 20; x++) {
       const [name, tok, , zeichen] = klasse(art(x, z));
       if (name === 'Unbekannt') continue;
-      zellen.push(<Frame name={name + ' ' + x + ', ' + z} position="absolute" x={ox + x * G} y={oy + z * G} w={G} h={G} bg={v(tok)}>{zeichen && Muster(zeichen, G)}</Frame>);
+      zellen.push(<Frame name={name + ' ' + x + ', ' + z} position="absolute" x={ox + x * G} y={oy + z * G} w={G} h={G} bg={v(tok)} overflow="hidden">{zeichen && Muster(zeichen, G)}</Frame>);
     }
     const legende = <Frame name="Legende (offen)" position="absolute" x={8} y={SH - 8 - 300} w={200} flex="col" gap={8} p={12} rounded={6} bg={v('flaeche/blatt')} stroke={v('linie/standard')} strokeWidth={1} shadow={SCHATTEN}>
       <Frame flex="row" items="center" gap={8} w="fill">{I('ph:list-bullets', DI.symbol, 'p')}{T('Legende', { w: 600, grow: 1 })}{I('ph:x', 16, 's')}</Frame>
@@ -285,7 +304,20 @@
       {SceneBarX(8, 8, { gelaende: true, draufsicht: true })}
       {legende}
     </Frame>;
-    return Werkbank({ name: NAMES.muster, undo: 0, schauInhalt: schau,
+    const orteR = [
+      TreeRowX({ label: 'Sinnoh', icon: 'ph:map-trifold', open: true, count: 73 }),
+      TreeRowX({ label: 'Zweiblattdorf', icon: 'ph:globe', depth: 1, open: false, count: 6 }),
+      TreeRowX({ label: 'Route 201', icon: 'ph:globe', depth: 1, open: false, shown: true, sel: true, count: 1 }),
+      TreeRowX({ label: 'Sandgemme', icon: 'ph:globe', depth: 1, open: false, count: 7 }),
+    ];
+    const szeneR = [
+      TreeRowX({ label: 'Route 201', icon: 'ph:globe', open: true }),
+      TreeRowX({ label: 'Karten', icon: 'ph:mountains', depth: 1, open: true, count: 1 }),
+      TreeRowX({ label: 'Karte 0005', tech: '3, 21', icon: 'ph:mountains', depth: 2, sel: true }),
+      TreeRowX({ label: 'Figuren', icon: 'ph:person-simple-walk', depth: 1, open: false, count: 1 }),
+      TreeRowX({ label: 'Türen', icon: 'ph:door', depth: 1, open: false, count: 1 }),
+    ];
+    return Werkbank({ name: NAMES.muster, undo: 0, schauInhalt: schau, liste: [orteR, szeneR], crumbs: [['Route 201'], ['Karte 0005', 'Zelle 3, 21']],
       inspector: [InspectorHeadB({ word: 'Karte', icon: 'ph:mountains', title: 'Karte 0005', ident: 'Zelle 3, 21 · Route 201' })],
       status: Statusbar({ tool: 'Auswählen', keys: [['Klick', 'wählt'], ['Ziehen', 'verschiebt']], info: 'Kachel x 6, y 8 · Karte 0005 · Vorsprung (JUMP_SOUTH) · Höhe 0 Stufen', problems: '101 Warnungen, 162 Hinweise' }) });
   }
@@ -307,7 +339,7 @@
       {Raster({}, null)}
     </Frame>))}
     {Zustand('Varianten-Chips des gewählten Platzes, Segment „Blockiert an der Klippe“, Zeile eines Satzes mit Zähler', Karte(<Frame flex="col" gap={12} w="fill">
-      {Mit(<Frame flex="row" gap={4}>{Chip('0006')}{Chip('0015')}</Frame>, 'Chip: Bild 16 × 16, „Kachel 0006“ (Tüfteln das Token), „Entfernen“ leise; Höhe raum/24, radius/plakette.', 2 * 150)}
+      {Mit(<Frame flex="row" gap={4}>{Chip('0006')}{Chip('0015')}</Frame>, 'Chip: Bild 16 × 16, „Kachel 0006“ (Tüfteln das Token), „Entfernen“ leise; Höhe raum/24, radius/plakette.', 2 * 176)}
       {Mit(<Frame flex="col" gap={8}>{BLOCK('upper')}{BLOCK('lower')}</Frame>, '„Obere Zelle“ (Vorgabe, block fehlt in der Datei): das Backen blockiert die obere Zelle der Kante. „Untere Zelle“: der Strich schreibt Überschreibungen, der Ring unter dem Plateau blockiert.', 220)}
       {Mit(<Frame flex="col" gap={2} w={324}>{SetRow('Weg', WEG, true)}{SetRow('Fels', {}, false)}</Frame>, 'Radio „Aktiv“ (mit ihm malen T und K), Name, Zähler „13 von 13 Plätzen · Diagonalen 0 von 2“.', 324)}
     </Frame>))}
