@@ -1,4 +1,4 @@
-  // Brett „Stand der App“ auf der Seite „Titel“ (x 1720, y 0), Stand 29.10.2026 nach 4.0, 4.1a, 4.1b, 4.2, 4.3b und 4.4; am 09.11.2026 nachgetragen: 6.2, 6.3b, 6.5a.
+  // Brett „Stand der App“ auf der Seite „Titel“ (x 1720, y 0), Stand 29.10.2026 nach 4.0, 4.1a, 4.1b, 4.2, 4.3b und 4.4; am 09.11.2026 nachgetragen: 6.2, 6.3b, 6.5a, 6.4a.
   // Ersetzt das Brett vom 25.10. per render mit replace_id (Einzeländerungen lehnt OpenPencil bei dieser Datei ab). Die Höhe wächst mit den Listen; vorher war sie fest 1060
   // und die mittlere Liste lief in „Die größten Abweichungen“. Eine Zeile ist [Screen, Notiz?]; die Marken wie Stand() über den Zielbildern.
   const Marke = (art) => { const m = { umgesetzt: ['status/erfolg-flaeche', 'status/erfolg', 'ph:check-circle-fill', 'ok', 'Umgesetzt'], teilweise: ['status/warnung-flaeche', 'status/warnung', 'ph:circle-half-fill', 'w', 'Teilweise umgesetzt'], offen: ['flaeche/deck', 'text/sekundaer', 'ph:circle-dashed', 's', 'Zielbild, noch offen'] }[art];
@@ -12,7 +12,9 @@
   const umgesetzt = [['Raster: Matrix 0'], ['Pokédex: Staravia'], ['Attacken: Flügelschlag'], ['Gegenstände: Trank'], ['Texte: Archiv, Zweiblattdorf'], ['Befehlspalette'], ['Welt im dunklen Thema']];
   const teilweise = [
     ['Start: Willkommen zurück', 'Marke und Vorschaubild (4.0): Bilder auf den Projektkarten, Technik › Projekt; nicht im Zielbild'],
-    ['Weltkarte'], ['Ort anlegen (Gebiet anlegen)'], ['Gelände malen'], ['Skript (Reiter der Welt-Hand)'], ['Dialog bearbeiten (über Texte)'],
+    ['Weltkarte'], ['Ort anlegen (Gebiet anlegen)'],
+    ['Gelände malen (6.4a)', 'Sieben Unterwerkzeuge, Palette, Ebenen und Tileset-Editor im Inspector, Dialog „Neue Karte malen“; „App: Werkbank“, Reihe 6, Brett „Malen“ auf „Komponenten“'],
+    ['Skript (Reiter der Welt-Hand)'], ['Dialog bearbeiten (über Texte)'],
     ['Entwicklung und Lernset'], ['Trainer'], ['Begegnungen'],
     ['Prüfen und Bauen', 'Build-Schritte und „Texte auf zwei Seiten geändert“ (4.2), neu, nicht im Zielbild'],
     ['Veröffentlichen: Patch erstellen', 'Technik › Veröffentlichen (4.1a): zwei Karten statt Assistent, Ziel fest build/, keine Taste in der Titelleiste'],
@@ -34,7 +36,7 @@
     <Frame flex="row" w="fill" gap={24} items="end">
       <Frame flex="col" gap={8} grow={1}>
         {T('Stand der App', { f: Z, s: 48, lh: 56, w: 700 })}
-        {T('29.10.2026, nach Phase 3 (3c, 3b.3, 3b.4, 3g, 3e, 3h, 3f) und 4.0, 4.1a, 4.1b, 4.2, 4.3b, 4.4; nachgetragen am 09.11.2026: 6.2, 6.3b, 6.5a. Die Seiten „Zielbild: …“ zeigen die Idee vom 23.10. mit einer Marke je Screen. Die Seiten „App: …“ zeichnen die App so nach, wie sie heute aussieht. Komponenten (App) stehen auf der Seite Komponenten unter den Zielbild-Brettern.', { s: 15, lh: 22, c: 'text/sekundaer', width: 1000 })}
+        {T('29.10.2026, nach Phase 3 (3c, 3b.3, 3b.4, 3g, 3e, 3h, 3f) und 4.0, 4.1a, 4.1b, 4.2, 4.3b, 4.4; nachgetragen am 09.11.2026: 6.2, 6.3b, 6.5a, 6.4a. Die Seiten „Zielbild: …“ zeigen die Idee vom 23.10. mit einer Marke je Screen. Die Seiten „App: …“ zeichnen die App so nach, wie sie heute aussieht. Komponenten (App) stehen auf der Seite Komponenten unter den Zielbild-Brettern.', { s: 15, lh: 22, c: 'text/sekundaer', width: 1000 })}
       </Frame>
       <Frame flex="col" gap={4} px={16} py={12} rounded={8} bg={v('flaeche/blatt')} stroke={v('linie/leise')} strokeWidth={1}>
         {T('Abweichungen im Detail', { w: 600 })}{Mono('design-system/Audit-Design-System.md')}
