@@ -1085,6 +1085,17 @@ fn world_ready_with(tileset: crate::world::tileset::Tileset) -> TextFixture {
     std::fs::write(project.member_path(AssetKind::MapTexture, 0), &pack).unwrap();
     // The package's file in the text project too, so a build keeps the member.
     fx.write("data/map_textures/0000.nsbtx", &pack);
+    // Building texture pack 0 (area 0's) as a real, empty BTX0: the placeholder of
+    // `TextFixture` carries the magic `BTX0` without a header, which `area_vram` reads (and
+    // refuses) as a pack, so appending to package 0 would fail on it.
+    project.ensure_unpacked(AssetKind::BuildingTexture).unwrap();
+    let buildings = g4_formats::nsbtx::build(&[]).unwrap();
+    std::fs::write(
+        project.member_path(AssetKind::BuildingTexture, 0),
+        &buildings,
+    )
+    .unwrap();
+    fx.write("data/building_textures/0000.nsbtx", &buildings);
     fx.write(
         tileset_rel(0).to_str().unwrap(),
         &crate::textproject::canon::to_canonical(&tileset),

@@ -26,7 +26,7 @@ use crate::textproject::locate::position;
 use super::bake::WorldBakeReport;
 use super::build::member_changed_text;
 use super::doc::WorldJson;
-use super::grid::{WorldError, WorldGrid, error_cell};
+use super::grid::{WorldError, WorldGrid, error_cell, glb_map_errors};
 use super::keep::world_field;
 use super::mesh::{MODEL_BUDGET, piece_problems};
 use super::places::headers_of_map;
@@ -121,6 +121,7 @@ pub fn world_problems(project: &Project) -> Result<Vec<Problem>, KernelError> {
         };
         let at = Spot {
             rel: &rel,
+            map: Some(map),
             bytes: &bytes,
             world: &world,
         };
@@ -208,8 +209,13 @@ pub(crate) fn map_schema_problems(
     let Ok(Some(world)) = world_field(bytes) else {
         return Ok(Vec::new());
     };
+    let map = rel
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.parse().ok());
     let at = Spot {
         rel,
+        map,
         bytes,
         world: &world,
     };
@@ -258,9 +264,10 @@ fn tileset_of(project: &Project, package: u16) -> Result<Option<Tileset>, Kernel
     }
 }
 
-/// One world map file: its path, bytes and world.
+/// One world map file: its path, its map (from the file name), bytes and world.
 struct Spot<'a> {
     rel: &'a Path,
+    map: Option<u16>,
     bytes: &'a [u8],
     world: &'a WorldJson,
 }
@@ -302,7 +309,7 @@ impl Spot<'_> {
     }
 }
 
-/// The `world.schema` errors of `at`.
+/// The `world.schema` errors of `at`, with every `glb` that names another map than the file.
 fn schema_of(
     project: &Project,
     at: &Spot<'_>,
@@ -312,6 +319,13 @@ fn schema_of(
     let grid = match WorldGrid::parse(at.world) {
         Ok(grid) => grid,
         Err(errors) => return Ok(errors.iter().map(|e| at.error(e)).collect()),
+    };
+    let mut problems: Vec<Problem> = match at.map {
+        Some(map) => glb_map_errors(at.world, map)
+            .iter()
+            .map(|e| at.error(e))
+            .collect(),
+        None => Vec::new(),
     };
     let package = grid.tileset;
     if project.has_archive(AssetKind::MapTexture) {
@@ -325,16 +339,15 @@ fn schema_of(
                 path: "world.tileset".to_owned(),
                 message: text,
             };
-            return Ok(vec![at.error(&e)]);
+            problems.push(at.error(&e));
+            return Ok(problems);
         }
     }
     let Some(tileset) = tilesets.get(project, package)? else {
-        return Ok(Vec::new());
+        return Ok(problems);
     };
-    Ok(tile_errors(&grid, &tileset)
-        .iter()
-        .map(|e| at.error(e))
-        .collect())
+    problems.extend(tile_errors(&grid, &tileset).iter().map(|e| at.error(e)));
+    Ok(problems)
 }
 
 /// The tiles of `grid` past `tileset` (the first per row, like a token error), the pieces whose
@@ -506,6 +519,47 @@ mod tests {
             u32::try_from(z + 1).unwrap(),
             u32::try_from(col + 1).unwrap(),
         )
+    }
+
+    #[test]
+    fn a_glb_of_another_map_is_a_schema_problem() {
+        use crate::world::doc::FreeformJson;
+
+        let fx = fixture();
+        let mut w = fixtures::one_tile_world();
+        let glb = |name: &str| FreeformJson {
+            glb: Some(name.to_owned()),
+            nsbmd: None,
+            at: [0, 0, 0],
+        };
+        w.freeform = vec![glb("0000.haus.glb")];
+        put_world(&fx, &w);
+        let problems = problems_of(&fx);
+        assert!(
+            with_code(&problems, WORLD_SCHEMA_CODE).is_empty(),
+            "{problems:#?}"
+        );
+        w.freeform = vec![glb("0000.haus.glb"), glb("0001.haus.glb")];
+        put_world(&fx, &w);
+        let problems = problems_of(&fx);
+        let schema = with_code(&problems, WORLD_SCHEMA_CODE);
+        assert_eq!(schema.len(), 1, "{problems:#?}");
+        assert_eq!(
+            schema[0].message,
+            "world.schema: world.freeform[1].glb: `glb` nennt ein Beifile dieser Karte: \
+             `0000.<name>.glb` mit a\u{2013}z, 0\u{2013}9, `_`, `-`."
+        );
+        // `0004.haus.glb` on map 3 names the map's own form.
+        w.freeform = vec![glb("0004.haus.glb")];
+        let errors = glb_map_errors(&w, 3);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].path, "world.freeform[0].glb");
+        assert_eq!(
+            errors[0].message,
+            "`glb` nennt ein Beifile dieser Karte: `0003.<name>.glb` mit a\u{2013}z, \
+             0\u{2013}9, `_`, `-`."
+        );
+        assert!(glb_map_errors(&w, 4).is_empty());
     }
 
     #[test]
@@ -719,6 +773,9 @@ mod tests {
             verbatim_model: false,
             verbatim_terrain: false,
             messages: Vec::new(),
+            freeform_faces: 0,
+            strips: 0,
+            single_quads: 0,
         }
     }
 

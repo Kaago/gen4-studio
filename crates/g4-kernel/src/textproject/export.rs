@@ -22,6 +22,7 @@ use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::start::{MarkState, mark_state};
 use crate::text::{self, Problem, Severity};
+use crate::world::freeform::named_side_files_in;
 #[cfg(doc)]
 use crate::world::keep::carry_world;
 use crate::world::keep::carry_world_parts;
@@ -704,9 +705,15 @@ fn write_folder(root: &Path, art: Art, files: &ArtFiles) -> Result<ArtStats, Ker
             stats.written += 1;
         }
     }
+    // The side files a world map names are the user's (no member holds them): kept.
+    let keep: Vec<String> = if art == Art::Maps {
+        named_side_files_of(files)
+    } else {
+        Vec::new()
+    };
     let dir = root.join(rel);
     for name in file_names(&dir)? {
-        if !files.contains_key(&name) {
+        if !files.contains_key(&name) && !keep.contains(&name) {
             let path = dir.join(&name);
             std::fs::remove_file(&path).map_err(io_at(&path))?;
             stats.removed += 1;
@@ -749,6 +756,21 @@ fn world_map_files(
         }
     }
     Ok(out)
+}
+
+/// The side files the map files `files` name, each of its own map (`NNNN.json` names
+/// `NNNN.<name>.glb`; one it names of another map is that map's to keep or drop).
+fn named_side_files_of(files: &BTreeMap<String, Vec<u8>>) -> Vec<String> {
+    files
+        .iter()
+        .filter_map(|(name, bytes)| Some((name.strip_suffix(".json")?, bytes)))
+        .flat_map(|(stem, bytes)| {
+            let prefix = format!("{stem}.");
+            named_side_files_in(bytes)
+                .into_iter()
+                .filter(move |file| file.starts_with(&prefix))
+        })
+        .collect()
 }
 
 /// Deletes folder `dir` when it holds nothing (a missing folder is fine).
@@ -990,5 +1012,97 @@ mod tests {
             "{text}"
         );
         assert_eq!(fx.read(MAP), file);
+    }
+
+    #[test]
+    fn export_keeps_named_side_files_and_drops_orphans() {
+        const SIDE: &str = "data/maps/0000.haus.glb";
+        const SECOND: &str = "data/maps/0000.turm.glb";
+        const ORPHAN: &str = "data/maps/0000.alt.glb";
+        const OTHER: &str = "data/maps/0001.haus.glb";
+        let fx = TextFixture::exported();
+        let mut world = busy_world();
+        for name in ["0000.haus.glb", "0000.turm.glb", "0000.haus.glb"] {
+            world.freeform.push(crate::world::FreeformJson {
+                glb: Some(name.to_owned()),
+                nsbmd: None,
+                at: [0, 0, 0],
+            });
+        }
+        let file = world_file(fx.read(MAP), &world);
+        fx.write(MAP, &file);
+        for side in [SIDE, SECOND, ORPHAN, OTHER] {
+            fx.write(side, side.as_bytes());
+        }
+        let report = forced(&fx).unwrap();
+        assert_eq!(report.written, 0, "{report:#?}");
+        assert_eq!(fx.read(MAP), file);
+        assert_eq!(fx.read(SIDE), SIDE.as_bytes());
+        assert_eq!(fx.read(SECOND), SECOND.as_bytes());
+        // Named by no map: gone, as every file of the folder the export does not write.
+        assert!(!fx.root().join(ORPHAN).exists());
+        assert!(!fx.root().join(OTHER).exists());
+
+        // A world the check refuses still keeps the side files it names.
+        let broken = String::from_utf8(file)
+            .unwrap()
+            .replacen("\"tiles\"", "\"tile\"", 1);
+        fx.write(MAP, broken.as_bytes());
+        fx.write(ORPHAN, b"x");
+        forced(&fx).unwrap();
+        assert_eq!(fx.text(MAP), broken);
+        assert_eq!(fx.read(SIDE), SIDE.as_bytes());
+        assert_eq!(fx.read(SECOND), SECOND.as_bytes());
+        assert!(!fx.root().join(ORPHAN).exists());
+
+        // The world names none of them any more: they go.
+        let mut world = busy_world();
+        world.freeform.clear();
+        fx.write(MAP, &world_file(fx.read(MAP), &world));
+        forced(&fx).unwrap();
+        assert!(!fx.root().join(SIDE).exists());
+        assert!(!fx.root().join(SECOND).exists());
+    }
+
+    #[test]
+    fn the_tileset_folder_keeps_piece_models() {
+        use crate::store::Store;
+        use crate::world::edit::{WorldCreateRequest, world_create};
+        use crate::world::tileset::{Tileset, TilesetEditRequest, tileset_edit, tileset_rel};
+        const PIECE: &str = "data/tilesets/0000.turm.glb";
+        let fx = crate::test_support::world_ready();
+        let mut tileset = Tileset::synthetic();
+        tileset.tiles[5].model = Some("turm".to_owned());
+        fx.write(
+            tileset_rel(0).to_str().unwrap(),
+            &crate::textproject::canon::to_canonical(&tileset),
+        );
+        let glb = b"glTF piece model".to_vec();
+        fx.write(PIECE, &glb);
+
+        // The export.
+        forced(&fx).unwrap();
+        assert_eq!(fx.read(PIECE), glb);
+        // A store save.
+        let mut st = Store::new(std::sync::Arc::new(fx.project()));
+        let req: WorldCreateRequest =
+            serde_json::from_value(serde_json::json!({"map": 0, "tileset": 0})).unwrap();
+        world_create(&mut st, &req).unwrap();
+        assert!(!st.save().unwrap().written.is_empty());
+        assert_eq!(fx.read(PIECE), glb);
+        // `tileset_edit`, also clearing the model.
+        for change in [
+            serde_json::json!({"tile": 0, "kind": 2}),
+            serde_json::json!({"tile": 5, "model": null}),
+        ] {
+            let req: TilesetEditRequest =
+                serde_json::from_value(serde_json::json!({"package": 0, "changes": [change]}))
+                    .unwrap();
+            tileset_edit(&mut st, &req).unwrap();
+            assert_eq!(fx.read(PIECE), glb, "{change}");
+        }
+        st.save().unwrap();
+        forced(&fx).unwrap();
+        assert_eq!(fx.read(PIECE), glb);
     }
 }

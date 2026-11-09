@@ -6,8 +6,11 @@
 //! [`bake_grid`] gives the parts and the messages, [`assemble`] puts them into a map file whose
 //! buildings, tail and BGS stay, [`report`] sums the result up. A verbatim part (Form 1 of
 //! „Karte als Quelle übernehmen“, [`Verbatim`]) passes through byte-equal; a refused model keeps
-//! the map's last model. [`bake_world`] is the store's way in: it takes the tileset, the
-//! textures of the world's package and the style and VRAM of the map's area from the store.
+//! the map's last model. The faces are the grid's with the geometry of the piece models in place
+//! of their footprints, then the free-form models (6.5b), both from the side files the store
+//! loaded ([`SideModels`] in [`BakeEnv`]). [`bake_world`] is the store's way in: it takes the
+//! tileset, the textures of the world's package, the side files and the style and VRAM of the
+//! map's area from the store.
 
 use g4_formats::bdhc::{self, Bdhc};
 use g4_formats::game::Family;
@@ -17,8 +20,9 @@ use serde::Serialize;
 
 use super::check::{WORLD_SCHEMA_CODE, thousands};
 use super::doc::WorldJson;
+use super::freeform::{SideModels, load_side_models};
 use super::grid::WorldGrid;
-use super::mesh::{MODEL_BUDGET, MeshFace, footprint_of, mesh};
+use super::mesh::{MODEL_BUDGET, MeshFace, footprint_of, mesh_with};
 use super::tileset::{TileJson, Tileset};
 use crate::bake::{
     AreaStyle, BakeCode, BakeInput, BakeMessage, BakeReport, Face, Level, PackTexture, WORLD_MAX,
@@ -31,7 +35,7 @@ use crate::terrain::block_edges;
 
 /// The revision of the world bake: raised whenever the same world bakes to other bytes (the
 /// build step `world` salts its input hash with it).
-pub const WORLD_BAKE_REV: u32 = 1;
+pub const WORLD_BAKE_REV: u32 = 2;
 /// The most the model floor may lie off the BDHC at a cell centre, in world units.
 pub const FLOOR_TOLERANCE: f64 = 0.1;
 /// The permission of a cell without a tile in any layer: blocked.
@@ -42,10 +46,8 @@ pub const EMPTY_CELL: Cell = Cell {
 
 /// A painted map outside every matrix cell with a header.
 pub const NO_AREA_CODE: &str = "world.no-area";
-/// A verbatim model together with painted tiles.
+/// A verbatim model together with painted tiles or free-form models.
 pub const VERBATIM_MIXED_CODE: &str = "world.verbatim-mixed";
-/// A glTF free-form model.
-pub const FREEFORM_LATER_CODE: &str = "world.freeform-later";
 
 /// The blocking bit of the collision byte.
 const BLOCKED: u8 = 0x80;
@@ -76,12 +78,13 @@ impl Verbatim {
 }
 
 /// What the pure bake needs: the map (for the messages), the tileset, the bake input of the
-/// map's area (`None` without area) and the family.
+/// map's area (`None` without area), the family and the side files of the world.
 pub struct BakeEnv<'a> {
     pub map: u16,
     pub tileset: &'a Tileset,
     pub input: Option<BakeInput<'a>>,
     pub family: Family,
+    pub side: &'a SideModels,
 }
 
 /// A finding of the world bake: its code (`world.no-area` or the baker's `bake.*`), level, the
@@ -96,7 +99,7 @@ pub struct WorldBakeMessage {
 }
 
 impl WorldBakeMessage {
-    fn error(code: &str, args: Vec<String>, message: String) -> WorldBakeMessage {
+    pub(crate) fn error(code: &str, args: Vec<String>, message: String) -> WorldBakeMessage {
         WorldBakeMessage {
             code: code.to_owned(),
             level: Level::Error,
@@ -161,9 +164,12 @@ pub fn baker_text(code: BakeCode, args: &[String]) -> Option<String> {
 }
 
 /// The parts of a bake: `model` is `None` when it is refused (a message says why) or verbatim.
+/// `faces` are the grid's (with piece geometry), then the free-form ones.
 #[derive(Debug, Clone)]
 pub struct GridBake {
     pub faces: Vec<MeshFace>,
+    /// Faces of free-form models among `faces` (the last ones).
+    pub freeform_faces: usize,
     pub model: Option<BakeReport>,
     pub bdhc: Vec<u8>,
     pub permissions: Vec<Cell>,
@@ -181,7 +187,7 @@ pub struct WorldBakeReport {
     /// No message with level error.
     pub ok: bool,
     pub style: Option<AreaStyle>,
-    /// Faces of the mesher.
+    /// Faces of the bake: the mesher's (with piece geometry) and the free-form ones.
     pub faces: usize,
     /// Bytes of the map's model (the kept one when the bake was refused).
     pub model_bytes: usize,
@@ -203,6 +209,12 @@ pub struct WorldBakeReport {
     pub verbatim_model: bool,
     pub verbatim_terrain: bool,
     pub messages: Vec<WorldBakeMessage>,
+    /// Faces of free-form models among `faces`.
+    pub freeform_faces: usize,
+    /// Quad strips the baked model sends (0 without a baked model).
+    pub strips: usize,
+    /// Faces the baked model sends as single quads (0 without a baked model).
+    pub single_quads: usize,
 }
 
 /// The derived permissions of `grid` (`derive: true`, before the hand values): the cells from
@@ -261,34 +273,33 @@ pub(crate) fn tile_cells(grid: &WorldGrid, tileset: &Tileset, family: Family) ->
 }
 
 /// Bakes `grid` (the grid of `world`): model, BDHC and permissions with the messages in a fixed
-/// order: a glTF free-form model (`world.freeform-later`); with a verbatim model, painted faces
-/// (`world.verbatim-mixed`); without one no face (`bake.empty`), no area (`world.no-area`), else
-/// the baker's refusal and its VRAM warning. The model is `None` on every refusal and when it is
-/// verbatim; BDHC and permissions are always there.
+/// order: the side files' messages (`env.side.messages`); with a verbatim model, painted or
+/// free-form faces (`world.verbatim-mixed`); without one no face (`bake.empty`), no area
+/// (`world.no-area`), else the baker's refusal and its VRAM warning. The faces are
+/// [`mesh_with`] the piece models, then every free-form model that read, moved by its `at`. The
+/// model is `None` on every refusal (a side file that is missing or does not read refuses it
+/// too) and when it is verbatim; BDHC and permissions are always there.
 pub fn bake_grid(
     grid: &WorldGrid,
     world: &WorldJson,
     verbatim: &Verbatim,
     env: &BakeEnv,
 ) -> GridBake {
-    let faces = mesh(grid, env.tileset);
-    let mut messages = Vec::new();
-    let gltf = world.freeform.iter().any(|f| f.glb.is_some());
-    if gltf {
-        messages.push(WorldBakeMessage::error(
-            FREEFORM_LATER_CODE,
-            Vec::new(),
-            "glTF-Freiform backt 6.5b.".to_owned(),
-        ));
-    }
+    let mut faces = mesh_with(grid, env.tileset, &env.side.pieces);
+    let grid_faces = faces.len();
+    faces.extend(env.side.freeform_faces().cloned().map(MeshFace::from));
+    let freeform_faces = faces.len() - grid_faces;
+    let mut messages = env.side.messages.clone();
+    let side_refused = messages.iter().any(|m| m.level == Level::Error);
     let mut model = None;
     if verbatim.model.is_some() {
-        if !faces.is_empty() {
+        if !faces.is_empty() || world.freeform.iter().any(|f| f.glb.is_some()) {
             messages.push(WorldBakeMessage::error(
                 VERBATIM_MIXED_CODE,
                 Vec::new(),
-                "Ein Verbatim-Modell (Form 1) und gemalte Kacheln zusammen backt erst 6.5b; \
-                 Kacheln leeren oder „Als binäre Karte übernehmen“."
+                "Ein Verbatim-Modell (Form 1) backt nur allein; für Kacheln oder Freiform \
+                 daneben die Karte als binäre Karte übernehmen und mit Form 2 (glTF) neu \
+                 übernehmen."
                     .to_owned(),
             ));
         }
@@ -299,7 +310,7 @@ pub fn bake_grid(
             baker_text(BakeCode::Empty, &[]).unwrap_or_default(),
         ));
     } else if let Some(input) = &env.input {
-        if !gltf {
+        if !side_refused {
             model = bake_model(&faces, input, &mut messages);
         }
     } else {
@@ -334,6 +345,7 @@ pub fn bake_grid(
     };
     GridBake {
         faces,
+        freeform_faces,
         model,
         bdhc,
         permissions,
@@ -414,6 +426,9 @@ pub fn report(
         verbatim_model: bake.verbatim_model,
         verbatim_terrain: bake.verbatim_terrain,
         messages: bake.messages.clone(),
+        freeform_faces: bake.freeform_faces,
+        strips: bake.model.as_ref().map_or(0, |m| m.strips),
+        single_quads: bake.model.as_ref().map_or(0, |m| m.single_quads),
     }
 }
 
@@ -458,8 +473,31 @@ pub fn world_pack_textures(
         .collect())
 }
 
+/// The bytes of package `package` (`pack` when given, else its member) and the textures the world
+/// bake binds from them ([`world_pack_textures`] with `tileset`): the bake and the scene bind the
+/// same. A package that is missing or does not read gives no bytes and no textures.
+pub(crate) fn bake_pack(
+    store: &Store,
+    package: u16,
+    tileset: &Tileset,
+    pack: Option<&[u8]>,
+) -> Result<(Option<Vec<u8>>, Vec<PackTexture>), KernelError> {
+    let member = match pack {
+        Some(bytes) => Some(bytes.to_vec()),
+        None => store.project().map_tileset_member(package)?,
+    };
+    Ok(match member {
+        Some(bytes) => match world_pack_textures(&bytes, tileset) {
+            Ok(textures) => (Some(bytes), textures),
+            Err(_) => (None, Vec::new()),
+        },
+        None => (None, Vec::new()),
+    })
+}
+
 /// Bakes `world` for map `map` with the store: `Store::tileset(world.tileset)`,
-/// [`world_pack_textures`] of that package's member, style and VRAM of the first of `map_areas(store, map)`. `Err`
+/// [`world_pack_textures`] of that package's member, the side files bound to those textures
+/// ([`load_side_models`]), style and VRAM of the first of `map_areas(store, map)`. `Err`
 /// only for a world that does not parse (`world.schema`) or I/O; refusals are in the report.
 ///
 /// `base` gives the buildings, the tail and the BGS, and the model a refused bake keeps;
@@ -473,6 +511,20 @@ pub fn bake_world(
     base: &MapFile,
     verbatim: &Verbatim,
 ) -> Result<WorldBake, KernelError> {
+    bake_world_with(store, map, world, base, verbatim, None, None)
+}
+
+/// [`bake_world`] with what it would read held in memory: `pack` (when given) in place of the
+/// package member's bytes, `side` (when given) in place of the side files on disk.
+pub(crate) fn bake_world_with(
+    store: &mut Store,
+    map: u16,
+    world: &WorldJson,
+    base: &MapFile,
+    verbatim: &Verbatim,
+    pack: Option<&[u8]>,
+    side: Option<&SideModels>,
+) -> Result<WorldBake, KernelError> {
     let grid = WorldGrid::parse(world).map_err(|errors| {
         KernelError::Refused(match errors.first() {
             Some(e) => format!("{WORLD_SCHEMA_CODE}: {e}"),
@@ -481,12 +533,14 @@ pub fn bake_world(
     })?;
     let tileset = store.tileset(world.tileset)?;
     let family = store.project().family;
-    let (pack, textures) = match store.project().map_tileset_member(world.tileset)? {
-        Some(bytes) => match world_pack_textures(&bytes, &tileset) {
-            Ok(textures) => (Some(bytes), textures),
-            Err(_) => (None, Vec::new()),
-        },
-        None => (None, Vec::new()),
+    let (pack, textures) = bake_pack(store, world.tileset, &tileset, pack)?;
+    let loaded;
+    let side = match side {
+        Some(side) => side,
+        None => {
+            loaded = load_side_models(store.project(), map, world, &tileset, &textures);
+            &loaded
+        }
     };
     let mut area = None;
     if let Some(&id) = map_areas(store, map)?.first()
@@ -513,6 +567,7 @@ pub fn bake_world(
             vram_limit: vanilla_vram_max(family),
         }),
         family,
+        side,
     };
     let bake = bake_grid(&grid, world, verbatim, &env);
     let (file, kept) = assemble(base, &bake, verbatim);

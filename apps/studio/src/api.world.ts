@@ -1,4 +1,4 @@
-import type { SpriteDto } from "./api";
+import type { ImportOptions, PartMessage, SpriteDto, TexturePreview } from "./api";
 import { invoke } from "./platform/transport";
 
 /**
@@ -20,8 +20,9 @@ export interface MeshTextureDto {
 
 /**
  * The mesh of a world map as flat arrays: per face 12 corner coordinates (four corners `x, y, z` in world units around the map
- * centre, counter-clockwise seen from the front), 8 UV values (texels), the index of its texture in `textures` and its layer
- * (0 the ground, overlays from 1, 255 the footprints of the pieces). A map without a world has no faces.
+ * centre, counter-clockwise seen from the front), 8 UV values (texels), the index of its texture in `textures`, its layer
+ * (0 the ground, overlays from 1, 254 the free-form models, 255 the pieces) and whether it is model geometry (`model`: a free-form
+ * model's or a piece's side file, not a grid face or a footprint). A map without a world has no faces.
  */
 export interface WorldMeshDto {
   map: number;
@@ -32,6 +33,7 @@ export interface WorldMeshDto {
   uv: number[];
   texture: number[];
   layer: number[];
+  model: boolean[];
 }
 
 /** One layer of a world: `tiles` 32 rows of 32 tile tokens; only the ground layer has `heights` (and `ramps` with a ramp). */
@@ -86,6 +88,10 @@ export interface WorldBakeReport {
   verbatim_model: boolean;
   verbatim_terrain: boolean;
   messages: WorldBakeMessage[];
+  /** Since 6.5b: the faces of the free-form models among `faces`, the quad strips and single quads the baked model sends (0 without a baked model). */
+  freeform_faces: number;
+  strips: number;
+  single_quads: number;
 }
 
 /**
@@ -125,6 +131,8 @@ export interface WorldAdoptReport {
   deviations: HeightDeviation[];
   change: number | null;
   bake: WorldBakeReport;
+  /** Form 2 (6.5b): the figures of the vanilla and the baked model; null for Form 1. */
+  form2?: Form2Report | null;
 }
 
 /** What a world edit did (`world_create`, `world_edit`, `world_layers`, `world_to_binary`): the map, its package, the cells, the undo step and the bake (null without world). */
@@ -138,13 +146,90 @@ export interface WorldReport {
   notes?: string[];
 }
 
-/** „Karte als Quelle übernehmen“ (Form 1, verbatim): the binary map `map` becomes a world map that bakes byte-equal; one undo step. */
-export const worldAdopt = (map: number) => invoke<WorldAdoptReport>("world_adopt", { req: { map } });
+/**
+ * „Karte als Quelle übernehmen“: the binary map `map` becomes a world map; one undo step. Form 1 (`verbatim`, the default) bakes byte-equal,
+ * Form 2 (`gltf`, 6.5b) turns the model into a glTF side file that bakes anew.
+ */
+export const worldAdopt = (map: number, form: "verbatim" | "gltf" = "verbatim") => invoke<WorldAdoptReport>("world_adopt", { req: { map, form } });
 /** „Als binäre Karte übernehmen“: the world of `map` goes, its bake stays as the map; one undo step. */
 export const worldToBinary = (map: number) => invoke<WorldReport>("world_to_binary", { map });
 /** The bake of world map `map` as the store holds it (null without world or outside a text project); rejects a world whose rows do not read. */
 export const worldBake = (map: number) => invoke<WorldBakeReport | null>("world_bake", { map });
 
+// ---- Phase 6.5b: free-form models, form 2, Tiled exchange ----
+
+/** Form 2 of „übernehmen“: the polygons of the vanilla model and the faces the baker drew (they differ: it draws quad strips), the parts of the glTF left out, the side file. */
+export interface Form2Report {
+  vanilla: { polygons: number; quads: number; triangles: number; bytes: number };
+  baked: { faces: number; quads: number; triangles: number; strips: number; single_quads: number; dropped: number; bytes: number; untextured: number };
+  ignored: string[];
+  glb: string;
+}
+
+/** What inspect or add of a free-form model found or did: the side file, the figures of the conversion, its textures, the hints, the undo step (null for inspect) and the world's bake with the model. */
+export interface FreeformReport {
+  map: number;
+  glb: string;
+  stats: { polygons: number; quads: number; triangles: number; dropped: number };
+  textures: TexturePreview[];
+  notes: PartMessage[];
+  change: number | null;
+  bake: WorldBakeReport | null;
+}
+
+/** What `world_freeform_inspect` answers: the report (`ok`), or the model's refusal with the hints found before it. */
+export interface FreeformInspect {
+  ok: boolean;
+  report: FreeformReport | null;
+  refusal: PartMessage | null;
+  notes: PartMessage[];
+}
+
+/** An error of a TMJ file at `path` (`layers[2].data[517]`). */
+export interface TmjError {
+  path: string;
+  message: string;
+}
+
+/** What `world_export_tmj` wrote: the file, its layers, the tile images next to it (`<stem>.tiles/`), the pieces and the permission overrides. */
+export interface TmjExportReport {
+  map: number;
+  path: string;
+  layers: number;
+  images: number;
+  pieces: number;
+  overrides: number;
+}
+
+/** What a TMJ import read or did: the world's layers, the cells that change, the notes (codes), the file's errors, the undo step (null: none) and the bake (null without a change). */
+export interface TmjImportReport {
+  map: number;
+  layers: number;
+  cells: number;
+  notes: string[];
+  errors: TmjError[];
+  change: number | null;
+  bake: WorldBakeReport | null;
+}
+
+/** The request of a free-form model: the model file, where it sits (world units around the map centre, default 0, 0, 0) and how it converts. */
+export interface FreeformRequest {
+  map: number;
+  path: string;
+  at?: [number, number, number];
+  options?: ImportOptions;
+}
+
+/** Reads the model against the world of `req.map` and bakes it in memory; nothing written. */
+export const worldFreeformInspect = (req: FreeformRequest) => invoke<FreeformInspect>("world_freeform_inspect", { req });
+/** Adds the model to the world of `req.map` as a side file; one undo step. */
+export const worldFreeformAdd = (req: FreeformRequest) => invoke<FreeformReport>("world_freeform_add", { req });
+/** Writes world map `map` as a Tiled map to `path`, its tile images to `<stem>.tiles/`; nothing in the project changes. */
+export const worldExportTmj = (map: number, path: string) => invoke<TmjExportReport>("world_export_tmj", { map, path });
+/** Reads the TMJ at `path` against world map `map`; nothing changed. */
+export const worldInspectTmj = (map: number, path: string) => invoke<TmjImportReport>("world_inspect_tmj", { map, path });
+/** The world of `map` from the TMJ at `path`, one undo step (none when the file equals the world). */
+export const worldImportTmj = (map: number, path: string) => invoke<TmjImportReport>("world_import_tmj", { map, path });
 /* ---- Painting (6.4a): `world_edit`, `world_layers`, the tileset commands. ---- */
 
 /**
@@ -220,7 +305,7 @@ export interface TilesetSaveReport {
 /** Writes the derived tileset of package `pkg` as a file (one undo step). */
 export const tilesetSave = (pkg: number) => invoke<TilesetSaveReport>("tileset_save", { package: pkg });
 
-/** One change of `tileset_edit`: tile `tile` and the values to set (`wall` null clears it). */
+/** One change of `tileset_edit`: tile `tile` and the values to set (`wall` null clears it, `model` null the model side file name). */
 export interface TileChange {
   tile: number;
   role?: TileRole;
@@ -228,6 +313,7 @@ export interface TileChange {
   collision?: number;
   sound?: number;
   wall?: number | null;
+  model?: string | null;
 }
 
 /** What `tileset_edit` did: the package, the tiles it changed and the undo step. */

@@ -131,6 +131,7 @@ pub static FORMATS: &[(&str, &str)] = &[
         "tileset",
         include_str!("../../../../../docs/formats/tileset.md"),
     ),
+    ("tmj", include_str!("../../../../../docs/formats/tmj.md")),
     (
         "trainer",
         include_str!("../../../../../docs/formats/trainer.md"),

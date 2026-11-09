@@ -3,8 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { importMapParts, inspectMapImport } from "../../api";
-import type { CheckProblemDto, ImportPreview, PartReport } from "../../api";
+import { importMapParts, inspectMapImport, worldFreeformAdd, worldFreeformInspect, worldGet, worldImportTmj, worldInspectTmj } from "../../api";
+import type { CheckProblemDto, FreeformInspect, ImportPreview, PartReport, TmjImportReport, WorldBakeReport, WorldGetDto } from "../../api";
 import { fakeChecks, finding } from "../../checks/checksTesting";
 import type { ChecksApi } from "../../checks/useChecks";
 import { typeInto } from "../../ui/primitives/testUtils";
@@ -12,7 +12,16 @@ import { openFiles } from "../../platform/dialogs";
 import { ImportPartsDialog } from "./ImportPartsDialog";
 
 vi.mock("../../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../platform/dialogs")>()), openFiles: vi.fn() }));
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), inspectMapImport: vi.fn(), importMapParts: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api")>()),
+  inspectMapImport: vi.fn(),
+  importMapParts: vi.fn(),
+  worldGet: vi.fn(),
+  worldFreeformInspect: vi.fn(),
+  worldFreeformAdd: vi.fn(),
+  worldInspectTmj: vi.fn(),
+  worldImportTmj: vi.fn(),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -32,6 +41,39 @@ const reports: PartReport[] = [
   { part: "buildings", file: null, size: 50, state: { kind: "error", code: "buildings.size", args: ["50", "48"], message: "buildings are 50 bytes, not a multiple of 48" }, notes: [] },
 ];
 
+const worldDto = (world: boolean): WorldGetDto => ({
+  map: 5,
+  world: world ? { version: 2, tileset: 6, layers: [], permissions: { derive: true } } : null,
+  faces: 0,
+  textures: 0,
+  estimate: 0,
+  share: 0,
+  bake: null,
+});
+
+const worldBake = (over: Partial<WorldBakeReport> = {}): WorldBakeReport => ({
+  map: 5,
+  ok: true,
+  style: "outdoor",
+  faces: 12,
+  model_bytes: 21740,
+  model_share: 0.35,
+  model_kept: false,
+  textures: [],
+  vram_bytes: 0,
+  bdhc_bytes: 350,
+  bdhc_payload: 334,
+  plates: 4,
+  blocked: 0,
+  verbatim_model: false,
+  verbatim_terrain: false,
+  messages: [],
+  freeform_faces: 6,
+  strips: 2,
+  single_quads: 0,
+  ...over,
+});
+
 describe("ImportPartsDialog", () => {
   let container: HTMLElement;
   let root: Root;
@@ -47,6 +89,11 @@ describe("ImportPartsDialog", () => {
     root = createRoot(container);
     vi.mocked(inspectMapImport).mockReset().mockResolvedValue(reports);
     vi.mocked(importMapParts).mockReset().mockResolvedValue([{ kind: "Map", index: 5 }]);
+    vi.mocked(worldGet).mockReset().mockResolvedValue(worldDto(false));
+    vi.mocked(worldFreeformInspect).mockReset();
+    vi.mocked(worldFreeformAdd).mockReset();
+    vi.mocked(worldInspectTmj).mockReset();
+    vi.mocked(worldImportTmj).mockReset();
     onClose.mockReset();
     onImported.mockReset();
   });
@@ -391,6 +438,212 @@ describe("ImportPartsDialog", () => {
       expect(checks.nextReport).not.toHaveBeenCalled();
       expect(dialog().textContent).toContain("Nichts geändert");
       expect(dialog().textContent).not.toContain("Prüft die Karte");
+    });
+  });
+
+  describe("a world map", () => {
+    const freeform: FreeformInspect = {
+      ok: true,
+      report: {
+        map: 5,
+        glb: "0005.haus.glb",
+        stats: { polygons: 6, quads: 6, triangles: 0, dropped: 0 },
+        textures: [{ name: "g4_imp_cube", file: "/p/g4_imp_cube.png", width: 16, height: 16, colors: 16, new: true, mean_error: 7.6 }],
+        notes: [{ code: "model.converted", args: ["glTF", "6", "6", "0", "2", "0"], message: "glTF model converted" }],
+        change: null,
+        bake: worldBake(),
+      },
+      refusal: null,
+      notes: [],
+    };
+    const tmj = (over: Partial<TmjImportReport> = {}): TmjImportReport => ({ map: 5, layers: 2, cells: 17, notes: [], errors: [], change: null, bake: worldBake(), ...over });
+    const at = (axis: string) => dialog().querySelector<HTMLInputElement>(`input[aria-label='${axis}']`);
+    async function showWorldFiles(paths: string) {
+      vi.mocked(worldGet).mockResolvedValue(worldDto(true));
+      await act(async () => root.render(<ImportPartsDialog map={5} open onClose={onClose} mapCount={600} onImported={onImported} checks={checks} />));
+      await flush();
+      await act(async () => button("Datei")!.click());
+      const area = dialog().querySelector<HTMLTextAreaElement>("textarea")!;
+      await act(async () => void area.focus());
+      typeInto(area, paths);
+      await act(async () => void area.blur());
+      await flush();
+    }
+    async function typeAt(axis: string, text: string) {
+      await act(async () => void at(axis)!.focus());
+      typeInto(at(axis)!, text);
+      await act(async () => void at(axis)!.blur());
+      await flush();
+    }
+
+    it("a_world_map_offers_freeform_for_glb_obj_and_gltf", async () => {
+      vi.mocked(worldFreeformInspect).mockResolvedValue(freeform);
+      for (const file of ["/p/haus.glb", "/p/haus.obj", "/p/haus.gltf"]) {
+        await act(async () => root.render(<div />));
+        await showWorldFiles(file);
+        expect(worldGet).toHaveBeenCalledWith(5);
+        expect(dialog().querySelector<HTMLElement>("[data-import-dialog]")!.dataset.world).toBe("true");
+        expect(worldFreeformInspect).toHaveBeenLastCalledWith({ map: 5, path: file, at: [0, 0, 0], options: { unit: 16, colors: 16 } });
+        // The model is no map part of a world map: the part check is not asked.
+        expect(inspectMapImport).not.toHaveBeenCalled();
+        const row = dialog().querySelector<HTMLElement>("[data-import-part='freeform']")!;
+        expect(row.textContent).toContain("Freiform (glTF)");
+        expect(row.textContent).toContain("glTF-Modell umgewandelt: 6 Flächen, 6 Vierecke, 0 Dreiecke, 2 Streifen.");
+        expect(row.textContent).toContain("g4_imp_cube · 16 × 16 · 16 Farben · neu");
+        expect(row.querySelector("[role=meter]")!.getAttribute("aria-valuetext")).toBe("21.740 von 61.440 B");
+        expect(box("Freiform (glTF)").getAttribute("aria-checked")).toBe("true");
+        // „Lage“ above the row: three number fields in world units.
+        const place = dialog().querySelector<HTMLElement>("[data-import-at]")!;
+        expect(place.textContent).toContain("Lage");
+        expect(place.textContent).toContain("16 = eine Kachel; 0, 0, 0 = Kartenmitte");
+        expect([at("x")!.value, at("y")!.value, at("z")!.value]).toEqual(["0", "0", "0"]);
+        expect(place.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(button("1 Teil übernehmen")!.disabled).toBe(false);
+      }
+      // A refused model says why and cannot be chosen.
+      vi.mocked(worldFreeformInspect).mockResolvedValue({
+        ok: false,
+        report: null,
+        refusal: { code: "model.no-geometry", args: [], message: "no faces" },
+        notes: [],
+      });
+      await act(async () => root.render(<div />));
+      await showWorldFiles("/p/leer.obj");
+      const row = dialog().querySelector<HTMLElement>("[data-import-part='freeform']")!;
+      expect(row.textContent).toContain("Das Modell enthält keine Flächen.");
+      expect(box("Freiform (glTF)").getAttribute("aria-checked")).toBe("false");
+      expect(button("0 Teile übernehmen")!.disabled).toBe(true);
+    });
+
+    it("freeform_sends_at_and_options", async () => {
+      vi.mocked(worldFreeformInspect).mockResolvedValue(freeform);
+      vi.mocked(worldFreeformAdd).mockResolvedValue({ ...freeform.report!, change: 9 });
+      await showWorldFiles("/p/haus.glb");
+      await typeAt("x", "16");
+      await typeAt("z", "-32");
+      expect(worldFreeformInspect).toHaveBeenLastCalledWith({ map: 5, path: "/p/haus.glb", at: [16, 0, -32], options: { unit: 16, colors: 16 } });
+      // A field that is no whole number says so and asks nothing.
+      const calls = vi.mocked(worldFreeformInspect).mock.calls.length;
+      await typeAt("y", "abc");
+      expect(dialog().textContent).toContain("Das ist keine ganze Zahl.");
+      expect(worldFreeformInspect).toHaveBeenCalledTimes(calls);
+      await typeAt("y", "8");
+      const four = [...dialog().querySelectorAll<HTMLElement>("[aria-label='Farben je Textur'] button")].find((b) => b.textContent === "4")!;
+      await act(async () => four.click());
+      await flush();
+      expect(worldFreeformInspect).toHaveBeenLastCalledWith({ map: 5, path: "/p/haus.glb", at: [16, 8, -32], options: { unit: 16, colors: 4 } });
+      await act(async () => button("1 Teil übernehmen")!.click());
+      await flush();
+      expect(worldFreeformAdd).toHaveBeenCalledExactlyOnceWith({ map: 5, path: "/p/haus.glb", at: [16, 8, -32], options: { unit: 16, colors: 4 } });
+      expect(importMapParts).not.toHaveBeenCalled();
+      expect(onImported).toHaveBeenCalledWith(5);
+      expect(dialog().textContent).toContain("1 Teil übernommen");
+    });
+
+    it("lage_takes_only_the_bounds_of_the_world_schema", async () => {
+      vi.mocked(worldFreeformInspect).mockResolvedValue(freeform);
+      await showWorldFiles("/p/haus.glb");
+      const calls = vi.mocked(worldFreeformInspect).mock.calls.length;
+      // −512 to 511 per axis, like `at` of a free-form entry in the world.
+      await typeAt("x", "512");
+      expect(dialog().textContent).toContain("höchstens 511");
+      await typeAt("z", "-513");
+      expect(dialog().textContent).toContain("mindestens -512");
+      expect(worldFreeformInspect).toHaveBeenCalledTimes(calls);
+      await typeAt("x", "511");
+      await typeAt("z", "-512");
+      expect(worldFreeformInspect).toHaveBeenLastCalledWith({ map: 5, path: "/p/haus.glb", at: [511, 0, -512], options: { unit: 16, colors: 16 } });
+    });
+
+    it("a_failing_tmj_after_the_freeform_keeps_the_freeform_taken_and_announces_it", async () => {
+      vi.mocked(worldFreeformInspect).mockResolvedValue(freeform);
+      vi.mocked(worldFreeformAdd).mockResolvedValue({ ...freeform.report!, change: 9 });
+      vi.mocked(worldInspectTmj).mockResolvedValue(tmj());
+      vi.mocked(worldImportTmj).mockRejectedValueOnce(new Error("Die Karte ist gesperrt."));
+      await showWorldFiles("/p/haus.obj\n/p/0005.tmj");
+      expect(button("2 Teile übernehmen")!.disabled).toBe(false);
+      await act(async () => button("2 Teile übernehmen")!.click());
+      await flush();
+      expect(worldFreeformAdd).toHaveBeenCalledTimes(1);
+      expect(dialog().textContent).toContain("Die Karte ist gesperrt.");
+      // The free-form went in: the scene and the inspector hear of it.
+      expect(onImported).toHaveBeenCalledExactlyOnceWith(5);
+      // It is no longer chosen: a retry imports only the TMJ, not the free-form a second time.
+      expect(box("Freiform (glTF)").getAttribute("aria-checked")).toBe("false");
+      vi.mocked(worldImportTmj).mockResolvedValue(tmj({ change: 10 }));
+      await act(async () => button("1 Teil übernehmen")!.click());
+      await flush();
+      expect(worldFreeformAdd).toHaveBeenCalledTimes(1);
+      expect(worldImportTmj).toHaveBeenCalledTimes(2);
+      expect(onImported).toHaveBeenCalledTimes(2);
+    });
+
+    it("tmj_shows_changes_or_errors", async () => {
+      vi.mocked(worldInspectTmj).mockResolvedValue(tmj({ notes: ["tmj.buildings-ignored"] }));
+      vi.mocked(worldImportTmj).mockResolvedValue(tmj({ change: 4 }));
+      await showWorldFiles("/p/0005.tmj");
+      expect(worldInspectTmj).toHaveBeenLastCalledWith(5, "/p/0005.tmj");
+      expect(inspectMapImport).not.toHaveBeenCalled();
+      // TMJ is not converted: no „Umwandeln“, no „Lage“.
+      expect(dialog().querySelector("[data-import-convert]")).toBeNull();
+      expect(dialog().querySelector("[data-import-at]")).toBeNull();
+      let row = dialog().querySelector<HTMLElement>("[data-import-part='tmj']")!;
+      expect(row.textContent).toContain("Tiled (TMJ)");
+      expect(row.textContent).toContain("2 Ebenen, 17 Zellen geändert");
+      expect(row.textContent).toContain("Gebäude");
+      expect(row.textContent).not.toContain("tmj.buildings-ignored");
+      expect(box("Tiled (TMJ)").getAttribute("aria-checked")).toBe("true");
+      await act(async () => button("1 Teil übernehmen")!.click());
+      await flush();
+      expect(worldImportTmj).toHaveBeenCalledExactlyOnceWith(5, "/p/0005.tmj");
+      expect(onImported).toHaveBeenCalledWith(5);
+      expect(dialog().textContent).toContain("1 Teil übernommen");
+
+      // The same world: nothing to take over.
+      vi.mocked(worldInspectTmj).mockResolvedValue(tmj({ cells: 0, bake: null }));
+      await act(async () => root.render(<div />));
+      await showWorldFiles("/p/0005.tmj");
+      row = dialog().querySelector<HTMLElement>("[data-import-part='tmj']")!;
+      expect(row.textContent).toContain("Keine Änderung.");
+      expect(box("Tiled (TMJ)").getAttribute("aria-checked")).toBe("false");
+      expect(button("0 Teile übernehmen")!.disabled).toBe(true);
+
+      // Errors: the first three with their paths, then how many more.
+      const errors = Array.from({ length: 5 }, (_, i) => ({ path: `layers[0].data[${i}]`, message: `GID ${500 + i} gehört nicht in diese Ebene.` }));
+      vi.mocked(worldInspectTmj).mockResolvedValue(tmj({ layers: 0, cells: 0, bake: null, errors }));
+      await act(async () => root.render(<div />));
+      await showWorldFiles("/p/0005.tmj");
+      row = dialog().querySelector<HTMLElement>("[data-import-part='tmj']")!;
+      expect(row.textContent).toContain("layers[0].data[0]: GID 500 gehört nicht in diese Ebene.");
+      expect(row.textContent).toContain("layers[0].data[2]: GID 502 gehört nicht in diese Ebene.");
+      expect(row.textContent).not.toContain("layers[0].data[3]");
+      expect(row.textContent).toContain("… und 2 weitere");
+      expect(box("Tiled (TMJ)").getAttribute("aria-checked")).toBe("false");
+      expect(button("0 Teile übernehmen")!.disabled).toBe(true);
+    });
+
+    it("other_parts_are_disabled_for_world_maps", async () => {
+      vi.mocked(worldGet).mockResolvedValue(worldDto(true));
+      await act(async () => root.render(<ImportPartsDialog map={5} open onClose={onClose} mapCount={600} onImported={onImported} checks={checks} />));
+      await flush();
+      const field = dialog().querySelector<HTMLInputElement>("input[aria-label='Quellkarte']")!;
+      await act(async () => void field.focus());
+      typeInto(field, "6");
+      await act(async () => void field.blur());
+      await flush();
+      expect(dialog().textContent).toContain("Bei Welt-Karten entstehen Modell, Terrain und Permissions beim Backen.");
+      for (const name of ["Modell", "Kollision", "Gebäude"]) {
+        expect(box(name).getAttribute("aria-checked"), name).toBe("false");
+        expect(box(name).getAttribute("aria-disabled") === "true" || box(name).hasAttribute("data-disabled"), name).toBe(true);
+      }
+      expect(button("0 Teile übernehmen")!.disabled).toBe(true);
+      // A binary map keeps its parts.
+      vi.mocked(worldGet).mockResolvedValue(worldDto(false));
+      await act(async () => root.render(<div />));
+      await show();
+      expect(dialog().querySelector<HTMLElement>("[data-import-dialog]")!.dataset.world).toBe("false");
+      expect(dialog().textContent).not.toContain("Bei Welt-Karten");
+      expect(button("2 Teile übernehmen")).toBeDefined();
     });
   });
 });

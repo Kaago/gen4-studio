@@ -9,19 +9,24 @@
 //! stands a wall from the lower to the upper profile, facing the lower cell, with the `wall`
 //! texture of the upper cell's tile (without one, the tile's own); collinear wall pieces of one
 //! wall tile (its index) and facing merge. No wall at the map border, next to an empty cell or where the
-//! profiles cross. Every piece leaves one footprint face on [`PIECE_LAYER`]. Order: layer
-//! ascending; per layer the floors by start cell (row, then column), then the walls (north
+//! profiles cross. Every piece leaves one footprint face on [`PIECE_LAYER`], or with [`mesh_with`]
+//! the faces of its model side file in its place ([`PieceModels`]; [`mesh_with_marks`] marks
+//! them for the scene). Order: layer ascending; per layer the floors by start cell (row, then
+//! column), then the walls (north
 //! edges row by row, then west edges column by column); the footprints once after all layers,
 //! in list order.
 //!
 //! [`estimate_model_bytes`] is the upper bound of the model size from the face and texture
 //! count (quads with `TEXCOORD` and `VTX_16`); the baker of 6.3b gives the real number.
 
+use std::collections::BTreeMap;
+
 use g4_formats::map::MAP_SIZE;
 
 use super::doc::{STEP_UNITS, TILE_UNITS};
 use super::grid::{Ramp, TileRef, WorldError, WorldGrid};
 use super::tileset::{TileRole, Tileset};
+use crate::bake::Face;
 
 /// One quad: corners in world units (16 per tile, height = step × 8, y up), counter-clockwise seen from its front
 /// (floors from above); UV in texels, world-bound, 16 per tile; `texture` a name of the package (≤ 16 bytes); `layer` the layer.
@@ -43,6 +48,24 @@ impl From<MeshFace> for crate::bake::Face {
             layer: f.layer,
         }
     }
+}
+
+impl From<Face> for MeshFace {
+    /// The baker's face as a mesher face: the fields carry over unchanged.
+    fn from(f: Face) -> MeshFace {
+        MeshFace {
+            corners: f.corners,
+            uv: f.uv,
+            texture: f.texture,
+            layer: f.layer,
+        }
+    }
+}
+
+/// Model-space faces of piece tiles that have a readable side file, by tile index.
+#[derive(Debug, Clone, Default)]
+pub struct PieceModels {
+    pub by_tile: BTreeMap<u16, Vec<Face>>,
 }
 
 /// The layer of the footprint faces of pieces.
@@ -83,7 +106,7 @@ fn corners_of(h: i8, ramp: Ramp) -> Corners {
 
 /// The world-bound UV of the floor point (x, z) of a tile turned `rotate` quarter turns and
 /// mirrored after the turn with `flip`.
-fn uv_of(x: i32, z: i32, rotate: u8, flip: bool) -> [i32; 2] {
+pub(crate) fn uv_of(x: i32, z: i32, rotate: u8, flip: bool) -> [i32; 2] {
     let (u, v) = match rotate % 4 {
         0 => (x, z),
         1 => (z, -x),
@@ -121,6 +144,28 @@ fn floor_face(
 
 /// The faces of `grid` with the textures of `tileset`; tiles past the tileset are skipped (the check reports them).
 pub fn mesh(grid: &WorldGrid, tileset: &Tileset) -> Vec<MeshFace> {
+    mesh_with(grid, tileset, &PieceModels::default())
+}
+
+/// `mesh` with the geometry of `pieces` in place of the footprint face (rules „Teilmodell-Lage“); a tile
+/// without an entry keeps its footprint face. `mesh(g, t) == mesh_with(g, t, &PieceModels::default())`.
+///
+/// The model sits with its origin at the centre of the turned footprint, on the height of the
+/// footprint face (the highest corner of the ground cells below it); `rotate` turns it clockwise
+/// seen from above, `(x, z) → (−z, x)` per quarter, on whole world units; its faces take layer
+/// [`PIECE_LAYER`], their uvs and textures stay.
+pub fn mesh_with(grid: &WorldGrid, tileset: &Tileset, pieces: &PieceModels) -> Vec<MeshFace> {
+    mesh_with_marks(grid, tileset, pieces).0
+}
+
+/// [`mesh_with`] and per face whether it is model geometry (a face of a piece's side file), not
+/// a grid face or a footprint: the scene draws model geometry solid, a footprint see-through,
+/// though both are on [`PIECE_LAYER`].
+pub fn mesh_with_marks(
+    grid: &WorldGrid,
+    tileset: &Tileset,
+    pieces: &PieceModels,
+) -> (Vec<MeshFace>, Vec<bool>) {
     let corners: Vec<Corners> = grid
         .heights
         .iter()
@@ -141,8 +186,9 @@ pub fn mesh(grid: &WorldGrid, tileset: &Tileset) -> Vec<MeshFace> {
             walls(&layer.tiles, &corners, tileset, &mut faces);
         }
     }
-    footprints(grid, &corners, tileset, &mut faces);
-    faces
+    let mut models = vec![false; faces.len()];
+    footprints(grid, &corners, tileset, pieces, &mut faces, &mut models);
+    (faces, models)
 }
 
 /// The merged floors of one layer: greedy row by row over (tile token, height, ramp), first
@@ -389,8 +435,17 @@ pub(crate) fn footprint_of(
 }
 
 /// One horizontal face per piece over its footprint (clipped to the map) at the highest
-/// corner of the ground cells below it; a footprint of width or depth 0 leaves none.
-fn footprints(grid: &WorldGrid, corners: &[Corners], tileset: &Tileset, faces: &mut Vec<MeshFace>) {
+/// corner of the ground cells below it, or the piece's model from `pieces` placed there; a
+/// footprint of width or depth 0 leaves none. `models` gets one mark per face pushed: `true`
+/// for a model's face, `false` for a footprint.
+fn footprints(
+    grid: &WorldGrid,
+    corners: &[Corners],
+    tileset: &Tileset,
+    pieces: &PieceModels,
+    faces: &mut Vec<MeshFace>,
+    models: &mut Vec<bool>,
+) {
     for piece in &grid.pieces {
         let Some((w, d, texture)) = footprint_of(tileset, piece.tile, piece.rotate) else {
             continue;
@@ -407,6 +462,23 @@ fn footprints(grid: &WorldGrid, corners: &[Corners], tileset: &Tileset, faces: &
             .unwrap_or(0);
         // `rotate` is 0 to 270 (the grid check), so the turn is 0 to 3.
         let turn = (piece.rotate / 90 % 4) as u8;
+        if let Some(model) = pieces.by_tile.get(&piece.tile) {
+            // The centre of the turned footprint (not clipped): whole units, 8 per odd cell.
+            let centre = [
+                edge(x0) + w as i32 * TILE_UNITS / 2,
+                y,
+                edge(z0) + d as i32 * TILE_UNITS / 2,
+            ];
+            faces.extend(model.iter().map(|f| MeshFace {
+                corners: f.corners.map(|p| placed(p, turn, centre)),
+                uv: f.uv,
+                texture: f.texture.clone(),
+                layer: PIECE_LAYER,
+            }));
+            models.resize(faces.len(), true);
+            continue;
+        }
+        models.push(false);
         faces.push(floor_face(
             (x0, x1),
             (z0, z1),
@@ -417,6 +489,20 @@ fn footprints(grid: &WorldGrid, corners: &[Corners], tileset: &Tileset, faces: &
             PIECE_LAYER,
         ));
     }
+}
+
+/// The model-space point `p` turned `turn` quarters clockwise from above (`(x, z) → (−z, x)`
+/// each) and moved to `centre`.
+fn placed(p: [i32; 3], turn: u8, centre: [i32; 3]) -> [i32; 3] {
+    let (mut x, mut z) = (p[0], p[2]);
+    for _ in 0..turn {
+        (x, z) = (z.saturating_neg(), x);
+    }
+    [
+        x.saturating_add(centre[0]),
+        p[1].saturating_add(centre[1]),
+        z.saturating_add(centre[2]),
+    ]
 }
 
 /// The distinct texture names of `faces`, in order of first use.
@@ -853,6 +939,150 @@ mod tests {
             ]
         );
         assert!(piece_problems(&g, &t).is_empty());
+    }
+
+    /// `pieces` with tile 5's model `faces`.
+    fn piece_model(faces: Vec<Face>) -> PieceModels {
+        PieceModels {
+            by_tile: BTreeMap::from([(5, faces)]),
+        }
+    }
+
+    #[test]
+    fn mesh_with_nothing_is_mesh() {
+        let t = Tileset::synthetic();
+        for world in [
+            fixtures::one_tile_world(),
+            fixtures::checkerboard_world(),
+            fixtures::busy_world(),
+            fixtures::gate_world(0, "0000", "0001", "0002"),
+            fixtures::oversize_world(),
+        ] {
+            let mut g = grid_of(world);
+            g.pieces.push(PieceJson {
+                tile: 5,
+                at: [3, 4],
+                rotate: 90,
+            });
+            assert_eq!(mesh_with(&g, &t, &PieceModels::default()), mesh(&g, &t));
+        }
+    }
+
+    #[test]
+    fn a_piece_model_replaces_its_footprint() {
+        let t = Tileset::synthetic();
+        let mut g = flat();
+        g.heights[at(5, 5)] = 2;
+        g.pieces.push(PieceJson {
+            tile: 5,
+            at: [4, 4],
+            rotate: 0,
+        });
+        let cube = super::super::freeform::fixtures::cube_faces("syn_boden");
+        let faces = mesh_with(&g, &t, &piece_model(cube.clone()));
+        let pieces: Vec<_> = faces.iter().filter(|f| f.layer == PIECE_LAYER).collect();
+        assert_eq!(pieces.len(), 6);
+        assert!(
+            pieces.iter().all(|f| f.texture != "syn_stueck"),
+            "no footprint face"
+        );
+        // Footprint cells 4..6: centre (−176, −176), floor at the highest corner (step 2 = 16).
+        for (face, model) in pieces.iter().zip(&cube) {
+            assert_eq!(
+                face.corners,
+                model.corners.map(|p| [p[0] - 176, p[1] + 16, p[2] - 176])
+            );
+            assert_eq!(face.uv, model.uv);
+            assert_eq!(face.texture, model.texture);
+        }
+        // The rest of the mesh is the same.
+        let plain = mesh(&g, &t);
+        assert_eq!(faces[..faces.len() - 6], plain[..plain.len() - 1]);
+        // Marked: the model's faces, not the grid's.
+        let (marked, models) = mesh_with_marks(&g, &t, &piece_model(cube));
+        assert_eq!(marked, faces);
+        assert_eq!(
+            models,
+            [vec![false; faces.len() - 6], vec![true; 6]].concat()
+        );
+        // A footprint face is no model.
+        let (_, models) = mesh_with_marks(&g, &t, &PieceModels::default());
+        assert_eq!(models, vec![false; plain.len()]);
+    }
+
+    #[test]
+    fn a_turned_piece_model_turns_clockwise() {
+        let mut t = Tileset::synthetic();
+        t.tiles[5].footprint = Some([3, 1]);
+        let mut g = flat();
+        g.pieces.push(PieceJson {
+            tile: 5,
+            at: [4, 4],
+            rotate: 90,
+        });
+        let face = Face {
+            corners: [[0, 0, 0], [8, 0, -8], [16, 4, -8], [8, 0, 0]],
+            uv: [[0, 0], [16, 0], [16, 16], [0, 16]],
+            texture: "syn_boden".to_owned(),
+            layer: 0,
+        };
+        let faces = mesh_with(&g, &t, &piece_model(vec![face]));
+        let pieces: Vec<_> = faces.iter().filter(|f| f.layer == PIECE_LAYER).collect();
+        assert_eq!(pieces.len(), 1);
+        // The footprint [3, 1] turned is 1 wide and 3 deep: x −192..−176, z −192..−144.
+        let centre = [-184, 0, -168];
+        let relative = pieces[0]
+            .corners
+            .map(|p| [p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]]);
+        assert_eq!(relative, [[0, 0, 0], [8, 0, 8], [8, 4, 16], [0, 0, 8]]);
+        // Every turn: a half turn and three quarters.
+        for (rotate, corner) in [(0, [8, 0, -8]), (180, [-8, 0, 8]), (270, [-8, 0, -8])] {
+            g.pieces[0].rotate = rotate;
+            let faces = mesh_with(
+                &g,
+                &t,
+                &piece_model(vec![Face {
+                    corners: [[8, 0, -8]; 4],
+                    uv: [[0, 0]; 4],
+                    texture: "syn_boden".to_owned(),
+                    layer: 0,
+                }]),
+            );
+            let last = faces.last().unwrap();
+            let (w, d) = if rotate % 180 == 90 { (1, 3) } else { (3, 1) };
+            let c = [-192 + w * 8, 0, -192 + d * 8];
+            assert_eq!(
+                last.corners[0],
+                [corner[0] + c[0], corner[1], corner[2] + c[2]],
+                "rotate {rotate}"
+            );
+        }
+    }
+
+    #[test]
+    fn permissions_still_follow_the_footprint() {
+        use super::super::bake::world_permissions;
+        use g4_formats::game::Family;
+        let mut t = Tileset::synthetic();
+        t.tiles[5].kind = 0x33;
+        let mut g = flat();
+        g.pieces.push(PieceJson {
+            tile: 5,
+            at: [4, 4],
+            rotate: 0,
+        });
+        // A model far wider than its footprint.
+        let wide =
+            super::super::freeform::fixtures::box_faces([-40, 0, -8], [40, 16, 8], "syn_boden");
+        let faces = mesh_with(&g, &t, &piece_model(wide));
+        assert!(faces.iter().any(|f| f.corners.iter().any(|p| p[0] == -216)));
+        let cells = world_permissions(&g, &t, Family::Pt);
+        for z in 0..N {
+            for x in 0..N {
+                let inside = (4..6).contains(&x) && (4..6).contains(&z);
+                assert_eq!(cells[at(x, z)].kind == 0x33, inside, "({x}, {z})");
+            }
+        }
     }
 
     #[test]

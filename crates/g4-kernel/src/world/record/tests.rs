@@ -29,7 +29,7 @@ fn paint_json(fx: &TextFixture, map: u16) {
 
 #[test]
 fn world_salt_names_the_three_revisions() {
-    assert_eq!(world_salt(), "world#1+bake#1+bdhc#1");
+    assert_eq!(world_salt(), "world#2+bake#1+bdhc#1");
 }
 
 #[test]
@@ -69,6 +69,65 @@ fn input_hash_moves_with_json_tileset_and_package() {
     assert_ne!(hash(&fx, 0).unwrap(), before);
     std::fs::write(&pack, &bytes).unwrap();
     assert_eq!(hash(&fx, 0).unwrap(), before);
+}
+
+/// Rewrites the world of map `map` in its JSON with `change`, as Git would.
+fn change_world(fx: &TextFixture, map: u16, change: impl FnOnce(&mut crate::world::WorldJson)) {
+    let rel = format!("data/maps/{map:04}.json");
+    let bytes = fx.read(&rel);
+    let mut world = world_field(&bytes).unwrap().unwrap();
+    change(&mut world);
+    fx.write(&rel, &world_parts(bytes, &world, &mut Vec::new()).unwrap());
+}
+
+#[test]
+fn input_hash_moves_with_a_side_file() {
+    use crate::world::doc::{FreeformJson, PieceJson};
+    let fx = world_built();
+    change_world(&fx, 0, |w| {
+        w.freeform.push(FreeformJson {
+            glb: Some("0000.wuerfel.glb".to_owned()),
+            nsbmd: None,
+            at: [0, 0, 0],
+        });
+    });
+    let side = "data/maps/0000.wuerfel.glb";
+    let missing = hash(&fx, 0).unwrap();
+    fx.write(side, b"one");
+    let one = hash(&fx, 0).unwrap();
+    assert_ne!(one, missing);
+    // The bytes of the side file.
+    fx.write(side, b"two");
+    let two = hash(&fx, 0).unwrap();
+    assert_ne!(two, one);
+    // Deleted.
+    std::fs::remove_file(fx.root().join(side)).unwrap();
+    assert_eq!(hash(&fx, 0).unwrap(), missing);
+    fx.write(side, b"two");
+    // A side file the world does not name changes nothing.
+    fx.write("data/maps/0000.x.glb", b"other");
+    assert_eq!(hash(&fx, 0).unwrap(), two);
+
+    // The model side file of a piece the map sets.
+    let mut tileset = Tileset::synthetic();
+    tileset.tiles[5].model = Some("turm".to_owned());
+    fx.write(tileset_rel(0).to_str().unwrap(), &to_canonical(&tileset));
+    let with_model = hash(&fx, 0).unwrap();
+    // Map 0 sets no piece yet: the file does not count.
+    fx.write("data/tilesets/0000.turm.glb", b"turm");
+    assert_eq!(hash(&fx, 0).unwrap(), with_model);
+    change_world(&fx, 0, |w| {
+        w.pieces.push(PieceJson {
+            tile: 5,
+            at: [4, 4],
+            rotate: 0,
+        });
+    });
+    let placed = hash(&fx, 0).unwrap();
+    fx.write("data/tilesets/0000.turm.glb", b"turm 2");
+    assert_ne!(hash(&fx, 0).unwrap(), placed);
+    std::fs::remove_file(fx.root().join("data/tilesets/0000.turm.glb")).unwrap();
+    assert_ne!(hash(&fx, 0).unwrap(), placed);
 }
 
 #[test]

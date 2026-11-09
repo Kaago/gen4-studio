@@ -10,9 +10,8 @@
   // Budget.module.css,icons.ts}, workbench/inspector/{MapBudgetSection,MatrixCellEditor}.tsx, ui/gallery/pages/WorldPage.tsx. Texte aus design-system/README.md,
   // „Nachtrag 6.2“. Projekt „Sinnoh-Remix“, Platin DE. Beispielwerte, nicht aus dem ROM: die Höhen der Karte, die Zahlen des Budgets (Modell 57.344 B,
   // VRAM 112.896 B; die Bilder der Test-Umgebung zeigen auf Karte 188 alles Ruhig).
-  // Nicht gerendert: OpenPencil war beim Schreiben nicht erreichbar. Die Vorlage ist gegen jsx-lib-app.js geschrieben und mit einer Attrappe der
-  // Bausteine (Frame, Text, Icon, Ellipse, designVar) durchgelaufen, aber nie als Bild gesehen. Beim ersten Rendern Maße und Umbrüche mit den Screenshots
-  // abgleichen (Anleitung: openpencil/NACHTRAG-6-2.md).
+  // Gerendert am 09.11.2026, alle drei Modi im ersten Lauf ohne Korrektur (App: Werkbank x 0 / x 1520, y 3000; Komponenten x 3440, y 16440); beim Schreiben
+  // war OpenPencil nicht erreichbar (Anleitung: openpencil/NACHTRAG-6-2.md).
   // Dunkel: bash ../build-screen.sh hoehen-budget --dunkel (die Höhenfarben sind Szenenfarben und in beiden Themen gleich).
   const MODE = 'hoehen';
   if (HX_DUNKEL) Object.assign(HX, HX_DUNKEL);

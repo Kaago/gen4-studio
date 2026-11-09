@@ -108,6 +108,7 @@ Kein Test riss unter Last; keine Wiederholung nötig.
 - [ ] **Hand, melonDS bei Tag und Nacht:** `out.nds` von `pt-gemalt` (`_testkopien/6-3b-szen-pt3_DSPRE_contents/out.nds`) und `hg-gemalt` (`_testkopien/6-3b-szen-hg2_DSPRE_contents/out.nds`) in melonDS starten (mit einer Kopie des Spielstands `_testkopien/_saves/CPUD-zimmer.sav` bzw. `IPKD-zimmer.sav`), die Treppe des Spielerzimmers führt auf die gemalte Karte (Ankunft auf der Tür bei 12, 21); Treppe, Plateau, Wand, Wasser und Gras begehen; einmal bei Tag und einmal bei Nacht (Systemzeit des Emulators, z. B. 12:00 und 23:00). Beim Nutzer offen.
 - [ ] **Hand, DSPRE:** DSPRE öffnet die gebaute Karte (Karte 666 in Platin, 676 in HeartGold, aus `out.nds` bzw. dem Projektordner der Szenario-Kopie): Modell, Terrain und Permissions lesen sich ohne Fehler. Beim Nutzer offen.
 - [ ] **`scripts/gate.sh` auf main** (Hauptsitzung, nach dem Merge). Offen.
+- [x] **Frames 6.3b in der `.fig`** (09.11.2026, Branch `phase-6-fig-nachtraege`; beim Gate antwortete OpenPencil nicht): „App: Inspector, Karte als Quelle“ auf „App: Werkbank“ (x 0, y 4000) und „App: Textprojekt, Welt-Konflikt“ auf „App: Texte, Technik, Dialoge“ (x 0, y 3000), aus `design-system/openpencil/beispiele/welt-quelle.body.js`; Anleitung `design-system/openpencil/NACHTRAG-6-3b.md`.
 
 ## Ergebnis
 
@@ -122,6 +123,7 @@ Kein Test riss unter Last; keine Wiederholung nötig.
 | (4) Blick | Agent + Blick | vom Agenten beschrieben, beim Nutzer offen | – |
 | (4) melonDS bei Tag und Nacht | Hand | offen | – |
 | (4) DSPRE öffnet die Karte | Hand | offen | – |
+| Frames 6.3b in der `.fig` | Agent | bestanden: ein Frame auf „App: Werkbank“ (Reihe 4), einer auf „App: Texte, Technik, Dialoge“ (Reihe 3), die Zeile im Brett „Stand der App“; Branch `phase-6-fig-nachtraege` (`design-system/openpencil/NACHTRAG-6-3b.md`) | 2026-11-09 |
 
 Zahlentabelle (gated Läufe Task 9; Last = 1-Minuten-Last vor dem Lauf `world_bake` + `textproject` / vor dem Wiederholungslauf der gemalten Karte in der Fix-Runde):
 
