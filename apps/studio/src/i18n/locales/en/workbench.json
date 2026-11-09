@@ -15,9 +15,9 @@
     "title": "Adopt scripts"
   },
   "areaEditor": {
-    "loading": "Loading area data …",
+    "loading": "Loading area data…",
     "noteBuild": "The map tileset decides the textures of all maps whose place uses this area data; the 3D view reloads the models after a change.",
-    "noteTell": "Tell picks the look at the place; you set tilesets and light in Build.",
+    "noteTell": "Tell picks the appearance at the place; you set tilesets and light in Build.",
     "noteTinker": "The map tileset decides the textures of all maps whose header uses this area data; the 3D view reloads the models after a change.",
     "resetBuildingTexture": "Reset building texture to original…",
     "resetMapTexture": "Reset map texture to original…"
@@ -66,7 +66,7 @@
     "model": "Model",
     "modelFailed": "Model not loaded, the 3D view shows a box: {{error}}",
     "modelLoaded": "Model loaded ({{kb}} KB)",
-    "modelLoading": "Loading model …",
+    "modelLoading": "Loading model…",
     "modelNumber": "Model number",
     "modelRange": "outside 0 to {{max}}",
     "notANumber": "That is not a number. Enter for example 1.5.",
@@ -111,7 +111,7 @@
     "setDoorTiles": "Set door tiles (a new door becomes walkable)",
     "submit": "Connect",
     "summary": "Summary",
-    "summaryLine": "Door A: {{a}} ↔ door B: {{b}}",
+    "summaryLine": "Door A: {{a}} ↔ Door B: {{b}}",
     "takeDoor": "Take door {{index}}",
     "tileTaken": "Door {{index}} is already on x {{x}}, z {{z}}; choose it as the door.",
     "title": "Connect door"
@@ -120,7 +120,7 @@
     "edit": "Edit dialog…",
     "figures": "Characters",
     "label": "Characters of the place",
-    "loading": "Loading …",
+    "loading": "Loading…",
     "noFigures": {
       "what": "No characters at this place",
       "why": "No character and no sign here says anything."
@@ -142,7 +142,7 @@
     "noMessage": "This character's script shows no message.",
     "page": "Page {{page}} of {{total}}",
     "previousPage": "Previous page",
-    "reading": "Reading …",
+    "reading": "Reading…",
     "title": "Dialog of {{title}}"
   },
   "dialogList": {
@@ -152,7 +152,7 @@
       "what": "No project open.",
       "why": "Open a project, then its places with their characters show here."
     },
-    "reading": "Reading …",
+    "reading": "Reading…",
     "title": "Dialogs",
     "unreadable": "Not readable"
   },
@@ -197,7 +197,7 @@
     "create": "Create dialog…",
     "dialog": "Dialog",
     "edit": "Edit dialog…",
-    "reading": "Reading …",
+    "reading": "Reading…",
     "text": "Text",
     "unreadable": "Dialog not readable."
   },
@@ -312,7 +312,7 @@
     "hiddenFlag": "Visibility flag",
     "length": "Length",
     "localId": "Local ID",
-    "look": "Look",
+    "look": "Appearance",
     "movement": {
       "berryPlant": "Berry plant",
       "facesDown": "Faces down",
@@ -396,7 +396,7 @@
     "create": "Create map",
     "description": "Creating cannot be undone.",
     "headerCell": "Header cell",
-    "neighbour": "Copy of map {{map}} (neighbouring cell)",
+    "neighbour": "Copy of map {{map}} (neighboring cell)",
     "noBuildings": "without buildings",
     "paintInstead": "Paint a new one instead",
     "pick": "Choose a map",
@@ -411,20 +411,20 @@
     "title": "Create a map at x {{x}}, y {{y}}?"
   },
   "figureLookField": {
-    "change": "Change look…",
-    "choose": "Choose look",
-    "look": "Look",
-    "lookNumber": "Look {{n}}"
+    "change": "Change appearance…",
+    "choose": "Choose appearance",
+    "look": "Appearance",
+    "lookNumber": "Appearance {{n}}"
   },
   "fixDialog": {
-    "applying": "Fixing …",
+    "applying": "Fixing…",
     "backupTime": "<UTC time>",
     "cancel": "Cancel",
     "close": "Close",
     "failedText": "The Studio cannot fix this finding ({{why}}). Fix it by hand.",
     "failedTitle": "Cannot be fixed automatically",
     "irreversible": "Written at once; ⌘Z does not take it back.",
-    "loading": "Loading preview …",
+    "loading": "Loading preview…",
     "recheck": "Check again",
     "remainingText": "The change is written, but the check still reports the finding. Look at the spot and fix it by hand.",
     "remainingTitle": "Not fixed",
@@ -436,9 +436,9 @@
   },
   "headerChoice": {
     "applyPatch": "Apply patch",
-    "applying": "Applying …",
+    "applying": "Applying…",
     "areaDataHint": "0 to {{max}}; leave it empty to keep the header's.",
-    "checkingPatch": "Checking whether new headers are possible …",
+    "checkingPatch": "Checking whether new headers are possible…",
     "choose": "Choose header",
     "chooseButton": "Choose header…",
     "chosen": "Chosen",
@@ -461,7 +461,7 @@
     "patchBrokenText": "The patch calls a wrong function in the game code: the game stays black after the intro. DSPRE and older Studio versions wrote it like this for Platinum (German, French, Italian, Spanish). The repair changes 4 bytes in arm9.bin; the headers stay as they are.",
     "patchNeeded": "ROM patch “Dynamic Headers” needed",
     "patchNeededText": "The patch changes bytes in the game code (arm9.bin). Afterwards the headers lie in one file per header. This cannot be taken back; the backup arm9.bin.backup is created. DSPRE knows the patch and shows it as applied.",
-    "repairing": "Repairing …",
+    "repairing": "Repairing…",
     "repairPatch": "Repair patch",
     "special": "Special header: {{special}}. Not free, even if no warp leads here; choose another one or “New header”.",
     "switchNone": "Switch no header",
@@ -477,9 +477,9 @@
     "doors_one": "{{count}} door",
     "doors_other": "{{count}} doors",
     "doorsLost": "{{doors}}, {{lost}} without a target",
-    "loadingDoors": "Loading doors …",
-    "loadingHeader": "Loading header …",
-    "loadingPlace": "Loading place …",
+    "loadingDoors": "Loading doors…",
+    "loadingHeader": "Loading header…",
+    "loadingPlace": "Loading place…",
     "name": "Name",
     "new": "New",
     "newLevelScript": "Create a new level script",
@@ -518,7 +518,7 @@
     "title": "Choose target header"
   },
   "headerSections": {
-    "look": "Look",
+    "look": "Appearance",
     "maps": "Maps",
     "mapsAndGrid": "Maps and grid",
     "musicDay": "Music (day)",
@@ -630,8 +630,8 @@
     "applied": "{{parts}} applied",
     "apply": "Apply {{parts}}",
     "cancel": "Cancel",
-    "checking": "Checking …",
-    "checkingMap": "Checking the map …",
+    "checking": "Checking…",
+    "checkingMap": "Checking the map…",
     "checkingParts": "Checking parts…",
     "chooseFiles": "Choose files…",
     "chooseFilesTitle": "Choose parts or models",
@@ -671,7 +671,7 @@
     "change": "Change…",
     "changeLabel": "Change {{label}}…",
     "chooseLabel": "Choose {{label}}",
-    "loading": "Loading …",
+    "loading": "Loading…",
     "range": "0 to {{max}}",
     "searchNumber": "Search number"
   },
@@ -680,7 +680,7 @@
     "building": "Building",
     "door": "Door",
     "figure": "Character",
-    "look": "Look",
+    "look": "Appearance",
     "sign": "Sign",
     "trigger": "Trigger"
   },
@@ -745,7 +745,7 @@
     "conditionScriptN": "Script of condition {{n}}",
     "create": "Create",
     "headerEntries": "Header entries",
-    "loading": "Loading …",
+    "loading": "Loading…",
     "newConditionScript": "Script of the new condition",
     "newScript": "New script",
     "newTrigger": "New trigger",
@@ -770,17 +770,17 @@
     "varConditions": "Variable conditions"
   },
   "lookField": {
-    "label": "Look"
+    "label": "Appearance"
   },
   "lookPicker": {
     "search": "Search place",
-    "title": "Choose look"
+    "title": "Choose appearance"
   },
   "looks": {
-    "like": "Look like {{name}}",
-    "number": "Look {{id}}",
-    "template": "Look of the template",
-    "unnamed": "Look: {{name}}"
+    "like": "Appearance as in {{name}}",
+    "number": "Appearance {{id}}",
+    "template": "Appearance of the template",
+    "unnamed": "Appearance: {{name}}"
   },
   "mapBudgetSection": {
     "buildings": "Buildings",
@@ -788,7 +788,7 @@
     "model": "Model",
     "notBaked": "Not baked. The game gets the last model.",
     "notBakedBecause": "Not baked: {{message}} The game gets the last model.",
-    "reading": "Reading …",
+    "reading": "Reading…",
     "terrain": "Terrain (BDHC)",
     "textures": "Textures of the area",
     "title": "Budget",
@@ -811,13 +811,13 @@
     "importParts": "Import parts…",
     "mapRange": "0 to {{max}}, empty = no map",
     "noArea": "No area matches the search.",
-    "noHeaderSection": "The grid has no header section (it can be switched on in View under “Grid”).",
+    "noHeaderSection": "The grid has no header section (it can be switched on in View under “Matrix”).",
     "number": "Number {{id}}",
     "outsideGrid": "The cell lies outside the grid ({{width}} × {{height}}).",
     "outsideMaps": "The cell lies outside the maps ({{width}} × {{height}}).",
     "paintAdoptNote": "Paint the ground: adopt the map as source",
     "roomPlan": "Room plan",
-    "searchArea": "Search area …",
+    "searchArea": "Search area…",
     "section": "{{name}}, section {{n}}"
   },
   "matrixPanel": {
@@ -870,7 +870,7 @@
     "clickMaps": "Click maps; Shift-click picks the rectangle up to the last cell.",
     "done": "Area created",
     "gridLabel": "{{what}}, {{rows}} rows, {{columns}} columns",
-    "loading": "Loading …",
+    "loading": "Loading…",
     "mapsByNumber": "Maps by number",
     "mapsExample": "e.g. 12, 13",
     "name": "Name of the new area",
@@ -896,7 +896,7 @@
     "title": "Create area",
     "whereLies": "Where does the area lie?",
     "withHeaders": "Create header section",
-    "withoutBuildings": "without buildings"
+    "withoutBuildings": "Without buildings"
   },
   "newFigureWizard": {
     "alwaysVisible": "Always visible.",
@@ -909,7 +909,7 @@
     "hiddenWhile": "Not visible while flag {{flag}} is set.",
     "howHeading": "How",
     "keys": "Enter: new line; Shift+Enter: new page (▼).",
-    "lookLine": "Look {{look}}, {{movement}}, facing {{facing}}",
+    "lookLine": "Appearance {{look}}, {{movement}}, facing {{facing}}",
     "movement": "Movement",
     "noPlace": "No place and no tile yet.",
     "noTile": "No tile yet: enter x and z, or point at the spot in the scene first.",
@@ -964,7 +964,7 @@
     "insideText": "Inside: {{text}}",
     "insideTileX": "Inside: tile x",
     "insideTileZ": "Inside: tile z",
-    "loadingPreview": "Loading preview …",
+    "loadingPreview": "Loading preview…",
     "lockedOutside": "Event file {{id}} (outside) is {{locked}}",
     "lockedRoom": "Event file {{id}} of the room is {{locked}}",
     "lockedTemplate": "The template event file {{id}} is {{locked}}",
@@ -1001,7 +1001,7 @@
     "tilesOutsideBuild": "Tile outside: {{x}} × {{z}} tiles (x 0 to {{maxX}}, z 0 to {{maxZ}}).",
     "tilesOutsideTinker": "Tile in grid {{matrix}}: {{x}} × {{z}} tiles (x 0 to {{maxX}}, z 0 to {{maxZ}}).",
     "title": "Create room",
-    "withoutBuildings": "without buildings"
+    "withoutBuildings": "Without buildings"
   },
   "newTrainerHereWizard": {
     "addMon": "Add Pokémon",
@@ -1115,7 +1115,7 @@
   },
   "patchConsent": {
     "broken": "The adaptation of the game code for new places is broken. Repair it in Technical › Patches.",
-    "checking": "Checking the game code …",
+    "checking": "Checking the game code…",
     "consent": "Once for this project: adapt the game code for new places (DSPRE-compatible, backup arm9.bin.backup)",
     "unsupported": "Build creates new areas and rooms only for Platinum and HeartGold/SoulSilver. In Tinker an existing area can be switched over."
   },
@@ -1146,11 +1146,11 @@
     "blocked": "The block must fall on free cells or landscape.",
     "gridLabel": "{{map}}, {{rows}} rows, {{columns}} columns",
     "hint": "Click the cell where the upper left map of the new area should lie.",
-    "loading": "Loading …"
+    "loading": "Loading…"
   },
   "placePicker": {
     "choose": "Choose place",
-    "loading": "Loading places …",
+    "loading": "Loading places…",
     "message": "Message {{index}}",
     "messageInArchive": "Message {{index}} · archive {{archive}}",
     "newPlace": "New place…",
@@ -1162,8 +1162,8 @@
   "placeStep": {
     "choose": "Choose place",
     "existing": "Existing place",
-    "loading": "Loading places …",
-    "look": "Look",
+    "loading": "Loading places…",
+    "look": "Appearance",
     "new": "New place",
     "newName": "Name of the new place",
     "noPlace": "No place",
@@ -1183,7 +1183,7 @@
   },
   "problemsPanel": {
     "buildState": "Build state",
-    "checkingProject": "Checking the project …",
+    "checkingProject": "Checking the project…",
     "checkingProjectWhy": "The findings of the checks appear here as soon as they are done.",
     "encounterFile": "Encounters {{id}}",
     "file": "File",
@@ -1231,7 +1231,7 @@
     "comesWith3d9": "Coming with 3d.9",
     "connect_doors": {
       "hint": "Connects two doors in both directions.",
-      "label": "Connect doors"
+      "label": "Connect door"
     },
     "create_area": {
       "hint": "Copies maps to a new area with a place of its own.",
@@ -1242,7 +1242,7 @@
       "label": "Create room"
     },
     "new_figure": {
-      "hint": "Puts a character with a look and a text on a spot.",
+      "hint": "Puts a character with an appearance and a text on a spot.",
       "label": "New character"
     },
     "new_trainer_here": {
@@ -1251,7 +1251,7 @@
     },
     "next": {
       "adjust_terrain": "Adjust terrain",
-      "connect_doors": "Connect doors",
+      "connect_doors": "Connect door",
       "create_area": "Create area",
       "edit_dialog": "Edit dialog",
       "figure_appears": "Character appears from step",
@@ -1296,7 +1296,7 @@
     "renameRoom": "Rename room",
     "renameWorldMap": "Rename world map",
     "resetOwner": "Reset assignment",
-    "searchArea": "Search for an area …"
+    "searchArea": "Search for an area…"
   },
   "roomNames": {
     "floor": ", floor {{n}}",
@@ -1325,7 +1325,7 @@
     },
     "followHint": "Double click or Enter follows the door to its destination",
     "forward": "Forward",
-    "loading": "Loading …",
+    "loading": "Loading…",
     "locked": "Event file locked",
     "newPlace": "New place…",
     "noMatch": "Nothing in this scene matches the search.",
@@ -1349,7 +1349,7 @@
   "scriptPanel": {
     "addScript": "Add script",
     "addScriptHint": "Appends an empty script to the file",
-    "checking": "Checking scripts …",
+    "checking": "Checking scripts…",
     "closeTab": "Close {{name}}",
     "discard": "Discard the changes to {{name}}?",
     "empty": {
@@ -1361,7 +1361,7 @@
       "notAdopted": "Runs once the project's scripts are adopted.",
       "notRunning": "rotom-lsp is not running",
       "running": "rotom-lsp is running",
-      "starting": "Language service starting …"
+      "starting": "Language service starting…"
     },
     "lspShort": {
       "missing": "rotom-lsp missing",
@@ -1374,7 +1374,7 @@
     "openScripts": "Open scripts",
     "outline": {
       "empty": "No scripts in the file",
-      "loading": "Loading outline …",
+      "loading": "Loading outline…",
       "needsLsp": "Needs rotom-lsp",
       "symbol": "{{name}}, line {{line}}",
       "title": "Outline",
@@ -1384,7 +1384,7 @@
     "save": "Save"
   },
   "scriptTab": {
-    "loading": "Loading editor …"
+    "loading": "Loading editor…"
   },
   "sharedRooms": {
     "hint": "These maps belong to other rooms too. What you change here changes them all.",
@@ -1414,6 +1414,9 @@
     "file": "File",
     "hex": "Hex",
     "title": "Technical"
+  },
+  "terms": {
+    "number": "Number {{id}}"
   },
   "textArea": {
     "hints": "↵ new line, ⇧↵ new page",
@@ -1456,7 +1459,7 @@
     },
     "hitsLabel": "Hits in all archives",
     "lineWidth": "{{width}} of {{limit}}",
-    "loading": "Loading …",
+    "loading": "Loading…",
     "messagesLabel": "Messages of archive {{archive}}",
     "noArchive": {
       "what": "Choose an archive on the left.",
@@ -1490,7 +1493,7 @@
       "label": "Search texts",
       "scope": "Search scope"
     },
-    "searching": "Searching …"
+    "searching": "Searching…"
   },
   "textList": {
     "archiveCount_one": "{{count}} archive",
@@ -1525,7 +1528,7 @@
     "label": "Preview",
     "lineWidth": "{{width}} of {{limit}}",
     "loading": {
-      "what": "Loading …",
+      "what": "Loading…",
       "why": "The archive is being read."
     },
     "nextPage": "Next page",
@@ -1683,8 +1686,8 @@
     "doorNeedsCollision": "a door only fires with collision 0x80",
     "fires": "{{what}}: a {{warp}} fires here.",
     "noWarpTile": "not a door or warp tile",
-    "what": "Behaviour {{kind}}, collision {{collision}}",
-    "whatNamed": "Behaviour {{kind}} {{name}}, collision {{collision}}"
+    "what": "Behavior {{kind}}, collision {{collision}}",
+    "whatNamed": "Behavior {{kind}} {{name}}, collision {{collision}}"
   },
   "wizardBar": {
     "back": "Back",
@@ -1704,7 +1707,7 @@
     "next": "Next steps",
     "notAvailable": "Not available yet",
     "restBuild": "Finish the rest in the world by hand.",
-    "restTinker": "Finish the rest by hand in the grid tab and the header editor."
+    "restTinker": "Finish the rest by hand in the Matrix tab and the header editor."
   },
   "wizardSpecs": {
     "and": "and",
@@ -1739,7 +1742,7 @@
     "cellOfOtherArea": "Tile x {{x}}, z {{z}} lies in cell ({{cx}}, {{cy}}) of another area: there the game does not take the warps of the area at the entrance.",
     "cellOfOtherHeader": "Tile x {{x}}, z {{z}} lies in cell ({{cx}}, {{cy}}) of header {{owner}}, not of {{outside}}: there the game does not take the warps of {{outside}}.",
     "cellWithoutMap": "Tile x {{x}}, z {{z}} lies in cell ({{cx}}, {{cy}}) without a map.",
-    "checkMaps": "Check maps: grid tab",
+    "checkMaps": "Check maps: Matrix tab",
     "chooseHeader": "Choose a header.",
     "chooseMap": "Choose at least one map.",
     "chooseOutsideArea": "Choose the area at the entrance.",
@@ -1772,7 +1775,7 @@
       "new": "new, empty"
     },
     "furnish": "Furnish the interior: characters, triggers and signs with the tools or “+” in “In this scene”",
-    "furnishTinker": "Furnish the interior: edit the map in the grid tab",
+    "furnishTinker": "Furnish the interior: edit the map in the Matrix tab",
     "headerNow": "{{header}} now points to grid {{matrix}}{{file}}.",
     "insideOffMap": "The tile lies outside the map (0 to {{max}}).",
     "inUse_one": "Caution: header {{id}} is in use ({{count}} warp leads here); it loses its current grid {{matrix}}.",
@@ -1798,7 +1801,7 @@
     "outsideIsRoom": "The area at the entrance must not be the new room.",
     "outsideIsRoomHeader": "The outside header must not be the header of the new room.",
     "overviewFailed": "Overview not available",
-    "overviewLoading": "Loading overview …",
+    "overviewLoading": "Loading overview…",
     "patchedBuild": "Game code adapted for new places (stays).",
     "patchedTinker": "Patch “Dynamic Headers” applied (stays).",
     "pickTarget": "Choose the cell where the area should lie on the world map.",
@@ -1818,8 +1821,8 @@
     "roomSummaryBuild": "Creates the room “{{name}}” with a copy of map {{map}}, {{buildings}}.",
     "roomSummaryTinker": "Creates grid “{{name}}” with a copy of map {{map}}, {{buildings}}.",
     "scriptMessage": "Script #{{slot}}, message {{message}} in archive {{archive}}",
-    "seamless": "Walkable without seams: walk over from the neighbouring area.",
-    "seamlessIn": "Walkable without seams: walk over from the neighbouring area in grid {{matrix}}.",
+    "seamless": "Walkable without seams: walk over from the neighboring area.",
+    "seamlessIn": "Walkable without seams: walk over from the neighboring area in grid {{matrix}}.",
     "setDoor": "the tool “Door” or “+” › “Door” in “In this scene”",
     "sides": {
       "both": "outside and inside",
@@ -1842,7 +1845,7 @@
       "matrixEdit": "change grid",
       "warpEdit": "set warp"
     },
-    "takenInside": "Tile x {{x}}, z {{z}} inside already has warp {{index}} of event file {{file}}, which the room keeps: choose another tile or “Copy of …”.",
+    "takenInside": "Tile x {{x}}, z {{z}} inside already has warp {{index}} of event file {{file}}, which the room keeps: choose another tile or “Copy of…”.",
     "takenOutside": "Tile x {{x}}, z {{z}} outside already has warp {{index}}: choose another tile.",
     "takenOutsideTarget": "Tile x {{x}}, z {{z}} outside already has warp {{index}} (target header {{target}}): choose another tile.",
     "targetBuild": "Lies on the world map {{name}} at x {{x}}, y {{y}} (walkable without seams){{replaced}}.",
@@ -1906,8 +1909,8 @@
   },
   "worldMapPanel": {
     "gridLabel": "{{name}}, {{rows}} rows, {{columns}} columns",
-    "loadingPlan": "Loading room plan …",
-    "loadingRegion": "Loading region …",
+    "loadingPlan": "Loading room plan…",
+    "loadingRegion": "Loading region…",
     "noEntrance": "no entrance",
     "noEntranceWhy": "no entrance: {{reason}}",
     "noRegion": "No region found (no world map with areas).",
@@ -1936,7 +1939,7 @@
     "bakeRefused": "The bake was refused.",
     "binaryMap": "Binary map from the ROM or from DSPRE.",
     "needsTextProject": "Painting the ground is available in a text project (Technical › Text project).",
-    "reading": "Reading …",
+    "reading": "Reading…",
     "title": "Source",
     "toBinary": "Adopt as binary map",
     "worldMap": "World map"
@@ -1947,8 +1950,8 @@
       "other": "Other",
       "unconnected": "Not connected"
     },
-    "loading": "Loading …",
-    "loadingOverview": "Loading overview …",
+    "loading": "Loading…",
+    "loadingOverview": "Loading overview…",
     "manual": "{{name}} (assigned by hand)",
     "noMatch": "No place matches the search.",
     "overviewUnavailable": "Overview not available",
@@ -1961,7 +1964,7 @@
       "noPlace": "no place",
       "search": "Search scripts",
       "searchPlaceholder": "Search for a number or text",
-      "searching": "Searching …",
+      "searching": "Searching…",
       "size": "{{size}} bytes"
     },
     "search": "Search the world",

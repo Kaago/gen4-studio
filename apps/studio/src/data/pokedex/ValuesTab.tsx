@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { fieldLabels } from "../../api";
+import { fieldLabel } from "../../api";
 import { InspectorRow, NumberField, SelectField } from "../../ui/primitives";
 import type { NumberFieldProps, SelectOption } from "../../ui/primitives";
 import type { Editing, NumericField } from "./PokedexHand";
@@ -22,7 +22,7 @@ export function Column({ title, note, children }: { title: string; note?: string
 
 /** One number of the personal data as an inspector row; the bar says it differs from the saved value. */
 export function PersonalNumber({ e, field, ...limits }: { e: Editing; field: NumericField } & Pick<NumberFieldProps, "bits" | "max" | "hint">) {
-  const label = fieldLabels.species[field];
+  const label = fieldLabel("species", field);
   const value = e.doc.personal[field];
   return (
     <InspectorRow label={label} deviates={value !== e.doc.saved[field]}>
@@ -35,7 +35,7 @@ export function PersonalNumber({ e, field, ...limits }: { e: Editing; field: Num
 
 /** One choice of the personal data (types, growth, gender, egg groups, colour). */
 export function PersonalSelect({ e, field, options }: { e: Editing; field: NumericField; options: readonly SelectOption<number>[] }) {
-  const label = fieldLabels.species[field];
+  const label = fieldLabel("species", field);
   const value = e.doc.personal[field];
   return (
     <InspectorRow label={label} deviates={value !== e.doc.saved[field]}>

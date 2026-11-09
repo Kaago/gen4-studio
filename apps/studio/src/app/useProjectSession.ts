@@ -5,7 +5,7 @@ import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSu
 import { staleText } from "../assets";
 import { t } from "../i18n";
 import { formatSeconds } from "../technik/stepWords";
-import { BUILD_CONFLICTS, CONFLICTS_TOAST } from "../technik/syncWords";
+import { CONFLICTS_TOAST, buildConflictsText } from "../technik/syncWords";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
 import type { Message } from "./message";
@@ -53,8 +53,8 @@ function saveConflictText(e: CmdError): string {
   return t("app:session.saveConflict", { count: archives.length, archives: archivesText(archives) });
 }
 
-/** What a build of a text project with open conflicts is refused with (the backend's `conflicts` refusal says the same). */
-const CONFLICTS: CmdError = { code: "conflicts", message: BUILD_CONFLICTS, asset: null, problems: [] };
+/** What a build of a text project with open conflicts is refused with (the backend's `conflicts` refusal says the same), in the language that is shown. */
+const conflictsError = (): CmdError => ({ code: "conflicts", message: buildConflictsText(), asset: null, problems: [] });
 
 /** Ends a sentence of the backend with a full stop. */
 const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`);
@@ -472,7 +472,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
       const sync = syncBeforeBuild?.current;
       if (sync) {
         const outcome = await sync();
-        if (outcome !== null && outcome.conflicts.length > 0) throw CONFLICTS;
+        if (outcome !== null && outcome.conflicts.length > 0) throw conflictsError();
       }
       const dirtyScripts = scripts.current.dirtyFiles();
       const storeSaved = dirtyScripts.length > 0 ? (await saveStore()).written.length : 0;
@@ -530,7 +530,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
 
   /** A build stopped by conflicts: one message with „Lösen…“, in the place of the sync's conflict message (not stacked below it). */
   function conflictsMessage(): Message {
-    return { kind: "error", text: BUILD_CONFLICTS, key: CONFLICTS_TOAST, actions: onShowConflicts ? [{ label: t("app:session.resolve"), run: onShowConflicts }] : undefined };
+    return { kind: "error", text: buildConflictsText(), key: CONFLICTS_TOAST, actions: onShowConflicts ? [{ label: t("app:session.resolve"), run: onShowConflicts }] : undefined };
   }
 
   /** Shows an error of a build; the next successful build closes its toast. */

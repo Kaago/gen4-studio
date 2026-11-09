@@ -38,7 +38,7 @@ import { RenamePlaceDialog } from "../places/RenamePlaceDialog";
 import { LevelScriptSection } from "./LevelScriptSection";
 import { MusicField, soundOf, useSoundNames } from "./MusicField";
 import { SplitRoomDialog } from "./SplitRoomDialog";
-import { SHARED_HINT, sharedText } from "../sharedRooms";
+import { sharedHint, sharedText } from "../sharedRooms";
 import { adoptHint } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 
@@ -353,7 +353,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         ]}
         badges={
           sharedRoom && (
-            <Tooltip content={SHARED_HINT}>
+            <Tooltip content={sharedHint()}>
               <span className={styles.shared} tabIndex={0} data-shared="">
                 <Badge kind="info" icon="shared">
                   {sharedText(sharedRoom.shared)}

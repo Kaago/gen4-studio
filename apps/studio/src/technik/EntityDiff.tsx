@@ -2,10 +2,10 @@ import { useId, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { useTranslation } from "react-i18next";
 import type { Against, BlobSide, ChangedEntry, EntityDiff as Diff, EntityDiffReport, FieldChange, OriginalStatus, WordSpan } from "../api";
-import { RESTORE_LABEL, useDelete } from "../delete/DeleteContext";
+import { restoreLabel, useDelete } from "../delete/DeleteContext";
 import { t } from "../i18n";
 import { useReset } from "../original/OriginalContext";
-import { RESET_LABEL } from "../original/resetEntry";
+import { resetLabel } from "../original/resetEntry";
 import { Badge, Button, ChangeTable, Notice, Section, Tooltip } from "../ui/primitives";
 import type { ChangeCell, ChangeTableRow } from "../ui/primitives";
 import { headerFieldSpecs } from "../workbench/inspector/fields";
@@ -155,7 +155,7 @@ function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report
         </LockableButton>
         {back !== null ? (
           <LockableButton why={null} onClick={() => restore(back)}>
-            {RESTORE_LABEL}
+            {restoreLabel()}
           </LockableButton>
         ) : (
           <LockableButton
@@ -166,7 +166,7 @@ function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report
               open(target, { finalFocus: () => (resetButton.current?.isConnected ? resetButton.current : (finalFocus?.() ?? null)) })
             }
           >
-            {RESET_LABEL}
+            {resetLabel()}
           </LockableButton>
         )}
       </div>

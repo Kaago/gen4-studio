@@ -4,7 +4,7 @@ import type { AdoptReport, AssetId, HeaderSummary, MigrateReport, ProjectInfo, R
 import type { NameReport } from "../api";
 import { invalidateFlagLists } from "../flags/useFlagList";
 import { t } from "../i18n";
-import { AGENT_SETTING_UP } from "../technik/TextProjectSurface";
+import { agentSettingUpText } from "../technik/TextProjectSurface";
 import type { TextProjectView } from "../technik/TextProjectSurface";
 import { adoptedText } from "../textproject/AdoptDialog";
 import { liftedText } from "../textproject/MigrateDialog";
@@ -86,7 +86,7 @@ export function useTextProjectDialogs({
       if (projectText.state !== "dspre") return;
     }
     if (agentSetUp) {
-      toast.info(AGENT_SETTING_UP);
+      toast.info(agentSettingUpText());
       return;
     }
     if (session.busy) {

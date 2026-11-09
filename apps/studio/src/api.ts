@@ -149,7 +149,7 @@ export interface MatrixDto {
 /** Map id the backend stores for, and accepts as, an empty matrix cell. */
 export const MATRIX_EMPTY = 0xffff;
 
-/** Positions in tiles from the map centre (y is vertical); scale 1.0 = unscaled. */
+/** Positions in tiles from the map center (y is vertical); scale 1.0 = unscaled. */
 export interface BuildingDto {
   model_id: number;
   x: number;
@@ -170,8 +170,8 @@ export interface MapDto {
   /** [kind, collision] per cell, row-major (32 x 32). */
   permissions: [number, number][];
   buildings: BuildingDto[];
-  /** Walk height of every tile centre in world units (16 per tile), row-major (32 x 32); `null` where no plate lies
-   * under the centre and everywhere when the BDHC is unreadable (`getMapHeights` names the reason). */
+  /** Walk height of every tile center in world units (16 per tile), row-major (32 x 32); `null` where no plate lies
+   * under the center and everywhere when the BDHC is unreadable (`getMapHeights` names the reason). */
   heights: (number | null)[];
   /** The map carries a world document (text project, 6.3a): the scene shows its mesh instead of the model, the heights come from it.
    * The backend always sends it; optional so that hand-made maps (tests, drafts) are binary maps. */
@@ -246,7 +246,7 @@ export interface EventsDto {
   deleted?: boolean;
 }
 
-/** A named tile behaviour (decomp enum) for a permission kind byte; `class` drives the overlay colour. */
+/** A named tile behavior (decomp enum) for a permission kind byte; `class` drives the overlay color. */
 export interface TileBehavior {
   value: number;
   name: string;
@@ -324,7 +324,7 @@ export const renameMatrix = (index: number, name: string) => invoke<void>("renam
 export const createMatrix = (name: string) => invoke<number>("create_matrix", { name });
 /** Appends a copy of a map (without its buildings when `clearBuildings`) and resolves to its index. Written at once; not undoable. */
 export const duplicateMap = (source: number, clearBuildings = false) => invoke<number>("duplicate_map", { source, clearBuildings });
-/** The behaviour names of the open project's game family; rejects while no project is open. */
+/** The behavior names of the open project's game family; rejects while no project is open. */
 export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
 export const getEvents = (eventFileId: number) => invoke<EventsDto>("get_events", { eventFileId });
 export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
@@ -399,7 +399,7 @@ export const addEvent = (eventFile: number, kind: EventKind, x: number, z: numbe
 export const deleteEvent = (eventFile: number, kind: EventKind, index: number) => invoke<void>("delete_event", { eventFile, kind, index });
 /** Changes fields of building `index` of map `map` (one undoable change). */
 export const updateBuilding = (map: number, index: number, patch: BuildingPatch) => invoke<void>("update_building", { map, index, patch });
-/** Appends a building (model 0, map centre, scale 1.0) to a map and resolves to its index (one undoable change). */
+/** Appends a building (model 0, map center, scale 1.0) to a map and resolves to its index (one undoable change). */
 export const addBuilding = (map: number) => invoke<number>("add_building", { map });
 /** Removes a building; the ones after it move up by one (one undoable change). */
 export const deleteBuilding = (map: number, index: number) => invoke<void>("delete_building", { map, index });
@@ -824,7 +824,7 @@ export interface Entrance {
   z: number;
   inside_x: number;
   inside_z: number;
-  /** Turns each of the two tiles a warp would not fire on into a door (behaviour 0x69, collision 0x80). */
+  /** Turns each of the two tiles a warp would not fire on into a door (behavior 0x69, collision 0x80). */
   door_tiles?: boolean;
 }
 
@@ -874,7 +874,7 @@ export interface SplitReport {
 /**
  * Gives room `header` copies of the maps it shares with other rooms, on a new matrix of its own.
  * The copies and the matrix are written at once and stay; moving the room onto them is one undo
- * step, labelled with `name` (else the header id).
+ * step, labeled with `name` (else the header id).
  */
 export const splitRoom = (header: number, name?: string | null) =>
   invoke<SplitReport>("split_room", { header, name: name ?? null });

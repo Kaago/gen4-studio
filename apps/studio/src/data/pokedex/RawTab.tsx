@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { dataRaw, errorText, fieldLabels } from "../../api";
+import { dataRaw, errorText, fieldLabelOf } from "../../api";
 import type { DataKind, RawDto } from "../../api";
 import { HexBlock } from "../../ui/primitives";
 import type { Editing } from "./PokedexHand";
@@ -16,11 +16,11 @@ const PARTS: readonly { kind: DataKind; part: "personalData" | "learnset" | "evo
 
 const EVO_FIELD = /^(method|param|target)(\d)$/;
 
-/** The German name of a field of the raw data ("attack" → "Angriff", "param0" → "Entwicklung 1 Parameter"). */
+/** The name of a field of the raw data in the language shown ("attack" → "Angriff", "param0" → "Entwicklung 1 Parameter"). */
 function labelOf(name: string, t: TFunction<"data">): string {
   const evo = EVO_FIELD.exec(name);
   if (evo) return t("rawTab.evoField", { n: Number(evo[2]) + 1, word: t(`evolutionTab.${evo[1] as "method" | "param" | "target"}`) });
-  return (fieldLabels.species as Record<string, string>)[name] ?? name;
+  return fieldLabelOf("species", name);
 }
 
 /** One part's bytes as the store holds them, read again with every new document (an edit, undo, redo). */

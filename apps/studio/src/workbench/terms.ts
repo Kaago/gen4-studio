@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { t } from "../i18n";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
@@ -60,11 +61,20 @@ export const termPlural = (key: TermKey): string => t(`terms:${key}.plural`);
 /** The explanation of a term, one or two sentences. */
 export const termShort = (key: TermKey): string => t(`terms:${key}.short`);
 
+/**
+ * A label inside a sentence of the language shown: English lower-cases its first letter ("Change event file…"), an abbreviation stays
+ * ("HP"); German keeps its nouns capitalized („Eventdatei ändern…“).
+ */
+export function inSentence(label: string): string {
+  if (i18next.language === "de") return label;
+  return /^\p{Lu}\p{Ll}/u.test(label) ? `${label.charAt(0).toLowerCase()}${label.slice(1)}` : label;
+}
+
 /** An id as the Gate documents and the lists write it: four digits. */
 export const id4 = (n: number) => String(n).padStart(4, "0");
 
-/** The number of a member as a card writes it, spelled out (no "Nr."): "Nummer 0017". */
-export const numberText = (n: number) => `Nummer ${id4(n)}`;
+/** The number of a member as a card writes it, spelled out (no "Nr."): "Nummer 0017", "Number 0017". */
+export const numberText = (n: number): string => t("workbench:terms.number", { id: id4(n) });
 
 /** How an id is written next to a member; the header stays "Header" (the word the Gate documents use), the rest follows the technical name. */
 const ID_NAME: Partial<Record<TermKey, string>> = { header: "Header" };

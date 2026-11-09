@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import { afterEach, describe, expect, it } from "vitest";
 import { commitReportOf, gitStatusOf, initReportOf } from "./gitTesting";
-import { NOT_INSTALLED, TEMPLATES_ONLY_TEXT, changedFilesText, changesWord, commitDoneText, initDoneText, noGitForCommit, notInstalledText, statusText, statusTooltip, templatesOnlyText } from "./gitWords";
+import { changedFilesText, changesWord, commitDoneText, initDoneText, isNotInstalled, noGitForCommit, notInstalledText, statusText, statusTooltip } from "./gitWords";
 
 afterEach(() => i18next.changeLanguage("de"));
 
@@ -27,9 +27,13 @@ describe("gitWords in English", () => {
     expect(noGitForCommit()).toBe("Git is not installed.");
   });
 
-  it("keeps_the_German_constants_equal_to_the_catalog_while_other_folders_import_them", () => {
-    // `project/NewProjectWizard.tsx` still imports these names: until it moves to the functions they must say what the German catalog says.
-    expect(NOT_INSTALLED).toBe(notInstalledText());
-    expect(TEMPLATES_ONLY_TEXT).toBe(templatesOnlyText());
+  it("recognizes_the_kernel_sentence_in_either_language", async () => {
+    // The kernel says `NOT_INSTALLED` in German: the dialog and the wizard must still tell „only the templates“ while the app speaks English.
+    const german = notInstalledText();
+    await i18next.changeLanguage("en");
+    expect(isNotInstalled(german)).toBe(true);
+    expect(isNotInstalled(notInstalledText())).toBe(true);
+    expect(isNotInstalled("fatal: not a git repository")).toBe(false);
+    expect(isNotInstalled(null)).toBe(false);
   });
 });

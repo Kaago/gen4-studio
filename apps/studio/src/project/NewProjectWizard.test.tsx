@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "../api";
 import type { Created, CreateProgress, DestCheck, InitReport, RomInfo } from "../api";
 import { initReportOf } from "../git/gitTesting";
-import { NOT_INSTALLED } from "../git/gitWords";
+import { notInstalledText } from "../git/gitWords";
 import { openPath } from "../platform/dialogs";
 import { pressKey } from "../ui/primitives/testUtils";
 import { NewProjectWizard } from "./NewProjectWizard";
@@ -293,7 +293,7 @@ describe("NewProjectWizard", () => {
   });
 
   it("the_result_says_only_the_templates_were_written_without_git", async () => {
-    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason: NOT_INSTALLED, head: null, files: 0 }));
+    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason: notInstalledText(), head: null, files: 0 }));
     expect(warning).toBe("Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.");
     expect(shown).not.toContain("Git eingerichtet");
   });

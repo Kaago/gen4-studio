@@ -43,16 +43,16 @@ export function initDoneText(report: InitReport): string {
 /** The kernel's reason when no `git` was found (`git::NOT_INSTALLED`) in the language that is shown: only the templates were written. */
 export const notInstalledText = (): string => t("git:gitWords.notInstalled");
 
+/**
+ * Whether `reason` is the kernel's `git::NOT_INSTALLED`. The kernel words it in German; a sentence of either catalog counts, so the check
+ * holds while the app speaks English.
+ */
+export function isNotInstalled(reason: string | null): boolean {
+  return reason !== null && (["de", "en"] as const).some((lng) => t("git:gitWords.notInstalled", { lng }) === reason);
+}
+
 /** The message when no `git` is installed: only the templates were written. */
 export const templatesOnlyText = (): string => t("git:gitWords.templatesOnly");
-
-/**
- * @deprecated German only, kept while `project/NewProjectWizard.tsx` (and its test) import the names `NOT_INSTALLED` and `TEMPLATES_ONLY_TEXT`
- * from here: a constant cannot follow the language. They move to `notInstalledText()` and `templatesOnlyText()`, then these two go.
- */
-export const NOT_INSTALLED = "Git ist nicht installiert. Die Vorlagen sind geschrieben; das Repository legst du an, sobald Git da ist (git-scm.com/downloads).";
-/** @deprecated See `NOT_INSTALLED`. */
-export const TEMPLATES_ONLY_TEXT = "Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.";
 
 /**
  * After a set-up or a take-back: what became of the Git templates, as a sentence with a leading space („ Die .gitignore von Gen4 Studio

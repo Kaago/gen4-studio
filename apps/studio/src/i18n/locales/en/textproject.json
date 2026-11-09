@@ -11,27 +11,27 @@
     "cancel": "Cancel",
     "rename": "Rename",
     "newId": "New ID",
-    "searching": "Looking for references …",
+    "searching": "Looking for references…",
     "sentence": "{{refs}} in {{files}} will be updated.",
-    "renaming": "Renaming …"
+    "renaming": "Renaming…"
   },
   "adoptDialog": {
     "reopen": "The files are converted, but the open session was changed in the meantime and stays as it is; please reopen the project.",
     "unsaved_one": "Save first: {{count}} unsaved change.",
     "unsaved_other": "Save first: {{count}} unsaved changes.",
     "progress": {
-      "scripts": "Adopting scripts …",
-      "scriptsCount": "Adopting scripts … {{done}} of {{total}}",
-      "baseLayer": "Creating the base layer …",
-      "entities": "Writing entries …",
-      "entitiesCount": "Writing entries … {{done}} of {{total}} kinds",
-      "sync": "Preparing the sync …"
+      "scripts": "Adopting scripts…",
+      "scriptsCount": "Adopting scripts… {{done}} of {{total}}",
+      "baseLayer": "Creating the base layer…",
+      "entities": "Writing entries…",
+      "entitiesCount": "Writing entries… {{done}} of {{total}} kinds",
+      "sync": "Preparing the sync…"
     },
     "done_one": "Text project set up: {{count, number}}\u00a0file in {{seconds}}\u00a0s.",
     "done_other": "Text project set up: {{count, number}}\u00a0files in {{seconds}}\u00a0s.",
     "allSaved": "Everything saved",
     "baseFound": "Base ROM found: {{label}}",
-    "baseSearching": "Looking for the base ROM …",
+    "baseSearching": "Looking for the base ROM…",
     "scriptsAdopted": "Scripts adopted",
     "scriptsAdoptedAlong": "Scripts are adopted along the way",
     "close": "Close",
@@ -40,7 +40,7 @@
     "title": "Set up as text project?",
     "description": "Writes g4-project.json and about 6,500 files under data/. The game files stay as they are; you can revert in Technical › Text project.",
     "beforeSetUp": "Before setting up",
-    "settingUp": "Setting up …"
+    "settingUp": "Setting up…"
   },
   "entityIdLine": {
     "noClipboard": "The clipboard is not available here. Select the ID and copy it yourself.",

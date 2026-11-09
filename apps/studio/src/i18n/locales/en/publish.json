@@ -8,11 +8,11 @@
     },
     "noBase": "Assign a base ROM first.",
     "phase": {
-      "build": "Saving and building …",
-      "encode": "Encoding the patch …",
-      "verify": "Self-check …",
-      "write": "Writing files …",
-      "record": "Recording the release …"
+      "build": "Saving and building…",
+      "encode": "Encoding the patch…",
+      "verify": "Self-check…",
+      "write": "Writing files…",
+      "record": "Recording the release…"
     },
     "filesLine_one": "{{count}} file, {{size}}",
     "filesLine_other": "{{count}} files, {{size}}",
@@ -34,7 +34,7 @@
       "size": "Size"
     },
     "chooseLocationTitle": "Choose location",
-    "readingReleases": "Reading the releases …",
+    "readingReleases": "Reading the releases…",
     "version": "Version",
     "notes": "Change notes",
     "notesHint": "What changed since the last version. Goes into the companion file.",
@@ -46,8 +46,8 @@
     "replace": "Replace",
     "selfCheckPassed": "Self-check passed: applied to the base ROM, the patch gives exactly the built ROM.",
     "checkSummary": "Base {{base}} → target {{target}}, verified in {{ms}} ms",
-    "handedOn": "What you hand on",
-    "handOnPatch": "Hand on the patch: anyone with the same base ROM applies it with Rom Patcher JS or xdelta3.",
+    "handedOn": "What you share",
+    "handOnPatch": "Share the patch: anyone with the same base ROM applies it with Rom Patcher JS or xdelta3.",
     "commitNext": "Save a snapshot creates a commit with “{{subject}}”.",
     "publishedTitle": "Published: v{{version}}",
     "saveSnapshot": "Save a snapshot…",

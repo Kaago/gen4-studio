@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { FigureRef } from "../../api";
 import type { StoryRecipeRequest } from "../../stories/recipes/storyRecipeModel";
-import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
+import { notATextProject } from "../../flags/flagWords";
 import { useTextProject } from "../../textproject/TextProjectContext";
 import { Button, DSScreen, Tooltip } from "../../ui/primitives";
 import { pages } from "../text/textModel";
@@ -81,11 +81,11 @@ export function DialogSection({
             create
           ) : (
             <>
-              <Tooltip content={NOT_A_TEXT_PROJECT}>
+              <Tooltip content={notATextProject()}>
                 <span className={styles.lockedWrap}>{create}</span>
               </Tooltip>
               <span id={reasonId} hidden>
-                {NOT_A_TEXT_PROJECT}
+                {notATextProject()}
               </span>
             </>
           )}

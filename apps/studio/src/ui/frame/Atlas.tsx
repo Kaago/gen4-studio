@@ -85,7 +85,7 @@ export function Atlas({ area, onArea, locked, lockedHint, onHelp, density }: Atl
     </button>
   );
   return (
-    <nav className={styles.atlas} aria-label={t("atlas.label")} data-dichte={density}>
+    <nav className={styles.atlas} aria-label={t("atlas.label")} data-atlas="" data-dichte={density}>
       <div className={styles.group}>{MAIN.map(entry)}</div>
       <div className={styles.group}>
         {compact ? <Tooltip content={t("atlas.help")}>{help}</Tooltip> : help}

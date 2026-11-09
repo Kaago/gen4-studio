@@ -1,5 +1,5 @@
-import { fieldLabels } from "../../api";
-import type { FieldValueDto, RefDto } from "../../api";
+import { fieldLabel } from "../../api";
+import type { FieldValueDto, RefDto, fieldLabels } from "../../api";
 import { t } from "../../i18n";
 import type { SelectOption } from "../../ui/primitives";
 import { typeName } from "../../ui/primitives/pokemonTypes";
@@ -129,7 +129,7 @@ export function moveText(field: MoveField, value: number): string {
 
 /** The undo label of a field: „Flügelschlag: Stärke 60 → 65“, „Flügelschlag: Typ Flug → Feuer“. */
 export const moveLabel = (name: string, field: MoveField, old: number, value: number): string =>
-  `${name}: ${fieldLabels.move[field]} ${moveText(field, old)} → ${moveText(field, value)}`;
+  `${name}: ${fieldLabel("move", field)} ${moveText(field, old)} → ${moveText(field, value)}`;
 
 /** The undo label of one flag bit: „Flügelschlag: Macht Kontakt an → aus“. */
 export const flagLabel = (name: string, flag: MoveFlag, on: boolean): string => t(on ? "data:moveModel.flagOn" : "data:moveModel.flagOff", { name, flag: flag.label });

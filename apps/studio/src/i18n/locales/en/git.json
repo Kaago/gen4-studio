@@ -4,7 +4,7 @@
     "close": "Close",
     "saveFirst": "Save first",
     "allSaved": "Everything saved",
-    "lookingForGit": "Looking for Git …"
+    "lookingForGit": "Looking for Git…"
   },
   "gitWords": {
     "noChange": "no changes",
@@ -48,12 +48,12 @@
     "title": "Save a snapshot?",
     "description": "Creates a commit with all changes in the local repository (git add -A, git commit). Nothing is uploaded.",
     "phase": {
-      "templates": "Checking templates …",
-      "add": "Adding files …",
-      "commit": "Committing …"
+      "templates": "Checking templates…",
+      "add": "Adding files…",
+      "commit": "Committing…"
     },
     "gitNotInstalled": "Git is not installed",
-    "checkingChanges": "Checking changes …",
+    "checkingChanges": "Checking changes…",
     "failed": "The commit failed.",
     "save": "Save",
     "beforeSaving": "Before saving",
@@ -70,11 +70,11 @@
       "textProject": "Ignored: ROMs, patches, build/, save games and the game files (they are made from the base ROM)"
     },
     "phase": {
-      "unpack": "Unpacking archives …",
-      "templates": "Writing templates …",
-      "init": "Creating the repository …",
-      "add": "Adding files … (about 10 s for DSPRE folders)",
-      "commit": "First commit …"
+      "unpack": "Unpacking archives…",
+      "templates": "Writing templates…",
+      "init": "Creating the repository…",
+      "add": "Adding files… (about 10 s for DSPRE folders)",
+      "commit": "First commit…"
     },
     "gitMissingTemplatesOnly": "Git is not installed: only the templates are written",
     "templateExists": "{{file}} exists: the Gen4 Studio block is added",
@@ -87,11 +87,11 @@
     "pickTitle": "Choose base ROM",
     "pickFilter": "DS ROM",
     "progress": {
-      "extract": "Extracting the base ROM …",
-      "merge": "Inserting the game files …",
-      "import": "Importing the text project …",
-      "importCount": "Importing the text project … {{done}} of {{total}}",
-      "sync": "Preparing the sync …"
+      "extract": "Extracting the base ROM…",
+      "merge": "Inserting the game files…",
+      "import": "Importing the text project…",
+      "importCount": "Importing the text project… {{done}} of {{total}}",
+      "sync": "Preparing the sync…"
     },
     "restored": "Text project completed in {{seconds}}\u00a0s.",
     "title": "Complete the text project?",

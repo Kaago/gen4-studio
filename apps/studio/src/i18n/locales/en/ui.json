@@ -160,7 +160,7 @@
     "resume": "Resume",
     "reload": "Reload",
     "stop": "Stop",
-    "building": "Building …",
+    "building": "Building…",
     "play": "Play here"
   },
   "inspectorRow": {
@@ -212,7 +212,7 @@
   },
   "picker": {
     "search": "Search",
-    "searchPlaceholder": "Search …",
+    "searchPlaceholder": "Search…",
     "results": "Results",
     "filter": "Filter",
     "empty": "Nothing found. Change the search or the filter.",
@@ -283,7 +283,7 @@
     "densityComfort": "Comfortable",
     "densityCompact": "Compact",
     "densityTip": "Switch density (comfortable or compact)",
-    "building": "Building …",
+    "building": "Building…",
     "notBuilt": "Not built yet",
     "built": "Built {{ago}}",
     "bridgeOk": "Browser mode (bridge)",

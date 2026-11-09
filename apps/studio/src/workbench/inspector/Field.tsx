@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { HeaderSummary } from "../../api";
 import { Button, InspectorRow, NumberField, Picker, Reference, SelectField, Switch } from "../../ui/primitives";
 import type { NavTarget } from "../navigation";
+import { inSentence } from "../terms";
 import styles from "./Editor.module.css";
 import { fieldBits } from "./fields";
 import type { FieldSpec } from "./fields";
@@ -73,7 +74,7 @@ export function Field({ spec, value, max, onCommit, disabled, headers = NO_HEADE
             ) : (
               <span className={styles.mono}>{reference.tech}</span>
             )}
-            <Button kind="quiet" size="s" aria-label={t("inspectorField.changeLabel", { label: spec.label })} disabled={disabled} onClick={() => setPicking(true)}>
+            <Button kind="quiet" size="s" aria-label={t("inspectorField.changeLabel", { label: inSentence(spec.label) })} disabled={disabled} onClick={() => setPicking(true)}>
               {t("inspectorField.change")}
             </Button>
             {extra}

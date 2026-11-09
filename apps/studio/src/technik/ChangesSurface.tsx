@@ -2,12 +2,12 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent, ReactNode, Ref } from "react";
 import { useTranslation } from "react-i18next";
 import type { Against, AssetId, ChangedEntry, DiffSubject, GitStatus, OriginalStatus } from "../api";
-import { RESTORE_LABEL, useDelete } from "../delete/DeleteContext";
+import { restoreLabel, useDelete } from "../delete/DeleteContext";
 import { noGitForCommit } from "../git/gitWords";
 import type { GitStatusApi } from "../git/useGitStatus";
 import { t } from "../i18n";
 import { useReset } from "../original/OriginalContext";
-import { RESET_LABEL } from "../original/resetEntry";
+import { resetLabel } from "../original/resetEntry";
 import { Badge, Button, EmptyState, ListRow, Notice, Section, Segmented, Tooltip, useRovingList } from "../ui/primitives";
 import type { SegmentedOption } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
@@ -547,7 +547,7 @@ function GroupList({ group, entries, dirty, against, status, where, selected, on
             // The dialog asks where focus goes when it closes: this button, or its neighbour once the reset has taken the row away.
             onClick={() => target !== null && why === null && open(target, { finalFocus: where(key, "button") })}
           >
-            {RESET_LABEL}
+            {resetLabel()}
           </Button>
         );
         return (
@@ -567,7 +567,7 @@ function GroupList({ group, entries, dirty, against, status, where, selected, on
                 {back !== null ? (
                   // A new entity deleted has no original: its tombstone is taken back (one undo step, no dialog).
                   <Button kind="secondary" size="s" onClick={() => restore(back)}>
-                    {RESTORE_LABEL}
+                    {restoreLabel()}
                   </Button>
                 ) : why === null ? (
                   button

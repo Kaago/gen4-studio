@@ -39,11 +39,5 @@ export const problemLine = (p: SyncProblem) => `${p.file}:${p.line}:${p.col}: ${
 /** What a build with open conflicts says (the backend's `conflicts` refusal says the same), in the language that is shown. */
 export const buildConflictsText = () => t("technik:syncWords.buildConflicts");
 
-/**
- * @deprecated German only, kept while `app/useProjectSession.ts` (and `App.test.tsx`) import the name `BUILD_CONFLICTS` from here: a constant
- * cannot follow the language. They move to `buildConflictsText()`, then this goes.
- */
-export const BUILD_CONFLICTS = "Erst die Konflikte in Technik › Textprojekt lösen.";
-
 /** The key of the one message about open conflicts: the sync's warning, and a build's refusal in its place. */
 export const CONFLICTS_TOAST = "sync-conflicts";

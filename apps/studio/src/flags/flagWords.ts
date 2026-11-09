@@ -1,6 +1,5 @@
 import type { FlagAccess, FlagArea, FlagKind, FlagListDto, FlagUsageCounts } from "../api";
 import { t } from "../i18n";
-import deFlags from "../i18n/locales/de/flags.json";
 import { filterItems } from "../ui/primitives";
 import type { PickerItem } from "../ui/primitives";
 
@@ -123,13 +122,6 @@ export function flagRows(list: FlagListDto): PickerItem[] {
 export function notATextProject(): string {
   return t("flags:words.notATextProject");
 }
-
-/**
- * The German sentence, as a constant for the places of other folders that still read `NOT_A_TEXT_PROJECT` (`DialogSection`, `wizardSpecs`).
- * Taken from the German catalog, so it stays German until they call `notATextProject()`.
- * @deprecated Call `notATextProject()`.
- */
-export const NOT_A_TEXT_PROJECT: string = deFlags.words.notATextProject;
 
 /** Why naming is locked in the DSPRE layout, with the way there. */
 export function namingNeedsTextProject(): string {

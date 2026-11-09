@@ -6,7 +6,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recipeApply, releases, validateText } from "../api";
 import type { HeaderSummary, NewFigureReport, RecipeOutcome } from "../api";
-import { NOT_A_TEXT_PROJECT } from "../flags/flagWords";
+import { notATextProject } from "../flags/flagWords";
 import { releasesOf } from "../publish/publishTesting";
 import { textProjectSpy, withTextProject } from "../textproject/textProjectTesting";
 import { ShellProvider } from "../ui/frame/ShellContext";
@@ -208,7 +208,7 @@ describe("WizardHost", () => {
     const step = container.querySelector<HTMLButtonElement>('[data-next-steps] button[data-recipe="story_join"]')!;
     expect(step.disabled).toBe(true);
     expect(container.querySelector('[data-next-steps] button[data-recipe="edit_dialog"]')?.hasAttribute("disabled")).toBe(false);
-    expect(document.getElementById(step.getAttribute("aria-describedby") ?? "")?.textContent).toBe(NOT_A_TEXT_PROJECT);
+    expect(document.getElementById(step.getAttribute("aria-describedby") ?? "")?.textContent).toBe(notATextProject());
     await act(async () => step.click());
     expect(onOpenStoryRecipe).not.toHaveBeenCalled();
   });

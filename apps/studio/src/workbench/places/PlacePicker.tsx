@@ -6,7 +6,7 @@ import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
-import { UNNAMED_PLACE, placeColor } from "../places";
+import { placeColor, unnamedPlace } from "../places";
 import { id4 } from "../terms";
 import { useWorld } from "../WorkbenchContext";
 import { NO_PLACE_INDEX } from "../worldModel";
@@ -103,7 +103,7 @@ export function PlacePicker({ header, depth, onAssigned, headers, family, onErro
   }
 
   const index = header.location_index;
-  const name = index === NO_PLACE_INDEX ? t("placePicker.noPlace") : header.location_name.trim() || UNNAMED_PLACE;
+  const name = index === NO_PLACE_INDEX ? t("placePicker.noPlace") : header.location_name.trim() || unnamedPlace();
   const locked = family === "DP";
   return (
     <>

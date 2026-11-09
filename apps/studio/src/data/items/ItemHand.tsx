@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FocusEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { dataRaw, errorText, fieldLabels } from "../../api";
+import { dataRaw, errorText, fieldLabel, fieldLabelOf } from "../../api";
 import type { FieldValueDto, ProjectInfo, RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
 import { depthAtLeast } from "../../ui/frame/shellState";
@@ -56,7 +56,7 @@ interface Editing {
 }
 
 function ItemNumber({ e, field, ...limits }: { e: Editing; field: ItemField } & Pick<NumberFieldProps, "bits" | "min" | "max" | "hint">) {
-  const label = fieldLabels.item[field];
+  const label = fieldLabel("item", field);
   return (
     <InspectorRow label={label}>
       <div data-field={field}>
@@ -67,7 +67,7 @@ function ItemNumber({ e, field, ...limits }: { e: Editing; field: ItemField } & 
 }
 
 function ItemSelect({ e, field, options }: { e: Editing; field: ItemField; options: readonly SelectOption<number>[] }) {
-  const label = fieldLabels.item[field];
+  const label = fieldLabel("item", field);
   return (
     <InspectorRow label={label}>
       <div data-field={field}>
@@ -81,8 +81,8 @@ function ItemSelect({ e, field, options }: { e: Editing; field: ItemField; optio
 function BattlePockets({ e }: { e: Editing }) {
   const battle = e.v.battle_pocket ?? 0;
   return (
-    <div className={styles.flags} data-field="battle_pocket" role="group" aria-label={fieldLabels.item.battle_pocket}>
-      <p className={styles.note}>{fieldLabels.item.battle_pocket}</p>
+    <div className={styles.flags} data-field="battle_pocket" role="group" aria-label={fieldLabel("item", "battle_pocket")}>
+      <p className={styles.note}>{fieldLabel("item", "battle_pocket")}</p>
       {BATTLE_POCKETS.map((p) => (
         <Switch key={p.bit} label={p.label} checked={(battle & p.mask) !== 0} onChange={(on) => e.setPocket(p, on)} />
       ))}
@@ -123,7 +123,7 @@ function FieldEditor({ e, field, raw }: { e: Editing; field: ItemField; raw: boo
   if (ONE_BIT_FIELDS.includes(field)) {
     const on = (e.v[field] ?? 0) !== 0;
     const set = (next: boolean) => e.set(field, next ? 1 : 0);
-    return <div data-field={field}>{raw ? <Checkbox label={fieldLabels.item[field]} checked={on} onChange={set} /> : <Switch label={fieldLabels.item[field]} checked={on} onChange={set} />}</div>;
+    return <div data-field={field}>{raw ? <Checkbox label={fieldLabel("item", field)} checked={on} onChange={set} /> : <Switch label={fieldLabel("item", field)} checked={on} onChange={set} />}</div>;
   }
   return <ItemNumber e={e} field={field} {...limits(width)} />;
 }
@@ -157,7 +157,7 @@ function RawBytes({ index, doc, highlight }: { index: number; doc: ItemDoc | nul
   }, [index, doc]);
   if (raw === null) return <p className={styles.note}>{t("loading")}</p>;
   if (raw.raw === null) return <p className={styles.note}>{t("notReadable", { error: raw.error ?? "" })}</p>;
-  return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} highlight={highlight} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => (fieldLabels.item as Record<string, string>)[name] ?? name} />;
+  return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} highlight={highlight} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => fieldLabelOf("item", name)} />;
 }
 
 /** The warning of an item whose data other item ids share, with those items to open. */

@@ -14,6 +14,12 @@ import styles from "./AdoptDialog.module.css";
  */
 export const reopenText = (): string => t("textproject:adoptDialog.reopen");
 
+/**
+ * Whether `message` is that answer. The refusal has no code of its own, and the backend says it in the language it was set to: the words
+ * of both catalogs count, so the hint stays when the backend speaks another language than the app shows.
+ */
+export const isReopen = (message: string): boolean => (["de", "en"] as const).some((lng) => t("textproject:adoptDialog.reopen", { lng }) === message);
+
 /** The unsaved count as the kernel says it („Erst speichern: 1 ungespeicherte Änderung.“). */
 export function unsavedText(n: number): string {
   return t("textproject:adoptDialog.unsaved", { count: n });
@@ -93,7 +99,7 @@ export function AdoptDialog({ unsaved, baseLabel, baseReason, scriptsAdopted, on
       onClose();
     } catch (e) {
       setError(errorText(e));
-      setReopen(isCmdError(e) && e.message === reopenText());
+      setReopen(isCmdError(e) && isReopen(e.message));
     } finally {
       busy.current = false;
       setRunning(false);

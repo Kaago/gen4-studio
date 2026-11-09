@@ -1415,6 +1415,9 @@
     "hex": "Hex",
     "title": "Technisch"
   },
+  "terms": {
+    "number": "Nummer {{id}}"
+  },
   "textArea": {
     "hints": "↵ neue Zeile, ⇧↵ neue Seite",
     "noFigureSays": "Keine Figur spricht diese Nachricht – in Bauen geöffnet",

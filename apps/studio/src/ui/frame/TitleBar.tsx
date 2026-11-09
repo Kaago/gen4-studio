@@ -71,7 +71,16 @@ export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, 
       <div className={styles.right} data-tauri-drag-region="">
         <IconButton label={t("titleBar.save")} icon="save" shortcut="⌘S" disabled={!open} busy={busy} onClick={onSave} />
         <IconButton label={t("titleBar.build")} icon="build" disabled={!open} busy={busy} onClick={onBuild} />
-        <IconButton label={t("titleBar.publish")} icon="publish" disabled={!open} busy={busy || publishLocked !== null} hint={open ? (publishLocked ?? undefined) : undefined} onClick={onPublish} />
+        <IconButton
+          label={t("titleBar.publish")}
+          icon="publish"
+          disabled={!open}
+          busy={busy || publishLocked !== null}
+          hint={open ? (publishLocked ?? undefined) : undefined}
+          onClick={onPublish}
+          // `App` finds the button by this when „Stand sichern?“ from the wizard closes (its label follows the language shown).
+          dataAttrs={{ "data-publish-button": "" }}
+        />
         <IconButton label={t("titleBar.theme")} icon={theme === "hell" ? "moon" : "sun"} onClick={onToggleTheme} />
         <IconButton label={t("titleBar.help")} icon="help" onClick={onHelp} />
       </div>

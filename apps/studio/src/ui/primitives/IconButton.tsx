@@ -2,6 +2,7 @@ import { Toggle } from "@base-ui/react/toggle";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import { Kbd } from "./Kbd";
+import type { RowDataAttrs } from "./ListRow";
 import { Tooltip } from "./Tooltip";
 import styles from "./IconButton.module.css";
 
@@ -18,9 +19,11 @@ export type IconButtonProps = {
   /** Why it is blocked, or what else to know: the tooltip's second line and the `aria-description`. */
   hint?: string;
   onClick: () => void;
+  /** `data-*` attributes of the button, to find it by something other than its (translated) label. */
+  dataAttrs?: RowDataAttrs;
 };
 
-export function IconButton({ label, icon, shortcut, pressed, disabled, busy = false, hint, onClick }: IconButtonProps) {
+export function IconButton({ label, icon, shortcut, pressed, disabled, busy = false, hint, onClick, dataAttrs }: IconButtonProps) {
   const click = () => {
     if (!busy) onClick();
   };
@@ -48,7 +51,7 @@ export function IconButton({ label, icon, shortcut, pressed, disabled, busy = fa
   const glyph = <Icon name={icon} weight={pressed ? "fill" : "regular"} />;
   const button =
     pressed === undefined ? (
-      <button type="button" className={styles.button} aria-label={label} aria-description={hint} aria-disabled={busy || undefined} disabled={disabled} onClick={click}>
+      <button type="button" className={styles.button} aria-label={label} aria-description={hint} aria-disabled={busy || undefined} disabled={disabled} onClick={click} {...dataAttrs}>
         {glyph}
       </button>
     ) : (
@@ -60,6 +63,7 @@ export function IconButton({ label, icon, shortcut, pressed, disabled, busy = fa
         aria-disabled={busy || undefined}
         disabled={disabled}
         onClick={click}
+        {...dataAttrs}
         render={<button type="button" />}
       >
         {glyph}

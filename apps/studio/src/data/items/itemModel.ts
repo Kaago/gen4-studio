@@ -1,4 +1,4 @@
-import { fieldLabels } from "../../api";
+import { fieldLabel, fieldLabels } from "../../api";
 import type { DataRowDto, FieldValueDto, ItemEntryDto, ItemRowExtra, ProjectInfo, RefDto } from "../../api";
 import { t } from "../../i18n";
 import type { SelectOption } from "../../ui/primitives";
@@ -246,11 +246,11 @@ const sharedSuffix = (shared = 0): string => (shared > 0 ? t("data:itemModel.sha
 
 /** The undo label of a field: "Trank: Preis 300 → 250", with „, gilt für 22 Gegenstände“ when the data is shared. */
 export const itemLabel = (name: string, field: ItemField, old: number, value: number, at: LabelContext = {}): string =>
-  `${name}: ${fieldLabels.item[field]} ${itemText(field, old, at.family)} → ${itemText(field, value, at.family)}${sharedSuffix(at.shared)}`;
+  `${name}: ${fieldLabel("item", field)} ${itemText(field, old, at.family)} → ${itemText(field, value, at.family)}${sharedSuffix(at.shared)}`;
 
 /** The undo label of one battle pocket bit: "Trank: Kampftasche KP heilen an → aus". */
 export const pocketBitLabel = (name: string, pocket: PocketBit, on: boolean, at: LabelContext = {}): string =>
-  `${t(on ? "data:itemModel.pocketOn" : "data:itemModel.pocketOff", { name, field: fieldLabels.item.battle_pocket, pocket: pocket.label })}${sharedSuffix(at.shared)}`;
+  `${t(on ? "data:itemModel.pocketOn" : "data:itemModel.pocketOff", { name, field: fieldLabel("item", "battle_pocket"), pocket: pocket.label })}${sharedSuffix(at.shared)}`;
 
 /** The warning of the hand when the data is shared: „Preis und Werte gelten auch für 21 andere Gegenstände“. */
 export const sharedWarning = (others: number): string => t("data:itemModel.sharedWarning", { count: others });

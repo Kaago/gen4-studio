@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink, WorldMeta } from "../api";
-import { UNNAMED_KEY, UNNAMED_PLACE } from "./places";
+import { UNNAMED_KEY, unnamedPlace } from "./places";
 import { type Area, type World, type WorldInput, buildWorld, worldNames } from "./worldModel";
 
 interface HeaderSpec {
@@ -395,6 +395,6 @@ describe("worldNames", () => {
     expect(names.get(7)).toEqual({ kind: "room", name: "Haus 2", placeName: "Zweiblattdorf" });
     // The others by their place, else their code.
     expect(names.get(14)).toEqual({ kind: "other", name: "Zweiblattdorf", placeName: "Zweiblattdorf" });
-    expect(names.get(0)).toEqual({ kind: "other", name: "EVERYWHERE", placeName: UNNAMED_PLACE });
+    expect(names.get(0)).toEqual({ kind: "other", name: "EVERYWHERE", placeName: unnamedPlace() });
   });
 });

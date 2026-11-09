@@ -4,7 +4,7 @@ import { errorText, getTextArchive, placeSlots } from "../../api";
 import type { HeaderFamily, HeaderSummary, PlaceChoice, PlaceSlots } from "../../api";
 import { Button, Notice, Picker, Segmented, TextField } from "../../ui/primitives";
 import type { PickerItem, SegmentedOption } from "../../ui/primitives";
-import { UNNAMED_PLACE, placeColor } from "../places";
+import { placeColor, unnamedPlace } from "../places";
 import { dpPlaces, nameWarning, placeItems, placeKeyOf, reuseWarning } from "../places/placeChoices";
 import { NO_PLACE_INDEX } from "../worldModel";
 import { LookPicker } from "./LookPicker";
@@ -117,7 +117,7 @@ export function PlaceStep({ value, onChange, headers, template, family, name }: 
   } else {
     const index = place.Existing;
     const known = names?.[index] ?? headers.find((h) => h.location_index === index)?.location_name ?? "";
-    const label = index === NO_PLACE_INDEX ? t("placeStep.noPlace") : known.trim() || UNNAMED_PLACE;
+    const label = index === NO_PLACE_INDEX ? t("placeStep.noPlace") : known.trim() || unnamedPlace();
     body = (
       <>
         <Button kind="secondary" size="s" data-place-picker="" title={t("placeStep.choose")} onClick={() => setPicking(true)}>

@@ -20,7 +20,7 @@ import { ago, useNow } from "../ui/frame/timeAgo";
 import { Badge, Button, Dialog, EmptyState, ListRow, Notice, Section, Switch, useRovingList } from "../ui/primitives";
 import type { BadgeKind, IconName } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { ChecksFoot, ChecksNotes, ProblemsTable, UNCHECKED_WHY, UncheckedNotice, checksPending } from "../workbench/problems/ProblemsPanel";
+import { ChecksFoot, ChecksNotes, ProblemsTable, UncheckedNotice, checksPending, uncheckedWhy } from "../workbench/problems/ProblemsPanel";
 import { countsText, isFinding } from "../workbench/problems/problems";
 import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
@@ -428,7 +428,7 @@ function EmptyList({ checks }: { checks: ChecksApi | null }) {
     pending === "first"
       ? t("technikArea.build.checking")
       : pending === "unchecked"
-        ? t("technikArea.build.unchecked", { why: UNCHECKED_WHY })
+        ? t("technikArea.build.unchecked", { why: uncheckedWhy() })
         : t("technikArea.build.noProblemsChecks");
   return <p className={`${styles.text} ${styles.inset}`}>{text}</p>;
 }

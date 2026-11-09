@@ -40,6 +40,8 @@ describe("Atlas", () => {
   it("is_a_navigation_and_marks_the_active_area_as_the_current_page", () => {
     show(props());
     expect(container.querySelector("nav")).not.toBeNull();
+    // F6 (`app/useF6Ring`) finds the atlas by this attribute, whatever language its label speaks.
+    expect(container.querySelector("nav")!.hasAttribute("data-atlas")).toBe(true);
     expect(entry("Welt").getAttribute("aria-current")).toBe("page");
     expect(container.querySelectorAll("[aria-current=page]")).toHaveLength(1);
     show(props({ area: "start" }));

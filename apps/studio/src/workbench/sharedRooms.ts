@@ -10,7 +10,7 @@ export function sharedText(shared: number): string {
 export const sharedHint = (): string => t("workbench:sharedRooms.hint");
 
 /**
- * The German hint, for the gallery (which stays German) and for callers not yet on `sharedHint()`; read from the German catalog, so the
- * words live in one place. Remove once every caller uses `sharedHint()`.
+ * The German hint, only for the gallery (`ui/gallery`, which stays German by decision); read from the German catalog, so the words live
+ * in one place. The app calls `sharedHint()`.
  */
 export const SHARED_HINT: string = de.sharedRooms.hint;

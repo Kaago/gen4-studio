@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import { afterEach, describe, expect, it } from "vitest";
 import { resources } from "../i18n";
-import { TERMS, id4, techLabel, termFor, termLabel, termPlural, termShort } from "./terms";
+import { TERMS, id4, inSentence, techLabel, termFor, termLabel, termPlural, termShort } from "./terms";
 import type { TermKey } from "./terms";
 
 const KEYS = Object.keys(TERMS) as TermKey[];
@@ -105,5 +105,15 @@ describe("terms", () => {
     expect(termFor("matrix", "bauen")).toBe("World map");
     // The technical names are the ROM's and do not change.
     expect(techLabel("matrix", 131)).toBe("Matrix 0131");
+  });
+});
+
+describe("inSentence", () => {
+  it("lower_cases_a_label_inside_an_English_sentence_but_keeps_German_nouns_and_abbreviations", async () => {
+    expect(inSentence("Eventdatei")).toBe("Eventdatei");
+    await i18next.changeLanguage("en");
+    expect(inSentence("Event file")).toBe("event file");
+    expect(inSentence("HP")).toBe("HP");
+    expect(i18next.t("workbench:inspectorField.changeLabel", { label: inSentence(termLabel("eventFile")) })).toBe("Change event file…");
   });
 });

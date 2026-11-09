@@ -7,7 +7,7 @@
   "area": {
     "label": "Area",
     "plural": "Areas",
-    "short": "A piece of a world map with a name, such as a town or a route; areas with a map of their own are listed under \"More areas\"."
+    "short": "A piece of a world map with a name, such as a town or a route; areas with a map of their own are listed under “More areas”."
   },
   "room": {
     "label": "Room",
@@ -27,16 +27,16 @@
   "header": {
     "label": "Header",
     "plural": "Headers",
-    "short": "An entry of the place table: points to grid, event file, area data, music and weather. Only in Tinker; Build says area, room or place."
+    "short": "An entry of the place table: points to matrix, event file, area data, music and weather. Only in Tinker; Build says area, room or place."
   },
   "outside": {
     "label": "Outside",
     "plural": "Outside",
-    "short": "A header whose grid has a header section (the region, usually grid 0): the cells of the grid say which header applies where."
+    "short": "A header whose grid has a header section (the region, usually matrix 0): the cells of the grid say which header applies where."
   },
   "matrix": {
-    "label": "Grid",
-    "plural": "Grids",
+    "label": "Matrix",
+    "plural": "Matrices",
     "short": "A grid of maps, 1 × 1 to 255 × 255. Only in Tinker; Build says world map."
   },
   "map": {
@@ -92,6 +92,6 @@
   "patch": {
     "label": "ROM patch",
     "plural": "ROM patches",
-    "short": "A permanent change to the game code. The \"Dynamic Headers\" patch moves the headers into one file per header so that new ones can be created; DSPRE knows it."
+    "short": "A permanent change to the game code. The “Dynamic Headers” patch moves the headers into one file per header so that new ones can be created; DSPRE knows it."
   }
 }

@@ -51,12 +51,12 @@ function limitNotice(n: number): string {
 /**
  * Whether `e` is the kernel refusing a stroke that changes nothing (its `NOTHING_TO_CHANGE`): from a terrain or cliff stroke it is no
  * error. The kernel says it in the language it was set to, and the catalogs keep its words for each language (`paint.nothingToChange`);
- * the German words are matched too, for a kernel that still speaks German whatever the app shows.
+ * the words of both languages are matched, for a kernel that speaks another language than the app shows (today it says it in German).
  */
 const changesNothing = (e: unknown) => {
   if (typeof e !== "object" || e === null) return false;
   const message = (e as { message?: unknown }).message;
-  return message === t("world:paint.nothingToChange") || message === t("world:paint.nothingToChange", { lng: "de" });
+  return (["de", "en"] as const).some((lng) => message === t("world:paint.nothingToChange", { lng }));
 };
 
 /** The note of a terrain or cliff stroke without an active edge set. */

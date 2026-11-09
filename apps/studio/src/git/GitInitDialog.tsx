@@ -5,7 +5,7 @@ import type { GitStatus, InitPhase, InitReport } from "../api";
 import { toast } from "../ui/frame/toasts";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
-import { gitFoundText, initDoneText, notInstalledText, templatesOnlyText } from "./gitWords";
+import { gitFoundText, initDoneText, isNotInstalled, templatesOnlyText } from "./gitWords";
 import styles from "./GitInitDialog.module.css";
 
 /** What the `.gitignore` of each layout keeps out: the key of its line in the catalog. */
@@ -76,7 +76,7 @@ export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusiv
       if (report.committed) {
         toast.info(initDoneText(report));
         onClose();
-      } else if (report.reason === notInstalledText()) {
+      } else if (isNotInstalled(report.reason)) {
         toast.info(templatesOnlyText());
         onClose();
       } else {

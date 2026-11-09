@@ -5,6 +5,10 @@ import { OPEN_MODAL } from "../ui/primitives/Dialog";
 /** What the keyboard can reach by Tab: the first of these in a stop is its target when nothing in it keeps the roving `tabIndex` 0. */
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
+/** The atlas (`ui/frame/Atlas`) and the hinge (`ui/frame/Hinge`), by their data attributes: their `aria-label` follows the language shown. */
+const ATLAS = "nav[data-atlas]";
+const HINGE = '[role="toolbar"][data-hinge]';
+
 /** Whether a modal dialog is open (the palette, the help, a question): its focus stays in it, F6 is not the frame's. */
 const modalOpen = (root: Document) => root.querySelector(OPEN_MODAL) !== null;
 
@@ -37,14 +41,14 @@ function activeContent(group: HTMLElement): HTMLElement | null {
  * dock while a wizard is open, a surface that covers the areas (Start, Technik, Einstellungen), the status line. Parts of hidden areas, a folded list and groups a maximized group hides are left out.
  */
 export function f6Targets(root: Document, area: AreaId): HTMLElement[] {
-  const stops: (HTMLElement | null)[] = [root.querySelector<HTMLElement>('nav[aria-label="Bereiche"]')];
+  const stops: (HTMLElement | null)[] = [root.querySelector<HTMLElement>(ATLAS)];
   const list = root.querySelector<HTMLElement>(`[data-area="${area}"][data-part="list"]`);
   // The list's own section (its head and content), not the sections inside it; folded, it is hidden.
   const listBody = list?.querySelector<HTMLElement>("section") ?? null;
   if (listBody !== null && shown(listBody)) stops.push(listBody);
   const deck = root.querySelector<HTMLElement>(`main[data-area="${area}"][data-part="deck"]`);
   if (deck !== null && shown(deck)) {
-    stops.push(deck.querySelector<HTMLElement>('[role="toolbar"][aria-label="Scharnier"]'));
+    stops.push(deck.querySelector<HTMLElement>(HINGE));
     const groups = [...deck.querySelectorAll<HTMLElement>(`#dock-${area} [data-dock-group]`)].filter(shown);
     const floating = (g: HTMLElement) => g.closest(".dv-floating-overlay-host") !== null;
     stops.push(...groups.filter((g) => !floating(g)), ...groups.filter(floating));
@@ -96,7 +100,7 @@ function nextStop(stops: HTMLElement[], active: Element | null, backward: boolea
 }
 
 /** The area the atlas marks as shown. */
-const shownArea = (root: Document) => root.querySelector<HTMLElement>('nav[aria-label="Bereiche"] [aria-current="page"]')?.dataset.area as AreaId | undefined;
+const shownArea = (root: Document) => root.querySelector<HTMLElement>(`${ATLAS} [aria-current="page"]`)?.dataset.area as AreaId | undefined;
 
 /**
  * F6 moves the focus to the next part of the frame, Shift+F6 to the previous one, round and round (`f6Targets`): also out of a field,

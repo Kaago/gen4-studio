@@ -7,7 +7,7 @@ import type { Created, CreatePhase, CreateProgress, DestCheck, RomInfo, Template
 import { openPath } from "../platform/dialogs";
 import { Badge, Button, CheckList, Checkbox, DSScreen, Icon, Notice, Switch, TextField } from "../ui/primitives";
 import type { CheckRow } from "../ui/primitives";
-import { NOT_INSTALLED, TEMPLATES_ONLY_TEXT, initDoneText } from "../git/gitWords";
+import { initDoneText, isNotInstalled, templatesOnlyText } from "../git/gitWords";
 import { DoneResult } from "../workbench/wizards/WizardResult";
 import { WizardFrame } from "../workbench/wizards/WizardFrame";
 import type { WizardStep } from "../workbench/wizards/WizardFrame";
@@ -527,7 +527,7 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   // „Git einrichten“ when it was asked for: the first commit in the success text, otherwise why there is none (only the templates without
   // `git`, Git's reason for a failed commit) as a warning; the project is there either way.
   const gitReport = created?.git ?? null;
-  const gitWarning = gitReport === null || gitReport.committed || gitReport.reason === null ? null : gitReport.reason === NOT_INSTALLED ? TEMPLATES_ONLY_TEXT : gitReport.reason;
+  const gitWarning = gitReport === null || gitReport.committed || gitReport.reason === null ? null : isNotInstalled(gitReport.reason) ? templatesOnlyText() : gitReport.reason;
   const result = created ? (
     <div className={styles.result}>
       <DoneResult
