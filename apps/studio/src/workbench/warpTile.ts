@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getMap } from "../api";
 import type { TileBehavior } from "../api";
 import { loadNames } from "../world/scene/tileNames";
+import { t } from "../i18n";
 import { TERMS } from "./terms";
 
 /** The door behaviour and the collision a door needs (the player bumps into it). */
@@ -23,10 +24,13 @@ const hex2 = (n: number) => `0x${n.toString(16).toUpperCase().padStart(2, "0")}`
 export function warpTile(kind: number, collision: number, names: ReadonlyMap<number, TileBehavior>): WarpTile {
   const behavior = names.get(kind);
   const fires = behavior?.class === "warp" || (behavior?.class === "door" && collision === DOOR_COLLISION);
-  const what = `Verhalten ${hex2(kind)}${behavior ? ` ${behavior.name}` : ""}, Kollision ${hex2(collision)}`;
-  if (fires) return { fires, text: `${what}: ein ${TERMS.warp.tech} löst hier aus.` };
-  const why = behavior?.class === "door" ? "eine Tür löst nur mit Kollision 0x80 aus" : "keine Tür- oder Warp-Kachel";
-  return { fires, text: `${what}: ein ${TERMS.warp.tech} löst hier im Spiel nicht aus (${why}).` };
+  const what = behavior
+    ? t("workbench:warpTile.whatNamed", { kind: hex2(kind), name: behavior.name, collision: hex2(collision) })
+    : t("workbench:warpTile.what", { kind: hex2(kind), collision: hex2(collision) });
+  const warp = TERMS.warp.tech;
+  if (fires) return { fires, text: t("workbench:warpTile.fires", { what, warp }) };
+  const why = behavior?.class === "door" ? t("workbench:warpTile.doorNeedsCollision") : t("workbench:warpTile.noWarpTile");
+  return { fires, text: t("workbench:warpTile.doesNotFire", { what, warp, why }) };
 }
 
 /** What tile (`x`, `y`) of map `map` means for a warp on it (behaviour names and permissions as the backend holds them). */

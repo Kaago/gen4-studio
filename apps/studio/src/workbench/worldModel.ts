@@ -1,10 +1,11 @@
 import { type HeaderSummary, MATRIX_EMPTY, type MatrixDto, type MatrixSummary, type WarpLink, type WorldMeta } from "../api";
-import { UNNAMED_KEY, UNNAMED_PLACE } from "./places";
+import { UNNAMED_KEY, unnamedPlace } from "./places";
 import { suggestRoomNames } from "./roomNames";
+import { termLabel } from "./terms";
 
 export { roomName } from "./roomNames";
 
-/** Location index 0 is no place ("Mysteriöser Ort"): it makes no area and names no room. */
+/** Location index 0 is no place („Mysteriöser Ort“): it makes no area and names no room. */
 export const NO_PLACE_INDEX = 0;
 /** Header 0 (`EVERYWHERE`) fills the landscape cells of a world map; it belongs to no area. */
 const LANDSCAPE = 0;
@@ -116,11 +117,11 @@ function defaultMapName(family: string, matrix: number, filter: Filter, counts: 
     return "Sinnoh";
   }
   const header = mostCells(counts, byId);
-  return header ? placeNameOf(header) || UNNAMED_PLACE : `Weltkarte ${matrix}`;
+  return header ? placeNameOf(header) || unnamedPlace() : `${termLabel("worldMap")} ${matrix}`;
 }
 
 const newArea = (key: string, matrix: number, headers: HeaderSummary[], named: HeaderSummary, filter: Filter = null): Draft => ({
-  area: { key, name: placeNameOf(named) || UNNAMED_PLACE, placeKey: placeKeyOf(named), headers, rooms: [], matrix },
+  area: { key, name: placeNameOf(named) || unnamedPlace(), placeKey: placeKeyOf(named), headers, rooms: [], matrix },
   place: named.location_index,
   filter,
 });
@@ -253,7 +254,7 @@ export function buildWorld({ family, headers, matrices, links, cells, meta }: Wo
         name: meta.roomNames[String(header.id)]?.trim() || suggested,
         suggested,
         placeKey: placeKeyOf(header),
-        placeName: placeName || UNNAMED_PLACE,
+        placeName: placeName || unnamedPlace(),
         manual: manual(header.id),
         shared: (sharing.get(header.matrix_id) ?? 1) - 1,
       };
@@ -408,7 +409,7 @@ export type WorldNames = ReadonlyMap<number, WorldName>;
 /** Header id to what the world tree calls it: the breadcrumb, the inspector head and the door under the pointer say the same. */
 export function worldNames(world: World): WorldNames {
   const names = new Map<number, WorldName>();
-  const placeName = (h: HeaderSummary) => placeNameOf(h) || UNNAMED_PLACE;
+  const placeName = (h: HeaderSummary) => placeNameOf(h) || unnamedPlace();
   const areas = [...world.worldMaps.flatMap((w) => w.areas), ...world.moreAreas];
   for (const area of areas) {
     for (const h of area.headers) names.set(h.id, { kind: "area", name: area.name, placeName: placeName(h) });

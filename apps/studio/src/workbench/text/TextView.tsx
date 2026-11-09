@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { KeyboardEvent, RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary } from "../../api";
 import { Badge, Button, DSScreen, EmptyState, PanelHead } from "../../ui/primitives";
 import { thumbnails } from "../../world/thumbnailStore";
@@ -50,13 +51,14 @@ function MapPicture({ header }: { header: HeaderSummary }) {
 
 /** The characters of one line as a card writes them: the line and "34 von 38". */
 function CardLine({ line }: { line: Segment[] }) {
+  const { t } = useTranslation("workbench");
   const width = lineWidth(line);
   const over = width > LINE_LIMIT;
   return (
     <li className={styles.cardLine}>
       <span className={styles.cardText}>{visibleLine(line.map((s) => s.text).join("")) || " "}</span>
       <span className={over ? `${styles.width} ${styles.over}` : styles.width} data-line-width="" data-over={over ? "" : undefined}>
-        {`${width} von ${LINE_LIMIT}`}
+        {t("textView.lineWidth", { width, limit: LINE_LIMIT })}
       </span>
     </li>
   );
@@ -64,6 +66,7 @@ function CardLine({ line }: { line: Segment[] }) {
 
 /** The selected message on the DS screen, page by page, with its pages as cards beside it. */
 function MessagePreview({ archive, message, stored }: { archive: number; message: number; stored: string }) {
+  const { t } = useTranslation("workbench");
   const { page, setPage, draft, headers, users, rows } = useTextArea();
   // What is typed in the field shows before it is committed.
   useSyncExternalStore(draft.subscribe, draft.get);
@@ -85,11 +88,11 @@ function MessagePreview({ archive, message, stored }: { archive: number; message
   }
 
   return (
-    <section className={styles.view} aria-label="Vorschau" tabIndex={-1} onKeyDown={onKeyDown}>
+    <section className={styles.view} aria-label={t("textView.label")} tabIndex={-1} onKeyDown={onKeyDown}>
       <PanelHead
         title={messageLabel(message)}
-        subtitle={place ? `Archiv ${id4(archive)}, ${place}` : `Archiv ${id4(archive)}`}
-        actions={<Badge kind="neutral">{all.length === 1 ? "1 Seite" : `${all.length} Seiten`}</Badge>}
+        subtitle={place ? t("textView.archiveAt", { archive: id4(archive), place }) : t("textView.archive", { archive: id4(archive) })}
+        actions={<Badge kind="neutral">{t("textView.pageCount", { count: all.length })}</Badge>}
       />
       <div className={styles.body}>
         <div className={styles.screenColumn}>
@@ -97,20 +100,20 @@ function MessagePreview({ archive, message, stored }: { archive: number; message
             <DSScreen variant="textbox" pages={all} page={shown} scale={scale} background={header ? <MapPicture header={header} /> : undefined} />
           </div>
           <div className={styles.controls}>
-            <span className={styles.facts}>{`Seite ${shown + 1} von ${all.length}, ${DS_WIDTH} × ${DS_HEIGHT}, ${scale}-fach`}</span>
+            <span className={styles.facts}>{t("textView.facts", { page: shown + 1, pages: all.length, width: DS_WIDTH, height: DS_HEIGHT, scale })}</span>
             <Button kind="quiet" icon="back" disabled={shown === 0} onClick={() => setPage(shown - 1)}>
-              Zurück
+              {t("textView.back")}
             </Button>
             <Button kind="secondary" disabled={shown >= all.length - 1} onClick={() => setPage(shown + 1)}>
-              Weiterblättern
+              {t("textView.nextPage")}
             </Button>
           </div>
         </div>
-        <ol className={styles.cards} aria-label="Seiten">
+        <ol className={styles.cards} aria-label={t("textView.pages")}>
           {all.map((p, i) => (
             <li key={i}>
               <button type="button" className={i === shown ? `${styles.card} ${styles.current}` : styles.card} aria-pressed={i === shown} data-page={i} onClick={() => setPage(i)}>
-                <span className={styles.cardTitle} data-page-title="">{`Seite ${i + 1}`}</span>
+                <span className={styles.cardTitle} data-page-title="">{t("textView.page", { page: i + 1 })}</span>
                 <ul className={styles.cardLines}>
                   {p.lines.map((line, j) => (
                     <CardLine key={j} line={line} />
@@ -132,13 +135,14 @@ export function TextView() {
 
 /** The selected message on the DS screen; what is missing otherwise. */
 function MessageView() {
+  const { t } = useTranslation("workbench");
   const { project, archive, message, loaded, loading, error } = useTextArea();
   let empty: { what: string; why: string } | null = null;
-  if (project === null) empty = { what: "Kein Projekt geöffnet.", why: "Öffne ein Projekt, dann zeigt die Vorschau seine Texte." };
-  else if (archive === null) empty = { what: "Wähle links ein Archiv.", why: "Die Vorschau zeigt dann seine Nachrichten auf dem DS-Bildschirm." };
-  else if (error !== null) empty = { what: "Dieses Archiv ist nicht lesbar.", why: "Die Nachrichten unten nennen den Grund." };
-  else if (loading || !loaded) empty = { what: "Lade …", why: "Das Archiv wird gelesen." };
-  else if (message === null) empty = { what: "Dieses Archiv hat keine Nachricht.", why: "Lege unten eine Nachricht an, dann zeigt die Vorschau sie." };
+  if (project === null) empty = { what: t("textView.noProject.what"), why: t("textView.noProject.why") };
+  else if (archive === null) empty = { what: t("textView.noArchive.what"), why: t("textView.noArchive.why") };
+  else if (error !== null) empty = { what: t("textView.unreadable.what"), why: t("textView.unreadable.why") };
+  else if (loading || !loaded) empty = { what: t("textView.loading.what"), why: t("textView.loading.why") };
+  else if (message === null) empty = { what: t("textView.noMessage.what"), why: t("textView.noMessage.why") };
   if (empty !== null || archive === null || message === null || !loaded) {
     return (
       <div className={styles.empty}>

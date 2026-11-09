@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText, getMatrix, worldMetaGet, worldMetaSet } from "../api";
 import { useStableCallback } from "../app/useStable";
 import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink, WorldMeta } from "../api";
+import { t } from "../i18n";
 import { buildWorld, worldNames } from "./worldModel";
 import type { World, WorldNames } from "./worldModel";
 
@@ -11,7 +12,7 @@ const WORLD_FILE = "g4-world.json";
 export const EMPTY_WORLD_META: WorldMeta = { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} };
 
 /** The kernel's refusal to write a broken world file, said before asking it. */
-export const brokenWorldFile = (why: string) => `${WORLD_FILE} ist beschädigt: ${why}. Repariere oder lösche die Datei.`;
+export const brokenWorldFile = (why: string) => t("workbench:useWorldModel.broken", { file: WORLD_FILE, why });
 
 export interface WorldModel {
   /** Null until the cells and the project file of the open project are read. */

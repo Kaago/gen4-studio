@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
+import { useTranslation } from "react-i18next";
 import { validateText } from "../../api";
 import type { ProblemDto } from "../../api";
 import { Notice } from "../../ui/primitives";
@@ -40,7 +41,8 @@ export interface MessageEditorProps {
  * is read again (after a commit, undo, redo) the field follows the stored text unless there is typing the backend does not have yet.
  * Enter writes a line break (`\n`), Shift+Enter a new page (`\r`); ⌘S commits before the app saves.
  */
-export function MessageEditor({ value, onCommit, onDraft, onFocusChange, fieldRef, label = "Text der Nachricht", disabled = false }: MessageEditorProps) {
+export function MessageEditor({ value, onCommit, onDraft, onFocusChange, fieldRef, label, disabled = false }: MessageEditorProps) {
+  const { t } = useTranslation("workbench");
   const [draft, setDraft] = useState(value);
   const draftRef = useRef(draft);
   // The text the backend has, or is about to have: what the draft is compared with.
@@ -134,7 +136,7 @@ export function MessageEditor({ value, onCommit, onDraft, onFocusChange, fieldRe
         ref={setField}
         className={styles.field}
         value={draft}
-        aria-label={label}
+        aria-label={label ?? t("messageEditor.label")}
         disabled={disabled}
         rows={5}
         spellCheck={false}
@@ -157,7 +159,7 @@ export function MessageEditor({ value, onCommit, onDraft, onFocusChange, fieldRe
         }}
       />
       {parts.length > 0 && (
-        <div aria-label="Codes der Nachricht" className={styles.codes}>
+        <div aria-label={t("messageEditor.codes")} className={styles.codes}>
           {parts.map((s, i) => (
             <span key={i} data-segment={s.kind} title={s.kind === "text" ? undefined : s.text} className={styles[s.kind]}>
               {SEGMENT_SHOWN[s.kind] ?? s.text}
@@ -167,11 +169,9 @@ export function MessageEditor({ value, onCommit, onDraft, onFocusChange, fieldRe
       )}
       {problems.length > 0 && (
         <Notice kind="warning">
-          <ul aria-label="Warnungen" className={styles.warnings}>
+          <ul aria-label={t("messageEditor.warnings")} className={styles.warnings}>
             {problems.map((p, i) => (
-              <li key={i}>
-                Zeile {p.line}: {p.message}
-              </li>
+              <li key={i}>{t("messageEditor.warning", { line: p.line, message: p.message })}</li>
             ))}
           </ul>
         </Notice>

@@ -1,6 +1,9 @@
 import type { IconName } from "../ui/primitives";
 import { flipTile, turnRamp, turnTile } from "../world/paint/ops";
-import type { PaintOptions, PaintSub, RampDir } from "../world/paint/ops";
+import type { PaintOptions, PaintSub } from "../world/paint/ops";
+import { t } from "../i18n";
+import { keyWord } from "./tools";
+import type { KeyWord } from "./tools";
 
 /** One sub-tool of „Gelände malen“ on a world map: its name, its letter (Tiled's), its symbol, its tooltip and its status line. */
 export interface PaintToolSpec {
@@ -14,94 +17,96 @@ export interface PaintToolSpec {
   statusHints: { keys: string; does: string }[];
 }
 
-const PICK = { keys: "Rechtsklick", does: "nimmt auf" };
-const TURN = { keys: "Z", does: "dreht" };
-const FLIP = { keys: "X", does: "spiegelt" };
+/** What a status pair of a paint tool does (`paintTools.does.<id>`). */
+type Does =
+  | "paints"
+  | "fillsRect"
+  | "fillsArea"
+  | "erases"
+  | "picksTile"
+  | "raises"
+  | "lowers"
+  | "acrossSeveral"
+  | "setsRamp"
+  | "steps"
+  | "removes"
+  | "takesAway"
+  | "picks"
+  | "turns"
+  | "flips";
+/** A status pair: a key word (or a key as it is written on the keyboard) and what it does. */
+type Pair = readonly [KeyWord | "Z" | "X" | "1/2", Does];
 
-export const PAINT_TOOLS: PaintToolSpec[] = [
-  {
-    id: "brush",
-    label: "Pinsel",
-    key: "B",
-    icon: "paint",
-    hint: "Ziehen malt die gewählte Kachel auf die Zellen unter dem Zeiger.",
-    statusHints: [{ keys: "Ziehen", does: "malt" }, PICK, TURN, FLIP],
-  },
-  {
-    id: "rect",
-    label: "Rechteck",
-    key: "P",
-    icon: "rectangle",
-    hint: "Ziehen spannt ein Rechteck auf und füllt es mit der gewählten Kachel.",
-    statusHints: [{ keys: "Ziehen", does: "füllt ein Rechteck" }, PICK, TURN, FLIP],
-  },
-  {
-    id: "fill",
-    label: "Füllen",
-    key: "G",
-    icon: "bucket",
-    hint: "Klick füllt die zusammenhängende Fläche gleicher Kacheln mit der gewählten Kachel.",
-    statusHints: [{ keys: "Klick", does: "füllt die Fläche" }, PICK, TURN, FLIP],
-  },
-  {
-    id: "erase",
-    label: "Radierer",
-    key: "E",
-    icon: "eraser",
-    hint: "Ziehen leert die Zellen der aktiven Ebene.",
-    statusHints: [{ keys: "Ziehen", does: "radiert" }, PICK],
-  },
-  {
-    id: "pick",
-    label: "Pipette",
-    key: "I",
-    icon: "eyedropper",
-    hint: "Klick nimmt die Kachel der Zelle als gewählte Kachel auf.",
-    statusHints: [{ keys: "Klick", does: "nimmt die Kachel auf" }],
-  },
+const PICK: Pair = ["rightClick", "picks"];
+const TURN: Pair = ["Z", "turns"];
+const FLIP: Pair = ["X", "flips"];
+
+/** A paint tool apart from its words; label and hint are `paintTools.<id>.*`, read when asked. */
+interface PaintToolDef {
+  id: PaintSub;
+  key: string;
+  icon: IconName;
+  pairs: readonly Pair[];
+}
+
+const DEFS: readonly PaintToolDef[] = [
+  { id: "brush", key: "B", icon: "paint", pairs: [["drag", "paints"], PICK, TURN, FLIP] },
+  { id: "rect", key: "P", icon: "rectangle", pairs: [["drag", "fillsRect"], PICK, TURN, FLIP] },
+  { id: "fill", key: "G", icon: "bucket", pairs: [["click", "fillsArea"], PICK, TURN, FLIP] },
+  { id: "erase", key: "E", icon: "eraser", pairs: [["drag", "erases"], PICK] },
+  { id: "pick", key: "I", icon: "eyedropper", pairs: [["click", "picksTile"]] },
   {
     id: "height",
-    label: "Höhe",
     key: "H",
     icon: "heights",
-    hint: "Klick hebt die Zelle um eine Stufe, Umschalt-Klick senkt sie.",
-    statusHints: [
-      { keys: "Klick", does: "hebt" },
-      { keys: "⇧Klick", does: "senkt" },
-      { keys: "Ziehen", does: "über mehrere" },
+    pairs: [
+      ["click", "raises"],
+      ["shiftClick", "lowers"],
+      ["drag", "acrossSeveral"],
     ],
   },
-  {
-    id: "ramp",
-    label: "Rampe",
-    key: "R",
-    icon: "ramp",
-    hint: "Klick setzt eine Rampe in die gewählte Richtung, Umschalt-Klick entfernt sie.",
-    statusHints: [{ keys: "Klick", does: "setzt Rampe" }, TURN, { keys: "1/2", does: "Stufen" }, { keys: "⇧Klick", does: "entfernt" }],
-  },
+  { id: "ramp", key: "R", icon: "ramp", pairs: [["click", "setsRamp"], TURN, ["1/2", "steps"], ["shiftClick", "removes"]] },
   {
     id: "terrain",
-    label: "Terrain-Pinsel",
     key: "T",
     icon: "terrain",
-    hint: "Ziehen malt die Fläche des aktiven Kantensatzes mit Kanten und Ecken, Umschalt-Ziehen nimmt sie weg.",
-    statusHints: [
-      { keys: "Ziehen", does: "malt" },
-      { keys: "⇧Ziehen", does: "nimmt es weg" },
+    pairs: [
+      ["drag", "paints"],
+      ["shiftDrag", "takesAway"],
     ],
   },
   {
     id: "cliff",
-    label: "Klippenpinsel",
     key: "K",
     icon: "cliff",
-    hint: "Ziehen hebt die Zellen um die Stufen mit dem Rand des aktiven Kantensatzes oben, Umschalt-Ziehen senkt sie.",
-    statusHints: [
-      { keys: "Ziehen", does: "hebt" },
-      { keys: "⇧Ziehen", does: "senkt" },
+    pairs: [
+      ["drag", "raises"],
+      ["shiftDrag", "lowers"],
     ],
   },
 ];
+
+const keysOf = (keys: Pair[0]) => (keys === "Z" || keys === "X" || keys === "1/2" ? keys : keyWord(keys));
+
+/** A paint tool whose words are looked up each time they are read: the module loads before i18next has a language. */
+function paintToolSpec(def: PaintToolDef): PaintToolSpec {
+  return {
+    id: def.id,
+    key: def.key,
+    icon: def.icon,
+    get label() {
+      return t(`workbench:paintTools.${def.id}.label`);
+    },
+    get hint() {
+      return t(`workbench:paintTools.${def.id}.hint`);
+    },
+    get statusHints() {
+      return def.pairs.map(([keys, does]) => ({ keys: keysOf(keys), does: t(`workbench:paintTools.does.${does}`) }));
+    },
+  };
+}
+
+export const PAINT_TOOLS: PaintToolSpec[] = DEFS.map(paintToolSpec);
 
 /** What a key does while painting a world map (see `paintKey`). */
 export type PaintKeyAction = { sub: PaintSub } | { turn: true } | { flip: true } | { steps: 1 | 2 };
@@ -125,8 +130,6 @@ export function paintPatch(state: PaintOptions & { sub: PaintSub }, action: Pain
   return { ramp: { ...state.ramp, steps: action.steps } };
 }
 
-const DIR_WORDS: Record<RampDir, string> = { n: "Norden", e: "Osten", s: "Süden", w: "Westen" };
-
 /**
  * The status line of the active sub-tool; the ramp names its direction and steps („Klick setzt Rampe nach Osten, 1 Stufe“), the terrain
  * and cliff brushes the active edge set and the cliff's steps („Ziehen hebt um 2 Stufen mit dem Rand „Weg““), without a set they ask for one.
@@ -134,19 +137,19 @@ const DIR_WORDS: Record<RampDir, string> = { n: "Norden", e: "Osten", s: "Süden
 export function paintStatusHints(state: PaintOptions & { sub: PaintSub }): { keys: string; does: string }[] {
   const spec = PAINT_TOOLS.find((t) => t.id === state.sub) ?? PAINT_TOOLS[0]!;
   if (spec.id === "terrain" || spec.id === "cliff") {
-    const set = state.edgeSet === null ? null : `„${state.edgeSet}“`;
-    const steps = state.cliffRise === 1 ? "1 Stufe" : `${state.cliffRise} Stufen`;
+    const set = state.edgeSet;
+    const steps = t("workbench:paintTools.steps", { count: state.cliffRise });
     const does =
       spec.id === "terrain"
         ? set === null
-          ? "malt (erst einen Kantensatz wählen)"
-          : `malt ${set}`
+          ? t("workbench:paintTools.status.terrainNoSet")
+          : t("workbench:paintTools.status.terrain", { set })
         : set === null
-          ? `hebt um ${steps} (erst einen Kantensatz wählen)`
-          : `hebt um ${steps} mit dem Rand ${set}`;
-    return [{ keys: "Ziehen", does }, ...spec.statusHints.slice(1)];
+          ? t("workbench:paintTools.status.cliffNoSet", { steps })
+          : t("workbench:paintTools.status.cliff", { steps, set });
+    return [{ keys: keyWord("drag"), does }, ...spec.statusHints.slice(1)];
   }
   if (spec.id !== "ramp") return spec.statusHints;
-  const steps = state.ramp.steps === 1 ? "1 Stufe" : `${state.ramp.steps} Stufen`;
-  return [{ keys: "Klick", does: `setzt Rampe nach ${DIR_WORDS[state.ramp.dir]}, ${steps}` }, ...spec.statusHints.slice(1)];
+  const steps = t("workbench:paintTools.steps", { count: state.ramp.steps });
+  return [{ keys: keyWord("click"), does: t("workbench:paintTools.status.ramp", { dir: t(`workbench:paintTools.dir.${state.ramp.dir}`), steps }) }, ...spec.statusHints.slice(1)];
 }

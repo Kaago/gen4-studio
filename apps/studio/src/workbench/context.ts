@@ -1,18 +1,33 @@
 import type { EventsDto } from "../api";
+import { t } from "../i18n";
 import type { Depth } from "../ui/frame/shellState";
 import { eventTitle } from "../world/events";
 import type { EventData, EventKind } from "../world/events";
 
-/** The classes in the order „In dieser Szene“ lists them, with the words the tools use: figures, doors, triggers, signs. */
-const GROUPS: { kind: EventKind; singular: string; plural: string }[] = [
-  { kind: "object", singular: "Figur", plural: "Figuren" },
-  { kind: "warp", singular: "Tür", plural: "Türen" },
-  { kind: "coord", singular: "Auslöser", plural: "Auslöser" },
-  { kind: "bg", singular: "Schild", plural: "Schilder" },
-];
+/**
+ * The classes in the order „In dieser Szene“ lists them; their words are the tools' (`eventKinds.<kind>.singular` and `.plural`: figures,
+ * doors, triggers, signs), read when asked.
+ */
+const KINDS: readonly EventKind[] = ["object", "warp", "coord", "bg"];
 
-/** The singular name of each class ("Figur", "Tür"): the status line names a hovered door with it, too. */
-export const KIND_SINGULAR = Object.fromEntries(GROUPS.map((g) => [g.kind, g.singular])) as Record<EventKind, string>;
+/** The plural name of a class („Figuren“, „Türen“), in the language shown. */
+export const kindPlural = (kind: EventKind): string => t(`workbench:eventKinds.${kind}.plural`);
+
+/** The singular name of each class („Figur“, „Tür“), read when asked: the status line names a hovered door with it, too. */
+export const KIND_SINGULAR: Readonly<Record<EventKind, string>> = {
+  get object() {
+    return t("workbench:eventKinds.object.singular");
+  },
+  get warp() {
+    return t("workbench:eventKinds.warp.singular");
+  },
+  get coord() {
+    return t("workbench:eventKinds.coord.singular");
+  },
+  get bg() {
+    return t("workbench:eventKinds.bg.singular");
+  },
+};
 
 export interface ContextRow {
   index: number;
@@ -38,15 +53,15 @@ const listOf = (events: EventsDto, kind: EventKind): EventData[] => (kind === "w
  * script starts ("Objekt 0 · Teenager Sebastian"), null for a script that starts none. `depth` words the doors' destinations (`eventTitle`).
  */
 export function groupEvents(events: EventsDto, depth: Depth, destName?: (header: number) => string | undefined, trainerName?: (script: number) => string | null): ContextGroup[] {
-  return GROUPS.flatMap(({ kind, plural }) => {
+  return KINDS.flatMap((kind) => {
     const list = listOf(events, kind);
     if (list.length === 0) return [];
     const rows = list.map<ContextRow>((data) => {
       const dest = kind === "warp" ? (data as { dest_header_id: number }).dest_header_id : undefined;
       const trainer = kind === "object" ? (trainerName?.((data as { script: number }).script) ?? null) : null;
-      const title = trainer !== null ? `Objekt ${data.index} · ${trainer}` : eventTitle(kind, data, depth, dest === undefined ? undefined : destName?.(dest));
+      const title = trainer !== null ? t("workbench:eventKinds.trainerTitle", { index: data.index, trainer }) : eventTitle(kind, data, depth, dest === undefined ? undefined : destName?.(dest));
       return { index: data.index, title, tech: `x ${data.x}, z ${data.z}`, ...(dest === undefined ? {} : { dest }) };
     });
-    return [{ kind, label: plural, rows }];
+    return [{ kind, label: kindPlural(kind), rows }];
   });
 }

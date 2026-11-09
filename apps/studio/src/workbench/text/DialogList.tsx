@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary } from "../../api";
 import { ListPane } from "../../ui/frame/ListPane";
 import { EmptyState, TextField, TreeRow, useRovingList } from "../../ui/primitives";
@@ -6,6 +7,7 @@ import { speakersText } from "../dialog/dialogModel";
 import { headerIdentity } from "../headerIdentity";
 import { filterPlaces } from "../places";
 import type { Place } from "../places";
+import { termLabel, termPlural } from "../terms";
 import { useTextArea } from "./TextAreaContext";
 import { useHeaderDialogs } from "./useHeaderDialogs";
 import styles from "./TextList.module.css";
@@ -31,8 +33,9 @@ const HeaderItem = memo(function HeaderItem({
   revision: number;
   onSelect: (id: number) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const { dialogs, error } = useHeaderDialogs(counted ? header.id : null, revision);
-  const line = !counted ? undefined : dialogs !== null ? speakersText(dialogs.figures) : error !== null ? "Nicht lesbar" : "Lese …";
+  const line = !counted ? undefined : dialogs !== null ? speakersText(dialogs.figures) : error !== null ? t("dialogList.unreadable") : t("dialogList.reading");
   return <TreeRow depth={1} label={label} subtitle={line} title={error ?? undefined} selected={selected} onSelect={() => onSelect(header.id)} dataAttrs={{ "data-dialog-header": header.id }} />;
 });
 
@@ -42,6 +45,7 @@ const HeaderItem = memo(function HeaderItem({
  * figures in the view. No archives and no numbers: those are Bauen's.
  */
 export function DialogList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const { t } = useTranslation("workbench");
   const { project, places, dialogHeader, dialogPlace, dialogRevision, dialogListRevision, selectDialogHeader } = useTextArea();
   const [filter, setFilter] = useState("");
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
@@ -80,16 +84,16 @@ export function DialogList({ open, onToggle }: { open: boolean; onToggle: () => 
   });
 
   return (
-    <ListPane title="Dialoge" subtitle={project ? `${places.length} Orte` : undefined} open={open} onToggle={onToggle}>
+    <ListPane title={t("dialogList.title")} subtitle={project ? `${places.length} ${places.length === 1 ? termLabel("place") : termPlural("place")}` : undefined} open={open} onToggle={onToggle}>
       {project === null ? (
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann stehen hier seine Orte mit ihren Figuren." />
+        <EmptyState what={t("dialogList.noProject.what")} why={t("dialogList.noProject.why")} />
       ) : (
         <div className={styles.column} data-dialog-list="">
           <div className={styles.top}>
-            <TextField type="search" label="Orte filtern" placeholder="Ort" value={filter} onChange={setFilter} onCommit={setFilter} />
+            <TextField type="search" label={t("dialogList.filter")} placeholder={termLabel("place")} value={filter} onChange={setFilter} onCommit={setFilter} />
           </div>
-          <div ref={tree} role="tree" aria-label="Orte" className={styles.host}>
-            {shown.length === 0 && filtering && <p className={styles.note}>Kein Ort passt zum Filter.</p>}
+          <div ref={tree} role="tree" aria-label={termPlural("place")} className={styles.host}>
+            {shown.length === 0 && filtering && <p className={styles.note}>{t("dialogList.noMatch")}</p>}
             {shown.map((place) => (
               <PlaceGroup key={place.key} place={place} places={places} expanded={filtering || opened.has(place.key)} counted={opened.has(place.key)} onToggle={toggle} selected={dialogHeader} revision={dialogListRevision} selectedRevision={dialogRevision} onSelect={selectDialogHeader} />
             ))}

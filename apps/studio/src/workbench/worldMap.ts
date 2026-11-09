@@ -1,4 +1,5 @@
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
+import { t } from "../i18n";
 import { placeColor } from "./places";
 import type { CellRect } from "./sceneScope";
 import type { Place } from "./places";
@@ -90,7 +91,7 @@ export function roomLinks(place: Place, headers: readonly HeaderSummary[], links
   for (const { header, kind } of place.headers) {
     if (kind !== "inside") continue;
     const exits = index.byFile.get(header.event_file_id) ?? [];
-    let reason = "kein Ausgang";
+    let reason = t("workbench:worldMap.noExit");
     // Rooms may share an event file (the wizard can keep it), so the exits of the file are not all this room's: the
     // one whose paired outside warp leads back to this header is; else the first that resolves.
     let cell: RoomLink["cell"] = null;
@@ -116,11 +117,11 @@ export function roomLinks(place: Place, headers: readonly HeaderSummary[], links
 /** The paired warp of `exit` and the cell it lies in, or the reason there is none. */
 function entrance(exit: WarpLink, index: RoomLinkIndex, region: MatrixDto): { cell: { x: number; y: number }; paired: WarpLink } | string {
   const target = index.byId.get(exit.dest_header_id);
-  if (!target || target.matrix_id !== region.index) return "Ziel liegt nicht auf der Weltkarte";
+  if (!target || target.matrix_id !== region.index) return t("workbench:worldMap.notOnWorldMap");
   const paired = index.byWarp.get(warpKey(target.event_file_id, exit.dest_warp_id));
-  if (!paired) return "Ziel-Warp fehlt";
+  if (!paired) return t("workbench:worldMap.noPairedWarp");
   const cell = { x: Math.floor(paired.x / MAP_TILES), y: Math.floor(paired.z / MAP_TILES) };
-  if (cell.x < 0 || cell.y < 0 || cell.x >= region.width || cell.y >= region.height) return "Ziel außerhalb der Region";
+  if (cell.x < 0 || cell.y < 0 || cell.x >= region.width || cell.y >= region.height) return t("workbench:worldMap.outsideRegion");
   return { cell, paired };
 }
 

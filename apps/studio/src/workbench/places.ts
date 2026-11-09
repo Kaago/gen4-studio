@@ -1,4 +1,6 @@
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
+import { t } from "../i18n";
+import de from "../i18n/locales/de/workbench.json";
 import { id4, termLabel, termPlural } from "./terms";
 
 export type PlaceKind = "outside" | "inside";
@@ -21,7 +23,13 @@ export interface Place {
   headers: PlaceHeader[];
 }
 
-export const UNNAMED_PLACE = "Ohne Ortsnamen";
+/** The name of the group of headers without a location name, in the language shown. */
+export const unnamedPlace = (): string => t("workbench:placeNames.unnamed");
+/**
+ * The German name of that group (read from the German catalog), for `app/startTown.ts`, which compares a name with it. Remove once it
+ * calls `unnamedPlace()`: in English the group is named by `unnamedPlace()`.
+ */
+export const UNNAMED_PLACE: string = de.placeNames.unnamed;
 export const UNNAMED_KEY = "__unnamed";
 
 /**
@@ -39,7 +47,7 @@ export function buildPlaces(headers: HeaderSummary[], matrices: MatrixSummary[],
     const key = name === "" ? UNNAMED_KEY : name;
     let place = places.get(key);
     if (!place) {
-      place = { key, name: name === "" ? UNNAMED_PLACE : name, headers: [] };
+      place = { key, name: name === "" ? unnamedPlace() : name, headers: [] };
       places.set(key, place);
     }
     const matrix = matrixByIndex.get(header.matrix_id);

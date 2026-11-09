@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { BgDto, CheckProblemDto, CoordDto, EventKind, ObjectDto, WarpDto } from "../api";
 import type { ChecksApi } from "../checks/useChecks";
 import type { Depth } from "../ui/frame/shellState";
@@ -87,6 +88,7 @@ export function Inspector({
   findings?: readonly CheckProblemDto[];
   checks?: ChecksApi | null;
 }) {
+  const { t } = useTranslation("workbench");
   /**
    * An editor with the section „Prüfungen“ below it while the checks found something at its record. The frame is always the same, so the
    * editor is never mounted anew when findings come or go (it would lose its loaded record, the focus and an open picker).
@@ -118,7 +120,7 @@ export function Inspector({
     case "tile":
       return (
         <div className={styles.panel}>
-          <EmptyState what="Nichts ausgewählt." why="Wähle links einen Ort oder klicke in der Schau einen Marker an." />
+          <EmptyState what={t("inspectorPanel.empty.what")} why={t("inspectorPanel.empty.why")} />
         </div>
       );
   }

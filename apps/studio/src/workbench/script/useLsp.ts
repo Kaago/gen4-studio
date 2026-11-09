@@ -7,6 +7,7 @@ import { projectFileUri, rootUri } from "./documents";
 import { connectLsp } from "./lspConnection";
 import type { LspConnection } from "./lspConnection";
 import { createTauriTransport } from "./tauriTransport";
+import { t } from "../../i18n";
 
 /** "starting": the server is being started; "missing": no rotom-lsp binary; "stopped": it did not start, died or does not answer. */
 export type LspState = "starting" | "running" | "stopped" | "missing";
@@ -72,7 +73,7 @@ export function useLsp(project: ProjectInfo | null, enabled: boolean, bus: EditB
       connection = connectLsp(transport, {
         rootUri: rootUri(project.root),
         onGiveUp: () => {
-          if (!cancelled) setConnected({ client: null, state: "stopped", note: "rotom-lsp antwortet nicht" });
+          if (!cancelled) setConnected({ client: null, state: "stopped", note: t("workbench:useLsp.notResponding") });
         },
       });
       running.current = connection;

@@ -1,11 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { FigureDialog, HeaderDialogs, TextHit } from "../../api";
 import { useProjectRefs } from "../../data/useRefs";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { Badge, Button, EmptyState, Icon, Notice, PanelHead, Reference, Segmented, TextField } from "../../ui/primitives";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import { id4, termFor } from "../terms";
 import { distinctMessages, figureSummary, figureTarget } from "../dialog/dialogModel";
 import { DialogMessages, messageKey, useDialogWrites } from "../dialog/DialogMessages";
@@ -17,12 +19,6 @@ import { TextTable } from "./TextTable";
 import { LINE_LIMIT, id3, messageLabel, segments } from "./textModel";
 import styles from "./TextHand.module.css";
 
-const MESSAGE_COLUMNS = [{ title: "Nr." }, { title: "Text" }, { title: "Längste Zeile" }] as const;
-const HIT_COLUMNS = [{ title: "Archiv" }, { title: "Nr." }, { title: "Text" }] as const;
-const SCOPES = [
-  { value: "archive", label: "Dieses Archiv" },
-  { value: "all", label: "Alle" },
-] as const;
 const BREAK_SHOWN = { newline: "⏎", clear: "▼", scroll: "▽" } as const;
 
 /** A message on one line: its text, the break codes as symbols, the other codes as badges. */
@@ -48,6 +44,7 @@ const MessageText = memo(function MessageText({ text }: { text: string }) {
 
 /** The longest line of a message: a bar against the limit and "34 von 38"; over the limit in the warning colour with ⚠ and bold. */
 function LongestLine({ width }: { width: number }) {
+  const { t } = useTranslation("workbench");
   const over = width > LINE_LIMIT;
   return (
     <span className={over ? `${styles.longest} ${styles.over}` : styles.longest}>
@@ -55,10 +52,10 @@ function LongestLine({ width }: { width: number }) {
       {over ? (
         <span className={styles.count} data-over="">
           <Icon name="warning" weight="fill" />
-          {`${width} von ${LINE_LIMIT}`}
+          {t("textHand.lineWidth", { width, limit: LINE_LIMIT })}
         </span>
       ) : (
-        <span className={styles.count}>{`${width} von ${LINE_LIMIT}`}</span>
+        <span className={styles.count}>{t("textHand.lineWidth", { width, limit: LINE_LIMIT })}</span>
       )}
     </span>
   );
@@ -71,9 +68,19 @@ export function TextHand() {
 
 /** The search, the messages (or the hits) as a table and the field of the selected message. */
 function ArchiveHand() {
-  const t = useTextArea();
+  const { t } = useTranslation("workbench");
+  const area = useTextArea();
   const reset = useReset();
-  const { project, archive, message, loaded, error, loading, widths, query, effectiveScope, hits, searchError, select, setQuery, setScope, append } = t;
+  const { project, archive, message, loaded, error, loading, widths, query, effectiveScope, hits, searchError, select, setQuery, setScope, append } = area;
+  const messageColumns = useMemo(() => [{ title: t("textHand.columns.number") }, { title: t("textHand.columns.text") }, { title: t("textHand.columns.longestLine") }], [t]);
+  const hitColumns = useMemo(() => [{ title: t("textHand.columns.archive") }, { title: t("textHand.columns.number") }, { title: t("textHand.columns.text") }], [t]);
+  const scopes = useMemo(
+    () => [
+      { value: "archive" as const, label: t("textHand.scope.archive") },
+      { value: "all" as const, label: t("textHand.scope.all") },
+    ],
+    [t],
+  );
   const field = useRef<HTMLTextAreaElement>(null);
   // The message whose field takes the focus as soon as it shows (Enter on a row: the table selected it, its archive may still load).
   const focusWanted = useRef<string | null>(null);
@@ -140,39 +147,39 @@ function ArchiveHand() {
   if (project === null) {
     return (
       <div className={styles.empty}>
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann stehen hier die Nachrichten seiner Textarchive." />
+        <EmptyState what={t("textHand.noProject.what")} why={t("textHand.noProject.why")} />
       </div>
     );
   }
 
   const nothing = (
     <div className={styles.empty}>
-      <EmptyState what={`Nichts gefunden für „${q}“`} why="Prüfe die Schreibweise oder suche in allen Archiven." />
+      <EmptyState what={t("textHand.nothingFound.what", { query: q })} why={t("textHand.nothingFound.why")} />
     </div>
   );
   let table: ReactNode;
   if (q !== "" && effectiveScope === "all") {
     if (searchError !== null) table = <Notice kind="error">{searchError}</Notice>;
-    else if (hits === null) table = <p className={styles.note}>Suche …</p>;
+    else if (hits === null) table = <p className={styles.note}>{t("textHand.searching")}</p>;
     else if (hits.length === 0) table = nothing;
     else
       table = (
-        <TextTable key="hits" label="Treffer in allen Archiven" kind="hits" columns={HIT_COLUMNS} count={hits.length} selected={selectedHit < 0 ? null : selectedHit} rowAttrs={hitAttrs} cells={hitCells} onSelect={selectHit} onEnter={enterHit} />
+        <TextTable key="hits" label={t("textHand.hitsLabel")} kind="hits" columns={hitColumns} count={hits.length} selected={selectedHit < 0 ? null : selectedHit} rowAttrs={hitAttrs} cells={hitCells} onSelect={selectHit} onEnter={enterHit} />
       );
   } else if (archive === null) {
     table = (
       <div className={styles.empty}>
-        <EmptyState what="Wähle links ein Archiv." why="Dann stehen hier seine Nachrichten; die Suche oben sucht in allen Archiven." />
+        <EmptyState what={t("textHand.noArchive.what")} why={t("textHand.noArchive.why")} />
       </div>
     );
   } else if (error !== null) {
     table = <Notice kind="error">{error}</Notice>;
   } else if (loading || !messages) {
-    table = <p className={styles.note}>Lade …</p>;
+    table = <p className={styles.note}>{t("textHand.loading")}</p>;
   } else if (messages.length === 0) {
     table = (
       <div className={styles.empty}>
-        <EmptyState what="Dieses Archiv hat keine Nachricht." why="Lege eine an, dann kannst du sie hier schreiben." action={{ label: "Nachricht anlegen", onClick: append }} />
+        <EmptyState what={t("textHand.emptyArchive.what")} why={t("textHand.emptyArchive.why")} action={{ label: t("textHand.addMessage"), onClick: append }} />
       </div>
     );
   } else if (matches.length === 0) {
@@ -183,9 +190,9 @@ function ArchiveHand() {
     table = (
       <TextTable
         key={`archive-${archive}`}
-        label={`Nachrichten von Archiv ${id4(archive)}`}
+        label={t("textHand.messagesLabel", { archive: id4(archive) })}
         kind="messages"
-        columns={MESSAGE_COLUMNS}
+        columns={messageColumns}
         count={matches.length}
         selected={selectedRow < 0 ? null : selectedRow}
         rowAttrs={messageAttrs}
@@ -202,16 +209,16 @@ function ArchiveHand() {
         <div className={styles.search}>
           <TextField
             type="search"
-            label="Texte suchen"
-            placeholder={effectiveScope === "archive" ? "In diesem Archiv suchen" : "In allen Archiven suchen"}
+            label={t("textHand.search.label")}
+            placeholder={effectiveScope === "archive" ? t("textHand.search.inArchive") : t("textHand.search.inAll")}
             value={query}
             onChange={setQuery}
             onCommit={setQuery}
           />
         </div>
-        <Segmented<TextScope> size="s" ariaLabel="Suchbereich" value={t.scope} onChange={setScope} options={SCOPES} />
+        <Segmented<TextScope> size="s" ariaLabel={t("textHand.search.scope")} value={area.scope} onChange={setScope} options={scopes} />
         <Button kind="primary" icon="plus" disabled={!loaded} onClick={append}>
-          Nachricht anlegen
+          {t("textHand.addMessage")}
         </Button>
         {archive !== null && (
           <HeadActions
@@ -219,9 +226,9 @@ function ArchiveHand() {
             items={[
               // The selected message's text (a message the base does not have is refused by the plan, which the dialog shows).
               message === null
-                ? { label: "Nachricht auf Original zurücksetzen…", icon: "undo", disabled: true, detail: "Keine Nachricht gewählt", onSelect: () => {} }
-                : resetEntry({ kind: "text_message", archive, message }, reset.status, reset.open, "Nachricht auf Original zurücksetzen…"),
-              resetEntry({ kind: "text_archive", index: archive }, reset.status, reset.open, "Ganzes Textarchiv auf Original zurücksetzen…"),
+                ? { label: t("textHand.reset.message"), icon: "undo", disabled: true, detail: t("textHand.reset.noMessage"), onSelect: () => {} }
+                : resetEntry({ kind: "text_message", archive, message }, reset.status, reset.open, t("textHand.reset.message")),
+              resetEntry({ kind: "text_archive", index: archive }, reset.status, reset.open, t("textHand.reset.archive")),
             ]}
           />
         )}
@@ -236,6 +243,7 @@ function ArchiveHand() {
 
 /** The column of the selected message: its field, the headers that use the archive and the removal of the last message. */
 function EditorColumn({ archive, message, field }: { archive: number; message: number; field: RefObject<HTMLTextAreaElement | null> }) {
+  const { t } = useTranslation("workbench");
   const { project, loaded, users, headers, commit, draft, setEditorFocused, removeLast, goTo, depth } = useTextArea();
   const usedBy = users.get(archive) ?? [];
   // Each header under its own location name ("Ort" in Bauen, "Header" in Tüfteln when it has none).
@@ -244,8 +252,8 @@ function EditorColumn({ archive, message, field }: { archive: number; message: n
   const count = loaded?.messages.length ?? 0;
   const key = draftKey(archive, message);
   return (
-    <aside className={styles.editor} aria-label="Nachricht bearbeiten">
-      <PanelHead title={messageLabel(message)} subtitle={`Archiv ${id4(archive)}`} />
+    <aside className={styles.editor} aria-label={t("textHand.editor.label")}>
+      <PanelHead title={messageLabel(message)} subtitle={t("textHand.editor.archive", { archive: id4(archive) })} />
       <div className={styles.editorBody}>
         <MessageEditor
           key={key}
@@ -257,16 +265,16 @@ function EditorColumn({ archive, message, field }: { archive: number; message: n
         />
         <MessageRefs archive={archive} message={message} />
         <div className={styles.usedIn}>
-          <span className={styles.label}>Verwendet in</span>
+          <span className={styles.label}>{t("textHand.editor.usedIn")}</span>
           {usedBy.length === 0 ? (
-            <span className={styles.none}>keinem {word}</span>
+            <span className={styles.none}>{depthAtLeast(depth, "tuefteln") ? t("textHand.editor.noHeader") : t("textHand.editor.noPlace")}</span>
           ) : (
             usedBy.map((id) => <Reference key={id} area="welt" label={nameOf(id)} tech={id4(id)} onOpen={() => goTo({ kind: "header", id })} dataAttrs={{ "data-header": id }} />)
           )}
         </div>
         <div className={styles.actions}>
           <Button kind="quiet" size="s" disabled={count <= 1} onClick={removeLast}>
-            Letzte Nachricht entfernen
+            {t("textHand.editor.removeLast")}
           </Button>
         </div>
       </div>
@@ -279,13 +287,14 @@ function EditorColumn({ archive, message, field }: { archive: number; message: n
  * script panel at that line. Read when another message is chosen.
  */
 function MessageRefs({ archive, message }: { archive: number; message: number }) {
+  const { t } = useTranslation("workbench");
   const { project, goTo } = useTextArea();
   const target = useMemo(() => ({ kind: "message" as const, archive, index: message }), [archive, message]);
   const found = useProjectRefs(project, target);
   let chips: ReactNode;
   if (found === null) chips = <span className={styles.none}>…</span>;
   else if (found.error !== null) chips = <span className={styles.none}>{found.error}</span>;
-  else if (found.refs!.length === 0) chips = <span className={styles.none}>keinem Script</span>;
+  else if (found.refs!.length === 0) chips = <span className={styles.none}>{t("textHand.refs.none")}</span>;
   else
     chips = found.refs!.map((r) => {
       const line = r.nav.kind === "script" ? r.nav.line : undefined;
@@ -294,7 +303,7 @@ function MessageRefs({ archive, message }: { archive: number; message: number })
           key={`${r.source.index}:${r.slot ?? ""}:${r.field}`}
           area="welt"
           label={r.source_name}
-          tech={line === undefined ? undefined : `Zeile ${line}`}
+          tech={line === undefined ? undefined : t("textHand.refs.line", { line })}
           onOpen={() => goTo(r.nav)}
           dataAttrs={{ "data-script-line": `${r.source.index}:${line ?? ""}` }}
         />
@@ -302,7 +311,7 @@ function MessageRefs({ archive, message }: { archive: number; message: number })
     });
   return (
     <div className={styles.usedIn} data-message-refs="">
-      <span className={styles.label}>Nachricht verwendet in</span>
+      <span className={styles.label}>{t("textHand.refs.label")}</span>
       {chips}
     </div>
   );
@@ -314,18 +323,19 @@ function MessageRefs({ archive, message }: { archive: number; message: number })
  * (Pokémon); a common script, a figure without a script and one that cannot be read say so.
  */
 function DialogHand() {
+  const { t } = useTranslation("workbench");
   const { project, dialogs, dialogFigure, figureTitle, openDialogEditor, goTo } = useTextArea();
   let body: ReactNode;
   let actions: ReactNode = undefined;
   if (project === null) {
-    body = <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann stehen hier die Nachrichten seiner Figuren." />;
+    body = <EmptyState what={t("textHand.noProject.what")} why={t("textHand.dialog.noProjectWhy")} />;
   } else if (dialogFigure === null || dialogs.dialogs === null) {
-    body = <EmptyState what="Wähle eine Figur." why="Dann stehen hier ihre Nachrichten; ein Doppelklick auf die Karte öffnet den Dialog-Editor." />;
+    body = <EmptyState what={t("textHand.dialog.noFigure.what")} why={t("textHand.dialog.noFigure.why")} />;
   } else if (dialogFigure.source.kind === "local") {
     const figure = dialogFigure;
     actions = (
       <Button kind="quiet" size="s" onClick={() => openDialogEditor(figure)}>
-        Dialog bearbeiten…
+        {t("textHand.dialog.edit")}
       </Button>
     );
     body = <FigureMessages key={`${dialogs.dialogs.header}:${figure.kind}:${figure.index}`} dialogs={dialogs.dialogs} figure={figure} />;
@@ -334,7 +344,7 @@ function DialogHand() {
     if (source.kind === "trainer")
       actions = (
         <Button kind="quiet" size="s" icon="forward" onClick={() => goTo({ kind: "trainer", index: source.id })}>
-          Trainer öffnen
+          {t("textHand.dialog.openTrainer")}
         </Button>
       );
     body = <p className={styles.note}>{figureSummary(dialogFigure)}</p>;
@@ -349,6 +359,7 @@ function DialogHand() {
 
 /** The messages of a figure with a script of its own, read with `dialogOf` and written like in the dialog editor. */
 function FigureMessages({ dialogs, figure }: { dialogs: HeaderDialogs; figure: FigureDialog }) {
+  const { t } = useTranslation("workbench");
   const { dialogRevision, dialogChanged, onError, scriptFiles } = useTextArea();
   const target = useMemo(() => figureTarget(dialogs, figure), [dialogs, figure]);
   const { dialog, error, reload } = useDialog(target, dialogRevision);
@@ -357,9 +368,9 @@ function FigureMessages({ dialogs, figure }: { dialogs: HeaderDialogs; figure: F
   const writes = useDialogWrites(target, source, { reload, onChanged: dialogChanged, onError, scriptFiles, onSplit: setChosen, narrating: true });
   const distinct = useMemo(() => (dialog !== null && source?.kind === "local" ? distinctMessages(dialog.messages) : []), [dialog, source?.kind]);
   if (error !== null) return <Notice kind="error">{error}</Notice>;
-  if (dialog === null) return <p className={styles.note}>Lade …</p>;
+  if (dialog === null) return <p className={styles.note}>{t("textHand.loading")}</p>;
   if (source?.kind !== "local") return <p className={styles.note}>{figureSummary(figure)}</p>;
-  if (distinct.length === 0) return <p className={styles.note}>Das Script dieser Figur zeigt keine Nachricht.</p>;
+  if (distinct.length === 0) return <p className={styles.note}>{t("textHand.dialog.noMessage")}</p>;
   const currentKey = distinct.some((d) => messageKey(d.message) === chosen) ? chosen : messageKey(distinct[0]!.message);
   return (
     <>

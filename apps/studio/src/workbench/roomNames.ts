@@ -1,22 +1,23 @@
 import type { HeaderSummary } from "../api";
+import { t } from "../i18n";
 
 /** ", 1. Stock" for the second floor (`…02`), nothing for the ground floor. */
 function floor(nn: string): string {
   const n = Number(nn);
-  return n > 1 ? `, ${n - 1}. Stock` : "";
+  return n > 1 ? t("workbench:roomNames.floor", { n: n - 1 }) : "";
 }
 
 /** The name the code (internal name) suggests, or null when it suggests none. */
 function codeName(code: string): string | null {
   const name = code.trim().toUpperCase();
   let m = /PC\d\d(\d\d)$/.exec(name);
-  if (m) return `Pokémon-Center${floor(m[1])}`;
+  if (m) return t("workbench:roomNames.pokemonCenter", { floor: floor(m[1]) });
   m = /FS\d\d(\d\d)$/.exec(name);
-  if (m) return `Pokémarkt${floor(m[1])}`;
+  if (m) return t("workbench:roomNames.pokeMart", { floor: floor(m[1]) });
   m = /GYM\d\d(\d\d)$/.exec(name);
-  if (m) return Number(m[1]) > 1 ? `Arena, Raum ${Number(m[1])}` : "Arena";
+  if (m) return Number(m[1]) > 1 ? t("workbench:roomNames.gymRoom", { n: Number(m[1]) }) : t("workbench:roomNames.gym");
   m = /R(\d\d)(\d\d)$/.exec(name);
-  if (m) return name.startsWith("D") ? `Ebene ${Number(m[2])}` : `Haus ${Number(m[1])}${floor(m[2])}`;
+  if (m) return name.startsWith("D") ? t("workbench:roomNames.level", { n: Number(m[2]) }) : t("workbench:roomNames.house", { n: Number(m[1]), floor: floor(m[2]) });
   return null;
 }
 
@@ -37,7 +38,7 @@ export function suggestRoomName(header: Pick<HeaderSummary, "internal_name">, pl
   const fromCode = codeName(header.internal_name);
   if (fromCode !== null) return { name: fromCode, numbered: false };
   if (placeName !== "" && placeName !== areaPlaceName) return { name: placeName, numbered: false };
-  return { name: `Raum ${ordinal}`, numbered: true };
+  return { name: t("workbench:roomNames.room", { n: ordinal }), numbered: true };
 }
 
 /**

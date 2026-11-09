@@ -3,6 +3,7 @@ import { switcherMenu } from "../ui/primitives";
 import type { MenuItemSpec, PanelHeadSwitcher } from "../ui/primitives";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
+import { t } from "../i18n";
 import { eventAt, eventTitle } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import { headerIdentity } from "./headerIdentity";
@@ -10,7 +11,7 @@ import type { HeaderIdentity } from "./headerIdentity";
 import type { NavTarget } from "./navigation";
 import { placeOf } from "./places";
 import type { Place } from "./places";
-import { id4, termFor } from "./terms";
+import { id4, termFor, termLabel } from "./terms";
 
 /** One link of the hinge's breadcrumb. `tech` is the grey identifier next to the label. */
 export interface Crumb {
@@ -35,14 +36,14 @@ export interface CrumbInput {
   events?: EventsDto | null;
   /** Makes the crumbs links: each one leads where its label says. */
   goTo?: (target: NavTarget) => void;
-  /** Bauen names the header "Gebiet", a room by its name ("Haus 1"), another header "Ort"; Tüfteln "Header". */
+  /** Bauen names the header „Gebiet“, a room by its name („Haus 1“), another header „Ort“; Tüfteln „Header“. */
   depth: Depth;
   /** What a header is and how it is called, as the world tree says (`WorkbenchWorld.identify`); without it, the places tell. */
   identify?: (header: HeaderSummary) => HeaderIdentity;
 }
 
 /** The leading words of `eventTitle`, shown while the event's data is not there (yet). */
-const EVENT_WORD: Record<EventKind, string> = { warp: "Warp", object: "Objekt", coord: "Trigger", bg: "Hintergrund-Event" };
+const eventWord = (kind: EventKind): string => t(`workbench:breadcrumb.eventWord.${kind}`);
 
 /** The heading of the pinned event as the inspector writes it (`eventTitle`) once its data is known, else the short form. */
 function eventLabel(
@@ -53,7 +54,7 @@ function eventLabel(
   identify?: (header: HeaderSummary) => HeaderIdentity,
 ): string {
   const data = events && events.event_file_id === pinned.eventFile ? eventAt(events, pinned.eventKind, pinned.index) : undefined;
-  if (data === undefined) return `${EVENT_WORD[pinned.eventKind]} ${pinned.index}`;
+  if (data === undefined) return `${eventWord(pinned.eventKind)} ${pinned.index}`;
   const destination = pinned.eventKind === "warp" ? headers.find((h) => h.id === (data as WarpDto).dest_header_id) : undefined;
   const destName = destination === undefined ? undefined : depthAtLeast(depth, "tuefteln") ? destination.internal_name : identify?.(destination).name;
   return eventTitle(pinned.eventKind, data, depth, destName);
@@ -62,7 +63,7 @@ function eventLabel(
 /** At most three crumbs: place › header (Gebiet or the room's name, Tüfteln: Header, with its id) › selection (event, building, matrix cell or area data). */
 export function crumbsFor({ places, headers, selected, pinned, matrixName, cellMap, events, goTo, depth, identify }: CrumbInput): Crumb[] {
   const header = selected === null ? undefined : headers.find((h) => h.id === selected);
-  if (header === undefined) return [{ label: headers.length === 0 ? "Kein Projekt" : "Kein Ort gewählt" }];
+  if (header === undefined) return [{ label: headers.length === 0 ? t("workbench:breadcrumb.noProject") : t("workbench:breadcrumb.noPlace") }];
   const link = (target: NavTarget) => (goTo ? () => goTo(target) : undefined);
   const crumbs: Crumb[] = [];
   const place = placeOf(places, header.id);
@@ -73,21 +74,24 @@ export function crumbsFor({ places, headers, selected, pinned, matrixName, cellM
   crumbs.push({ label, tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
   switch (pinned.kind) {
     case "event":
-      crumbs.push({ label: eventLabel(pinned, headers, events, depth, identify ?? ((h) => headerIdentity(places, h))), tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
+      crumbs.push({ label: eventLabel(pinned, headers, events, depth, identify ?? ((h) => headerIdentity(places, h))), tech: `${termLabel("eventFile")} ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
       break;
     case "building":
-      crumbs.push({ label: `Gebäude ${pinned.index + 1}`, onClick: link({ kind: "building", map: pinned.map, index: pinned.index }) });
+      crumbs.push({ label: t("workbench:breadcrumb.building", { n: pinned.index + 1 }), onClick: link({ kind: "building", map: pinned.map, index: pinned.index }) });
       break;
     case "matrixCell":
       crumbs.push({
         ...(depthAtLeast(depth, "tuefteln")
-          ? { label: `Zelle ${pinned.x}, ${pinned.y}`, tech: matrixName }
-          : { label: cellMap === null ? "Leere Zelle" : cellMap === undefined ? `Karte (${pinned.x}, ${pinned.y})` : `Karte ${id4(cellMap)}`, tech: `Zelle ${pinned.x}, ${pinned.y}` }),
+          ? { label: t("workbench:breadcrumb.cell", { x: pinned.x, y: pinned.y }), tech: matrixName }
+          : {
+              label: cellMap === null ? t("workbench:breadcrumb.emptyCell") : cellMap === undefined ? `${termLabel("map")} (${pinned.x}, ${pinned.y})` : `${termLabel("map")} ${id4(cellMap)}`,
+              tech: t("workbench:breadcrumb.cell", { x: pinned.x, y: pinned.y }),
+            }),
         onClick: link({ kind: "matrixCell", matrix: pinned.matrix, x: pinned.x, y: pinned.y }),
       });
       break;
     case "area":
-      crumbs.push({ label: `Area-Data ${id4(pinned.id)}`, onClick: link({ kind: "area", id: pinned.id }) });
+      crumbs.push({ label: `${termLabel("areaData")} ${id4(pinned.id)}`, onClick: link({ kind: "area", id: pinned.id }) });
       break;
     default:
       break;
@@ -108,12 +112,15 @@ export interface TextCrumbInput {
 
 /** The breadcrumb of the texts: Texte › Archiv 0412, Zweiblattdorf › Nachricht 005. Without an archive only the area. */
 export function textCrumbs({ archive, place, message, goTo }: TextCrumbInput): Crumb[] {
-  const crumbs: Crumb[] = [{ label: "Texte" }];
+  const crumbs: Crumb[] = [{ label: t("workbench:breadcrumb.texts") }];
   if (archive === null) return crumbs;
   const link = (target: NavTarget) => (goTo ? () => goTo(target) : undefined);
-  crumbs.push({ label: place ? `Archiv ${id4(archive)}, ${place}` : `Archiv ${id4(archive)}`, onClick: link({ kind: "textArchive", index: archive }) });
+  crumbs.push({
+    label: place ? t("workbench:breadcrumb.archiveAt", { archive: id4(archive), place }) : t("workbench:breadcrumb.archive", { archive: id4(archive) }),
+    onClick: link({ kind: "textArchive", index: archive }),
+  });
   if (message !== null && message !== undefined) {
-    crumbs.push({ label: `Nachricht ${String(message).padStart(3, "0")}`, onClick: link({ kind: "textArchive", index: archive, message }) });
+    crumbs.push({ label: `${termLabel("message")} ${String(message).padStart(3, "0")}`, onClick: link({ kind: "textArchive", index: archive, message }) });
   }
   return crumbs;
 }
@@ -136,7 +143,7 @@ export type DataCrumbInput =
  */
 export function dataCrumbs(input: DataCrumbInput): Crumb[] {
   const { selection, goTo } = input;
-  const crumbs: Crumb[] = [{ label: input.area === "pokemon" ? "Pokémon" : "Gegenstände" }];
+  const crumbs: Crumb[] = [{ label: input.area === "pokemon" ? t("workbench:breadcrumb.pokemon") : t("workbench:breadcrumb.items") }];
   if (input.area === "pokemon") {
     const { switcher } = input;
     const current = switcher.items.find((item) => item.id === switcher.value);
