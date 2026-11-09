@@ -1,6 +1,6 @@
 # Gutachten A: NSBMD- und NSBTX-Writer (Phase 6)
 
-Stand: 05.11.2026. Gutachter: Architektur-Review (nur lesend am Code, mit eigenen Messungen und Prototypen). Repo: `/Users/POLTEP/Projekte/lab/editor/gen4-studio`, Branch `main` (`91ba0615`).
+Stand: 05.11.2026. Gutachter: Architektur-Review (nur lesend am Code, mit eigenen Messungen und Prototypen). Repo: `$HOME/Projekte/lab/editor/gen4-studio`, Branch `main` (`91ba0615`).
 Datenbasis: frische Kopien der DSPRE-Ordner von Platin DE (`CPUD`), HeartGold DE (`IPKD`) und HeartGold US (`IPKE`) unter `Roms/_testkopien/6-gutachten-a-{pt,hg,hgus}`. Die Originale unter `Roms/` blieben unberührt. Gemessen wurde an unveränderten Kopien; erst danach wurden in den Kopien von Platin und HeartGold DE einzelne Karten für die Spielprobe ersetzt (§2.7, Liste in §9).
 
 Werkzeuge in diesem Ordner (geben nur Zahlen, Namen, Offsets und Verteilungen aus, keine Bytes der ROM-Dateien):

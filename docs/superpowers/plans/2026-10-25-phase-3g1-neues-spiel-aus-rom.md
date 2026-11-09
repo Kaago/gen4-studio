@@ -80,7 +80,7 @@ Stand 25.10.2026, Branch `phase-3g-projektstart` (Worktree `.claude/worktrees/ph
   - gated `project_start_inspects_the_test_rom` (`G4_TEST_ROM`, sonst `eprintln!("skipped: G4_TEST_ROM not set")`): Code = Bytes `0x0C..0x10`, `support == Verified`, `known_base.is_some()`.
 - [ ] **Step 2: Run** `cargo test --workspace --all-features project_start_ start::` → FAIL (Modul fehlt).
 - [ ] **Step 3: Implement** `start.rs` und `base_roms.yaml` (Einträge `{sha1, game_code, label: "Platin DE (Testprojekt)" | "HeartGold DE (Testprojekt)" | "HeartGold US (Testprojekt)", source: "Testprojekt"}`, per `include_str!` geladen wie die übrigen Metadateien) sowie die zwei `test_support`-Helfer.
-- [ ] **Step 4: Run** dieselben Tests → PASS; gated einmal mit `G4_TEST_ROM=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/3g-probe/pt.nds`.
+- [ ] **Step 4: Run** dieselben Tests → PASS; gated einmal mit `G4_TEST_ROM=$HOME/Projekte/lab/editor/Roms/_testkopien/3g-probe/pt.nds`.
 - [ ] **Step 5: Commit** `feat(kernel): inspect_rom reads game code, language, release level and SHA-1 of a .nds`
 
 ---

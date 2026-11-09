@@ -3,8 +3,9 @@
 # dependency tree (cargo deny with deny.toml; needs cargo-deny 0.20.2), the licenses of the
 # npm packages (scripts/check-licenses-npm.sh), the shell script tests (scripts/tests/run.sh),
 # the GitHub Actions audit (scripts/check-actions.sh), the ROM data guard
-# (scripts/check-no-rom-data.sh), the version check (scripts/version.sh check), the full test
-# suite, the studio frontend, then the gated tests against every test project under $G4_ROMS_DIR.
+# (scripts/check-no-rom-data.sh), the link check (scripts/check-links.sh), the version check
+# (scripts/version.sh check), the full test suite, the studio frontend, then the gated tests
+# against every test project under $G4_ROMS_DIR.
 #
 # CI (.github/workflows/ci.yml: every pull request to main, every push to main, and by hand) runs
 # the hermetic part: with G4_GATE_HERMETIC=1 the gate ends after the step "g4emu unit" and the
@@ -124,6 +125,8 @@ run_step "script tests" "" bash scripts/tests/run.sh
 run_step "actions" "" bash scripts/check-actions.sh
 # No ROM, save game or derivative in the tracked files (spec release-ci 7.1).
 run_step "no rom data" "" bash scripts/check-no-rom-data.sh
+# Relative links in README, README.de, docs/README and CONTRIBUTING point to files that exist.
+run_step "links" "" bash scripts/check-links.sh
 # One version for Cargo, npm and Tauri, CHANGELOG section present (spec release-ci 4).
 run_step "version" "" bash scripts/version.sh check
 # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.

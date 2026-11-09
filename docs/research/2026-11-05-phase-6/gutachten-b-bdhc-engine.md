@@ -1,6 +1,6 @@
 # Gutachten B: BDHC (Laufhöhen), Kollisionsableitung und Engine-Grenzen (Phase 6)
 
-Stand: 05.11.2026, gelesen auf `main` (`91ba0615`) im Arbeitsbaum `/Users/POLTEP/Projekte/lab/editor/gen4-studio`. Am Repo-Code ist nichts geändert; neu sind nur dieses Gutachten und die drei Werkzeuge `gutachten-b-*.py` daneben. Grundlage sind:
+Stand: 05.11.2026, gelesen auf `main` (`91ba0615`) im Arbeitsbaum `$HOME/Projekte/lab/editor/gen4-studio`. Am Repo-Code ist nichts geändert; neu sind nur dieses Gutachten und die drei Werkzeuge `gutachten-b-*.py` daneben. Grundlage sind:
 
 - im Repo `crates/g4-formats/src/map.rs`, `docs/formats/{map,matrix,nsbtx}.md`, `crates/g4-kernel/src/map_import.rs` (`check_bdhc`), `crates/g4-kernel/metadata/check_limits.yaml`, `crates/g4-kernel/src/checks/world.rs`, `docs/research/2026-10-23-3b4/task0-3b4.md` §3, `docs/agent-gate.md` (Emulator, Szenario, Teile importieren);
 - in der App `apps/studio/src/world/{layout,markers}.ts`, `world/scene/{picking,eventDrag,content}.ts`;

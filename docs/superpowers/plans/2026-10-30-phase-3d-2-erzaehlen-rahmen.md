@@ -10,7 +10,7 @@
 
 **Spec:** [2026-10-30-phase-3d-erzaehlen-design.md](../specs/2026-10-30-phase-3d-erzaehlen-design.md) (§1, §2, §3.3, §4 Zeile 3d.2, §6, §7, §8); [entscheidungen.md](../../research/2026-10-30-phase-3d/entscheidungen.md) (Tabellen „Phasenschnitt und Reihenfolge“, „Geschichten und Erzählen (Gutachten A)“ Zeilen Tiefe Erzählen, Rezepte, Live-Vorschau; „Nicht in 3d“); [gutachten-a-geschichten-erzaehlen.md](../../research/2026-10-30-phase-3d/gutachten-a-geschichten-erzaehlen.md) §2.3 „Was der Code heute trägt“, §3.3 „Die Tiefe „Erzählen““ (Helfer, Lint, `FieldSpec.from`, Tabelle je Bereich, Rezepttabelle, Live-Vorschau, Mindestumfang), §5 Zeile E1 mit Gate; [Spezifikation 3c](../specs/2026-10-23-phase-3c-doppeldeck-design.md) §7.7 Tiefen; [design-system/README.md](../../../design-system/README.md) (Prinzip 3 und 7, Komponenten „Segmente“ und „Werkzeug-Taste, Rezept-Taste“, „Was die App umsetzt“, Nachtrag 4.4 als Muster). Muster für Rezepte: [Plan 3g.2](2026-10-25-phase-3g2-leere-region.md) (`plan_empty_region`/`apply_empty_region`); Muster für Aufbau und Gate: [Plan 4.4](2026-10-28-phase-4-4-git-minimal.md), [phase-4-4-gate.md](../../phase-4-4-gate.md).
 
-Stand 31.10.2026: `main` bei `3c194c7` (Phase 4 abgeschlossen, Spezifikation 3d mit Schnitt 3d.1 bis 3d.9). Arbeit im Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-2`, Branch `phase-3d-2-erzaehlen-rahmen` (existiert, Basis `3c194c7`). Parallel laufen in eigenen Worktrees 3d.1 (`phase-3d-1-flags-variablen`), 3d.3 (`phase-3d-3-sprites-ds-eier`) und 4.5 (`phase-4-5-veroeffentlichen`). Kernel `crates/g4-kernel/src`, Tauri `apps/studio/src-tauri/src`, Frontend `apps/studio/src`.
+Stand 31.10.2026: `main` bei `3c194c7` (Phase 4 abgeschlossen, Spezifikation 3d mit Schnitt 3d.1 bis 3d.9). Arbeit im Worktree `$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-2`, Branch `phase-3d-2-erzaehlen-rahmen` (existiert, Basis `3c194c7`). Parallel laufen in eigenen Worktrees 3d.1 (`phase-3d-1-flags-variablen`), 3d.3 (`phase-3d-3-sprites-ds-eier`) und 4.5 (`phase-4-5-veroeffentlichen`). Kernel `crates/g4-kernel/src`, Tauri `apps/studio/src-tauri/src`, Frontend `apps/studio/src`.
 
 ## Befunde vor dem Plan (31.10.2026)
 
@@ -53,10 +53,10 @@ Stand 31.10.2026: `main` bei `3c194c7` (Phase 4 abgeschlossen, Spezifikation 3d 
 
 ## Global Constraints
 
-- Arbeitsort ist der Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-2` auf dem Branch `phase-3d-2-erzaehlen-rahmen` (existiert, Basis main `3c194c7`): nie `cd` in die Hauptkopie, nie den Branch wechseln, nie nach main mergen, kein `git stash`. `tools/` ist dort ein Symlink (nie einchecken).
+- Arbeitsort ist der Worktree `$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-2` auf dem Branch `phase-3d-2-erzaehlen-rahmen` (existiert, Basis main `3c194c7`): nie `cd` in die Hauptkopie, nie den Branch wechseln, nie nach main mergen, kein `git stash`. `tools/` ist dort ein Symlink (nie einchecken).
 - Vor jedem cargo-Aufruf `export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"`; `pnpm install` einmal in `apps/studio`.
 - Commits enden mit `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
-- Originale unter `/Users/POLTEP/Projekte/lab/editor/Roms` nie öffnen oder ändern; Testkopien nur unter `Roms/_testkopien/3d-2-<zweck>` (`cp -cR` für Ordner, `cp -c` für `.nds`, Ordner `3d-2-<zweck>_DSPRE_contents` und `.nds` direkt nebeneinander); `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut. Gated Tests lesen `G4_TEST_PROJECT` und schreiben nur auf `vanilla_copy()`.
+- Originale unter `$HOME/Projekte/lab/editor/Roms` nie öffnen oder ändern; Testkopien nur unter `Roms/_testkopien/3d-2-<zweck>` (`cp -cR` für Ordner, `cp -c` für `.nds`, Ordner `3d-2-<zweck>_DSPRE_contents` und `.nds` direkt nebeneinander); `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut. Gated Tests lesen `G4_TEST_PROJECT` und schreiben nur auf `vanilla_copy()`.
 - Test-Umgebung nur auf `G4_VITE_PORT=1710 G4_BRIDGE_PORT=1711` (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1710 G4_BRIDGE_PORT=1711 bash scripts/agent/studio-web.sh`).
 - Keine ROM-Daten ins Repo: keine `.nds`, keine Member, keine exportierte JSON eines Spiels; Fixtures nur synthetisch.
 - UI nur aus `apps/studio/src/ui/primitives` und Tokens `--g4-*` (keine Hex-Farben, keine Inline-Styles außer `/* dyn */`); `bash scripts/check-styles.sh`, `bash scripts/check-tokens.sh` und der neue `bash scripts/check-depth.sh` grün; deutsche Oberfläche, Bezeichner englisch.
@@ -477,7 +477,7 @@ export const DRAFT_DEBOUNCE_MS = 300;
     | HeartGold DE | | | | | | |
     | HeartGold US | | | | | | |
 
-- [ ] **Step 2: Gate abarbeiten** (Agent: (1) bis (3)); Befunde beheben (eigene Commits `fix(3d.2): …` mit Regressionstest), bis alles grün ist; `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms bash scripts/gate.sh > target/agent/gate-sh-3d-2.log 2>&1` im Hintergrund, allein; `target/agent/3d-2/` vor `git worktree remove` sichern.
+- [ ] **Step 2: Gate abarbeiten** (Agent: (1) bis (3)); Befunde beheben (eigene Commits `fix(3d.2): …` mit Regressionstest), bis alles grün ist; `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms bash scripts/gate.sh > target/agent/gate-sh-3d-2.log 2>&1` im Hintergrund, allein; `target/agent/3d-2/` vor `git worktree remove` sichern.
 - [ ] **Step 3: Roadmap und Doku** `docs/ROADMAP.md`: in der Tabelle „Phase 3d“ Zeile 3d.2 „**Stand <Datum>:** Gate vom Agenten bestanden: drei Tiefen mit Lint (0 Treffer), Feldlisten je Tiefe im Snapshot, Rezepte Gebiet, Raum, Erweitern, Welt leeren im Kernel als je ein Undo-Schritt (⌘Z stellt nach „Welt leeren“ Scripts und Archive wieder her), `recipe_list`/`recipe_plan`/`recipe_apply` über MCP und `g4k`, Entwurf in Schau, Weltkarte und Raumplan, Szenarien `pt-raum-assistent`, `pt-leere-region`, `hg-leere-region` grün; Branch `phase-3d-2-erzaehlen-rahmen`; [docs/phase-3d-2-gate.md](phase-3d-2-gate.md); beim Nutzer offen: Hand und Blick“; `docs/agent-gate.md` und `docs/dev-setup.md` wie unter Files.
 - [ ] **Step 4: Commit** `docs(3d.2): gate of the Erzählen frame, agent gate, roadmap status` (mit Trailer).
 

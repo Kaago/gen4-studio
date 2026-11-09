@@ -15,7 +15,7 @@ Zuordnung der Karten zu Paketen (Abschnitte 8, 9).
 Aufruf je Spiel, im Hintergrund, Ausgabe nach `target/agent/` (nicht im Repo):
 
 ```sh
-python3 -I docs/research/2026-11-05-phase-6/task0-6-3a-vorgaben.py /Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/6-3a-task0-pt --json > target/agent/6-3a-task0-pt.json 2> target/agent/6-3a-task0-pt.log
+python3 -I docs/research/2026-11-05-phase-6/task0-6-3a-vorgaben.py $HOME/Projekte/lab/editor/Roms/_testkopien/6-3a-task0-pt --json > target/agent/6-3a-task0-pt.json 2> target/agent/6-3a-task0-pt.log
 ```
 
 ebenso `hgde` und `hgus`; Laufzeit je Spiel 22 bis 32 Sekunden, Ausgang 0.

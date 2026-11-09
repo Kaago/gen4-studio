@@ -3,9 +3,10 @@
 # Aufruf: messung-1.sh <spiel>   (pt | hgde | hgus); arbeitet nur in _testkopien/4-gutachten-b-<spiel>.
 set -euo pipefail
 S="${1:?spiel}"
-ROMS=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien
+ROMS=$HOME/Projekte/lab/editor/Roms/_testkopien
 P="$ROMS/4-gutachten-b-$S"; BASE="$ROMS/4-gutachten-b-$S.nds"; OUT="$ROMS/4-gutachten-b-$S-out"
-SB="${PROTO_B:-/private/tmp/claude-502/-Users-POLTEP-Projekte-lab-editor/8b06ac95-9aa6-47f7-80f3-63b9fe742be7/scratchpad/proto-b}"
+EDITOR_ID="$(printf '%s' "$HOME/Projekte/lab/editor" | tr / -)"
+SB="${PROTO_B:-/private/tmp/claude-502/$EDITOR_ID/8b06ac95-9aa6-47f7-80f3-63b9fe742be7/scratchpad/proto-b}"
 B="$SB/target/release/proto-b"; G4K="$SB/target-g4k/release/g4k"
 mkdir -p "$OUT"
 t() { local s=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000'); "$@" >/dev/null; local e=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000'); echo $((e-s)); }

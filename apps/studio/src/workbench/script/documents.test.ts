@@ -61,13 +61,13 @@ describe("ScriptDocuments", () => {
 
 describe("scriptUri", () => {
   it("builds_file_uri_with_padded_number_and_unchanged_case", () => {
-    expect(scriptUri("/Users/Poltep/Roms/Proj", 42)).toBe("file:///Users/Poltep/Roms/Proj/expanded/scripts/0042.rotom");
+    expect(scriptUri("/Users/Maker/Roms/Proj", 42)).toBe("file:///Users/Maker/Roms/Proj/expanded/scripts/0042.rotom");
     expect(scriptUri("/r/", 7)).toBe("file:///r/expanded/scripts/0007.rotom");
   });
 
   it("encodes_spaces_but_not_parentheses_in_a_rom_project_path", () => {
-    expect(scriptUri("/Users/POLTEP/Projekte/lab/editor/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents", 1)).toBe(
-      "file:///Users/POLTEP/Projekte/lab/editor/Roms/Pokemon%20-%20Platin-Edition%20(Germany)_DSPRE_contents/expanded/scripts/0001.rotom",
+    expect(scriptUri("/Users/maker/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents", 1)).toBe(
+      "file:///Users/maker/Roms/Pokemon%20-%20Platin-Edition%20(Germany)_DSPRE_contents/expanded/scripts/0001.rotom",
     );
   });
 

@@ -10,8 +10,8 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-g4-kernel = { path = "/Users/POLTEP/Projekte/lab/editor/gen4-studio/crates/g4-kernel" }
-g4-formats = { path = "/Users/POLTEP/Projekte/lab/editor/gen4-studio/crates/g4-formats" }
+g4-kernel = { path = "../../../crates/g4-kernel" }
+g4-formats = { path = "../../../crates/g4-formats" }
 uxie = "0.9"
 serde_json = "1"
 sha1 = "0.10"

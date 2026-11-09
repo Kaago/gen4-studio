@@ -1,6 +1,6 @@
 # Gutachten A: Geschichten und Erzählen (Phase 3d)
 
-Stand: 30.10.2026. Gutachter: Architektur-Review (nur lesend am Code, mit Messungen). Repo: `/Users/POLTEP/Projekte/lab/editor/gen4-studio`, Branch `main` (`a5d6909`).
+Stand: 30.10.2026. Gutachter: Architektur-Review (nur lesend am Code, mit Messungen). Repo: `$HOME/Projekte/lab/editor/gen4-studio`, Branch `main` (`a5d6909`).
 Datenbasis: frische APFS-Klone von Platin DE (`CPUD`) und HeartGold DE (`IPKD`) unter `Roms/_testkopien/3d-gutachten-a-{pt,hg}` mit der `.nds` daneben, je `g4k base assign` und `g4k text adopt` (Scripts mit rotom übernommen, Textprojekt eingerichtet), nach der Messung gelöscht. Die Originale unter `Roms/` blieben unberührt. HeartGold US ist nicht gemessen: Scripts, Events und Header sind laut Gutachten A der Phase 4 (§2.2) byte-gleich zu HeartGold DE, nur Texte und vier Karten weichen ab.
 
 Werkzeug in diesem Ordner (gibt nur Zahlen und Namen von Befehlen und Kategorien aus, keine ROM-Inhalte):
