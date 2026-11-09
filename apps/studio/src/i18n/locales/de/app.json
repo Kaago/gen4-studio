@@ -1,1 +1,8 @@
-{}
+{
+  "settings": {
+    "language": "Sprache",
+    "languageSystem": "System",
+    "languageDe": "Deutsch",
+    "languageEn": "English"
+  }
+}

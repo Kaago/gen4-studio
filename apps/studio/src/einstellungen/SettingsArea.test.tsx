@@ -16,7 +16,7 @@ import type { SettingsAreaProps } from "./SettingsArea";
 describe("SettingsArea", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onTheme: vi.fn(), onDensity: vi.fn(), onPickEmulator: vi.fn() };
+  const handlers = { onTheme: vi.fn(), onDensity: vi.fn(), onLanguage: vi.fn(), onPickEmulator: vi.fn() };
   beforeEach(() => {
     for (const fn of Object.values(handlers)) fn.mockClear();
     invoke.mockReset();
@@ -34,7 +34,7 @@ describe("SettingsArea", () => {
 
   const agents = { projectOpen: false, bridge: false, status: null, onError: vi.fn() };
   const render = (props: Partial<SettingsAreaProps> = {}) =>
-    act(() => root.render(<SettingsArea theme="system" density="komfort" emulatorPath={undefined} {...handlers} agents={agents} {...props} />));
+    act(() => root.render(<SettingsArea theme="system" density="komfort" language="system" emulatorPath={undefined} {...handlers} agents={agents} {...props} />));
   const group = (label: string) => container.querySelector<HTMLElement>(`[role=group][aria-label="${label}"]`);
   const option = (groupLabel: string, text: string) => [...(group(groupLabel)?.querySelectorAll("button") ?? [])].find((b) => b.textContent === text);
   const heading = (text: string) => [...container.querySelectorAll("h1, h2")].find((h) => h.textContent === text);
@@ -67,6 +67,14 @@ describe("SettingsArea", () => {
     expect(container.textContent).toContain("Kompakt: Zeilen 24 statt 32 px hoch");
     act(() => option("Dichte", "Kompakt")!.click());
     expect(handlers.onDensity).toHaveBeenCalledWith("kompakt");
+  });
+
+  it("renders language switch with three options and reports a change", () => {
+    render({ language: "system" });
+    expect([...group("Sprache")!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["System", "Deutsch", "English"]);
+    expect(option("Sprache", "System")?.getAttribute("aria-pressed")).toBe("true");
+    act(() => option("Sprache", "English")!.click());
+    expect(handlers.onLanguage).toHaveBeenCalledWith("en");
   });
 
   it("has_the_emulator_row", () => {

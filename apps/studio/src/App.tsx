@@ -29,6 +29,8 @@ import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { SettingsArea } from "./einstellungen/SettingsArea";
+import { applyLanguage, readLanguage } from "./i18n";
+import type { Language } from "./i18n";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
@@ -243,6 +245,13 @@ function AppBody() {
   const shell = useShell();
   const { setArea, remember, forget } = shell;
   const area = shell.state.area;
+  // The language as chosen in Einstellungen ("system" follows the OS); `applyLanguage` remembers it, switches i18next (the open
+  // components re-render in the new language) and tells the backend.
+  const [language, setLanguage] = useState<Language>(readLanguage);
+  const onLanguage = useCallback((l: Language) => {
+    setLanguage(l);
+    void applyLanguage(l);
+  }, []);
   // The depth the active area shows (Erzählen only in an area with a view of its own, else Bauen): what the dock, inspector, wizards,
   // status line and hands work with. The hinge alone gets the chosen depth (its segment shows „Erzählen“ pressed in every area).
   const depth = shell.viewDepth;
@@ -1572,9 +1581,11 @@ function AppBody() {
       <SettingsArea
         theme={shell.themeSetting}
         density={shell.density}
+        language={language}
         emulatorPath={session.emulatorPath}
         onTheme={shell.setTheme}
         onDensity={shell.setDensity}
+        onLanguage={onLanguage}
         onPickEmulator={() => void session.onPickEmulator()}
         agents={{ projectOpen: session.info !== null, bridge: !inTauri(), status: agents.status, onError: session.fail }}
       />
