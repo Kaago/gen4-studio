@@ -1596,7 +1596,7 @@ mod tests {
             );
             assert_eq!(
                 classify(command, &json!({ "map": 0, "path": outside }), &policy),
-                Class::Irreversible("Bauen außerhalb von build/".to_owned()),
+                Class::Irreversible("Build outside build/".to_owned()),
                 "{command}"
             );
         }

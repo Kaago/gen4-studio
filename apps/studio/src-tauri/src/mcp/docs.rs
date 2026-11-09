@@ -1,11 +1,36 @@
 //! The texts the server serves without a project: the glossary, `docs/mcp.md` and the format
-//! descriptions `docs/formats/*.md`, embedded when the app is built.
+//! descriptions `docs/formats/*.md`, embedded when the app is built. The glossary and the MCP
+//! guide come in the language of the server (`g4_kernel::i18n::locale()`: German for `de`,
+//! English otherwise); the format descriptions have an English lead and are one file each.
 
-/// The glossary of the world words (`g4://glossary`).
-pub const GLOSSARY: &str = include_str!("glossary.md");
+/// The glossary in German (`glossary.de.md`).
+const GLOSSARY_DE: &str = include_str!("glossary.de.md");
+/// The glossary in English (`glossary.en.md`).
+const GLOSSARY_EN: &str = include_str!("glossary.en.md");
 
-/// The MCP guide (`g4://docs/mcp`).
-pub const MCP_GUIDE: &str = include_str!("../../../../../docs/mcp.md");
+/// The MCP guide in German (`docs/mcp.md`).
+const MCP_GUIDE_DE: &str = include_str!("../../../../../docs/mcp.md");
+/// The MCP guide in English (`docs/en/mcp.md`).
+const MCP_GUIDE_EN: &str = include_str!("../../../../../docs/en/mcp.md");
+
+/// The text for the language of the server: `de` is German, any other locale English.
+fn in_locale(de: &'static str, en: &'static str) -> &'static str {
+    if g4_kernel::i18n::locale() == "de" {
+        de
+    } else {
+        en
+    }
+}
+
+/// The glossary of the interface words (`g4://glossary`) in the language of the server.
+pub fn glossary() -> &'static str {
+    in_locale(GLOSSARY_DE, GLOSSARY_EN)
+}
+
+/// The MCP guide (`g4://docs/mcp`) in the language of the server.
+pub fn mcp_guide() -> &'static str {
+    in_locale(MCP_GUIDE_DE, MCP_GUIDE_EN)
+}
 
 /// The format descriptions (`g4://docs/formats/{name}`): file stem and text. A test checks
 /// that the table lists every file of `docs/formats`.

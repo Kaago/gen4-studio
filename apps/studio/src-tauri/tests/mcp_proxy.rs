@@ -29,8 +29,8 @@ use studio_lib::policy::UserPolicy;
 const STUDIO: &str = env!("CARGO_BIN_EXE_studio");
 /// How long a test waits for the proxy or the server before it calls it hung.
 const LIMIT: Duration = Duration::from_secs(60);
-const NOT_RUNNING: &str = "Gen4 Studio läuft nicht oder „Lokale Agenten zulassen“ ist aus; \
-                           kopflos mit --project <Ordner>";
+const NOT_RUNNING: &str = "Gen4 Studio is not running or \"Allow local agents\" is off; \
+                           headless with --project <folder>";
 
 type Client = RunningService<RoleClient, ClientConfig>;
 
@@ -44,7 +44,7 @@ struct App {
 
 impl App {
     /// The synthetic project open in a fresh state, with the grant `write` for it and
-    /// „Lokale Agenten zulassen“ on (the switch only: the test starts the server itself).
+    /// "Allow local agents" on (the switch only: the test starts the server itself).
     fn new() -> App {
         let fixture = synthetic_project();
         let state = Arc::new(AppState::default());
@@ -91,7 +91,9 @@ impl App {
 /// `studio mcp --app-data <data>` (the environment's app data folder does not count).
 fn proxy(data: &Path) -> tokio::process::Command {
     tokio::process::Command::new(STUDIO).configure(|cmd| {
-        cmd.arg("mcp")
+        // The texts the tests compare are English whatever `LANG` of the host says.
+        cmd.env("G4_LANG", "en")
+            .arg("mcp")
             .arg("--app-data")
             .arg(data)
             .env_remove(APP_DATA_ENV);
@@ -301,6 +303,7 @@ fn second_initialize_replaces_the_session() {
     let app = App::new();
     let server = app.start();
     let mut child = Command::new(STUDIO)
+        .env("G4_LANG", "en")
         .arg("mcp")
         .arg("--app-data")
         .arg(app.data.path())
@@ -346,6 +349,7 @@ fn second_initialize_replaces_the_session() {
 /// Runs `studio mcp` with `args` and no client; answers the exit code and stderr.
 fn run_bad(args: &[&str]) -> (Option<i32>, String) {
     let output = Command::new(STUDIO)
+        .env("G4_LANG", "en")
         .arg("mcp")
         .args(args)
         .env_remove(APP_DATA_ENV)
@@ -389,7 +393,7 @@ fn headless_flags_need_project() {
         let (code, stderr) = run_bad(&["--app-data", dir, flag]);
         assert_eq!(code, Some(2), "{flag}: {stderr}");
         assert!(
-            stderr.contains(&format!("{flag} gilt nur kopflos mit --project")),
+            stderr.contains(&format!("{flag} applies only headless with --project")),
             "{stderr}"
         );
     }
@@ -397,7 +401,7 @@ fn headless_flags_need_project() {
         let (code, stderr) = run_bad(&["--app-data", dir, flag, dir]);
         assert_eq!(code, Some(2), "{flag}: {stderr}");
         assert!(
-            stderr.contains(&format!("{flag} gilt nur kopflos mit --project")),
+            stderr.contains(&format!("{flag} applies only headless with --project")),
             "{stderr}"
         );
     }

@@ -3253,7 +3253,7 @@ mod tests {
                 Ok(_) => {}
                 Err(DispatchError::Unknown(n)) => panic!("{name}: no command {n}"),
                 Err(DispatchError::Cmd(e)) => assert!(
-                    !e.message.starts_with("Ungültige Argumente"),
+                    !e.message.starts_with("Invalid arguments"),
                     "{name}: {}",
                     e.message
                 ),

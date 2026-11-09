@@ -39,12 +39,13 @@ const DRAIN_WAIT: Duration = Duration::from_secs(2);
 /// Size of the token in bytes (it is written as hex).
 const TOKEN_BYTES: usize = 32;
 
-const HOST_REFUSED: &str = "Host nicht erlaubt";
-const ORIGIN_REFUSED: &str = "Origin nicht erlaubt";
-const TOKEN_REFUSED: &str = "Token fehlt oder ist falsch";
-const NOT_FOUND: &str = "Nicht gefunden";
-const METHOD_REFUSED: &str = "Methode nicht erlaubt";
-const BODY_TOO_LARGE: &str = "Körper zu groß";
+// The texts of the refusals, as catalog keys (`mcp.http.*`).
+const HOST_REFUSED: &str = "mcp.http.host_refused";
+const ORIGIN_REFUSED: &str = "mcp.http.origin_refused";
+const TOKEN_REFUSED: &str = "mcp.http.token_refused";
+const NOT_FOUND: &str = "mcp.http.not_found";
+const METHOD_REFUSED: &str = "mcp.http.method_refused";
+const BODY_TOO_LARGE: &str = "mcp.http.body_too_large";
 
 /// rmcp's Streamable HTTP service over the user's session, with its session manager (to
 /// close every session on "Trennen" and when the server stops).
@@ -109,11 +110,18 @@ pub fn service(source: Arc<dyn StateSource>) -> McpService {
 }
 
 /// What the precheck says about a request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Guard {
     Ok,
-    /// Status and German message.
-    Refuse(u16, &'static str),
+    /// Status and message, in the language of the server.
+    Refuse(u16, String),
+}
+
+impl Guard {
+    /// The refusal with status `status` and the text of the catalog key `key`.
+    fn refuse(status: u16, key: &str) -> Guard {
+        Guard::Refuse(status, t!(key).into_owned())
+    }
 }
 
 fn header(headers: &HeaderMap, name: hyper::header::HeaderName) -> Option<&str> {
@@ -125,25 +133,25 @@ fn header(headers: &HeaderMap, name: hyper::header::HeaderName) -> Option<&str> 
 pub fn precheck(method: &Method, path: &str, headers: &HeaderMap, port: u16, token: &str) -> Guard {
     let host = header(headers, HOST).unwrap_or("").to_ascii_lowercase();
     if host != format!("127.0.0.1:{port}") && host != format!("localhost:{port}") {
-        return Guard::Refuse(403, HOST_REFUSED);
+        return Guard::refuse(403, HOST_REFUSED);
     }
     if headers.contains_key(ORIGIN) {
-        return Guard::Refuse(403, ORIGIN_REFUSED);
+        return Guard::refuse(403, ORIGIN_REFUSED);
     }
     let sent = header(headers, AUTHORIZATION).and_then(bearer_token);
     if !sent.is_some_and(|sent| same_secret(sent, token)) {
-        return Guard::Refuse(401, TOKEN_REFUSED);
+        return Guard::refuse(401, TOKEN_REFUSED);
     }
     if path != MCP_PATH {
-        return Guard::Refuse(404, NOT_FOUND);
+        return Guard::refuse(404, NOT_FOUND);
     }
     if method != Method::POST && method != Method::DELETE {
-        return Guard::Refuse(405, METHOD_REFUSED);
+        return Guard::refuse(405, METHOD_REFUSED);
     }
     let announced =
         header(headers, CONTENT_LENGTH).and_then(|value| value.trim().parse::<u64>().ok());
     if announced.is_some_and(|length| length > MAX_BODY as u64) {
-        return Guard::Refuse(413, BODY_TOO_LARGE);
+        return Guard::refuse(413, BODY_TOO_LARGE);
     }
     Guard::Ok
 }
@@ -220,15 +228,15 @@ async fn respond(
     );
     if let Guard::Refuse(status, message) = guard {
         drain(request.into_body()).await;
-        return refusal(status, message);
+        return refusal(status, &message);
     }
     let (parts, body) = request.into_parts();
     let bytes = match Limited::new(body, MAX_BODY).collect().await {
         Ok(collected) => collected.to_bytes(),
         Err(e) if e.downcast_ref::<LengthLimitError>().is_some() => {
-            return refusal(413, BODY_TOO_LARGE);
+            return refusal(413, &t!(BODY_TOO_LARGE));
         }
-        Err(e) => return refusal(400, &format!("Körper nicht lesbar: {e}")),
+        Err(e) => return refusal(400, &t!("mcp.http.body_unreadable", error = e)),
     };
     handle(service, Request::from_parts(parts, Full::new(bytes))).await
 }
@@ -236,7 +244,8 @@ async fn respond(
 /// A fresh token: [`TOKEN_BYTES`] random bytes as hex.
 fn new_token() -> Result<String, String> {
     let mut bytes = [0u8; TOKEN_BYTES];
-    getrandom::fill(&mut bytes).map_err(|e| format!("Kein Zufall für den Token: {e}"))?;
+    getrandom::fill(&mut bytes)
+        .map_err(|e| t!("mcp.http.no_randomness", error = e).into_owned())?;
     let mut token = String::with_capacity(TOKEN_BYTES * 2);
     for byte in bytes {
         let _ = write!(token, "{byte:02x}");
@@ -313,11 +322,11 @@ impl HttpServer {
         rt: &tokio::runtime::Handle,
     ) -> Result<HttpServer, String> {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
-            .map_err(|e| format!("Kein Port frei auf 127.0.0.1: {e}"))?;
+            .map_err(|e| t!("mcp.http.no_port", error = e).into_owned())?;
         let port = listener
             .set_nonblocking(true)
             .and_then(|()| listener.local_addr())
-            .map_err(|e| format!("Port nicht nutzbar: {e}"))?
+            .map_err(|e| t!("mcp.http.port_unusable", error = e).into_owned())?
             .port();
         let token = new_token()?;
         discovery::write(data_dir, &Discovery::new(port, &token))?;
@@ -401,7 +410,7 @@ impl AppServer {
         let dir = self
             .dir
             .as_deref()
-            .ok_or("Kein App-Datenordner: der Server hat keinen Ort für mcp.json")?;
+            .ok_or_else(|| t!("mcp.http.no_app_data").into_owned())?;
         let server = HttpServer::start(Arc::clone(&self.source), dir, &self.rt)?;
         let port = server.port;
         *running = Some(server);
@@ -461,19 +470,19 @@ mod tests {
         wrong_host.insert(ORIGIN, "http://evil".parse().unwrap());
         assert_eq!(
             check(Method::GET, "/x", &wrong_host),
-            Guard::Refuse(403, "Host nicht erlaubt")
+            Guard::Refuse(403, "Host not allowed".to_owned())
         );
         let mut other_port = good();
         other_port.insert(HOST, "127.0.0.1:1".parse().unwrap());
         assert_eq!(
             check(Method::POST, "/mcp", &other_port),
-            Guard::Refuse(403, "Host nicht erlaubt")
+            Guard::Refuse(403, "Host not allowed".to_owned())
         );
         let mut no_host = good();
         no_host.remove(HOST);
         assert_eq!(
             check(Method::POST, "/mcp", &no_host),
-            Guard::Refuse(403, "Host nicht erlaubt")
+            Guard::Refuse(403, "Host not allowed".to_owned())
         );
 
         // Then the token.
@@ -481,33 +490,33 @@ mod tests {
         no_token.remove(AUTHORIZATION);
         assert_eq!(
             check(Method::GET, "/x", &no_token),
-            Guard::Refuse(401, "Token fehlt oder ist falsch")
+            Guard::Refuse(401, "Token is missing or wrong".to_owned())
         );
         let mut wrong_token = good();
         wrong_token.insert(AUTHORIZATION, "Bearer c0ffef".parse().unwrap());
         assert_eq!(
             check(Method::POST, "/mcp", &wrong_token),
-            Guard::Refuse(401, "Token fehlt oder ist falsch")
+            Guard::Refuse(401, "Token is missing or wrong".to_owned())
         );
         let mut not_bearer = good();
         not_bearer.insert(AUTHORIZATION, TOKEN.parse().unwrap());
         assert_eq!(
             check(Method::POST, "/mcp", &not_bearer),
-            Guard::Refuse(401, "Token fehlt oder ist falsch")
+            Guard::Refuse(401, "Token is missing or wrong".to_owned())
         );
 
         // Then the path, then the method.
         assert_eq!(
             check(Method::GET, "/x", &good()),
-            Guard::Refuse(404, "Nicht gefunden")
+            Guard::Refuse(404, "Not found".to_owned())
         );
         assert_eq!(
             check(Method::GET, "/mcp", &good()),
-            Guard::Refuse(405, "Methode nicht erlaubt")
+            Guard::Refuse(405, "Method not allowed".to_owned())
         );
         assert_eq!(
             check(Method::PUT, "/mcp", &good()),
-            Guard::Refuse(405, "Methode nicht erlaubt")
+            Guard::Refuse(405, "Method not allowed".to_owned())
         );
 
         // Last the announced body size.
@@ -515,7 +524,7 @@ mod tests {
         huge.insert(CONTENT_LENGTH, (MAX_BODY + 1).to_string().parse().unwrap());
         assert_eq!(
             check(Method::POST, "/mcp", &huge),
-            Guard::Refuse(413, "Körper zu groß")
+            Guard::Refuse(413, "Body too large".to_owned())
         );
         let mut largest = good();
         largest.insert(CONTENT_LENGTH, MAX_BODY.to_string().parse().unwrap());
@@ -544,7 +553,7 @@ mod tests {
             headers.insert(AUTHORIZATION, value.parse().unwrap());
             assert_eq!(
                 check(Method::POST, "/mcp", &headers),
-                Guard::Refuse(401, "Token fehlt oder ist falsch"),
+                Guard::Refuse(401, "Token is missing or wrong".to_owned()),
                 "{value}"
             );
         }
@@ -558,13 +567,13 @@ mod tests {
             headers.insert(ORIGIN, origin.parse().unwrap());
             assert_eq!(
                 check(Method::POST, "/mcp", &headers),
-                Guard::Refuse(403, "Origin nicht erlaubt"),
+                Guard::Refuse(403, "Origin not allowed".to_owned()),
                 "{origin}"
             );
             headers.remove(AUTHORIZATION);
             assert_eq!(
                 check(Method::POST, "/mcp", &headers),
-                Guard::Refuse(403, "Origin nicht erlaubt"),
+                Guard::Refuse(403, "Origin not allowed".to_owned()),
                 "{origin}"
             );
         }
@@ -620,7 +629,7 @@ mod tests {
 
     #[test]
     fn refusal_is_a_cmd_error() {
-        let response = refusal(401, "Token fehlt oder ist falsch");
+        let response = refusal(401, "Token is missing or wrong");
         assert_eq!(response.status(), 401);
         assert_eq!(
             response.headers()["content-type"].to_str().unwrap(),

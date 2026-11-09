@@ -54,10 +54,7 @@ fn run(cli: Cli) -> Result<(), String> {
             allow_root,
             app_data,
         } => {
-            let token = std::env::var("G4_BRIDGE_TOKEN")
-                .ok()
-                .filter(|t| !t.is_empty())
-                .ok_or("G4_BRIDGE_TOKEN fehlt")?;
+            let token = studio_lib::bridge::http::token_from_env()?;
             let roots = Roots::new(&allow_root)?;
             let server = BridgeServer::start(ServeConfig {
                 port,

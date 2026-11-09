@@ -43,8 +43,14 @@ impl Discovery {
 
 /// Writes `mcp.json` into `dir` (created when missing), mode 0600, atomically.
 pub fn write(dir: &Path, discovery: &Discovery) -> Result<(), String> {
-    std::fs::create_dir_all(dir)
-        .map_err(|e| format!("Ordner nicht anlegbar: {}: {e}", dir.display()))?;
+    std::fs::create_dir_all(dir).map_err(|e| {
+        t!(
+            "mcp.discovery.folder_not_created",
+            path = dir.display(),
+            error = e
+        )
+        .into_owned()
+    })?;
     let mut text = serde_json::to_string_pretty(discovery).map_err(|e| e.to_string())?;
     text.push('\n');
     write_private(&dir.join(DISCOVERY_FILE), text.as_bytes())
@@ -53,9 +59,22 @@ pub fn write(dir: &Path, discovery: &Discovery) -> Result<(), String> {
 /// Reads `mcp.json` from `dir`.
 pub fn read(dir: &Path) -> Result<Discovery, String> {
     let path = dir.join(DISCOVERY_FILE);
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Datei nicht lesbar: {}: {e}", path.display()))?;
-    serde_json::from_str(&text).map_err(|e| format!("Datei ungültig: {}: {e}", path.display()))
+    let text = std::fs::read_to_string(&path).map_err(|e| {
+        t!(
+            "mcp.discovery.file_unreadable",
+            path = path.display(),
+            error = e
+        )
+        .into_owned()
+    })?;
+    serde_json::from_str(&text).map_err(|e| {
+        t!(
+            "mcp.discovery.file_invalid",
+            path = path.display(),
+            error = e
+        )
+        .into_owned()
+    })
 }
 
 /// Removes `mcp.json` from `dir` (a missing file is fine).
