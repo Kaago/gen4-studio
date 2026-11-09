@@ -57,7 +57,8 @@ pub fn agent_set_expert_impl(state: &AppState, on: bool) -> Result<(), CmdError>
 
 /// Sets the grant of the open project.
 pub fn agent_set_grant_impl(state: &AppState, level: GrantLevel) -> Result<(), CmdError> {
-    let root = open_root(state).ok_or_else(|| CmdError::from("Kein Projekt offen".to_owned()))?;
+    let root = open_root(state)
+        .ok_or_else(|| CmdError::from(t!("commands.agents.no_project").into_owned()))?;
     let key = ProjectKey::of(&root)?;
     Ok(state.agents.set_grant(key, level)?)
 }
@@ -146,7 +147,7 @@ mod tests {
     fn grant_needs_an_open_project() {
         let state = AppState::default();
         let e = agent_set_grant_impl(&state, GrantLevel::Read).unwrap_err();
-        assert_eq!(e.message, "Kein Projekt offen");
+        assert_eq!(e.message, "No project open");
         assert_eq!(agent_settings_impl(&state).unwrap().open_project, None);
     }
 

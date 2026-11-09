@@ -60,7 +60,7 @@ fn same_project<'s>(
     if Arc::ptr_eq(&session.project, project) {
         Ok(session)
     } else {
-        Err("Das Projekt wurde gewechselt; nichts zurückgesetzt.".into())
+        Err(t!("commands.original.project_switched").into_owned().into())
     }
 }
 

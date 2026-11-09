@@ -8,7 +8,7 @@
 //! `g4_kernel::checks::fix`); both take the finding's row as it came.
 //!
 //! A finding is a Problems row of source `check` (severity `info` too) with the fields of
-//! [`CheckFieldsDto`]; its German label and where it leads are made here. Tauri runs the
+//! [`CheckFieldsDto`]; its label (in the language of the process) and where it leads are made here. Tauri runs the
 //! passes on the blocking pool, the bridge on its request thread; both wait for a pass that is
 //! already running rather than start a second one.
 
@@ -210,10 +210,12 @@ fn refuse_broken_ignore(session: &mut Session) -> Result<(), CmdError> {
             Ok(())
         }
         Some(why) => {
-            let text = format!(
-                "{IGNORE_FILE} ist nicht lesbar ({why}). Repariere oder lösche die Datei, dann \
-                 lässt sich wieder ausblenden und abschalten; bis dahin schreibt das Studio sie nicht."
-            );
+            let text = t!(
+                "commands.checks.ignore_unreadable",
+                file = IGNORE_FILE,
+                why = why
+            )
+            .into_owned();
             session.checks.ignore_broken = Some(why);
             Err(KernelError::Refused(text).into())
         }
@@ -264,18 +266,18 @@ pub fn finding_dto(finding: &Finding, map_cells: &BTreeMap<u16, MapCell>) -> Pro
 
 fn fix_dto(id: FixId) -> FixDto {
     let (label, irreversible) = match id {
-        FixId::Wrap => ("Umbrechen", false),
-        FixId::AppendMessage => ("Nachricht anlegen", false),
-        FixId::SwapMinMax => ("Tauschen", false),
+        FixId::Wrap => ("commands.checks.fix_wrap", false),
+        FixId::AppendMessage => ("commands.checks.fix_append_message", false),
+        FixId::SwapMinMax => ("commands.checks.fix_swap_min_max", false),
         // `add_script` writes the script file at once; undo cannot take it back.
-        FixId::CreateScript => ("Script anlegen", true),
+        FixId::CreateScript => ("commands.checks.fix_create_script", true),
         // Moves the file to `.g4/backup/` past the store; undo cannot take it back.
-        FixId::RemoveHidden => ("Entfernen", true),
-        FixId::BlockUpper => ("Obere Zelle blockieren", false),
+        FixId::RemoveHidden => ("commands.checks.fix_remove_hidden", true),
+        FixId::BlockUpper => ("commands.checks.fix_block_upper", false),
     };
     FixDto {
         id,
-        label,
+        label: t!(label).into_owned(),
         irreversible,
     }
 }
@@ -483,7 +485,7 @@ fn full(report: Option<&ChecksReport>) -> Option<&ChecksReport> {
     report.filter(|r| Group::ALL.iter().all(|g| r.groups.contains(g)))
 }
 
-/// "Ausgangslage übernehmen": ignores every warning and info of a full report of the current
+/// „Ausgangslage übernehmen“: ignores every warning and info of a full report of the current
 /// state (run first when there is none) and writes the ignore file.
 pub fn accept_baseline_impl(state: &AppState) -> Result<ChecksReportDto, CmdError> {
     // Before the pass it may run: a file that cannot be written refuses at once.
@@ -536,7 +538,7 @@ pub struct FindingArg {
     pub fingerprint: String,
 }
 
-/// What a fix changes in one asset: `label` is its German name ("Textarchiv 0433"); `before`
+/// What a fix changes in one asset: `label` is its name ("Text archive 0433"; "Textarchiv 0433" in German); `before`
 /// and `after` as the kernel's `FixChange` has them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FixChangeDto {
@@ -800,7 +802,7 @@ mod tests {
                 "code": "header.text-split",
                 "subject": { "kind": "scriptFile", "index": 0 },
                 "key": "text_archive",
-                "label": "Scriptdatei 0000 · Textarchiv",
+                "label": "Script file 0000 · Text archive",
                 "args": ["0", "0, 433", "0, 1"],
                 "target": { "kind": "script", "file": 0 },
                 "also": [
@@ -826,13 +828,13 @@ mod tests {
                 Value::Null,
             ]
         );
-        assert_eq!(json_of(model[0])["label"], "Karte 0000 · Modell");
+        assert_eq!(json_of(model[0])["label"], "Map 0000 · Model");
         let area = json_of(rows(&report, "area.tileset-range")[0]);
         assert_eq!(area["target"], json!({ "kind": "area", "id": 1 }));
         assert_eq!(area["field"], "buildings_tileset");
         let trainer = json_of(rows(&report, "trainer.id-range")[1]);
         assert_eq!(trainer["target"], json!({ "kind": "trainer", "index": 2 }));
-        assert_eq!(trainer["label"], "Trainer 0002 · Team Platz 1 · Gegenstand");
+        assert_eq!(trainer["label"], "Trainer 0002 · Party slot 1 · Item");
         let empty = json_of(rows(&report, "encounter.empty-slot")[0]);
         assert_eq!(empty["target"], json!({ "kind": "encounter", "index": 0 }));
         assert_eq!(empty["severity"], "warning");
@@ -846,125 +848,117 @@ mod tests {
             (
                 Subject::EventFile(411),
                 "warp:2",
-                "Eventdatei 0411 · Warp 2",
+                "Event file 0411 · Warp 2",
             ),
             (
                 Subject::EventFile(4),
                 "object:0",
-                "Eventdatei 0004 · Objekt 0",
+                "Event file 0004 · Object 0",
             ),
-            (
-                Subject::EventFile(4),
-                "sign:1",
-                "Eventdatei 0004 · Schild 1",
-            ),
+            (Subject::EventFile(4), "sign:1", "Event file 0004 · Sign 1"),
             (
                 Subject::EventFile(4),
                 "trigger:3",
-                "Eventdatei 0004 · Trigger 3",
+                "Event file 0004 · Trigger 3",
             ),
             (
                 Subject::EventFile(4),
                 "unreadable:event_file",
-                "Eventdatei 0004 · nicht lesbar",
+                "Event file 0004 · not readable",
             ),
             (
                 Subject::Header(186),
                 "level:3",
-                "Header 0186 · Level-Script #3",
+                "Header 0186 · Level script #3",
             ),
             (
                 Subject::Header(3),
                 "wild_pokemon",
-                "Header 0003 · Begegnungen",
+                "Header 0003 · Encounters",
             ),
             (
                 Subject::Header(3),
                 "text_archive_id",
-                "Header 0003 · Textarchiv",
+                "Header 0003 · Text archive",
             ),
             (
                 Subject::ScriptFile(12),
                 "line:7:message:4",
-                "Scriptdatei 0012 · Zeile 7 · Nachricht 4",
+                "Script file 0012 · Line 7 · Message 4",
             ),
             (
                 Subject::TextArchive(433),
                 "message:12",
-                "Textarchiv 0433 · Nachricht 12",
+                "Text archive 0433 · Message 12",
             ),
             (
                 Subject::TextArchive(433),
                 "message:12:line:2",
-                "Textarchiv 0433 · Nachricht 12 · Zeile 2",
+                "Text archive 0433 · Message 12 · Line 2",
             ),
-            (Subject::Trainer(5), "party", "Trainer 0005 · Team"),
+            (Subject::Trainer(5), "party", "Trainer 0005 · Party"),
             (
                 Subject::Trainer(5),
                 "slot:1:moves",
-                "Trainer 0005 · Team Platz 2 · Attacken",
+                "Trainer 0005 · Party slot 2 · Moves",
             ),
             (
                 Subject::Trainer(5),
                 "slot:0:move:3",
-                "Trainer 0005 · Team Platz 1 · Attacke 4",
+                "Trainer 0005 · Party slot 1 · Move 4",
             ),
-            (
-                Subject::Trainer(5),
-                "item:2",
-                "Trainer 0005 · Gegenstand Platz 3",
-            ),
-            (Subject::Trainer(5), "class", "Trainer 0005 · Klasse"),
+            (Subject::Trainer(5), "item:2", "Trainer 0005 · Item slot 3"),
+            (Subject::Trainer(5), "class", "Trainer 0005 · Class"),
             (
                 Subject::Encounter(12),
                 "slot:surf:1",
-                "Begegnungen 0012 · Surfen Platz 2",
+                "Encounters 0012 · Surfing slot 2",
             ),
             (
                 Subject::Encounter(12),
                 "rate:old_rod",
-                "Begegnungen 0012 · Angel · Rate",
+                "Encounters 0012 · Old Rod · Rate",
             ),
             (
                 Subject::Encounter(0),
                 "slot:grass:0:swarm:0",
-                "Begegnungen 0000 · Gras Platz 1 · Schwarm Platz 1",
+                "Encounters 0000 · Grass slot 1 · Swarm slot 1",
             ),
             // HGSS: an empty species of one time of day.
             (
                 Subject::Encounter(3),
                 "slot:grass:4:morning",
-                "Begegnungen 0003 · Gras Platz 5 · morgens",
+                "Encounters 0003 · Grass slot 5 · in the morning",
             ),
             (
                 Subject::Encounter(3),
                 "slot:grass:4:day",
-                "Begegnungen 0003 · Gras Platz 5 · tagsüber",
+                "Encounters 0003 · Grass slot 5 · during the day",
             ),
             (
                 Subject::Encounter(3),
                 "slot:grass:4:night",
-                "Begegnungen 0003 · Gras Platz 5 · nachts",
+                "Encounters 0003 · Grass slot 5 · at night",
             ),
             (
                 Subject::Matrix(0),
                 "cell:3,26",
-                "Matrix 0000 · Zelle x 3, y 26",
+                "Matrix 0000 · Cell x 3, y 26",
             ),
-            (Subject::Map(5), "building:0", "Karte 0005 · Gebäude 1"),
-            (Subject::Map(5), "bdhc", "Karte 0005 · Terrain"),
+            (Subject::Map(5), "building:0", "Map 0005 · Building 1"),
+            (Subject::Map(5), "bdhc", "Map 0005 · Terrain"),
             (
                 Subject::AreaData(2),
                 "map_tileset",
-                "Area-Data 0002 · Karten-Texturen",
+                "Area data 0002 · Map textures",
             ),
             (
                 Subject::Project,
                 "unreadable:text_archive",
-                "Projekt · nicht lesbar",
+                "Project · not readable",
             ),
             // A key nobody words yet: the subject alone, never the raw key.
-            (Subject::Map(5), "something:new", "Karte 0005"),
+            (Subject::Map(5), "something:new", "Map 0005"),
         ];
         for (subject, key, label) in cases {
             assert_eq!(
@@ -1058,7 +1052,7 @@ mod tests {
         let row = json_of(&finding_dto(&finding, &BTreeMap::new()));
         assert_eq!(
             row["fixes"],
-            json!([{ "id": "create_script", "label": "Script anlegen", "irreversible": true }])
+            json!([{ "id": "create_script", "label": "Create script", "irreversible": true }])
         );
         assert_eq!(
             (&row["file"], &row["line"], &row["col"]),
@@ -1066,10 +1060,10 @@ mod tests {
         );
         assert_eq!(row["fingerprint"], fingerprint_text(finding.fingerprint));
         for (fix, id, label) in [
-            (FixId::Wrap, "wrap", "Umbrechen"),
-            (FixId::AppendMessage, "append_message", "Nachricht anlegen"),
-            (FixId::SwapMinMax, "swap_min_max", "Tauschen"),
-            (FixId::BlockUpper, "block_upper", "Obere Zelle blockieren"),
+            (FixId::Wrap, "wrap", "Wrap"),
+            (FixId::AppendMessage, "append_message", "Create message"),
+            (FixId::SwapMinMax, "swap_min_max", "Swap"),
+            (FixId::BlockUpper, "block_upper", "Block upper cell"),
         ] {
             let row = json_of(&finding_dto(
                 &finding.clone().with_fixes([fix]),
@@ -1086,7 +1080,7 @@ mod tests {
         ));
         assert_eq!(
             row["fixes"],
-            json!([{ "id": "remove_hidden", "label": "Entfernen", "irreversible": true }])
+            json!([{ "id": "remove_hidden", "label": "Remove", "irreversible": true }])
         );
     }
 
@@ -1542,7 +1536,7 @@ mod tests {
         assert!(notice[0].why.contains("line 1"), "{}", notice[0].why);
         assert_eq!(checks_status_impl(&state).unwrap().skipped, report.skipped);
 
-        // Every write to the file is refused, in German, naming it; the file stays as it was.
+        // Every write to the file is refused, naming it; the file stays as it was.
         let split = rows(&report, "header.text-split")[0].clone();
         let (code, subject, key, fingerprint) = key_of(&split);
         let refusals = [
@@ -1553,7 +1547,7 @@ mod tests {
         ];
         for err in refusals {
             assert!(
-                err.message.contains(IGNORE_FILE) && err.message.contains("nicht lesbar"),
+                err.message.contains(IGNORE_FILE) && err.message.contains("not readable"),
                 "{}",
                 err.message
             );
@@ -1569,13 +1563,13 @@ mod tests {
     }
 
     #[test]
-    fn a_fix_change_names_its_asset_in_german() {
+    fn a_fix_change_names_its_asset_in_words() {
         let id = |kind, index| AssetId { kind, index };
         let cases = [
-            (id(AssetKind::TextArchive, 433), "Textarchiv 0433"),
-            (id(AssetKind::Script, 5), "Scriptdatei 0005"),
-            (id(AssetKind::Encounter, 12), "Begegnungen 0012"),
-            (id(AssetKind::Event, 411), "Eventdatei 0411"),
+            (id(AssetKind::TextArchive, 433), "Text archive 0433"),
+            (id(AssetKind::Script, 5), "Script file 0005"),
+            (id(AssetKind::Encounter, 12), "Encounters 0012"),
+            (id(AssetKind::Event, 411), "Event file 0411"),
             // No fix changes a map: the kernel's name.
             (id(AssetKind::Map, 3), "map 0003"),
         ];
@@ -1673,7 +1667,7 @@ mod tests {
             change["asset"],
             json!({ "kind": "TextArchive", "index": 433 })
         );
-        assert_eq!(change["label"], "Textarchiv 0433");
+        assert_eq!(change["label"], "Text archive 0433");
         assert_eq!(change["before"], LONG);
         // Pages: separated by an empty line.
         assert!(

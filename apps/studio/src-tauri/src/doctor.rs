@@ -5,8 +5,9 @@
 //! shell cannot make a broken package pass. An empty file is the build-time placeholder (see
 //! build.rs) and counts as missing.
 //!
-//! Output: one line per tool and a last line `doctor: ok` or `doctor: Sidecar fehlt oder startet
-//! nicht`; `--json` prints the [`DoctorReport`] instead. Exit status 0 when apicula and
+//! Output: one line per tool and a last line `doctor: ok` or `doctor: a sidecar is missing or
+//! does not start` (in the language of the process); `--json` prints the [`DoctorReport`]
+//! instead. Exit status 0 when apicula and
 //! rotom-lsp start, 1 when one is missing or does not start, 2 for bad arguments.
 
 use std::ffi::OsString;
@@ -29,7 +30,10 @@ const LIMIT: Duration = Duration::from_secs(10);
 /// How long rotom-lsp gets to end after `exit` (its answer to `initialize` already counted).
 const EXIT_GRACE: Duration = Duration::from_secs(2);
 
-const USAGE: &str = "Aufruf: studio doctor [--json]";
+/// The usage line, in the language of the process.
+fn usage() -> String {
+    t!("doctor.usage").into_owned()
+}
 
 /// One sidecar: not there, or found and tried.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -71,34 +75,46 @@ impl DoctorReport {
         u8::from(!(self.apicula.starts() && self.rotom_lsp.starts()))
     }
 
-    /// The report as text, one line per tool, German like the rest of the app.
+    /// The report as text, one line per tool, in the language of the process.
     pub fn text(&self) -> String {
         let probe = |name: &str, probe: &Probe| match probe {
-            Probe::Missing => format!("{name}: fehlt"),
+            Probe::Missing => t!("doctor.missing", name = name).into_owned(),
             Probe::Found {
                 path,
                 starts: true,
                 detail,
-            } => format!("{name}: {} (startet; {detail})", path.display()),
+            } => t!(
+                "doctor.starts",
+                name = name,
+                path = path.display(),
+                detail = detail
+            )
+            .into_owned(),
             Probe::Found {
                 path,
                 starts: false,
                 detail,
-            } => format!("{name}: {} (startet nicht; {detail})", path.display()),
+            } => t!(
+                "doctor.does_not_start",
+                name = name,
+                path = path.display(),
+                detail = detail
+            )
+            .into_owned(),
         };
         let optional = |name: &str, path: &Option<PathBuf>| match path {
             Some(path) => format!("{name}: {}", path.display()),
-            None => format!("{name}: fehlt"),
+            None => t!("doctor.missing", name = name).into_owned(),
         };
         let nitroarc = if self.nitroarc {
-            "nitroarc: geladen"
+            t!("doctor.nitroarc_loaded").into_owned()
         } else {
-            "nitroarc: antwortet nicht"
+            t!("doctor.nitroarc_silent").into_owned()
         };
         let last = if self.exit_status() == 0 {
-            "doctor: ok"
+            "doctor: ok".to_owned()
         } else {
-            "doctor: Sidecar fehlt oder startet nicht"
+            t!("doctor.sidecar_problem").into_owned()
         };
         [
             format!("studio {}: {}", self.version, self.binary.display()),
@@ -106,8 +122,8 @@ impl DoctorReport {
             probe("rotom-lsp", &self.rotom_lsp),
             optional("git", &self.git),
             optional("melonDS", &self.melonds),
-            nitroarc.to_owned(),
-            last.to_owned(),
+            nitroarc,
+            last,
         ]
         .join("\n")
     }
@@ -122,11 +138,18 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         match arg.to_str() {
             Some("--json") => json = true,
             Some("--help" | "-h") => {
-                println!("{USAGE}");
+                println!("{}", usage());
                 return ExitCode::SUCCESS;
             }
             _ => {
-                eprintln!("studio doctor: ungültiges Argument {arg:?}\n{USAGE}");
+                eprintln!(
+                    "{}",
+                    t!(
+                        "doctor.invalid_argument",
+                        arg = format!("{arg:?}"),
+                        usage = usage()
+                    )
+                );
                 return ExitCode::from(2);
             }
         }
@@ -134,7 +157,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => {
-            eprintln!("studio doctor: Pfad des Programms unbekannt: {e}");
+            eprintln!("{}", t!("doctor.exe_unknown", error = e));
             return ExitCode::from(2);
         }
     };
@@ -243,24 +266,26 @@ fn check_apicula(path: &Path, limit: Duration) -> (bool, String) {
     command.arg("--help");
     let mut child = match spawn(&mut command, Stdio::null(), Stdio::null()) {
         Ok(child) => child,
-        Err(e) => return (false, format!("nicht ausführbar: {e}")),
+        Err(e) => return (false, t!("doctor.not_executable", error = e).into_owned()),
     };
     let deadline = Instant::now() + limit;
     loop {
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => return (true, "--help: Status 0".into()),
+            Ok(Some(status)) if status.success() => {
+                return (true, t!("doctor.help_status_0").into_owned());
+            }
             Ok(Some(status)) => return (false, format!("--help: {status}")),
             Ok(None) => {}
             Err(e) => {
                 kill_tree(&mut child);
-                return (false, format!("Warten fehlgeschlagen: {e}"));
+                return (false, t!("doctor.wait_failed", error = e).into_owned());
             }
         }
         if Instant::now() >= deadline {
             kill_tree(&mut child);
             return (
                 false,
-                format!("--help: keine Antwort in {} s", limit.as_secs()),
+                t!("doctor.help_no_answer", seconds = limit.as_secs()).into_owned(),
             );
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -280,12 +305,12 @@ fn check_lsp(path: &Path, limit: Duration) -> (bool, String) {
     let mut command = Command::new(path);
     let mut child = match spawn(&mut command, Stdio::piped(), Stdio::piped()) {
         Ok(child) => child,
-        Err(e) => return (false, format!("nicht ausführbar: {e}")),
+        Err(e) => return (false, t!("doctor.not_executable", error = e).into_owned()),
     };
     let deadline = Instant::now() + limit;
     let (Some(mut stdin), Some(mut stdout)) = (child.stdin.take(), child.stdout.take()) else {
         kill_tree(&mut child);
-        return (false, "stdio nicht verfügbar".into());
+        return (false, t!("doctor.stdio_unavailable").into_owned());
     };
     // The reader ends with the process (EOF), which also wakes the wait below.
     let (bodies, answers) = mpsc::channel::<String>();
@@ -309,7 +334,10 @@ fn check_lsp(path: &Path, limit: Duration) -> (bool, String) {
     let initialize = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":null,"capabilities":{}}}"#;
     if let Err(e) = send(&mut stdin, initialize) {
         kill_tree(&mut child);
-        return (false, format!("initialize nicht gesendet: {e}"));
+        return (
+            false,
+            t!("doctor.initialize_not_sent", error = e).into_owned(),
+        );
     }
     let outcome = loop {
         let left = deadline.saturating_duration_since(Instant::now());
@@ -317,13 +345,12 @@ fn check_lsp(path: &Path, limit: Duration) -> (bool, String) {
             Ok(body) if is_initialize_answer(&body) => break Ok(()),
             Ok(_) => {}
             Err(RecvTimeoutError::Timeout) => {
-                break Err(format!(
-                    "initialize: keine Antwort in {} s",
-                    limit.as_secs()
-                ));
+                break Err(
+                    t!("doctor.initialize_no_answer", seconds = limit.as_secs()).into_owned()
+                );
             }
             Err(RecvTimeoutError::Disconnected) => {
-                break Err("beendete sich ohne Antwort auf initialize".to_owned());
+                break Err(t!("doctor.ended_without_answer").into_owned());
             }
         }
     };
@@ -347,13 +374,10 @@ fn check_lsp(path: &Path, limit: Duration) -> (bool, String) {
         }
     };
     if ended {
-        (true, "initialize beantwortet".into())
+        (true, t!("doctor.initialize_answered").into_owned())
     } else {
         kill_tree(&mut child);
-        (
-            true,
-            "initialize beantwortet; beendete sich nach exit nicht".into(),
-        )
+        (true, t!("doctor.initialize_answered_no_exit").into_owned())
     }
 }
 
@@ -377,9 +401,9 @@ mod tests {
         assert!(
             report
                 .text()
-                .ends_with("doctor: Sidecar fehlt oder startet nicht")
+                .ends_with("doctor: a sidecar is missing or does not start")
         );
-        assert!(report.text().contains("apicula: fehlt"));
+        assert!(report.text().contains("apicula: missing"));
     }
 
     #[test]

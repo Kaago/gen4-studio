@@ -24,13 +24,16 @@ use super::dto::{
     DataDocDto, DataPatch, DataRowDto, PartyFormatDto, PartyMonDto, PlaceDto, TargetDto,
     TrainerTextDto,
 };
+use super::edit::on_off;
 use super::{asset, count, labels, or_locked, place, place_names, refs, row};
 use crate::commands::ProblemDto;
 use crate::errors::CmdError;
 use crate::state::Session;
 
 /// The refusal of a trainer name that is too long (spec §11).
-pub const NAME_TOO_LONG: &str = "Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch";
+pub fn name_too_long() -> String {
+    t!("commands.data.name_too_long").into_owned()
+}
 
 fn trainer_id(index: u16) -> AssetId {
     asset(AssetKind::Trainer, index)
@@ -93,18 +96,18 @@ fn mon_of(d: &PartyMonDto, format: PartyFormat, family: Family) -> Result<PartyM
 pub fn title(session: &mut Session, index: u16, class: u8) -> String {
     let name = own_name(session.names.trainer_name(&mut session.store, index), index);
     if name.trim().is_empty() {
-        return format!("Trainer {index:04}");
+        return t!("commands.data.trainer_fallback", index = index : {:04}).into_owned();
     }
     format!("{} {name}", class_name(session, class))
 }
 
-/// The class name, else "Klasse 130".
+/// The class name, else "Class 130" ("Klasse 130" in German).
 fn class_name(session: &mut Session, class: u8) -> String {
     let name = session
         .names
         .class_name(&mut session.store, u16::from(class));
     if name.trim().is_empty() || name == format!("class {class:04}") {
-        format!("Klasse {class}")
+        t!("commands.data.trainer_class_fallback", class = class).into_owned()
     } else {
         name
     }
@@ -306,10 +309,6 @@ fn narrow<T: TryFrom<i64>>(value: i64, field: &str) -> Result<T, CmdError> {
     T::try_from(value).map_err(|_| format!("{value} does not fit {field}").into())
 }
 
-fn word(on: bool) -> &'static str {
-    if on { "an" } else { "aus" }
-}
-
 /// The assets of `ids` whose bytes differ from `before` (taken before the change).
 pub fn changed(store: &Store, ids: &[AssetId], before: &[Option<Vec<u8>>]) -> Vec<AssetId> {
     ids.iter()
@@ -371,7 +370,7 @@ pub fn apply(
         }
         DataPatch::TrainerName { name } => {
             if name_units(&name) > NAME_MAX_CHARS + 1 {
-                return Err(KernelError::Refused(NAME_TOO_LONG.to_owned()).into());
+                return Err(KernelError::Refused(name_too_long()).into());
             }
             let project = &session.project;
             let archive = bank_index(project.family, project.language, Bank::TrainerNames)
@@ -384,7 +383,15 @@ pub fn apply(
                 .into());
             }
             let old = own_name(session.names.trainer_name(&mut session.store, index), index);
-            let label = label_or(format!("{who}: Name {old} → {name}"));
+            let label = label_or(
+                t!(
+                    "commands.data.trainer_name_changed",
+                    who = who,
+                    old = old,
+                    name = name
+                )
+                .into_owned(),
+            );
             let change = session.store.edit_text_archive(archive, &label, |doc| {
                 if let Some(message) = doc.messages.get_mut(usize::from(index)) {
                     message.text = trainer_name::wrap(&name);
@@ -412,7 +419,7 @@ pub fn apply(
                         None
                     };
                 }
-                parts.push(format!("eigene Attacken {}", word(on)));
+                parts.push(t!("commands.data.trainer_own_moves", state = on_off(on)).into_owned());
             }
             if let Some(on) = items
                 && on != doc.format.items
@@ -421,7 +428,7 @@ pub fn apply(
                 for mon in &mut next.party {
                     mon.item = on.then(|| mon.item.unwrap_or(0));
                 }
-                parts.push(format!("Items tragen {}", word(on)));
+                parts.push(t!("commands.data.trainer_hold_items", state = on_off(on)).into_owned());
             }
             if parts.is_empty() {
                 return Ok(Vec::new());
@@ -445,9 +452,15 @@ pub fn apply(
                 .collect::<Result<Vec<_>, String>>()?;
             let old = doc.party.len();
             let label = label_or(if old == mons.len() {
-                format!("{who}: Team geändert")
+                t!("commands.data.trainer_party_changed", who = who).into_owned()
             } else {
-                format!("{who}: Team {old} → {} Pokémon", mons.len())
+                t!(
+                    "commands.data.trainer_party_count",
+                    who = who,
+                    old = old,
+                    new = mons.len()
+                )
+                .into_owned()
             });
             Ok(one(session
                 .store
@@ -462,7 +475,7 @@ pub fn apply(
                     text: t.text,
                 })
                 .collect();
-            let default = format!("{who}: Kampftexte geändert");
+            let default = t!("commands.data.trainer_texts_changed", who = who).into_owned();
             let label = label.unwrap_or(default);
             set_trainer_texts_labelled(
                 &mut session.store,

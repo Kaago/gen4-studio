@@ -70,8 +70,14 @@ impl BaseRomSettings {
     /// Writes the settings to `dir` (created if missing), 0600 and atomically
     /// ([`write_private`]).
     pub fn save(&self, dir: &Path) -> Result<(), String> {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("Ordner nicht anlegbar: {}: {e}", dir.display()))?;
+        std::fs::create_dir_all(dir).map_err(|e| {
+            t!(
+                "base_roms.folder_not_created",
+                path = dir.display(),
+                error = e
+            )
+            .into_owned()
+        })?;
         let mut text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         text.push('\n');
         write_private(&dir.join(BASE_ROMS_FILE), text.as_bytes())
@@ -123,7 +129,7 @@ impl Inner {
         if let Some(dir) = &self.dir
             && let Err(e) = self.settings.save(dir)
         {
-            eprintln!("{BASE_ROMS_FILE} nicht gespeichert: {e}");
+            eprintln!("{BASE_ROMS_FILE} could not be saved: {e}");
         }
     }
 }
@@ -185,14 +191,15 @@ impl BaseRoms {
     /// and mtime now, and saves. An original under `G4_ROMS_DIR` is not remembered (the search
     /// skips it anyway). Errors: the file cannot be read, or its path is no valid text.
     pub fn register(&self, path: &Path, info: &RomInfo) -> Result<(), String> {
-        let canonical = path
-            .canonicalize()
-            .map_err(|e| format!("ROM nicht lesbar: {}: {e}", path.display()))?;
+        let canonical = path.canonicalize().map_err(|e| {
+            t!("base_roms.rom_unreadable", path = path.display(), error = e).into_owned()
+        })?;
         if self.is_skipped(&canonical) {
             return Ok(());
         }
-        let meta = std::fs::metadata(&canonical)
-            .map_err(|e| format!("ROM nicht lesbar: {}: {e}", path.display()))?;
+        let meta = std::fs::metadata(&canonical).map_err(|e| {
+            t!("base_roms.rom_unreadable", path = path.display(), error = e).into_owned()
+        })?;
         let entry = BaseRomEntry {
             sha1: info.sha1.to_ascii_lowercase(),
             path: path_text(&canonical)?,
@@ -340,7 +347,7 @@ enum Change<'a> {
 fn path_text(path: &Path) -> Result<String, String> {
     path.to_str()
         .map(str::to_owned)
-        .ok_or_else(|| format!("Pfad ist kein gültiger Text: {}", path.display()))
+        .ok_or_else(|| t!("base_roms.path_not_text", path = path.display()).into_owned())
 }
 
 /// The time now as RFC 3339, UTC.

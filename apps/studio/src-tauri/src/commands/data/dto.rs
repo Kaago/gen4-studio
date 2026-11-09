@@ -221,13 +221,14 @@ pub struct MethodDto {
 
 /// A replacement list stored in the encounter file, by the kernel's key (Platinum `swarm`,
 /// `day`, `night`, `radar`, `dual_ruby` … `dual_leafgreen`; HeartGold `radio_hoenn`,
-/// `radio_sinnoh`, `land_swarm`, `surf_swarm`, `night_fish`, `fish_swarm`), with its German
-/// `label` ("Tag", "Radio Hoenn"), when the game uses it (English) and its entries as slots.
+/// `radio_sinnoh`, `land_swarm`, `surf_swarm`, `night_fish`, `fish_swarm`), with its
+/// `label` in the language of the process ("Day", "Hoenn radio"; "Tag", "Radio Hoenn" in
+/// German), when the game uses it (English) and its entries as slots.
 /// `DataPatch::Encounter` takes `list` as `method` and the entry as `slot`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReplacementListDto {
     pub list: &'static str,
-    pub label: &'static str,
+    pub label: String,
     pub when: &'static str,
     pub slots: Vec<SlotDto>,
 }
@@ -779,8 +780,9 @@ pub fn subject_to_nav(
 }
 
 /// One reference: `field` (slot `slot`) of `source` points at the target. `label` says where
-/// in German ("Begegnungen 0012, Gras Platz 3"), `source_name` names the source on its own
-/// ("Begegnungen 0012", "Staravia", "Wanderer Kai"), `nav` where a click leads, `access` what
+/// in words ("Encounters 0012, Grass slot 3"; "Begegnungen 0012, Gras Platz 3" in German),
+/// `source_name` names the source on its own ("Encounters 0012", "Staravia", "Wanderer
+/// Kai"), `nav` where a click leads, `access` what
 /// the source does with the target (`read`, `write`, `read_write`, `unknown`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RefDto {

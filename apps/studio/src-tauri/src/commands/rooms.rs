@@ -61,16 +61,10 @@ pub fn split_room_impl(
     check_member(store, AssetKind::Matrix, shared, "matrix")?;
     let source = store.matrix(shared)?.clone();
     if source.headers.is_some() {
-        return Err(KernelError::Refused(
-            "Nur Räume lassen sich abspalten, keine Gebiete einer Weltkarte.".to_owned(),
-        )
-        .into());
+        return Err(KernelError::Refused(t!("commands.rooms.only_rooms").into_owned()).into());
     }
     if alone {
-        return Err(KernelError::Refused(
-            "Dieser Raum teilt seine Karten mit niemandem.".to_owned(),
-        )
-        .into());
+        return Err(KernelError::Refused(t!("commands.rooms.not_shared").into_owned()).into());
     }
     let matrix_name = format!("{} ({header})", source.name);
     check_name(&matrix_name)?;
@@ -122,7 +116,7 @@ pub fn split_room_impl(
         .map(str::trim)
         .filter(|n| !n.is_empty())
         .map_or_else(|| header.to_string(), str::to_owned);
-    let label = format!("Raum „{room_name}“ abgespalten");
+    let label = t!("commands.rooms.split_label", name = room_name).into_owned();
     store
         .transaction(&label, |tx| {
             tx.edit_matrix(matrix, |m| {
@@ -208,7 +202,7 @@ mod tests {
                 .undo
                 .last()
                 .map(String::as_str),
-            Some("Raum „Haus“ abgespalten")
+            Some("Room \"Haus\" split off")
         );
         let counts = counts(&state);
         assert_eq!(counts[&AssetKind::Map], 5);
@@ -225,7 +219,7 @@ mod tests {
                 .undo
                 .last()
                 .map(String::as_str),
-            Some("Raum „0“ abgespalten")
+            Some("Room \"0\" split off")
         );
         assert_eq!(get_matrix_impl(&state, 1).unwrap().name, "m (0)");
     }
@@ -256,7 +250,7 @@ mod tests {
         let before = counts(&state);
 
         let err = split_room_impl(&state, 1, None).unwrap_err();
-        assert_eq!(err.message, "Dieser Raum teilt seine Karten mit niemandem.");
+        assert_eq!(err.message, "This room shares its maps with no one.");
         assert_eq!(counts(&state), before);
         assert_eq!(matrix_of(&state, 1), 0);
     }
@@ -270,7 +264,7 @@ mod tests {
         let err = split_room_impl(&state, 1, None).unwrap_err();
         assert_eq!(
             err.message,
-            "Nur Räume lassen sich abspalten, keine Gebiete einer Weltkarte."
+            "Only rooms can be split off, not areas of a world map."
         );
         assert_eq!(counts(&state), before);
         assert_eq!(matrix_of(&state, 1), 0);

@@ -67,7 +67,7 @@ impl From<KernelError> for CmdError {
                 .iter()
                 .filter(|p| p.severity == Severity::Error)
                 .count();
-            // Without an error there is nothing to show as "N Fehler": a plain error.
+            // Without an error there is nothing to show as "N errors": a plain error.
             if errors == 0 {
                 return CmdError {
                     code: "error",
@@ -129,18 +129,17 @@ impl From<KernelError> for CmdError {
 /// `files/` that stopped the build (with the way out).
 fn compile_message(errors: usize, hidden: usize) -> String {
     let hidden_text = match hidden {
-        1 => "1 versteckte Datei unter files/ hält den Build an; entferne sie (in den Problemen \
-              „Entfernen“) und baue erneut"
-            .to_owned(),
-        n => format!(
-            "{n} versteckte Dateien unter files/ halten den Build an; entferne sie (in den \
-             Problemen „Entfernen“) und baue erneut"
-        ),
+        1 => t!("errors.hidden_one").into_owned(),
+        n => t!("errors.hidden_other", count = n).into_owned(),
+    };
+    let errors_text = match errors {
+        1 => t!("errors.compile_errors_one").into_owned(),
+        n => t!("errors.compile_errors_other", count = n).into_owned(),
     };
     match (errors, hidden) {
-        (_, 0) => format!("{errors} Fehler in Scripts oder Texten"),
+        (_, 0) => errors_text,
         (0, _) => hidden_text,
-        _ => format!("{errors} Fehler in Scripts oder Texten; {hidden_text}"),
+        _ => format!("{errors_text}; {hidden_text}"),
     }
 }
 
@@ -180,19 +179,12 @@ impl From<String> for CmdError {
 
 impl CmdError {
     /// Text archives changed as JSON and as member since the last build: one error problem
-    /// per archive (source `"build"`, no position), with German sentences, as the save and the
-    /// build return them before they write anything.
+    /// per archive (source `"build"`, no position), with sentences in the language of the
+    /// process, as the save and the build return them before they write anything.
     fn text_conflict(archives: &[u16]) -> Self {
         let message = match archives {
-            [one] => format!(
-                "Textarchiv {one:04} wurde als Text (JSON) und als Spieldatei geändert; \
-                 wähle, welche Fassung gilt."
-            ),
-            _ => format!(
-                "{} Textarchive wurden als Text (JSON) und als Spieldatei geändert; \
-                 wähle je Archiv, welche Fassung gilt.",
-                archives.len()
-            ),
+            [one] => t!("errors.text_conflict_one", n = one : {:04}).into_owned(),
+            _ => t!("errors.text_conflict_other", count = archives.len()).into_owned(),
         };
         CmdError {
             code: "text_conflict",
@@ -205,10 +197,7 @@ impl CmdError {
                     file: format!("expanded/textArchives/{n:04}.json"),
                     line: 0,
                     col: 0,
-                    message: format!(
-                        "Textarchiv {n:04} wurde als Text (JSON) und als Spieldatei geändert, \
-                         seit das Studio es zuletzt gebaut hat. Wähle, welche Fassung gilt."
-                    ),
+                    message: t!("errors.text_conflict_problem", n = n : {:04}).into_owned(),
                     source: "build",
                     check: None,
                 })
@@ -346,7 +335,7 @@ mod tests {
         ]));
         assert_eq!(err.code, "compile");
         // Warnings are listed but not counted.
-        assert_eq!(err.message, "3 Fehler in Scripts oder Texten");
+        assert_eq!(err.message, "3 errors in scripts or texts");
         assert!(err.asset.is_none());
         let sources: Vec<_> = err.problems.iter().map(|p| p.source).collect();
         assert_eq!(sources, ["compile", "text", "text", "compile"]);
@@ -380,8 +369,8 @@ mod tests {
         assert_eq!(one.code, "compile");
         assert_eq!(
             one.message,
-            "1 versteckte Datei unter files/ hält den Build an; entferne sie (in den Problemen \
-             „Entfernen“) und baue erneut"
+            "1 hidden file under files/ stops the build; remove it (\"Remove\" in the Problems) \
+             and build again"
         );
         assert_eq!(one.problems[0].source, "build");
         let two = CmdError::from(KernelError::Compile(vec![
@@ -389,8 +378,7 @@ mod tests {
             hidden("files/b/._x"),
         ]));
         assert!(
-            two.message
-                .starts_with("2 versteckte Dateien unter files/ halten"),
+            two.message.starts_with("2 hidden files under files/ stop"),
             "{}",
             two.message
         );
@@ -405,7 +393,7 @@ mod tests {
         assert!(
             mixed
                 .message
-                .starts_with("1 Fehler in Scripts oder Texten; 1 versteckte Datei"),
+                .starts_with("1 error in scripts or texts; 1 hidden file"),
             "{}",
             mixed.message
         );
@@ -423,10 +411,10 @@ mod tests {
         };
         let err = CmdError::from(KernelError::Compile(vec![warning]));
         assert_eq!(err.code, "error");
-        assert!(!err.message.starts_with("0 Fehler"), "{}", err.message);
+        assert!(!err.message.starts_with("0 errors"), "{}", err.message);
         let empty = CmdError::from(KernelError::Compile(Vec::new()));
         assert_eq!(empty.code, "error");
-        assert!(!empty.message.starts_with("0 Fehler"), "{}", empty.message);
+        assert!(!empty.message.starts_with("0 errors"), "{}", empty.message);
     }
 
     #[test]
@@ -436,7 +424,7 @@ mod tests {
         assert!(err.asset.is_none());
         assert_eq!(
             err.message,
-            "2 Textarchive wurden als Text (JSON) und als Spieldatei geändert; wähle je Archiv, welche Fassung gilt."
+            "2 text archives were changed as text (JSON) and as game file; choose per archive which version applies."
         );
         let files: Vec<_> = err.problems.iter().map(|p| p.file.as_str()).collect();
         assert_eq!(
@@ -454,12 +442,12 @@ mod tests {
         }
         assert_eq!(
             err.problems[0].message,
-            "Textarchiv 0012 wurde als Text (JSON) und als Spieldatei geändert, seit das Studio es zuletzt gebaut hat. Wähle, welche Fassung gilt."
+            "Text archive 0012 was changed as text (JSON) and as game file since Studio last built it. Choose which version applies."
         );
         let one = CmdError::from(KernelError::TextConflict(vec![7]));
         assert_eq!(
             one.message,
-            "Textarchiv 0007 wurde als Text (JSON) und als Spieldatei geändert; wähle, welche Fassung gilt."
+            "Text archive 0007 was changed as text (JSON) and as game file; choose which version applies."
         );
     }
 

@@ -85,11 +85,11 @@ fn export_error(e: KernelError) -> CmdError {
     }
 }
 
-/// The `unsaved` message of the export with the German singular for one change.
+/// The `unsaved` message of the export, with the singular for one change.
 pub(crate) fn unsaved_message(n: usize) -> String {
     match n {
-        1 => "Erst speichern: 1 ungespeicherte Änderung.".to_owned(),
-        n => format!("Erst speichern: {n} ungespeicherte Änderungen."),
+        1 => t!("commands.textproject.unsaved_one").into_owned(),
+        n => t!("commands.textproject.unsaved_other", count = n).into_owned(),
     }
 }
 
@@ -181,19 +181,10 @@ mod tests {
     }
 
     #[test]
-    fn unsaved_message_has_the_german_plural() {
-        assert_eq!(
-            unsaved_message(1),
-            "Erst speichern: 1 ungespeicherte Änderung."
-        );
-        assert_eq!(
-            unsaved_message(2),
-            "Erst speichern: 2 ungespeicherte Änderungen."
-        );
-        assert_eq!(
-            unsaved_message(7),
-            "Erst speichern: 7 ungespeicherte Änderungen."
-        );
+    fn unsaved_message_has_the_singular() {
+        assert_eq!(unsaved_message(1), "Save first: 1 unsaved change.");
+        assert_eq!(unsaved_message(2), "Save first: 2 unsaved changes.");
+        assert_eq!(unsaved_message(7), "Save first: 7 unsaved changes.");
     }
 
     #[test]

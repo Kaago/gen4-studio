@@ -37,19 +37,30 @@ use crate::errors::CmdError;
 use crate::state::AppState;
 
 /// melonDS closed the connection, or our melonDS ended.
-pub const QUIT: &str = "melonDS wurde beendet";
+pub fn quit_reason() -> String {
+    t!("live_hub.quit").into_owned()
+}
 /// The stub stopped answering after the connection stood.
-pub const NOT_ANSWERING: &str = "melonDS antwortet nicht: melonDS neu starten";
+pub fn not_answering_reason() -> String {
+    t!("live_hub.not_answering").into_owned()
+}
 /// The pointer to the save is not valid yet (title screen, intro).
-pub const WAITING_FOR_SAVE: &str = "Wartet auf den Spielstand (Spiel fortsetzen)";
+pub fn waiting_for_save_reason() -> String {
+    t!("live_hub.waiting_for_save").into_owned()
+}
 /// melonDS runs already, so its config cannot be changed (it writes the file back on exit).
-pub const RUNS_ALREADY: &str =
-    "melonDS läuft schon; GDB-Stub oder JIT nicht einstellbar (Emu settings › Devtools)";
+pub fn runs_already_reason() -> String {
+    t!("live_hub.runs_already").into_owned()
+}
 /// A melonDS runs already with its stub ready: a second one would not get the port, and the
 /// studio would connect to whichever holds it.
-pub const RUNS_ALREADY_READY: &str = "melonDS läuft schon: erst beenden, dann „Hier spielen“";
+pub fn runs_already_ready_reason() -> String {
+    t!("live_hub.runs_already_ready").into_owned()
+}
 /// A command that needs the connection, without one.
-pub const NOT_LIVE: &str = "Nicht live: melonDS ist nicht verbunden";
+pub fn not_live_message() -> String {
+    t!("live_hub.not_live").into_owned()
+}
 
 /// Where play mode stands.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -233,10 +244,10 @@ impl Inner {
         }
     }
 
-    /// melonDS quit (the connection closed or our melonDS ended): `off` with „melonDS wurde
-    /// beendet“, no port, no own process any more.
+    /// melonDS quit (the connection closed or our melonDS ended): `off` with [`quit_reason`],
+    /// no port, no own process any more.
     fn quit(&mut self) {
-        self.disconnected(LiveState::Off, Some(QUIT));
+        self.disconnected(LiveState::Off, Some(&quit_reason()));
         self.port = None;
         self.own_process = false;
     }
@@ -262,7 +273,7 @@ impl Inner {
         } else {
             state
         };
-        self.reason = (self.state == LiveState::WaitingForSave).then(|| WAITING_FOR_SAVE.into());
+        self.reason = (self.state == LiveState::WaitingForSave).then(waiting_for_save_reason);
         self.snapshot = session.last().cloned();
         self.read_back = session.read_back();
     }
@@ -357,7 +368,7 @@ impl Shared {
         let mut inner = self.inner();
         match e {
             LiveError::Closed => inner.quit(),
-            _ => inner.disconnected(LiveState::Lost, Some(NOT_ANSWERING)),
+            _ => inner.disconnected(LiveState::Lost, Some(&not_answering_reason())),
         }
     }
 
@@ -380,7 +391,7 @@ impl Shared {
         } else {
             LiveState::WaitingForSave
         };
-        inner.reason = (inner.state == LiveState::WaitingForSave).then(|| WAITING_FOR_SAVE.into());
+        inner.reason = (inner.state == LiveState::WaitingForSave).then(waiting_for_save_reason);
         *slot = Some(session);
     }
 
@@ -424,9 +435,9 @@ const REAP_POLL: Duration = Duration::from_millis(100);
 /// never answered (another client holds melonDS's single stub).
 fn no_stub(port: u16, accepted: bool) -> String {
     if accepted {
-        format!("Kein GDB-Stub auf Port {port} (lauscht ein anderes Programm?)")
+        t!("live_hub.no_stub_accepted", port = port).into_owned()
     } else {
-        format!("Kein GDB-Stub auf Port {port}")
+        t!("live_hub.no_stub", port = port).into_owned()
     }
 }
 
@@ -914,7 +925,7 @@ impl Drop for LiveHub {
 }
 
 fn not_live() -> CmdError {
-    CmdError::refused("not_live", NOT_LIVE)
+    CmdError::refused("not_live", not_live_message())
 }
 
 /// Why „Hier spielen“ starts without the live connection, and what was found of melonDS.
@@ -942,35 +953,31 @@ fn prepare(
     running: fn() -> bool,
 ) -> Result<(MelonDs, u16), Box<Refusal>> {
     if !cfg!(target_os = "macos") {
-        return Err(Refusal::new("Spielmodus live gibt es nur unter macOS"));
+        return Err(Refusal::new(t!("live_hub.macos_only").into_owned()));
     }
     if melonds::bundle_binary(bundle).is_none() {
-        return Err(Refusal::new(format!(
-            "Kein melonDS-Bundle: {} hat kein Contents/MacOS/melonDS",
-            bundle.display()
-        )));
+        return Err(Refusal::new(
+            t!("live_hub.no_bundle", path = bundle.display()).into_owned(),
+        ));
     }
     let version = melonds::bundle_version(bundle).unwrap_or_default();
     if !melonds::version_ok(&version) {
         let found = if version.is_empty() {
-            "keine Version gefunden".to_owned()
+            t!("live_hub.no_version").into_owned()
         } else {
-            format!("gefunden {version}")
+            t!("live_hub.found_version", version = version).into_owned()
         };
-        return Err(Refusal::new(format!(
-            "melonDS 1.1 oder neuer nötig ({found})"
-        )));
+        return Err(Refusal::new(
+            t!("live_hub.version_too_old", found = found).into_owned(),
+        ));
     }
     let Some(config_path) = config_path else {
-        return Err(Refusal::new(
-            "Keine melonDS-Konfiguration gefunden (HOME fehlt)",
-        ));
+        return Err(Refusal::new(t!("live_hub.no_config").into_owned()));
     };
     let Some(mut found) = melonds::inspect(bundle, Some(config_path)) else {
-        return Err(Refusal::new(format!(
-            "Kein melonDS-Bundle: {} hat kein Contents/MacOS/melonDS",
-            bundle.display()
-        )));
+        return Err(Refusal::new(
+            t!("live_hub.no_bundle", path = bundle.display()).into_owned(),
+        ));
     };
     let ready = found
         .config
@@ -979,12 +986,12 @@ fn prepare(
         .map(|c| c.port);
     if running() {
         let reason = if ready.is_some() {
-            RUNS_ALREADY_READY
+            runs_already_ready_reason()
         } else {
-            RUNS_ALREADY
+            runs_already_reason()
         };
         return Err(Box::new(Refusal {
-            reason: reason.to_owned(),
+            reason,
             melonds: Some(found),
         }));
     }
@@ -998,7 +1005,7 @@ fn prepare(
             Ok((found, port))
         }
         Err(e) => Err(Box::new(Refusal {
-            reason: format!("melonDS-Konfiguration nicht änderbar: {e}"),
+            reason: t!("live_hub.config_not_writable", error = e).into_owned(),
             melonds: Some(found),
         })),
     }

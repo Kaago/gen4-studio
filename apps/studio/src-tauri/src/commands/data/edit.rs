@@ -1,5 +1,5 @@
-//! `data_edit`: one patch as one undo step, with a speaking label ("Staravia: Angriff 75 →
-//! 85") unless the caller brings its own.
+//! `data_edit`: one patch as one undo step, with a speaking label ("Staravia: Attack 75 →
+//! 85", in German "Staravia: Angriff 75 → 85") unless the caller brings its own.
 
 use g4_formats::data::egg_moves::SPECIES_BASE;
 use g4_formats::data::evolution::{EVO_ENTRIES, EvoEntry};
@@ -25,28 +25,38 @@ fn asset(kind: AssetKind, index: u16) -> AssetId {
     AssetId { kind, index }
 }
 
-/// "TM40" or "VM01" for machine `n` (0-based).
+/// "TM40" or "HM01" ("VM01" in German) for machine `n` (0-based).
 pub fn machine_name(n: usize) -> String {
     if n < TMS {
-        format!("TM{:02}", n + 1)
+        t!("commands.data.machine_tm", n = n + 1 : {:02}).into_owned()
     } else {
-        format!("VM{:02}", n - TMS + 1)
+        t!("commands.data.machine_hm", n = n - TMS + 1 : {:02}).into_owned()
     }
 }
 
 /// The field `field` of a record of type `R`, checked against the label table (the editable
-/// fields) and the value against the field's width. Returns the span and the German name.
+/// fields) and the value against the field's width. Returns the span and the name in the
+/// language of the process.
 fn checked<R: RawRecord>(
-    table: &[(&str, &'static str)],
+    table: &[(&str, &str)],
     field: &str,
     value: i64,
-) -> Result<(&'static g4_formats::data::record::FieldSpan, &'static str), CmdError> {
+) -> Result<(&'static g4_formats::data::record::FieldSpan, String), CmdError> {
     let name = labels::label(table, field).ok_or_else(|| format!("no editable field {field}"))?;
     let span = numeric_span(R::FIELDS, field).ok_or_else(|| format!("no field {field}"))?;
     if !fits(span, value) {
         return Err(format!("{value} does not fit {field}").into());
     }
     Ok((span, name))
+}
+
+/// "on" or "off" ("an", "aus" in German), for the label of a switched bit.
+pub(super) fn on_off(on: bool) -> String {
+    if on {
+        t!("commands.data.on").into_owned()
+    } else {
+        t!("commands.data.off").into_owned()
+    }
 }
 
 /// The assets of `ids` whose bytes differ from `before` (taken before the change).
@@ -129,13 +139,12 @@ pub fn apply(
                 return Err(format!("there are {MACHINES} machines, none at {n}").into());
             }
             let old = store.personal(index)?.tm(n);
-            let word = |b: bool| if b { "an" } else { "aus" };
             let name = display::species(names, store, index);
             let label = label_or(format!(
                 "{name}: {} {} → {}",
                 machine_name(n),
-                word(old),
-                word(on)
+                on_off(old),
+                on_off(on)
             ));
             let change = store.edit_personal(index, &label, |p| p.set_tm(n, on))?;
             Ok(one(asset(AssetKind::Personal, index), change))
@@ -166,9 +175,15 @@ pub fn apply(
             let old = store.learnset(index)?.entries.len();
             let name = display::species(names, store, index);
             let label = label_or(if old == entries.len() {
-                format!("{name}: Lernset geändert")
+                t!("commands.data.learnset_changed", name = name).into_owned()
             } else {
-                format!("{name}: Lernset {old} → {} Attacken", entries.len())
+                t!(
+                    "commands.data.learnset_count",
+                    name = name,
+                    old = old,
+                    new = entries.len()
+                )
+                .into_owned()
             });
             let entries: Vec<LearnEntry> = entries
                 .iter()
@@ -199,9 +214,9 @@ pub fn apply(
                 target,
             };
             let diffs: Vec<String> = [
-                ("Methode", old.method, method),
-                ("Parameter", old.param, param),
-                ("Ziel", old.target, target),
+                (t!("commands.data.evolution_method"), old.method, method),
+                (t!("commands.data.evolution_param"), old.param, param),
+                (t!("commands.data.evolution_target"), old.target, target),
             ]
             .into_iter()
             .filter(|(_, a, b)| a != b)
@@ -210,9 +225,17 @@ pub fn apply(
             let name = display::species(names, store, index);
             let detail = match diffs.as_slice() {
                 [one] => one.clone(),
-                _ => "geändert".to_owned(),
+                _ => t!("commands.data.evolution_changed").into_owned(),
             };
-            let label = label_or(format!("{name}: Entwicklung {} {detail}", slot + 1));
+            let label = label_or(
+                t!(
+                    "commands.data.evolution_label",
+                    name = name,
+                    slot = slot + 1,
+                    detail = detail
+                )
+                .into_owned(),
+            );
             let change = store.edit_evolution(index, &label, |e| e.set_entry(slot, new))?;
             Ok(one(asset(AssetKind::Evolution, index), change))
         }
@@ -230,7 +253,8 @@ pub fn apply(
                 .collect::<Result<_, _>>()?;
             let name = display::species(names, store, index);
             let source = display::species(names, store, from);
-            let label = label_or(format!("{name}: TM/VM und Lernset wie {source}"));
+            let label =
+                label_or(t!("commands.data.copy_moves", name = name, source = source).into_owned());
             store.transaction(&label, |tx| {
                 let p = tx.personal(from)?;
                 let tm: [bool; MACHINES] = std::array::from_fn(|n| p.tm(n));
@@ -248,9 +272,9 @@ pub fn apply(
             check_egg_moves(store, index, &moves)?;
             let old = store.egg_moves()?.moves_of(index).unwrap_or_default().len();
             let name = display::species(names, store, index);
-            let what = labels::EGG_MOVES;
+            let what = labels::egg_moves();
             let label = label_or(if old == moves.len() {
-                format!("{name}: {what} getauscht")
+                t!("commands.data.egg_moves_changed", name = name, what = what).into_owned()
             } else {
                 format!("{name}: {what} {old} → {}", moves.len())
             });
@@ -278,7 +302,7 @@ pub fn apply(
             let name = display::item(names, store, index, id.is_some());
             let mut default = format!("{name}: {field_name} {old} → {value}");
             if !shared.is_empty() {
-                default.push_str(&format!(", gilt für {} Gegenstände", 1 + shared.len()));
+                default.push_str(&t!("commands.data.item_shared", count = 1 + shared.len()));
             }
             let label = label_or(default);
             let change = store.edit_item(member, &label, |i: &mut Item| set(i, span, value))?;
@@ -299,15 +323,26 @@ pub fn apply(
             // Checked on a copy first: the codec's accessors panic on a wrong index.
             let mut copy = store.encounter(index)?.clone();
             let old = edit.apply(&mut copy)?;
-            let method_name = labels::label(labels::ENCOUNTER, &method).unwrap_or(&method);
-            let field_name = labels::label(labels::ENCOUNTER, &field).unwrap_or(&field);
+            let method_name = labels::label(labels::ENCOUNTER, &method).unwrap_or(method.clone());
+            let field_name = labels::label(labels::ENCOUNTER, &field).unwrap_or(field.clone());
             let place = match slot {
-                Some(slot) if field != "rate" => format!(" Platz {}", slot + 1),
+                Some(slot) if field != "rate" => {
+                    t!("commands.data.slot_suffix", n = slot + 1).into_owned()
+                }
                 _ => String::new(),
             };
-            let label = label_or(format!(
-                "Begegnungen {index:04}: {method_name}{place} {field_name} {old} → {value}"
-            ));
+            let label = label_or(
+                t!(
+                    "commands.data.encounter_edit",
+                    index = index : {:04},
+                    method = method_name,
+                    place = place,
+                    field = field_name,
+                    old = old,
+                    value = value
+                )
+                .into_owned(),
+            );
             let change = store.edit_encounter(index, &label, |e| *e = copy)?;
             Ok(one(asset(AssetKind::Encounter, index), change))
         }
@@ -315,22 +350,34 @@ pub fn apply(
             // Checked and swapped on a copy: a refused swap writes nothing.
             let mut copy = store.encounter(index)?.clone();
             swap(&mut copy, &method, a.into(), b.into())?;
-            let method_name = labels::label(labels::ENCOUNTER, &method).unwrap_or(&method);
-            let label = label_or(format!(
-                "Begegnungen {index:04}: {method_name} Platz {} ↔ {}",
-                u16::from(a) + 1,
-                u16::from(b) + 1
-            ));
+            let method_name = labels::label(labels::ENCOUNTER, &method).unwrap_or(method.clone());
+            let label = label_or(
+                t!(
+                    "commands.data.encounter_swap",
+                    index = index : {:04},
+                    method = method_name,
+                    a = u16::from(a) + 1,
+                    b = u16::from(b) + 1
+                )
+                .into_owned(),
+            );
             let change = store.edit_encounter(index, &label, |e| *e = copy)?;
             Ok(one(asset(AssetKind::Encounter, index), change))
         }
         DataPatch::EncounterExtra { field, value } if kind == DataKind::Encounter => {
             let mut copy = store.encounter(index)?.clone();
             let old = apply_extra(&mut copy, &field, value)?;
-            let field_name = labels::label(labels::ENCOUNTER, &field).unwrap_or(&field);
-            let label = label_or(format!(
-                "Begegnungen {index:04}: {field_name} {old} → {value}"
-            ));
+            let field_name = labels::label(labels::ENCOUNTER, &field).unwrap_or(field.clone());
+            let label = label_or(
+                t!(
+                    "commands.data.encounter_extra",
+                    index = index : {:04},
+                    field = field_name,
+                    old = old,
+                    value = value
+                )
+                .into_owned(),
+            );
             let change = store.edit_encounter(index, &label, |e| *e = copy)?;
             Ok(one(asset(AssetKind::Encounter, index), change))
         }

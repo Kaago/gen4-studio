@@ -103,7 +103,11 @@ pub fn live_set_impl(
     value: u16,
 ) -> Result<LiveSetDto, CmdError> {
     let target = match kind {
-        FlagKind::Flag if value > 1 => return Err(CmdError::from("Ein Flag ist 0 oder 1")),
+        FlagKind::Flag if value > 1 => {
+            return Err(CmdError::from(
+                t!("commands.live.flag_is_0_or_1").into_owned(),
+            ));
+        }
         FlagKind::Flag => Target::Flag { number },
         FlagKind::Var => Target::Var { number },
     };
@@ -124,38 +128,40 @@ pub fn live_breakpoint_set_impl(
     let events = get_events_impl(state, file)?;
     let (target, label) = match event.kind.as_str() {
         "object" => {
-            let object = events
-                .objects
-                .get(index)
-                .ok_or_else(|| format!("Eventdatei {file} hat keine Figur {index}"))?;
+            let object = events.objects.get(index).ok_or_else(|| {
+                t!("commands.live.no_object", file = file, index = index).into_owned()
+            })?;
             if object.hidden_flag == 0 {
-                return Err(CmdError::from("Die Figur hat kein Sichtbarkeits-Flag"));
+                return Err(CmdError::from(
+                    t!("commands.live.object_without_flag").into_owned(),
+                ));
             }
             (
                 Target::Flag {
                     number: object.hidden_flag,
                 },
-                format!("Figur {index} · Eventdatei {file}"),
+                t!("commands.live.object_label", index = index, file = file).into_owned(),
             )
         }
         "coord" => {
-            let trigger = events
-                .coords
-                .get(index)
-                .ok_or_else(|| format!("Eventdatei {file} hat keinen Auslöser {index}"))?;
+            let trigger = events.coords.get(index).ok_or_else(|| {
+                t!("commands.live.no_trigger", file = file, index = index).into_owned()
+            })?;
             if trigger.var == 0 {
-                return Err(CmdError::from("Der Auslöser hat keine Variable"));
+                return Err(CmdError::from(
+                    t!("commands.live.trigger_without_variable").into_owned(),
+                ));
             }
             (
                 Target::Var {
                     number: trigger.var,
                 },
-                format!("Auslöser {index} · Eventdatei {file}"),
+                t!("commands.live.trigger_label", index = index, file = file).into_owned(),
             )
         }
         _ => {
             return Err(CmdError::from(
-                "Haltepunkte gibt es an Figuren und Auslösern",
+                t!("commands.live.breakpoint_kinds").into_owned(),
             ));
         }
     };
@@ -421,7 +427,7 @@ mod tests {
         assert!(status.snapshot.is_none());
         // A flag is 0 or 1, refused before anything else.
         let err = live_set_impl(&state, FlagKind::Flag, 0x173, 2).unwrap_err();
-        assert_eq!(err.message, "Ein Flag ist 0 oder 1");
+        assert_eq!(err.message, "A flag is 0 or 1");
     }
 
     #[test]
@@ -521,7 +527,10 @@ mod tests {
         let index = figure_with_flag(&state, 0x173);
         let breakpoint = live_breakpoint_set_impl(&state, figure(index)).unwrap();
         assert_eq!(breakpoint.target, Target::Flag { number: 0x173 });
-        assert_eq!(breakpoint.label, format!("Figur {index} · Eventdatei 0"));
+        assert_eq!(
+            breakpoint.label,
+            format!("Character {index} · Event file 0")
+        );
         assert_eq!(
             live_breakpoints_impl(&state).unwrap(),
             std::slice::from_ref(&breakpoint)
@@ -560,7 +569,7 @@ mod tests {
         let (_fixture, state) = open_cpud();
         let flagless = figure_with_flag(&state, 0);
         let err = live_breakpoint_set_impl(&state, figure(flagless)).unwrap_err();
-        assert_eq!(err.message, "Die Figur hat kein Sichtbarkeits-Flag");
+        assert_eq!(err.message, "The character has no visibility flag");
         let coord = add_event_impl(&state, 0, EventKind::Coord, 4, 5, None, None).unwrap();
         let trigger = EventRef {
             event_file: 0,
@@ -568,14 +577,14 @@ mod tests {
             index: coord,
         };
         let err = live_breakpoint_set_impl(&state, trigger.clone()).unwrap_err();
-        assert_eq!(err.message, "Der Auslöser hat keine Variable");
+        assert_eq!(err.message, "The trigger has no variable");
         let door = EventRef {
             event_file: 0,
             kind: "warp".into(),
             index: 0,
         };
         let err = live_breakpoint_set_impl(&state, door).unwrap_err();
-        assert_eq!(err.message, "Haltepunkte gibt es an Figuren und Auslösern");
+        assert_eq!(err.message, "Breakpoints exist on characters and triggers");
         // A trigger with a variable gets one, labelled as a trigger.
         let patch = EventPatch {
             var: Some(0x40A5),
@@ -584,7 +593,7 @@ mod tests {
         update_event_impl(&state, 0, EventKind::Coord, coord, patch).unwrap();
         let breakpoint = live_breakpoint_set_impl(&state, trigger).unwrap();
         assert_eq!(breakpoint.target, Target::Var { number: 0x40A5 });
-        assert_eq!(breakpoint.label, format!("Auslöser {coord} · Eventdatei 0"));
+        assert_eq!(breakpoint.label, format!("Trigger {coord} · Event file 0"));
         // A visibility flag outside the save is refused with its code.
         let outside = figure_with_flag(&state, 2912);
         let err = live_breakpoint_set_impl(&state, figure(outside)).unwrap_err();
@@ -602,7 +611,7 @@ mod tests {
         drop(stub);
         within(1000, "off", || state_of(&state) == LiveState::Off);
         let status = state.live.status();
-        assert_eq!(status.reason.as_deref(), Some("melonDS wurde beendet"));
+        assert_eq!(status.reason.as_deref(), Some("melonDS was closed"));
         assert!(status.snapshot.is_none());
         assert_eq!(status.breakpoints.len(), 1);
         // The next connection watches it again.
@@ -648,7 +657,7 @@ mod tests {
         let status = live_status_impl(&state).unwrap();
         assert_eq!(
             status.reason.as_deref(),
-            Some("melonDS antwortet nicht: melonDS neu starten")
+            Some("melonDS is not answering: restart melonDS")
         );
         // A new connection is answered again.
         within(5000, "live again", || state_of(&state) == LiveState::Live);
@@ -673,7 +682,7 @@ mod tests {
         });
         assert_eq!(
             state.live.status().reason,
-            Some(format!("Kein GDB-Stub auf Port {port}"))
+            Some(format!("No GDB stub on port {port}"))
         );
         // A stub that accepts but never answers (another client holds melonDS).
         let silent = FakeStub::start(Quirks {
@@ -687,7 +696,7 @@ mod tests {
         assert_eq!(
             state.live.status().reason,
             Some(format!(
-                "Kein GDB-Stub auf Port {} (lauscht ein anderes Programm?)",
+                "No GDB stub on port {} (is another program listening?)",
                 silent.port
             ))
         );
@@ -820,7 +829,7 @@ mod tests {
         assert!(!played.live);
         assert!(played.pid.is_some());
         let reason = played.reason.unwrap();
-        assert!(reason.starts_with("Kein melonDS-Bundle: "), "{reason}");
+        assert!(reason.starts_with("Not a melonDS bundle: "), "{reason}");
         let status = state.live.status();
         assert_eq!(status.state, LiveState::Unavailable);
         assert_eq!(status.reason, Some(reason));
@@ -858,7 +867,7 @@ mod tests {
             played,
             LivePlayDto {
                 live: false,
-                reason: Some("melonDS 1.1 oder neuer nötig (gefunden 1.0)".into()),
+                reason: Some("melonDS 1.1 or newer is required (found 1.0)".into()),
                 pid: Some(4242),
             }
         );
@@ -935,12 +944,12 @@ mod tests {
         within(3000, "off", || state_of(&state) == LiveState::Off);
         assert_eq!(
             state.live.status().reason.as_deref(),
-            Some("melonDS wurde beendet")
+            Some("melonDS was closed")
         );
     }
 
     /// „Stoppen“ ends our melonDS, and its end closes the stub: the worker meeting the closed
-    /// connection must not say „melonDS wurde beendet“ before the plain `off` of the stop.
+    /// connection must not say „melonDS was closed“ before the plain `off` of the stop.
     #[cfg(target_os = "macos")]
     #[test]
     fn stopping_our_melonds_never_says_it_quit() {
@@ -977,7 +986,7 @@ mod tests {
         assert!(
             !seen
                 .iter()
-                .any(|(_, reason)| reason.as_deref() == Some("melonDS wurde beendet")),
+                .any(|(_, reason)| reason.as_deref() == Some("melonDS was closed")),
             "{seen:?}"
         );
         assert_eq!(seen.last(), Some(&(LiveState::Off, None)));
@@ -1010,7 +1019,9 @@ mod tests {
             played,
             LivePlayDto {
                 live: false,
-                reason: Some("melonDS läuft schon: erst beenden, dann „Hier spielen“".into()),
+                reason: Some(
+                    "melonDS is already running: close it first, then \"Play here\"".into()
+                ),
                 pid: Some(4242),
             }
         );
@@ -1035,7 +1046,7 @@ mod tests {
         assert_eq!(
             played.reason.as_deref(),
             Some(
-                "melonDS läuft schon; GDB-Stub oder JIT nicht einstellbar (Emu settings › Devtools)"
+                "melonDS is already running; GDB stub or JIT cannot be set (Emu settings › Devtools)"
             )
         );
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "");
@@ -1159,7 +1170,7 @@ mod tests {
         drop(stub);
         within(1000, "off", || state_of(&state) == LiveState::Off);
         let status = state.live.status();
-        assert_eq!(status.reason.as_deref(), Some("melonDS wurde beendet"));
+        assert_eq!(status.reason.as_deref(), Some("melonDS was closed"));
         assert!(!status.own_process);
         assert_eq!(status.port, None);
         within(1000, "the worker to end", || {

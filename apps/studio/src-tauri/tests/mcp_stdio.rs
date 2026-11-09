@@ -28,6 +28,8 @@ type Client = RunningService<RoleClient, ()>;
 
 fn command(project: &Path, extra: &[&str]) -> tokio::process::Command {
     tokio::process::Command::new(STUDIO).configure(|cmd| {
+        // The texts the tests compare are English whatever `LANG` of the host says.
+        cmd.env("G4_LANG", "en");
         cmd.arg("mcp").arg("--project").arg(project).args(extra);
     })
 }
@@ -447,6 +449,7 @@ async fn stray_stdout_does_not_break_the_protocol() {
 /// Runs `studio mcp` with `args` and no client; answers the exit code and stderr.
 fn run_bad(args: &[&str]) -> (Option<i32>, String) {
     let output = Command::new(STUDIO)
+        .env("G4_LANG", "en")
         .arg("mcp")
         .args(args)
         .stdin(Stdio::null())
@@ -476,11 +479,11 @@ fn bad_project_exits_before_serving() {
     let gone = missing.path().join("gone");
     let (code, stderr) = run_bad(&["--project", gone.to_str().unwrap()]);
     assert_eq!(code, Some(2), "{stderr}");
-    assert!(stderr.contains("Ordner nicht lesbar"), "{stderr}");
+    assert!(stderr.contains("Folder not readable"), "{stderr}");
 
     let (code, stderr) = run_bad(&["--project", missing.path().to_str().unwrap()]);
     assert_eq!(code, Some(2), "{stderr}");
-    assert!(stderr.contains("header.yaml fehlt"), "{stderr}");
+    assert!(stderr.contains("header.yaml is missing"), "{stderr}");
 
     let (code, stderr) = run_bad(&["--project", missing.path().to_str().unwrap(), "--bogus"]);
     assert_eq!(code, Some(2), "{stderr}");
@@ -488,7 +491,7 @@ fn bad_project_exits_before_serving() {
 }
 
 /// A fresh Git clone of a text project (`g4-project.json`, no `header.yaml`) does not start:
-/// the `restore_needed` sentence and the way to complete it, not the plain „Kein Projekt“.
+/// the `restore_needed` sentence and the way to complete it, not the plain "Not a project".
 #[test]
 fn clone_of_a_text_project_names_the_restore() {
     let clone = tempfile::tempdir().unwrap();
@@ -503,7 +506,7 @@ fn clone_of_a_text_project_names_the_restore() {
         )),
         "{stderr}"
     );
-    assert!(!stderr.contains("header.yaml fehlt"), "{stderr}");
+    assert!(!stderr.contains("header.yaml is missing"), "{stderr}");
 }
 
 /// A project path that is not UTF-8 reaches the policy as a path: no panic, the folder is
@@ -517,6 +520,7 @@ fn non_utf8_project_does_not_panic() {
     let mut project = dir.path().as_os_str().to_owned().into_vec();
     project.extend_from_slice(b"/kein-\xff-projekt");
     let output = Command::new(STUDIO)
+        .env("G4_LANG", "en")
         .arg("mcp")
         .arg("--project")
         .arg(OsString::from_vec(project))
@@ -526,7 +530,7 @@ fn non_utf8_project_does_not_panic() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("panicked"), "{stderr}");
     assert_eq!(output.status.code(), Some(2), "{stderr}");
-    assert!(stderr.contains("Ordner nicht lesbar"), "{stderr}");
+    assert!(stderr.contains("Folder not readable"), "{stderr}");
     assert!(output.stdout.is_empty(), "stdout: {:?}", output.stdout);
 }
 
@@ -908,7 +912,7 @@ async fn run_rom_needs_emulator_and_flag() {
     assert_eq!(error["code"], "error");
     assert_eq!(
         error["message"],
-        "Kein Emulator freigegeben (studio mcp --emulator <Pfad>)"
+        "No emulator approved (studio mcp --emulator <path>)"
     );
     client.cancel().await.unwrap();
 
@@ -922,7 +926,7 @@ async fn run_rom_needs_emulator_and_flag() {
     let error = tool_error(call_tool(&client, "g4_call", run("/bin/sh", "rom.nds")).await);
     let message = error["message"].as_str().unwrap();
     assert!(
-        message.starts_with("Nur der freigegebene Emulator"),
+        message.starts_with("Only the approved emulator"),
         "{message}"
     );
     // A ROM that is not there is refused before anything starts.
@@ -936,7 +940,7 @@ async fn run_rom_needs_emulator_and_flag() {
     let gone = tools.path().join("gone");
     let (code, stderr) = run_bad(&["--project", project, "--emulator", gone.to_str().unwrap()]);
     assert_eq!(code, Some(2), "{stderr}");
-    assert!(stderr.contains("Emulator nicht lesbar"), "{stderr}");
+    assert!(stderr.contains("Emulator not readable"), "{stderr}");
 }
 
 #[test]

@@ -43,10 +43,11 @@ pub fn world_meta_set_impl(state: &AppState, meta: WorldMeta) -> Result<(), CmdE
     let root = &root;
     let ids = session.ids()?;
     if let (_, Some(why)) = world_meta::load(root, ids) {
-        return Err(format!(
-            "{WORLD_FILE} ist beschädigt: {why}. Repariere oder lösche die Datei."
-        )
-        .into());
+        return Err(
+            t!("commands.world_meta.broken", file = WORLD_FILE, why = why)
+                .into_owned()
+                .into(),
+        );
     }
     world_meta::save(root, &meta, ids)?;
     Ok(())
@@ -95,11 +96,11 @@ mod tests {
         assert!(answer.broken.is_some());
         let err = world_meta_set_impl(&state, named(1, "Haus")).unwrap_err();
         assert!(
-            err.message.starts_with("g4-world.json ist beschädigt: "),
+            err.message.starts_with("g4-world.json is damaged: "),
             "{err:?}"
         );
         assert!(
-            err.message.ends_with("Repariere oder lösche die Datei."),
+            err.message.ends_with("Repair or delete the file."),
             "{err:?}"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ kaputt");

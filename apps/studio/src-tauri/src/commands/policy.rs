@@ -86,38 +86,38 @@ impl UserPolicy {
         let roms = roms
             .map(|dir| {
                 dir.canonicalize().map_err(|e| {
-                    format!(
-                        "{ROMS_DIR_VAR} ist gesetzt, aber nicht lesbar: {}: {e}",
-                        dir.display()
+                    t!(
+                        "commands.policy.roms_dir_unreadable",
+                        var = ROMS_DIR_VAR,
+                        path = dir.display(),
+                        error = e
                     )
+                    .into_owned()
                 })
             })
             .transpose()?;
         let guard = |dir: &Path| match &roms {
-            Some(roms) if is_original(dir, roms) => Err(format!(
-                "Originale sind gesperrt, nur Kopien unter {COPIES_DIR}: {}",
-                dir.display()
-            )),
-            Some(roms) if roms.starts_with(dir) => Err(format!(
-                "Originale sind gesperrt, der Ordner enthält {ROMS_DIR_VAR}: {}",
-                dir.display()
-            )),
+            Some(roms) if is_original(dir, roms) => Err(originals_locked(dir.display())),
+            Some(roms) if roms.starts_with(dir) => Err(t!(
+                "commands.policy.originals_folder",
+                var = ROMS_DIR_VAR,
+                path = dir.display()
+            )
+            .into_owned()),
             _ => Ok(()),
         };
         let project_dir = canonical_dir(project)?;
         // A fresh Git clone of a text project names its way forward, not just the gap.
         if let Some(restore) = super::git::restore_needed(&project_dir) {
-            return Err(format!(
-                "{} Vervollständigen: g4k text restore {} [--base-rom <nds>]",
-                restore.message,
-                project.display()
-            ));
+            return Err(t!(
+                "commands.policy.restore_hint",
+                message = restore.message,
+                path = project.display()
+            )
+            .into_owned());
         }
         if !project_dir.join("header.yaml").is_file() {
-            return Err(format!(
-                "Kein Projekt (header.yaml fehlt): {}",
-                project.display()
-            ));
+            return Err(t!("commands.policy.no_project", path = project.display()).into_owned());
         }
         guard(&project_dir)?;
         let allowed = allowed
@@ -130,8 +130,14 @@ impl UserPolicy {
             .collect::<Result<Vec<_>, String>>()?;
         let emulator = emulator
             .map(|path| {
-                path.canonicalize()
-                    .map_err(|e| format!("Emulator nicht lesbar: {}: {e}", path.display()))
+                path.canonicalize().map_err(|e| {
+                    t!(
+                        "commands.policy.emulator_unreadable",
+                        path = path.display(),
+                        error = e
+                    )
+                    .into_owned()
+                })
             })
             .transpose()?;
         Ok(UserPolicy {
@@ -222,9 +228,9 @@ impl UserPolicy {
         inside: impl Fn(&Path) -> bool,
     ) -> Result<PathBuf, CmdError> {
         path.canonicalize().map_err(|e| match self.locate(path) {
-            Some(place) if inside(&place) => {
-                CmdError::from(format!("Pfad nicht lesbar: {shown}: {e}"))
-            }
+            Some(place) if inside(&place) => CmdError::from(
+                t!("commands.policy.path_unreadable", path = shown, error = e).into_owned(),
+            ),
             _ => outside(shown),
         })
     }
@@ -242,10 +248,13 @@ impl Policy for UserPolicy {
     fn check_project(&self, path: &str) -> Result<PathBuf, CmdError> {
         match self.resolve(path).canonicalize() {
             Ok(canonical) if canonical == self.project => Ok(canonical),
-            _ => Err(CmdError::from(format!(
-                "Nur das offene Projekt: {}",
-                self.project.display()
-            ))),
+            _ => Err(CmdError::from(
+                t!(
+                    "commands.policy.only_open_project",
+                    path = self.project.display()
+                )
+                .into_owned(),
+            )),
         }
     }
 
@@ -255,10 +264,14 @@ impl Policy for UserPolicy {
         // A target directly in `build/` makes the folder, which a fresh project lacks.
         if self.is_missing_build(parent) {
             std::fs::create_dir(self.build_dir()).map_err(|e| {
-                CmdError::from(format!(
-                    "Ordner nicht anlegbar: {}: {e}",
-                    self.build_dir().display()
-                ))
+                CmdError::from(
+                    t!(
+                        "commands.policy.folder_not_created",
+                        path = self.build_dir().display(),
+                        error = e
+                    )
+                    .into_owned(),
+                )
             })?;
         }
         self.check_target(out)
@@ -266,9 +279,9 @@ impl Policy for UserPolicy {
 
     fn check_target(&self, out: &str) -> Result<PathBuf, CmdError> {
         let full = self.resolve(out);
-        let name = full
-            .file_name()
-            .ok_or_else(|| CmdError::from(format!("Kein Dateiname: {out}")))?;
+        let name = full.file_name().ok_or_else(|| {
+            CmdError::from(t!("commands.policy.no_file_name", path = out).into_owned())
+        })?;
         let parent = full.parent().unwrap_or(&self.project);
         // `check_output` would make the missing `build/`: nothing is there to look at yet.
         if self.is_missing_build(parent) {
@@ -295,7 +308,9 @@ impl Policy for UserPolicy {
             return Err(outside(path));
         }
         if !canonical.is_file() {
-            return Err(CmdError::from(format!("Keine Datei: {path}")));
+            return Err(CmdError::from(
+                t!("commands.policy.not_a_file", path = path).into_owned(),
+            ));
         }
         Ok(canonical)
     }
@@ -305,49 +320,68 @@ impl Policy for UserPolicy {
     }
 
     fn check_run(&self, emulator: &str, rom: &str) -> Result<(PathBuf, PathBuf), CmdError> {
-        let configured = self.emulator.as_ref().ok_or_else(|| {
-            CmdError::from("Kein Emulator freigegeben (studio mcp --emulator <Pfad>)")
-        })?;
+        let configured = self
+            .emulator
+            .as_ref()
+            .ok_or_else(|| CmdError::from(t!("commands.policy.no_emulator").into_owned()))?;
         // Relative to the project folder, like every path of a call.
         if !emulator.is_empty()
             && self.resolve(emulator).canonicalize().ok().as_ref() != Some(configured)
         {
-            return Err(CmdError::from(format!(
-                "Nur der freigegebene Emulator: {}",
-                configured.display()
-            )));
+            return Err(CmdError::from(
+                t!(
+                    "commands.policy.only_approved_emulator",
+                    path = configured.display()
+                )
+                .into_owned(),
+            ));
         }
         Ok((configured.clone(), self.read_path(rom)?))
     }
 
     /// New projects are made in the app, not by an agent of one open project.
     fn new_project_parent(&self) -> Result<PathBuf, CmdError> {
-        Err(CmdError::from(NO_NEW_PROJECT))
+        Err(no_new_project())
     }
 
     fn check_new_project(&self, _dest: &str) -> Result<PathBuf, CmdError> {
-        Err(CmdError::from(NO_NEW_PROJECT))
+        Err(no_new_project())
     }
 }
 
-const NO_NEW_PROJECT: &str =
-    "Neue Projekte legt nur die App an, nicht ein Agent des offenen Projekts";
+fn no_new_project() -> CmdError {
+    CmdError::from(t!("commands.policy.no_new_project").into_owned())
+}
 
 /// The error for a path outside the allowed folders, as the dev bridge words it.
-fn outside(shown: &str) -> CmdError {
-    CmdError::from(format!(
-        "Pfad liegt außerhalb der erlaubten Ordner: {shown}"
-    ))
+pub(crate) fn outside(shown: &str) -> CmdError {
+    CmdError::from(t!("commands.policy.outside", path = shown).into_owned())
+}
+
+/// Why a folder under the originals of `G4_ROMS_DIR` is refused: only copies under
+/// `_testkopien` are open.
+pub(crate) fn originals_locked(dir: impl std::fmt::Display) -> String {
+    t!(
+        "commands.policy.originals_locked",
+        copies = COPIES_DIR,
+        path = dir
+    )
+    .into_owned()
 }
 
 fn canonical_dir(dir: &Path) -> Result<PathBuf, String> {
-    let canonical = dir
-        .canonicalize()
-        .map_err(|e| format!("Ordner nicht lesbar: {}: {e}", dir.display()))?;
+    let canonical = dir.canonicalize().map_err(|e| {
+        t!(
+            "commands.policy.folder_unreadable",
+            path = dir.display(),
+            error = e
+        )
+        .into_owned()
+    })?;
     if canonical.is_dir() {
         Ok(canonical)
     } else {
-        Err(format!("Kein Ordner: {}", dir.display()))
+        Err(t!("commands.policy.not_a_folder", path = dir.display()).into_owned())
     }
 }
 
@@ -394,7 +428,7 @@ mod tests {
 
     fn outside(err: CmdError) -> bool {
         err.message
-            .starts_with("Pfad liegt außerhalb der erlaubten Ordner: ")
+            .starts_with("Path is outside the allowed folders: ")
     }
 
     #[test]
@@ -418,7 +452,7 @@ mod tests {
             assert_eq!(err.code, "error");
             assert_eq!(
                 err.message,
-                format!("Nur das offene Projekt: {}", canonical.display()),
+                format!("Only the open project: {}", canonical.display()),
                 "{other}"
             );
         }
@@ -430,7 +464,7 @@ mod tests {
         assert!(UserPolicy::new(&dir.path().join("nope"), &[], None).is_err());
         let err = UserPolicy::new(dir.path(), &[], None).err().unwrap();
         assert!(
-            err.starts_with("Kein Projekt (header.yaml fehlt): "),
+            err.starts_with("Not a project (header.yaml is missing): "),
             "{err}"
         );
         // A missing allowed folder or emulator is refused too.
@@ -496,7 +530,7 @@ mod tests {
             let err = p.check_target(shown).unwrap_err();
             assert_eq!(
                 err.message,
-                format!("Pfad liegt außerhalb der erlaubten Ordner: {shown}")
+                format!("Path is outside the allowed folders: {shown}")
             );
         }
         assert!(!build.exists());
@@ -541,7 +575,7 @@ mod tests {
         }
         assert!(p.read_path("in.per").is_ok());
         let err = p.read_path("build").unwrap_err();
-        assert!(err.message.starts_with("Keine Datei"), "{}", err.message);
+        assert!(err.message.starts_with("Not a file"), "{}", err.message);
     }
 
     #[test]
@@ -603,7 +637,7 @@ mod tests {
         let err = none.check_run("", "a.nds").unwrap_err();
         assert_eq!(
             err.message,
-            "Kein Emulator freigegeben (studio mcp --emulator <Pfad>)"
+            "No emulator approved (studio mcp --emulator <path>)"
         );
         let p = UserPolicy::new_with_roms(dir.path(), &[], Some(&emu), None).unwrap();
         let canonical = emu.canonicalize().unwrap();
@@ -688,7 +722,7 @@ mod tests {
             let err = p.check_run(wrong, "a.nds").unwrap_err();
             assert_eq!(
                 err.message,
-                format!("Nur der freigegebene Emulator: {}", canonical.display()),
+                format!("Only the approved emulator: {}", canonical.display()),
                 "{wrong}"
             );
         }
@@ -712,7 +746,7 @@ mod tests {
         for dir in [&original, &user, &saved] {
             let err = open(dir, Some(roms.path())).err().unwrap();
             assert!(
-                err.starts_with("Originale sind gesperrt, nur Kopien unter _testkopien: "),
+                err.starts_with("Originals are locked, only copies under _testkopien: "),
                 "{err}"
             );
         }
@@ -726,7 +760,7 @@ mod tests {
         )
         .err()
         .unwrap();
-        assert!(err.starts_with("Originale sind gesperrt"), "{err}");
+        assert!(err.starts_with("Originals are locked"), "{err}");
         // Without G4_ROMS_DIR, and for a project elsewhere, nothing is refused.
         assert!(open(&original, None).is_ok());
         let elsewhere = project();
@@ -749,14 +783,14 @@ mod tests {
             )
             .err()
             .unwrap();
-            assert!(err.starts_with("Originale sind gesperrt"), "{err}");
+            assert!(err.starts_with("Originals are locked"), "{err}");
         }
         // So does a project folder above them.
         fs::write(outer.path().join("header.yaml"), "title: x\n").unwrap();
         let err = UserPolicy::new_with_roms(outer.path(), &[], None, Some(&roms))
             .err()
             .unwrap();
-        assert!(err.starts_with("Originale sind gesperrt"), "{err}");
+        assert!(err.starts_with("Originals are locked"), "{err}");
     }
 
     #[test]
@@ -800,7 +834,7 @@ mod tests {
             .err()
             .unwrap();
         assert!(
-            err.starts_with("G4_ROMS_DIR ist gesetzt, aber nicht lesbar: "),
+            err.starts_with("G4_ROMS_DIR is set, but not readable: "),
             "{err}"
         );
         assert!(err.contains("keine-roms"), "{err}");

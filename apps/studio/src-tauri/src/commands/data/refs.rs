@@ -1,5 +1,6 @@
-//! `refs`: the references of the kernel's index with a German place ("Begegnungen 0012, Gras
-//! Platz 3"), the name of the source on its own and where a click leads.
+//! `refs`: the references of the kernel's index with a place in words ("Encounters 0012, Grass
+//! slot 3", in German "Begegnungen 0012, Gras Platz 3"), the name of the source on its own and
+//! where a click leads.
 
 use std::collections::HashMap;
 
@@ -8,7 +9,7 @@ use g4_kernel::project::AssetKind;
 
 use super::dto::{NavTargetDto, RefDto, TargetDto};
 use super::labels;
-use super::{display, encounter_users, place_names};
+use super::{display, encounter_users, header_name, place_names};
 use crate::errors::CmdError;
 use crate::state::Session;
 
@@ -26,20 +27,20 @@ impl From<TargetDto> for Target {
     }
 }
 
-/// "Platz 3" for list position 2; nothing for a field without a list.
+/// " slot 3" (" Platz 3" in German) for list position 2; nothing for a field without a list.
 fn place(slot: Option<u16>) -> String {
-    slot.map(|s| format!(" Platz {}", s + 1))
+    slot.map(|s| t!("commands.data.slot_suffix", n = s + 1).into_owned())
         .unwrap_or_default()
 }
 
-/// The German name of an encounter source field (methods, HeartGold grass by time of day,
-/// replacement lists).
-fn encounter_field(field: &str) -> &str {
+/// The name of an encounter source field (methods, HeartGold grass by time of day,
+/// replacement lists), in the language of the process.
+fn encounter_field(field: &str) -> String {
     match field {
-        "grass_morning" => "Gras morgens",
-        "grass_day" => "Gras tagsüber",
-        "grass_night" => "Gras nachts",
-        other => labels::label(labels::ENCOUNTER, other).unwrap_or(other),
+        "grass_morning" => t!("commands.data.grass_morning").into_owned(),
+        "grass_day" => t!("commands.data.grass_day").into_owned(),
+        "grass_night" => t!("commands.data.grass_night").into_owned(),
+        other => labels::label(labels::ENCOUNTER, other).unwrap_or_else(|| other.to_owned()),
     }
 }
 
@@ -48,9 +49,10 @@ fn encounter_field(field: &str) -> &str {
 pub(crate) const LEVEL_SCRIPT_FIELD: &str = "var_conditions";
 
 /// The name of script file `file` as a source, what of it refers and where a click leads: a
-/// level script („Level-Script 0005“, „Bedingung 1 · var_conditions“, its header `header` when
-/// one uses it, else the file), else a rotom source („Scriptdatei 0101“, „Zeile 12 ·
-/// SetFlag“, the file at that line).
+/// level script („Level script 0005“, „Condition 1 · var_conditions“, its header `header` when
+/// one uses it, else the file), else a rotom source („Script file 0101“, „Line 12 · SetFlag“,
+/// the file at that line); the German texts say „Level-Script“, „Bedingung“, „Scriptdatei“
+/// and „Zeile“.
 pub(crate) fn script_place(
     file: u16,
     field: &str,
@@ -63,17 +65,22 @@ pub(crate) fn script_place(
             None => NavTargetDto::Script { file, line: None },
         };
         return (
-            format!("Level-Script {file:04}"),
-            format!("Bedingung {} · {field}", slot.unwrap_or(0) + 1),
+            t!("commands.data.level_script", file = file : {:04}).into_owned(),
+            t!(
+                "commands.data.condition",
+                n = slot.unwrap_or(0) + 1,
+                field = field
+            )
+            .into_owned(),
             nav,
         );
     }
     let what = match slot {
-        Some(line) => format!("Zeile {line} · {field}"),
+        Some(line) => t!("commands.data.script_line", line = line, field = field).into_owned(),
         None => field.to_owned(),
     };
     (
-        format!("Scriptdatei {file:04}"),
+        t!("commands.data.script_file", file = file : {:04}).into_owned(),
         what,
         NavTargetDto::Script {
             file,
@@ -87,6 +94,11 @@ pub(crate) fn script_place(
 pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, CmdError> {
     let found = session.refs.refs(&session.store, target.into())?;
     Ok(ref_dtos(session, &found))
+}
+
+/// "Event file 0012" ("Eventdatei 0012" in German).
+fn event_file_name(index: u16) -> String {
+    t!("commands.data.source_event_file", index = index : {:04}).into_owned()
 }
 
 /// Whether `field` of an event file is one of a warp's (its destination header or door).
@@ -108,18 +120,18 @@ fn event_users(session: &mut Session) -> HashMap<u16, (u16, String)> {
             .get(usize::from(id))
             .filter(|n| !n.trim().is_empty())
             .cloned()
-            .unwrap_or_else(|| format!("Header {id:04}"));
+            .unwrap_or_else(|| header_name(id));
         out.entry(header.event_file_id()).or_insert((id, name));
     }
     out
 }
 
-/// The German name of a field of area data (its texture sets).
-fn area_field(field: &str) -> &str {
+/// The name of a field of area data (its texture sets), in the language of the process.
+fn area_field(field: &str) -> String {
     match field {
-        "map_tileset" => "Kartentextur",
-        "building_tileset" => "Gebäudetextur",
-        other => other,
+        "map_tileset" => t!("commands.data.area_map_tileset").into_owned(),
+        "building_tileset" => t!("commands.data.area_building_tileset").into_owned(),
+        other => other.to_owned(),
     }
 }
 
@@ -154,11 +166,7 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
         let (source_name, what, nav) = match source.kind {
             AssetKind::HeaderTable => {
                 let id = slot.unwrap_or(0);
-                (
-                    format!("Header {id:04}"),
-                    String::new(),
-                    NavTargetDto::Header { id },
-                )
+                (header_name(id), String::new(), NavTargetDto::Header { id })
             }
             AssetKind::Encounter => {
                 let user = users
@@ -170,23 +178,21 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
                     None => NavTargetDto::Encounter { index },
                 };
                 (
-                    format!("Begegnungen {index:04}"),
+                    t!("commands.data.source_encounters", index = index : {:04}).into_owned(),
                     format!("{}{}", encounter_field(field), place(slot)),
                     nav,
                 )
             }
-            // A warp: „Tür 2 von Zweiblattdorf springt hierher“ (the place of the first header
-            // that shows the event file), to the warp.
+            // A warp: „Door 2 of Twinleaf Town leads here“ („Tür 2 von Zweiblattdorf springt
+            // hierher“; the place of the first header that shows the event file), to the warp.
             AssetKind::Event if warp_field(field) => {
                 let door = slot.unwrap_or(0);
                 let user = events.get(&index);
-                let place = user.map_or_else(
-                    || format!("Eventdatei {index:04}"),
-                    |(_, name)| name.clone(),
-                );
-                sentence = Some(format!("Tür {door} von {place} springt hierher"));
+                let place = user.map_or_else(|| event_file_name(index), |(_, name)| name.clone());
+                sentence =
+                    Some(t!("commands.data.warp_here", door = door, place = place).into_owned());
                 (
-                    format!("Eventdatei {index:04}"),
+                    event_file_name(index),
                     String::new(),
                     NavTargetDto::Event {
                         event_file: index,
@@ -199,8 +205,8 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
             // A figure, to it in the first header that shows its event file (the scene shows
             // that place), as a warp.
             AssetKind::Event => (
-                format!("Eventdatei {index:04}"),
-                format!("Objekt {}", slot.unwrap_or(0)),
+                event_file_name(index),
+                t!("commands.data.event_object", n = slot.unwrap_or(0)).into_owned(),
                 NavTargetDto::Event {
                     event_file: index,
                     event_kind: "object",
@@ -210,9 +216,7 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
             ),
             AssetKind::Personal => (
                 display::species(names, store, index),
-                labels::label(labels::SPECIES, field)
-                    .unwrap_or(field)
-                    .to_owned(),
+                labels::label(labels::SPECIES, field).unwrap_or_else(|| field.to_owned()),
                 NavTargetDto::Species {
                     index,
                     tab: Some("abilities"),
@@ -220,7 +224,7 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
             ),
             AssetKind::Learnset => (
                 display::species(names, store, index),
-                format!("Lernset{}", place(slot)),
+                format!("{}{}", t!("commands.data.learnset"), place(slot)),
                 NavTargetDto::Species {
                     index,
                     tab: Some("learnset"),
@@ -228,13 +232,18 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
             ),
             AssetKind::Evolution => {
                 let what = if field == "target" {
-                    "Ziel"
+                    t!("commands.data.evolution_target")
                 } else {
-                    "Parameter"
+                    t!("commands.data.evolution_param")
                 };
                 (
                     display::species(names, store, index),
-                    format!("Entwicklung {} {what}", slot.unwrap_or(0) + 1),
+                    t!(
+                        "commands.data.evolution_label_short",
+                        slot = slot.unwrap_or(0) + 1,
+                        what = what
+                    )
+                    .into_owned(),
                     NavTargetDto::Species {
                         index,
                         tab: Some("evolution"),
@@ -243,8 +252,8 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
             }
             AssetKind::TrainerProperties => {
                 let what = match field {
-                    "class" => "Klasse".to_owned(),
-                    _ => format!("Gegenstand{}", place(slot)),
+                    "class" => t!("commands.data.trainer_class").into_owned(),
+                    _ => format!("{}{}", t!("commands.data.trainer_item"), place(slot)),
                 };
                 (
                     display::trainer(names, store, index),
@@ -254,16 +263,20 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
             }
             AssetKind::TrainerParty => (
                 display::trainer(names, store, index),
-                format!("Team{}", place(slot)),
+                format!("{}{}", t!("commands.data.trainer_party"), place(slot)),
                 NavTargetDto::Trainer { index },
             ),
             AssetKind::Script => {
                 if let Target::WarpIndex(door) = target {
-                    sentence = Some(format!("Script {index:04} setzt Tür {door} per Index um"));
+                    sentence = Some(
+                        t!("commands.data.script_warp_index", index = index : {:04}, door = door)
+                            .into_owned(),
+                    );
                 }
                 script_place(index, field, slot, None)
             }
-            // A cell of a matrix: its map or its header layer („Matrix 0003, Zelle 1, 0 · Karte“).
+            // A cell of a matrix: its map or its header layer („Matrix 0003, Cell 1, 0 · Map“;
+            // „Matrix 0003, Zelle 1, 0 · Karte“ in German).
             AssetKind::Matrix => {
                 let cell = slot.unwrap_or(0);
                 let width = store
@@ -272,13 +285,13 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
                     .unwrap_or(u16::MAX);
                 let (x, y) = (cell % width, cell / width);
                 let layer = if field == "headers" {
-                    "Header"
+                    t!("commands.data.layer_headers")
                 } else {
-                    "Karte"
+                    t!("commands.data.layer_map")
                 };
                 (
-                    format!("Matrix {index:04}"),
-                    format!("Zelle {x}, {y} · {layer}"),
+                    t!("commands.data.source_matrix", index = index : {:04}).into_owned(),
+                    t!("commands.data.matrix_cell", x = x, y = y, layer = layer).into_owned(),
                     NavTargetDto::MatrixCell {
                         matrix: index,
                         x: u8::try_from(x).unwrap_or(u8::MAX),
@@ -288,21 +301,22 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
                 )
             }
             AssetKind::AreaData => (
-                format!("Gebietsdaten {index:04}"),
-                area_field(field).to_owned(),
+                t!("commands.data.source_area_data", index = index : {:04}).into_owned(),
+                area_field(field),
                 NavTargetDto::Area { id: index },
             ),
-            // A building of a map („Karte 0012, Gebäude 3“; HeartGold/SoulSilver inside: „innen“).
+            // A building of a map („Map 0012, Building 3“; HeartGold/SoulSilver inside:
+            // „(inside)“; in German „Karte 0012, Gebäude 3“ and „(innen)“).
             AssetKind::Map => {
                 let building = slot.unwrap_or(0);
-                let inside = if field.starts_with("interior_") {
-                    " (innen)"
+                let what = if field.starts_with("interior_") {
+                    t!("commands.data.building_inside", n = building)
                 } else {
-                    ""
+                    t!("commands.data.building", n = building)
                 };
                 (
-                    format!("Karte {index:04}"),
-                    format!("Gebäude {building}{inside}"),
+                    t!("commands.data.source_map", index = index : {:04}).into_owned(),
+                    what.into_owned(),
                     NavTargetDto::Building {
                         map: index,
                         index: building,
@@ -367,7 +381,7 @@ mod tests {
             .find(|r| r.source.kind == AssetKind::Matrix)
             .unwrap();
         let dto = ref_dtos(session, std::slice::from_ref(matrix)).remove(0);
-        assert_eq!(dto.label, "Matrix 0000, Zelle 1, 0 · Karte");
+        assert_eq!(dto.label, "Matrix 0000, Cell 1, 0 · Map");
         assert_eq!(dto.source_name, "Matrix 0000");
         assert_eq!(
             dto.nav,
@@ -392,8 +406,8 @@ mod tests {
             .unwrap();
         assert_eq!(found.len(), 1, "{found:?}");
         let dto = ref_dtos(session, &found).remove(0);
-        assert_eq!(dto.label, "Tür 0 von Eventdatei 0001 springt hierher");
-        assert_eq!(dto.source_name, "Eventdatei 0001");
+        assert_eq!(dto.label, "Door 0 of Event file 0001 leads here");
+        assert_eq!(dto.source_name, "Event file 0001");
         assert_eq!(
             dto.nav,
             NavTargetDto::Event {
