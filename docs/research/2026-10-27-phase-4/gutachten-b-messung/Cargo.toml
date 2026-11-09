@@ -8,8 +8,8 @@ license = "MIT"
 [workspace]
 
 [dependencies]
-g4-kernel = { path = "/Users/POLTEP/Projekte/lab/editor/gen4-studio/crates/g4-kernel" }
-g4-formats = { path = "/Users/POLTEP/Projekte/lab/editor/gen4-studio/crates/g4-formats" }
+g4-kernel = { path = "../../../../crates/g4-kernel" }
+g4-formats = { path = "../../../../crates/g4-formats" }
 ds-rom = { git = "https://github.com/AetiasHax/ds-rom", rev = "8a9c1512fa5781d9ea53e660f5310e9ab137c53d" }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 sha1 = "0.10"

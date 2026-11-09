@@ -1,7 +1,7 @@
 # Gutachten A: Weltmodell ohne Matrix, Header und Raster in „Bauen“
 
-Stand: 25.10.2026. Gutachter: Architektur-Review (nur lesend). Repo: `/Users/POLTEP/Projekte/lab/editor/gen4-studio`.
-Datenbasis: die drei Vanilla-Projekte unter `/Users/POLTEP/Projekte/lab/editor/Roms/*_DSPRE_contents` (Platin DE `CPUD`, HeartGold DE `IPKD`, HeartGold US `IPKE`), nur gelesen. Header aus `arm9/arm9.bin` (Offsets aus `crates/g4-kernel/metadata/header_tables.yaml`), Layout nach uxie 0.9.7 `src/map_header/binary.rs`; Matrizen aus `unpacked/matrices`; Ortsnamen aus `g4k headers` und dem Textarchiv 433 (Pt) bzw. 279 (HGSS). Die Auswerteskripte liegen in `docs/research/2026-10-25-ausbau/analyse.py`, `analyse2.py`, `analyse3.py` und `textdec.py`. HeartGold US gleicht HeartGold DE in allen Zählungen, deshalb steht unten nur „HGSS“.
+Stand: 25.10.2026. Gutachter: Architektur-Review (nur lesend). Repo: `$HOME/Projekte/lab/editor/gen4-studio`.
+Datenbasis: die drei Vanilla-Projekte unter `$HOME/Projekte/lab/editor/Roms/*_DSPRE_contents` (Platin DE `CPUD`, HeartGold DE `IPKD`, HeartGold US `IPKE`), nur gelesen. Header aus `arm9/arm9.bin` (Offsets aus `crates/g4-kernel/metadata/header_tables.yaml`), Layout nach uxie 0.9.7 `src/map_header/binary.rs`; Matrizen aus `unpacked/matrices`; Ortsnamen aus `g4k headers` und dem Textarchiv 433 (Pt) bzw. 279 (HGSS). Die Auswerteskripte liegen in `docs/research/2026-10-25-ausbau/analyse.py`, `analyse2.py`, `analyse3.py` und `textdec.py`. HeartGold US gleicht HeartGold DE in allen Zählungen, deshalb steht unten nur „HGSS“.
 
 ---
 

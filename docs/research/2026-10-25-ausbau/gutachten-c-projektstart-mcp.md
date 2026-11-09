@@ -1,6 +1,6 @@
 # Gutachten C: Projektstart aus ROM und MCP-Server als Produktbestandteil
 
-Stand: 2026-10-25. Gutachter: Architektur-Review (nur lesend). Repo: `/Users/POLTEP/Projekte/lab/editor/gen4-studio`.
+Stand: 2026-10-25. Gutachter: Architektur-Review (nur lesend). Repo: `$HOME/Projekte/lab/editor/gen4-studio`.
 Gelesen: `docs/ROADMAP.md`, `docs/superpowers/specs/2026-10-21-gen4-studio-design.md`, `crates/g4-kernel/src/{project,build,run,disk,export,dynamic_headers}.rs`, `crates/g4-kernel/src/bin/g4k.rs`, `crates/g4-kernel/tests/build.rs`, `crates/g4-formats/src/game.rs`, `apps/studio/src/ui/frame/StartPane.tsx`, `apps/studio/src/platform/transport.ts`, `apps/studio/src/bus/editBus.ts`, `apps/studio/src/reload.ts`, `apps/studio/src-tauri/src/{lib,state}.rs`, `commands/{mod,project,wizards,data/mod}.rs`, `bridge/{mod,http,dispatch,roots,batch}.rs`, `bin/studio-bridge.rs`, `docs/{dev-setup,release,agent-gate}.md`, `docs/superpowers/specs/2026-10-22-agent-test-harness-design.md`, Analyse `docs/research/2026-10-20-dspre-und-suite-analyse.md`.
 Eigene Messung: `target/debug/g4k extract` auf Platin DE und HeartGold DE in den Scratchpad (Originale nur gelesen, Ergebnis danach gelöscht).
 

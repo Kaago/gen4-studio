@@ -58,7 +58,7 @@ Stand 24.10.2026, geschrieben gegen `main` 42d3758 (3b.3a gemerged). Pfade relat
 
 - [ ] **Step 1: Failing tests** (`test_steps.py`, synthetisch): `find_enemy_hits_exactly_the_signature` (gebauter Puffer mit einer Signatur und einem Fast-Treffer mit sieben `06`), `in_battle_requires_one_hit`, `expect_battle_times_out_cleanly` (gefälschter Emulator-Stub ohne Signatur → Exit 2), `walk_until_battle_alternates_direction`.
 - [ ] **Step 2: Run, FAIL** (`cd scripts/g4emu && uv run pytest -m "not integration" -q`) → **Step 3: Implement** → **Step 4: Run, PASS**.
-- [ ] **Step 5: Gated Kalibrierung** (Messung, kein Commit von ROM-Daten): auf der Kopie `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/pt-3b3b-enc` (Messdaten unter `_messung/`, ROM `out.nds` mit Mewtu-Gras) `uv run g4emu run --rom … --save … continue expect-map <neuer Header> walk-until-battle right 20 back-and-forth expect-battle 150 5 end-battle` → Erfolg; dasselbe auf `hg-3b3b-enc`. Protokoll in den Bericht.
+- [ ] **Step 5: Gated Kalibrierung** (Messung, kein Commit von ROM-Daten): auf der Kopie `$HOME/Projekte/lab/editor/Roms/_testkopien/pt-3b3b-enc` (Messdaten unter `_messung/`, ROM `out.nds` mit Mewtu-Gras) `uv run g4emu run --rom … --save … continue expect-map <neuer Header> walk-until-battle right 20 back-and-forth expect-battle 150 5 end-battle` → Erfolg; dasselbe auf `hg-3b3b-enc`. Protokoll in den Bericht.
 - [ ] **Step 6: Commit** `feat(g4emu): battle detection by enemy signature, walk-until-battle, end-battle, win-battle, mash`
 
 ---

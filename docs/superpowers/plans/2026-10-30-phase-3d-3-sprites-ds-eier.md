@@ -10,7 +10,7 @@
 
 **Spec:** [2026-10-30-phase-3d-erzaehlen-design.md](../specs/2026-10-30-phase-3d-erzaehlen-design.md) §1, §2 (Zeilen Kampfsprites, Ei-Attacken), §3.5, §4 (Zeile 3d.3), §6, §7, §8; [entscheidungen.md](../../research/2026-10-30-phase-3d/entscheidungen.md) (Phasenschnitt Zeile 3d.3; „Flags und Variablen (Gutachten B)“ Zeile Ei-Attacken; „Löschen, Sprites, DS-Varianten“ Zeilen Kampfsprites und DS-Bildschirm-Varianten; „Nicht in 3d“; „Was bewusst nicht entschieden ist“ zu Formen, Offsets, Platin-Sprachen); [gutachten-c-loeschen-sprites-schnitt.md](../../research/2026-10-30-phase-3d/gutachten-c-loeschen-sprites-schnitt.md) §3 (Ort und Aufbau, Verschlüsselung, Lizenz, Aufwand) und §4 (DS-Varianten) mit den Messskripten `gutachten-c-sprites-inventar.py`, `gutachten-c-sprites-krypto.py`, `gutachten-c-proto.rs` (Formel und Zählungen sind die Testwerte); [gutachten-b-flags-variablen-live.md](../../research/2026-10-30-phase-3d/gutachten-b-flags-variablen-live.md) §5 (Ei-Attacken) mit `gutachten-b-eier.py`.
 
-Stand 30.10.2026: `main` bei `3c194c7` (Phase 4 abgeschlossen, Spezifikation 3d). Arbeit im Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-3`, Branch `phase-3d-3-sprites-ds-eier` (existiert, Basis `3c194c7`). Parallel laufen in eigenen Worktrees 3d.1 (`phase-3d-1-flags-variablen`), 3d.2 (`phase-3d-2-erzaehlen-rahmen`) und 4.5 (`phase-4-5-veroeffentlichen`). Kernel `crates/g4-kernel/src`, Formate `crates/g4-formats/src`, Tauri `apps/studio/src-tauri/src`, Frontend `apps/studio/src`.
+Stand 30.10.2026: `main` bei `3c194c7` (Phase 4 abgeschlossen, Spezifikation 3d). Arbeit im Worktree `$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-3`, Branch `phase-3d-3-sprites-ds-eier` (existiert, Basis `3c194c7`). Parallel laufen in eigenen Worktrees 3d.1 (`phase-3d-1-flags-variablen`), 3d.2 (`phase-3d-2-erzaehlen-rahmen`) und 4.5 (`phase-4-5-veroeffentlichen`). Kernel `crates/g4-kernel/src`, Formate `crates/g4-formats/src`, Tauri `apps/studio/src-tauri/src`, Frontend `apps/studio/src`.
 
 ## Entscheidungen (wo Spezifikation und Gutachten offen lassen)
 
@@ -47,10 +47,10 @@ Stand 30.10.2026: `main` bei `3c194c7` (Phase 4 abgeschlossen, Spezifikation 3d)
 
 ## Global Constraints
 
-- Arbeitsort ist der Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-3`, Branch `phase-3d-3-sprites-ds-eier` (existiert, Basis main `3c194c7`); nie `cd` in die Hauptkopie, nie Branch wechseln, nie nach main mergen (Ausnahme: Task 8 „Main mergen“ holt main **in den Worktree**); kein `git stash`. `tools/` ist dort ein Symlink (nie einchecken).
+- Arbeitsort ist der Worktree `$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-3d-3`, Branch `phase-3d-3-sprites-ds-eier` (existiert, Basis main `3c194c7`); nie `cd` in die Hauptkopie, nie Branch wechseln, nie nach main mergen (Ausnahme: Task 8 „Main mergen“ holt main **in den Worktree**); kein `git stash`. `tools/` ist dort ein Symlink (nie einchecken).
 - cargo braucht `export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"`; `pnpm install` einmal in `apps/studio`.
 - Commits enden mit `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
-- Originale unter `/Users/POLTEP/Projekte/lab/editor/Roms` nie öffnen oder ändern; Testkopien nur `Roms/_testkopien/3d-3-<zweck>` (`cp -cR` für Ordner, `cp -c` für `.nds`). `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut. Gated Tests lesen `G4_TEST_PROJECT` und schreiben nur auf `vanilla_copy()`.
+- Originale unter `$HOME/Projekte/lab/editor/Roms` nie öffnen oder ändern; Testkopien nur `Roms/_testkopien/3d-3-<zweck>` (`cp -cR` für Ordner, `cp -c` für `.nds`). `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut. Gated Tests lesen `G4_TEST_PROJECT` und schreiben nur auf `vanilla_copy()`.
 - Test-Umgebung nur auf `G4_VITE_PORT=1720 G4_BRIDGE_PORT=1721`.
 - **Keine ROM-Daten ins Repo: keine Sprite-Bilder, keine PNGs aus dem Spiel, keine Member; gated Tests prüfen Zählungen, keine Pixel; Fixtures nur synthetisch (eigene kleine NCGR/NCLR im Test erzeugen).** Gerenderte Bilder für den Augenschein (Task 3) liegen nur im Scratchpad oder unter `target/`.
 - UI nur aus `apps/studio/src/ui/primitives` und Tokens `--g4-*`; `bash scripts/check-styles.sh`, `bash scripts/check-tokens.sh`; deutsche Oberfläche, englische Bezeichner.

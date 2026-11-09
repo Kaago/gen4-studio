@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Repository `/Users/POLTEP/Projekte/lab/editor/gen4-studio`, Branch `phase-3-frontend-split` von `phase-2`. Nur `apps/studio/src` (keine Rust-Änderungen, keine neuen Abhängigkeiten).
+- Repository `$HOME/Projekte/lab/editor/gen4-studio`, Branch `phase-3-frontend-split` von `phase-2`. Nur `apps/studio/src` (keine Rust-Änderungen, keine neuen Abhängigkeiten).
 - Keine Verhaltensänderung: Alle UI-Texte, Tastenkürzel, Ladereihenfolgen, Fehlermeldungen und Wächter bleiben gleich. Bestehende Tests (201 vitest) bleiben grün und werden nicht abgeschwächt; verschobene Funktionen nehmen ihre Tests mit.
 - Diese Invarianten aus Phase 2 müssen nach jedem Task gelten (jede ist eine frühere Fehlerkorrektur):
   - `MatrixScene` baut die three.js-Szene bei Hover, Meldungen oder `dirty` nicht neu auf (memo, Callbacks über Ref, Effekt-Abhängigkeiten).

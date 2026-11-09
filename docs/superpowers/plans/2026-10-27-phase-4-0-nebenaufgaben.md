@@ -12,11 +12,11 @@
 
 ## Global Constraints
 
-- Arbeitsort: Worktree `/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-4-0`, Branch `phase-4-0-nebenaufgaben`. Nie `cd` in die Hauptkopie, nie Branch wechseln, nie nach main mergen, kein `git stash`.
+- Arbeitsort: Worktree `$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-4-0`, Branch `phase-4-0-nebenaufgaben`. Nie `cd` in die Hauptkopie, nie Branch wechseln, nie nach main mergen, kein `git stash`.
 - cargo braucht `export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"`. `pnpm install` einmal in `apps/studio` (der Worktree hat noch kein `node_modules`).
 - Jeder Commit endet mit der Zeile `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` (ASCII-`@`, kein `＠`).
-- Originale unter `/Users/POLTEP/Projekte/lab/editor/Roms` nie öffnen oder ändern; Testprojekte nur frische Kopien unter `Roms/_testkopien/4-0-<zweck>`. Keine ROM-Daten ins Repo.
-- Gated Tests: `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` (absolut), Symlink `tools` liegt im Worktree (nicht einchecken).
+- Originale unter `$HOME/Projekte/lab/editor/Roms` nie öffnen oder ändern; Testprojekte nur frische Kopien unter `Roms/_testkopien/4-0-<zweck>`. Keine ROM-Daten ins Repo.
+- Gated Tests: `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` (absolut), Symlink `tools` liegt im Worktree (nicht einchecken).
 - Test-Umgebung nur auf den Ports 1490/1491 (`G4_VITE_PORT=1490 G4_BRIDGE_PORT=1491`); 1420/1421 und 1430/1431 nie anfassen.
 - UI nur aus den Bausteinen von `apps/studio/src/ui/primitives` und Tokens `--g4-*`; keine Hex-Werte in CSS (`scripts/check-styles.sh`, `scripts/check-tokens.sh`).
 - Sprache der Oberfläche Deutsch, Texte genau wie in der Spec §3.5 (Menüpunkte, Toasts, Sätze der Fehlercodes).
@@ -87,7 +87,7 @@
 - [ ] **Step 2:** `cargo test -p g4-kernel preview` → FAIL.
 - [ ] **Step 3:** Umsetzen. Einpassen: `image::load_from_memory` mit `guess_format`; nur `Png` und `Jpeg` zugelassen; Dimensionen vor dem vollen Decodieren über `ImageReader::into_dimensions` prüfen; Zuschnitt cover auf 4 : 3 mittig; `resize_exact` mit `Lanczos3` beim Verkleinern, `Nearest` bei ganzzahligem Vergrößern, sonst `CatmullRom`; Alpha über `szene/ds/grund` mischen; PNG RGB8 schreiben. Schreiben: Temp-Datei in `.g4/` + `rename` (Helfer aus `fsutil`, falls vorhanden).
 - [ ] **Step 4:** `cargo test -p g4-kernel preview` → PASS; `cargo clippy -p g4-kernel -- -D warnings`; `cargo deny check licenses` falls `cargo deny` installiert ist (sonst im Bericht nennen).
-- [ ] **Step 5: Gated Test** `standard_map_names_the_start_towns`: frische Kopien wie die bestehenden gated Tests sie anlegen (Platin DE, HeartGold DE): Header-Name `T01` bzw. `T20` (über `standard_map` und den Header), Karte und AreaData sind gültige Indizes. Lauf: `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms cargo test -p g4-kernel --features <wie die anderen gated Tests> standard_map` → PASS.
+- [ ] **Step 5: Gated Test** `standard_map_names_the_start_towns`: frische Kopien wie die bestehenden gated Tests sie anlegen (Platin DE, HeartGold DE): Header-Name `T01` bzw. `T20` (über `standard_map` und den Header), Karte und AreaData sind gültige Indizes. Lauf: `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms cargo test -p g4-kernel --features <wie die anderen gated Tests> standard_map` → PASS.
 - [ ] **Step 6: Commit** `feat(kernel): project preview, read, fit and write .g4/preview.png`.
 
 ### Task 3: Befehle in Tauri, Brücke und MCP
@@ -206,5 +206,5 @@
 - [ ] **Step 1:** Frische Kopien `Roms/_testkopien/4-0-pt` (Platin DE) und `4-0-hg` (HeartGold DE) wie in `docs/agent-gate.md`; Test-Umgebung mit `G4_VITE_PORT=1490 G4_BRIDGE_PORT=1491 bash scripts/agent/studio-web.sh`.
 - [ ] **Step 2:** G1 bis G4 im Browser durchgehen, je Schritt ein Bild nach `target/agent/gate-2026-10-27/`; dazu Dunkel und Kompakt auf Start. Fehler → Fix-Commit im passenden Task-Bereich, dann wiederholen.
 - [ ] **Step 3:** `docs/phase-4-0-gate.md` nach dem Muster von `docs/phase-3b4-gate.md`: Zeilen G1 bis G5 mit Ergebnis und Commit, Abschnitt „Beim Nutzer offen“ mit Hand (Dock, Finder, „Über Gen4 Studio“ der gepackten App) und Blick (Start Hell/Dunkel/Kompakt, Marke in `.fig` und `tauri dev`), Pfade der Bilder.
-- [ ] **Step 4:** `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms bash scripts/gate.sh` im Worktree (im Hintergrund, 20 bis 50 min) → grün; Ergebnis ins Gate-Dokument.
+- [ ] **Step 4:** `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms bash scripts/gate.sh` im Worktree (im Hintergrund, 20 bis 50 min) → grün; Ergebnis ins Gate-Dokument.
 - [ ] **Step 5:** Roadmap Punkt 4.0: „umgesetzt auf Branch `phase-4-0-nebenaufgaben`, gate.sh grün (<Commit>, <Sekunden> s), offen: Hand und Blick“. Trailer zählen: `git log --format='%(trailers:only,unfold)' main..HEAD | grep -c 'Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>'` gleich `git rev-list --count main..HEAD`. Commit `docs(4.0): gate and roadmap`.

@@ -24,14 +24,14 @@ Namen in der Oberfläche (Rollen und `data-*` für die Prüfung):
 
 ## Vorbereitung
 
-1. **Kopien** unter `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`) aus den Originalen, die dabei nur gelesen werden; Ordner `3d-7-<zweck>` (die gated Kopien) bzw. `3d-7-<zweck>_DSPRE_contents` (Szenarien) neben `3d-7-<zweck>.nds`:
+1. **Kopien** unter `$HOME/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`) aus den Originalen, die dabei nur gelesen werden; Ordner `3d-7-<zweck>` (die gated Kopien) bzw. `3d-7-<zweck>_DSPRE_contents` (Szenarien) neben `3d-7-<zweck>.nds`:
    - `3d-7-pt` (Platin DE), `3d-7-hgde` (HeartGold DE), `3d-7-hgus` (HeartGold US) für (1); nur gelesen, die Tests schreiben auf `vanilla_copy()` (das Textprojekt entsteht je Testprozess einmal in `target/tmp/story-<ordner>` und wird je Test kopiert). Sie bleiben bis zum Browser-Teil.
    - `3d-7-mess-pt` (Platin DE) für die Messung von `VISIBILITY_ENTRY` (Task 5, R1); nach der Messung gelöscht.
    - `3d-7-szen-pt` (Platin DE) und `3d-7-szen-hg` (HeartGold DE) für (2), frisch je Lauf (der Build ändert die Kopie); nach dem letzten grünen Lauf gelöscht.
    - `3d-7-web` (Platin DE) und `3d-7-webhg` (HeartGold DE) für (3), mit `g4k git init` („Ausgangsstand“), `assign_base`, `adopt_text_project` und einem Commit danach; legt der UI-Test an, nach ihm gelöscht.
 
    Kein ROM-Inhalt im Repository; `Manual`, `_saves` und die Kopien der parallelen Phasen bleiben.
-2. **Werkzeuge:** `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio` für die Szenarien; `tools/` ist der Symlink auf den Haupt-Checkout (nie einchecken). `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
+2. **Werkzeuge:** `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio` für die Szenarien; `tools/` ist der Symlink auf den Haupt-Checkout (nie einchecken). `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
 3. **Test-Umgebung** für (3) auf den Ports **1770/1771**: `G4_ROMS_DIR=<Roms> G4_VITE_PORT=1770 G4_BRIDGE_PORT=1771 bash scripts/agent/studio-web.sh`; eigenes Chrome-Profil unter `target/agent/`. Andere Ports nicht anfassen.
 4. **Ausgaben** im Worktree (nicht im Repo): `target/agent/gate-2026-11-02/3d-7/messung/` (Messung, R1), `target/agent/gate-2026-11-03/3d-7/{pt,hg}-geschichte/` (Szenarien, Bilder und Logs), `target/agent/{pt,hg}-geschichte-run{1,2,3}.log` (Läufe), für (3) `target/agent/gate-<Datum>/3d-7/`. Den Ordner vor `git worktree remove` sichern.
 5. **Last:** die Maschine teilen sich bis zu vier Orchestratoren; alle Zeiten sind **unter Last** (Lastmittel 12 bis 18 in den Läufen; Zeitgrenzen gelten nur mit `G4_TIMING_STRICT=1`, die Tests von 3d.7 haben keine).

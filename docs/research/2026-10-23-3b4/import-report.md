@@ -6,14 +6,14 @@ Stand: 23.10.2026. Für die Spec von Phase 3b.4 „Import und Prüfungen“, nur
 
 | Quelle | Stand | Ort |
 |---|---|---|
-| DSPRE `main` | `e751187b` (13.10.2026, Release 2.3.4) | lokaler Klon `/Users/POLTEP/Projekte/lab/editor/DSPRE` |
+| DSPRE `main` | `e751187b` (13.10.2026, Release 2.3.4) | lokaler Klon `$HOME/Projekte/lab/editor/DSPRE` |
 | DSPRE `feature/avalonia` | `0a550272` (21.10.2026) | derselbe Klon, Remote-Ref `origin/feature/avalonia`. **Nicht neu gefetcht**, kann also ein paar Tage alt sein. |
 | PDSMS upstream (Trifindo) | `ac30b653` (13.07.2021) | `git clone --depth 1 https://github.com/Trifindo/Pokemon-DS-Map-Studio` → `scratchpad/research-3b4/src/pdsms` |
 | PDSMS-Fork AdAstra-LD (v2.4) | `de409512` (24.09.2026) | `https://github.com/AdAstra-LD/Pokemon-DS-Map-Studio` → `scratchpad/research-3b4/src/pdsms-adastra` |
 | apicula | `3d4e91e1` (03.08.2024) | `https://github.com/scurest/apicula` → `scratchpad/research-3b4/src/apicula` |
 | pret/pokeplatinum | `main`, abgerufen am 23.10.2026 | `src/overlay005/land_data.c`, `loaded_map_buffers.c`, `bdhc.c`, `include/constants/field/bdhc.h`, `src/easy3d.c` |
 | gen4-studio | Worktree `phase-3c1` | `crates/g4-formats/src/map.rs`, `docs/formats/map.md`, `docs/ROADMAP.md` |
-| Testprojekte | nur gelesen | `/Users/POLTEP/Projekte/lab/editor/Roms/*_DSPRE_contents` (Statistik-Skript: `scratchpad/research-3b4/scripts/mapstats.py`) |
+| Testprojekte | nur gelesen | `$HOME/Projekte/lab/editor/Roms/*_DSPRE_contents` (Statistik-Skript: `scratchpad/research-3b4/scripts/mapstats.py`) |
 
 Pfade mit `avalonia:` beziehen sich auf `git show origin/feature/avalonia:<pfad>`, Pfade mit `main:` auf den Branch `main` von DSPRE.
 

@@ -3,9 +3,10 @@
 # Aufruf: messung-2.sh <spiel> <karte> <scriptdatei> <textarchiv>
 set -euo pipefail
 S="$1"; MAP="$2"; SCR="$3"; TXT="$4"
-ROMS=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien
+ROMS=$HOME/Projekte/lab/editor/Roms/_testkopien
 P="$ROMS/4-gutachten-b-$S"; OUT="$ROMS/4-gutachten-b-$S-out"
-SB="${PROTO_B:-/private/tmp/claude-502/-Users-POLTEP-Projekte-lab-editor/8b06ac95-9aa6-47f7-80f3-63b9fe742be7/scratchpad/proto-b}"
+EDITOR_ID="$(printf '%s' "$HOME/Projekte/lab/editor" | tr / -)"
+SB="${PROTO_B:-/private/tmp/claude-502/$EDITOR_ID/8b06ac95-9aa6-47f7-80f3-63b9fe742be7/scratchpad/proto-b}"
 B="$SB/target/release/proto-b"
 st() { "$B" stages "$P" "$OUT/$1.nds" | python3 -c 'import json,sys; d=json.load(sys.stdin); d.pop("kinds"); print(json.dumps(d))'; }
 echo "load: $(uptime | sed 's/.*averages: //')"

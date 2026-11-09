@@ -47,13 +47,13 @@ Namen in der Oberfläche (für die Prüfung):
 
 Durchgeführt 2026-11-07 bis 2026-11-08 (Befehle: [docs/agent-gate.md](agent-gate.md), „Phase 6.4a“):
 
-1. **Kopien** unter `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), die Ziele existierten vorher nicht, die Originale nur gelesen:
+1. **Kopien** unter `$HOME/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), die Ziele existierten vorher nicht, die Originale nur gelesen:
    - `6-4a-pt_DSPRE_contents`, `6-4a-hgde_DSPRE_contents`, `6-4a-hgus_DSPRE_contents` je mit `6-4a-<spiel>.nds` daneben: gated Tests (Task 10; geschrieben wird nur auf `vanilla_copy()`).
    - `6-4a-web` (Platin DE) und `6-4a-webhg` (HeartGold DE), je `_DSPRE_contents` mit `.nds`: Browser-Teil (Task 9 Step 5), eingerichtet mit `g4k git init`, `call.sh open_project`, `assign_base`, `adopt_text_project` (3:15 bzw. 1:04 min) und dem Commit „Textprojekt“.
    - `6-4a-szen-pt`, `6-4a-szen-hg` (erster Lauf, 7 Striche, danach zusätzlich die Spielprobe der UI-Szenarien) und `6-4a-szen-pt2`, `6-4a-szen-hg2` (maßgeblicher Lauf nach der Fix-Runde, 8 Striche): Szenarien über MCP (Task 11). Ein weiterer Lauf braucht `-pt3`/`-hg3`.
    - `6-4a-t11buehne-pt`, `6-4a-t11buehne-hg`: Probe der Bühnen-Szenarien (Task 11, nicht für das Gate).
    - `6-4a-buehne-pt`, `6-4a-buehne-hg`: Phasen-Gate über die Oberfläche (Task 11 Step 4), Bühne, `g4k git init` („Ausgangsstand“), „Karte angelegt“, Malen, `*-gemalt-ui`. In ihnen liegt die gebaute ROM `out.nds` für melonDS und DSPRE.
-2. **Worktree:** `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
+2. **Worktree:** `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut; `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
 3. **Test-Umgebung** auf **1560/1561**: `G4_ROMS_DIR=$R G4_VITE_PORT=1560 G4_BRIDGE_PORT=1561 bash scripts/agent/studio-web.sh`; andere Ports nicht angefasst (6.5b läuft daneben). Vite in einem Worktree unter `.claude/` bemerkt Dateiänderungen nicht: nach einer Codeänderung die Test-Umgebung neu starten.
 4. **Ausgaben** im Worktree (nicht im Repo): Logs `target/agent/6-4a/*.log`, Notizen und Bilder unter `target/agent/gate-2026-11-07/6-4a/` (`browser.md`, `ui-gate.md`; Szenarien `pt-gemalt2/`, `hg-gemalt2/`, `pt-gemalt-ui/`, `hg-gemalt-ui/`, Bühne `*-ui-buehne/`) und `target/agent/gate-2026-11-08/6-4a/` (erster Szenario-Lauf `pt-gemalt/`, `hg-gemalt/`). Den Ordner vor `git worktree remove` sichern.
 5. **Last:** `uptime` vor jedem langen Lauf, in den Logs und den Tabellen unten notiert (1-Minuten-Last meist 15 bis 20; die Maschine teilten sich mehrere Worktrees). Ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.

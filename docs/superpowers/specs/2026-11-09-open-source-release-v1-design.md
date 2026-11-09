@@ -55,7 +55,7 @@ Sprachumschalter oben: „English · [Deutsch](README.de.md)“.
 
 - `docs/README.md` (Englisch): Landkarte in drei Teilen. Für Nutzer und Agenten: `docs/en/*`, `docs/formats/*` (deutsch, englischer Kopfabsatz), `docs/mcp.md`. Für Contributor: `dev-setup`, `release`, Gate-Skripte. Entwicklungsgeschichte: `ROADMAP.md`, `superpowers/specs`, `superpowers/plans`, `phase-*-gate.md`, `research/`, mit einem Absatz zur Methodik (Phasen, Gates, agentische Umsetzung mit unabhängiger Abnahme).
 - Vorspann in `docs/research/2026-10-20-dspre-und-suite-analyse.md`: interne Architekturbewertung vom Oktober 2026 als Entscheidungsgrundlage, keine Kritik am Projekt; DSPRE hat seither weitere Releases.
-- `design-system/openpencil/BRIEFING-APP-SCREENS.md`: absolute Pfade `/Users/POLTEP/Projekte/lab/editor/gen4-studio/` werden zu Pfaden relativ zur Repo-Wurzel.
+- `design-system/openpencil/BRIEFING-APP-SCREENS.md`: absolute Pfade in das Home-Verzeichnis des Maintainers (Ordner `Projekte/lab/editor/gen4-studio/`) werden zu Pfaden relativ zur Repo-Wurzel; in den übrigen Dokumenten (Gates, Pläne, Research, Szenarien) steht statt des Home-Verzeichnisses `$HOME`.
 
 ### 3.4 Repository und CI
 
@@ -123,6 +123,6 @@ Auf `main`, nach dem Merge von `oss-readiness` und `i18n` und einem grünen `scr
 
 ## 6. Gate
 
-- Arbeitspaket 1: `README.md` und `README.de.md` haben dieselben Überschriften in derselben Reihenfolge (Test `scripts/tests/readme.test.sh`); alle Links im README und in `docs/README.md` zeigen auf existierende Dateien oder Anker; `git grep '/Users/POLTEP'` findet nichts; `gh repo view` zeigt Description, Homepage, 20 Topics, Discussions an, Wiki aus; `ci.yml` besteht `scripts/check-actions.sh`.
+- Arbeitspaket 1: `README.md` und `README.de.md` haben dieselben Überschriften in derselben Reihenfolge (Test `scripts/tests/readme.test.sh`); alle Links im README und in `docs/README.md` zeigen auf existierende Dateien oder Anker; `git grep -n '/Users/POLT[E]P'` (die eckige Klammer verhindert den Treffer in dieser Zeile) findet nichts; `gh repo view` zeigt Description, Homepage, 20 Topics, Discussions an, Wiki aus; `ci.yml` besteht `scripts/check-actions.sh`.
 - Arbeitspaket 2: `pnpm test`, `cargo test --workspace` und der hermetische Gate grün; `catalogs.test.ts` und `check_catalogs` grün; `git grep -nE '"[^"]*[äöüÄÖÜß][^"]*"' -- 'apps/studio/src/**/*.tsx' 'apps/studio/src/**/*.ts' ':!**/*.test.*' ':!apps/studio/src/i18n/**' ':!apps/studio/src/ui/gallery/**'` findet nichts; dasselbe für `crates/g4-kernel/src` und `apps/studio/src-tauri/src` ohne `locales/` und ohne `#[cfg(test)]`-Module; die App startet mit `G4_LANG=en` bzw. englischem System komplett englisch (Blick beim Nutzer: Start, Welt bauen, Erzählen, Technik, Einstellungen, ein Fehler-Toast, der Assistent „New game from ROM…“); `studio mcp` antwortet mit `G4_LANG=de` deutsch und ohne Variable englisch.
 - Arbeitspaket 3: Release `v1.0.0` ist veröffentlicht, nicht Draft, mit DMG, Installer und `SHA256SUMS.txt` (zwei Zeilen); `gh repo view --json visibility` ist `PUBLIC`; `check-no-rom-data.sh --history v0.1.0-rc.1..v1.0.0` und auf beiden Paketen grün; `docs/launch/` vollständig.

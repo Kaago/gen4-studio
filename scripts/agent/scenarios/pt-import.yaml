@@ -27,7 +27,7 @@
 # cube, plane (import_map_parts: the changed assets, the map and its map texture pack).
 # Example from a worktree (from scripts/g4emu; a fresh copy with its .nds beside it, see
 # docs/agent-gate.md, "Szenarien über MCP"; after a run use a new copy):
-#   W=<worktree>; export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+#   W=<worktree>; export G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms
 #   export G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k
 #   uv run g4emu scenario ../agent/scenarios/pt-import.yaml \
 #     --project "$G4_ROMS_DIR/_testkopien/6-5a-szen-pt_DSPRE_contents" \

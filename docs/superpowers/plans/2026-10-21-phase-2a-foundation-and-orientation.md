@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- Repository `/Users/POLTEP/Projekte/lab/editor/gen4-studio`, Branch `phase-2a` von `main`. Cargo-Workspace `crates/g4-formats`, `crates/g4-kernel`, `apps/studio/src-tauri`. Cargo via `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
+- Repository `$HOME/Projekte/lab/editor/gen4-studio`, Branch `phase-2a` von `main`. Cargo-Workspace `crates/g4-formats`, `crates/g4-kernel`, `apps/studio/src-tauri`. Cargo via `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
 - Lizenz MIT. Keine GPL- oder AGPL-Crates. `nitroarc` (LGPL) bleibt eine separate Shared Library.
-- Keine ROM-Daten im Repository. Gated Tests lesen `G4_TEST_PROJECT`; schreibende Tests arbeiten nur auf `g4_kernel::test_support::vanilla_copy()`. Testprojekte: PT_DE `/Users/POLTEP/Projekte/lab/editor/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents` (CPUD), HG_DE `…/Pokemon - Goldene Edition HeartGold (Germany)_DSPRE_contents` (IPKD), HG_US `…/Pokemon - HeartGold Version (USA)_DSPRE_contents` (IPKE). Gated Tests laufen einmal pro Projekt.
+- Keine ROM-Daten im Repository. Gated Tests lesen `G4_TEST_PROJECT`; schreibende Tests arbeiten nur auf `g4_kernel::test_support::vanilla_copy()`. Testprojekte: PT_DE `$HOME/Projekte/lab/editor/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents` (CPUD), HG_DE `…/Pokemon - Goldene Edition HeartGold (Germany)_DSPRE_contents` (IPKD), HG_US `…/Pokemon - HeartGold Version (USA)_DSPRE_contents` (IPKE). Gated Tests laufen einmal pro Projekt.
 - DSPRE-Layout bleibt verbindlich: entpackte Member `{:04}` unter `unpacked/<Name>`; Namen `maps`, `matrices`, `areaData`, `eventFiles`, `textArchives`, `mapTextures`, `buildingTextures`, `exteriorBuildingModels`, `interiorBuildingModels`.
 - Codecs erhalten unbekannte Bytes verbatim; `read` lehnt ab, was `write` nicht reproduziert; `validate()` vor jedem Schreiben.
 - Kein `unwrap()` außerhalb von Tests und `test_support`. Kernel-Fehlertexte Englisch, UI-Texte Deutsch, Doku Deutsch, Commits Conventional Commits auf Englisch.

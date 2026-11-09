@@ -1,0 +1,85 @@
+name: Bug report
+description: Something in Gen4 Studio does not work as it should
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please search the existing issues first, and fill in as much as you can.
+
+        **Never attach a ROM, a save game or any file derived from one.** Describe what you did and which game you used; the maintainer reproduces it.
+  - type: input
+    id: version
+    attributes:
+      label: Gen4 Studio version
+      description: The version of the app, or the commit if you built it from source.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system
+      description: Name, version and CPU architecture.
+      placeholder: "macOS 14.5 (arm64), Windows 11 (x64)"
+    validations:
+      required: true
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      description: The game of the project in which the bug happens.
+      options:
+        - Pokémon Diamond
+        - Pokémon Pearl
+        - Pokémon Platinum
+        - Pokémon HeartGold
+        - Pokémon SoulSilver
+        - Not tied to a game
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Region and language of the game
+      description: The release of the base ROM, if it matters.
+      placeholder: "US, EU, DE, JP, ..."
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, in order? Start from opening or creating the project.
+      placeholder: |
+        1. Open a project
+        2. Go to ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Add error messages, and screenshots of the app if they help (no game assets beyond what the app shows).
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of the terminal, or the text of an error dialog. It is formatted as code automatically.
+      render: shell
+  - type: checkboxes
+    id: no-rom
+    attributes:
+      label: No game data
+      options:
+        - label: I have not attached a ROM, a save game or any file derived from one.
+          required: true

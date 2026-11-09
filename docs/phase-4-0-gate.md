@@ -27,7 +27,7 @@ Phase 4.0 bringt die zwei Nebenaufgaben des Nutzers vom 2026-10-26: eine eigene 
 ## Vorbereitung
 
 1. Frische Kopien (nie ein Original): `Roms/_testkopien/4-0-gate-pt` (Platin DE), `4-0-gate-hg` (HeartGold DE), `4-0-gate-pt-neu` (Platin DE, für den Platzhalter).
-2. Test-Umgebung aus dem Worktree auf eigenen Ports: `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_VITE_PORT=1490 G4_BRIDGE_PORT=1491 bash scripts/agent/studio-web.sh` ([docs/agent-gate.md](agent-gate.md)), Seite `http://localhost:1490`.
+2. Test-Umgebung aus dem Worktree auf eigenen Ports: `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms G4_VITE_PORT=1490 G4_BRIDGE_PORT=1491 bash scripts/agent/studio-web.sh` ([docs/agent-gate.md](agent-gate.md)), Seite `http://localhost:1490`.
 3. Testbilder (Python-Standardbibliothek und `sips`, keine Spielgrafik) unter `Roms/_testkopien/4-0-gate-bilder/`: `bild-a-640x480.png`, `bild-b-1200x900.jpg`, `kein-bild.png` (Textdatei).
 
 ## Ergebnis
@@ -91,7 +91,7 @@ Unabhängige Abnahme durch eine zweite Sitzung auf dem Stand `0f32930`, nach den
 
 **Blick**
 
-**Neu aufgenommen am 2026-10-31.** Die Bilder unter `target/agent/gate-2026-10-27/` gingen mit dem Ordner `target/` verloren. Sie sind neu aufgenommen, auf dem Stand von main `03a5615` (alle Fixes bis 4.4), in der Test-Umgebung mit Chrome headless (Playwright) auf frischen Kopien. Die Namen sind dieselben wie unten. Neuer Ort: `target/agent/gate-2026-10-31/blick-neu/4-0/` im Haupt-Checkout (aufgenommen im Worktree `.claude/worktrees/blick-4`, Branch `blick-phase-4`), dazu eine Kopie außerhalb des Repos unter `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/4-0/`. Die Bilder der Abnahme liegen dort im Unterordner `abnahme-4-0/`. Das sind 12 Bilder. Sie weichen in diesen Punkten vom alten Inhalt ab:
+**Neu aufgenommen am 2026-10-31.** Die Bilder unter `target/agent/gate-2026-10-27/` gingen mit dem Ordner `target/` verloren. Sie sind neu aufgenommen, auf dem Stand von main `03a5615` (alle Fixes bis 4.4), in der Test-Umgebung mit Chrome headless (Playwright) auf frischen Kopien. Die Namen sind dieselben wie unten. Neuer Ort: `target/agent/gate-2026-10-31/blick-neu/4-0/` im Haupt-Checkout (aufgenommen im Worktree `.claude/worktrees/blick-4`, Branch `blick-phase-4`), dazu eine Kopie außerhalb des Repos unter `$HOME/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/4-0/`. Die Bilder der Abnahme liegen dort im Unterordner `abnahme-4-0/`. Das sind 12 Bilder. Sie weichen in diesen Punkten vom alten Inhalt ab:
 
 - **Alle Bilder:** Die Projekte heißen wie die Kopien (`blick4-4-0-pt1_DSPRE_contents` usw.). Die eigenen Bilder sind Farbfelder ohne Spielgrafik.
 - **`abnahme-4-0/start-1100-*.jpg`:** Die Seite ist ans Ende gerollt, damit die vierte Karte („nicht gefunden“) im Bild ist. Bei 720 px Höhe passen nicht alle Karten ins Fenster, deshalb ist die erste Reihe angeschnitten.

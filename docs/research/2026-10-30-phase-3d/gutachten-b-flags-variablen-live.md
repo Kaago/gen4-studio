@@ -1,6 +1,6 @@
 # Gutachten B: Flags und Variablen, Nutzungsindex, eigene Namen, Spielmodus live, Ei-Attacken (Phase 3d)
 
-Stand: 30.10.2026, gelesen auf `main` (`a5d6909`) im Arbeitsbaum `/Users/POLTEP/Projekte/lab/editor/gen4-studio`. Am Repo-Code ist nichts geändert. Grundlage sind:
+Stand: 30.10.2026, gelesen auf `main` (`a5d6909`) im Arbeitsbaum `$HOME/Projekte/lab/editor/gen4-studio`. Am Repo-Code ist nichts geändert. Grundlage sind:
 
 - `docs/ROADMAP.md` (Phase 3d, „Aus dem Design-System, später“), Gutachten C von Phase 4 §7 und die [Entscheidungen Phase 4](../2026-10-27-phase-4/entscheidungen.md);
 - `design-system/README.md` (Prinzip 7, „Spielmodus“, Screen „Flags und Variablen“) und `Audit-Design-System.md` (Zeile 24, Zeile 69, Screen 13);
