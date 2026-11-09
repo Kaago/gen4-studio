@@ -30,7 +30,7 @@ import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { SettingsArea } from "./einstellungen/SettingsArea";
-import { applyLanguage, readLanguage, t } from "./i18n";
+import { applyLanguage, effectiveLanguage, readLanguage, t } from "./i18n";
 import type { Language } from "./i18n";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
@@ -260,11 +260,6 @@ function AppBody() {
   useEffect(() => {
     languageSwitched.current = false;
   }, [shownLanguage]);
-  const onLanguage = useCallback((l: Language) => {
-    languageSwitched.current = true;
-    setLanguage(l);
-    void applyLanguage(l);
-  }, []);
   // The depth the active area shows (Erzählen only in an area with a view of its own, else Bauen): what the dock, inspector, wizards,
   // status line and hands work with. The hinge alone gets the chosen depth (its segment shows „Erzählen“ pressed in every area).
   const depth = shell.viewDepth;
@@ -305,6 +300,21 @@ function AppBody() {
   // The breadcrumbs the data areas report (an area that has not reported shows its name, see `dataTrail`).
   const [dataTrails, setDataTrails] = useState<Partial<Record<DataArea, Crumb[]>>>({});
   const onDataTrail = useCallback((target: DataArea, crumbs: Crumb[]) => setDataTrails((all) => ({ ...all, [target]: crumbs })), []);
+  // A choice in Einstellungen. One that changes the language shown remounts the workbench: the targets of the last links are forgotten in
+  // the same step, or the remounted text and data areas would follow them again (back to the old member, the old sub-area, Bauen), and the
+  // remounted settings give the focus back. A choice that keeps the language (System and German on a German system) remounts nothing.
+  const onLanguage = useCallback(
+    (l: Language) => {
+      if (effectiveLanguage(l) !== i18n.language) {
+        languageSwitched.current = true;
+        setTextTarget(null);
+        setDataTarget(null);
+      }
+      setLanguage(l);
+      void applyLanguage(l);
+    },
+    [i18n],
+  );
 
   // The problems of the project and the open scripts. The scripts hook needs the opened project, the session needs the scripts
   // (a build saves them first), hence the ref the session reads them through.

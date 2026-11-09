@@ -11,7 +11,14 @@ import { LANGUAGE_KEY } from "./i18n";
  * commands the start and the settings ask for. The world's list is a module-level element that reads its word through `termLabel` and
  * subscribes to nothing: only a remount shows it in the new language.
  */
-vi.mock("./workbench/Workbench", () => ({ default: ({ children }: { children: unknown }) => children }));
+/** What App hands the workbench and the data areas in the last render: the texts' target rides in `data`, the data areas' in `target`. */
+const shown = vi.hoisted(() => ({ data: null as null | { textTarget: unknown; goTo: (target: unknown) => unknown }, dataTarget: undefined as unknown }));
+vi.mock("./workbench/Workbench", () => ({
+  default: ({ data, children }: { data: typeof shown.data; children: unknown }) => {
+    shown.data = data;
+    return children;
+  },
+}));
 vi.mock("./workbench/panels", async () => {
   const { termLabel } = await import("./workbench/terms");
   return {
@@ -20,7 +27,10 @@ vi.mock("./workbench/panels", async () => {
     PokemonListPane: () => null,
     ItemsListPane: () => null,
     TextAreaHost: ({ children }: { children: unknown }) => children,
-    DataAreaHost: ({ children }: { children: unknown }) => children,
+    DataAreaHost: ({ target, children }: { target: unknown; children: unknown }) => {
+      shown.dataTarget = target;
+      return children;
+    },
     TextHints: () => null,
     TextStatus: () => null,
     PokemonStatus: () => null,
@@ -95,5 +105,45 @@ describe("App language switch", () => {
     expect(languageOption("English")?.getAttribute("aria-pressed")).toBe("true");
     // The remount took the focus from the option just pressed: it is given back.
     expect(document.activeElement).toBe(languageOption("English"));
+  });
+
+  it("forgets the last link targets on a switch, so the remounted areas do not follow them again", async () => {
+    await act(async () => root.render(<App />));
+    await flush();
+    // A link to a species and one to a message, the way the panels follow them: the targets wait for the areas.
+    await act(async () => void shown.data!.goTo({ kind: "species", index: 397 }));
+    await act(async () => void shown.data!.goTo({ kind: "textArchive", index: 23, message: 2 }));
+    expect(shown.dataTarget).toEqual({ sub: "pokedex", index: 397 });
+    expect(shown.data!.textTarget).toEqual({ index: 23, message: 2 });
+    await act(async () => atlas("einstellungen").click());
+    await flush();
+
+    await act(async () => languageOption("English")!.click());
+    await flush();
+
+    // The areas mount anew with no target: they keep what the user chose since, instead of jumping back to the old link.
+    expect(shown.dataTarget).toBeNull();
+    expect(shown.data!.textTarget).toBeNull();
+    expect(atlas("einstellungen").getAttribute("aria-current")).toBe("page");
+  });
+
+  it("leaves the focus alone the next time Einstellungen shows after a choice that keeps the language", async () => {
+    await act(async () => root.render(<App />));
+    await flush();
+    await act(async () => atlas("einstellungen").click());
+    await flush();
+    // German is shown already: „Deutsch“ changes the choice, not the language, so nothing remounts.
+    await act(async () => languageOption("Deutsch")!.click());
+    await flush();
+    expect(i18next.language).toBe("de");
+    await act(async () => atlas("welt").click());
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+    await act(async () => atlas("einstellungen").click());
+    await flush();
+    // A fresh visit to the settings does not pull the focus to the language control.
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
   });
 });

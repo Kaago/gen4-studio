@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type { DraftDto, HeaderSummary } from "../api";
 import { useBusEvent } from "../bus/useBusEvent";
 import type { Depth, Tool } from "../ui/frame/shellState";
@@ -210,7 +211,9 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHisto
     onError: session.fail,
   });
   useBusEvent(bus, "matrixData", worldModel.reread);
-  const places = useMemo(() => buildPlaces(scene.headers, overview.matrices), [scene.headers, overview.matrices]);
+  // The places name what has no name in the language shown: built again when it switches (this hook runs above the remounted workbench).
+  const { i18n } = useTranslation();
+  const places = useMemo(() => buildPlaces(scene.headers, overview.matrices), [scene.headers, overview.matrices, i18n.language]);
   const { names } = worldModel;
   const identify = useCallback((header: HeaderSummary) => headerIdentity(places, header, names), [places, names]);
   const shownWorld = useMemo<WorkbenchWorld>(() => ({ ...worldModel, identify }), [worldModel, identify]);

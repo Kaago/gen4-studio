@@ -678,13 +678,17 @@ export const fieldLabels = {
 /** A kind of `fieldLabels`. */
 export type FieldKind = keyof typeof fieldLabels;
 
+/** Every entry of `fieldLabels` as `<kind>.<field>`: the keys of `common:fieldLabels`, so a field without its catalog entry does not compile. */
+type FieldLabelKey = { [K in FieldKind]: `${K}.${keyof (typeof fieldLabels)[K] & string}` }[FieldKind];
+
 /**
  * The name of `field` of `kind` in the language shown (`common:fieldLabels`, resolved at call time). `fieldLabels` stays the German mirror
  * of the backend's undo labels (`commands/data/labels.rs` reads it); the German catalog holds the same words (a test keeps them equal).
  */
 export function fieldLabel<K extends FieldKind>(kind: K, field: keyof (typeof fieldLabels)[K] & string): string {
-  // The key is built from the table's own names; the test of the catalogs holds every one of them there.
-  return t(`common:fieldLabels.${kind}.${field}` as "common:fieldLabels.species.hp");
+  // `kind` and `field` name one entry of the table, which is one member of `FieldLabelKey`; TypeScript does not narrow the generic pair to it.
+  const key = `${kind}.${field}` as FieldLabelKey;
+  return t(`common:fieldLabels.${key}`);
 }
 
 /** The rows of a data list, optionally narrowed. */
