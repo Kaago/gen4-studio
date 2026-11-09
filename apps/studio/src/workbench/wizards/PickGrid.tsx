@@ -3,7 +3,7 @@ import type { HeaderSummary, MatrixDto } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { AreaGrid } from "../AreaGrid";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import styles from "./PickGrid.module.css";
 
 /** The place and colour of a header, as the matrix tab tints its cells. */
@@ -29,15 +29,15 @@ export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, 
   if (x < 0 || y < 0 || x >= matrix.width || y >= matrix.height) return null;
   const i = y * matrix.width + x;
   const map = matrix.maps[i] ?? null;
-  if (map === null) return `Keine ${TERMS.map.label} bei x ${x}, y ${y}`;
+  if (map === null) return `Keine ${termLabel("map")} bei x ${x}, y ${y}`;
   const header = matrix.headers?.[i];
   const parts: string[] = [];
   if (header !== undefined) {
     const place = places.get(header);
     if (place) parts.push(place.name);
-    if (depthAtLeast(depth, "tuefteln")) parts.push(`${TERMS.header.label} ${id4(header)}`);
+    if (depthAtLeast(depth, "tuefteln")) parts.push(`${termLabel("header")} ${id4(header)}`);
   }
-  parts.push(`${TERMS.map.label} ${id4(map)}`);
+  parts.push(`${termLabel("map")} ${id4(map)}`);
   return parts.join(" · ");
 }
 

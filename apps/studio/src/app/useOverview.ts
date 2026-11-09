@@ -3,7 +3,7 @@ import { listMatrices, listWarps } from "../api";
 import type { MatrixSummary, MemberCounts, WarpLink } from "../api";
 import type { EditBus } from "../bus/editBus";
 import { useBusEvent } from "../bus/useBusEvent";
-import { TERMS, id4 } from "../workbench/terms";
+import { id4, termLabel } from "../workbench/terms";
 import { shallowEqual } from "./useStable";
 
 export interface Overview {
@@ -23,7 +23,7 @@ const REPORTED_MEMBERS = 3;
 
 /** One error per list: "Raster: 3 nicht lesbar (0007: reason; ...)", the list named with the glossary's label. */
 function unreadableError(kind: Kind, unreadable: [number, string][]): Error {
-  const label = kind === "matrices" ? TERMS.matrix.label : TERMS.eventFile.label;
+  const label = kind === "matrices" ? termLabel("matrix") : termLabel("eventFile");
   const shown = unreadable.slice(0, REPORTED_MEMBERS).map(([id, reason]) => `${id4(id)}: ${reason}`);
   const more = unreadable.length > REPORTED_MEMBERS ? `; und ${unreadable.length - REPORTED_MEMBERS} weitere` : "";
   return new Error(`${label}: ${unreadable.length} nicht lesbar (${shown.join("; ")}${more})`);

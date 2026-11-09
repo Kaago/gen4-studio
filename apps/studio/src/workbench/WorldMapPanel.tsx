@@ -18,7 +18,7 @@ import type { NavTarget } from "./navigation";
 import type { CellRect } from "./sceneScope";
 import { buildPlaces, mapsText, placeColor } from "./places";
 import type { Place, PlaceHeader } from "./places";
-import { TERMS, id4, termFor } from "./terms";
+import { id4, termFor, termLabel, termShort } from "./terms";
 import { useMatrix } from "./useMatrix";
 import styles from "./WorldMapPanel.module.css";
 import { GRID_GAP, cellBounds, centredPan, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
@@ -390,7 +390,7 @@ interface PlaceListProps {
  */
 function outsideLabel(entry: PlaceHeader, section: number, sections: number, depth: Depth): string {
   if (depthAtLeast(depth, "tuefteln")) return `${termFor("header", depth, "area")} · ${id4(entry.header.id)}`;
-  return sections > 1 ? `${TERMS.area.label}, Abschnitt ${section}` : TERMS.area.label;
+  return sections > 1 ? `${termLabel("area")}, Abschnitt ${section}` : termLabel("area");
 }
 
 /** The places as one `details` each, a card per room. Memoised: pan and zoom of the map do not reach it. */
@@ -421,7 +421,7 @@ const PlaceList = memo(function PlaceList({ places, depth, links, selected, open
                   type="button"
                   data-header-id={entry.header.id}
                   aria-current={entry.header.id === selected ? "true" : undefined}
-                  title={depthAtLeast(depth, "tuefteln") ? TERMS.outside.short : TERMS.area.short}
+                  title={depthAtLeast(depth, "tuefteln") ? termShort("outside") : termShort("area")}
                   onClick={() => onOpen(entry.header.id)}
                   className={`${styles.outside} ${entry.header.id === selected ? styles.current : ""}`}
                 >

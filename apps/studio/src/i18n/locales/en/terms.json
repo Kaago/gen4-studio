@@ -1,1 +1,97 @@
-{}
+{
+  "worldMap": {
+    "label": "World map",
+    "plural": "World maps",
+    "short": "The maps of a region side by side, for example Sinnoh; HeartGold and SoulSilver have Johto and Kanto."
+  },
+  "area": {
+    "label": "Area",
+    "plural": "Areas",
+    "short": "A piece of a world map with a name, such as a town or a route; areas with a map of their own are listed under \"More areas\"."
+  },
+  "room": {
+    "label": "Room",
+    "plural": "Rooms",
+    "short": "Interiors, caves and dungeons; a room belongs to the area where its entrance is."
+  },
+  "place": {
+    "label": "Place",
+    "plural": "Places",
+    "short": "The name the game shows on entering; areas and rooms carry it, several can share the same."
+  },
+  "landscape": {
+    "label": "Landscape",
+    "plural": "Landscapes",
+    "short": "The cells of a world map that belong to no area: sea, mountains and edge."
+  },
+  "header": {
+    "label": "Header",
+    "plural": "Headers",
+    "short": "An entry of the place table: points to grid, event file, area data, music and weather. Only in Tinker; Build says area, room or place."
+  },
+  "outside": {
+    "label": "Outside",
+    "plural": "Outside",
+    "short": "A header whose grid has a header section (the region, usually grid 0): the cells of the grid say which header applies where."
+  },
+  "matrix": {
+    "label": "Grid",
+    "plural": "Grids",
+    "short": "A grid of maps, 1 × 1 to 255 × 255. Only in Tinker; Build says world map."
+  },
+  "map": {
+    "label": "Map",
+    "plural": "Maps",
+    "short": "32 × 32 tiles with model, buildings and collision."
+  },
+  "warp": {
+    "label": "Entrance / Exit",
+    "plural": "Entrances / Exits",
+    "short": "A warp pair connects two places."
+  },
+  "eventFile": {
+    "label": "Event file",
+    "plural": "Event files",
+    "short": "Warps, objects, triggers and background events of a place."
+  },
+  "areaData": {
+    "label": "Area data",
+    "plural": "Area data",
+    "short": "Which textures (tilesets) a place uses."
+  },
+  "textArchive": {
+    "label": "Text archive",
+    "plural": "Text archives",
+    "short": "The messages of a place; scripts show them by number."
+  },
+  "message": {
+    "label": "Message",
+    "plural": "Messages",
+    "short": "A text of a text archive; scripts fetch it by its number."
+  },
+  "scriptFile": {
+    "label": "Script file",
+    "plural": "Script files",
+    "short": "All scripts of a place in one file; events name the number #n in it."
+  },
+  "script": {
+    "label": "Script",
+    "plural": "Scripts",
+    "short": "A sequence in rotom, for example script Main #1."
+  },
+  "levelScript": {
+    "label": "Level script",
+    "plural": "Level scripts",
+    "short": "Runs when the map loads or is entered, or when a variable has a value."
+  },
+  "problem": {
+    "label": "Problem",
+    "plural": "Problems",
+    "short": "An error or a warning from compile, text or language service."
+  },
+  "patch": {
+    "label": "ROM patch",
+    "plural": "ROM patches",
+    "short": "A permanent change to the game code. The \"Dynamic Headers\" patch moves the headers into one file per header so that new ones can be created; DSPRE knows it."
+  }
+}

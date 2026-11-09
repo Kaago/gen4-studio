@@ -5,7 +5,7 @@ import type { FlagKind, HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDt
 import { FlagField } from "../../flags/FlagField";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, Notice, NumberField, Section, SelectField } from "../../ui/primitives";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import styles from "./Editor.module.css";
 import { useSectionOpen } from "./foldState";
 import { CONDITION_MAX, ENTRY_SCRIPT_MAX, HEADER_ENTRY_TYPES, HINT_NO_MESSAGES, HINT_NO_MESSAGES_DETAIL, HINT_ZERO_VAR, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, headerEntries, removeEntry, runsDuringMapSetup, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
@@ -96,7 +96,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
   const [open, toggle] = useSectionOpen("header:levelScript", true);
 
   const container = (children: ReactNode) => (
-    <Section title={TERMS.levelScript.label} open={open} onToggle={toggle}>
+    <Section title={termLabel("levelScript")} open={open} onToggle={toggle}>
       {children}
     </Section>
   );
@@ -182,9 +182,9 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
     <>
       <div className={styles.actions}>
         <span className={styles.mono}>
-          {TERMS.levelScript.label} {id4(file)}
+          {termLabel("levelScript")} {id4(file)}
         </span>
-        <Button kind="quiet" size="s" onClick={() => onOpenScript(file)} title={`Zeigt ${TERMS.levelScript.label} ${id4(file)} im Panel „Script“ als JSON`}>
+        <Button kind="quiet" size="s" onClick={() => onOpenScript(file)} title={`Zeigt ${termLabel("levelScript")} ${id4(file)} im Panel „Script“ als JSON`}>
           Als JSON öffnen
         </Button>
       </div>
@@ -203,7 +203,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
           <thead>
             <tr>
               <th>Auslöser</th>
-              <th>{TERMS.script.label}</th>
+              <th>{termLabel("script")}</th>
               <th />
             </tr>
           </thead>
@@ -229,7 +229,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
                   {entry.type === "on_var_condition" ? (
                     <span className={table.empty}>siehe unten</span>
                   ) : (
-                    numberField(`${TERMS.script.label} ${i + 1}`, entry.script_id ?? 0, ENTRY_SCRIPT_MAX, (n) => edit((d) => setEntryScript(d, i, n)))
+                    numberField(`${termLabel("script")} ${i + 1}`, entry.script_id ?? 0, ENTRY_SCRIPT_MAX, (n) => edit((d) => setEntryScript(d, i, n)))
                   )}
                 </td>
                 <td>
@@ -249,7 +249,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
       </div>
       <div className={table.add}>
         {triggerField("Neuer Auslöser", type, setType)}
-        {type !== "on_var_condition" && numberField(`Neues ${TERMS.script.label}`, script, ENTRY_SCRIPT_MAX, setScript)}
+        {type !== "on_var_condition" && numberField(`Neues ${termLabel("script")}`, script, ENTRY_SCRIPT_MAX, setScript)}
         <Button kind="secondary" size="s" onClick={addEntry}>
           Eintrag hinzufügen
         </Button>
@@ -260,7 +260,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
             <tr>
               <th>Variable</th>
               <th>Wert</th>
-              <th>{TERMS.script.label}</th>
+              <th>{termLabel("script")}</th>
               <th />
             </tr>
           </thead>
@@ -276,7 +276,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
               <tr key={i}>
                 <td>{varField(`Variable ${i + 1}`, `var:${i + 1}`, c.var, (n) => patchCondition(i, { var: n }))}</td>
                 <td>{numberField(`Wert ${i + 1}`, c.value, CONDITION_MAX, (n) => patchCondition(i, { value: n }))}</td>
-                <td>{numberField(`${TERMS.script.label} der Bedingung ${i + 1}`, c.script_id, CONDITION_MAX, (n) => patchCondition(i, { script_id: n }))}</td>
+                <td>{numberField(`${termLabel("script")} der Bedingung ${i + 1}`, c.script_id, CONDITION_MAX, (n) => patchCondition(i, { script_id: n }))}</td>
                 <td>
                   <div className={table.buttons}>
                     <Button kind="quiet" size="s" onClick={() => openNumber(c.script_id)}>
@@ -295,7 +295,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
       <div className={table.add}>
         {varField("Neue Variable", "var:new", cond.var, (n) => setCond((c) => ({ ...c, var: n })))}
         {numberField("Neuer Wert", cond.value, CONDITION_MAX, (n) => setCond({ ...cond, value: n }))}
-        {numberField(`${TERMS.script.label} der neuen Bedingung`, cond.script, CONDITION_MAX, (n) => setCond({ ...cond, script: n }))}
+        {numberField(`${termLabel("script")} der neuen Bedingung`, cond.script, CONDITION_MAX, (n) => setCond({ ...cond, script: n }))}
         <Button kind="secondary" size="s" onClick={addCondition}>
           Bedingung hinzufügen
         </Button>

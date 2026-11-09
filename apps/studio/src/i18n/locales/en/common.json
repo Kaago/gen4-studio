@@ -1,3 +1,5 @@
 {
-  "appName": "Gen4 Studio"
+  "appName": "Gen4 Studio",
+  "filesChanged_one": "{{count}} file changed",
+  "filesChanged_other": "{{count}} files changed"
 }

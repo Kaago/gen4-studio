@@ -5,7 +5,7 @@ import { findingLabel, findingText } from "../../checks/messages";
 import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, BeforeAfter, Dialog, Notice } from "../../ui/primitives";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import type { DialogAction } from "../../ui/primitives";
 import styles from "./FixDialog.module.css";
 
@@ -144,7 +144,7 @@ export function FixDialog({ finding, checks, depth, onClose }: { finding: CheckP
         )}
         {phase.kind === "unsaved" && (
           <Notice kind="error" title="Erst speichern">
-            {`${TERMS.textArchive.label} ${id4(phase.archive)} hat ungespeicherte Änderungen. Das Script wird kompiliert, und das schreibt Textarchive: „Speichern und anlegen“ speichert das Projekt und legt das Script dann an.`}
+            {`${termLabel("textArchive")} ${id4(phase.archive)} hat ungespeicherte Änderungen. Das Script wird kompiliert, und das schreibt Textarchive: „Speichern und anlegen“ speichert das Projekt und legt das Script dann an.`}
           </Notice>
         )}
         {phase.kind === "failed" && (

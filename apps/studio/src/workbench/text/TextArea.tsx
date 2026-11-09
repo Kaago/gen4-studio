@@ -12,7 +12,7 @@ import type { DialogTarget } from "../dialog/dialogModel";
 import type { NavTarget } from "../navigation";
 import { buildPlaces, placeOf } from "../places";
 import type { ProblemsStore } from "../problems/problems";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel, termPlural } from "../terms";
 import { trainerLabel } from "../trainerScript";
 import { TextAreaContext, TextDraft, useTextArea } from "./TextAreaContext";
 import type { TextAreaModel, TextScope } from "./TextAreaContext";
@@ -404,7 +404,7 @@ export function TextStatus() {
   const parts = [`Archiv ${id4(archive)}`];
   if (loaded) {
     const n = loaded.messages.length;
-    parts.push(`${n} ${n === 1 ? TERMS.message.label : TERMS.message.plural}`);
+    parts.push(`${n} ${n === 1 ? termLabel("message") : termPlural("message")}`);
     const long = overlongCount(widths);
     if (long > 0) parts.push(`${long} zu lang`);
   }

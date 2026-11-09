@@ -1,1 +1,10 @@
-{}
+{
+  "renameIdDialog": {
+    "filesCount_one": "{{count}} file",
+    "filesCount_other": "{{count}} files",
+    "refsCount_one": "{{count}} reference",
+    "refsCount_other": "{{count}} references",
+    "moreCount_one": "and {{count}} more",
+    "moreCount_other": "and {{count}} more"
+  }
+}

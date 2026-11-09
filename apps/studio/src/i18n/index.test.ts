@@ -155,3 +155,18 @@ describe("applyLanguage", () => {
     warn.mockRestore();
   });
 });
+
+describe("plural keys", () => {
+  it("plural keys pick one and other in both languages", async () => {
+    // `common:filesChanged` is the probe: `_one` for 1, `_other` for 0 and for every other number.
+    expect(i18next.t("filesChanged", { count: 1 })).toBe("1 Datei hat sich geändert");
+    expect(i18next.t("filesChanged", { count: 0 })).toBe("0 Dateien haben sich geändert");
+    expect(i18next.t("filesChanged", { count: 2 })).toBe("2 Dateien haben sich geändert");
+
+    await i18next.changeLanguage("en");
+    expect(i18next.t("filesChanged", { count: 1 })).toBe("1 file changed");
+    expect(i18next.t("filesChanged", { count: 0 })).toBe("0 files changed");
+    expect(i18next.t("filesChanged", { count: 2 })).toBe("2 files changed");
+    // The suite runs in German; `afterEach` puts the language back.
+  });
+});

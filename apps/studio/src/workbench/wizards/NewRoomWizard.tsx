@@ -11,7 +11,7 @@ import { headerLabel } from "../headers";
 import { HeaderPicker } from "../inspector/HeaderPicker";
 import { filterPlaces } from "../places";
 import type { Place } from "../places";
-import { TERMS, id4 } from "../terms";
+import { TERMS, id4, termLabel } from "../terms";
 import { useEvents } from "../useEvents";
 import { useMatrix } from "../useMatrix";
 import { useWarpTile } from "../warpTile";
@@ -138,9 +138,9 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
   const sharesTemplateFile = form.newHeader !== null && form.eventFile === "Keep";
   const copiedLocked = typeof form.eventFile === "object" || sharesTemplateFile ? (templateEvents?.locked ?? null) : null;
   let blocked: string | null = null;
-  if (outsideHeader && outsideEvents?.locked) blocked = `${TERMS.eventFile.label} ${id4(outsideHeader.event_file_id)} (${TERMS.outside.label}) ist ${lockedText(outsideEvents.locked)}`;
-  else if (copiedLocked && template) blocked = `Die Vorlage ${TERMS.eventFile.label} ${id4(template.event_file_id)} ist ${lockedText(copiedLocked)}`;
-  else if (keptEvents?.locked && roomHeader) blocked = `${TERMS.eventFile.label} ${id4(roomHeader.event_file_id)} des ${TERMS.room.label}s ist ${lockedText(keptEvents.locked)}`;
+  if (outsideHeader && outsideEvents?.locked) blocked = `${termLabel("eventFile")} ${id4(outsideHeader.event_file_id)} (${termLabel("outside")}) ist ${lockedText(outsideEvents.locked)}`;
+  else if (copiedLocked && template) blocked = `Die Vorlage ${termLabel("eventFile")} ${id4(template.event_file_id)} ist ${lockedText(copiedLocked)}`;
+  else if (keptEvents?.locked && roomHeader) blocked = `${termLabel("eventFile")} ${id4(roomHeader.event_file_id)} des ${termLabel("room")}s ist ${lockedText(keptEvents.locked)}`;
 
   const connect = form.connect && blocked === null;
   // The door outside: what the user typed, else the pointer's last tile when the outside header uses the shown matrix. Anything else stays open.
@@ -281,7 +281,7 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
   // Only Diamond/Pearl lacks the patch, and only it has no new places: the step asks for nothing else.
   const family: HeaderFamily = patch.patch?.supported === false ? "DP" : "Pt";
   // Bauen speaks of the area at the entrance and its tiles, Tüfteln of the header outside and its raster.
-  const outsideWord = building ? OUTSIDE_AREA : `${TERMS.header.label} außen`;
+  const outsideWord = building ? OUTSIDE_AREA : `${termLabel("header")} außen`;
   // Bauen asks for the place and the look; Tüfteln for the header itself.
   const headerStep: WizardStep = building
     ? {
@@ -292,7 +292,7 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
       }
     : {
         id: "header",
-        title: TERMS.header.label,
+        title: termLabel("header"),
         canNext: form.header !== null || form.newHeader !== null,
         content: (
           <HeaderChoice
@@ -321,7 +321,7 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
       content: (
         <>
           <section className={`${parts.column} ${parts.wide}`}>
-            <h3 className={parts.heading}>{TERMS.room.label} zum Kopieren wählen</h3>
+            <h3 className={parts.heading}>{termLabel("room")} zum Kopieren wählen</h3>
             <div className={styles.search}>
               <TextField type="search" label="Vorlage suchen" placeholder="Ort oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
             </div>
@@ -348,14 +348,14 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
                     </div>
                   ))}
               </div>
-              {waiting === null && templateCount === 0 && <p className={styles.empty}>Kein {TERMS.room.label} gefunden</p>}
+              {waiting === null && templateCount === 0 && <p className={styles.empty}>Kein {termLabel("room")} gefunden</p>}
               {waiting === null && templateCount > SHOWN && <p className={styles.empty}>{templateCount - SHOWN} weitere, Suche eingrenzen</p>}
             </div>
           </section>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Der neue {TERMS.room.label}</h3>
+            <h3 className={parts.heading}>Der neue {termLabel("room")}</h3>
             <div className={parts.field}>
-              <TextField label={`Name des neuen ${TERMS.room.label}s`} showLabel value={form.name} onCommit={(name) => setForm((f) => ({ ...f, name }))} />
+              <TextField label={`Name des neuen ${termLabel("room")}s`} showLabel value={form.name} onCommit={(name) => setForm((f) => ({ ...f, name }))} />
             </div>
             <Checkbox label="ohne Gebäude" checked={form.clearBuildings} onChange={(clearBuildings) => setForm((f) => ({ ...f, clearBuildings }))} />
           </section>
@@ -365,10 +365,10 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
               <p className={parts.note}>Noch keine Vorlage gewählt.</p>
             ) : (
               <>
-                <p className={parts.text}>{building ? `„${headerLabel(template)}“` : `${TERMS.header.label} ${id4(template.id)} „${headerLabel(template)}“`}</p>
+                <p className={parts.text}>{building ? `„${headerLabel(template)}“` : `${termLabel("header")} ${id4(template.id)} „${headerLabel(template)}“`}</p>
                 {templateMatrix !== null && templateMap === null ? (
                   <Notice kind="error">
-                    {building ? `Dieser ${TERMS.room.label} hat keine ${TERMS.map.label} zum Kopieren.` : `Das ${TERMS.matrix.label} dieses ${TERMS.room.label}s hat keine ${TERMS.map.label} zum Kopieren.`}
+                    {building ? `Dieser ${termLabel("room")} hat keine ${termLabel("map")} zum Kopieren.` : `Das ${termLabel("matrix")} dieses ${termLabel("room")}s hat keine ${termLabel("map")} zum Kopieren.`}
                   </Notice>
                 ) : typeof picture === "string" ? (
                   <img src={picture} alt="Vorschau der Vorlage" className={styles.picture} />
@@ -424,17 +424,17 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
             <h3 className={parts.heading}>Tür außen</h3>
             <p className={parts.note}>
               {outsideMatrix && outsideSize
-                ? `Kachel ${building ? "außen" : `im ${TERMS.matrix.label} ${id4(outsideMatrix.index)}`}: ${outsideSize.x} × ${outsideSize.z} Kacheln (x 0 bis ${outsideSize.x - 1}, z 0 bis ${outsideSize.z - 1}).`
+                ? `Kachel ${building ? "außen" : `im ${termLabel("matrix")} ${id4(outsideMatrix.index)}`}: ${outsideSize.x} × ${outsideSize.z} Kacheln (x 0 bis ${outsideSize.x - 1}, z 0 bis ${outsideSize.z - 1}).`
                 : building
                   ? "Kachel außen, beim Gebiet am Eingang."
-                  : `Kachel im ${TERMS.matrix.label} des ${TERMS.header.label}s außen.`}
+                  : `Kachel im ${termLabel("matrix")} des ${termLabel("header")}s außen.`}
             </p>
             {tileField("Außen: Kachel x", outsideX, outsideSize ? outsideSize.x - 1 : MATRIX_LAST_TILE, "x", !connect)}
             {tileField("Außen: Kachel z", outsideZ, outsideSize ? outsideSize.z - 1 : MATRIX_LAST_TILE, "z", !connect)}
             {sceneDefault && <p className={parts.note}>Kachel zuletzt in der Szene gewählt (über der die Maus zuletzt war).</p>}
             {outsideHeader && outsideX === null && outsideZ === null && (
               <p className={parts.note}>
-                Noch keine Kachel: die Maus war zuletzt nicht über {building ? `dem ${OUTSIDE_AREA}` : `diesem ${TERMS.matrix.label}`}; x und z eintragen.
+                Noch keine Kachel: die Maus war zuletzt nicht über {building ? `dem ${OUTSIDE_AREA}` : `diesem ${termLabel("matrix")}`}; x und z eintragen.
               </p>
             )}
             {outsideTile && <p className={outsideTile.fires ? parts.note : parts.warn}>Außen: {outsideTile.text}</p>}
@@ -442,20 +442,20 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
           <section className={parts.column}>
             <h3 className={parts.heading}>Tür innen, Rückweg</h3>
             <p className={parts.note}>
-              Kachel 0 bis {MAP_LAST_TILE} im neuen {TERMS.room.label}.
+              Kachel 0 bis {MAP_LAST_TILE} im neuen {termLabel("room")}.
             </p>
             {tileField("Innen: Kachel x", form.insideX, MAP_LAST_TILE, "insideX", !connect)}
             {tileField("Innen: Kachel z", form.insideZ, MAP_LAST_TILE, "insideZ", !connect)}
             {!insideEdited && door && <p className={parts.note}>aus der Vorlage übernommen (ihr erster Warp, Kachel x {door.x}, z {door.z}).</p>}
             {!insideEdited && door && (door.x > MAP_LAST_TILE || door.z > MAP_LAST_TILE) && (
               <Notice kind="warning">
-                Dieser Warp liegt außerhalb der ersten {TERMS.map.label} der Vorlage und wurde auf Kachel x {form.insideX}, z {form.insideZ} begrenzt: prüfen.
+                Dieser Warp liegt außerhalb der ersten {termLabel("map")} der Vorlage und wurde auf Kachel x {form.insideX}, z {form.insideZ} begrenzt: prüfen.
               </Notice>
             )}
             {!insideEdited && !door && <p className={parts.note}>Standardwert: die Vorlage hat keinen Warp.</p>}
             {reused && (
               <p className={parts.note}>
-                Die kopierte {TERMS.eventFile.label} hat hier schon {TERMS.warp.tech} {reused.index} (Ziel {TERMS.header.label} {id4(reused.dest_header_id)}): er wird zum Rückweg, es kommt kein zweiter dazu.
+                Die kopierte {termLabel("eventFile")} hat hier schon {TERMS.warp.tech} {reused.index} (Ziel {termLabel("header")} {id4(reused.dest_header_id)}): er wird zum Rückweg, es kommt kein zweiter dazu.
               </p>
             )}
             {insideTile && <p className={insideTile.fires ? parts.note : parts.warn}>Innen: {insideTile.text}</p>}
@@ -498,7 +498,7 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
   let play: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const { report, spec } = outcome;
-    result = <DoneResult title={`${TERMS.room.label} angelegt`} {...roomResult(report, spec, depth)} onStep={onStep && ((id) => onStep(id, report, spec))} />;
+    result = <DoneResult title={`${termLabel("room")} angelegt`} {...roomResult(report, spec, depth)} onStep={onStep && ((id) => onStep(id, report, spec))} />;
     onShow = () => void show(report, spec);
     if (onPlay) play = () => void showAndPlay(report, spec);
   } else if (outcome?.kind === "partial") {
@@ -507,7 +507,7 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
 
   return (
     <WizardFrame
-      title={`${TERMS.room.label} anlegen`}
+      title={`${termLabel("room")} anlegen`}
       icon="room"
       steps={steps}
       step={step}

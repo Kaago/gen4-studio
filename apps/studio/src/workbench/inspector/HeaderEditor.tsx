@@ -15,7 +15,7 @@ import type { HeaderIdentity } from "../headerIdentity";
 import type { NavTarget } from "../navigation";
 import { RenameDialog } from "../RoomActions";
 import type { RenameTarget } from "../RoomActions";
-import { TERMS, id4, termFor } from "../terms";
+import { id4, termFor, termLabel } from "../terms";
 import { useEvents } from "../useEvents";
 import type { WizardRequest } from "../WorkbenchContext";
 import { roomOf } from "../worldModel";
@@ -211,7 +211,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   const createFile = async (key: string, kind: "script" | "levelScript") => {
     try {
       const n = await newScriptFile(kind);
-      const label = kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label;
+      const label = kind === "script" ? termLabel("scriptFile") : termLabel("levelScript");
       // Only a number that is in the header is worth opening (a refused write was reported; the new file stays unused).
       if (!(await session.current?.commit(key, label, n))) return;
       await onCountsChanged();
@@ -310,7 +310,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
             <Button
               kind="quiet"
               size="s"
-              aria-label={script === "script" ? `Neue ${TERMS.scriptFile.label} anlegen` : `Neues ${TERMS.levelScript.label} anlegen`}
+              aria-label={script === "script" ? `Neue ${termLabel("scriptFile")} anlegen` : `Neues ${termLabel("levelScript")} anlegen`}
               disabled={!scriptsAdopted}
               onClick={() => void createFile(spec.key, script)}
             >
@@ -333,7 +333,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         actions={[
           ...(summary
             ? [
-                { label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
+                { label: `${termLabel("room")} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
                 // No place (index 0) has no name to change; Diamond and Pearl have no place commands.
                 { label: "Ort umbenennen…", disabled: summary.location_index === 0 || header === null || headerFamily(header) === "DP", onSelect: () => setRenaming(true) },
                 // The header as a tombstone (an original one the dialog refuses with the reason).

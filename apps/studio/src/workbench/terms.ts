@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 
@@ -23,79 +24,41 @@ export type TermKey =
   | "levelScript"
   | "problem";
 
-export const TERMS: Record<TermKey, { label: string; plural: string; tech: string | null; short: string }> = {
-  worldMap: {
-    label: "Weltkarte", plural: "Weltkarten",
-    tech: null,
-    short: "Die Karten einer Region nebeneinander, zum Beispiel Sinnoh; HeartGold und SoulSilver haben Johto und Kanto.",
-  },
-  area: {
-    label: "Gebiet", plural: "Gebiete",
-    tech: null,
-    short: "Ein Stück einer Weltkarte mit einem Namen, etwa eine Stadt oder eine Route; Gebiete mit eigener Karte stehen unter \"Weitere Gebiete\".",
-  },
-  room: {
-    label: "Raum", plural: "Räume",
-    tech: null,
-    short: "Innenräume, Höhlen und Dungeons; ein Raum gehört zu dem Gebiet, in dem sein Eingang liegt.",
-  },
-  place: {
-    label: "Ort", plural: "Orte",
-    tech: null,
-    short: "Der Name, den das Spiel beim Betreten zeigt; Gebiete und Räume tragen ihn, mehrere können denselben haben.",
-  },
-  landscape: {
-    label: "Landschaft", plural: "Landschaften",
-    tech: null,
-    short: "Die Zellen einer Weltkarte, die zu keinem Gebiet gehören: Meer, Berge und Rand.",
-  },
-  header: {
-    label: "Header", plural: "Header",
-    tech: "MapHeader",
-    short: "Ein Eintrag der Ortstabelle: verweist auf Matrix, Eventdatei, Area-Data, Musik und Wetter. Nur in Tüfteln; Bauen sagt Gebiet, Raum oder Ort.",
-  },
-  outside: {
-    label: "Außen", plural: "Außen",
-    tech: null,
-    short: "Ein Header, dessen Raster einen Header-Abschnitt hat (die Region, meist Matrix 0): die Zellen des Rasters sagen, welcher Header wo gilt.",
-  },
-  matrix: {
-    label: "Raster", plural: "Raster",
-    tech: "Matrix",
-    short: "Ein Raster aus Karten, 1 × 1 bis 255 × 255. Nur in Tüfteln; Bauen sagt Weltkarte.",
-  },
-  map: { label: "Karte", plural: "Karten", tech: "MapFile", short: "32 × 32 Kacheln mit Modell, Gebäuden und Kollision." },
-  warp: { label: "Eingang / Ausgang", plural: "Eingänge / Ausgänge", tech: "Warp", short: "Ein Warp-Paar verbindet zwei Orte." },
-  eventFile: {
-    label: "Eventdatei", plural: "Eventdateien",
-    tech: "EventFile",
-    short: "Warps, Objekte, Trigger und Hintergrund-Events eines Ortes.",
-  },
-  areaData: { label: "Area-Data", plural: "Area-Data", tech: "AreaData", short: "Welche Texturen (Tilesets) ein Ort benutzt." },
-  textArchive: {
-    label: "Textarchiv", plural: "Textarchive",
-    tech: "TextArchive",
-    short: "Die Nachrichten eines Ortes; Scripts zeigen sie über die Nummer.",
-  },
-  message: { label: "Nachricht", plural: "Nachrichten", tech: null, short: "Ein Text eines Textarchivs; Scripts rufen ihn über seine Nummer ab." },
-  scriptFile: {
-    label: "Scriptdatei", plural: "Scriptdateien",
-    tech: "ScriptFile",
-    short: "Alle Scripts eines Ortes in einer Datei; Events nennen die Nummer #n darin.",
-  },
-  script: { label: "Script", plural: "Scripts", tech: null, short: "Ein Ablauf in rotom, zum Beispiel script Main #1." },
-  levelScript: {
-    label: "Level-Script", plural: "Level-Scripts",
-    tech: null,
-    short: "Läuft beim Laden oder Betreten der Karte oder wenn eine Variable einen Wert hat.",
-  },
-  problem: { label: "Problem", plural: "Probleme", tech: null, short: "Ein Fehler oder eine Warnung aus Compile, Text oder Sprachdienst." },
-  patch: {
-    label: "ROM-Patch", plural: "ROM-Patches",
-    tech: null,
-    short: "Eine dauerhafte Änderung am Spielcode. Der Patch „Dynamische Header“ verlegt die Header in eine Datei je Header, damit neue angelegt werden können; DSPRE kennt ihn.",
-  },
+/**
+ * The technical name of each term (the ROM's word, shown in Tüfteln and the glossary), or `null` where the game's word is the only one.
+ * The words themselves (`label`, `plural`, `short`) live in the `terms` catalogs; `termLabel`, `termPlural` and `termShort` read them at
+ * call time, in the language that is shown.
+ */
+export const TERMS: Record<TermKey, { tech: string | null }> = {
+  worldMap: { tech: null },
+  area: { tech: null },
+  room: { tech: null },
+  place: { tech: null },
+  landscape: { tech: null },
+  header: { tech: "MapHeader" },
+  outside: { tech: null },
+  matrix: { tech: "Matrix" },
+  map: { tech: "MapFile" },
+  warp: { tech: "Warp" },
+  eventFile: { tech: "EventFile" },
+  areaData: { tech: "AreaData" },
+  textArchive: { tech: "TextArchive" },
+  message: { tech: null },
+  scriptFile: { tech: "ScriptFile" },
+  script: { tech: null },
+  levelScript: { tech: null },
+  problem: { tech: null },
+  patch: { tech: null },
 };
+
+/** The word of a term in the language that is shown, singular ("Gebiet", "Area"). Resolved at call time: i18next is not ready at module scope. */
+export const termLabel = (key: TermKey): string => t(`terms:${key}.label`);
+
+/** The plural of a term ("Gebiete", "Areas"). */
+export const termPlural = (key: TermKey): string => t(`terms:${key}.plural`);
+
+/** The explanation of a term, one or two sentences. */
+export const termShort = (key: TermKey): string => t(`terms:${key}.short`);
 
 /** An id as the Gate documents and the lists write it: four digits. */
 export const id4 = (n: number) => String(n).padStart(4, "0");
@@ -109,7 +72,7 @@ const ID_NAME: Partial<Record<TermKey, string>> = { header: "Header" };
 /** The technical name of a member with its id: "Matrix 0131", "Header 0415". */
 export function techLabel(key: TermKey, id: number): string {
   const term = TERMS[key];
-  return `${ID_NAME[key] ?? term.tech ?? term.label} ${id4(id)}`;
+  return `${ID_NAME[key] ?? term.tech ?? termLabel(key)} ${id4(id)}`;
 }
 
 /**
@@ -118,6 +81,6 @@ export function techLabel(key: TermKey, id: number): string {
  */
 export function termFor(key: "header" | "matrix", depth: Depth, kind?: "area" | "room"): string {
   if (depthAtLeast(depth, "tuefteln")) return key === "header" ? "Header" : "Matrix";
-  if (key === "matrix") return TERMS.worldMap.label;
-  return kind === undefined ? TERMS.place.label : TERMS[kind].label;
+  if (key === "matrix") return termLabel("worldMap");
+  return termLabel(kind ?? "place");
 }

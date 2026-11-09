@@ -3,7 +3,7 @@ import type { AreaDataDto, AssetKind, BuildingDto, EventKind, MapHeader } from "
 import { formatNumber } from "../../ui/primitives";
 import type { EventData } from "../../world/events";
 import type { InspectorModel } from "../Inspector";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import { areaFieldSpecs, areaValue } from "./areaFields";
 import { eventFieldSpecs, EVENT_FIELDS } from "./eventFields";
 import { fieldValue, headerFieldSpecs } from "./fields";
@@ -62,15 +62,15 @@ export function technicalRows(source: TechnicalSource): TechnicalRow[] {
 export function assetLine(model: InspectorModel): string {
   switch (model.kind) {
     case "header":
-      return `${TERMS.header.label} ${id4(model.id)}, Eintrag der Header-Tabelle`;
+      return `${termLabel("header")} ${id4(model.id)}, Eintrag der Header-Tabelle`;
     case "area":
-      return `${TERMS.areaData.label} ${id4(model.id)}`;
+      return `${termLabel("areaData")} ${id4(model.id)}`;
     case "building":
-      return `${TERMS.map.label} ${id4(model.map)}, Index ${model.index}`;
+      return `${termLabel("map")} ${id4(model.map)}, Index ${model.index}`;
     case "event":
-      return `${TERMS.eventFile.label} ${id4(model.eventFile)}, Index ${model.index}`;
+      return `${termLabel("eventFile")} ${id4(model.eventFile)}, Index ${model.index}`;
     case "matrixCell":
-      return `${TERMS.matrix.label} ${id4(model.matrix)}, Zelle ${model.x}, ${model.y}`;
+      return `${termLabel("matrix")} ${id4(model.matrix)}, Zelle ${model.x}, ${model.y}`;
     case "none":
     case "eventHover":
     case "tile":

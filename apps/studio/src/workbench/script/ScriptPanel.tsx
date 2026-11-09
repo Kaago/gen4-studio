@@ -16,7 +16,7 @@ import { effectiveTheme, onThemeChange } from "../../ui/tokens/theme";
 import type { EditBus } from "../../bus/editBus";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
-import { TERMS, id4, termFor } from "../terms";
+import { id4, termFor, termLabel } from "../terms";
 import { AdoptBox } from "./AdoptBox";
 import { scriptUri } from "./documents";
 import type { ScriptDocument } from "./documents";
@@ -43,7 +43,7 @@ export interface ScriptPanelContext {
 }
 
 /** "Scriptdatei 0042" / "Level-Script 0042": how documents are named in questions and lists. */
-export const docName = (doc: Pick<ScriptDocument, "file" | "kind">) => `${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(doc.file)}`;
+export const docName = (doc: Pick<ScriptDocument, "file" | "kind">) => `${doc.kind === "script" ? termLabel("scriptFile") : termLabel("levelScript")} ${id4(doc.file)}`;
 /** The header title: a level script says it is shown as JSON. */
 export const docTitle = (doc: Pick<ScriptDocument, "file" | "kind">) => `${docName(doc)}${doc.kind === "levelScript" ? " (JSON)" : ""}`;
 
@@ -246,7 +246,7 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
         }
       />
       {openDocs.length === 0 ? (
-        <EmptyState what="Kein Script geöffnet." why={`Eine ${TERMS.scriptFile.label} öffnet sich über den ${termFor("header", depth)}, ein Event oder ein Problem.`} />
+        <EmptyState what="Kein Script geöffnet." why={`Eine ${termLabel("scriptFile")} öffnet sich über den ${termFor("header", depth)}, ein Event oder ein Problem.`} />
       ) : (
         <div className={styles.tabs}>
           <Tabs

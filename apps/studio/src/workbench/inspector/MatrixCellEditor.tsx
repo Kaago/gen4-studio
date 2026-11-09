@@ -14,7 +14,7 @@ import type { MenuEntry, PickerItem } from "../../ui/primitives";
 import type { HeaderIdentity } from "../headerIdentity";
 import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
-import { TERMS, id4, termFor } from "../terms";
+import { id4, termFor, termLabel, termShort } from "../terms";
 import { useMatrix } from "../useMatrix";
 import { tileParts } from "../../world/paint/ops";
 import { usePaint } from "../paint/PaintContext";
@@ -145,7 +145,7 @@ function OwnerField({
         areas.push({ id: h.id, label: area.headers.length > 1 ? `${area.name}, Abschnitt ${i + 1}` : area.name });
       });
     }
-    return [{ id: LANDSCAPE, label: TERMS.landscape.label, description: TERMS.landscape.short }, ...areas];
+    return [{ id: LANDSCAPE, label: termLabel("landscape"), description: termShort("landscape") }, ...areas];
   }, [world, matrix]);
   const owner = header === LANDSCAPE ? undefined : headers.find((h) => h.id === header);
   return (
@@ -153,7 +153,7 @@ function OwnerField({
       <InspectorRow label="Gehört zu">
         <div className={styles.inline}>
           {header === LANDSCAPE ? (
-            <span>{TERMS.landscape.label}</span>
+            <span>{termLabel("landscape")}</span>
           ) : (
             <Reference area="welt" label={owner ? identify(owner).name : `Nummer ${id4(header)}`} onOpen={() => goTo({ kind: "header", id: header })} />
           )}
@@ -289,7 +289,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   // Bauen speaks of the world map and the area a cell belongs to; Tüfteln keeps the matrix ("Raster") and the header.
   const tinker = depthAtLeast(depth, "tuefteln");
   // Bauen names the map by its world map, area or room, never by its number (a cell outside or a matrix still loading).
-  const matrixName = tinker ? `${TERMS.matrix.label} ${id4(index)}` : matrixWords(world, index, headers, identify);
+  const matrixName = tinker ? `${termLabel("matrix")} ${id4(index)}` : matrixWords(world, index, headers, identify);
   const headerWord = termFor("header", depth, "area");
   const unsaved = isDirty(dirty, "Matrix", index);
   if (!matrix) {

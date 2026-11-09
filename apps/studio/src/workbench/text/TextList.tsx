@@ -5,7 +5,7 @@ import { ListPane } from "../../ui/frame/ListPane";
 import { Badge, EmptyState, Icon, IconButton, TextField, TreeRow, useRovingList } from "../../ui/primitives";
 import type { ProblemRow } from "../problems/problems";
 import { textArchiveOf } from "../problems/problems";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel, termPlural } from "../terms";
 import { DialogList } from "./DialogList";
 import { useTextArea } from "./TextAreaContext";
 import { filterArchives } from "./textModel";
@@ -36,15 +36,15 @@ function overlongSum(counts: ReadonlyMap<number, number>): string {
 }
 
 /** The name an archive row shows: its place, else what it is. */
-const rowLabel = (row: ArchiveRow) => row.place ?? (row.users.length > 0 ? "Ohne Ortsnamen" : TERMS.textArchive.label);
+const rowLabel = (row: ArchiveRow) => row.place ?? (row.users.length > 0 ? "Ohne Ortsnamen" : termLabel("textArchive"));
 
 /** One archive of the list. Memoised: a selection or filter change renders the rows whose props changed, not all of them. */
 const ArchiveItem = memo(function ArchiveItem({ row, selected, count, overlong, onSelect }: { row: ArchiveRow; selected: boolean; count: number | null; overlong: number; onSelect: (index: number) => void }) {
   const label = rowLabel(row);
-  const name = `${TERMS.textArchive.label} ${id4(row.index)}`;
+  const name = `${termLabel("textArchive")} ${id4(row.index)}`;
   // Only the open archive's message count is known: reading all of them to list it would decode every archive. The row shows the bare
   // number (the name keeps its room), its hint and the accessible name say what it counts.
-  const messages = count === null ? null : `${count} ${count === 1 ? TERMS.message.label : TERMS.message.plural}`;
+  const messages = count === null ? null : `${count} ${count === 1 ? termLabel("message") : termPlural("message")}`;
   const trailing =
     count !== null || overlong > 0 ? (
       <>

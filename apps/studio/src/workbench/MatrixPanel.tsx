@@ -11,7 +11,7 @@ import { resizePreview } from "./matrix";
 import styles from "./MatrixPanel.module.css";
 import type { NavTarget } from "./navigation";
 import { buildPlaces, placeColor } from "./places";
-import { TERMS, id4 } from "./terms";
+import { TERMS, id4, termShort } from "./terms";
 import { useMatrix } from "./useMatrix";
 
 /** What the matrix panel needs from App. */
@@ -162,7 +162,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
       />
       {matrix ? (
         <>
-          <div className={styles.fields} title={TERMS.matrix.short}>
+          <div className={styles.fields} title={termShort("matrix")}>
             <TextField label="Name der Matrix" showLabel value={matrix.name} onCommit={(name) => void edit(matrix.index, () => renameMatrix(matrix.index, name))} />
             <NumberField label="Breite" showLabel min={1} max={255} hint="1 bis 255" value={matrix.width} onCommit={(w) => void onResize(matrix, w, matrix.height)} />
             <NumberField label="Höhe" showLabel min={1} max={255} hint="1 bis 255" value={matrix.height} onCommit={(h) => void onResize(matrix, matrix.width, h)} />
