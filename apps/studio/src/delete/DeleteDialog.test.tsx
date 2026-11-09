@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteEntity, planDelete } from "../api";
 import type { DeletePlan, DeleteResult, StoryMention } from "../api";
+import deDelete from "../i18n/locales/de/delete.json";
 import { pressKey } from "../ui/primitives/testUtils";
 import { DeleteDialog } from "./DeleteDialog";
 import type { DeleteDialogProps } from "./DeleteDialog";
@@ -280,5 +282,14 @@ describe("DeleteDialog", () => {
     expect(notices("alert")).toEqual(["1 Verweis: zuerst umhängen."]);
     expect(references().map((r) => r.textContent)).toEqual(["Figur 3 in Eventdatei 0008Eventdatei 0008"]);
     expect(button("Löschen")?.disabled).toBe(true);
+  });
+});
+
+describe("the kernel's refusal in the DSPRE layout", () => {
+  it("not_a_text_project_mirrors_the_kernel_sentence", () => {
+    // The dialog knows `delete::NOT_A_TEXT_PROJECT` by its words (the kernel says it in German): a change in the kernel must show here.
+    const types = readFileSync("../../crates/g4-kernel/src/delete/types.rs", "utf8");
+    const rust = /pub const NOT_A_TEXT_PROJECT: &str =\s*"((?:[^"\\]|\\.)*)";/.exec(types);
+    expect(rust?.[1]).toBe(deDelete.deleteDialog.notATextProject);
   });
 });
