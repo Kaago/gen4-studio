@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EDGE_PLACES } from "../../api.world";
 import type { EdgeSetJson } from "../../api.world";
-import { PLACE_GRID, PLACE_LABEL, completeness, newSet, placeTiles, withVariant, withoutVariant } from "./edgeSets";
+import { PLACE_GRID, PLACE_LABEL, completeness, newSet, placeTiles, setTiles, withVariant, withoutVariant } from "./edgeSets";
 
 const weg = (): EdgeSetJson => ({ name: "Weg", outside: "0000", places: { center: ["0006"], n: ["0007r1"] } });
 
@@ -51,5 +51,13 @@ describe("edgeSets", () => {
   it("place_tiles_are_the_distinct_tiles_of_the_places", () => {
     const set: EdgeSetJson = { name: "Weg", outside: "0000", places: { center: ["0006", "000a"], n: ["0006r1"], s: ["0010f"] } };
     expect(placeTiles(set)).toEqual([6, 10, 16]);
+  });
+
+  it("set_tiles_are_the_places_and_the_outside", () => {
+    const set: EdgeSetJson = { name: "Weg", outside: "0012r1", places: { center: ["0006", "000a"], n: ["0006r1"], s: ["0010f"] } };
+    expect(setTiles(set)).toEqual([6, 10, 16, 18]);
+    // The outside counted once when a place holds it too; an empty set is its outside alone.
+    expect(setTiles({ ...set, outside: "0006" })).toEqual([6, 10, 16]);
+    expect(setTiles({ name: "Fels", outside: "0001", places: {} })).toEqual([1]);
   });
 });

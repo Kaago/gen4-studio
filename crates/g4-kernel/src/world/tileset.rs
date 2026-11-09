@@ -896,12 +896,13 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
-/// `tileset_edit`: the package of the tileset file, its tile changes and its edge set
-/// operations (6.4b, default none), all of them one step.
+/// `tileset_edit`: the package of the tileset file, its tile changes (default none) and its edge
+/// set operations (6.4b, default none), all of them one step.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TilesetEditRequest {
     pub package: u16,
+    #[serde(default)]
     pub changes: Vec<TileChange>,
     #[serde(default)]
     pub sets: Vec<EdgeSetOp>,
@@ -2300,6 +2301,19 @@ mod tests {
         // Without `sets` the request reads as before.
         let req = edit_req(json!({"package": 0, "changes": []}));
         assert!(req.sets.is_empty());
+    }
+
+    #[test]
+    fn a_request_with_only_sets_works() {
+        // Ruling 16: `changes` is optional (default empty).
+        let (fx, mut store, _path, _before) = edges_fixture();
+        let req: TilesetEditRequest =
+            serde_json::from_value(json!({"package": 0, "sets": [put(&weg13())]})).unwrap();
+        assert!(req.changes.is_empty());
+        let report = tileset_edit(&mut store, &req).unwrap();
+        assert_eq!(report.tiles, 0);
+        let now = read_tileset_file(&fx.project(), 0).unwrap().unwrap();
+        assert_eq!(now.edge_sets, [weg13()]);
     }
 
     #[test]

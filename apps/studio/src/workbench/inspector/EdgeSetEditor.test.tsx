@@ -163,10 +163,11 @@ describe("EdgeSetEditor", () => {
     typeInto(wall, "000f");
     await act(async () => void wall.blur());
     await flush();
-    // The tiles of the places (0006, 0007, 0008, 0009), in one step with the set.
+    // Ruling 13: every tile of the set, the outside (0000) and the places (0006, 0007, 0008, 0009), in one step with the set.
+    expect(container.querySelector("[data-edge-wall]")!.textContent).toContain("Für jede Kachel des Satzes, auch Außen");
     expect(tilesetEdit).toHaveBeenCalledExactlyOnceWith(
       0,
-      [6, 7, 8, 9].map((t) => ({ tile: t, wall: 15 })),
+      [0, 6, 7, 8, 9].map((t) => ({ tile: t, wall: 15 })),
       [{ put: WEG }],
     );
     expect(onChanged).toHaveBeenCalledOnce();
@@ -182,7 +183,7 @@ describe("EdgeSetEditor", () => {
 
   it("the_wall_shows_the_common_wall_and_empties_to_none", async () => {
     const set = tileset();
-    set.tileset.tiles = set.tileset.tiles.map((t, i) => (i >= 6 && i <= 9 ? { ...t, wall: 12 } : t));
+    set.tileset.tiles = set.tileset.tiles.map((t, i) => (i === 0 || (i >= 6 && i <= 9) ? { ...t, wall: 12 } : t));
     await show({ set });
     const wall = container.querySelector("[data-edge-wall] input")! as HTMLInputElement;
     expect(wall.value).toBe("000c");
@@ -190,7 +191,15 @@ describe("EdgeSetEditor", () => {
     typeInto(wall, "");
     await act(async () => void wall.blur());
     await flush();
-    expect(tilesetEdit).toHaveBeenCalledExactlyOnceWith(0, [6, 7, 8, 9].map((t) => ({ tile: t, wall: null })), [{ put: WEG }]);
+    expect(tilesetEdit).toHaveBeenCalledExactlyOnceWith(0, [0, 6, 7, 8, 9].map((t) => ({ tile: t, wall: null })), [{ put: WEG }]);
+  });
+
+  it("the_common_wall_counts_the_outside_tile", async () => {
+    // The places share wall 12, the outside has none: no common wall.
+    const set = tileset();
+    set.tileset.tiles = set.tileset.tiles.map((t, i) => (i >= 6 && i <= 9 ? { ...t, wall: 12 } : t));
+    await show({ set });
+    expect((container.querySelector("[data-edge-wall] input") as HTMLInputElement).value).toBe("");
   });
 
   it("new_set_takes_the_active_tile_as_outside", async () => {

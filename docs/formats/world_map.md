@@ -734,6 +734,16 @@ auf dem Plateau (die Klippenkante wie in PDSMS), der Boden darunter bleibt. Die 
 zieht der Vernetzer wie bisher mit der `wall` der oberen Kachel („Vernetzer“). Auf einer
 Überlagerung: „Klippen gibt es nur auf der Bodenebene.“
 
+- **Schmale Klippe:** eine Klippe von einer Zelle Breite (ein einzelner Zug mit K) hat **keinen
+  Rand**: jede ihrer Ecken berührt eine tiefere Zelle, ist also außen, und oben liegt `outside`. Die
+  13 Plätze der Wang-Ecken können einen Streifen von einer Zelle nicht umranden; der Rand braucht
+  mindestens zwei Zellen Breite. Die Wand zieht der Vernetzer trotzdem, mit der `wall` von
+  `outside` („Wand“ im Editor setzt sie für alle Kacheln des Satzes, auch Außen).
+- **Neben einer höheren Klippe:** wird eine Klippe neben einer früheren, höheren gesetzt, werden
+  deren Randzellen, die die neue berühren, zu Kacheln der Mitte (eine Ecke zählt als innen, wenn alle
+  angrenzenden Zellen ≥ `height` liegen, und die höhere tut das). Wände und Kollision bleiben
+  richtig; nur der Rand der höheren Klippe fehlt dort.
+
 Welche Zelle an der Klippe blockiert, sagt `block` des Satzes:
 
 - **`upper`** (Vorgabe): nichts zusätzlich. Beim Backen blockiert `terrain::block_edges` die obere
@@ -743,9 +753,16 @@ Welche Zelle an der Klippe blockiert, sagt `block` des Satzes:
 - **`lower`**: der Strich schreibt für jede solche Kante (`terrain::high_edges` auf den neuen Höhen),
   deren obere oder untere Zelle in P oder im Ring der 8 Nachbarn um P liegt, Überschreibungen in
   `permissions.override`: die obere Zelle ihren Kachelwert ohne das Bit der Kante (`tile_cells`), die
-  untere diesen Wert `| 0x80` (ist eine Zelle beides, gewinnt unten). Eine Zelle mit schon vorhandener
-  Überschreibung bleibt, mit der Notiz „Zelle (12, 21) hat eine eigene Permission; die Klippe lässt
-  sie stehen.“; eine Tür-Überschreibung geht so nie verloren. Der Bäcker bleibt unverändert.
+  untere diesen Wert `| 0x80` (ist eine Zelle beides, gewinnt unten). Eine schon vorhandene
+  Überschreibung auf einer Zelle in P oder dem Ring, deren Wert der **alte** Kachelwert der Zelle
+  (`tile_cells` vor dem Strich) oder dieser `| 0x80` ist, gilt als vom Pinsel geschrieben: sie wird
+  neu berechnet, mit dem neuen Wert, oder gelöscht (`.`), wenn die Zelle an keiner hohen Kante mehr
+  liegt; ein gleicher Wert wird nicht noch einmal geschrieben. So verschmelzen zwei Klippen mit
+  `lower` ohne blockierte Linie im Plateau, und derselbe Strich noch einmal ändert nichts. Jede andere
+  Überschreibung bleibt, mit **einer** Notiz je Strich: „Zelle (12, 21) hat eine eigene Permission;
+  die Klippe lässt sie stehen.“, bei mehreren „3 Zellen haben eine eigene Permission (erste: (12,
+  21)); die Klippe lässt sie stehen.“ (die erste in Zeilenfolge); eine Tür-Überschreibung geht so nie
+  verloren. Der Bäcker bleibt unverändert.
 
 **Naht zu Nachbarkarten.** Der Kernel sucht die **erste** Matrixzelle, die die Karte zeigt (Matrizen
 aufsteigend, Zellen zeilenweise), und liest aus den 8 Nachbarzellen dieser Matrix den Ring der Zellen
@@ -792,7 +809,7 @@ bis 62; ein Platz ohne Kachel („Kantensatz „Weg“: der Platz „Ecke innen 
   Rolle der ersten `center`-Kachel des Satzes (⇧: der `outside`-Kachel), die Klippe in der Farbe der
   Zielstufe. Den Ring kennt erst die Antwort; danach kommen Netz, Höhen und Weltdokument neu.
 - **Still:** ein Strich, der nichts ändert, zeigt keinen Fehler (wie „Unveränderte Zellen“ in 6.4a);
-  die Notizen der Antwort (Naht, eigene Permission) gehen an die Statusleiste. Der nächste Strich baut
+  die Notizen der Antwort (Naht, eigene Permission) gehen als **ein** Hinweis (verbunden mit „ · “) an die Statusleiste. Der nächste Strich baut
   erst auf dem danach gelesenen Dokument auf, denn welche Zellen ein Smart-Strich ändert, weiß nur der
   Kernel.
 

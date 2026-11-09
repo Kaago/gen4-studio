@@ -155,7 +155,7 @@
         <Frame name="Felder" flex="col" w="fill" ml={-8}>
           {Row({ label: 'Außen', children: [<Frame w={16} h={16} rounded={4} overflow="hidden">{Bild(kachel(set.outside), 16)}</Frame>, T('Kachel ' + set.outside, { grow: 1, one: true }), Btn({ label: 'Aktive Kachel übernehmen', art: 'Leise', small: true })] })}
           {Row({ label: 'Blockiert an der Klippe', children: BLOCK(set.block) })}
-          {Row({ label: 'Wand', hint: 'Für jede Kachel der Plätze; Kachelnummer, leer = keine', children: Field('0003') })}
+          {Row({ label: 'Wand', hint: 'Für jede Kachel des Satzes, auch Außen; Kachelnummer, leer = keine', children: Field('0003') })}
         </Frame>
         <Frame flex="row">{Btn({ label: 'Satz entfernen', art: 'Leise', small: true })}</Frame>
       </Frame>}

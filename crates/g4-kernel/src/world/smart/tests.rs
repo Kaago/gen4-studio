@@ -967,6 +967,65 @@ fn lower_rule_keeps_existing_overrides() {
 }
 
 #[test]
+fn several_kept_overrides_are_one_note() {
+    // Ruling 15: the per-cell notes of one stroke are collapsed, the first in row order named.
+    let mut grid = flat();
+    let door = Cell {
+        kind: 0x69,
+        collision: 0x80,
+    };
+    for (x, z) in [(26, 23), (19, 22), (22, 19)] {
+        grid.overrides[z * N + x] = Some(door);
+    }
+    let r = cliff(&mut grid, &weg13_lower(), &rect(), 2);
+    assert_eq!(r.overrides.len(), 37);
+    assert_eq!(
+        r.notes,
+        ["3 Zellen haben eine eigene Permission (erste: (22, 19)); die Klippe lässt sie stehen."]
+    );
+}
+
+#[test]
+fn a_second_lower_cliff_next_to_the_first_merges_without_inner_blocks() {
+    // Ruling 14: the first stroke's overrides inside the merged plateau are brush-written
+    // (tile value or tile value | 0x80): the second stroke recomputes them, so only the
+    // merged ring stays blocked, without a note.
+    let set = weg13_lower();
+    let mut grid = flat();
+    cliff(&mut grid, &set, &rect(), 2);
+    let r = cliff(&mut grid, &set, &rect_of(26..=29, 20..=24), 2);
+    assert!(r.notes.is_empty(), "{:?}", r.notes);
+    // The first ring's east column (x 26, now inside the plateau) and the first rim's east
+    // column (x 25, now centre) lose their overrides.
+    for z in 21..=23u8 {
+        for x in [25u8, 26] {
+            assert!(
+                r.overrides.contains(&([x, z], ".".to_owned())),
+                "({x}, {z})"
+            );
+        }
+    }
+    let ring_corners = [(19, 19), (30, 19), (19, 25), (30, 25)];
+    let mut want: Vec<(usize, usize)> = border(19, 30, 19, 25)
+        .into_iter()
+        .filter(|c| !ring_corners.contains(c))
+        .collect();
+    want.sort_by_key(|&(x, z)| (z, x));
+    assert_eq!(blocked(&baked_permissions(&grid)), want);
+}
+
+#[test]
+fn repainting_a_lower_cliff_changes_nothing() {
+    let set = weg13_lower();
+    let mut grid = flat();
+    cliff(&mut grid, &set, &rect(), 2);
+    let before = grid.clone();
+    let r = cliff(&mut grid, &set, &rect(), 2);
+    assert_eq!(r, Resolved::default());
+    assert_eq!(grid, before);
+}
+
+#[test]
 fn lowering_digs_a_pit() {
     // Controller ruling: rule „Klippenpinsel“ taken literally (the plan's test sentence about
     // the rim on the painted cells is ambiguous). Height −2 on P, the rest at 0: every corner

@@ -100,7 +100,7 @@ function strokeLook(sub: PaintSub, lower: boolean, state: PaintState, cells: Wor
  * world is read again. A height stroke whose cells are all at the limit sends nothing; the cells at the limit are named (`onNotice`).
  *
  * The terrain and cliff brushes (6.4b) send the painted cells with the active edge set and a seed drawn per stroke; without a set they send
- * nothing and ask for one, a cliff whose first cell is at the limit names its cells, the notes of the answer go to `onNotice`, and the
+ * nothing and ask for one, a cliff whose first cell is at the limit names its cells, the notes of the answer go to `onNotice` as one notice (joined with „ · “), and the
  * kernel's „Nichts zu ändern.“ for them is no error. */
 export function usePaintSession(
   target: number | null,
@@ -225,7 +225,9 @@ export function usePaintSession(
     queue.push(req).then(
       async (report) => {
         try {
-          for (const note of report?.notes ?? []) latest.current.options.onNotice?.(note);
+          // All notes of one answer as ONE notice (Ruling 15): a later notice would hide an earlier one.
+          const notes = report?.notes ?? [];
+          if (notes.length > 0) latest.current.options.onNotice?.(notes.join(" · "));
           latest.current.refresh(req.map);
           await readWorld(req.map).catch((e) => latest.current.onError(e));
           clear();

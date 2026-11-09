@@ -368,6 +368,20 @@ describe("usePaintSession", () => {
     api.worldEdit.mockImplementation(async (req: WorldEditRequest) => report(req));
   });
 
+  it("two_notes_become_one_notice", async () => {
+    // Ruling 15: the notes of one answer reach the user as ONE notice, joined with " · ".
+    const notes = [
+      "Naht zu Karte 0124: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die Nachbarkarte bleibt, wie sie ist.",
+      "Zelle (12, 21) hat eine eigene Permission; die Klippe lässt sie stehen.",
+    ];
+    api.worldEdit.mockImplementation(async (req: WorldEditRequest) => ({ ...report(req), notes }));
+    await showSmart({ sub: "terrain", edgeSet: "Weg" });
+    act(() => session?.onStroke(stroke({ sub: "terrain" })));
+    await tick();
+    expect(notices).toEqual([notes.join(" · ")]);
+    api.worldEdit.mockImplementation(async (req: WorldEditRequest) => report(req));
+  });
+
   it("without_a_set_the_stroke_asks_for_one", async () => {
     await showSmart({ sub: "cliff", edgeSet: null });
     act(() => session?.onStroke(stroke({ sub: "cliff", preview: 4 })));

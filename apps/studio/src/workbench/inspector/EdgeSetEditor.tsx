@@ -8,7 +8,7 @@ import { Button, InspectorRow, NumberField, Section, Segmented, TextField, Toolt
 import type { SegmentedOption } from "../../ui/primitives";
 import { tileImage } from "../../world/paint/paletteImages";
 import { tileParts } from "../../world/paint/ops";
-import { PLACE_GRID, PLACE_LABEL, applyEdgeOps, completeness, newSet, placeTiles, withoutVariant } from "./edgeSets";
+import { PLACE_GRID, PLACE_LABEL, applyEdgeOps, completeness, newSet, setTiles, withoutVariant } from "./edgeSets";
 import { useSectionOpen } from "./foldState";
 import { WallField } from "./TileEditor";
 import { TileFace, useTilePictures } from "./TilePalette";
@@ -87,7 +87,7 @@ export function useEdgeSetEdits(tileset: TilesetDto | null | undefined): {
  * with the radio „Aktiv“ (the set T and K paint with, `onActive`) and their completeness, „Neuer Kantensatz“ (a name and the active
  * palette tile as its outside), the cliff's steps (state only) and the editor of the active set: the 13 + 2 places in their blocks, one
  * chosen by a click (`onPlace`; a palette click then appends the active token there, see `MatrixCellEditor`), the variants of the chosen
- * place as chips with „Entfernen“, „Außen“, „Blockiert an der Klippe“, „Wand“ (the wall of every tile of the places) and „Satz
+ * place as chips with „Entfernen“, „Außen“, „Blockiert an der Klippe“, „Wand“ (the wall of every tile of the set, the outside too) and „Satz
  * entfernen“. Each confirmed change is one `tileset_edit` (one file step) with `sets: [{put}]` or `[{remove}]`, then `onChanged`; a
  * refusal (a token twice in the set, …) goes to `onError`. A derived tileset (`stored: false`) locks the changes and offers „Tileset im
  * Projekt anlegen“ as the section „Kachel“ does. Tüfteln writes the tokens under each place.
@@ -185,8 +185,8 @@ export function EdgeSetEditor({
   }
   const tileWord = (token: string) => (tinker ? token : `Kachel ${tileParts(token)?.digits ?? token}`);
 
-  // The wall all tiles of the places share (empty when they differ or have none).
-  const wallTiles = set ? placeTiles(set) : [];
+  // The wall all tiles of the set share, the places and the outside (empty when they differ or have none).
+  const wallTiles = set ? setTiles(set) : [];
   const walls = new Set(wallTiles.map((i) => tiles[i]?.wall));
   const commonWall = walls.size === 1 ? [...walls][0] : undefined;
   const variants = set && place ? (set.places[place] ?? []) : [];
@@ -328,7 +328,7 @@ export function EdgeSetEditor({
                 </InspectorRow>
               </div>
               <div data-edge-wall="">
-                <InspectorRow label="Wand" hint="Für jede Kachel der Plätze; Kachelnummer, leer = keine">
+                <InspectorRow label="Wand" hint="Für jede Kachel des Satzes, auch Außen; Kachelnummer, leer = keine">
                   <WallField
                     wall={commonWall}
                     last={Math.max(0, tiles.length - 1)}

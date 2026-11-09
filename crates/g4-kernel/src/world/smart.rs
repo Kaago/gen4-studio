@@ -550,7 +550,13 @@ pub fn paint_cliff(
 /// The overrides of rule „Kollision der Klippe“ for `block: lower` on the painted grid `raised`:
 /// for every high edge with a cell in `painted` (as (z, x)) or the ring of 8 around them, the
 /// upper cell gets its tile's value ([`tile_cells`]), the lower one that value `| 0x80` (lower
-/// wins for a cell that is both); a cell with an override in `grid` stays, with a note.
+/// wins for a cell that is both).
+///
+/// An override in `grid` on a cell of `painted` or its ring whose value is that cell's old tile
+/// value or that value `| 0x80` counts as written by the brush (Ruling 14): it is recomputed,
+/// rewritten to the new value or cleared (`.`) when the cell lies on no high edge any more; an
+/// unchanged value is left out. Every other override stays, with one note for the stroke
+/// ([`kept_overrides`]).
 fn lower_overrides(
     grid: &WorldGrid,
     raised: &WorldGrid,
@@ -566,39 +572,80 @@ fn lower_overrides(
         .map(|(x, z)| (z * CELLS + x) as usize)
         .collect();
     let values = tile_cells(raised, tileset, family);
+    let old_values = tile_cells(grid, tileset, family);
     let pairs: Vec<(usize, usize)> = high_edges(&raised.height_grid())
         .into_iter()
         .filter(|(upper, lower)| near.contains(upper) || near.contains(lower))
         .collect();
     // Row-major by index; uppers first, so a lower cell's bit wins.
-    let mut cells: BTreeMap<usize, Cell> = BTreeMap::new();
+    let mut cells: BTreeMap<usize, Option<Cell>> = BTreeMap::new();
     for &(upper, _) in &pairs {
         if let Some(&value) = values.get(upper) {
-            cells.entry(upper).or_insert(value);
+            cells.entry(upper).or_insert(Some(value));
         }
     }
     for &(_, lower) in &pairs {
         if let Some(&value) = values.get(lower) {
             cells.insert(
                 lower,
-                Cell {
+                Some(Cell {
                     collision: value.collision | BLOCKED,
                     ..value
-                },
+                }),
             );
         }
     }
+    // A brush-written override on a cell of P or its ring that lies on no high edge any more
+    // is cleared.
+    for &i in &near {
+        cells.entry(i).or_insert(None);
+    }
+    let brush_written = |i: usize, own: Cell| {
+        near.contains(&i)
+            && old_values.get(i).is_some_and(|&old| {
+                own == old
+                    || own
+                        == Cell {
+                            collision: old.collision | BLOCKED,
+                            ..old
+                        }
+            })
+    };
     let side = CELLS as usize;
     let mut overrides = Vec::new();
+    let mut kept = Vec::new();
     for (i, cell) in cells {
         let (x, z) = (i % side, i / side);
-        if grid.overrides.get(i).copied().flatten().is_some() {
-            notes.push(own_permission(x as i32, z as i32));
-        } else {
-            overrides.push(([x as u8, z as u8], override_token(Some(cell))));
+        match grid.overrides.get(i).copied().flatten() {
+            Some(own) if !brush_written(i, own) => {
+                if cell.is_some() {
+                    kept.push((x as i32, z as i32));
+                }
+            }
+            own => {
+                if own != cell {
+                    overrides.push(([x as u8, z as u8], override_token(cell)));
+                }
+            }
         }
     }
+    notes.extend(kept_overrides(&kept));
     overrides
+}
+
+/// The one note of the overrides a stroke leaves (Ruling 15), `kept` in row order: one cell
+/// [`own_permission`], several „N Zellen haben eine eigene Permission (erste: (x, z)); die
+/// Klippe lässt sie stehen.“, none no note.
+fn kept_overrides(kept: &[(i32, i32)]) -> Option<String> {
+    match kept {
+        [] => None,
+        [(x, z)] => Some(own_permission(*x, *z)),
+        [(x, z), ..] => Some(format!(
+            "{} Zellen haben eine eigene Permission (erste: ({x}, {z})); die Klippe lässt sie \
+             stehen.",
+            kept.len()
+        )),
+    }
 }
 
 // --- The store side (Task 4): the seam read from neighbour maps, `world_edit`'s strokes ---

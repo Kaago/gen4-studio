@@ -83,6 +83,14 @@ export function placeTiles(set: EdgeSetJson): number[] {
   return [...tiles].sort((a, b) => a - b);
 }
 
+/** Every tile (index) of the set (rule „Wand“, Ruling 13): the tiles of the places and the outside, distinct, ascending. */
+export function setTiles(set: EdgeSetJson): number[] {
+  const tiles = new Set(placeTiles(set));
+  const outside = tileParts(set.outside);
+  if (outside) tiles.add(Number.parseInt(outside.digits, 16));
+  return [...tiles].sort((a, b) => a - b);
+}
+
 /** The tileset with edge set operations applied as the kernel applies them: `put` replaces the set of its name in place or appends, `remove` drops it. */
 export function applyEdgeOps(tileset: TilesetDto, ops: readonly EdgeSetOp[]): TilesetDto {
   let sets = tileset.tileset.edge_sets ?? [];

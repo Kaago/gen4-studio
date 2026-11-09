@@ -2005,6 +2005,8 @@ fn world_edit_args() -> Value {
                                 "tile": text("four hex digits, r1..r3 turn, f flip, . empty"),
                                 "height": {
                                     "type": "integer",
+                                    "minimum": -16,
+                                    "maximum": 62,
                                     "description": "steps of 8 units, \u{2212}16 to 62 (ground \
                                                     only)",
                                 },
@@ -2034,6 +2036,8 @@ fn world_edit_args() -> Value {
                                                      (tileset_get edge_sets)"),
                                         "height": {
                                             "type": "integer",
+                                            "minimum": -16,
+                                            "maximum": 62,
                                             "description": "the cells' new height in steps of 8 \
                                                             units, \u{2212}16 to 62",
                                         },
@@ -3452,6 +3456,17 @@ mod tests {
         let cliff = &change["properties"]["cliff"];
         assert_eq!(cliff["required"], json!(["set", "height"]), "{cliff}");
         assert_eq!(cliff["properties"]["seed"]["default"], 0);
+        // Ruling 16: the heights carry the kernel's range −16 to 62.
+        for height in [
+            &cliff["properties"]["height"],
+            &change["properties"]["height"],
+        ] {
+            assert_eq!(
+                (&height["minimum"], &height["maximum"]),
+                (&json!(-16), &json!(62)),
+                "{height}"
+            );
+        }
         assert_eq!(change["required"], json!(["cells"]));
     }
 

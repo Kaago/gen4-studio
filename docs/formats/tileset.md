@@ -115,8 +115,8 @@ Kacheln der vorhandenen Datei `data/tilesets/NNNN.json` als **einen** Dateischri
 geändert (2 Kacheln)“ („(1 Kachel)“). Ein fehlender Schlüssel lässt den Wert, `"wall": null`
 entfernt die Wandkachel. Gezählt und mit `origin: user` versehen werden nur Kacheln, deren Werte
 sich wirklich ändern; eine Rolle setzt kein `kind` mit (Gras mit abgeleiteter Begegnung braucht
-`role: "grass"` und `kind: 2` getrennt). Antwort `{package, tiles, change}`. `changes` ist Pflicht und
-darf leer sein; seit 6.4b ändert dasselbe Kommando mit `sets` die Kantensätze im selben Schritt
+`role: "grass"` und `kind: 2` getrennt). Antwort `{package, tiles, change}`. `changes` ist optional
+(Vorgabe leer); seit 6.4b ändert dasselbe Kommando mit `sets` die Kantensätze im selben Schritt
 („Kantensätze ändern“ unten).
 
 Abgelehnt (nichts geschrieben, Verlauf unverändert): im DSPRE-Layout („Boden malen gibt es im
@@ -352,9 +352,13 @@ sie, die Diagonalen erst zwei Flächen, die sich an einer Ecke berühren.
   Verschiebungen 30, 27, 31. `seed` steht im Strich (Vorgabe 0); derselbe Strich mit demselben Samen
   gibt dieselben Kacheln. Gewichte gibt es nicht.
 - **Wände der Klippe:** keine eigene Regel. Das Backen zieht die Wand an einer Höhenkante wie seit 6.3a
-  mit der `wall` der oberen Kachel ([world_map.md](world_map.md), „Vernetzer“); der Rand einer Klippe
-  sind immer Kacheln der Plätze. Der Editor setzt mit „Wand“ darum die `wall` aller Kacheln der
-  15 Plätze (nicht die von `outside`, die meist Boden unten ist und oft zu mehreren Sätzen gehört).
+  mit der `wall` der oberen Kachel ([world_map.md](world_map.md), „Vernetzer“). Oben liegen meist
+  Kacheln der Plätze, aber nicht immer: eine Klippe von einer Zelle Breite (ein einzelner Zug mit K)
+  hat keinen Rand, ihre Ecken berühren alle eine tiefere Zelle, oben bleibt oder wird `outside`. Der
+  Editor setzt mit „Wand“ darum die `wall` **aller Kacheln des Satzes**: der 15 Plätze und von
+  `outside` (Hinweis „Für jede Kachel des Satzes, auch Außen“). Gehört die Außenkachel zu mehreren
+  Sätzen oder liegt sie oben an einer anderen Höhenkante, bekommt sie dort dieselbe Wand; die
+  Änderung ist ein Schritt und lässt sich zurücknehmen.
 
 **Kantensätze ändern** (`tileset_edit` mit `sets`). `sets` ist eine Liste von Operationen
 (`EdgeSetOp`, Vorgabe leer), angewandt der Reihe nach vor den Kachel-Änderungen, alles zusammen
@@ -386,8 +390,8 @@ outer_se`, Block 2 × 2 der Innenecken, Zeile der Diagonalen), ein Platz per Kli
 ein Klick auf eine Palettenkachel ihr Token (mit der Drehung von Z und X) an; die Einträge des Platzes
 als Chips mit „Entfernen“, „Außen“ („Aktive Kachel übernehmen“), „Blockiert an der Klippe“ (Segment
 „Obere Zelle“/„Untere Zelle“ = `block`), „Wand“ und „Satz entfernen“. Jede bestätigte Änderung ist
-**ein** `tileset_edit` mit `sets: [{put}]` bzw. `[{remove}]`, „Wand“ dazu mit den `changes` der
-Kacheln. Ohne Datei (`stored: false`) ist alles gesperrt, darüber „Tileset im Projekt anlegen“. Die
+**ein** `tileset_edit` mit `sets: [{put}]` bzw. `[{remove}]`, „Wand“ dazu mit den `changes` aller
+Kacheln des Satzes (Plätze und `outside`). Ohne Datei (`stored: false`) ist alles gesperrt, darüber „Tileset im Projekt anlegen“. Die
 Gestaltung steht in [design-system/README.md](../../design-system/README.md), „Nachtrag 6.4b“.
 
 **Synthetische Sätze.** `Tileset::synthetic_edges()` (nur mit `test-support`) ist `synthetic()` plus
