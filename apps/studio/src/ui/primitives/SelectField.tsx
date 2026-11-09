@@ -1,4 +1,6 @@
 import { Select } from "@base-ui/react/select";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import styles from "./SelectField.module.css";
@@ -16,12 +18,13 @@ export type SelectFieldProps<V extends number | string> = {
 };
 
 /** A value the options do not list (a byte the editor has no name for) stays visible and selected as "Wert 7". */
-function withUnknown<V extends number | string>(value: V, options: readonly SelectOption<V>[]): readonly SelectOption<V>[] {
-  return options.some((o) => o.value === value) ? options : [...options, { value, label: `Wert ${value}` }];
+function withUnknown<V extends number | string>(value: V, options: readonly SelectOption<V>[], t: TFunction<"ui">): readonly SelectOption<V>[] {
+  return options.some((o) => o.value === value) ? options : [...options, { value, label: t("selectField.unknown", { value }) }];
 }
 
 export function SelectField<V extends number | string>({ label, value, options, onChange, disabled, showLabel }: SelectFieldProps<V>) {
-  const all = withUnknown(value, options);
+  const { t } = useTranslation("ui");
+  const all = withUnknown(value, options, t);
   const current = all.find((o) => o.value === value);
   return (
     <Select.Root<V> value={value} items={all} disabled={disabled} onValueChange={(next) => next !== null && onChange(next)}>

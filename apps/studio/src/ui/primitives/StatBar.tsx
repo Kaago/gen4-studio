@@ -1,4 +1,6 @@
 import { useId } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import styles from "./StatBar.module.css";
 
 export type StatBarProps = {
@@ -13,23 +15,24 @@ export type StatBarProps = {
 };
 
 /** Where a value stands against the average; within half a point counts as on it. */
-function verdict(value: number, average: number): string {
-  if (value >= average + 0.5) return "über Schnitt";
-  if (value <= average - 0.5) return "unter Schnitt";
-  return "im Schnitt";
+function verdict(value: number, average: number, t: TFunction<"ui">): string {
+  if (value >= average + 0.5) return t("statBar.above");
+  if (value <= average - 0.5) return t("statBar.below");
+  return t("statBar.at");
 }
 
 const percent = (part: number, max: number) => `${(Math.min(Math.max(part, 0), max) / max) * 100}%`;
 
 /** One stat as a bar up to `max` with a stroke at the average, and in words where it stands. */
 export function StatBar({ label, value, max = 255, average, deviates }: StatBarProps) {
+  const { t } = useTranslation("ui");
   const labelId = `${useId()}-label`;
-  const said = verdict(value, average);
+  const said = verdict(value, average, t);
   return (
     <div className={`${styles.row} ${deviates ? styles.deviates : ""}`} data-deviates={deviates ? "" : undefined}>
       <span id={labelId} className={styles.label}>
         {label}
-        {deviates && <span className={styles.hidden}> weicht ab</span>}
+        {deviates && <span className={styles.hidden}> {t("statBar.deviates")}</span>}
       </span>
       <span className={styles.value}>{value}</span>
       <div

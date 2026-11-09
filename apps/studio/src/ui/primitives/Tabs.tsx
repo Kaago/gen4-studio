@@ -1,5 +1,6 @@
 import { Tabs as BaseTabs } from "@base-ui/react/tabs";
 import type { KeyboardEvent, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { IconButton } from "./IconButton";
 import type { RowDataAttrs } from "./ListRow";
 import styles from "./Tabs.module.css";
@@ -10,7 +11,7 @@ export type TabItem = {
   count?: number;
   /** Shows a dot in place of the close button. */
   unsaved?: boolean;
-  /** Accessible name of the close button, e.g. "Datei 0412 schließen". */
+  /** Accessible name of the close button, e.g. „Datei 0412 schließen“. */
   closeLabel?: string;
   /** Pass-through `data-*` attributes of the tab (`data-script`, …). */
   dataAttrs?: RowDataAttrs;
@@ -30,6 +31,7 @@ export type TabsProps = {
 
 /** Switching follows focus (arrow keys); Delete or Cmd/Ctrl+W on the focused tab closes it. */
 export function Tabs({ items, value, onChange, onClose, ariaLabel, children }: TabsProps) {
+  const { t } = useTranslation("ui");
   const closeOnKey = (id: string) => (event: KeyboardEvent) => {
     if (!onClose) return;
     const isCloseKey = event.key === "Delete" || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "w");
@@ -48,15 +50,15 @@ export function Tabs({ items, value, onChange, onClose, ariaLabel, children }: T
             </BaseTabs.Tab>
             {item.unsaved ? (
               <span className={styles.slot}>
-                <span className={`${styles.dot} ${onClose ? styles.swapDot : ""}`} role="img" aria-label="ungespeichert" />
+                <span className={`${styles.dot} ${onClose ? styles.swapDot : ""}`} role="img" aria-label={t("tabs.unsaved")} />
                 {onClose && (
                   <span className={styles.swapClose}>
-                    <IconButton label={item.closeLabel ?? `${item.label} schließen`} icon="close" onClick={() => onClose(item.id)} />
+                    <IconButton label={item.closeLabel ?? t("tabs.close", { label: item.label })} icon="close" onClick={() => onClose(item.id)} />
                   </span>
                 )}
               </span>
             ) : (
-              onClose && <IconButton label={item.closeLabel ?? `${item.label} schließen`} icon="close" onClick={() => onClose(item.id)} />
+              onClose && <IconButton label={item.closeLabel ?? t("tabs.close", { label: item.label })} icon="close" onClick={() => onClose(item.id)} />
             )}
           </div>
         ))}

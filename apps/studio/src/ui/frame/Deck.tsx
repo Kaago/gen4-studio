@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { FunctionComponent, KeyboardEvent, MutableRefObject, PointerEvent, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewGroupPanel, DockviewReadyEvent, DockviewTheme, GetTabContextMenuItemsParams, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
+import { useTranslation } from "react-i18next";
 import { AREA_PANELS, DEFAULT_ARRANGEMENT, dropLayout, isSaneLayout, layoutKey, loadArrangement, loadLayout, saveArrangement, saveLayout } from "../../workbench/layout";
 import type { Arrangement, DeckArea } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
@@ -81,6 +82,7 @@ const dockviewItems = (items: TabMenuItem[]): (TabMenuItem | { element: HTMLElem
  * group in the grid can be maximized). The tab "Script" carries the cobalt dot while a script is unsaved; its title stays "Script".
  */
 function PanelTab(props: IDockviewPanelHeaderProps) {
+  const { t } = useTranslation("ui");
   const unsavedScripts = useSyncExternalStore(scriptDirtyStore.subscribe, scriptDirtyStore.get);
   const onDoubleClick = () => {
     if (props.api.isMaximized()) props.api.exitMaximized();
@@ -90,7 +92,7 @@ function PanelTab(props: IDockviewPanelHeaderProps) {
   return (
     <span className={styles.tab} data-dock-tab={props.api.id} onDoubleClick={onDoubleClick}>
       <DockviewDefaultTab {...props} hideClose />
-      {props.api.id === "script" && unsavedScripts > 0 && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
+      {props.api.id === "script" && unsavedScripts > 0 && <span className={styles.dot} role="img" aria-label={t("deck.unsaved")} />}
     </span>
   );
 }

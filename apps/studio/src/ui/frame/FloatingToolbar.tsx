@@ -1,5 +1,6 @@
 import { Fragment, memo, useId, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { isEventTool } from "../../workbench/tools";
 import type { ToolSpec } from "../../workbench/tools";
 import type { PaintToolSpec } from "../../workbench/paintTools";
@@ -34,7 +35,8 @@ export function isLowView(viewHeight: number, minHeight: number): boolean {
   return viewHeight > 0 && viewHeight < minHeight;
 }
 
-const ANCHOR_LABELS: Record<ToolbarAnchor, string> = { left: "Links", top: "Oben", bottom: "Unten" };
+/** The catalog key of each anchor's name (`floatingToolbar.<name>` in `ui`). */
+const ANCHOR_NAMES = { left: "anchorLeft", top: "anchorTop", bottom: "anchorBottom" } as const;
 const ANCHORS: readonly ToolbarAnchor[] = ["left", "top", "bottom"];
 
 /** Where the toolbar shows: an upright toolbar lies flat at the top in a low view (`isLowView`), the others stay. */
@@ -81,6 +83,7 @@ export interface FloatingToolbarProps {
  * trigger, so the grip cannot be the trigger and a drag handle at once.
  */
 export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, anchor, chosen, onAnchor, area, paint = null, paintBeside = false }: FloatingToolbarProps) {
+  const { t } = useTranslation("ui");
   const bar = useRef<HTMLDivElement>(null);
   const vertical = anchor === "left";
   useRovingList(bar, { orientation: vertical ? "vertical" : "horizontal" });
@@ -110,7 +113,7 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
     <div
       ref={bar}
       role="toolbar"
-      aria-label="Werkzeugleiste"
+      aria-label={t("floatingToolbar.label")}
       aria-orientation={vertical ? "vertical" : "horizontal"}
       data-anchor={anchor}
       data-dichte={density}
@@ -123,7 +126,7 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
           data-toolbar-grip=""
           // For the pointer only: the caret's menu next to it is the way of the keyboard and of assistive tech.
           aria-hidden="true"
-          title="Ziehen verschiebt die Leiste"
+          title={t("floatingToolbar.grip")}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={(e) => endDrag(e, true)}
@@ -133,31 +136,31 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
         </span>
         <Menu
           trigger={<Icon name="caretDown" />}
-          label="Lage der Werkzeugleiste"
-          // The menu ticks the chosen anchor and always writes the entry; in a low view it says why "Links" shows flat on top.
+          label={t("floatingToolbar.position")}
+          // The menu ticks the chosen anchor and always writes the entry; in a low view it says why "Left" shows flat on top.
           items={ANCHORS.map((a) => ({
-            label: a === "left" && chosen === "left" && anchor !== "left" ? `${ANCHOR_LABELS[a]} (bei dieser Höhe oben)` : ANCHOR_LABELS[a],
+            label: a === "left" && chosen === "left" && anchor !== "left" ? t("floatingToolbar.anchorFlat", { anchor: t(`floatingToolbar.${ANCHOR_NAMES[a]}`) }) : t(`floatingToolbar.${ANCHOR_NAMES[a]}`),
             checked: a === chosen,
             onSelect: () => onAnchor(a),
           }))}
         />
       </span>
-      {tools.map((t, at) => {
+      {tools.map((spec, at) => {
         // A locked tool stays in the tab order and says why (as tooltip and as description), but does nothing.
-        const blocked = isEventTool(t.id) ? eventsBlocked : null;
-        const reasonId = `${uid}-${t.id}`;
-        const groupStarts = at > 0 && tools[at - 1]!.group !== t.group;
+        const blocked = isEventTool(spec.id) ? eventsBlocked : null;
+        const reasonId = `${uid}-${spec.id}`;
+        const groupStarts = at > 0 && tools[at - 1]!.group !== spec.group;
         return (
-          <Fragment key={t.id}>
+          <Fragment key={spec.id}>
             {groupStarts && <span role="separator" aria-orientation={vertical ? "horizontal" : "vertical"} className={styles.separator} />}
             <Tooltip
               content={
                 blocked ?? (
                   <span className={styles.tip}>
                     <span className={styles.tipHead}>
-                      {t.label} <Kbd keys={t.key} />
+                      {spec.label} <Kbd keys={spec.key} />
                     </span>
-                    <span className={styles.tipHint}>{t.hint}</span>
+                    <span className={styles.tipHint}>{spec.hint}</span>
                   </span>
                 )
               }
@@ -166,17 +169,17 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
                 type="button"
                 className={styles.tool}
                 data-roving=""
-                data-tool={t.id}
-                aria-label={t.label}
-                aria-pressed={tool === t.id}
+                data-tool={spec.id}
+                aria-label={spec.label}
+                aria-pressed={tool === spec.id}
                 aria-disabled={blocked ? true : undefined}
                 aria-describedby={blocked ? reasonId : undefined}
-                aria-keyshortcuts={t.key}
-                onClick={blocked ? undefined : () => onTool(t.id)}
+                aria-keyshortcuts={spec.key}
+                onClick={blocked ? undefined : () => onTool(spec.id)}
               >
-                <Icon name={t.icon} weight={tool === t.id ? "fill" : "regular"} />
+                <Icon name={spec.icon} weight={tool === spec.id ? "fill" : "regular"} />
                 <span className={styles.key} aria-hidden="true">
-                  {t.key}
+                  {spec.key}
                 </span>
               </button>
             </Tooltip>
@@ -191,16 +194,16 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
       {paint && (
         <>
           <span role="separator" aria-orientation={vertical ? "horizontal" : "vertical"} data-paint-separator="" className={styles.separator} />
-          <div role="group" aria-label="Unterwerkzeuge" data-paint-tools="" className={styles.group}>
-            {paint.tools.map((t) => (
+          <div role="group" aria-label={t("floatingToolbar.subTools")} data-paint-tools="" className={styles.group}>
+            {paint.tools.map((spec) => (
               <Tooltip
-                key={t.id}
+                key={spec.id}
                 content={
                   <span className={styles.tip}>
                     <span className={styles.tipHead}>
-                      {t.label} <Kbd keys={t.key} />
+                      {spec.label} <Kbd keys={spec.key} />
                     </span>
-                    <span className={styles.tipHint}>{t.hint}</span>
+                    <span className={styles.tipHint}>{spec.hint}</span>
                   </span>
                 }
               >
@@ -208,17 +211,17 @@ export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTo
                   type="button"
                   className={styles.tool}
                   data-roving=""
-                  data-paint-tool={t.id}
+                  data-paint-tool={spec.id}
                   // The group comes and goes after the roving list set its tab stop: it joins as a stop reached by the arrows.
                   tabIndex={-1}
-                  aria-label={t.label}
-                  aria-pressed={paint.sub === t.id}
-                  aria-keyshortcuts={t.key}
-                  onClick={() => paint.onSub(t.id)}
+                  aria-label={spec.label}
+                  aria-pressed={paint.sub === spec.id}
+                  aria-keyshortcuts={spec.key}
+                  onClick={() => paint.onSub(spec.id)}
                 >
-                  <Icon name={t.icon} weight={paint.sub === t.id ? "fill" : "regular"} />
+                  <Icon name={spec.icon} weight={paint.sub === spec.id ? "fill" : "regular"} />
                   <span className={styles.key} aria-hidden="true">
-                    {t.key}
+                    {spec.key}
                   </span>
                 </button>
               </Tooltip>

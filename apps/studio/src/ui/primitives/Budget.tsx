@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "./Badge";
 import styles from "./Budget.module.css";
 
@@ -20,12 +21,11 @@ export type BudgetProps = {
   tech?: string;
 };
 
-const BADGES: Record<Exclude<BudgetState, "calm">, { kind: "warning" | "error"; text: string }> = {
-  tight: { kind: "warning", text: "Knapp" },
-  full: { kind: "error", text: "Voll" },
+/** The badge of a state that is not calm; its text is `budget.<state>` in the `ui` catalog. */
+const BADGES: Record<Exclude<BudgetState, "calm">, { kind: "warning" | "error" }> = {
+  tight: { kind: "warning" },
+  full: { kind: "error" },
 };
-
-const number = (n: number) => n.toLocaleString("de-DE");
 
 /** The share of `max` the bar fills (a full bar over the limit, an empty one without a limit). */
 const share = (used: number, max: number) => `${max > 0 ? (Math.min(Math.max(used, 0), max) / max) * 100 : 0}%`;
@@ -35,9 +35,12 @@ const share = (used: number, max: number) => `${max > 0 ? (Math.min(Math.max(use
  * bar, Ruhig stays quiet. A budget never blocks saving; it only says where the game's limits are.
  */
 export function Budget({ label, used, max, state, unit, note, text, tech }: BudgetProps) {
+  const { t, i18n } = useTranslation("ui");
   const labelId = `${useId()}-label`;
-  const words = text ?? `${number(used)} von ${number(max)}${unit ? ` ${unit}` : ""}`;
-  const badge = state === "calm" ? null : BADGES[state];
+  // The numbers are grouped the way the language that is shown writes them (110.640 in German, 110,640 in English).
+  const number = (n: number) => n.toLocaleString(i18n.language === "de" ? "de-DE" : "en-US");
+  const words = text ?? `${t("budget.of", { used: number(used), max: number(max) })}${unit ? ` ${unit}` : ""}`;
+  const badge = state === "calm" ? null : { ...BADGES[state], text: t(`budget.${state}`) };
   return (
     <div className={`${styles.budget} ${styles[state]}`} data-budget-state={state}>
       <div className={styles.head}>

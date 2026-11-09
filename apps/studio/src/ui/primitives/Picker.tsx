@@ -1,6 +1,7 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "./Dialog";
 import { Icon } from "./Icon";
 import { Kbd } from "./Kbd";
@@ -40,6 +41,8 @@ export type PickerProps = {
   limitPerGroup?: number;
   /** Groups in this order first; groups not named follow in order of first appearance. */
   groupOrder?: readonly string[];
+  /** The heading a group shows, for a `group` that is an identifier rather than a text (the palette's); without it a group is headed by its own value. */
+  groupLabel?: (group: string) => string;
   /** With an empty search only these groups are listed (e.g. the commands); typing searches all groups. */
   emptyQueryGroups?: readonly string[];
   /**
@@ -137,9 +140,11 @@ function PickerBody({
   variant = "dialog",
   limitPerGroup,
   groupOrder,
+  groupLabel,
   emptyQueryGroups,
   cutNote,
 }: Omit<PickerProps, "open" | "title">) {
+  const { t } = useTranslation("ui");
   const palette = variant === "palette";
   const [query, setQuery] = useState("");
   // The body is mounted anew for every opening, so this guard resets with it (also when the palette is reopened while it
@@ -190,30 +195,30 @@ function PickerBody({
       >
         <div className={styles.search}>
           <Icon name="search" />
-          <Combobox.Input className={styles.input} aria-label="Suchen" placeholder={placeholder ?? "Suchen …"} spellCheck={false} />
+          <Combobox.Input className={styles.input} aria-label={t("picker.search")} placeholder={placeholder ?? t("picker.searchPlaceholder")} spellCheck={false} />
         </div>
         {filters && filters.length > 0 && filter !== undefined && onFilter && (
           <div className={styles.filters}>
-            <Segmented size="s" wrap ariaLabel="Filter" options={filters} value={filter} onChange={onFilter} />
+            <Segmented size="s" wrap ariaLabel={t("picker.filter")} options={filters} value={filter} onChange={onFilter} />
           </div>
         )}
-        <Combobox.List className={styles.list} aria-label="Treffer">
+        <Combobox.List className={styles.list} aria-label={t("picker.results")}>
           {grouped
             ? (group: Group) => (
                 <Combobox.Group key={group.value} items={group.items} className={styles.group}>
-                  {group.value !== "" && <Combobox.GroupLabel className={styles.groupLabel}>{group.value}</Combobox.GroupLabel>}
+                  {group.value !== "" && <Combobox.GroupLabel className={styles.groupLabel}>{groupLabel ? groupLabel(group.value) : group.value}</Combobox.GroupLabel>}
                   <Combobox.Collection>{(item: PickerItem) => <PickerRow key={item.id} item={item} query={rowQuery} />}</Combobox.Collection>
                 </Combobox.Group>
               )
             : (item: PickerItem) => <PickerRow key={item.id} item={item} query={rowQuery} />}
         </Combobox.List>
-        <Combobox.Empty className={styles.empty}>{emptyText ?? "Nichts gefunden. Ändere die Suche oder den Filter."}</Combobox.Empty>
+        <Combobox.Empty className={styles.empty}>{emptyText ?? t("picker.empty")}</Combobox.Empty>
         {cutNote && listed < total && <div className={styles.cutNote}>{cutNote(listed, total)}</div>}
       </Combobox.Root>
       {palette && (
         <div className={`${styles.footer} ${styles.paletteFooter}`}>
-          <span>↑↓ wählen, ↵ ausführen</span>
-          <span>{total} Treffer</span>
+          <span>{t("picker.keys")}</span>
+          <span>{t("picker.hits", { count: total })}</span>
           {footer}
         </div>
       )}

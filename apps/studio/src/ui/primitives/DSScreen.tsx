@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { Page, Segment } from "../../workbench/text/textModel";
 import { Badge } from "./Badge";
 import { Icon } from "./Icon";
@@ -59,12 +60,13 @@ function Part({ segment }: { segment: Segment }) {
 }
 
 export function DSScreen({ variant, pages, page, scale: given, background, decorative = false, label: named }: DSScreenProps) {
+  const { t } = useTranslation("ui");
   const { frame, scale } = useScale(given);
   // No pages count as one empty page; a page index outside the list is clamped.
   const total = Math.max(1, pages.length);
   const index = Math.min(Math.max(0, Math.trunc(page)), total - 1);
   const shown = pages[index];
-  const label = named ?? (variant === "empty" ? "DS-Bildschirm, leer" : `DS-Bildschirm, Seite ${index + 1} von ${total}`);
+  const label = named ?? (variant === "empty" ? t("dsScreen.labelEmpty") : t("dsScreen.labelPage", { page: index + 1, total }));
   return (
     <div ref={frame} className={styles.frame} aria-hidden={decorative || undefined}>
       <div role={decorative ? undefined : "group"} aria-label={decorative ? undefined : label} className={styles.screen} style={{ "--ds-scale": scale } /* dyn */}>
@@ -79,7 +81,7 @@ export function DSScreen({ variant, pages, page, scale: given, background, decor
               </div>
             ))}
             {shown.overflow && (
-              <span className={styles.overflow} role="img" aria-label="Zeile läuft aus der Box">
+              <span className={styles.overflow} role="img" aria-label={t("dsScreen.overflow")}>
                 <Icon name="warning" weight="fill" />
               </span>
             )}

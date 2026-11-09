@@ -1,1 +1,337 @@
-{}
+{
+  "agentStatus": {
+    "connected_one": "Agent verbunden: {{client}}",
+    "connected_other": "{{count}} Agenten verbunden",
+    "withReadOnly": "{{who}} · Nur lesen",
+    "readOnly": "Nur lesen",
+    "disconnect": "Trennen"
+  },
+  "atlas": {
+    "label": "Bereiche",
+    "start": "Start",
+    "world": "Welt",
+    "stories": "Geschichten",
+    "pokemon": "Pokémon",
+    "items": "Gegenstände",
+    "texts": "Texte",
+    "technical": "Technik",
+    "help": "Hilfe",
+    "settings": "Einstellungen"
+  },
+  "badge": {
+    "unsaved": "Ungespeichert",
+    "irreversible": "Nicht rückgängig",
+    "locked": "Gesperrt",
+    "changedOnDisk": "Auf Platte geändert",
+    "ptHgssOnly": "Nur Platin und HGSS",
+    "error": "Fehler",
+    "live": "Live",
+    "info": "Info",
+    "success": "Erledigt",
+    "warning": "Warnung",
+    "code": "Code",
+    "neutral": "Hinweis"
+  },
+  "battlePreview": {
+    "label": "Kampfvorschau: {{foe}}",
+    "labelAgainst": "Kampfvorschau: {{foe}} gegen {{own}}",
+    "described": "{{name}} Lv. {{level}}",
+    "level": "Lv. {{level}}",
+    "hp": "KP {{name}}",
+    "percent": "{{percent}} Prozent"
+  },
+  "beforeAfter": {
+    "label": "Vorher und Nachher",
+    "before": "Vorher",
+    "after": "Nachher",
+    "empty": "Leer"
+  },
+  "budget": {
+    "of": "{{used}} von {{max}}",
+    "tight": "Knapp",
+    "full": "Voll"
+  },
+  "changeTable": {
+    "missing": "fehlt"
+  },
+  "checkList": {
+    "ok": "In Ordnung",
+    "warning": "Warnung",
+    "error": "Fehler",
+    "info": "Hinweis"
+  },
+  "deck": {
+    "unsaved": "ungespeichert"
+  },
+  "dialog": {
+    "close": "Schließen"
+  },
+  "dock": {
+    "panelOpened": "{{title}} geöffnet",
+    "panelClosed": "{{title}} geschlossen",
+    "groupMaximized": "{{title}} maximiert",
+    "groupRestored": "{{title}} wiederhergestellt",
+    "groupFloated": "{{title}} schwebt",
+    "groupDocked": "{{title}} angedockt",
+    "groupPoppedOut": "{{title}} in eigenem Fenster",
+    "closeTab": "{{title}} schließen",
+    "closeTabPlain": "Schließen"
+  },
+  "dockMenu": {
+    "restore": "Wiederherstellen",
+    "maximize": "Maximieren",
+    "asPreview": "Als Vorschaubild",
+    "float": "Schweben lassen",
+    "backToDock": "Zurück ins Dock",
+    "resetArrangement": "Anordnung zurücksetzen"
+  },
+  "dsPokedexProfile": {
+    "label": "Pokédex-Profil {{name}}",
+    "number": "Nr. {{number}}",
+    "category": "Kategorie",
+    "height": "Größe",
+    "weight": "Gewicht",
+    "pending": "folgt",
+    "textPending": "Pokédex-Text folgt"
+  },
+  "dsScreen": {
+    "labelEmpty": "DS-Bildschirm, leer",
+    "labelPage": "DS-Bildschirm, Seite {{page}} von {{total}}",
+    "overflow": "Zeile läuft aus der Box"
+  },
+  "emulatorRow": {
+    "none": "Kein Emulator gewählt",
+    "pick": "Emulator wählen"
+  },
+  "entityStateBadge": {
+    "changed": "geändert",
+    "new": "neu",
+    "deleted": "gelöscht"
+  },
+  "filterChips": {
+    "more": "{{count}} weitere",
+    "moreGroup": "{{label}}, weitere",
+    "clear": "Filter lösen"
+  },
+  "floatingToolbar": {
+    "label": "Werkzeugleiste",
+    "grip": "Ziehen verschiebt die Leiste",
+    "position": "Lage der Werkzeugleiste",
+    "anchorLeft": "Links",
+    "anchorTop": "Oben",
+    "anchorBottom": "Unten",
+    "anchorFlat": "{{anchor}} (bei dieser Höhe oben)",
+    "subTools": "Unterwerkzeuge"
+  },
+  "gitStatusItem": {
+    "unreadable": "Git: nicht lesbar",
+    "label": "Git: {{text}}"
+  },
+  "helpDialog": {
+    "title": "Hilfe",
+    "description": "Die Begriffe, mit denen das Studio die Welt des Spiels beschreibt."
+  },
+  "hexBlock": {
+    "byte": "Byte {{offset}}",
+    "bytes": "Byte {{from}} bis {{to}}",
+    "bit": "Bit {{bit}}",
+    "bits": "Bits {{from}} bis {{to}}",
+    "captionRest_one": ", Eintrag {{member}}, {{count}} Byte",
+    "captionRest_other": ", Eintrag {{member}}, {{count}} Bytes"
+  },
+  "hinge": {
+    "label": "Scharnier",
+    "crumbs": "Brotkrume",
+    "depth": "Tiefe",
+    "depthTell": "Erzählen",
+    "depthBuild": "Bauen",
+    "depthTinker": "Tüfteln",
+    "nothingToUndo": "Noch nichts zurückzunehmen",
+    "defaultStep": "Änderung",
+    "notChecked": "Nicht geprüft",
+    "allSound": "Alles stimmig",
+    "countsNotChecked": "{{counts}}, nicht geprüft",
+    "historyName": "Verlauf",
+    "history_one": "Verlauf, {{count}} Schritt",
+    "history_other": "Verlauf, {{count}} Schritte",
+    "redo": "Wiederholen",
+    "maximizeView": "Schau maximieren",
+    "playing": "Spielt in melonDS",
+    "resume": "Weiter",
+    "reload": "Neu laden",
+    "stop": "Stoppen",
+    "building": "Baut …",
+    "play": "Hier spielen"
+  },
+  "inspectorRow": {
+    "deviates": "weicht ab"
+  },
+  "listPane": {
+    "collapse": "Liste einklappen",
+    "expand": "Liste ausklappen",
+    "collapseHint": "Doppelklick klappt die Liste ein",
+    "expandHint": "Klick klappt die Liste aus"
+  },
+  "liveRow": {
+    "title": "Spielmodus live",
+    "noMelonDs": "Kein melonDS gewählt",
+    "notChecked": "Noch nicht geprüft: wird beim nächsten „Hier spielen“ gelesen",
+    "settingsUnreadable": "melonDS {{version}} · Einstellungen nicht lesbar",
+    "summary": "melonDS {{version}} · GDB-Stub {{stub}} · Port {{port}} · JIT {{jit}}",
+    "on": "an",
+    "off": "aus",
+    "stubOff": "GDB-Stub aus: wird beim nächsten „Hier spielen“ eingeschaltet, wenn melonDS nicht läuft",
+    "breakOnStartup": "Halt beim Start an: wird beim nächsten „Hier spielen“ ausgeschaltet, wenn melonDS nicht läuft",
+    "jit": "JIT an: wird beim nächsten „Hier spielen“ ausgeschaltet, wenn melonDS nicht läuft"
+  },
+  "numberField": {
+    "baseDec": "Dez",
+    "baseHex": "Hex",
+    "roleDescription": "Zahlfeld",
+    "baseOf": "Zahlenbasis von {{label}}"
+  },
+  "numberParse": {
+    "enterNumber": "Gib eine Zahl ein.",
+    "notHex": "Das ist keine Hex-Zahl. Gib z. B. 0x1F ein.",
+    "notInteger": "Das ist keine ganze Zahl. Gib z. B. 12 ein.",
+    "atMost": "höchstens {{max}}",
+    "atLeast": "mindestens {{min}}"
+  },
+  "palette": {
+    "title": "Befehlspalette",
+    "placeholder": "Suchen oder Befehl eingeben",
+    "empty": "Nichts gefunden. Ändere die Suche.",
+    "groups": {
+      "commands": "Befehle",
+      "pokemon": "Pokémon",
+      "trainers": "Trainer",
+      "encounters": "Begegnungen",
+      "moves": "Attacken",
+      "items": "Gegenstände"
+    }
+  },
+  "picker": {
+    "search": "Suchen",
+    "searchPlaceholder": "Suchen …",
+    "results": "Treffer",
+    "filter": "Filter",
+    "empty": "Nichts gefunden. Ändere die Suche oder den Filter.",
+    "keys": "↑↓ wählen, ↵ ausführen",
+    "hits_one": "{{count}} Treffer",
+    "hits_other": "{{count}} Treffer"
+  },
+  "pokemonCard": {
+    "empty": "Leer",
+    "emptySlot": "Platz {{slot}} leer",
+    "level": "Lv. {{level}}"
+  },
+  "pokemonTypes": {
+    "normal": "Normal",
+    "kampf": "Kampf",
+    "flug": "Flug",
+    "gift": "Gift",
+    "boden": "Boden",
+    "gestein": "Gestein",
+    "kaefer": "Käfer",
+    "geist": "Geist",
+    "stahl": "Stahl",
+    "fragezeichen": "???",
+    "feuer": "Feuer",
+    "wasser": "Wasser",
+    "pflanze": "Pflanze",
+    "elektro": "Elektro",
+    "psycho": "Psycho",
+    "eis": "Eis",
+    "drache": "Drache",
+    "unlicht": "Unlicht",
+    "unknown": "Typ {{id}}"
+  },
+  "recipeBar": {
+    "label": "Rezepte"
+  },
+  "reference": {
+    "unused": "Nirgends verwendet",
+    "usedIn": "Verwendet in"
+  },
+  "selectField": {
+    "unknown": "Wert {{value}}"
+  },
+  "startPane": {
+    "welcome": "Willkommen zurück",
+    "recentLabel": "Zuletzt geöffnete Projekte",
+    "noneYet": "Noch kein Projekt geöffnet.",
+    "newGame": "Neues Spiel aus ROM…",
+    "openProject": "Projekt öffnen",
+    "ownRom": "Du brauchst deine eigene ROM-Datei (.nds).",
+    "noGameData": "Gen4 Studio liefert keine Spieldaten; du nutzt deine eigene ROM.",
+    "dspreFolders": "Projekte sind entpackte DSPRE-Ordner.",
+    "latest": "Zuletzt",
+    "notFound": "nicht gefunden",
+    "opened": "geöffnet {{ago}}",
+    "moreActions": "Weitere Aktionen für {{name}}",
+    "removeFromList": "Aus der Liste nehmen",
+    "choosePreview": "Vorschaubild wählen…",
+    "removePreview": "Vorschaubild entfernen"
+  },
+  "statBar": {
+    "deviates": "weicht ab",
+    "above": "über Schnitt",
+    "below": "unter Schnitt",
+    "at": "im Schnitt"
+  },
+  "statusLine": {
+    "densityComfort": "Komfort",
+    "densityCompact": "Kompakt",
+    "densityTip": "Dichte wechseln (Komfort oder Kompakt)",
+    "building": "Baut …",
+    "notBuilt": "Noch nicht gebaut",
+    "built": "Gebaut {{ago}}",
+    "bridgeOk": "Browser-Modus (Brücke)",
+    "bridgeMissing": "Brücke nicht erreichbar"
+  },
+  "storyNode": {
+    "kinds": {
+      "start": "Start",
+      "dialog": "Dialog",
+      "condition": "Bedingung",
+      "battle": "Kampf",
+      "reward": "Belohnung",
+      "progress": "Fortschritt",
+      "appearance": "Erscheinen/Verschwinden",
+      "value": "Wert",
+      "place": "Ort"
+    },
+    "notedOnly": "nur notiert",
+    "noValue": "ohne Wert"
+  },
+  "tabs": {
+    "unsaved": "ungespeichert",
+    "close": "{{label}} schließen"
+  },
+  "timeAgo": {
+    "justNow": "gerade eben",
+    "minutes_one": "vor {{count}} Minute",
+    "minutes_other": "vor {{count}} Minuten",
+    "hours_one": "vor {{count}} Stunde",
+    "hours_other": "vor {{count}} Stunden",
+    "days_one": "vor {{count}} Tag",
+    "days_other": "vor {{count}} Tagen"
+  },
+  "titleBar": {
+    "openProject": "Projekt öffnen",
+    "noProject": "Kein Projekt geöffnet",
+    "unsaved_one": "{{count}} Änderung nicht gespeichert",
+    "unsaved_other": "{{count}} Änderungen nicht gespeichert",
+    "allSaved": "Alles gespeichert",
+    "search": "Suchen oder Befehl eingeben",
+    "save": "Speichern",
+    "build": "Bauen",
+    "publish": "Veröffentlichen",
+    "theme": "Thema wechseln",
+    "help": "Hilfe"
+  },
+  "toastHost": {
+    "label": "Meldungen",
+    "close": "Meldung schließen"
+  }
+}

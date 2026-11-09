@@ -1,4 +1,5 @@
 import { memo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { RecipeEntry } from "../../workbench/recipes";
 import { RecipeButton, useRovingList } from "../primitives";
 import type { Density } from "../tokens/theme";
@@ -21,11 +22,12 @@ export interface RecipeBarProps {
  * toolbar's anchor; moving it is the toolbar's business (in Bauen).
  */
 export const RecipeBar = memo(function RecipeBar({ entries, onRecipe, density, anchor }: RecipeBarProps) {
+  const { t } = useTranslation("ui");
   const bar = useRef<HTMLDivElement>(null);
   const vertical = anchor === "left";
   useRovingList(bar, { orientation: vertical ? "vertical" : "horizontal" });
   return (
-    <div ref={bar} role="toolbar" aria-label="Rezepte" aria-orientation={vertical ? "vertical" : "horizontal"} data-anchor={anchor} data-dichte={density} className={styles.bar}>
+    <div ref={bar} role="toolbar" aria-label={t("recipeBar.label")} aria-orientation={vertical ? "vertical" : "horizontal"} data-anchor={anchor} data-dichte={density} className={styles.bar}>
       {entries.map((r) => (
         <RecipeButton key={r.id} id={r.id} label={r.label} icon={r.icon} area={r.area} hint={r.hint} reason={r.reason ?? null} iconOnly={!vertical || r.reason !== undefined} onClick={() => onRecipe(r.id)} />
       ))}

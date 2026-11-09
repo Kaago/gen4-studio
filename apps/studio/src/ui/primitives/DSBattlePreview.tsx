@@ -1,3 +1,5 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { Page } from "../../workbench/text/textModel";
 import { DSScreen } from "./DSScreen";
 import { Sprite } from "./Sprite";
@@ -37,9 +39,10 @@ function hpColour(hp: number): HpColour {
 }
 
 const hasLevel = (side: BattleSide) => side.level > 0;
-const describe = (side: BattleSide) => (hasLevel(side) ? `${side.name} Lv. ${side.level}` : side.name);
+const describe = (side: BattleSide, t: TFunction<"ui">) => (hasLevel(side) ? t("battlePreview.described", { name: side.name, level: side.level }) : side.name);
 
 function StatusBox({ side, which }: { side: BattleSide; which: Which }) {
+  const { t } = useTranslation("ui");
   const hp = side.hp === undefined || !Number.isFinite(side.hp) ? 1 : Math.min(1, Math.max(0, side.hp));
   const percent = Math.round(hp * 100);
   const colour = hpColour(hp);
@@ -50,14 +53,14 @@ function StatusBox({ side, which }: { side: BattleSide; which: Which }) {
       </div>
       {hasLevel(side) && (
         <div className={styles.statusLine}>
-          <span>{`Lv. ${side.level}`}</span>
+          <span>{t("battlePreview.level", { level: side.level })}</span>
           <span
             role="meter"
-            aria-label={`KP ${side.name}`}
+            aria-label={t("battlePreview.hp", { name: side.name })}
             aria-valuenow={percent}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuetext={`${percent} Prozent`}
+            aria-valuetext={t("battlePreview.percent", { percent })}
             className={styles.track}
             data-hp={colour}
           >
@@ -74,7 +77,8 @@ function StatusBox({ side, which }: { side: BattleSide; which: Which }) {
  * left with its box bottom right. Drawn into the background of an empty `DSScreen` (same frame, scale and game font).
  */
 export function DSBattlePreview({ foe, own, scale, decorative = false }: DSBattlePreviewProps) {
-  const label = `Kampfvorschau: ${describe(foe)}${own ? ` gegen ${describe(own)}` : ""}`;
+  const { t } = useTranslation("ui");
+  const label = own === null ? t("battlePreview.label", { foe: describe(foe, t) }) : t("battlePreview.labelAgainst", { foe: describe(foe, t), own: describe(own, t) });
   return (
     <DSScreen
       variant="empty"

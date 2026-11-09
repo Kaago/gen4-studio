@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import styles from "./Badge.module.css";
@@ -17,19 +18,20 @@ export type BadgeKind =
   | "code"
   | "neutral";
 
-const defaults: Record<BadgeKind, { text: string; icon?: IconName }> = {
-  unsaved: { text: "Ungespeichert", icon: "unsaved" },
-  irreversible: { text: "Nicht rückgängig", icon: "warning" },
-  locked: { text: "Gesperrt", icon: "lock" },
-  changedOnDisk: { text: "Auf Platte geändert", icon: "history" },
-  ptHgssOnly: { text: "Nur Platin und HGSS", icon: "info" },
-  error: { text: "Fehler", icon: "error" },
-  live: { text: "Live", icon: "play" },
-  info: { text: "Info", icon: "info" },
-  success: { text: "Erledigt", icon: "check" },
-  warning: { text: "Warnung", icon: "warning" },
-  code: { text: "Code" },
-  neutral: { text: "Hinweis" },
+/** The symbol of each kind; its default text is `badge.<kind>` in the `ui` catalog. */
+const icons: Record<BadgeKind, IconName | undefined> = {
+  unsaved: "unsaved",
+  irreversible: "warning",
+  locked: "lock",
+  changedOnDisk: "history",
+  ptHgssOnly: "info",
+  error: "error",
+  live: "play",
+  info: "info",
+  success: "check",
+  warning: "warning",
+  code: undefined,
+  neutral: undefined,
 };
 
 export type BadgeProps = {
@@ -43,12 +45,12 @@ export type BadgeProps = {
 };
 
 export function Badge({ kind, children, title, icon: given }: BadgeProps) {
-  const { text, icon: fallback } = defaults[kind];
-  const icon = given ?? fallback;
+  const { t } = useTranslation("ui");
+  const icon = given ?? icons[kind];
   return (
     <span className={`${styles.badge} ${styles[kind]}`} title={title}>
       {icon && <Icon name={icon} weight="fill" />}
-      {children ?? text}
+      {children ?? t(`badge.${kind}`)}
     </span>
   );
 }

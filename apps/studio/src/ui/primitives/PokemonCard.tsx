@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { RowDataAttrs } from "./ListRow";
 import { Sprite } from "./Sprite";
 import styles from "./PokemonCard.module.css";
@@ -30,6 +31,7 @@ export type PokemonCardProps = {
  * carries the Kobalt edge (`aria-pressed`); a free place is dashed and says so. A button: click, Enter and Space call `onClick`.
  */
 export function PokemonCard({ state, species, name, level, item, iconUrl, onClick, ariaLabel, slot, disabled, dataAttrs }: PokemonCardProps) {
+  const { t } = useTranslation("ui");
   const empty = state === "empty";
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (disabled || event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -51,13 +53,13 @@ export function PokemonCard({ state, species, name, level, item, iconUrl, onClic
       onKeyDown={onKeyDown}
     >
       {empty ? (
-        <span className={styles.emptyText}>{slot === undefined ? "Leer" : `Platz ${slot} leer`}</span>
+        <span className={styles.emptyText}>{slot === undefined ? t("pokemonCard.empty") : t("pokemonCard.emptySlot", { slot })}</span>
       ) : (
         <>
           <Sprite url={iconUrl ?? null} label={name ?? ""} size={32} area="pokemon" decorative />
           <span className={styles.text}>
             <span className={styles.name}>{name}</span>
-            {level !== undefined && <span className={styles.level}>{`Lv. ${level}`}</span>}
+            {level !== undefined && <span className={styles.level}>{t("pokemonCard.level", { level })}</span>}
             {item && <span className={styles.item}>{item}</span>}
           </span>
         </>

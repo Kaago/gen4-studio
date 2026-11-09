@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
@@ -24,16 +25,17 @@ export type FilterChipsProps = {
   visible?: number;
   /**
    * Exactly one chip is chosen (`value` holds one): another chip replaces it, the chosen one pressed again changes nothing, and there is no
-   * "Filter lösen" (an "Alle" chip is the way back).
+   * „Filter lösen“ (an „Alle“ chip is the way back).
    */
   single?: boolean;
 };
 
 /**
  * A row of toggle chips for a multiple choice filter (with `single`, a single choice). Chips past `visible` sit in a popover behind "n weitere"; a chosen
- * one of them stays in the row, so every active filter is in sight. "Filter lösen" clears the choice.
+ * one of them stays in the row, so every active filter is in sight. „Filter lösen“ clears the choice.
  */
 export function FilterChips({ options, value, onChange, ariaLabel, visible = 6, single = false }: FilterChipsProps) {
+  const { t } = useTranslation("ui");
   const shown = options.filter((o, i) => i < visible || value.has(o.value));
   const rest = options.filter((o, i) => i >= visible && !value.has(o.value));
   const toggle = (option: string) => {
@@ -61,15 +63,15 @@ export function FilterChips({ options, value, onChange, ariaLabel, visible = 6, 
     <div role="group" aria-label={ariaLabel} className={styles.chips}>
       {shown.map(chip)}
       {rest.length > 0 && (
-        <Popover trigger={`${rest.length} weitere`}>
-          <div role="group" aria-label={`${ariaLabel}, weitere`} className={styles.more}>
+        <Popover trigger={t("filterChips.more", { count: rest.length })}>
+          <div role="group" aria-label={t("filterChips.moreGroup", { label: ariaLabel })} className={styles.more}>
             {rest.map(chip)}
           </div>
         </Popover>
       )}
       {!single && value.size > 0 && (
         <Button kind="quiet" size="s" onClick={() => onChange(new Set())}>
-          Filter lösen
+          {t("filterChips.clear")}
         </Button>
       )}
     </div>

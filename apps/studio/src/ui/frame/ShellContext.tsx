@@ -63,7 +63,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
   });
   const [tool, setToolState] = useState<Tool>("select");
   const [pendingTrainer, setPendingTrainer] = useState<number | null>(null);
-  // Escape, another tool, or the figure's click going back to "Auswählen" all end the binding of a trainer to the figure tool.
+  // Escape, another tool, or the figure's click going back to „Auswählen“ all end the binding of a trainer to the figure tool.
   const setTool = useCallback((next: Tool) => {
     setToolState(next);
     if (next !== "figure") setPendingTrainer(null);

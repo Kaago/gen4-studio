@@ -1,4 +1,5 @@
 import { createElement, useLayoutEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import styles from "./BeforeAfter.module.css";
 
 export type BeforeAfterProps = {
@@ -61,6 +62,7 @@ function showFirstChange(list: HTMLElement) {
 }
 
 function Side({ title, lines, changed, mark }: { title: string; lines: readonly string[]; changed: readonly boolean[]; mark: "del" | "ins" }) {
+  const { t } = useTranslation("ui");
   const list = useRef<HTMLOListElement>(null);
   // On mount and when the text changes: the difference is the point, not the unchanged top of a long text.
   useLayoutEffect(() => {
@@ -88,7 +90,7 @@ function Side({ title, lines, changed, mark }: { title: string; lines: readonly 
         {title}
       </div>
       {lines.length === 0 ? (
-        <p className={styles.empty}>Leer</p>
+        <p className={styles.empty}>{t("beforeAfter.empty")}</p>
       ) : (
         <ol ref={list} className={styles.lines}>
           {lines.map((line, i) =>
@@ -114,13 +116,14 @@ function Side({ title, lines, changed, mark }: { title: string; lines: readonly 
  * break inside their column.
  */
 export function BeforeAfter({ before, after, label, wrap = false }: BeforeAfterProps) {
+  const { t } = useTranslation("ui");
   const a = useMemo(() => linesOf(before), [before]);
   const b = useMemo(() => linesOf(after), [after]);
   const changed = useMemo(() => changedLines(a, b), [a, b]);
   return (
-    <div role="group" aria-label={label ?? "Vorher und Nachher"} className={wrap ? `${styles.frame} ${styles.wrap}` : styles.frame} data-wrap={wrap ? "" : undefined}>
-      <Side title="Vorher" lines={a} changed={changed.before} mark="del" />
-      <Side title="Nachher" lines={b} changed={changed.after} mark="ins" />
+    <div role="group" aria-label={label ?? t("beforeAfter.label")} className={wrap ? `${styles.frame} ${styles.wrap}` : styles.frame} data-wrap={wrap ? "" : undefined}>
+      <Side title={t("beforeAfter.before")} lines={a} changed={changed.before} mark="del" />
+      <Side title={t("beforeAfter.after")} lines={b} changed={changed.after} mark="ins" />
     </div>
   );
 }

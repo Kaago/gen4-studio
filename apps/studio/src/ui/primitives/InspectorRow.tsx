@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import styles from "./InspectorRow.module.css";
 
 export type InspectorRowProps = {
@@ -11,11 +12,12 @@ export type InspectorRowProps = {
 
 /** One labelled field of the inspector: a 116 px label column and the control; in a narrow inspector the label above the control. */
 export function InspectorRow({ label, deviates, hint, children }: InspectorRowProps) {
+  const { t } = useTranslation("ui");
   return (
     <div className={`${styles.row} ${deviates ? styles.deviates : ""}`}>
       <span className={styles.label}>
         {label}
-        {deviates && <span className={styles.hidden}> weicht ab</span>}
+        {deviates && <span className={styles.hidden}> {t("inspectorRow.deviates")}</span>}
       </span>
       <div className={styles.control}>{children}</div>
       {hint && <p className={styles.hint}>{hint}</p>}
