@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { dataList, errorText } from "../../api";
 import type { DataRowDto, HeaderFamily, HeaderSummary } from "../../api";
 import { encounterRowLabel, rowUsers, usedByText } from "../../data/encounters/encounterModel";
@@ -37,6 +38,7 @@ export function EncounterFileField({
   onCommit: (spec: FieldSpec, value: number) => void;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation("workbench");
   const none = noEncounterFile(family);
   const [picking, setPicking] = useState(false);
   const [files, setFiles] = useState<{ rows: DataRowDto[] | null; error: string | null } | null>(null);
@@ -55,34 +57,34 @@ export function EncounterFileField({
   const items = useMemo<PickerItem[]>(() => {
     if (!picking || !files?.rows) return [];
     return [
-      { id: NONE_ID, label: "Keine" },
+      { id: NONE_ID, label: t("encounterFileField.none") },
       ...files.rows.filter((row) => row.deleted !== true).map((row) => {
         const users = rowUsers(row).length;
-        return { id: row.index, label: encounterRowLabel(row, headers), tech: row.tech, area: "pokemon" as const, description: users === 0 ? "von keinem Ort verwendet" : usedByText(users) };
+        return { id: row.index, label: encounterRowLabel(row, headers), tech: row.tech, area: "pokemon" as const, description: users === 0 ? t("encounterFileField.unused") : usedByText(users) };
       }),
     ];
-  }, [picking, files, headers]);
+  }, [picking, files, headers, t]);
   return (
     <>
       <InspectorRow label={spec.label}>
         <div className={styles.inline}>
           {value === none ? (
-            <span className={styles.mono}>Keine</span>
+            <span className={styles.mono}>{t("encounterFileField.none")}</span>
           ) : (
             <Reference area="pokemon" label={spec.label} tech={id4(value)} onOpen={() => goTo({ kind: "encounter", index: value })} />
           )}
-          <Button kind="quiet" size="s" aria-label={`${spec.label} ändern…`} disabled={disabled} onClick={() => setPicking(true)}>
-            Ändern…
+          <Button kind="quiet" size="s" aria-label={t("inspectorField.changeLabel", { label: spec.label })} disabled={disabled} onClick={() => setPicking(true)}>
+            {t("inspectorField.change")}
           </Button>
         </div>
       </InspectorRow>
       <Picker
         open={picking}
         onOpenChange={setPicking}
-        title={`${spec.label} wählen`}
+        title={t("inspectorField.chooseLabel", { label: spec.label })}
         items={items}
-        placeholder="Ort oder Nummer suchen"
-        emptyText={files === null ? "Lädt …" : (files.error ?? "Keine Begegnungsdatei gefunden")}
+        placeholder={t("encounterFileField.search")}
+        emptyText={files === null ? t("inspectorField.loading") : (files.error ?? t("encounterFileField.notFound"))}
         onPick={(item) => onCommit(spec, item.id === NONE_ID ? none : Number(item.id))}
       />
     </>

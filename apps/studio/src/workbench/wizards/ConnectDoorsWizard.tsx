@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, recipeApply } from "../../api";
 import type { ConnectDoorsInput, ConnectDoorsReport, DraftDto, HeaderSummary, MatrixSummary, RecipeOutcome } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
 import { Button, Checkbox, Notice, Picker, Segmented } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
 import { headerLabel } from "../headers";
@@ -45,13 +47,11 @@ export interface EndForm {
 
 type Outcome = { kind: "done"; outcome: RecipeOutcome<ConnectDoorsReport>; input: ConnectDoorsInput } | { kind: "partial"; message: string };
 
-const MODES = [
-  { value: "door" as const, label: "Vorhandene Tür" },
-  { value: "tile" as const, label: "Neue Kachel" },
+/** The kinds of an end, in the language that is shown when called. */
+const modes = () => [
+  { value: "door" as const, label: translate("workbench:connectDoorsWizard.existingDoor") },
+  { value: "tile" as const, label: translate("workbench:connectDoorsWizard.newTile") },
 ];
-
-/** The why of a refused one-way connection to a new door (the kernel's rule, R23): a new door needs a way back. */
-const ONE_WAY_NEW = "Ohne Rückweg muss Tür B eine vorhandene Tür sein: eine neue Tür bräuchte ein Ziel, und das wäre der Rückweg.";
 
 function startEnd(prefill: { header: number; warp?: number; tile?: { x: number; z: number } } | undefined): EndForm {
   if (!prefill) return { header: null, mode: "door", warp: null, x: null, z: null };
@@ -63,11 +63,14 @@ function startEnd(prefill: { header: number; warp?: number; tile?: { x: number; 
 function endText(end: EndForm, headers: readonly HeaderSummary[]): string {
   const header = headers.find((h) => h.id === end.header);
   const place = header ? headerLabel(header) : "?";
-  return end.mode === "door" ? `Tür ${end.warp} in ${place}` : `neue Tür auf Kachel x ${end.x}, z ${end.z} in ${place}`;
+  return end.mode === "door"
+    ? translate("workbench:connectDoorsWizard.endDoor", { warp: end.warp, place })
+    : translate("workbench:connectDoorsWizard.endTile", { x: end.x, z: end.z, place });
 }
 
 /** Door A or B: the place, the kind of end, and the door (by the picker of the door field) or the tile. */
 function DoorEndField({ which, end, onChange, headers, matrices, depth, onError }: { which: "a" | "b"; end: EndForm; onChange: (change: Partial<EndForm>) => void; headers: HeaderSummary[]; matrices: readonly MatrixSummary[]; depth: Depth; onError: (e: unknown) => void }) {
+  const { t } = useTranslation("workbench");
   const [picking, setPicking] = useState(false);
   const header = end.header === null ? null : (headers.find((h) => h.id === end.header) ?? null);
   const events = useEvents(header?.event_file_id ?? null, onError);
@@ -78,26 +81,26 @@ function DoorEndField({ which, end, onChange, headers, matrices, depth, onError 
   const name = which.toUpperCase();
   return (
     <section className={parts.column} data-door-end={which}>
-      <h3 className={parts.heading}>Tür {name}</h3>
+      <h3 className={parts.heading}>{t("connectDoorsWizard.doorName", { name })}</h3>
       <PlaceField headers={headers} value={end.header} onChange={(h) => onChange({ header: h, warp: null })} depth={depth} />
-      <Segmented ariaLabel={`Tür ${name}`} size="s" options={MODES} value={end.mode} onChange={(mode) => onChange({ mode })} />
+      <Segmented ariaLabel={t("connectDoorsWizard.doorName", { name })} size="s" options={modes()} value={end.mode} onChange={(mode) => onChange({ mode })} />
       {end.mode === "door" ? (
         <div className={parts.group}>
-          <span className={parts.label}>Tür</span>
-          <p className={parts.text}>{chosen ? doorText(chosen) : end.warp !== null ? `Tür ${end.warp}` : "Noch keine Tür gewählt."}</p>
+          <span className={parts.label}>{t("connectDoorsWizard.door")}</span>
+          <p className={parts.text}>{chosen ? doorText(chosen) : end.warp !== null ? t("warpField.doorNumber", { value: end.warp }) : t("connectDoorsWizard.noDoor")}</p>
           <Button kind="secondary" size="s" disabled={header === null} onClick={() => setPicking(true)}>
-            Tür wählen…
+            {t("connectDoorsWizard.chooseDoor")}
           </Button>
-          {events !== null && events.warps.length === 0 && <p className={parts.note}>Dieser Ort hat keine Türen: „Neue Kachel“ wählen.</p>}
+          {events !== null && events.warps.length === 0 && <p className={parts.note}>{t("connectDoorsWizard.noDoorsTakeTile")}</p>}
         </div>
       ) : (
         <>
           <TileFields x={end.x} z={end.z} size={placeTiles(header, matrices)} onChange={(tile) => onChange(tile)} />
           {taken && (
             <>
-              <p className={parts.warn}>{`Auf x ${taken.x}, z ${taken.z} liegt schon Tür ${taken.index}; wähle sie als Tür.`}</p>
+              <p className={parts.warn}>{t("connectDoorsWizard.tileTaken", { x: taken.x, z: taken.z, index: taken.index })}</p>
               <Button kind="secondary" size="s" onClick={() => onChange({ mode: "door", warp: taken.index })}>
-                {`Tür ${taken.index} nehmen`}
+                {t("connectDoorsWizard.takeDoor", { index: taken.index })}
               </Button>
             </>
           )}
@@ -106,10 +109,10 @@ function DoorEndField({ which, end, onChange, headers, matrices, depth, onError 
       <Picker
         open={picking}
         onOpenChange={setPicking}
-        title={`Tür ${name} wählen`}
+        title={t("connectDoorsWizard.chooseDoorName", { name })}
         items={items}
-        placeholder="Tür suchen"
-        emptyText={events === null ? "Lädt …" : "Dieser Ort hat keine Türen."}
+        placeholder={t("warpField.searchDoor")}
+        emptyText={events === null ? t("inspectorField.loading") : t("connectDoorsWizard.noDoors")}
         onPick={(item) => onChange({ warp: Number(item.id) })}
       />
     </section>
@@ -122,6 +125,7 @@ function DoorEndField({ which, end, onChange, headers, matrices, depth, onError 
  * scene draws the end on the shown matrix while the wizard is open.
  */
 export function ConnectDoorsWizard({ depth, headers, matrices, prefill, onDraft, onDone, onShow, onStep, onCancel, onError }: ConnectDoorsWizardProps) {
+  const { t } = useTranslation("workbench");
   const [a, setA] = useState<EndForm>(() => startEnd(prefill?.a));
   const [b, setB] = useState<EndForm>(() => startEnd(undefined));
   const [back, setBack] = useState(true);
@@ -161,40 +165,41 @@ export function ConnectDoorsWizard({ depth, headers, matrices, prefill, onDraft,
   const summaryLines =
     endA !== null && endB !== null
       ? [
-          `Tür A: ${endText(a, headers)}`,
-          `Tür B: ${endText(b, headers)}`,
-          back ? "Tür B führt zurück zu Tür A." : "Nur Tür A führt zu Tür B; Tür B bleibt, wohin sie führt.",
-          doorTiles ? "Eine neue Tür bekommt eine Türkachel, wo noch keine ist." : "Keine Türkacheln.",
+          t("connectDoorsWizard.endLine", { name: "A", end: endText(a, headers) }),
+          t("connectDoorsWizard.endLine", { name: "B", end: endText(b, headers) }),
+          back ? t("wizardSpecs.doorBack") : t("connectDoorsWizard.oneWay"),
+          doorTiles ? t("connectDoorsWizard.doorTiles") : t("connectDoorsWizard.noDoorTiles"),
         ]
       : [];
 
   const steps: WizardStep[] = [
     {
       id: "a",
-      title: "Tür A",
+      title: t("connectDoorsWizard.doorName", { name: "A" }),
       canNext: endA !== null,
       content: <DoorEndField which="a" end={a} onChange={(change) => setA((e) => ({ ...e, ...change }))} headers={headers} matrices={matrices} depth={depth} onError={onError} />,
     },
     {
       id: "b",
-      title: "Tür B",
+      title: t("connectDoorsWizard.doorName", { name: "B" }),
       canNext: input !== null,
       content: (
         <>
           <DoorEndField which="b" end={b} onChange={(change) => setB((e) => ({ ...e, ...change }))} headers={headers} matrices={matrices} depth={depth} onError={onError} />
           <section className={parts.column}>
-            <h3 className={parts.heading}>Verbindung</h3>
-            <Checkbox label="Rückweg anlegen (Tür B führt zu Tür A)" checked={back} onChange={setBack} />
-            <Checkbox label="Türkacheln setzen (eine neue Tür wird begehbar)" checked={doorTiles} onChange={setDoorTiles} />
-            {oneWayNew && <Notice kind="warning">{ONE_WAY_NEW}</Notice>}
-            {same && <Notice kind="warning">Tür A und Tür B sind dieselbe Tür.</Notice>}
+            <h3 className={parts.heading}>{t("connectDoorsWizard.connection")}</h3>
+            <Checkbox label={t("connectDoorsWizard.back")} checked={back} onChange={setBack} />
+            <Checkbox label={t("connectDoorsWizard.setDoorTiles")} checked={doorTiles} onChange={setDoorTiles} />
+            {/* The kernel's rule (R23): a new door needs a way back. */}
+            {oneWayNew && <Notice kind="warning">{t("connectDoorsWizard.oneWayNew")}</Notice>}
+            {same && <Notice kind="warning">{t("connectDoorsWizard.same")}</Notice>}
           </section>
         </>
       ),
     },
     {
       id: "summary",
-      title: "Zusammenfassung",
+      title: t("connectDoorsWizard.summary"),
       canNext: input !== null,
       content: (
         <section className={parts.column}>
@@ -215,7 +220,7 @@ export function ConnectDoorsWizard({ depth, headers, matrices, prefill, onDraft,
   let show: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const done = outcome;
-    result = <DoneResult title="Türen verbunden" {...doorsResult(done.outcome)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
+    result = <DoneResult title={t("connectDoorsWizard.done")} {...doorsResult(done.outcome)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
     if (onShow) show = () => onShow(done.outcome, done.input);
   } else if (outcome?.kind === "partial") {
     result = <PartialResult message={outcome.message} depth={depth} />;
@@ -224,7 +229,7 @@ export function ConnectDoorsWizard({ depth, headers, matrices, prefill, onDraft,
   return (
     <WizardFrame
       name="connect_doors"
-      title="Tür verbinden"
+      title={t("connectDoorsWizard.title")}
       icon="door"
       steps={steps}
       step={step}
@@ -232,14 +237,14 @@ export function ConnectDoorsWizard({ depth, headers, matrices, prefill, onDraft,
         setRefusal(null);
         setStep(i);
       }}
-      submitLabel="Verbinden"
+      submitLabel={t("connectDoorsWizard.submit")}
       onSubmit={() => void apply()}
       onCancel={() => onCancel(outcome?.kind === "partial")}
       onShow={show}
       busy={busy}
       result={result}
       error={refusal}
-      summary={endA !== null && endB !== null ? `Tür A: ${endText(a, headers)} ↔ Tür B: ${endText(b, headers)}` : undefined}
+      summary={endA !== null && endB !== null ? t("connectDoorsWizard.summaryLine", { a: endText(a, headers), b: endText(b, headers) }) : undefined}
     />
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button, InspectorRow, Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
 import { peekSprite, spriteTexture } from "../../world/sprites";
@@ -63,25 +64,26 @@ function FigurePreview({ graphicsId, dir }: { graphicsId: number; dir: number })
  * sprites; a pick is one undoable change of `graphics_id`.
  */
 export function FigureLookField({ value, dir, disabled, onCommit }: { value: number; dir: number; disabled?: boolean; onCommit: (graphicsId: number) => void }) {
+  const { t } = useTranslation("workbench");
   const [picking, setPicking] = useState(false);
   const items = useMemo<PickerItem[]>(
     () =>
       picking
-        ? Array.from({ length: Math.max(FIGURE_LOOKS, value + 1) }, (_, n) => ({ id: n, label: `Aussehen ${n}`, area: "welt" as const, preview: <FigurePreview graphicsId={n} dir={dir} /> }))
+        ? Array.from({ length: Math.max(FIGURE_LOOKS, value + 1) }, (_, n) => ({ id: n, label: t("figureLookField.lookNumber", { n }), area: "welt" as const, preview: <FigurePreview graphicsId={n} dir={dir} /> }))
         : [],
-    [picking, value, dir],
+    [picking, value, dir, t],
   );
   return (
     <>
-      <InspectorRow label="Aussehen">
+      <InspectorRow label={t("figureLookField.look")}>
         <div className={styles.inline}>
           <FigurePreview key={`${value}:${dir}`} graphicsId={value} dir={dir} />
-          <Button kind="quiet" size="s" aria-label="Aussehen ändern…" disabled={disabled} onClick={() => setPicking(true)}>
-            Ändern…
+          <Button kind="quiet" size="s" aria-label={t("figureLookField.change")} disabled={disabled} onClick={() => setPicking(true)}>
+            {t("inspectorField.change")}
           </Button>
         </div>
       </InspectorRow>
-      <Picker open={picking} onOpenChange={setPicking} title="Aussehen wählen" items={items} placeholder="Nummer suchen" onPick={(item) => onCommit(Number(item.id))} />
+      <Picker open={picking} onOpenChange={setPicking} title={t("figureLookField.choose")} items={items} placeholder={t("inspectorField.searchNumber")} onPick={(item) => onCommit(Number(item.id))} />
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { getEvents, updateEvent } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
@@ -10,7 +11,8 @@ import { resetEntry } from "../../original/resetEntry";
 import type { EventData } from "../../world/events";
 import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
 import type { NavTarget } from "../navigation";
-import { id4, termFor, termLabel } from "../terms";
+import { t as translate } from "../../i18n";
+import { id4, termLabel } from "../terms";
 import { AddEvent } from "./AddEvent";
 import { DialogSection } from "./DialogSection";
 import { dialogTitle } from "../dialog/dialogModel";
@@ -29,7 +31,7 @@ import { EVENT_INSPECTOR_KIND, InspectorHead } from "./InspectorHead";
 import { breakpointLock, hasBreakpoint, toggleBreakpoint } from "./eventBreakpoint";
 import type { EventLive } from "./eventBreakpoint";
 import { destinationSpec, referenceFor } from "./referenceFor";
-import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
+import { adoptHint, headerOfEventFile, openScriptNumber } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 import { TrainerField } from "./TrainerField";
 import { WarpField } from "./WarpField";
@@ -81,9 +83,15 @@ export interface EventEditorContext {
 }
 
 /** Sentences under fields in Bauen: what the flag of a figure and the value of a trigger do. */
-const BAUEN_HINTS: Partial<Record<EventFieldKey, string>> = {
-  hidden_flag: "Die Figur ist da, solange das Flag 0 ist.",
-  value: "Der Auslöser feuert, wenn die Variable diesen Wert hat.",
+const bauenHint = (key: EventFieldKey): string | undefined => {
+  switch (key) {
+    case "hidden_flag":
+      return translate("workbench:eventEditor.hintHiddenFlag");
+    case "value":
+      return translate("workbench:eventEditor.hintValue");
+    default:
+      return undefined;
+  }
 };
 
 /**
@@ -94,6 +102,7 @@ const BAUEN_HINTS: Partial<Record<EventFieldKey, string>> = {
  * that one event (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context, depth, live }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth; live?: EventLive }) {
+  const { t } = useTranslation("workbench");
   const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null, openDialogEditor, dialogRevision = 0, openWizard, openStoryRecipe } = context;
   const reset = useReset();
   const [event, setEvent] = useState<EventData | null>(null);
@@ -133,13 +142,15 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
 
   // The header whose script file the event's scripts live in (headers may share an event file).
   const owner = headerOfEventFile(headers, file, selected);
+  const tinkering = depthAtLeast(depth, "tuefteln");
+  const noOwner = () => onError(tinkering ? t("eventEditor.noOwnerTinker", { file: id4(file) }) : t("eventEditor.noOwnerBuild", { file: id4(file) }));
   const openScript = () => {
     if (event === null) return;
-    if (!owner) return onError(`Kein ${termFor("header", depth)} nutzt Eventdatei ${id4(file)}`);
+    if (!owner) return noOwner();
     void openScriptNumber(owner.id, EVENT_FIELDS.value(event, "script"), onOpenScript, onError);
   };
   const newScript = async () => {
-    if (!owner) return onError(`Kein ${termFor("header", depth)} nutzt Eventdatei ${id4(file)}`);
+    if (!owner) return noOwner();
     const n = await onAddScript(owner.script_file_id);
     if (n === null) return;
     // The number goes through the edit path like a typed one: undoable, and the event is dirty.
@@ -168,7 +179,7 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
   const trainer = kind === "object" ? scriptTrainerLabel(trainers, (event as ObjectDto).script) : null;
   const narrating = !depthAtLeast(depth, "bauen");
   const specs = eventFieldsAt(kind, family, depth);
-  const headTitle = trainer !== null ? `Objekt ${index} · ${trainer}` : eventTitle(kind, event, depth, destName);
+  const headTitle = trainer !== null ? t("eventEditor.trainerTitle", { index, trainer }) : eventTitle(kind, event, depth, destName);
 
   return (
     <div className={styles.panel}>
@@ -179,17 +190,17 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
         unsaved={isDirty(dirty, "Event", file)}
         locked={readOnly}
         actions={[
-          { label: "Löschen", detail: <Kbd keys="Entf" />, disabled: readOnly, onSelect: () => void onDelete(file, kind, index) },
+          { label: t("eventEditor.delete"), detail: <Kbd keys={t("eventEditor.deleteKey")} />, disabled: readOnly, onSelect: () => void onDelete(file, kind, index) },
           "separator",
           // Not the event alone: the event file it is in, as one undo step (a locked file is refused with its reason in the dialog).
-          resetEntry({ kind: "event_file", index: file }, reset.status, reset.open, "Eventdatei auf Original zurücksetzen…"),
+          resetEntry({ kind: "event_file", index: file }, reset.status, reset.open, t("eventEditor.resetEventFile")),
         ]}
         depth={depth}
       />
       <div className={styles.body}>
         {locked !== null && (
           <div className={styles.pad}>
-            <Notice kind="warning" title="Eventdatei gesperrt">
+            <Notice kind="warning" title={t("eventEditor.locked")}>
               {lockedText(locked)}
             </Notice>
           </div>
@@ -210,7 +221,7 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
                 return <FigureLookField key={spec.key} value={value} dir={EVENT_FIELDS.value(event, "dir")} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} />;
               }
             }
-            const hint = !depthAtLeast(depth, "tuefteln") ? BAUEN_HINTS[spec.key] : undefined;
+            const hint = !tinkering ? bauenHint(spec.key) : undefined;
             const pick = spec.pick;
             if (pick !== undefined) {
               // A flag or a variable: its name with the picker (and the number in Tüfteln); 0 is none and is written like any number.
@@ -247,17 +258,17 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
                       </div>
                       {spec.key === "script" && (
                         <>
-                          <Button kind="quiet" size="s" disabled={!scriptsAdopted} onClick={openScript} title={`Öffnet das ${termLabel("script")} in der Scriptdatei`}>
-                            Öffnen
+                          <Button kind="quiet" size="s" disabled={!scriptsAdopted} onClick={openScript} title={t("eventEditor.openScriptTitle")}>
+                            {t("eventEditor.openScript")}
                           </Button>
                           <Button
                             kind="quiet"
                             size="s"
                             disabled={!scriptsAdopted || readOnly}
                             onClick={() => void newScript()}
-                            title={`Legt ein neues ${termLabel("script")} in der ${termLabel("scriptFile")} des ${depthAtLeast(depth, "tuefteln") ? "Headers" : "Ortes"} an und trägt die Nummer ein`}
+                            title={tinkering ? t("eventEditor.newScriptTitleTinker") : t("eventEditor.newScriptTitleBuild")}
                           >
-                            Neues Script
+                            {t("eventEditor.newScript")}
                           </Button>
                         </>
                       )}
@@ -270,19 +281,19 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
           })}
           {!scriptsAdopted && !narrating && specs.some((s) => s.key === "script") && (
             <p role="note" className={styles.note}>
-              {ADOPT_HINT}
+              {adoptHint()}
             </p>
           )}
           {/* The raw height is a Bauen row: Erzählen does not show numbers it cannot change. */}
           {!narrating && (kind === "object" || kind === "bg") && (
-            <InspectorRow label="y" hint="Nur lesbar: Die Höhe lässt sich hier nicht ändern; sie bleibt unverändert erhalten.">
+            <InspectorRow label="y" hint={t("eventEditor.heightReadOnly")}>
               <span className={styles.mono}>{(event as ObjectDto | BgDto).y}</span>
             </InspectorRow>
           )}
         </div>
         {/* Erzählen shows no flag field: the story of the figure's flag or the trigger's variable stands in its place. */}
         {narrating && kind === "object" && <StoryHintLine kind="flag" number={EVENT_FIELDS.value(event, "hidden_flag")} project={project} revision={revision} />}
-        {narrating && kind === "coord" && <StoryHintLine kind="var" number={EVENT_FIELDS.value(event, "var")} project={project} revision={revision} value={EVENT_FIELDS.value(event, "value")} none="Keine Geschichte führt die Variable dieses Auslösers." />}
+        {narrating && kind === "coord" && <StoryHintLine kind="var" number={EVENT_FIELDS.value(event, "var")} project={project} revision={revision} value={EVENT_FIELDS.value(event, "value")} none={t("eventEditor.noStory")} />}
         {narrating && (kind === "object" || kind === "bg") && owner && (
           <DialogSection
             target={{ header: owner.id, eventFile: file, kind, index, title: dialogTitle(kind, index) }}
@@ -296,9 +307,9 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
         {/* Play mode: a breakpoint halts the game when the figure's flag or the trigger's variable changes; not an edit, no undo step. */}
         {live?.active && (
           <div data-live-breakpoint={hasBreakpoint(live, { file, kind, index }) ? "on" : ""}>
-            <InspectorRow label="Haltepunkt" hint={breakpointLock(kind, event) ?? undefined}>
+            <InspectorRow label={t("eventEditor.breakpoint")} hint={breakpointLock(kind, event) ?? undefined}>
               <Checkbox
-                label={kind === "coord" ? "Anhalten, wenn sich die Variable ändert" : "Anhalten, wenn sich das Flag ändert"}
+                label={kind === "coord" ? t("eventEditor.haltOnVariable") : t("eventEditor.haltOnFlag")}
                 checked={hasBreakpoint(live, { file, kind, index })}
                 disabled={breakpointLock(kind, event) !== null}
                 onChange={() => toggleBreakpoint(live, { file, kind, index }, event)}
@@ -307,15 +318,15 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
           </div>
         )}
         {warp && destination && (
-          <InspectorRow label="Ziel" hint={destinationTarget === null ? "Die Tür führt ins Leere. Wähle ein Ziel oder lösche die Tür." : undefined}>
+          <InspectorRow label={t("eventEditor.target")} hint={destinationTarget === null ? t("eventEditor.leadsNowhere") : undefined}>
             <div className={styles.inline}>
               {destinationTarget !== null ? (
                 <Reference area={destination.area} label={destination.label} tech={destination.tech} onOpen={() => goTo(destinationTarget)} />
               ) : (
                 <span className={styles.error}>{`${destination.label} (${destination.tech})`}</span>
               )}
-              <Button kind="quiet" size="s" aria-label={`${destinationField.label} ändern…`} disabled={readOnly} onClick={() => setPicking(true)}>
-                Ändern…
+              <Button kind="quiet" size="s" aria-label={tinkering ? t("eventEditor.changeTargetHeader") : t("eventEditor.changeTarget")} disabled={readOnly} onClick={() => setPicking(true)}>
+                {t("inspectorField.change")}
               </Button>
             </div>
           </InspectorRow>
@@ -325,7 +336,7 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
             destHeader={destHeader}
             value={warp.dest_warp_id}
             disabled={readOnly}
-            onCommit={(n) => commit("dest_warp_id", "Tür", n)}
+            onCommit={(n) => commit("dest_warp_id", t("warpField.door"), n)}
             onError={onError}
             self={owner ? { header: owner.id, warp: index } : undefined}
             onConnect={owner && openWizard ? () => openWizard({ kind: "connect_doors", prefill: { a: { header: owner.id, warp: index } } }) : undefined}
@@ -336,17 +347,15 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
             open={picking}
             onOpenChange={setPicking}
             headers={headers}
-            title={`${destinationField.label} wählen`}
+            title={tinkering ? t("eventEditor.chooseTargetHeader") : t("eventEditor.chooseTarget")}
             onPick={(id) => commit("dest_header_id", destinationField.label, id)}
           />
         )}
-        {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
+        {tinkering && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
         <div className={styles.actions}>
           <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />
         </div>
-        <p className={styles.note}>
-          Ziehen in der 3D-Ansicht verschiebt das Event um ganze Kacheln, Esc bricht das Ziehen ab. Neue Events entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Event nach Rückfrage.
-        </p>
+        <p className={styles.note}>{t("eventEditor.dragNote")}</p>
       </div>
     </div>
   );

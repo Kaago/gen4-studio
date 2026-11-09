@@ -1,23 +1,19 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 import type { TileJson, TileRole, TilesetDto } from "../../api.world";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
 import { Section, Tooltip } from "../../ui/primitives";
 import { onTileImagesReset, tileImage, tileImagesGeneration } from "../../world/paint/paletteImages";
 import { useSectionOpen } from "./foldState";
 import styles from "./TilePalette.module.css";
 
-/** The groups of the palette in their order, with their headings. */
-const GROUPS: { role: TileRole; label: string }[] = [
-  { role: "ground", label: "Boden" },
-  { role: "grass", label: "Gras" },
-  { role: "water", label: "Wasser" },
-  { role: "wall", label: "Wand" },
-  { role: "ramp", label: "Rampe" },
-  { role: "piece", label: "Teilmodell" },
-];
-const ROLE_WORD = Object.fromEntries(GROUPS.map((g) => [g.role, g.label])) as Record<TileRole, string>;
+/** The groups of the palette in their order; each heading is the role's word (`workbench:tileEditor.role.<role>`). */
+const GROUPS: readonly TileRole[] = ["ground", "grass", "water", "wall", "ramp", "piece"];
+/** The word of a role in the language that is shown; a role the catalog does not know stays as it is. */
+const roleWord = (role: TileRole): string => (GROUPS.includes(role) ? translate(`workbench:tileEditor.role.${role}`) : role);
 
 /** The four hex digits of tile `index`, as the tokens of the world document write them (`0041`). */
 const digitsOf = (index: number) => index.toString(16).padStart(4, "0");
@@ -38,8 +34,13 @@ function markOf(rotate: number, flip: boolean): string | null {
 
 /** The tooltip of a tile: „Kachel 0041 · gras_a · 32 × 32 Texel · Gras“, Tüfteln adds „kind 0x02, Kollision 0x00“. */
 function tooltipOf(digits: string, tile: TileJson, tinker: boolean): string {
-  const parts = [`Kachel ${digits}`, tile.texture, `${tile.size[0]} × ${tile.size[1]} Texel`, ROLE_WORD[tile.role] ?? tile.role];
-  if (tinker) parts.push(`kind ${hex2(tile.kind)}, Kollision ${hex2(tile.collision)}`);
+  const parts = [
+    translate("workbench:tileEditor.title", { digits }),
+    tile.texture,
+    translate("workbench:tilePalette.texels", { width: tile.size[0], height: tile.size[1] }),
+    roleWord(tile.role),
+  ];
+  if (tinker) parts.push(translate("workbench:tilePalette.kindAndCollision", { kind: hex2(tile.kind), collision: hex2(tile.collision) }));
   return parts.join(" · ");
 }
 
@@ -126,6 +127,7 @@ export function TilePalette({
   /** The name of the chosen place of an edge set („Kante N“): a click appends the tile there. */
   target?: string;
 }): JSX.Element {
+  const { t } = useTranslation("workbench");
   const [open, toggle] = useSectionOpen("matrixCell:palette", true);
   const tinker = depthAtLeast(depth, "tuefteln");
   const pkg = tileset.package;
@@ -133,7 +135,7 @@ export function TilePalette({
   const byTexture = useTilePictures(pkg, tiles, image);
   const groups = useMemo(
     () =>
-      GROUPS.map((g) => ({ ...g, tiles: tiles.flatMap((t, index) => (t.role === g.role ? [{ tile: t, digits: digitsOf(index) }] : [])) })).filter(
+      GROUPS.map((role) => ({ role, tiles: tiles.flatMap((one, index) => (one.role === role ? [{ tile: one, digits: digitsOf(index) }] : [])) })).filter(
         (g) => g.tiles.length > 0,
       ),
     [tiles],
@@ -141,33 +143,33 @@ export function TilePalette({
   const chosen = tokenParts(tile);
   return (
     <div data-paint-palette="">
-      <Section title="Palette" open={open} onToggle={toggle}>
+      <Section title={t("tilePalette.title")} open={open} onToggle={toggle}>
         <div className={styles.body}>
           {target !== undefined && (
             <p className={styles.target} data-palette-target="">
-              Ein Klick hängt die Kachel (mit Drehung) an den Platz „{target}“.
+              {t("tilePalette.target", { target })}
             </p>
           )}
           {groups.map((g) => (
             <div key={g.role} className={styles.group} data-palette-role={g.role}>
-              <h4 className={styles.groupTitle}>{g.label}</h4>
+              <h4 className={styles.groupTitle}>{roleWord(g.role)}</h4>
               <div className={styles.tiles}>
-                {g.tiles.map(({ tile: t, digits }) => {
+                {g.tiles.map(({ tile: one, digits }) => {
                   const pressed = chosen?.digits === digits;
                   const mark = pressed && chosen ? markOf(chosen.rotate, chosen.flip) : null;
-                  const bitmap = byTexture.get(t.texture) ?? null;
+                  const bitmap = byTexture.get(one.texture) ?? null;
                   return (
                     <div key={digits} className={styles.cell}>
-                      <Tooltip content={tooltipOf(digits, t, tinker)}>
+                      <Tooltip content={tooltipOf(digits, one, tinker)}>
                         <button
                           type="button"
                           className={styles.tile}
                           data-palette-tile={digits}
-                          aria-label={`Kachel ${digits}, ${t.texture}`}
+                          aria-label={`${t("tileEditor.title", { digits })}, ${one.texture}`}
                           aria-pressed={pressed}
                           onClick={() => onTile(digits)}
                         >
-                          <TileFace bitmap={bitmap} role={t.role} rotate={pressed ? chosen?.rotate : 0} flip={pressed && chosen?.flip} />
+                          <TileFace bitmap={bitmap} role={one.role} rotate={pressed ? chosen?.rotate : 0} flip={pressed && chosen?.flip} />
                           {mark && (
                             <span className={styles.mark} data-palette-mark="" aria-hidden="true">
                               {mark}

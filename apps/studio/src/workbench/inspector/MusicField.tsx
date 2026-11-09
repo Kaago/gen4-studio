@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, nameTables } from "../../api";
 import type { ProjectInfo, SoundNameDto } from "../../api";
 import { Button, InspectorRow, Picker } from "../../ui/primitives";
@@ -64,6 +65,7 @@ export function MusicField({
   sounds: readonly SoundNameDto[] | null;
   onCommit: (spec: FieldSpec, value: number) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const [picking, setPicking] = useState(false);
   const piece = soundOf(sounds, value);
   const items = useMemo<PickerItem[]>(
@@ -74,20 +76,20 @@ export function MusicField({
     <>
       <InspectorRow label={spec.label}>
         <div className={styles.inline} data-music-field={spec.key}>
-          <span>{piece?.name ?? `Stück ${value}`}</span>
+          <span>{piece?.name ?? t("musicField.piece", { value })}</span>
           {piece?.used_in && <span className={styles.pieceName}>{piece.used_in}</span>}
-          <Button kind="quiet" size="s" aria-label={`${spec.label} wählen…`} onClick={() => setPicking(true)}>
-            Wählen…
+          <Button kind="quiet" size="s" aria-label={t("musicField.chooseLabel", { label: spec.label })} onClick={() => setPicking(true)}>
+            {t("musicField.choose")}
           </Button>
         </div>
       </InspectorRow>
       <Picker
         open={picking}
         onOpenChange={setPicking}
-        title={`${spec.label} wählen`}
+        title={t("inspectorField.chooseLabel", { label: spec.label })}
         items={items}
-        placeholder="Stück, Ort oder Nummer suchen"
-        emptyText={sounds === null ? "Lädt …" : "Kein Stück gefunden"}
+        placeholder={t("musicField.search")}
+        emptyText={sounds === null ? t("inspectorField.loading") : t("musicField.notFound")}
         onPick={(item) => onCommit(spec, Number(item.id))}
       />
     </>

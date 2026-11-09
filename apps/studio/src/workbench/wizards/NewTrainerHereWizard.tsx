@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, nameTables, recipeApply } from "../../api";
 import type { DraftDto, HeaderSummary, MatrixSummary, NameTablesDto, NewTrainerHereInput, NewTrainerHereReport, ProjectInfo, RecipeOutcome } from "../../api";
 import { NAME_MAX, PARTY_MAX, className, classOptions, nameCount, nameError, namedClassOptions, speciesName as speciesLabel } from "../../data/trainer/trainerModel";
@@ -14,7 +15,7 @@ import { MessageEditor } from "../text/MessageEditor";
 import { DraftNotes } from "./DraftNotes";
 import { PlaceField, TileFields, placeTiles } from "./PlaceField";
 import { TextPreview } from "./TextPreview";
-import { NO_NAME, TeamRowCard, TrainerPreview } from "./TrainerPreview";
+import { TeamRowCard, TrainerPreview, noName } from "./TrainerPreview";
 import type { TeamRow } from "./TrainerPreview";
 import { useDraftPlan } from "./useDraftPlan";
 import { DoneResult, PartialResult } from "./WizardResult";
@@ -66,7 +67,8 @@ const FIRST_LEVEL = 5;
 const SIGHT = { start: 3, min: 1, max: 15 };
 /** The clear code a text before the battle ends on (▼): its box waits for a button. */
 const CLEAR = "\\r";
-const FACING_OPTIONS = FACINGS.map((f) => ({ value: String(f.value), label: f.label }));
+/** The facings as choices of the segmented field, named in the language that is shown when called. */
+const facingOptions = () => FACINGS.map((f) => ({ value: String(f.value), label: f.label }));
 
 /** The text before the battle is fine when it is empty (nothing is written) or ends on ▼. */
 const beforeOk = (text: string) => text === "" || text.endsWith(CLEAR);
@@ -90,6 +92,7 @@ const speciesName = (names: NameTablesDto | null, species: number) => speciesLab
  * texts and figure are one undo step behind it. Beside every step stands the live preview (`TrainerPreview`: class picture, battle, team).
  */
 export function NewTrainerHereWizard({ depth, headers, matrices, project, prefill, onDraft, onDone, onShow, onStep, onCancel, onError }: NewTrainerHereWizardProps) {
+  const { t } = useTranslation("workbench");
   const [form, setForm] = useState<TrainerForm>(() => ({
     cls: 0,
     name: "",
@@ -158,11 +161,13 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
   }
 
   const team = form.party.map((row) => (row.species === null ? "?" : `${speciesName(names, row.species)} Lv. ${row.level}`)).join(", ");
-  const who = `${form.name.trim() || NO_NAME} (${className(classes, form.cls)})`;
+  const who = `${form.name.trim() || noName()} (${className(classes, form.cls)})`;
   const summaryLines = [
-    `${who} mit ${team}`,
-    located ? `„${headerLabel(place)}“, Kachel x ${form.x}, z ${form.z}, Blick ${FACINGS.find((f) => f.value === form.dir)?.label ?? form.dir}, Sichtweite ${form.sight}` : "Noch kein Ort und keine Kachel.",
-    form.texts.before === "" ? "Sagt vor dem Kampf nichts." : "Sagt vor dem Kampf etwas und kämpft, sobald er dich sieht.",
+    t("newTrainerHereWizard.whoWith", { who, team }),
+    located
+      ? t("newTrainerHereWizard.where", { place: headerLabel(place), x: form.x, z: form.z, facing: FACINGS.find((f) => f.value === form.dir)?.label ?? form.dir, sight: form.sight })
+      : t("newTrainerHereWizard.noPlace"),
+    form.texts.before === "" ? t("newTrainerHereWizard.saysNothing") : t("newTrainerHereWizard.saysSomething"),
   ];
 
   // The preview and the species picker stand beside every step in the same place, so the preview keeps its side of the battle across steps
@@ -178,10 +183,10 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
       <Picker
         open={picking !== null}
         onOpenChange={(open) => !open && setPicking(null)}
-        title="Art wählen"
+        title={t("newTrainerHereWizard.chooseSpecies")}
         items={species}
-        placeholder="Art oder Nummer suchen"
-        emptyText={names === null ? "Lädt …" : "Keine Art gefunden."}
+        placeholder={t("newTrainerHereWizard.searchSpecies")}
+        emptyText={names === null ? t("inspectorField.loading") : t("newTrainerHereWizard.noSpecies")}
         onPick={(item) => picking !== null && setRow(picking, { species: Number(item.id) })}
       />
     </div>
@@ -190,98 +195,120 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
   const steps: WizardStep[] = [
     {
       id: "trainer",
-      title: "Trainer",
+      title: t("newTrainerHereWizard.stepTrainer"),
       canNext: form.name.trim() !== "" && tooLong === null,
       content: (
         <section className={parts.column}>
-          <h3 className={parts.heading}>Wer</h3>
+          <h3 className={parts.heading}>{t("newTrainerHereWizard.who")}</h3>
           <div className={parts.field}>
-            <SelectField label="Klasse" showLabel value={form.cls} options={(depthAtLeast(depth, "bauen") ? classOptions : namedClassOptions)(classes, form.cls)} onChange={(cls) => set({ cls })} />
+            <SelectField label={t("newTrainerHereWizard.class")} showLabel value={form.cls} options={(depthAtLeast(depth, "bauen") ? classOptions : namedClassOptions)(classes, form.cls)} onChange={(cls) => set({ cls })} />
           </div>
           <div className={parts.field}>
-            <TextField label="Name" showLabel value={form.name} onChange={(name) => set({ name })} onCommit={(name) => set({ name })} error={tooLong ?? undefined} hint={tooLong === null ? `${nameCount(form.name)} (höchstens ${NAME_MAX})` : undefined} />
+            <TextField
+              label={t("newTrainerHereWizard.name")}
+              showLabel
+              value={form.name}
+              onChange={(name) => set({ name })}
+              onCommit={(name) => set({ name })}
+              error={tooLong ?? undefined}
+              hint={tooLong === null ? t("newTrainerHereWizard.nameHint", { used: nameCount(form.name), max: NAME_MAX }) : undefined}
+            />
           </div>
         </section>
       ),
     },
     {
       id: "team",
-      title: "Team",
+      title: t("newTrainerHereWizard.stepTeam"),
       canNext: teamDone,
       content: (
         <section className={`${parts.column} ${parts.wide}`}>
-          <h3 className={parts.heading}>Team (1 bis {PARTY_MAX})</h3>
+          <h3 className={parts.heading}>{t("newTrainerHereWizard.teamHeading", { max: PARTY_MAX })}</h3>
           <div className={styles.team}>
             {form.party.map((row, i) => (
               <div key={i} className={styles.row} data-team-row={i}>
                 <TeamRowCard row={row} slot={i} names={names} onClick={() => setPicking(i)} />
                 <Button kind="secondary" size="s" onClick={() => setPicking(i)}>
-                  Art wählen…
+                  {t("newTrainerHereWizard.chooseSpeciesButton")}
                 </Button>
                 <div className={styles.level}>
-                  <NumberField label="Level" min={1} max={100} value={row.level} onCommit={(level) => setRow(i, { level })} />
+                  <NumberField label={t("newTrainerHereWizard.level")} min={1} max={100} value={row.level} onCommit={(level) => setRow(i, { level })} />
                 </div>
-                <Button kind="quiet" size="s" aria-label={`Pokémon ${i + 1} entfernen`} disabled={form.party.length === 1} onClick={() => set({ party: form.party.filter((_, j) => j !== i) })}>
-                  Entfernen
+                <Button
+                  kind="quiet"
+                  size="s"
+                  aria-label={t("newTrainerHereWizard.removeMon", { n: i + 1 })}
+                  disabled={form.party.length === 1}
+                  onClick={() => set({ party: form.party.filter((_, j) => j !== i) })}
+                >
+                  {t("newTrainerHereWizard.remove")}
                 </Button>
               </div>
             ))}
           </div>
           <Button kind="secondary" size="s" icon="plus" disabled={form.party.length >= PARTY_MAX} onClick={() => set({ party: [...form.party, { species: null, level: FIRST_LEVEL }] })}>
-            Pokémon hinzufügen
+            {t("newTrainerHereWizard.addMon")}
           </Button>
-          {!teamDone && <p className={parts.note}>Jede Zeile braucht eine Art.</p>}
+          {!teamDone && <p className={parts.note}>{t("newTrainerHereWizard.needsSpecies")}</p>}
         </section>
       ),
     },
     {
       id: "texts",
-      title: "Texte",
+      title: t("newTrainerHereWizard.stepTexts"),
       canNext: beforeOk(form.texts.before),
       content: (
         <>
           <section className={`${parts.column} ${parts.wide}`}>
-            <h3 className={parts.heading}>Vor dem Kampf</h3>
+            <h3 className={parts.heading}>{t("newTrainerHereWizard.before")}</h3>
             <div className={figure.text}>
-              <MessageEditor label="Vor dem Kampf" value={form.texts.before} onCommit={async () => true} onDraft={(text) => setText("before", text)} />
+              <MessageEditor label={t("newTrainerHereWizard.before")} value={form.texts.before} onCommit={async () => true} onDraft={(text) => setText("before", text)} />
             </div>
-            <p className={beforeOk(form.texts.before) ? parts.note : parts.warn}>Der Text vor dem Kampf endet auf ▼ (Umschalt+Enter), sonst schließt seine Box sofort.</p>
-            <h3 className={parts.heading}>Verloren</h3>
+            <p className={beforeOk(form.texts.before) ? parts.note : parts.warn}>{t("newTrainerHereWizard.beforeHint")}</p>
+            <h3 className={parts.heading}>{t("newTrainerHereWizard.lose")}</h3>
             <div className={figure.text}>
-              <MessageEditor label="Verloren" value={form.texts.lose} onCommit={async () => true} onDraft={(text) => setText("lose", text)} />
+              <MessageEditor label={t("newTrainerHereWizard.lose")} value={form.texts.lose} onCommit={async () => true} onDraft={(text) => setText("lose", text)} />
             </div>
-            <h3 className={parts.heading}>Nach dem Kampf</h3>
+            <h3 className={parts.heading}>{t("newTrainerHereWizard.after")}</h3>
             <div className={figure.text}>
-              <MessageEditor label="Nach dem Kampf" value={form.texts.after} onCommit={async () => true} onDraft={(text) => setText("after", text)} />
+              <MessageEditor label={t("newTrainerHereWizard.after")} value={form.texts.after} onCommit={async () => true} onDraft={(text) => setText("after", text)} />
             </div>
           </section>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Vorschau</h3>
-            <TextPreview text={form.texts.before} label="Vor dem Kampf" />
+            <h3 className={parts.heading}>{t("newTrainerHereWizard.preview")}</h3>
+            <TextPreview text={form.texts.before} label={t("newTrainerHereWizard.before")} />
           </section>
         </>
       ),
     },
     {
       id: "where",
-      title: "Wo",
+      title: t("newTrainerHereWizard.stepWhere"),
       canNext: input !== null,
       content: (
         <>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Wo</h3>
+            <h3 className={parts.heading}>{t("newTrainerHereWizard.stepWhere")}</h3>
             <PlaceField headers={headers} value={form.header} onChange={(header) => set({ header })} depth={depth} />
             <TileFields x={form.x} z={form.z} size={placeTiles(place, matrices)} onChange={(tile) => set(tile)} />
           </section>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Wie</h3>
+            <h3 className={parts.heading}>{t("newTrainerHereWizard.how")}</h3>
             <FigureLookField value={look} dir={form.dir} onCommit={(graphicsId) => set({ look: graphicsId })} />
             <div className={parts.group}>
-              <span className={parts.label}>Blickrichtung</span>
-              <Segmented ariaLabel="Blickrichtung" size="s" options={FACING_OPTIONS} value={String(form.dir)} onChange={(dir) => set({ dir: Number(dir) })} />
+              <span className={parts.label}>{t("newTrainerHereWizard.facing")}</span>
+              <Segmented ariaLabel={t("newTrainerHereWizard.facing")} size="s" options={facingOptions()} value={String(form.dir)} onChange={(dir) => set({ dir: Number(dir) })} />
             </div>
             <div className={parts.field}>
-              <NumberField label="Sichtweite" showLabel min={SIGHT.min} max={SIGHT.max} value={form.sight} hint={`${SIGHT.min} bis ${SIGHT.max} Kacheln`} onCommit={(sight) => set({ sight })} />
+              <NumberField
+                label={t("newTrainerHereWizard.sight")}
+                showLabel
+                min={SIGHT.min}
+                max={SIGHT.max}
+                value={form.sight}
+                hint={t("newTrainerHereWizard.sightHint", { min: SIGHT.min, max: SIGHT.max })}
+                onCommit={(sight) => set({ sight })}
+              />
             </div>
           </section>
         </>
@@ -289,7 +316,7 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
     },
     {
       id: "summary",
-      title: "Zusammenfassung",
+      title: t("newTrainerHereWizard.summary"),
       canNext: input !== null,
       content: (
         <section className={parts.column}>
@@ -302,7 +329,7 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
           </Notice>
           <p className={parts.loss} data-trainer-barrier="">
             <Badge kind="irreversible" />
-            <span>Trainer anlegen lässt sich nicht rückgängig machen; Team, Texte und Figur nimmt ein Schritt zurück.</span>
+            <span>{t("newTrainerHereWizard.barrier")}</span>
           </p>
           <DraftNotes draft={plan.draft} error={plan.error} depth={depth} />
         </section>
@@ -314,7 +341,7 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
   let show: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const done = outcome;
-    result = <DoneResult title="Trainer aufgestellt" {...trainerResult(done.outcome, done.input, names)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
+    result = <DoneResult title={t("newTrainerHereWizard.done")} {...trainerResult(done.outcome, done.input, names)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
     if (onShow) show = () => onShow(done.outcome, done.input);
   } else if (outcome?.kind === "partial") {
     result = <PartialResult message={outcome.message} depth={depth} />;
@@ -323,7 +350,7 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
   return (
     <WizardFrame
       name="new_trainer_here"
-      title="Neuer Trainer hier"
+      title={t("newTrainerHereWizard.title")}
       icon="pokemon"
       steps={steps}
       step={step}
@@ -331,14 +358,14 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
         setRefusal(null);
         setStep(i);
       }}
-      submitLabel="Aufstellen"
+      submitLabel={t("newTrainerHereWizard.submit")}
       onSubmit={() => void apply()}
       onCancel={() => onCancel(outcome?.kind === "partial")}
       onShow={show}
       busy={busy}
       result={result}
       error={refusal}
-      summary={`Neuer Trainer ${who}`}
+      summary={t("newTrainerHereWizard.summaryLine", { who })}
       irreversible
     />
   );

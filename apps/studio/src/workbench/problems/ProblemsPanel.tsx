@@ -1,5 +1,6 @@
 import { memo, useId, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { CheckProblemDto } from "../../api";
 import { AREA_LABELS, CHECK_CODES, areaOf, checkTitle, findingLabel, findingText, progressText, skippedText } from "../../checks/messages";
 import type { CheckArea } from "../../checks/messages";
@@ -8,6 +9,8 @@ import type { ChecksApi, ChecksView } from "../../checks/useChecks";
 import { problemText } from "../../data/trainer/trainerModel";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
+import workbenchDe from "../../i18n/locales/de/workbench.json";
 import { Badge, Button, CheckList, EmptyState, Icon, Notice, PanelHead, Reference, Section } from "../../ui/primitives";
 import type { Area, CheckRow } from "../../ui/primitives";
 import { useSectionFolds } from "../inspector/foldState";
@@ -29,18 +32,20 @@ export interface ProblemsPanelContext {
   checks: ChecksApi | null;
 }
 
-const SOURCE_LABEL: Record<ProblemSource, string> = { compile: "Compile", text: "Text", live: "live", encounter: "Begegnungen", trainer: "Trainer", check: "Prüfung", build: "Bauen" };
-const SEVERITY_LABEL: Record<ProblemRow["severity"], string> = { error: "Fehler", warning: "Warnung", info: "Hinweis" };
+/** The badge of a row's source, in the language that is shown. */
+const sourceLabel = (source: ProblemSource): string => translate(`workbench:problemsPanel.source.${source}`);
+/** The spoken name of a severity, in the language that is shown. */
+const severityLabel = (severity: ProblemRow["severity"]): string => translate(`workbench:problemsPanel.severity.${severity}`);
 
-/** "Scriptdatei 0042", "Level-Script 0042", "Textarchiv 0199", "Begegnungen 0012", "Trainer 0012", "Bauzustand"; any other path as it is. */
+/** „Scriptdatei 0042“, „Level-Script 0042“, „Textarchiv 0199“, „Begegnungen 0012“, „Trainer 0012“, „Bauzustand“; any other path as it is. */
 export function fileLabel(path: string): string {
-  if (path === NO_STATE_HINT_FILE) return "Bauzustand";
+  if (path === NO_STATE_HINT_FILE) return translate("workbench:problemsPanel.buildState");
   const script = scriptFileOf(path);
   if (script !== null) return `${path.endsWith(".rotom") ? termLabel("scriptFile") : termLabel("levelScript")} ${id4(script)}`;
   const encounter = encounterFileOf(path);
-  if (encounter !== null) return `Begegnungen ${id4(encounter)}`;
+  if (encounter !== null) return translate("workbench:problemsPanel.encounterFile", { id: id4(encounter) });
   const trainer = trainerOf(path);
-  if (trainer !== null) return `Trainer ${id4(trainer)}`;
+  if (trainer !== null) return translate("workbench:problemsPanel.trainer", { id: id4(trainer) });
   const archive = textArchiveOf(path);
   return archive !== null ? `${termLabel("textArchive")} ${id4(archive)}` : path;
 }
@@ -107,6 +112,7 @@ export function findingRow(f: CheckProblemDto, depth: Depth, actions?: ReactNode
 
 /** „Öffnen“ (with a target, unless `open` is false: the record is shown already), „Beheben…“ (with a fix), „Ausblenden“ (never for an error). */
 export function FindingActions({ f, goTo, checks, onFix, open = true }: { f: CheckProblemDto; goTo?: (target: NavTarget) => void; checks: ChecksApi | null; onFix: (f: CheckProblemDto) => void; open?: boolean }) {
+  const { t } = useTranslation("workbench");
   const target = f.target;
   const canOpen = open && target !== undefined && goTo !== undefined;
   const canFix = checks !== null && f.fixes.length > 0;
@@ -116,17 +122,17 @@ export function FindingActions({ f, goTo, checks, onFix, open = true }: { f: Che
     <span className={styles.actions}>
       {canOpen && (
         <Button kind="quiet" size="s" onClick={() => goTo(target)}>
-          Öffnen
+          {t("problemsPanel.open")}
         </Button>
       )}
       {canFix && (
         <Button kind="quiet" size="s" onClick={() => onFix(f)}>
-          Beheben…
+          {t("problemsPanel.fix")}
         </Button>
       )}
       {canIgnore && (
         <Button kind="quiet" size="s" onClick={() => void checks.ignore(f)}>
-          Ausblenden
+          {t("problemsPanel.ignore")}
         </Button>
       )}
     </span>
@@ -171,6 +177,7 @@ function FindingGroups({ findings, depth, goTo, checks, onFix }: { findings: rea
  * live diagnostics as a table below them.
  */
 export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: readonly ProblemRow[]; depth: Depth; goTo: (target: NavTarget) => void; checks?: ChecksApi | null }) {
+  const { t } = useTranslation("workbench");
   const [fixing, setFixing] = useState<CheckProblemDto | null>(null);
   const findings = rows.filter(isFinding);
   const others = rows.filter((row) => !isFinding(row));
@@ -181,13 +188,13 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
         <table role="table" className={styles.table}>
           <thead>
             <tr>
-              <th scope="col">Schwere</th>
-              <th scope="col">Datei</th>
-              <th scope="col">Zeile:Spalte</th>
+              <th scope="col">{t("problemsPanel.severityHead")}</th>
+              <th scope="col">{t("problemsPanel.file")}</th>
+              <th scope="col">{t("problemsPanel.position")}</th>
               <th scope="col" className={styles.message}>
-                Meldung
+                {t("problemsPanel.message")}
               </th>
-              <th scope="col">Quelle</th>
+              <th scope="col">{t("problemsPanel.sourceHead")}</th>
             </tr>
           </thead>
           <tbody>
@@ -196,7 +203,7 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
               return (
                 <tr key={`${row.source}:${row.file}:${row.line}:${row.col}:${i}`} role="row" data-problem={row.severity}>
                   <td role="cell">
-                    <span role="img" aria-label={SEVERITY_LABEL[row.severity]} className={`${styles.severity} ${styles[row.severity]}`}>
+                    <span role="img" aria-label={severityLabel(row.severity)} className={`${styles.severity} ${styles[row.severity]}`}>
                       <Icon name={row.severity} weight="fill" />
                     </span>
                   </td>
@@ -210,7 +217,7 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
                     {row.source === "trainer" ? problemText(row) : row.source === "build" ? buildProblemText(row) : row.message}
                   </td>
                   <td role="cell">
-                    <Badge kind="neutral">{SOURCE_LABEL[row.source]}</Badge>
+                    <Badge kind="neutral">{sourceLabel(row.source)}</Badge>
                   </td>
                 </tr>
               );
@@ -224,19 +231,27 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
 }
 
 /** Why an empty list says nothing while the checks have no result, and the way out (the foot's „Erneut prüfen“). */
-export const UNCHECKED_WHY = "Die Prüfungen haben für dieses Projekt noch kein Ergebnis. Starte sie mit „Erneut prüfen“.";
+export const uncheckedWhy = (): string => translate("workbench:problemsPanel.uncheckedWhy");
+
+/**
+ * The German sentence of `uncheckedWhy` (read from the German catalog, so it has one source), for `technik/TechnikArea.tsx` (outside
+ * this folder's migration) until it reads `uncheckedWhy()`.
+ * @deprecated Use `uncheckedWhy()`: this one stays German in English.
+ */
+export const UNCHECKED_WHY: string = workbenchDe.problemsPanel.uncheckedWhy;
 
 /**
  * Beside problems of a save or a build, while the checks have no result and none runs: a note says so (`data-unchecked`), so the list does
  * not read as all there is. Nothing otherwise.
  */
 export function UncheckedNotice({ checks }: { checks: ChecksApi }) {
+  const { t } = useTranslation("workbench");
   const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
   if (!notChecked(view)) return null;
   return (
     <div className={styles.notes} data-unchecked="">
-      <Notice kind="info" title="Nicht geprüft">
-        {UNCHECKED_WHY}
+      <Notice kind="info" title={t("problemsPanel.notChecked")}>
+        {uncheckedWhy()}
       </Notice>
     </div>
   );
@@ -253,11 +268,12 @@ export function checksPending(view: ChecksView | null): "first" | "unchecked" | 
 
 /** The checks that did not run, or left part of their work undone, as hint lines beside the findings. */
 export function ChecksNotes({ checks, depth }: { checks: ChecksApi; depth: Depth }) {
+  const { t } = useTranslation("workbench");
   const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
   if (view.skipped.length === 0) return null;
   return (
     <div className={styles.notes}>
-      <CheckList ariaLabel="Nicht geprüft" rows={view.skipped.map((s) => ({ id: `${s.code}:${s.why}`, state: "info", text: skippedText(s, depth), dataAttrs: { "data-check": s.code } }))} />
+      <CheckList ariaLabel={t("problemsPanel.notChecked")} rows={view.skipped.map((s) => ({ id: `${s.code}:${s.why}`, state: "info", text: skippedText(s, depth), dataAttrs: { "data-check": s.code } }))} />
     </div>
   );
 }
@@ -268,6 +284,7 @@ export function ChecksNotes({ checks, depth }: { checks: ChecksApi; depth: Depth
  * a single „Ausblenden“ leaves it open), and scrolls within its own height.
  */
 export function ChecksFoot({ checks, depth }: { checks: ChecksApi; depth: Depth }) {
+  const { t } = useTranslation("workbench");
   const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
   const [showIgnored, setShowIgnored] = useState(false);
   const ignored = view.ignored.length;
@@ -287,28 +304,28 @@ export function ChecksFoot({ checks, depth }: { checks: ChecksApi; depth: Depth 
         )}
         {ignored > 0 && (
           <span className={styles.ignored}>
-            {`${ignored} ausgeblendet`}
+            {t("problemsPanel.ignoredCount", { count: ignored })}
             <span aria-hidden="true">·</span>
             <Button kind="quiet" size="s" aria-expanded={showIgnored} onClick={() => setShowIgnored(!showIgnored)}>
-              Wieder melden…
+              {t("problemsPanel.reportAgainMenu")}
             </Button>
           </span>
         )}
         <Button kind="secondary" size="s" disabled={view.running} onClick={() => void checks.recheck()}>
-          Erneut prüfen
+          {t("problemsPanel.recheck")}
         </Button>
       </div>
       {showIgnored && ignored > 0 && (
         <div className={styles.ignoredList}>
           <CheckList
-            ariaLabel="Ausgeblendet"
+            ariaLabel={t("problemsPanel.ignored")}
             rows={view.ignored.map((f) =>
               findingRow(
                 f,
                 depth,
                 <span className={styles.actions}>
                   <Button kind="quiet" size="s" onClick={() => void checks.unignore(f)}>
-                    Wieder melden
+                    {t("problemsPanel.reportAgain")}
                   </Button>
                 </span>,
               ),
@@ -325,6 +342,7 @@ const noView = () => null;
 
 /** The problems of the project (spec §7.4) and the findings of its checks. Subscribes to the stores itself, so a new problem renders nothing else. */
 export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context: ProblemsPanelContext }) {
+  const { t } = useTranslation("workbench");
   const { problems, depth, goTo, checks } = context;
   const rows = useSyncExternalStore(problems.subscribe, problems.list);
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
@@ -332,18 +350,18 @@ export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context:
   // Before the first report of a project the list is empty because nothing is known yet, not because all is well.
   const pending = checksPending(view);
   return (
-    <section className={styles.panel} aria-label="Probleme">
+    <section className={styles.panel} aria-label={termPlural("problem")}>
       {/* The dock tab says "Probleme": the head keeps the counts, and is left out while there are none. */}
       {countsText(counts) !== "" && <PanelHead subtitle={countsText(counts)} />}
       <div className={styles.body}>
         {checks !== null && <ChecksNotes checks={checks} depth={depth} />}
         {rows.length > 0 && checks !== null && <UncheckedNotice checks={checks} />}
         {rows.length === 0 && pending === "first" ? (
-          <EmptyState what="Prüft das Projekt …" why="Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind." />
+          <EmptyState what={t("problemsPanel.checkingProject")} why={t("problemsPanel.checkingProjectWhy")} />
         ) : rows.length === 0 && pending === "unchecked" ? (
-          <EmptyState what="Nicht geprüft." why={UNCHECKED_WHY} />
+          <EmptyState what={t("problemsPanel.notCheckedSentence")} why={uncheckedWhy()} />
         ) : rows.length === 0 ? (
-          <EmptyState what={`Keine ${termPlural("problem")}.`} why="Beim Speichern eines Scripts oder Texts landen Fehler hier." />
+          <EmptyState what={t("problemsPanel.noProblems")} why={t("problemsPanel.noProblemsWhy")} />
         ) : (
           <ProblemsTable rows={rows} depth={depth} goTo={goTo} checks={checks} />
         )}

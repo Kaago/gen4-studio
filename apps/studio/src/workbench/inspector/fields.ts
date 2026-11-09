@@ -2,6 +2,7 @@ import { headerFamily } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { AssetKind, HeaderFamily, MapHeader } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
+import { t } from "../../i18n";
 import { termLabel } from "../terms";
 
 /**
@@ -37,23 +38,27 @@ export function shownFields<T extends { from?: Depth }>(specs: readonly T[], dep
 const u8 = (key: string, label: string): FieldSpec => ({ key, label, kind: "u8" });
 const u16 = (key: string, label: string): FieldSpec => ({ key, label, kind: "u16" });
 const pick = (key: string, label: string, kind: PickKind): FieldSpec => ({ key, label, kind: "pick", pick: kind });
-const place = (wide: boolean): FieldSpec => ({ key: "location_name", label: "Ortsname", kind: "place", from: "erzaehlen", ...(wide && { wide }) });
+const place = (wide: boolean): FieldSpec => ({ key: "location_name", label: t("workbench:headerFields.placeName"), kind: "place", from: "erzaehlen", ...(wide && { wide }) });
 
 /** Storage width of the id fields that are pickers (all others carry their width in `kind`). */
 const PICK_U8 = new Set(["area_data_id"]);
 
-const areaData: FieldSpec = { ...pick("area_data_id", "Area-Data", "areaData"), from: "erzaehlen" };
-const matrix = pick("matrix_id", "Matrix", "matrix");
+// Each field is built when `headerFieldSpecs` is called, so its label is in the language that is shown then.
+const areaData = (): FieldSpec => ({ ...pick("area_data_id", termLabel("areaData"), "areaData"), from: "erzaehlen" });
+const matrix = (): FieldSpec => pick("matrix_id", "Matrix", "matrix");
 const script = (): FieldSpec => pick("script_file_id", termLabel("scriptFile"), "script");
 const levelScript = (): FieldSpec => pick("level_script_id", termLabel("levelScript"), "script");
-const textArchive = pick("text_archive_id", "Textarchiv", "textArchive");
-const musicDay: FieldSpec = { ...u16("music_day_id", "Musik Tag"), pick: "music", from: "erzaehlen" };
-const musicNight: FieldSpec = { ...u16("music_night_id", "Musik Nacht"), pick: "music", from: "erzaehlen" };
-const eventFile = pick("event_file_id", "Eventdatei", "eventFile");
-const weather = u8("weather_id", "Wetter");
-const camera = u8("camera_angle_id", "Kamera");
-const battleBackground = u8("battle_background", "Kampfhintergrund");
-const flags = u8("flags", "Flags");
+const textArchive = (): FieldSpec => pick("text_archive_id", termLabel("textArchive"), "textArchive");
+const musicDay = (): FieldSpec => ({ ...u16("music_day_id", t("workbench:headerFields.musicDay")), pick: "music", from: "erzaehlen" });
+const musicNight = (): FieldSpec => ({ ...u16("music_night_id", t("workbench:headerFields.musicNight")), pick: "music", from: "erzaehlen" });
+const eventFile = (): FieldSpec => pick("event_file_id", termLabel("eventFile"), "eventFile");
+const weather = (): FieldSpec => u8("weather_id", t("workbench:headerFields.weather"));
+const camera = (): FieldSpec => u8("camera_angle_id", t("workbench:headerFields.camera"));
+const battleBackground = (): FieldSpec => u8("battle_background", t("workbench:headerFields.battleBackground"));
+const flags = (): FieldSpec => u8("flags", "Flags");
+const encounters = (bits: 8 | 16): FieldSpec => (bits === 8 ? u8 : u16)("wild_pokemon", t("workbench:headerFields.encounters"));
+const placeSpecifier = (): FieldSpec => u8("location_specifier", t("workbench:headerFields.placeSpecifier"));
+const areaIcon = (): FieldSpec => u8("area_icon", t("workbench:headerFields.areaIcon"));
 
 /**
  * The editable fields of a header in the order of the uxie struct. The fields uxie calls
@@ -61,61 +66,61 @@ const flags = u8("flags", "Flags");
  */
 const SPECS: Record<HeaderFamily, () => FieldSpec[]> = {
   DP: () => [
-    areaData,
-    matrix,
+    areaData(),
+    matrix(),
     script(),
     levelScript(),
-    textArchive,
-    musicDay,
-    musicNight,
-    u16("wild_pokemon", "Begegnungen"),
-    eventFile,
+    textArchive(),
+    musicDay(),
+    musicNight(),
+    encounters(16),
+    eventFile(),
     place(true),
-    weather,
-    camera,
-    u8("location_specifier", "Ortskennung"),
-    battleBackground,
-    flags,
+    weather(),
+    camera(),
+    placeSpecifier(),
+    battleBackground(),
+    flags(),
   ],
   Pt: () => [
-    areaData,
-    matrix,
+    areaData(),
+    matrix(),
     script(),
     levelScript(),
-    textArchive,
-    musicDay,
-    musicNight,
-    u16("wild_pokemon", "Begegnungen"),
-    eventFile,
+    textArchive(),
+    musicDay(),
+    musicNight(),
+    encounters(16),
+    eventFile(),
     place(false),
-    u8("area_icon", "Gebietssymbol"),
-    weather,
-    camera,
-    u8("location_specifier", "Ortskennung"),
-    battleBackground,
-    flags,
+    areaIcon(),
+    weather(),
+    camera(),
+    placeSpecifier(),
+    battleBackground(),
+    flags(),
   ],
   HGSS: () => [
-    u8("wild_pokemon", "Begegnungen"),
-    areaData,
-    u8("worldmap_x", "Weltkarte X"),
-    u8("worldmap_y", "Weltkarte Y"),
-    matrix,
+    encounters(8),
+    areaData(),
+    u8("worldmap_x", t("workbench:headerFields.worldMapX")),
+    u8("worldmap_y", t("workbench:headerFields.worldMapY")),
+    matrix(),
     script(),
     levelScript(),
-    textArchive,
-    musicDay,
-    musicNight,
-    eventFile,
+    textArchive(),
+    musicDay(),
+    musicNight(),
+    eventFile(),
     place(false),
-    u8("area_icon", "Gebietssymbol"),
+    areaIcon(),
     { key: "kanto_flag", label: "Kanto", kind: "bool" },
-    weather,
-    u8("location_type", "Ortstyp"),
-    camera,
-    u8("follow_mode", "Folgemodus"),
-    battleBackground,
-    flags,
+    weather(),
+    u8("location_type", t("workbench:headerFields.placeType")),
+    camera(),
+    u8("follow_mode", t("workbench:headerFields.followMode")),
+    battleBackground(),
+    flags(),
   ],
 };
 

@@ -1,4 +1,5 @@
 import type { HeaderSummary } from "../../api";
+import { t } from "../../i18n";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import type { Area, PickerItem } from "../../ui/primitives";
@@ -7,8 +8,14 @@ import type { NavTarget } from "../navigation";
 import { id4 } from "../terms";
 import type { FieldSpec } from "./fields";
 
-/** A warp's destination header as a field: "Ziel" in Erzählen and Bauen, "Zielheader" in Tüfteln (its picker, its button and its undo step). */
-export const destinationSpec = (depth: Depth): FieldSpec => ({ key: "dest_header_id", label: depthAtLeast(depth, "tuefteln") ? "Zielheader" : "Ziel", kind: "pick", pick: "header", from: "erzaehlen" });
+/** A warp's destination header as a field: „Ziel“ in Erzählen and Bauen, „Zielheader“ in Tüfteln (its picker, its button and its undo step). */
+export const destinationSpec = (depth: Depth): FieldSpec => ({
+  key: "dest_header_id",
+  label: depthAtLeast(depth, "tuefteln") ? t("workbench:referenceFor.targetHeader") : t("workbench:referenceFor.target"),
+  kind: "pick",
+  pick: "header",
+  from: "erzaehlen",
+});
 
 /** How an id field reads as a link: the chip's area colour and words, and where a click leads (null: nowhere to go). */
 export interface PickReference {
@@ -38,10 +45,10 @@ export function referenceFor(spec: FieldSpec, value: number, headers: readonly H
       return plain("texte", { kind: "textArchive", index: value });
     case "script":
       // A level script of 0 is "none": nothing to open.
-      return spec.key === "level_script_id" && value === 0 ? plain("welt", null, "keins") : plain("welt", { kind: "script", file: value });
+      return spec.key === "level_script_id" && value === 0 ? plain("welt", null, t("workbench:referenceFor.none")) : plain("welt", { kind: "script", file: value });
     case "header": {
       const header = headers.find((h) => h.id === value);
-      if (!header) return { area: "welt", label: "unbekannt", tech: id4(value), target: null };
+      if (!header) return { area: "welt", label: t("workbench:referenceFor.unknown"), tech: id4(value), target: null };
       return { area: "welt", label: headerLabel(header), tech: `${id4(header.id)} · ${header.internal_name}`, target: { kind: "header", id: header.id } };
     }
     case "mapTexture":

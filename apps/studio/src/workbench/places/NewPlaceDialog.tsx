@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createPlace, getTextArchive, placeSlots } from "../../api";
 import type { HeaderSummary, PlaceCreated } from "../../api";
 import { toast } from "../../ui/frame/toasts";
@@ -29,6 +30,7 @@ export function NewPlaceDialog(props: NewPlaceDialogProps) {
 }
 
 function NewPlaceForm({ header, onClose, onCreated, onError }: NewPlaceDialogProps) {
+  const { t } = useTranslation("workbench");
   const { world } = useWorld();
   const [choices, setChoices] = useState<PlaceChoice[]>(() =>
     world ? presetChoice(world, header) : [{ id: header.id, label: placeNameOf(header) || header.internal_name, checked: true, headers: [header.id] }],
@@ -77,7 +79,7 @@ function NewPlaceForm({ header, onClose, onCreated, onError }: NewPlaceDialogPro
       onError(e);
       return;
     }
-    toast.info(`Ort „${trimmed}“ angelegt`);
+    toast.info(t("newPlaceDialog.created", { name: trimmed }));
     onClose();
     await onCreated(created, at);
   }
@@ -92,18 +94,18 @@ function NewPlaceForm({ header, onClose, onCreated, onError }: NewPlaceDialogPro
       onOpenChange={(open) => {
         if (!open) leave();
       }}
-      title="Neuer Ort"
+      title={t("newPlaceDialog.title")}
       actions={[
-        { label: "Abbrechen", onClick: leave },
-        { label: "Ort anlegen", kind: "primary", onClick: () => void create(), disabled: name.trim() === "" },
+        { label: t("newPlaceDialog.cancel"), onClick: leave },
+        { label: t("newPlaceDialog.create"), kind: "primary", onClick: () => void create(), disabled: name.trim() === "" },
       ]}
     >
       <div className={styles.form} data-new-place="" aria-busy={working}>
-        <TextField label="Name des Orts" showLabel value={name} onChange={setName} onCommit={setName} disabled={working} />
+        <TextField label={t("newPlaceDialog.name")} showLabel value={name} onChange={setName} onCommit={setName} disabled={working} />
         {long && <Notice kind="warning">{long}</Notice>}
         {reuse && <Notice kind="warning">{reuse}</Notice>}
-        <div className={styles.choices} role="group" aria-label="Mitnehmen">
-          <p className={styles.legend}>Mitnehmen</p>
+        <div className={styles.choices} role="group" aria-label={t("newPlaceDialog.takeAlong")}>
+          <p className={styles.legend}>{t("newPlaceDialog.takeAlong")}</p>
           {choices.map((c) => (
             <Checkbox key={c.id} label={c.label} checked={c.checked} disabled={working} onChange={(checked) => toggle(c.id, checked)} />
           ))}

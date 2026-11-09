@@ -1,5 +1,6 @@
 import type { CheckProblemDto, ProblemDto } from "../../api";
 import { findingText } from "../../checks/messages";
+import { t } from "../../i18n";
 import type { NavTarget } from "../navigation";
 import { id4 } from "../terms";
 
@@ -39,7 +40,7 @@ const NO_STATE_HINT = /^(\d+) text archives? without build state/;
 const HIDDEN_FILE_PREFIX = "build.hidden-file: ";
 
 /**
- * The German sentence of a build row (source `build`): the no-state hint („3 Textarchive ohne Bauzustand: die JSON-Fassung gilt.“) and a
+ * The sentence of a build row (source `build`) in the language that is shown: the no-state hint („3 Textarchive ohne Bauzustand: die JSON-Fassung gilt.“) and a
  * hidden file (the sentence of the check `build.hidden-file`) from the kernel's English; any other message (a text conflict, which the
  * backend words in German) as it is.
  */
@@ -49,8 +50,7 @@ export function buildProblemText(row: Pick<ProblemDto, "file" | "message">): str
   }
   const hint = row.file === NO_STATE_HINT_FILE ? NO_STATE_HINT.exec(row.message) : null;
   if (hint) {
-    const count = Number(hint[1]);
-    return `${count} ${count === 1 ? "Textarchiv" : "Textarchive"} ohne Bauzustand: die JSON-Fassung gilt.`;
+    return t("workbench:problemsModel.noBuildState", { count: Number(hint[1]) });
   }
   return row.message;
 }
@@ -113,9 +113,9 @@ const RANK: Record<ProblemRow["severity"], number> = { error: 0, warning: 1, inf
 /** "2 Fehler, 1 Warnung, 3 Hinweise"; an empty string when there is nothing. */
 export function countsText({ errors, warnings, infos }: ProblemCounts): string {
   const parts: string[] = [];
-  if (errors > 0) parts.push(`${errors} Fehler`);
-  if (warnings > 0) parts.push(`${warnings} ${warnings === 1 ? "Warnung" : "Warnungen"}`);
-  if (infos > 0) parts.push(`${infos} ${infos === 1 ? "Hinweis" : "Hinweise"}`);
+  if (errors > 0) parts.push(t("workbench:problemsModel.errors", { count: errors }));
+  if (warnings > 0) parts.push(t("workbench:problemsModel.warnings", { count: warnings }));
+  if (infos > 0) parts.push(t("workbench:problemsModel.infos", { count: infos }));
   return parts.join(", ");
 }
 

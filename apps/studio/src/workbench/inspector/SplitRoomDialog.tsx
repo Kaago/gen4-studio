@@ -1,14 +1,14 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { splitRoom } from "../../api";
 import type { SplitReport } from "../../api";
+import { t } from "../../i18n";
 import { Badge, Dialog } from "../../ui/primitives";
 import styles from "./SplitRoomDialog.module.css";
 
 /** What splitting does to the room `name` with `maps` maps (null: not known, so no number), and that the copies stay. */
 function splitText(name: string, maps: number | null): string {
-  const copies = maps === null ? "eigene Kopien seiner Karten" : maps === 1 ? "eine eigene Kopie seiner Karte" : `eigene Kopien seiner ${maps} Karten`;
-  const stay = maps === 1 ? "Die Kopie lässt sich nicht zurücknehmen." : "Die Kopien lassen sich nicht zurücknehmen.";
-  return `Der Raum „${name}“ bekommt ${copies}. Danach ändern Änderungen an ihm keinen anderen Raum mehr. ${stay}`;
+  return maps === null ? t("workbench:splitRoomDialog.textUnknown", { name }) : t("workbench:splitRoomDialog.text", { name, count: maps });
 }
 
 export interface SplitRoomDialogProps {
@@ -32,6 +32,8 @@ export function SplitRoomDialog(props: SplitRoomDialogProps) {
 }
 
 function SplitForm({ header, name, maps, onClose, onSplit, onError }: SplitRoomDialogProps) {
+  // Renders the dialog again when the language changes (`splitText` reads the catalog at render time).
+  useTranslation("workbench");
   const [working, setWorking] = useState(false);
 
   async function split() {
@@ -62,10 +64,10 @@ function SplitForm({ header, name, maps, onClose, onSplit, onError }: SplitRoomD
       onOpenChange={(open) => {
         if (!open) leave();
       }}
-      title="Raum abspalten?"
+      title={t("workbench:splitRoomDialog.title")}
       actions={[
-        { label: "Abbrechen", onClick: leave },
-        { label: "Abspalten", kind: "primary", onClick: () => void split(), disabled: working },
+        { label: t("workbench:splitRoomDialog.cancel"), onClick: leave },
+        { label: t("workbench:splitRoomDialog.split"), kind: "primary", onClick: () => void split(), disabled: working },
       ]}
     >
       <div className={styles.form} data-split-room="" aria-busy={working}>

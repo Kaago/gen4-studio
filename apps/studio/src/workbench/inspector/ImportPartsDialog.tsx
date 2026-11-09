@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import i18next from "i18next";
+import { useTranslation } from "react-i18next";
 import { errorText, importMapParts, inspectMapImport, worldFreeformAdd, worldFreeformInspect, worldGet, worldImportTmj, worldInspectTmj } from "../../api";
 import type { CheckProblemDto, FreeformInspect, ImportOptions, ImportSource, MapPart, PartReport, TmjImportReport } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import { openFiles } from "../../platform/dialogs";
 import { inTauri } from "../../platform/transport";
+import { t } from "../../i18n";
 import {
   Budget,
   Button,
@@ -23,9 +26,9 @@ import type { NavTarget } from "../navigation";
 import { findingRow } from "../problems/ProblemsPanel";
 import { id4 } from "../terms";
 import {
-  PART_NAME,
   isForeignWhole,
   modelBudget,
+  partName,
   partText,
   partView,
   partsWord,
@@ -68,26 +71,22 @@ export interface ImportPartsDialogProps {
 /** The findings of the map after an import: the next run is awaited, gave no report, or found these. */
 type Found = "waiting" | "unchecked" | readonly CheckProblemDto[];
 
-const MODES = [
-  { value: "files", label: "Datei" },
-  { value: "map", label: "Karte im Projekt" },
-] as const;
+/** Where the parts come from, in the language that is shown when called. */
+const modes = (): { value: Mode; label: string }[] => [
+  { value: "files", label: t("workbench:importPartsDialog.modeFiles") },
+  { value: "map", label: t("workbench:importPartsDialog.modeMap") },
+];
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
-/** The file types the system dialog offers: map parts, models and images (the extension decides the part). */
-const PART_FILES = [
-  {
-    name: "Kartenteile und Modelle",
-    extensions: ["nsbmd", "bmd", "per", "mp", "bld", "bdhc", "bgs", "bin", "obj", "gltf", "glb", "png"],
-  },
-];
+/** The extensions of the file types the system dialog offers: map parts, models and images (the extension decides the part). */
+const PART_EXTENSIONS = ["nsbmd", "bmd", "per", "mp", "bld", "bdhc", "bgs", "bin", "obj", "gltf", "glb", "png"];
 
-/** A world map also takes Tiled maps. */
-const WORLD_FILES = [{ ...PART_FILES[0]!, extensions: [...PART_FILES[0]!.extensions, "tmj"] }];
+/** The file types the system dialog offers; a world map also takes Tiled maps. Named in the language that is shown when called. */
+const partFiles = (world: boolean) => [{ name: t("workbench:importPartsDialog.fileTypes"), extensions: world ? [...PART_EXTENSIONS, "tmj"] : PART_EXTENSIONS }];
 
-const WORLD_NAME: Record<WorldPart, string> = { freeform: "Freiform (glTF)", tmj: "Tiled (TMJ)" };
-const WORLD_ONLY_BAKES = "Bei Welt-Karten entstehen Modell, Terrain und Permissions beim Backen.";
+/** The name of a world part in the language that is shown. */
+const worldName = (part: WorldPart): string => (part === "tmj" ? "Tiled (TMJ)" : t("workbench:importPartsDialog.freeform"));
 const AT_AXES = ["x", "y", "z"] as const;
 /** The bounds of a coordinate of „Lage“ in world units: those of `at` of a free-form entry in the world (`FREEFORM_AT` in grid.rs). */
 const AT_MIN = -512;
@@ -95,6 +94,9 @@ const AT_MAX = 511;
 
 const extension = (path: string) => /\.([^.\\/]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
 const MODEL_EXTENSIONS: ReadonlySet<string> = new Set(["obj", "gltf", "glb"]);
+
+/** A size in bytes in the digits of the language that is shown. */
+const bytes = (n: number) => n.toLocaleString(i18next.language);
 
 const COLOURS = [
   { value: "16", label: "16" },
@@ -108,7 +110,6 @@ const TMJ_EXTENSIONS: ReadonlySet<string> = new Set(["tmj"]);
 
 /** The default unit: one model unit is one tile (16 world units). */
 const UNIT_DEFAULT = 16;
-const UNIT_ERROR = "Zwischen 0,0625 und 256.";
 
 /** A unit as typed („16“, „0,5“, „0.5“), or null when it is no number in 0.0625 to 256 (`ImportOptions::check`). */
 function parseUnit(text: string): number | null {
@@ -138,6 +139,8 @@ export function ImportPartsDialog({
   goTo,
   tinker = false,
 }: ImportPartsDialogProps) {
+  // Renders the dialog again when the language changes; the words below are read at render time.
+  useTranslation("workbench");
   const [mode, setMode] = useState<Mode>("map");
   const [paths, setPaths] = useState("");
   const [sourceText, setSourceText] = useState("");
@@ -404,8 +407,8 @@ export function ImportPartsDialog({
       text: (
         <div className={styles.part}>
           <Checkbox
-            label={`${PART_NAME[r.part]} · ${r.size.toLocaleString("de-DE")} Bytes${r.file ? ` · ${fileName(r.file)}` : ""}`}
-            ariaLabel={PART_NAME[r.part]}
+            label={`${t("workbench:importPartsDialog.partSize", { part: partName(r.part), size: bytes(r.size) })}${r.file ? ` · ${fileName(r.file)}` : ""}`}
+            ariaLabel={partName(r.part)}
             checked={chosen.has(r.part)}
             disabled={r.state.kind === "error" || done !== null || world === true}
             onChange={(on) => toggle(r.part, on)}
@@ -427,7 +430,7 @@ export function ImportPartsDialog({
               ))}
               {r.preview.model !== null && (
                 <Budget
-                  label="Modell"
+                  label={t("workbench:importPartsDialog.model")}
                   used={r.preview.model.budget.used}
                   max={r.preview.model.budget.max}
                   state={r.preview.model.budget.state}
@@ -446,7 +449,7 @@ export function ImportPartsDialog({
   function worldRow<T>(part: WorldPart, read: WorldRead<T>, file: string | null, view: (report: T) => WorldView): CheckRow {
     const shown: WorldView =
       read === "reading"
-        ? { state: "info", lines: ["Wird geprüft …"], ready: false }
+        ? { state: "info", lines: [t("workbench:importPartsDialog.checking")], ready: false }
         : read === "duplicate"
           ? { state: "error", lines: [partText({ code: "part.duplicate", args: [], message: "" })], ready: false }
           : "failure" in read
@@ -458,8 +461,8 @@ export function ImportPartsDialog({
       text: (
         <div className={styles.part} data-import-part={part}>
           <Checkbox
-            label={`${WORLD_NAME[part]}${file !== null ? ` · ${fileName(file)}` : ""}`}
-            ariaLabel={WORLD_NAME[part]}
+            label={`${worldName(part)}${file !== null ? ` · ${fileName(file)}` : ""}`}
+            ariaLabel={worldName(part)}
             checked={chosen.has(part)}
             disabled={!shown.ready || done !== null}
             onChange={(on) => toggle(part, on)}
@@ -495,7 +498,7 @@ export function ImportPartsDialog({
             </p>
           ))}
           {budget !== null && (
-            <Budget label="Modell" used={budget.used} max={budget.max} state={budget.state} unit="B" tech={tinker ? `0x${budget.max.toString(16).toUpperCase()}` : undefined} />
+            <Budget label={t("workbench:importPartsDialog.model")} used={budget.used} max={budget.max} state={budget.state} unit="B" tech={tinker ? `0x${budget.max.toString(16).toUpperCase()}` : undefined} />
           )}
         </div>
       ),
@@ -528,12 +531,12 @@ export function ImportPartsDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title={`Teile in Karte ${id4(map)} importieren`}
+      title={t("workbench:importPartsDialog.title", { map: id4(map) })}
     >
       <div className={styles.body} data-import-dialog={map} data-world={world === true ? "true" : "false"}>
         <Segmented
-          ariaLabel="Quelle"
-          options={MODES}
+          ariaLabel={t("workbench:importPartsDialog.source")}
+          options={modes()}
           value={mode}
           onChange={setMode}
           size="s"
@@ -541,33 +544,33 @@ export function ImportPartsDialog({
         {mode === "files" ? (
           <div className={styles.source}>
             <TextField
-              label="Pfade, eine je Zeile"
+              label={t("workbench:importPartsDialog.paths")}
               showLabel
               multiline
               value={paths}
               onCommit={setPaths}
-              placeholder="/Pfad/zur/karte.nsbmd"
+              placeholder={t("workbench:importPartsDialog.pathsPlaceholder")}
             />
             {inTauri() && (
               <Button
                 kind="secondary"
                 size="s"
                 onClick={() =>
-                  void openFiles({ title: "Teile oder Modelle wählen", filters: world === true ? WORLD_FILES : PART_FILES }).then((files) => {
+                  void openFiles({ title: t("workbench:importPartsDialog.chooseFilesTitle"), filters: partFiles(world === true) }).then((files) => {
                     if (files && files.length > 0) setPaths(files.join("\n"));
                   })
                 }
               >
-                Dateien wählen…
+                {t("workbench:importPartsDialog.chooseFiles")}
               </Button>
             )}
           </div>
         ) : (
           <div className={styles.source}>
             <TextField
-              label="Quellkarte"
+              label={t("workbench:importPartsDialog.sourceMap")}
               showLabel
-              placeholder="Nummer"
+              placeholder={t("workbench:importPartsDialog.number")}
               value={sourceText}
               error={sourceError}
               onChange={() => setSourceError(undefined)}
@@ -589,38 +592,38 @@ export function ImportPartsDialog({
               size="s"
               onClick={() => setPickerOpen(true)}
             >
-              Karte wählen…
+              {t("workbench:importPartsDialog.chooseMap")}
             </Button>
             <Picker
               open={pickerOpen}
               onOpenChange={setPickerOpen}
-              title="Quellkarte wählen"
+              title={t("workbench:importPartsDialog.chooseSourceMap")}
               items={mapItems}
-              placeholder="Nummer suchen"
+              placeholder={t("workbench:inspectorField.searchNumber")}
               onPick={(item) => setSourceText(String(item.id))}
             />
           </div>
         )}
         {mode === "files" && converting && (
           <div className={styles.convert} data-import-convert="">
-            <span className={styles.convertTitle}>Umwandeln</span>
+            <span className={styles.convertTitle}>{t("workbench:importPartsDialog.convert")}</span>
             <div className={styles.convertOptions}>
               <div className={styles.option}>
-                <span className={styles.optionLabel}>Farben je Textur</span>
-                <Segmented ariaLabel="Farben je Textur" options={COLOURS} value={colours} onChange={setColours} size="s" />
+                <span className={styles.optionLabel}>{t("workbench:importPartsDialog.colours")}</span>
+                <Segmented ariaLabel={t("workbench:importPartsDialog.colours")} options={COLOURS} value={colours} onChange={setColours} size="s" />
               </div>
               {hasModel && (
                 <TextField
-                  label="Einheit"
+                  label={t("workbench:importPartsDialog.unit")}
                   showLabel
                   value={unitText}
-                  hint="Welteinheiten je Modelleinheit; 16 = eine Kachel"
+                  hint={t("workbench:importPartsDialog.unitHint")}
                   error={unitError}
                   onChange={() => setUnitError(undefined)}
                   onCommit={(text) => {
                     setUnitText(text);
                     const parsed = parseUnit(text);
-                    if (parsed === null) setUnitError(UNIT_ERROR);
+                    if (parsed === null) setUnitError(t("workbench:importPartsDialog.unitError"));
                     else {
                       setUnitError(undefined);
                       setUnit(parsed);
@@ -633,7 +636,7 @@ export function ImportPartsDialog({
         )}
         {freeformFiles.length > 0 && (
           <div className={styles.convert} data-import-at="">
-            <span className={styles.convertTitle}>Lage</span>
+            <span className={styles.convertTitle}>{t("workbench:importPartsDialog.position")}</span>
             <div className={styles.convertOptions}>
               {AT_AXES.map((axis, i) => (
                 <div key={axis} className={styles.coordinate}>
@@ -656,24 +659,24 @@ export function ImportPartsDialog({
                 </div>
               ))}
             </div>
-            <p className={styles.reason}>Welteinheiten; 16 = eine Kachel; 0, 0, 0 = Kartenmitte</p>
+            <p className={styles.reason}>{t("workbench:importPartsDialog.positionHint")}</p>
           </div>
         )}
         {source !== null && checking && failure === null && (
-          <p className={styles.reason}>Teile werden geprüft…</p>
+          <p className={styles.reason}>{t("workbench:importPartsDialog.checkingParts")}</p>
         )}
         {reports !== null && reports.length === 0 && freeform === null && tmj === null && (
-          <p className={styles.reason}>Die Quelle enthält keine Teile.</p>
+          <p className={styles.reason}>{t("workbench:importPartsDialog.noParts")}</p>
         )}
         {world === true && reports !== null && reports.length > 0 && (
           <p className={styles.reason} data-import-world-note="">
-            {WORLD_ONLY_BAKES}
+            {t("workbench:importPartsDialog.worldOnlyBakes")}
           </p>
         )}
-        {rows.length > 0 && <CheckList ariaLabel="Teile" rows={rows} />}
+        {rows.length > 0 && <CheckList ariaLabel={t("workbench:importPartsDialog.parts")} rows={rows} />}
         {foreignWhole && done === null && (
           <Switch
-            label="Gebäude übernehmen"
+            label={t("workbench:importPartsDialog.keepBuildings")}
             checked={keepBuildings}
             onChange={setKeepBuildings}
           />
@@ -682,23 +685,23 @@ export function ImportPartsDialog({
         {done !== null && (
           <Notice
             kind={done > 0 ? "success" : "info"}
-            actions={[{ label: "Schließen", onClick: onClose }]}
+            actions={[{ label: t("workbench:importPartsDialog.close"), onClick: onClose }]}
           >
             {done > 0
-              ? `${partsWord(done)} übernommen`
-              : "Nichts geändert: die Teile waren schon so."}
+              ? t("workbench:importPartsDialog.applied", { parts: partsWord(done) })
+              : t("workbench:importPartsDialog.nothingChanged")}
           </Notice>
         )}
         {found === "waiting" && (
           <p role="status" className={styles.reason}>
-            Prüft die Karte …
+            {t("workbench:importPartsDialog.checkingMap")}
           </p>
         )}
-        {found === "unchecked" && <p className={styles.reason}>Die Prüfungen haben kein Ergebnis geliefert. Starte sie unter Probleme mit „Erneut prüfen“.</p>}
-        {Array.isArray(found) && found.length === 0 && <p className={styles.reason}>Keine neuen Befunde an dieser Karte.</p>}
+        {found === "unchecked" && <p className={styles.reason}>{t("workbench:importPartsDialog.unchecked")}</p>}
+        {Array.isArray(found) && found.length === 0 && <p className={styles.reason}>{t("workbench:importPartsDialog.noFindings")}</p>}
         {Array.isArray(found) && found.length > 0 && (
           <CheckList
-            ariaLabel={`Befunde an Karte ${id4(map)}`}
+            ariaLabel={t("workbench:importPartsDialog.findings", { map: id4(map) })}
             rows={found.map((f) => {
               const target = f.target;
               return findingRow(
@@ -714,7 +717,7 @@ export function ImportPartsDialog({
                         goTo(target);
                       }}
                     >
-                      Zeigen
+                      {t("workbench:importPartsDialog.show")}
                     </Button>
                   </span>
                 ) : undefined,
@@ -725,14 +728,14 @@ export function ImportPartsDialog({
         {done === null && (
           <div className={styles.actions}>
             <Button kind="secondary" onClick={onClose}>
-              Abbrechen
+              {t("workbench:importPartsDialog.cancel")}
             </Button>
             <Button
               kind="primary"
               disabled={count === 0 || working || source === null || checking}
               onClick={() => void run()}
             >
-              {`${partsWord(count)} übernehmen`}
+              {t("workbench:importPartsDialog.apply", { parts: partsWord(count) })}
             </Button>
           </div>
         )}

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { DraftDto } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
@@ -17,7 +18,8 @@ export function DraftIrreversible({ draft }: { draft: DraftDto | null }) {
 
 /** A failed plan: the preview is missing, creating stays possible (the creation answers with its own refusal). */
 export function DraftFailed({ error }: { error: string | null }) {
-  return error === null ? null : <Notice kind="warning">Vorschau nicht möglich: {error}</Notice>;
+  const { t } = useTranslation("workbench");
+  return error === null ? null : <Notice kind="warning">{t("draftNotes.failed", { error })}</Notice>;
 }
 
 /**
@@ -26,6 +28,7 @@ export function DraftFailed({ error }: { error: string | null }) {
  * Erzählen have the wizard's own lines and the foot's badge; there only a failed plan shows.
  */
 export function DraftNotes({ draft, error, depth }: { draft: DraftDto | null; error: string | null; depth: Depth }) {
+  const { t } = useTranslation("workbench");
   if (error !== null) return <DraftFailed error={error} />;
   if (draft === null || !depthAtLeast(depth, "tuefteln")) return null;
   return (
@@ -35,7 +38,7 @@ export function DraftNotes({ draft, error, depth }: { draft: DraftDto | null; er
           {note}
         </p>
       ))}
-      {draft.irreversible.length > 0 && <p className={parts.note}>Nicht rückgängig: {draft.irreversible.join(", ")}</p>}
+      {draft.irreversible.length > 0 && <p className={parts.note}>{t("draftNotes.irreversible", { list: draft.irreversible.join(", ") })}</p>}
     </div>
   );
 }

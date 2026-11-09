@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary } from "../../api";
 import { Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
@@ -40,7 +41,8 @@ export interface HeaderPickerProps {
  * Searchable list of the project's headers: location name, identifier and the picture of its map; picking one calls `onPick` with its id.
  * A tombstone (3d.4) is left out: the kernel refuses a new reference to it.
  */
-export function HeaderPicker({ open, onOpenChange, headers, onPick, title = "Zielheader wählen", cache = thumbnails, describe }: HeaderPickerProps) {
+export function HeaderPicker({ open, onOpenChange, headers, onPick, title, cache = thumbnails, describe }: HeaderPickerProps) {
+  const { t } = useTranslation("workbench");
   const items = useMemo<PickerItem[]>(
     () =>
       open
@@ -55,5 +57,5 @@ export function HeaderPicker({ open, onOpenChange, headers, onPick, title = "Zie
         : [],
     [open, headers, cache, describe],
   );
-  return <Picker open={open} onOpenChange={onOpenChange} title={title} items={items} placeholder="Ort, Kürzel oder Nummer suchen" onPick={(item) => onPick(Number(item.id))} />;
+  return <Picker open={open} onOpenChange={onOpenChange} title={title ?? t("headerPicker.title")} items={items} placeholder={t("headerPicker.search")} onPick={(item) => onPick(Number(item.id))} />;
 }

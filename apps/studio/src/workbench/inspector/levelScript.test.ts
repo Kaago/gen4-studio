@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LevelScriptDoc, SaveScriptDto } from "../../api";
-import { HINT_CONDITIONS_WITHOUT_TRIGGER, HINT_DUPLICATE_VAR_TRIGGER, HINT_ZERO_VAR, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, headerEntries, removeEntry, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
+import { LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, headerEntries, removeEntry, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions, hintConditionsWithoutTrigger, hintDuplicateVarTrigger, hintZeroVar } from "./levelScript";
 
 const empty: LevelScriptDoc = { header_entries: [], var_conditions: [] };
 
@@ -177,17 +177,17 @@ describe("validationHints", () => {
   });
 
   it("names_a_condition_with_var_zero", () => {
-    expect(validationHints({ header_entries: [trigger], var_conditions: [{ var: 0, value: 1, script_id: 2 }] })).toEqual([HINT_ZERO_VAR]);
-    expect(HINT_ZERO_VAR).toBe("Variable 0 beendet die Tabelle — bitte eine Variable angeben");
+    expect(validationHints({ header_entries: [trigger], var_conditions: [{ var: 0, value: 1, script_id: 2 }] })).toEqual([hintZeroVar()]);
+    expect(hintZeroVar()).toBe("Variable 0 beendet die Tabelle — bitte eine Variable angeben");
   });
 
   it("names_a_second_on_var_condition_entry", () => {
-    expect(validationHints({ header_entries: [trigger, trigger], var_conditions: [] })).toEqual([HINT_DUPLICATE_VAR_TRIGGER]);
-    expect(HINT_DUPLICATE_VAR_TRIGGER).toBe("Nur der erste Eintrag „Variablen-Bedingungen (on_var_condition)“ zählt");
+    expect(validationHints({ header_entries: [trigger, trigger], var_conditions: [] })).toEqual([hintDuplicateVarTrigger()]);
+    expect(hintDuplicateVarTrigger()).toBe("Nur der erste Eintrag „Variablen-Bedingungen (on_var_condition)“ zählt");
   });
 
   it("names_conditions_without_an_on_var_condition_entry", () => {
-    expect(validationHints({ header_entries: [{ type: "on_load", script_id: 1 }], var_conditions: [{ var: 3, value: 1, script_id: 2 }] })).toEqual([HINT_CONDITIONS_WITHOUT_TRIGGER]);
-    expect(HINT_CONDITIONS_WITHOUT_TRIGGER).toBe("Variablen-Bedingungen brauchen einen Eintrag „Variablen-Bedingungen (on_var_condition)“");
+    expect(validationHints({ header_entries: [{ type: "on_load", script_id: 1 }], var_conditions: [{ var: 3, value: 1, script_id: 2 }] })).toEqual([hintConditionsWithoutTrigger()]);
+    expect(hintConditionsWithoutTrigger()).toBe("Variablen-Bedingungen brauchen einen Eintrag „Variablen-Bedingungen (on_var_condition)“");
   });
 });

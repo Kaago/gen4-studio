@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { FigureRef } from "../../api";
 import type { StoryRecipeRequest } from "../../stories/recipes/storyRecipeModel";
 import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
@@ -34,6 +35,7 @@ export function DialogSection({
   /** Opens a step recipe (the app's dialog); absent: no „Dialog anlegen…“. */
   onStoryRecipe?: (request: StoryRecipeRequest) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const { dialog, error } = useDialog(target, revision);
   const variant = target.kind === "bg" ? "sign" : "textbox";
   const first = dialog?.messages[0]?.text ?? null;
@@ -56,20 +58,20 @@ export function DialogSection({
       aria-describedby={textProject ? undefined : reasonId}
       onClick={() => figure !== undefined && onStoryRecipe?.({ recipe: "talk_advances", prefill: { figure } })}
     >
-      Dialog anlegen…
+      {t("dialogSection.create")}
     </Button>
   );
   return (
     <section className={styles.section} data-dialog-section="">
-      <h3 className={styles.title}>{target.kind === "bg" ? "Text" : "Dialog"}</h3>
+      <h3 className={styles.title}>{target.kind === "bg" ? t("dialogSection.text") : t("dialogSection.dialog")}</h3>
       <div className={styles.preview} data-dialog-preview={variant}>
         <DSScreen variant={first === null ? "empty" : variant} pages={shown} page={0} />
       </div>
-      <p className={styles.summary}>{error !== null ? "Dialog nicht lesbar." : dialog === null ? "Lese …" : dialogSummary(dialog)}</p>
+      <p className={styles.summary}>{error !== null ? t("dialogSection.unreadable") : dialog === null ? t("dialogSection.reading") : dialogSummary(dialog)}</p>
       {source === "local" && (
         <div className={styles.actions}>
           <Button kind="quiet" size="s" onClick={() => onEdit(target)}>
-            Dialog bearbeiten…
+            {t("dialogSection.edit")}
           </Button>
         </div>
       )}

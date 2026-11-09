@@ -1,20 +1,28 @@
 import type { HeaderSummary, PlaceSlots } from "../../api";
+import { t } from "../../i18n";
+import workbenchDe from "../../i18n/locales/de/workbench.json";
 import type { PickerItem } from "../../ui/primitives";
 import { UNNAMED_KEY } from "../places";
 import { NO_PLACE_INDEX, placeNameOf } from "../worldModel";
 import type { Area, World } from "../worldModel";
 
-/** Index 0 of the bank in the picker „Ort wählen“: the game's "Mysterious Zone", no place. */
-export const NO_PLACE_LABEL = "Kein Ort (Mysteriöser Ort)";
+/** Index 0 of the bank in the picker „Ort wählen“: the game's „Mysterious Zone“, no place. */
+export const noPlaceLabel = (): string => t("workbench:placeChoices.noPlace");
 /** Why Diamond and Pearl have no new places (the kernel's refusal, said before the click). */
-export const DP_PLACES = "Eigene Orte gibt es nur für Platin und HeartGold/SoulSilver.";
+export const dpPlaces = (): string => t("workbench:placeChoices.dpPlaces");
+/**
+ * The German sentence of `dpPlaces` (read from the German catalog, so it has one source), for `panels.tsx` (outside this folder's
+ * migration) until it reads `dpPlaces()`.
+ * @deprecated Use `dpPlaces()`: this one stays German in English.
+ */
+export const DP_PLACES: string = workbenchDe.placeChoices.dpPlaces;
 /** The longest name of the vanilla games: a longer one may be cut off in the game. */
 const NAME_LIMIT = 16;
 
 /** „1 Gebiet oder Raum“, „3 Gebiete und Räume“: how many areas and rooms carry a place. */
 export function usersText(count: number): string {
-  if (count === 0) return "unbenutzt";
-  return count === 1 ? "1 Gebiet oder Raum" : `${count} Gebiete und Räume`;
+  if (count === 0) return t("workbench:placeChoices.unused");
+  return t("workbench:placeChoices.users", { count });
 }
 
 /**
@@ -49,7 +57,7 @@ export function placeItems(headers: readonly HeaderSummary[], names: readonly st
   for (const h of headers) users.set(h.location_index, [...(users.get(h.location_index) ?? []), h]);
   return names.map((name, index) => ({
     id: index,
-    label: index === NO_PLACE_INDEX ? NO_PLACE_LABEL : name,
+    label: index === NO_PLACE_INDEX ? noPlaceLabel() : name,
     count: usersText(countUsers(users.get(index) ?? [], world)),
   }));
 }
@@ -96,7 +104,7 @@ export function presetChoice(world: World, header: HeaderSummary): PlaceChoice[]
 
 /** The note for a name longer than the vanilla games' longest (a warning, no refusal); null for one that fits. */
 export function nameWarning(name: string): string | null {
-  return [...name].length > NAME_LIMIT ? "Länger als 16 Zeichen: im Spiel kann der Name abgeschnitten werden." : null;
+  return [...name].length > NAME_LIMIT ? t("workbench:placeChoices.nameTooLong", { limit: NAME_LIMIT }) : null;
 }
 
 /**
@@ -106,5 +114,5 @@ export function nameWarning(name: string): string | null {
 export function reuseWarning(slots: PlaceSlots, names: readonly string[]): string | null {
   const index = slots.reusable[0];
   if (slots.free > 0 || index === undefined) return null;
-  return `Alle freien Plätze sind belegt. Der neue Ort übernimmt den Platz von „${names[index] ?? ""}“, einem Sinnoh-Namen, den kein Gebiet nutzt. Pokémon, die über den Pal-Park kommen und dort gefangen wurden, zeigen dann den neuen Namen als Fundort.`;
+  return t("workbench:placeChoices.reuse", { name: names[index] ?? "" });
 }

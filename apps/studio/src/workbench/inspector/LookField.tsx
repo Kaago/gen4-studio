@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary } from "../../api";
 import { InspectorRow } from "../../ui/primitives";
 import { LookPicker } from "../wizards/LookPicker";
@@ -20,8 +21,9 @@ export function LookField({
   disabled?: boolean;
   onCommit: (areaDataId: number) => void;
 }) {
+  const { t } = useTranslation("workbench");
   return (
-    <InspectorRow label="Aussehen">
+    <InspectorRow label={t("lookField.label")}>
       <LookPicker headers={headers} template={template} value={value} onChange={onCommit} depth="erzaehlen" disabled={disabled} />
     </InspectorRow>
   );

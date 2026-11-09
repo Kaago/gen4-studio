@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { Badge, Button, Icon, Notice } from "../../ui/primitives";
 import type { IconName } from "../../ui/primitives";
 import { escapeCloses } from "../modal";
@@ -12,9 +13,9 @@ export interface WizardStep {
   id: string;
   title: string;
   content: ReactNode;
-  /** Whether "Weiter" (on the last step: the submit button) is enabled. */
+  /** Whether „Weiter“ (on the last step: the submit button) is enabled. */
   canNext: boolean;
-  /** What the steps before did is written and cannot be taken back: no "Zurück" (nor ⌘[), and the cancel button says "Schließen". */
+  /** What the steps before did is written and cannot be taken back: no „Zurück“ (nor ⌘[), and the cancel button says „Schließen“. */
   closed?: boolean;
 }
 
@@ -31,19 +32,19 @@ export type WizardFrameProps = {
   error?: string | null;
   /** What the wizard is going to do, in one sentence: a line below every step while it is set. */
   summary?: string;
-  /** What it does cannot be undone: the summary line carries the badge "Nicht rückgängig". */
+  /** What it does cannot be undone: the summary line carries the badge „Nicht rückgängig“. */
   irreversible?: boolean;
-  /** What the wizard did; when set, it replaces the step, with "Zeigen", "Hier spielen" and "Schließen" below. */
+  /** What the wizard did; when set, it replaces the step, with „Zeigen“, „Hier spielen“ and „Schließen“ below. */
   result?: ReactNode | null;
   submitLabel: string;
   onSubmit: () => void;
-  /** "Abbrechen", "Schließen" and Escape. */
+  /** „Abbrechen“, „Schließen“ and Escape. */
   onCancel: () => void;
-  /** "Zeigen": shows what the wizard made (only for a result that has something to show). */
+  /** „Zeigen“: shows what the wizard made (only for a result that has something to show). */
   onShow?: () => void;
-  /** The label of the `onShow` button ("Zeigen" by default; the project wizard opens what it made). */
+  /** The label of the `onShow` button („Zeigen“ by default; the project wizard opens what it made). */
   showLabel?: string;
-  /** "Hier spielen" beside "Zeigen". */
+  /** „Hier spielen“ beside „Zeigen“. */
   onPlay?: () => void;
   /** A last step that is the result itself ("Fertig"): a pill after the steps, ticked once the result shows; the last step still submits. */
   resultTitle?: string;
@@ -81,7 +82,8 @@ const resting = () => document.activeElement === null || document.activeElement 
  * its typed text, a button, a list) or it lands in a text area; Escape cancels by the rules of `escapeCloses` (a field takes back its
  * typed text first); Cmd+[ goes back. Opening puts the focus on the step's first control, closing gives it back to where it was.
  */
-export function WizardFrame({ title, icon, steps, step, onStep, busy, error = null, summary, irreversible = false, result = null, submitLabel, onSubmit, onCancel, onShow, showLabel = "Zeigen", onPlay, resultTitle, name = "" }: WizardFrameProps) {
+export function WizardFrame({ title, icon, steps, step, onStep, busy, error = null, summary, irreversible = false, result = null, submitLabel, onSubmit, onCancel, onShow, showLabel, onPlay, resultTitle, name = "" }: WizardFrameProps) {
+  const { t } = useTranslation("workbench");
   const titleId = useId();
   const frame = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
@@ -217,16 +219,16 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
           <div className={styles.resultActions}>
             {onShow && (
               <Button kind="primary" onClick={onShow}>
-                {showLabel}
+                {showLabel ?? t("wizardFrame.show")}
               </Button>
             )}
             {onShow && onPlay && (
               <Button kind="play" icon="play" onClick={onPlay}>
-                Hier spielen
+                {t("wizardFrame.play")}
               </Button>
             )}
             <Button kind="secondary" onClick={onCancel}>
-              Schließen
+              {t("wizardFrame.close")}
             </Button>
           </div>
         </div>
