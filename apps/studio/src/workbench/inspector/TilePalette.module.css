@@ -117,3 +117,10 @@
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-code-s);
 }
+
+/* Where a click goes while a place of an edge set is chosen. */
+.target {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

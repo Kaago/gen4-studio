@@ -460,7 +460,7 @@ describe("useShortcuts", () => {
     /** A paint model whose `set` merges into its state, painting `target` (null: a binary map). */
     const painting = (target: number | null, state: Partial<PaintState> = {}) => {
       const model: PaintModel = {
-        state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, ...state },
+        state: { sub: "brush", layer: 0, tile: "0041", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2, ...state },
         set: vi.fn((patch: PaintPatch) => void (model.state = { ...model.state, ...(typeof patch === "function" ? patch(model.state) : patch) })),
         target,
       };
@@ -519,6 +519,21 @@ describe("useShortcuts", () => {
       container.append(input);
       await press({ key: "g" }, input);
       expect(typed.set).not.toHaveBeenCalled();
+    });
+
+    it("t_and_k_pick_the_smart_brushes_while_painting_and_t_is_the_door_otherwise", async () => {
+      mountWith(none);
+      handlers.tool = "paint";
+      const model = painting(120);
+      await press({ key: "t" });
+      expect(model.state.sub).toBe("terrain");
+      await press({ key: "K", shiftKey: true });
+      expect(model.state.sub).toBe("cliff");
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      // On a binary map (or with another tool) T is „Tür“.
+      painting(null);
+      await press({ key: "t" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("door");
     });
 
     it("escape_returns_to_the_brush_first", async () => {

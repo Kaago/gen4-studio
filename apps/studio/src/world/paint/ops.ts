@@ -7,19 +7,24 @@ import type { WorldChange, WorldEditRequest, WorldJson } from "../../api.world";
  * Grids are indexed `[z][x]`, cells are `[x, z]` like the kernel's.
  */
 
-/** The sub-tools of „Gelände malen“. */
-export type PaintSub = "brush" | "rect" | "fill" | "erase" | "pick" | "height" | "ramp";
+/** The sub-tools of „Gelände malen“; `terrain` and `cliff` (6.4b) paint with an edge set, resolved by the kernel. */
+export type PaintSub = "brush" | "rect" | "fill" | "erase" | "pick" | "height" | "ramp" | "terrain" | "cliff";
 /** A map-local cell. */
 export type Cell = [x: number, z: number];
 /** The uphill direction of a ramp. */
 export type RampDir = "n" | "e" | "s" | "w";
 
-/** What a stroke paints with: the active layer, the chosen tile token, the ramp and whether the stroke lowers (− / removes). */
+/**
+ * What a stroke paints with: the active layer, the chosen tile token, the ramp and whether the stroke lowers (− / removes); the active
+ * edge set by name (null: none chosen, the terrain and cliff brushes paint nothing) and the steps the cliff brush raises by (1 to 8).
+ */
 export interface PaintOptions {
   layer: number;
   tile: string;
   ramp: { dir: RampDir; steps: 1 | 2 };
   lower: boolean;
+  edgeSet: string | null;
+  cliffRise: number;
 }
 
 /** The cells of a world as grids: `tiles[layer][z][x]` (lowercase tokens), `heights[z][x]`, `ramps[z][x]` of the ground. */
@@ -172,12 +177,18 @@ const VERBS: Record<PaintSub, string> = {
   pick: "Aufgenommen",
   height: "Höhe geändert",
   ramp: "Rampe gesetzt",
+  terrain: "Gelände gemalt",
+  cliff: "Klippe gesetzt",
 };
 
-/** The history text of a stroke: „Gemalt: Karte 0123 (3 Zellen)“. */
-export function strokeLabel(sub: PaintSub, map: number, cells: number): string {
+/** The words of a stroke with ⇧ where they differ: the terrain brush takes the area away, the cliff brush lowers. */
+const LOWER_VERBS: Partial<Record<PaintSub, string>> = { terrain: "Gelände entfernt", cliff: "Klippe gesenkt" };
+
+/** The history text of a stroke (`lower`: drawn with ⇧): „Gemalt: Karte 0123 (3 Zellen)“, „Klippe gesenkt: Karte 0123 (1 Zelle)“. */
+export function strokeLabel(sub: PaintSub, map: number, cells: number, lower = false): string {
   const count = cells === 1 ? "1 Zelle" : `${cells} Zellen`;
-  return `${VERBS[sub]}: Karte ${String(map).padStart(4, "0")} (${count})`;
+  const verb = (lower ? LOWER_VERBS[sub] : undefined) ?? VERBS[sub];
+  return `${verb}: Karte ${String(map).padStart(4, "0")} (${count})`;
 }
 
 /** Whether a height stroke (down with `lower`) leaves `cell` out because it is already at −16 or 62. */
@@ -202,18 +213,50 @@ function unique(cells: Cell[]): Cell[] {
   });
 }
 
-/** The one request of a stroke (`cells` in stroke order, map-local), unchanged cells dropped; null when nothing changes. */
+/**
+ * The absolute height a cliff stroke gives its cells: the height of its first in-map cell plus (with `lower` minus) `cliffRise`, clamped to
+ * −16 to 62; null without a cell in the map or when that cell is already at the limit of the direction (nothing to raise or lower).
+ */
+export function cliffTarget(cells: Cell[], world: WorldCells, o: PaintOptions): number | null {
+  const first = cells.find(inside);
+  if (!first) return null;
+  const start = world.heights[first[1]][first[0]];
+  const target = Math.min(HEIGHT_MAX, Math.max(HEIGHT_MIN, start + (o.lower ? -o.cliffRise : o.cliffRise)));
+  return target === start ? null : target;
+}
+
+/** The distinct in-map cells a cliff stroke leaves out because its first cell is already at the limit of its direction (all or none). */
+export function cliffSkipped(cells: Cell[], world: WorldCells, o: PaintOptions): number {
+  const own = unique(cells).filter(inside);
+  return own.length > 0 && cliffTarget(own, world, o) === null ? own.length : 0;
+}
+
+/**
+ * The one request of a stroke (`cells` in stroke order, map-local), unchanged cells dropped; null when nothing changes. The terrain and
+ * cliff brushes send every painted cell with the active edge set and `seed` (the kernel resolves the ring and drops what stays): null
+ * without an edge set, and for the cliff when its first cell is already at the limit (`cliffTarget`).
+ */
 export function strokeRequest(
   map: number,
   sub: Exclude<PaintSub, "pick">,
   cells: Cell[],
   world: WorldCells,
   o: PaintOptions,
+  seed = 0,
 ): { req: WorldEditRequest; skipped: number } | null {
   const own = unique(cells).filter(inside);
   const changes: WorldChange[] = [];
   let skipped = 0;
-  if (sub === "height") {
+  if (sub === "terrain" || sub === "cliff") {
+    if (o.edgeSet === null || own.length === 0) return null;
+    if (sub === "terrain") {
+      changes.push({ layer: o.layer, cells: own, terrain: { set: o.edgeSet, inside: !o.lower, seed } });
+    } else {
+      const height = cliffTarget(own, world, o);
+      if (height === null) return null;
+      changes.push({ cells: own, cliff: { set: o.edgeSet, height, seed } });
+    }
+  } else if (sub === "height") {
     const groups = new Map<number, Cell[]>();
     skipped = heightSkipped(own, world, o.lower);
     for (const cell of own) {
@@ -236,5 +279,5 @@ export function strokeRequest(
   }
   const sent = changes.reduce((n, c) => n + c.cells.length, 0);
   if (sent === 0) return null;
-  return { req: { map, label: strokeLabel(sub, map, sent), changes }, skipped };
+  return { req: { map, label: strokeLabel(sub, map, sent, o.lower), changes }, skipped };
 }

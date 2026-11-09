@@ -190,6 +190,9 @@ export const icons = {
   /** A layer of a world map shown or hidden in the scene (6.4a, section „Ebenen“). */
   eye: Eye,
   eyeSlash: EyeSlash,
+  /** The smart brushes of „Gelände malen“ (6.4b): „Terrain-Pinsel“ (T) and „Klippenpinsel“ (K). */
+  terrain: Mountains,
+  cliff: Stack,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

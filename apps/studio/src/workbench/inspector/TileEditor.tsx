@@ -36,8 +36,11 @@ const digitsOf = (index: number) => index.toString(16).padStart(4, "0");
 /** A byte in hex for Tüfteln („0x02“). */
 const hex2 = (n: number) => `0x${n.toString(16).toUpperCase().padStart(2, "0")}`;
 
-/** The field „Wand“: a tile number as the palette writes it (hex digits), empty for none; an entry past the tileset is refused. */
-function WallField({ wall, last, disabled, onCommit }: { wall: number | undefined; last: number; disabled: boolean; onCommit: (wall: number | null) => void }) {
+/**
+ * The field „Wand“: a tile number as the palette writes it (hex digits), empty for none; an entry past the tileset is refused. The
+ * edge set editor uses it for the wall of all tiles of a set.
+ */
+export function WallField({ wall, last, disabled, onCommit }: { wall: number | undefined; last: number; disabled: boolean; onCommit: (wall: number | null) => void }) {
   const [error, setError] = useState<string | undefined>();
   useEffect(() => setError(undefined), [wall]);
   return (

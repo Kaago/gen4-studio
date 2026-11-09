@@ -26,8 +26,8 @@
 //! changed into their members ([`build::bake_world_maps`]); `adopt.rs` „Karte als Quelle
 //! übernehmen“ (Form 1: model and BDHC verbatim, [`adopt::world_adopt`]; Form 2: the model as a
 //! glTF side file through apicula, [`adopt::world_adopt_with`]). `tileset.rs` also edits
-//! the tiles of a tileset file as one step ([`tileset::tileset_edit`]) and sets the model of a
-//! piece tile ([`tileset::tileset_piece_set`]).
+//! the tiles and edge sets of a tileset file as one step ([`tileset::tileset_edit`]) and sets the
+//! model of a piece tile ([`tileset::tileset_piece_set`]).
 //! `freeform.rs` the canonical side file of a free-form model (6.5b, [`freeform::side_glb`],
 //! [`freeform::side_faces`]), the rules for side file names, and adding and removing free-form
 //! models ([`freeform::world_freeform_add`], [`freeform::world_freeform_remove`]), each one undo
@@ -35,12 +35,16 @@
 //! `tmj.rs` the exchange with Tiled (6.5b): a world map as a Tiled map (TMJ) with its tile
 //! images ([`tmj::to_tmj`], [`tmj::world_export_tmj`]) and back ([`tmj::from_tmj`],
 //! [`tmj::world_import_tmj`] as one undo step); not a world format.
+//! `edge.rs` holds the edge sets of a tileset (6.4b: Wang corners, 13 + 2 places,
+//! [`edge::EdgeSetJson`]); `smart.rs` resolves the smart brushes into cells (6.4b: the terrain
+//! brush, [`smart::paint_terrain`]).
 
 pub mod adopt;
 pub mod bake;
 pub mod build;
 pub mod check;
 pub mod doc;
+pub mod edge;
 pub mod edit;
 pub mod freeform;
 pub mod grid;
@@ -48,6 +52,7 @@ pub mod keep;
 pub mod mesh;
 pub mod places;
 pub mod record;
+pub mod smart;
 pub mod tileset;
 pub mod tmj;
 
@@ -87,6 +92,10 @@ pub use tmj::{
     world_import_tmj, world_inspect_tmj,
 };
 
+pub use edge::{
+    EdgeBlock, EdgePlaces, EdgeSetJson, EdgeSetOp, Place, edge_set_label, edge_set_problems,
+    missing_set, variant,
+};
 pub use edit::WORLD_NEEDS_TEXT_PROJECT;
 pub use edit::{LayerOp, WorldLayersRequest, world_layers};
 pub use freeform::{

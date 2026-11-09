@@ -9,7 +9,7 @@ import { clearStrokePreview, holdStrokePreview, setStrokePreview } from "../scen
 import type { PreviewLook } from "../scene/strokePreview";
 import type { Stroke } from "../scene/strokes";
 import { placeholderColor } from "../scene/worldMesh";
-import { HEIGHT_MAX, HEIGHT_MIN, cellsOf, fillCells, heightSkipped, pickedTile, strokeRequest, tileParts } from "./ops";
+import { HEIGHT_MAX, HEIGHT_MIN, cellsOf, cliffSkipped, fillCells, heightSkipped, pickedTile, strokeRequest, tileParts } from "./ops";
 import type { Cell, PaintSub, WorldCells } from "./ops";
 import { peekTileImage, tileImage } from "./paletteImages";
 import { createStrokeQueue } from "./session";
@@ -28,6 +28,8 @@ export interface PaintSessionOptions {
 function applyRequest(cells: WorldCells, req: WorldEditRequest): WorldCells {
   const next: WorldCells = { tiles: cells.tiles.map((layer) => layer.map((r) => [...r])), heights: cells.heights.map((r) => [...r]), ramps: cells.ramps.map((r) => [...r]) };
   for (const change of req.changes) {
+    // A terrain or cliff stroke's cells are known only from the kernel's answer: the next stroke builds on the world read after it.
+    if (change.terrain !== undefined || change.cliff !== undefined) continue;
     for (const [x, z] of change.cells) {
       if (change.tile !== undefined) {
         const layer = next.tiles[change.layer ?? 0];
@@ -45,19 +47,44 @@ function limitNotice(n: number): string {
   return `${n === 1 ? "1 Zelle" : `${n} Zellen`} schon an der Grenze (${String(HEIGHT_MIN).replace("-", "−")} bis ${HEIGHT_MAX}).`;
 }
 
+/** The refusal of a stroke that changes nothing (the kernel's `NOTHING_TO_CHANGE`): from a terrain or cliff stroke it is no error. */
+const NOTHING_TO_CHANGE = "Nichts zu ändern.";
+
+/** Whether `e` is the kernel refusing a stroke that changes nothing. */
+const changesNothing = (e: unknown) => typeof e === "object" && e !== null && (e as { message?: unknown }).message === NOTHING_TO_CHANGE;
+
+/** The note of a terrain or cliff stroke without an active edge set. */
+const NO_EDGE_SET = "Erst einen Kantensatz wählen (Inspector › Kantensätze).";
+
+/** Whether `sub` paints with an edge set (the kernel resolves the cells). */
+const isSmart = (sub: PaintSub) => sub === "terrain" || sub === "cliff";
+
 /** The colour of height step `step` (clamped to the range) as the layer „Höhen“ shows it. */
 const stepColor = (step: number) => heightColor(Math.min(HEIGHT_MAX, Math.max(HEIGHT_MIN, step)) * UNITS_PER_STEP);
 
 /**
  * The look of a stroke's plates: brush, rectangle and fill the texture of the tile from the palette's store (`peekTileImage`), the
  * placeholder colour of its role while the picture is not there or when there is none; the eraser and removing a ramp hatched, height and
- * ramp the colour of the step each cell goes to.
+ * ramp the colour of the step each cell goes to. The terrain brush shows the placeholder colour of the role of the active edge set's first
+ * `center` tile (with ⇧ of its `outside` tile), the cliff brush the colour of its target step: the first cell's height ± the steps.
  */
 function strokeLook(sub: PaintSub, lower: boolean, state: PaintState, cells: WorldCells | null, tileset: TilesetDto | null): PreviewLook {
   if (sub === "erase" || (sub === "ramp" && lower)) return { erase: true };
   const height = ([x, z]: Cell) => cells?.heights[z]?.[x] ?? 0;
   if (sub === "height") return { color: (cell) => stepColor(height(cell) + (lower ? -1 : 1)) };
   if (sub === "ramp") return { color: (cell) => stepColor(height(cell) + state.ramp.steps) };
+  if (sub === "cliff") {
+    // The plates are coloured in stroke order: the first cell asked for fixes the target of the whole stroke.
+    let target: number | null = null;
+    return { color: (cell) => stepColor((target ??= height(cell) + (lower ? -state.cliffRise : state.cliffRise))) };
+  }
+  if (sub === "terrain") {
+    const set = tileset?.tileset.edge_sets?.find((s) => s.name === state.edgeSet);
+    const token = lower ? set?.outside : set?.places.center?.[0];
+    const parts = token === undefined ? null : tileParts(token);
+    const tile = parts ? tileset?.tileset.tiles[Number.parseInt(parts.digits, 16)] : undefined;
+    return { color: placeholderColor(tile?.role ?? "ground") };
+  }
   const parts = tileParts(state.tile);
   const tile = parts ? tileset?.tileset.tiles[Number.parseInt(parts.digits, 16)] : undefined;
   const picture = tileset && tile ? peekTileImage(tileset.package, tile.texture) : null;
@@ -70,7 +97,11 @@ function strokeLook(sub: PaintSub, lower: boolean, state: PaintState, cells: Wor
  *
  * The request of a stroke is built when it is drawn, from the world read last with the strokes still on their way applied, so a fast
  * second stroke (a second + on the same cells) builds on the first. A refused stroke loses its preview, reports through `onError` and the
- * world is read again. A height stroke whose cells are all at the limit sends nothing; the cells at the limit are named (`onNotice`). */
+ * world is read again. A height stroke whose cells are all at the limit sends nothing; the cells at the limit are named (`onNotice`).
+ *
+ * The terrain and cliff brushes (6.4b) send the painted cells with the active edge set and a seed drawn per stroke; without a set they send
+ * nothing and ask for one, a cliff whose first cell is at the limit names its cells, the notes of the answer go to `onNotice` as one notice (joined with „ · “), and the
+ * kernel's „Nichts zu ändern.“ for them is no error. */
 export function usePaintSession(
   target: number | null,
   revision: number,
@@ -165,8 +196,17 @@ export function usePaintSession(
         host.render?.();
       }
     }
-    const built = strokeRequest(stroke.map, stroke.sub, strokeCells, cells, { layer: state.layer, tile: state.tile, ramp: state.ramp, lower: stroke.lower });
-    const skipped = stroke.sub === "height" ? heightSkipped(strokeCells, cells, stroke.lower) : 0;
+    const smart = isSmart(stroke.sub);
+    if (smart && state.edgeSet === null) {
+      opts.onNotice?.(NO_EDGE_SET);
+      clear();
+      return;
+    }
+    const o = { layer: state.layer, tile: state.tile, ramp: state.ramp, lower: stroke.lower, edgeSet: state.edgeSet, cliffRise: state.cliffRise };
+    // A seed per terrain or cliff stroke picks the variants of the places it resolves (the same seed gives the same tiles).
+    const seed = smart ? (crypto.getRandomValues(new Uint32Array(1))[0] ?? 0) : undefined;
+    const built = strokeRequest(stroke.map, stroke.sub, strokeCells, cells, o, seed);
+    const skipped = stroke.sub === "height" ? heightSkipped(strokeCells, cells, stroke.lower) : stroke.sub === "cliff" ? cliffSkipped(strokeCells, cells, o) : 0;
     if (skipped > 0) opts.onNotice?.(limitNotice(skipped));
     if (!built) {
       clear();
@@ -183,8 +223,11 @@ export function usePaintSession(
     };
     // `settled` runs whatever happens on the way (a throwing refresh, clear or onError): a request must never stay on its way.
     queue.push(req).then(
-      async () => {
+      async (report) => {
         try {
+          // All notes of one answer as ONE notice (Ruling 15): a later notice would hide an earlier one.
+          const notes = report?.notes ?? [];
+          if (notes.length > 0) latest.current.options.onNotice?.(notes.join(" · "));
           latest.current.refresh(req.map);
           await readWorld(req.map).catch((e) => latest.current.onError(e));
           clear();
@@ -195,7 +238,8 @@ export function usePaintSession(
       async (e) => {
         try {
           clear();
-          latest.current.onError(e);
+          // A terrain or cliff stroke that changes nothing is silent (the client cannot know beforehand), like unchanged cells in 6.4a.
+          if (!(smart && changesNothing(e))) latest.current.onError(e);
           await readWorld(req.map).catch(() => undefined);
         } finally {
           settled();

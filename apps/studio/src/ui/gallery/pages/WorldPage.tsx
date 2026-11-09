@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import type { HeaderPatchDto, MatrixDto } from "../../../api";
-import type { LayerOp, TileJson, TileRole, TilesetDto, WorldJson } from "../../../api.world";
+import type { EdgePlace, EdgeSetJson, LayerOp, TileJson, TileRole, TilesetDto, WorldJson } from "../../../api.world";
+import { PatternSwatch } from "../../../workbench/Legend";
+import { EdgeSetEditor } from "../../../workbench/inspector/EdgeSetEditor";
 import { LayerList } from "../../../workbench/inspector/LayerList";
 import { TilePalette } from "../../../workbench/inspector/TilePalette";
 import { PAINT_TOOLS } from "../../../workbench/paintTools";
@@ -14,6 +16,8 @@ import { placeColor } from "../../../workbench/places";
 import { nameWarning, placeKeyOf } from "../../../workbench/places/placeChoices";
 import { SHARED_HINT, sharedText } from "../../../workbench/sharedRooms";
 import { PatchConsent, patchReady } from "../../../workbench/wizards/PatchConsent";
+import { legendEntries } from "../../../world/legend";
+import type { Pattern } from "../../../world/scene/patterns";
 import { ThumbnailCache } from "../../../world/thumbnails";
 import { Badge, Budget, Button, Checkbox, InspectorRow, Notice, PanelHead, TextField, Tooltip } from "../../primitives";
 import type { PanelHeadSwitcher } from "../../primitives";
@@ -264,6 +268,30 @@ function HeightSteps() {
   );
 }
 
+/** The names of the five patterns of the layer „Gelände“. */
+const PATTERN_NAMES: Record<Exclude<Pattern, "none">, string> = {
+  hatch: "Schraffur",
+  waves: "Wellen",
+  dots: "Punkte",
+  arrow: "Pfeil in Sprungrichtung",
+  crosshatch: "Kreuzschraffur",
+};
+
+/** The terrain classes with a pattern, each as the legend shows it: colour, pattern, name. */
+function TerrainPatterns() {
+  const entries = legendEntries().terrain.filter((t) => t.pattern !== "none");
+  return (
+    <ul className={styles.heightSteps} aria-label="Gelände-Muster">
+      {entries.map((t) => (
+        <li key={t.key} className={styles.heightStep}>
+          <PatternSwatch entry={t} />
+          {t.label} · {PATTERN_NAMES[t.pattern as Exclude<Pattern, "none">]}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** The budget in its three states, as the map inspector shows it. */
 function Budgets() {
   return (
@@ -366,9 +394,63 @@ function LayersStill() {
   );
 }
 
+/** „Weg“ with all 13 places (the middle with two variants, turned tokens at the edges and corners), „Fels“ empty and blocking below. */
+const EXAMPLE_SETS: EdgeSetJson[] = [
+  {
+    name: "Weg",
+    outside: "0000",
+    places: {
+      center: ["0001", "0002"],
+      n: ["0003"],
+      e: ["0003r1"],
+      s: ["0003r2"],
+      w: ["0003r3"],
+      outer_nw: ["0004"],
+      outer_ne: ["0004r1"],
+      outer_sw: ["0004r3"],
+      outer_se: ["0004r2"],
+      inner_nw: ["0005"],
+      inner_ne: ["0005r1"],
+      inner_sw: ["0005r3"],
+      inner_se: ["0005r2"],
+    },
+  },
+  { name: "Fels", outside: "0001r1", block: "lower", places: {} },
+];
+/** The example package saved as a file with the two sets (the editor works only on a file). */
+const EXAMPLE_EDGE_TILESET: TilesetDto = { ...EXAMPLE_TILESET, stored: true, tileset: { ...EXAMPLE_TILESET.tileset, edge_sets: EXAMPLE_SETS } };
+const NO_TILESET_EDIT = async () => undefined;
+
+/** The section „Kantensätze“: „Weg“ active and complete, its outer NW corner chosen; nothing is written. */
+function EdgeSetStill() {
+  const [active, setActive] = useState<string | null>("Weg");
+  const [place, setPlace] = useState<EdgePlace | null>("outer_nw");
+  const [rise, setRise] = useState(2);
+  return (
+    <div className={styles.inspectorWide} data-depth="bauen">
+      <EdgeSetEditor
+        tileset={EXAMPLE_EDGE_TILESET}
+        active={active}
+        place={place}
+        tile="0001r1"
+        rise={rise}
+        onRise={setRise}
+        onActive={setActive}
+        onPlace={setPlace}
+        onChanged={noop}
+        onError={noop}
+        depth="bauen"
+        edit={NO_TILESET_EDIT}
+        save={NO_TILESET_EDIT}
+        image={NO_PICTURE}
+      />
+    </div>
+  );
+}
+
 /**
  * Phase 3f „Weltmodell“: the world map with its views and the room plan, places, the patch line and the shared room, with example data;
- * phase 6.2 adds the budget and the height steps, phase 6.4a the paint tools, the palette and the layers.
+ * phase 6.2 adds the budget and the height steps, phase 6.4a the paint tools, the palette and the layers, phase 6.4b the edge set editor.
  */
 export function WorldPage() {
   return (
@@ -421,10 +503,19 @@ export function WorldPage() {
         <HeightSteps />
       </section>
 
+      <section className={styles.block} data-gallery-state="gelaende-muster">
+        <h2 className={styles.blockTitle}>Gelände-Muster</h2>
+        <p className={styles.note}>
+          Die Schicht „Gelände“ zeichnet auf jede Zelle mit Muster dessen Linien in der Zellfarbe × 0,55 mit doppelter Deckkraft: Blockiert schraffiert, Wasser Wellen, Hohes
+          Gras Punkte, Vorsprung ein Pfeil in Sprungrichtung (hier nach Norden), Eis Kreuzschraffur; Spezial und Unbekannt ohne Muster. Die Legende zeigt dieselben Proben.
+        </p>
+        <TerrainPatterns />
+      </section>
+
       <section className={styles.block} data-gallery-state="malwerkzeuge">
         <h2 className={styles.blockTitle}>Malwerkzeuge</h2>
         <p className={styles.note}>
-          „Gelände malen“ auf einer Welt-Karte: die Unterwerkzeuge als zweite Gruppe der Leiste (Pinsel B, Rechteck P, Füllen G, Radierer E, Pipette I, Höhe H, Rampe R),
+          „Gelände malen“ auf einer Welt-Karte: die Unterwerkzeuge als zweite Gruppe der Leiste (Pinsel B, Rechteck P, Füllen G, Radierer E, Pipette I, Höhe H, Rampe R, Terrain-Pinsel T, Klippenpinsel K),
           genau eins gedrückt.
         </p>
         <PaintTools />
@@ -446,6 +537,16 @@ export function WorldPage() {
           hinzufügen“.
         </p>
         <LayersStill />
+      </section>
+
+      <section className={styles.block} data-gallery-state="kantensatz">
+        <h2 className={styles.blockTitle}>Kantensatz-Editor</h2>
+        <p className={styles.note}>
+          Der Abschnitt „Kantensätze“ beim Malen: die Sätze mit „Aktiv“ und ihrem Stand, „Neuer Kantensatz“, die Stufen der Klippe und der Editor des aktiven Satzes mit
+          den 13 + 2 Plätzen (Tasten 40 × 40; leer gestrichelt, gewählt mit Kobalt-Kante, mit mehreren Kacheln ein Zähler), den Kacheln des gewählten Platzes als Chips,
+          „Außen“, „Blockiert an der Klippe“ und „Wand“. Platzhalter statt Bilder.
+        </p>
+        <EdgeSetStill />
       </section>
 
       <section className={styles.block} data-gallery-state="geteilt">

@@ -55,8 +55,8 @@ describe("TilePalette", () => {
   });
 
   type Images = (pkg: number, texture: string) => Promise<ImageBitmap | null>;
-  async function show({ tileToken = "0000", depth = "bauen" as Depth, image = (async () => null) as Images } = {}) {
-    await act(async () => root.render(<TilePalette tileset={TILESET} tile={tileToken} onTile={onTile} depth={depth} image={image} />));
+  async function show({ tileToken = "0000", depth = "bauen" as Depth, image = (async () => null) as Images, target = undefined as string | undefined } = {}) {
+    await act(async () => root.render(<TilePalette tileset={TILESET} tile={tileToken} onTile={onTile} depth={depth} image={image} target={target} />));
     await flush();
   }
   const button = (token: string) => container.querySelector<HTMLButtonElement>(`[data-palette-tile="${token}"]`)!;
@@ -120,6 +120,16 @@ describe("TilePalette", () => {
     expect(button("0000").querySelector("[data-palette-mark]")).toBeNull();
     act(() => button("0004").click());
     expect(onTile).toHaveBeenCalledWith("0004");
+  });
+
+  it("while_a_place_is_chosen_a_click_goes_to_that_place", async () => {
+    await show();
+    expect(container.querySelector("[data-palette-target]")).toBeNull();
+    await show({ tileToken: "0000r1", target: "Ecke außen NW" });
+    // The palette says where a click goes; the click still names the tile, the owner appends it to the place.
+    expect(container.querySelector("[data-palette-target]")?.textContent).toBe("Ein Klick hängt die Kachel (mit Drehung) an den Platz „Ecke außen NW“.");
+    act(() => button("0004").click());
+    expect(onTile).toHaveBeenCalledExactlyOnceWith("0004");
   });
 
   it("the_pressed_picture_turns_and_mirrors_like_the_mesh", async () => {

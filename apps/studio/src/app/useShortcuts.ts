@@ -78,7 +78,7 @@ function inField(target: HTMLElement | null): boolean {
 
 /**
  * Cmd+O, Cmd+K, Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), in the world the tool letters (V B F T A S G;
- * while painting a world map first the paint keys B P G E I H R Z X 1 2, see `paintKey`),
+ * while painting a world map first the paint keys B P G E I H R T K Z X 1 2, see `paintKey`; T is „Terrain-Pinsel“ then, „Tür“ only by its button),
  * Escape back to "Auswählen", Delete / Escape on a pinned building or event and Option+Cmd+Left / Right through the scenes shown, in the Pokémon area Cmd+1 to 4 for its parts,
  * in every area an Escape that nothing else wants ending a maximization, none of them while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
  */
@@ -118,8 +118,8 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       // The tools: a letter, or Escape back to "Auswählen" when nothing is selected (a selection consumed Escape above). Never typed into
       // a field, never with a modifier, and not in an open menu or list, where a letter searches and Escape closes. Only while the world
       // is shown: on another area a letter must not change the tool the world comes back with.
-      // While „Gelände malen“ paints a world map its sub-tools come first (G is „Füllen“ then, „Gebäude“ only by its button); Shift is
-      // no obstacle for these keys.
+      // While „Gelände malen“ paints a world map its sub-tools come first (G is „Füllen“, T „Terrain-Pinsel“ then, „Gebäude“ and „Tür“
+      // only by their buttons); Shift is no obstacle for these keys.
       const painting = latest.current.tool === "paint" ? (latest.current.paint?.() ?? null) : null;
       const paintTarget = painting !== null && painting.target !== null;
       if (paintTarget && inWorld && !inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat) {

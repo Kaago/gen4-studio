@@ -70,8 +70,11 @@ export function frameStillWanted(
   return { wanted: !met, met };
 }
 
-/** The brush with the first tile of a package on the ground layer, a ramp of one step uphill to the east. The palette picks a real tile. */
-export const INITIAL_PAINT: PaintState = { sub: "brush", layer: 0, tile: "0000", ramp: { dir: "e", steps: 1 }, lower: false };
+/**
+ * The brush with the first tile of a package on the ground layer, a ramp of one step uphill to the east, no edge set and a cliff of two
+ * steps (16 E, the smallest edge the edge rule blocks). The palette picks a real tile, the section „Kantensätze“ the set.
+ */
+export const INITIAL_PAINT: PaintState = { sub: "brush", layer: 0, tile: "0000", ramp: { dir: "e", steps: 1 }, lower: false, edgeSet: null, cliffRise: 2 };
 
 const NONE: PaintModel = { state: INITIAL_PAINT, set: () => {}, target: null };
 
@@ -137,6 +140,13 @@ export function PaintProvider({ children, bridge }: { children: ReactNode; bridg
   }, [layerCount, state.layer]);
   const [tilesetRead, publishTileset] = useState<TilesetDto | null>(null);
   const tileset = shownWorld?.world && tilesetRead?.package === shownWorld.world.tileset ? tilesetRead : null;
+  // A tileset read (another map's package, the file changed, undo) without the active edge set: T and K paint with none, never with a
+  // stale name. Only a newly read tileset checks, so a set chosen right after it was created waits for the tileset that holds it.
+  useEffect(() => {
+    if (tileset === null) return;
+    const names = new Set((tileset.tileset.edge_sets ?? []).map((s) => s.name));
+    setState((s) => (s.edgeSet !== null && !names.has(s.edgeSet) ? { ...s, edgeSet: null } : s));
+  }, [tileset]);
   // The hidden layers belong to one map: another target forgets them (coming back shows every layer).
   const [hiddenOf, setHiddenOf] = useState<{ map: number; layers: ReadonlySet<number> } | null>(null);
   useEffect(() => setHiddenOf(null), [target]);

@@ -1198,6 +1198,7 @@ pub fn world_freeform_remove(
         cells: 0,
         change,
         bake,
+        notes: Vec::new(),
     })
 }
 

@@ -30,28 +30,39 @@ pub fn derive_permissions(
     cells
 }
 
-/// Blocks (`| 0x80`, sound bits kept) the cell with the higher edge of every pair of neighbours
-/// inside the map (each pair once) whose edge heights ([`HeightGrid::edge_units`]) differ by at
-/// least `edge_rule().free_below` units. The map border is no edge: the neighbour map does not
-/// know the derivation. `cells` holds the 1 024 cells, index `y * 32 + x`; a shorter slice is a
-/// caller bug (a debug assertion; in release the cells past its end are skipped).
+/// Every pair of neighbours inside the map (each once, row-major) whose edge heights differ by at least
+/// `edge_rule().free_below`: (upper cell, lower cell). `block_edges` blocks the first of each.
+///
+/// The edge heights are [`HeightGrid::edge_units`]; the map border is no edge: the neighbour map
+/// does not know the derivation.
+pub fn high_edges(grid: &HeightGrid) -> Vec<(usize, usize)> {
+    let free_below = edge_rule().free_below;
+    let mut pairs = Vec::new();
+    for i in 0..CELLS {
+        for (side, j) in neighbours(i) {
+            let own = grid.edge_units(i, side);
+            let other = grid.edge_units(j, side.opposite());
+            if (own - other).abs() >= free_below {
+                pairs.push(if own > other { (i, j) } else { (j, i) });
+            }
+        }
+    }
+    pairs
+}
+
+/// Blocks (`| 0x80`, sound bits kept) the upper cell of every high edge ([`high_edges`]): pairs
+/// of neighbours inside the map whose edge heights differ by at least `edge_rule().free_below`
+/// units. `cells` holds the 1 024 cells, index `y * 32 + x`; a shorter slice is a caller bug (a
+/// debug assertion; in release the cells past its end are skipped).
 pub fn block_edges(grid: &HeightGrid, cells: &mut [Cell]) {
     debug_assert_eq!(
         cells.len(),
         CELLS,
         "block_edges takes the 1 024 cells of a map"
     );
-    let free_below = edge_rule().free_below;
-    for i in 0..CELLS {
-        for (side, j) in neighbours(i) {
-            let own = grid.edge_units(i, side);
-            let other = grid.edge_units(j, side.opposite());
-            if (own - other).abs() >= free_below {
-                let upper = if own > other { i } else { j };
-                if let Some(cell) = cells.get_mut(upper) {
-                    cell.collision |= BLOCKED;
-                }
-            }
+    for (upper, _) in high_edges(grid) {
+        if let Some(cell) = cells.get_mut(upper) {
+            cell.collision |= BLOCKED;
         }
     }
 }
@@ -243,6 +254,49 @@ mod tests {
                 "{family:?}"
             );
         }
+    }
+
+    #[test]
+    fn high_edges_are_what_block_edges_blocks() {
+        let input = crate::terrain::scenario_input();
+        let scenario = crate::terrain::parse_grid(&input.grid).unwrap();
+        let world = crate::world::doc::fixtures::gate_world(0, "0000", "0001", "0002");
+        let gate = crate::world::grid::WorldGrid::parse(&world)
+            .unwrap()
+            .height_grid();
+        for grid in [scenario, gate] {
+            let pairs = high_edges(&grid);
+            assert!(!pairs.is_empty(), "the grid has height edges");
+            let mut cells = vec![cell(0, 0); CELLS];
+            block_edges(&grid, &mut cells);
+            let mut uppers: Vec<usize> = pairs.iter().map(|&(upper, _)| upper).collect();
+            uppers.sort_unstable();
+            uppers.dedup();
+            let blocked: Vec<usize> = (0..CELLS)
+                .filter(|&i| cells[i].collision & BLOCKED != 0)
+                .collect();
+            assert_eq!(uppers, blocked);
+            // Each pair is two neighbours, the first one higher by at least the edge rule.
+            for (upper, lower) in pairs {
+                let (dx, dy) = (
+                    (upper % SIDE).abs_diff(lower % SIDE),
+                    (upper / SIDE).abs_diff(lower / SIDE),
+                );
+                assert_eq!(dx + dy, 1, "({upper}, {lower})");
+            }
+        }
+        // The pair of a lone step: (upper, lower), row-major.
+        let mut g = HeightGrid::flat(0);
+        g.height[at(5, 5)] = 2;
+        assert_eq!(
+            high_edges(&g),
+            [
+                (at(5, 5), at(5, 4)),
+                (at(5, 5), at(4, 5)),
+                (at(5, 5), at(6, 5)),
+                (at(5, 5), at(5, 6)),
+            ]
+        );
     }
 
     #[test]

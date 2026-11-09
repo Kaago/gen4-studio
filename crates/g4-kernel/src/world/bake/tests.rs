@@ -922,3 +922,46 @@ fn bake_of_a_busy_world_prints_its_time() {
         times[times.len() / 2]
     );
 }
+
+#[test]
+fn world_permissions_is_tile_cells_plus_block_edges() {
+    let mut pieces = gate_world(0, "0000", "0001", "0002");
+    pieces.pieces.push(PieceJson {
+        tile: 5,
+        at: [30, 30],
+        rotate: 90,
+    });
+    let worlds = [
+        one_tile_world(),
+        checkerboard_world(),
+        busy_world(),
+        gate_world(0, "0000", "0001", "0002"),
+        oversize_world(),
+        pieces,
+    ];
+    let mut tileset = Tileset::synthetic();
+    tileset.tiles[0].sound = 0x05;
+    tileset.tiles[5].kind = 0x33;
+    tileset.tiles[5].collision = 0x80;
+    for (n, w) in worlds.iter().enumerate() {
+        let g = grid(w);
+        for family in [Family::Pt, Family::Hgss] {
+            let mut cells = tile_cells(&g, &tileset, family);
+            assert_eq!(cells.len(), CELLS);
+            block_edges(&g.height_grid(), &mut cells);
+            assert_eq!(
+                cells,
+                world_permissions(&g, &tileset, family),
+                "world {n}, {family:?}"
+            );
+        }
+    }
+    // Before the edge rule: the gate's plateau is not blocked yet.
+    let g = grid(&gate_world(0, "0000", "0001", "0002"));
+    let cells = tile_cells(&g, &Tileset::synthetic(), Family::Pt);
+    assert!(cells.iter().all(|c| c.collision & 0x80 == 0));
+    assert_ne!(
+        cells,
+        world_permissions(&g, &Tileset::synthetic(), Family::Pt)
+    );
+}

@@ -30,4 +30,22 @@ describe("legendEntries", () => {
     expect(colorOf("Spezial")).toBe(permissionColor(0, 0, "door"));
     expect(colorOf("Unbekannt")).toBe(permissionColor(0, 0, null));
   });
+
+  it("terrain_entries_name_their_pattern", () => {
+    const patternOf = (label: string) => legendEntries().terrain.find((t) => t.label === label)?.pattern;
+    expect(legendEntries().terrain.map((t) => t.pattern)).toEqual(["hatch", "waves", "dots", "arrow", "crosshatch", "none", "none"]);
+    expect(patternOf("Blockiert")).toBe("hatch");
+    expect(patternOf("Vorsprung")).toBe("arrow");
+  });
+
+  it("gives_every_patterned_entry_the_shade_the_shader_draws", () => {
+    for (const t of legendEntries().terrain) {
+      if (t.pattern === "none") expect(t.patternColor).toBeNull();
+      else expect(t.patternColor).toMatch(/^#[0-9A-F]{6}$/);
+    }
+    const blocked = legendEntries().terrain[0];
+    // Cell colour × 0.55 (in the linear working space, like the shader): darker than the fill.
+    const sum = (hex: string) => [1, 3, 5].reduce((a, i) => a + parseInt(hex.slice(i, i + 2), 16), 0);
+    expect(sum(blocked.patternColor!)).toBeLessThan(sum(blocked.color));
+  });
 });

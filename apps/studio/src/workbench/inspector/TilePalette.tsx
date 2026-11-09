@@ -68,31 +68,15 @@ function TilePicture({ bitmap, rotate = 0, flip = false }: { bitmap: ImageBitmap
 }
 
 /**
- * The palette of a world map while painting (section „Palette“): the tiles of its package (`tileset_get`) grouped by role in the order
- * Boden, Gras, Wasser, Wand, Rampe, Teilmodell (empty groups left out), one 32 × 32 key each with the whole texture of the tile
- * (`tileImage`), or the colour of its role without one. The chosen tile is pressed and shows its turn and mirror as a small mark and in its picture (turned like the mesh); a click
- * chooses a tile plain. Tüfteln writes the number under each tile and adds kind and collision to the tooltip.
+ * The pictures of package `pkg` by texture name (`image`, null: none); a package switch starts empty. A reset of the store (another
+ * project, the package's files written) asks for them again; until they come, the old pictures stay (never closed by the store).
+ * The palette and the edge set editor share it.
  */
-export function TilePalette({
-  tileset,
-  tile,
-  onTile,
-  depth,
-  image = tileImage,
-}: {
-  tileset: TilesetDto;
-  tile: string;
-  onTile: (token: string) => void;
-  depth: Depth;
-  /** Where the pictures come from (the gallery has none). */
-  image?: (pkg: number, texture: string) => Promise<ImageBitmap | null>;
-}): JSX.Element {
-  const [open, toggle] = useSectionOpen("matrixCell:palette", true);
-  const tinker = depthAtLeast(depth, "tuefteln");
-  const pkg = tileset.package;
-  const tiles = tileset.tileset.tiles;
-  // The pictures of this package by texture name; a package switch starts empty. A reset of the store (another project, the package's
-  // files written) asks for them again; until they come, the old pictures stay (never closed by the store).
+export function useTilePictures(
+  pkg: number,
+  tiles: readonly TileJson[],
+  image: (pkg: number, texture: string) => Promise<ImageBitmap | null>,
+): ReadonlyMap<string, ImageBitmap | null> {
   const generation = useSyncExternalStore(onTileImagesReset, tileImagesGeneration);
   const [pictures, setPictures] = useState<{ pkg: number; byTexture: ReadonlyMap<string, ImageBitmap | null> }>({ pkg, byTexture: new Map() });
   useEffect(() => {
@@ -108,6 +92,45 @@ export function TilePalette({
       live = false;
     };
   }, [pkg, tiles, image, generation]);
+  return pictures.pkg === pkg ? pictures.byTexture : NO_PICTURES;
+}
+
+const NO_PICTURES: ReadonlyMap<string, ImageBitmap | null> = new Map();
+
+/** A tile's face: its picture (turned and mirrored like the mesh), else the colour of its role. */
+export function TileFace({ bitmap, role, rotate = 0, flip = false }: { bitmap: ImageBitmap | null; role: TileRole; rotate?: number; flip?: boolean }) {
+  return bitmap ? <TilePicture bitmap={bitmap} rotate={rotate} flip={flip} /> : <span className={styles.swatch} data-palette-color={role} aria-hidden="true" />;
+}
+
+/**
+ * The palette of a world map while painting (section „Palette“): the tiles of its package (`tileset_get`) grouped by role in the order
+ * Boden, Gras, Wasser, Wand, Rampe, Teilmodell (empty groups left out), one 32 × 32 key each with the whole texture of the tile
+ * (`tileImage`), or the colour of its role without one. The chosen tile is pressed and shows its turn and mirror as a small mark and in its picture (turned like the mesh); a click
+ * chooses a tile plain. Tüfteln writes the number under each tile and adds kind and collision to the tooltip. While a place of an edge set
+ * is chosen (`target`, its name), a note says that a click goes to that place (the owner appends the tile there).
+ */
+export function TilePalette({
+  tileset,
+  tile,
+  onTile,
+  depth,
+  image = tileImage,
+  target,
+}: {
+  tileset: TilesetDto;
+  tile: string;
+  onTile: (token: string) => void;
+  depth: Depth;
+  /** Where the pictures come from (the gallery has none). */
+  image?: (pkg: number, texture: string) => Promise<ImageBitmap | null>;
+  /** The name of the chosen place of an edge set („Kante N“): a click appends the tile there. */
+  target?: string;
+}): JSX.Element {
+  const [open, toggle] = useSectionOpen("matrixCell:palette", true);
+  const tinker = depthAtLeast(depth, "tuefteln");
+  const pkg = tileset.package;
+  const tiles = tileset.tileset.tiles;
+  const byTexture = useTilePictures(pkg, tiles, image);
   const groups = useMemo(
     () =>
       GROUPS.map((g) => ({ ...g, tiles: tiles.flatMap((t, index) => (t.role === g.role ? [{ tile: t, digits: digitsOf(index) }] : [])) })).filter(
@@ -116,11 +139,15 @@ export function TilePalette({
     [tiles],
   );
   const chosen = tokenParts(tile);
-  const byTexture = pictures.pkg === pkg ? pictures.byTexture : new Map<string, ImageBitmap | null>();
   return (
     <div data-paint-palette="">
       <Section title="Palette" open={open} onToggle={toggle}>
         <div className={styles.body}>
+          {target !== undefined && (
+            <p className={styles.target} data-palette-target="">
+              Ein Klick hängt die Kachel (mit Drehung) an den Platz „{target}“.
+            </p>
+          )}
           {groups.map((g) => (
             <div key={g.role} className={styles.group} data-palette-role={g.role}>
               <h4 className={styles.groupTitle}>{g.label}</h4>
@@ -140,7 +167,7 @@ export function TilePalette({
                           aria-pressed={pressed}
                           onClick={() => onTile(digits)}
                         >
-                          {bitmap ? <TilePicture bitmap={bitmap} rotate={pressed ? chosen?.rotate : 0} flip={pressed && chosen?.flip} /> : <span className={styles.swatch} data-palette-color={t.role} aria-hidden="true" />}
+                          <TileFace bitmap={bitmap} role={t.role} rotate={pressed ? chosen?.rotate : 0} flip={pressed && chosen?.flip} />
                           {mark && (
                             <span className={styles.mark} data-palette-mark="" aria-hidden="true">
                               {mark}

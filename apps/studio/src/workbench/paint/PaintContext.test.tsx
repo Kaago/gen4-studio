@@ -121,6 +121,38 @@ describe("PaintContext", () => {
     expect(seen!.state.layer).toBe(0);
   });
 
+  it("edge_set_and_rise_default_to_none_and_two", async () => {
+    await show({ matrix: 4, x: 0, y: 0 }, true);
+    expect(seen!.state.edgeSet).toBeNull();
+    expect(seen!.state.cliffRise).toBe(2);
+    act(() => seen!.set({ sub: "cliff", edgeSet: "Weg", cliffRise: 4 }));
+    expect(seen!.state).toMatchObject({ sub: "cliff", edgeSet: "Weg", cliffRise: 4 });
+  });
+
+  it("an_active_edge_set_the_new_tileset_lacks_goes_back_to_none", async () => {
+    await show({ matrix: 4, x: 0, y: 0 }, true);
+    const world = { version: 1, tileset: 3, layers: [{ name: "Boden", role: "ground" as const, tiles: [] }], permissions: { derive: true } };
+    const tileset = (names: string[]) => ({
+      package: 3,
+      stored: true,
+      tileset: { version: 1, package: 3, tiles: [], edge_sets: names.map((name) => ({ name, outside: "0000", places: {} })) },
+    });
+    act(() => seen!.publishWorld!({ map: 120, world, faces: 0, textures: 0, estimate: 0, share: 0, bake: null }));
+    act(() => seen!.publishTileset!(tileset(["Weg", "Fels"])));
+    act(() => seen!.set({ edgeSet: "Fels" }));
+    // Set before its tileset arrives (a new set): kept until a tileset is read.
+    act(() => seen!.set({ edgeSet: "Neu" }));
+    expect(seen!.state.edgeSet).toBe("Neu");
+    act(() => seen!.publishTileset!(tileset(["Weg", "Fels", "Neu"])));
+    expect(seen!.state.edgeSet).toBe("Neu");
+    // The tileset read again without it (removed, undo, another package): no stale set.
+    act(() => seen!.publishTileset!(tileset(["Weg"])));
+    expect(seen!.state.edgeSet).toBeNull();
+    act(() => seen!.set({ edgeSet: "Weg" }));
+    act(() => seen!.publishTileset!(tileset(["Weg"])));
+    expect(seen!.state.edgeSet).toBe("Weg");
+  });
+
   it("removing_a_layer_moves_hidden_marks_and_the_active_layer_down", async () => {
     await show({ matrix: 4, x: 0, y: 0 }, true);
     const layer = (name: string) => ({ name, role: "overlay" as const, tiles: [] });

@@ -7,8 +7,11 @@
 //!
 //! A change names cells and exactly one of `tile` (on a layer, the ground by default),
 //! `height`, `ramp` (both the ground's only) and `permission` (the map's override, no layer),
-//! with the tokens of the file. Only the rows of the touched cells are written anew
-//! (normalized); every other row keeps its bytes.
+//! with the tokens of the file, or (6.4b) a stroke of the terrain brush (`terrain`, on a layer)
+//! or the cliff brush (`cliff`, the ground's) with an edge set of the tileset: those are
+//! resolved into cell changes first ([`super::smart::expand`]), so a stroke stays one step.
+//! Only the rows of the touched cells are written anew (normalized); every other row keeps its
+//! bytes.
 
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +28,7 @@ use super::grid::{
 };
 use super::keep::locked_map_refusal;
 use super::places::packs_of_map;
+use super::smart::expand;
 use super::tileset::{Tileset, tile_outside};
 
 /// Why painting is refused outside a text project (`world_create`, `world_edit`,
@@ -32,7 +36,8 @@ use super::tileset::{Tileset, tile_outside};
 pub const WORLD_NEEDS_TEXT_PROJECT: &str =
     "Boden malen gibt es im Textprojekt (Technik › Textprojekt).";
 /// A change with none or more than one of its fields.
-pub const ONE_FIELD: &str = "Eine Änderung setzt genau eines von tile, height, ramp, permission.";
+pub const ONE_FIELD: &str =
+    "Eine Änderung setzt genau eines von tile, height, ramp, permission, terrain, cliff.";
 /// A call whose changes leave the world as it is.
 pub const NOTHING_TO_CHANGE: &str = "Nichts zu ändern.";
 /// Why a world has no state to go back to (`reset` „Auf Original zurücksetzen“).
@@ -66,7 +71,7 @@ fn no_package(map: u16) -> String {
 }
 
 /// „Zelle (32, 4) liegt außerhalb der Karte (0 bis 31).“
-fn cell_outside(x: u8, z: u8) -> String {
+pub(crate) fn cell_outside(x: u8, z: u8) -> String {
     format!(
         "Zelle ({x}, {z}) liegt außerhalb der Karte (0 bis {}).",
         MAP_CELLS - 1
@@ -106,7 +111,7 @@ pub struct WorldEditRequest {
 
 /// One change: the cells (`[x, z]`) and exactly one of `tile` (on `layer`, the ground when it
 /// is left out), `height`, `ramp` (the ground's) and `permission` (no `layer`), as tokens of
-/// the file.
+/// the file, or a stroke `terrain` (on `layer`) or `cliff` (the ground's).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldChange {
@@ -121,12 +126,44 @@ pub struct WorldChange {
     pub ramp: Option<String>,
     #[serde(default)]
     pub permission: Option<String>,
+    #[serde(default)]
+    pub terrain: Option<TerrainPaint>,
+    #[serde(default)]
+    pub cliff: Option<CliffPaint>,
+}
+
+/// A stroke of the terrain brush: the edge set (by name), whether the painted cells go inside
+/// the area (⇧: `false`, outside) and the seed of the variants (rule „Zufall“).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerrainPaint {
+    pub set: String,
+    #[serde(default = "yes")]
+    pub inside: bool,
+    #[serde(default)]
+    pub seed: u32,
+}
+
+/// A stroke of the cliff brush: the edge set (by name), the absolute height of the painted
+/// cells (−16 to 62) and the seed of the variants.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CliffPaint {
+    pub set: String,
+    pub height: i8,
+    #[serde(default)]
+    pub seed: u32,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// What `world_create`, `world_edit`, `world_layers` or `world_to_binary` did: the map, its
 /// package, the cells it set (a new world: all 1024 of the ground; a layer added or removed or
 /// the world given up: 0), the undo step (`None`: nothing recorded) and the bake of the step
 /// (`None` when it baked nothing: the world given up). A refused bake is in its messages, never an error of the call: the stroke stays.
+/// `notes` are the notes of the smart strokes (the seam, permissions a cliff leaves), left out when there are none.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorldReport {
     pub map: u16,
@@ -134,6 +171,8 @@ pub struct WorldReport {
     pub cells: usize,
     pub change: Option<ChangeId>,
     pub bake: Option<WorldBakeReport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 /// „Welt aufgegeben: Karte 0123“, the label of [`world_to_binary`].
@@ -288,6 +327,7 @@ pub fn world_create(
         cells: MAP_CELLS * MAP_CELLS,
         change,
         bake,
+        notes: Vec::new(),
     })
 }
 
@@ -302,7 +342,11 @@ pub fn world_create(
 /// one field ([`ONE_FIELD`]), a permission with a layer, a height or ramp off the ground, a
 /// layer the world lacks, a cell off the map, a token the parser refuses (its sentence), a tile
 /// past the tileset ([`tile_outside`]), a package that is not there, changes that change
-/// nothing ([`NOTHING_TO_CHANGE`]).
+/// nothing ([`NOTHING_TO_CHANGE`]); for a stroke `terrain` or `cliff` (resolved in order by
+/// [`super::smart::expand`]; the label counts the painted cells, the notes go to
+/// [`WorldReport::notes`]): a set the tileset lacks ([`super::edge::missing_set`]), a place
+/// without tile, a cliff off the ground ([`super::smart::CLIFF_GROUND_ONLY`]), a cliff height
+/// outside −16 to 62.
 pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldReport, KernelError> {
     require_text_project(store)?;
     let map = req.map;
@@ -315,8 +359,9 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
     let tileset = store.tileset(before.tileset)?;
     first_error_with(&before, &tileset)?;
     let tiles = tileset.tiles.len();
-    let mut checked = Vec::with_capacity(req.changes.len());
-    for (i, change) in req.changes.iter().enumerate() {
+    let (changes, notes) = expand(store, map, &before, &tileset, &req.changes)?;
+    let mut checked = Vec::with_capacity(changes.len());
+    for (i, change) in changes.iter().enumerate() {
         checked.push(check_change(change, i, map, &before, tiles)?);
     }
     let mut world = before.clone();
@@ -330,13 +375,7 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
     let had_ramps = world.layers.first().is_some_and(|l| l.ramps.is_some());
     let had_overrides = world.permissions.overrides.is_some();
     for change in &checked {
-        let rows = rows_of(&mut world, change.rows)?;
-        for &[x, z] in change.cells {
-            let row = rows
-                .get_mut(usize::from(z))
-                .ok_or_else(|| refused(cell_outside(x, z)))?;
-            *row = set_token(row, usize::from(x), &change.token).map_err(refused)?;
-        }
+        apply_checked(&mut world, change)?;
     }
     // Rows made for a change that left every cell empty go again: the file stays as it was.
     let all_empty = |rows: &[String]| {
@@ -383,6 +422,7 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
         cells,
         change,
         bake,
+        notes,
     })
 }
 
@@ -412,7 +452,68 @@ pub fn world_to_binary(store: &mut Store, map: u16) -> Result<WorldReport, Kerne
         cells: 0,
         change,
         bake: None,
+        notes: Vec::new(),
     })
+}
+
+/// Change `i` checked against `world` (map `map`, `tiles` tiles in its tileset) and written into
+/// it ([`check_change`], then its rows): how [`super::smart::expand`] keeps its working copy.
+pub(super) fn apply_change(
+    world: &mut WorldJson,
+    change: &WorldChange,
+    i: usize,
+    map: u16,
+    tiles: usize,
+) -> Result<(), KernelError> {
+    let checked = check_change(change, i, map, world, tiles)?;
+    apply_checked(world, &checked)
+}
+
+/// Writes the token of `change` into the cells of its rows.
+fn apply_checked(world: &mut WorldJson, change: &Checked) -> Result<(), KernelError> {
+    let rows = rows_of(world, change.rows)?;
+    for &[x, z] in change.cells {
+        let row = rows
+            .get_mut(usize::from(z))
+            .ok_or_else(|| refused(cell_outside(x, z)))?;
+        *row = set_token(row, usize::from(x), &change.token).map_err(refused)?;
+    }
+    Ok(())
+}
+
+/// Refused with [`ONE_FIELD`] unless `change` sets exactly one of its fields.
+pub(super) fn check_one_field(change: &WorldChange) -> Result<(), KernelError> {
+    let fields = [
+        change.tile.is_some(),
+        change.height.is_some(),
+        change.ramp.is_some(),
+        change.permission.is_some(),
+        change.terrain.is_some(),
+        change.cliff.is_some(),
+    ];
+    if fields.iter().filter(|&&set| set).count() != 1 {
+        return Err(refused(ONE_FIELD.to_owned()));
+    }
+    Ok(())
+}
+
+/// The layer of `change` (the ground when left out) and its cells checked against `world` (map
+/// `map`): a layer the world lacks ([`no_layer`]), a cell off the map ([`cell_outside`]).
+pub(super) fn check_place(
+    change: &WorldChange,
+    map: u16,
+    world: &WorldJson,
+) -> Result<(), KernelError> {
+    let layer = change.layer.unwrap_or(0);
+    if usize::from(layer) >= world.layers.len() {
+        return Err(refused(no_layer(layer, map, world.layers.len())));
+    }
+    for &[x, z] in &change.cells {
+        if usize::from(x) >= MAP_CELLS || usize::from(z) >= MAP_CELLS {
+            return Err(refused(cell_outside(x, z)));
+        }
+    }
+    Ok(())
 }
 
 /// Change `i` checked against `world` (map `map`, `tiles` tiles in its tileset): its rows and
@@ -424,15 +525,7 @@ fn check_change<'a>(
     world: &WorldJson,
     tiles: usize,
 ) -> Result<Checked<'a>, KernelError> {
-    let fields = [
-        change.tile.is_some(),
-        change.height.is_some(),
-        change.ramp.is_some(),
-        change.permission.is_some(),
-    ];
-    if fields.iter().filter(|&&set| set).count() != 1 {
-        return Err(refused(ONE_FIELD.to_owned()));
-    }
+    check_one_field(change)?;
     let layer = change.layer.unwrap_or(0);
     if change.permission.is_some() && change.layer.is_some() {
         return Err(refused(PERMISSION_NO_LAYER.to_owned()));
@@ -440,14 +533,7 @@ fn check_change<'a>(
     if (change.height.is_some() || change.ramp.is_some()) && layer != 0 {
         return Err(refused(GROUND_ONLY.to_owned()));
     }
-    if usize::from(layer) >= world.layers.len() {
-        return Err(refused(no_layer(layer, map, world.layers.len())));
-    }
-    for &[x, z] in &change.cells {
-        if usize::from(x) >= MAP_CELLS || usize::from(z) >= MAP_CELLS {
-            return Err(refused(cell_outside(x, z)));
-        }
-    }
+    check_place(change, map, world)?;
     let (rows, token) = if let Some(token) = &change.tile {
         let tile = parse_tile(token).map_err(refused)?;
         if let Some(t) = tile
@@ -463,12 +549,14 @@ fn check_change<'a>(
         (Rows::Heights, token)
     } else if let Some(token) = &change.ramp {
         (Rows::Ramps, ramp_token(parse_ramp(token).map_err(refused)?))
-    } else {
-        let token = change.permission.as_deref().unwrap_or_default();
+    } else if let Some(token) = &change.permission {
         (
             Rows::Overrides,
             override_token(parse_override(token).map_err(refused)?),
         )
+    } else {
+        // A stroke: `expand` resolves it before; never one of the cell changes checked here.
+        return Err(refused(ONE_FIELD.to_owned()));
     };
     Ok(Checked {
         rows,
@@ -498,6 +586,9 @@ fn rows_of(world: &mut WorldJson, rows: Rows) -> Result<&mut Vec<String>, Kernel
         Rows::Overrides => world.permissions.overrides.get_or_insert_with(empty),
     })
 }
+
+#[cfg(test)]
+mod smart_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1499,6 +1590,7 @@ pub fn world_layers(
         cells: 0,
         change,
         bake,
+        notes: Vec::new(),
     })
 }
 

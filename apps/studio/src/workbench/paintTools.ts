@@ -79,6 +79,28 @@ export const PAINT_TOOLS: PaintToolSpec[] = [
     hint: "Klick setzt eine Rampe in die gewählte Richtung, Umschalt-Klick entfernt sie.",
     statusHints: [{ keys: "Klick", does: "setzt Rampe" }, TURN, { keys: "1/2", does: "Stufen" }, { keys: "⇧Klick", does: "entfernt" }],
   },
+  {
+    id: "terrain",
+    label: "Terrain-Pinsel",
+    key: "T",
+    icon: "terrain",
+    hint: "Ziehen malt die Fläche des aktiven Kantensatzes mit Kanten und Ecken, Umschalt-Ziehen nimmt sie weg.",
+    statusHints: [
+      { keys: "Ziehen", does: "malt" },
+      { keys: "⇧Ziehen", does: "nimmt es weg" },
+    ],
+  },
+  {
+    id: "cliff",
+    label: "Klippenpinsel",
+    key: "K",
+    icon: "cliff",
+    hint: "Ziehen hebt die Zellen um die Stufen mit dem Rand des aktiven Kantensatzes oben, Umschalt-Ziehen senkt sie.",
+    statusHints: [
+      { keys: "Ziehen", does: "hebt" },
+      { keys: "⇧Ziehen", does: "senkt" },
+    ],
+  },
 ];
 
 /** What a key does while painting a world map (see `paintKey`). */
@@ -105,9 +127,25 @@ export function paintPatch(state: PaintOptions & { sub: PaintSub }, action: Pain
 
 const DIR_WORDS: Record<RampDir, string> = { n: "Norden", e: "Osten", s: "Süden", w: "Westen" };
 
-/** The status line of the active sub-tool; the ramp names its direction and steps („Klick setzt Rampe nach Osten, 1 Stufe“). */
+/**
+ * The status line of the active sub-tool; the ramp names its direction and steps („Klick setzt Rampe nach Osten, 1 Stufe“), the terrain
+ * and cliff brushes the active edge set and the cliff's steps („Ziehen hebt um 2 Stufen mit dem Rand „Weg““), without a set they ask for one.
+ */
 export function paintStatusHints(state: PaintOptions & { sub: PaintSub }): { keys: string; does: string }[] {
   const spec = PAINT_TOOLS.find((t) => t.id === state.sub) ?? PAINT_TOOLS[0]!;
+  if (spec.id === "terrain" || spec.id === "cliff") {
+    const set = state.edgeSet === null ? null : `„${state.edgeSet}“`;
+    const steps = state.cliffRise === 1 ? "1 Stufe" : `${state.cliffRise} Stufen`;
+    const does =
+      spec.id === "terrain"
+        ? set === null
+          ? "malt (erst einen Kantensatz wählen)"
+          : `malt ${set}`
+        : set === null
+          ? `hebt um ${steps} (erst einen Kantensatz wählen)`
+          : `hebt um ${steps} mit dem Rand ${set}`;
+    return [{ keys: "Ziehen", does }, ...spec.statusHints.slice(1)];
+  }
   if (spec.id !== "ramp") return spec.statusHints;
   const steps = state.ramp.steps === 1 ? "1 Stufe" : `${state.ramp.steps} Stufen`;
   return [{ keys: "Klick", does: `setzt Rampe nach ${DIR_WORDS[state.ramp.dir]}, ${steps}` }, ...spec.statusHints.slice(1)];

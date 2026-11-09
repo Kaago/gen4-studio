@@ -107,6 +107,52 @@ fn shows(store: &mut Store, only: Option<u16>) -> Result<Vec<(usize, u16, Vec<u1
     Ok(shown)
 }
 
+/// The offsets (dx, dz) of the 8 matrix cells around a cell, in the order of
+/// [`neighbour_maps`]: NW, N, NE, W, E, SW, S, SE.
+pub(crate) const AROUND: [(i32, i32); 8] = [
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+];
+
+/// The maps in the 8 matrix cells around the first cell that shows `map` (matrices ascending, cells row-major),
+/// order NW, N, NE, W, E, SW, S, SE; None for an empty cell, a cell off the matrix, or no cell at all.
+pub fn neighbour_maps(store: &mut Store, map: u16) -> Result<[Option<u16>; 8], KernelError> {
+    if map == MATRIX_EMPTY {
+        return Ok([None; 8]);
+    }
+    let matrices = store.member_count(AssetKind::Matrix)?;
+    for index in 0..matrices {
+        let Ok(index) = u16::try_from(index) else {
+            break;
+        };
+        let m = store.matrix(index)?;
+        let Some(at) = m.maps.iter().position(|&cell| cell == map) else {
+            continue;
+        };
+        let (width, height) = (i32::from(m.width), i32::from(m.height));
+        let (x, z) = (at as i32 % width.max(1), at as i32 / width.max(1));
+        let mut around = [None; 8];
+        for (slot, (dx, dz)) in around.iter_mut().zip(AROUND) {
+            let (nx, nz) = (x + dx, z + dz);
+            if (0..width).contains(&nx) && (0..height).contains(&nz) {
+                *slot = m
+                    .maps
+                    .get((nz * width + nx) as usize)
+                    .copied()
+                    .filter(|&cell| cell != MATRIX_EMPTY);
+            }
+        }
+        return Ok(around);
+    }
+    Ok([None; 8])
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -218,6 +264,64 @@ mod tests {
                 .collect();
             assert_eq!(packs_of_map(&mut store, map).unwrap(), packs, "map {map}");
         }
+    }
+
+    /// The synthetic project with the matrix archive replaced by `matrices`.
+    fn store_with_matrices(matrices: &[Matrix]) -> (crate::test_support::Synthetic, Store) {
+        let synth = synthetic_project();
+        let narc = Narc {
+            members: matrices.iter().map(Matrix::write).collect(),
+        };
+        std::fs::write(
+            synth
+                .dir
+                .path()
+                .join("files/fielddata/mapmatrix/map_matrix.narc"),
+            narc.write(),
+        )
+        .unwrap();
+        let project = Project::open(synth.dir.path()).unwrap();
+        (synth, Store::new(Arc::new(project)))
+    }
+
+    #[test]
+    fn neighbour_maps_in_the_first_matrix() {
+        const E: u16 = MATRIX_EMPTY;
+        let square = Matrix {
+            name: "a".into(),
+            width: 3,
+            height: 3,
+            headers: None,
+            altitudes: None,
+            maps: vec![1, E, E, E, 0, 1, E, E, 1],
+        };
+        let strip = Matrix {
+            name: "b".into(),
+            width: 2,
+            height: 1,
+            headers: None,
+            altitudes: None,
+            maps: vec![2, 0],
+        };
+        let (_synth, mut store) = store_with_matrices(&[square, strip]);
+        // Map 0 in the middle of matrix 0 (and in matrix 1, which is not read): NW, N, NE, W,
+        // E, SW, S, SE; an empty cell is None.
+        assert_eq!(
+            neighbour_maps(&mut store, 0).unwrap(),
+            [Some(1), None, None, None, Some(1), None, None, Some(1)]
+        );
+        // Map 1 first in the top left cell: off the matrix is None.
+        assert_eq!(
+            neighbour_maps(&mut store, 1).unwrap(),
+            [None, None, None, None, None, None, None, Some(0)]
+        );
+        // Map 2 only in matrix 1.
+        assert_eq!(
+            neighbour_maps(&mut store, 2).unwrap(),
+            [None, None, None, None, Some(0), None, None, None]
+        );
+        // A map in no cell.
+        assert_eq!(neighbour_maps(&mut store, 7).unwrap(), [None; 8]);
     }
 
     #[test]

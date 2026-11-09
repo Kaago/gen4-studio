@@ -7,7 +7,8 @@ import { MAP_SIZE, MODEL_SCALE } from "../layout";
 import { resetSprites } from "../sprites";
 import { createGround, flatGround } from "../ground";
 import { MARKER_Y, selectMarker } from "../markers";
-import { OVERLAY_Y, addModel, buildContent, moveMapGround, recolourMap, removeMapModel, removeModels, reportSelectedMarker, setMarkers } from "./content";
+import { OVERLAY_Y, addModel, buildContent, moveMapGround, recolourMap, removeMapModel, removeModels, reportSelectedMarker, reportTerrainPatterns, setMarkers } from "./content";
+import { PATTERN_CODE } from "./patterns";
 import { HEIGHT_LAYER_Y, showHeightLayer } from "./heightLayer";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
@@ -194,6 +195,81 @@ describe("buildContent / recolourMap", () => {
   it("ignores a map the scene does not show", () => {
     const h = handle();
     expect(() => recolourMap(h, 9)).not.toThrow();
+  });
+
+  const patterned = (index: number): Loaded => {
+    const map = loadedMap(index);
+    map.map.permissions[0] = [0, 0x80];
+    map.map.permissions[1] = [0x10, 0];
+    map.map.permissions[2] = [0x38, 0x80];
+    return map;
+  };
+  const patternNames = new Map<number, TileBehavior>([
+    [0x10, { value: 0x10, name: "DEEP_WATER", class: "water" }],
+    [0x38, { value: 0x38, name: "JUMP_EAST", class: "ledge" }],
+  ]);
+  const patternAt = (tiles: THREE.InstancedMesh, i: number) => {
+    const attr = tiles.geometry.getAttribute("aPattern");
+    return [attr.getX(i), attr.getY(i)];
+  };
+
+  it("build_content_sets_a_pattern_per_cell", () => {
+    const loaded = new Map([[1, patterned(1)]]);
+    const built = buildContent(matrix, loaded, patternNames);
+    expect(built.tiles.geometry.getAttribute("aPattern").itemSize).toBe(2);
+    for (const base of [0, MAP_SIZE * MAP_SIZE]) {
+      expect(patternAt(built.tiles, base)).toEqual([PATTERN_CODE.hatch, 0]);
+      expect(patternAt(built.tiles, base + 1)).toEqual([PATTERN_CODE.waves, 0]);
+      expect(patternAt(built.tiles, base + 2)).toEqual([PATTERN_CODE.arrow, 1]);
+      expect(patternAt(built.tiles, base + 3)).toEqual([PATTERN_CODE.none, 0]);
+    }
+    // The material keeps its fill and gains the pattern hook.
+    const material = built.tiles.material as THREE.MeshBasicMaterial;
+    expect(material.opacity).toBe(0.42);
+    expect(typeof material.onBeforeCompile).toBe("function");
+    const shader = { uniforms: {}, vertexShader: "#include <begin_vertex>", fragmentShader: "#include <color_fragment>" } as unknown as THREE.WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    expect(shader.fragmentShader).toContain("vPattern");
+    built.buildings.dispose();
+  });
+
+  it("recolour_updates_the_pattern", () => {
+    const loaded = new Map([[1, patterned(1)]]);
+    const built = buildContent(matrix, loaded, patternNames);
+    const overlay = built.overlay;
+    const h = handle({ loaded, bases: built.bases, tiles: built.tiles, names: patternNames, overlay } as Partial<SceneHost>);
+    const attr = built.tiles.geometry.getAttribute("aPattern") as THREE.InstancedBufferAttribute;
+    const version = attr.version;
+    loaded.get(1)!.map.permissions[0] = [0, 0];
+    loaded.get(1)!.map.permissions[5] = [0x10, 0];
+    recolourMap(h, 1);
+    expect(patternAt(built.tiles, 0)).toEqual([PATTERN_CODE.none, 0]);
+    expect(patternAt(built.tiles, 5)).toEqual([PATTERN_CODE.waves, 0]);
+    expect(patternAt(built.tiles, MAP_SIZE * MAP_SIZE + 5)).toEqual([PATTERN_CODE.waves, 0]);
+    expect(attr.version).toBeGreaterThan(version);
+    // Three patterned cells per map, two cells show it; the canvas says so while „Gelände“ is visible.
+    expect(h.canvas.dataset.terrainPatterns).toBe("6");
+    built.buildings.dispose();
+  });
+
+  it("terrain_patterns_are_counted_only_while_the_layer_is_visible", () => {
+    const loaded = new Map([[1, patterned(1)]]);
+    const built = buildContent(matrix, loaded, patternNames);
+    const h = handle({ loaded, bases: built.bases, tiles: built.tiles, names: patternNames, overlay: built.overlay } as Partial<SceneHost>);
+    reportTerrainPatterns(h);
+    expect(h.canvas.dataset.terrainPatterns).toBe("6");
+    built.overlay.visible = false;
+    reportTerrainPatterns(h);
+    expect(h.canvas.dataset.terrainPatterns).toBeUndefined();
+    built.overlay.visible = true;
+    reportTerrainPatterns(h);
+    expect(h.canvas.dataset.terrainPatterns).toBe("6");
+    // No overlay (no matrix loaded yet): no attribute.
+    const empty = handle();
+    empty.canvas.dataset.terrainPatterns = "3";
+    reportTerrainPatterns(empty);
+    expect(empty.canvas.dataset.terrainPatterns).toBeUndefined();
+    built.buildings.dispose();
   });
 });
 

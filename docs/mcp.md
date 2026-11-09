@@ -275,7 +275,7 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `set_map_terrain` | schreibend | `{index, grid: {heights, ramps}, kinds, overrides?, bdhc?, permissions?}` (seit 6.2, das Gate-Werkzeug bis 6.3a/6.4a): setzt BDHC und Permissions einer binären Karte aus einem Höhenraster als **ein** Undo-Schritt „set terrain“. `grid.heights`, `grid.ramps` und `kinds` sind je 32 Zeilen zu 32 Zellen, durch Leerzeichen getrennt (Zeile `y`, Spalte `x`): Höhen in Stufen zu 8 E (−16 bis 62), Rampen `.` oder `n1 n2 e1 e2 s1 s2 w1 w2` (steigt nach Norden, Osten, Süden, Westen um 1 oder 2 Stufen über die Kachel), Gelände `# . g G ~ r i ^ > v < D`. `overrides` (`[{x, y, kind, collision}]`) ersetzen zuletzt ganze Zellen. `bdhc: "flat"` schreibt statt des Rasters eine flache Platte auf 0, `permissions: "keep"` lässt die Permissions der Karte stehen (beides für die Gegenprobe; die Handwerte gelten auch dann). Antwort `{map, bdhc_bytes, payload, plates, strips, blocked, overrides, permissions_kept}`. Abgelehnt wird, bevor etwas geschrieben ist, mit dem Ort im deutschen Satz (Fehlercode `error`), etwa „heights: Zeile 4 hat 31 Zellen statt 32.“ oder „Kachel x 4, y 6: Rampe mit 3 Stufen je Kachel (24 E); …“; alle Sätze in [formats/terrain.md](formats/terrain.md) „Zeilenformat“ |
 | `get_map_budget` | lesend | `{index}` (seit 6.2): die Budgets der Karte gegen die Grenzen des Spiels, je `{used, max, state}` mit `state` `calm`, `tight` (ab 90 %) oder `full` (über `max`): `model` (Modell, von 61 440 B), `bdhc` (Nutzlast nach dem Kopf aus den Zählern, von 36 864 B), `buildings` (von 32). `textures` ist das Gebiet des ersten Headers, dessen Matrix die Karte zeigt: `area`, `map_pack`, `building_pack`, `textures` (Texturen im Kartenpaket), `vanilla_max` und `vram` (geschätzt aus beiden Paketen, gegen die Bank 262 144 B; `tight` über dem Vanilla-Maximum, `full` über 204 800 B); `null` mit dem Grund in `textures_missing` („Kein Header zeigt diese Karte.“, „Gebietsdaten 12 fehlen.“, „Texturpaket 6 nicht lesbar: …“, beim Gebäudepaket „Gebäude-Texturpaket 6 nicht lesbar: …“). Siehe [formats/terrain.md](formats/terrain.md) „Budget je Karte“ |
 | `world_get` | lesend | `{map}` (seit 6.4a): die Welt einer Karte eines Textprojekts (`world`, `null` bei einer binären Karte oder außerhalb eines Textprojekts) mit Flächen, Texturen und geschätzter Modellgröße ihres Netzes; siehe „Malen (6.4a)“ |
-| `world_edit` | schreibend | `{req: {map, label?, changes}}` (seit 6.4a): ändert Zellen einer Welt-Karte als **ein** Undo-Schritt; Werkzeuge wie Füllen oder Rechteck rechnet der Aufrufer und schickt Zellen; siehe „Malen (6.4a)“ |
+| `world_edit` | schreibend | `{req: {map, label?, changes}}` (seit 6.4a): ändert Zellen einer Welt-Karte als **ein** Undo-Schritt; Werkzeuge wie Füllen oder Rechteck rechnet der Aufrufer und schickt Zellen; seit 6.4b malen `terrain` und `cliff` mit einem Kantensatz des Tilesets (Ränder und Ecken setzt der Kernel, Notizen in `notes`); siehe „Malen (6.4a)“ und „Smart Drawing (6.4b)“ |
 | `tileset_get` | lesend | `{package}` (seit 6.4a): das Tileset eines Kartentextur-Pakets je Kachel (Textur, Größe, Rolle, Art, Kollision, Höhenverhalten, Schrittgeräusch, Wandkachel), `stored: false`, solange es abgeleitet ist; siehe „Malen (6.4a)“ |
 
 Die Antworten sind JSON. Jedes Werkzeug antwortet mit `structuredContent = {"result": …}` und einem Textblock mit demselben JSON (`project_preview_get` und `project_preview_set` legen das Bild zusätzlich als Bild-Inhaltsblock `image/png` daneben, nicht ins JSON); die Schemas stehen in `tools/list` (`inputSchema` und `outputSchema`). Eingaben sind geschlossen: Ein unbekannter Schlüssel ist ein Fehler („Unbekanntes Argument für get_header: foo“). Jedes Werkzeug trägt Hinweise, damit ein Client erkennt, was er ohne Rückfrage ausführen darf: `readOnlyHint` und `idempotentHint` (beide wahr bei lesenden Werkzeugen, sonst falsch) und `openWorldHint` (überall falsch). Nur nicht lesende Werkzeuge tragen zusätzlich `destructiveHint`: wahr bei unumkehrbaren und bei denen, die es je nach Argument sind (`build_rom`, `apply_fix`, `publish_patch`), falsch bei den übrigen schreibenden. `g4_batch` und `g4_call` gelten mit `--read-only` als lesend, sonst als schreibend; `destructiveHint` tragen sie nur mit `--allow-irreversible`.
@@ -458,7 +458,7 @@ Diese sieben Befehle gehen über `g4_call` (Expertenmodus, `--expert`); seit 6.4
 | Befehl | Art | Argumente | Antwort |
 |---|---|---|---|
 | `world_create` | Schreiben (ein Undo-Schritt) | `req: {map, tileset?, fill?, height?}` | `{map, tileset, cells, change}`: „Welt anlegen“, der Boden mit `fill` (Standard `0000`) auf `height` (Standard 0), das Paket ohne `tileset` aus dem ersten Header der Karte |
-| `world_edit` | Schreiben (ein Undo-Schritt) | `req: {map, label?, changes: [{cells: [[x, z]], layer?, tile? \| height? \| ramp? \| permission?}]}` | `{map, tileset, cells, change}`; alle Änderungen eines Aufrufs sind ein Schritt („Welt geändert: Karte 0000 (37 Zellen)“) |
+| `world_edit` | Schreiben (ein Undo-Schritt) | `req: {map, label?, changes: [{cells: [[x, z]], layer?, tile? \| height? \| ramp? \| permission? \| terrain? \| cliff?}]}` (`terrain`, `cliff` seit 6.4b) | `{map, tileset, cells, change, notes?}`; alle Änderungen eines Aufrufs sind ein Schritt („Welt geändert: Karte 0000 (37 Zellen)“) |
 | `world_get` | Lesen | `map` | `{map, world, faces, textures, estimate, share}`: das Weltobjekt (`null` ohne Welt), Flächen und Texturen des Netzes, die geschätzte Modellgröße in Byte und ihr Anteil an 0xF000 |
 | `tileset_get` | Lesen | `package` | `{package, stored, tileset}`: die Datei `data/tilesets/NNNN.json` (`stored: true`) oder aus dem Paket und den Vanilla-Permissions abgeleitet (`stored: false`) |
 | `tileset_save` | Schreiben (ein Undo-Schritt) | `package` | `{package, file, tiles, vanilla, unclear, change}`: schreibt das abgeleitete Tileset als Datei |
@@ -469,7 +469,7 @@ Ablehnungen (`error` mit dem Text, nichts geändert):
 
 - Außerhalb eines Textprojekts der aktuellen Fassung (DSPRE-Layout, ältere oder neuere Schemaversion) lehnen `world_create`, `world_edit` und `tileset_save` mit „Boden malen gibt es im Textprojekt (Technik › Textprojekt).“ ab; `world_get` antwortet dort `world: null`, `get_world_mesh` `faces: 0`, `tileset_get` leitet ab, `get_map` sagt `world: false`.
 - Eine Welt, deren JSON nicht zum Schema passt (ein Serde-Fehler, etwa ein unbekanntes Feld unter `world`), macht im Textprojekt die ganze Karte unlesbar: `get_map`, `world_get` und `world_edit` antworten mit dem Fehler (Datei und Pfad), die Szene meldet „1 Karte(n) nicht geladen: …“; `get_map` sagt dann **nicht** `world: false`. Eine Welt, die liest, aber Zeilen- oder Kachelfehler hat, lässt `get_map` mit `world: true` und den Höhen des Members antworten; `world_edit` lehnt mit dem ersten Fehler ab.
-- `world_create` auf einer Welt-Karte („Karte 0000 ist schon eine Welt-Karte.“), `world_edit` auf einer Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“), eine Zelle außerhalb der Karte, eine Kachel jenseits des Tilesets, eine Änderung mit keinem oder mehreren von `tile`, `height`, `ramp`, `permission`, eine Welt-Datei mit Fehlern (der erste mit seinem Pfad) und ein Aufruf, der nichts ändert („Nichts zu ändern.“).
+- `world_create` auf einer Welt-Karte („Karte 0000 ist schon eine Welt-Karte.“), `world_edit` auf einer Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“), eine Zelle außerhalb der Karte, eine Kachel jenseits des Tilesets, eine Änderung mit keinem oder mehreren von `tile`, `height`, `ramp`, `permission`, `terrain`, `cliff` („Eine Änderung setzt genau eines von tile, height, ramp, permission, terrain, cliff.“), eine Welt-Datei mit Fehlern (der erste mit seinem Pfad) und ein Aufruf, der nichts ändert („Nichts zu ändern.“).
 - `tileset_save`, wenn die Datei schon da ist („data/tilesets/0006.json gibt es schon.“), und ein Paket, das es nicht gibt („Kartentextur-Paket 0200 gibt es nicht (74 Pakete).“).
 
 ## Welt-Karten backen (6.3b, über `g4_call`)
@@ -481,7 +481,7 @@ Im Textprojekt ist das Map-Asset einer Welt-Karte ihr gebackener Member: jeder S
 | `world_adopt` | Schreiben (ein Undo-Schritt) | `req: {map, tileset?, form?}` | `{map, tileset, tileset_guessed, deviations: [{x, z, height, step}], change, bake}`: „Karte als Quelle übernehmen“ (Form 1, Label „Karte als Quelle übernommen: Karte 0000“). Modell und BDHC bleiben verbatim (`world.freeform = [{nsbmd}]`, `world.terrain = {bdhc}`), die Bodenebene „Boden“ ganz `.` mit den Höhen aus der BDHC, jede Permission als Handwert; die Karte backt byte-gleich. Paket aus `tileset`, sonst aus dem ersten Header der Karte, sonst 0 mit `tileset_guessed: true`. `form` `"verbatim"` (Vorgabe) oder `"gltf"` (Form 2, seit 6.5b, Abschnitt „Freiform, Form 2, Tiled“). `deviations`: Zellen ohne Platte (`height: null`) oder mehr als 0,1 E neben ihrer Stufe |
 | `world_to_binary` | Schreiben (ein Undo-Schritt) | `map` | `{map, tileset, cells: 0, change, bake: null}`: „Als binäre Karte übernehmen“ ohne Konflikt (Label „Welt aufgegeben: Karte 0000“); die Welt geht, das zuletzt gebackene Map-Asset bleibt, Speichern schreibt die Karte binär |
 | `world_bake` | Lesen | `map` | das Backen der Karte, wie der Store sie hält (nichts geändert), oder `null` (keine Welt, außerhalb eines Textprojekts): `{map, ok, style, faces, model_bytes, model_share, model_kept, textures, vram_bytes, bdhc_bytes, bdhc_payload, plates, blocked, verbatim_model, verbatim_terrain, messages: [{code, level, args, message}], freeform_faces, strips, single_quads}`; seit 6.5b `freeform_faces` (die Flächen der Freiform-Modelle unter `faces`), `strips` und `single_quads` (Vierecksstreifen und einzelne Vierecke, die das gebackene Modell sendet; 0 ohne gebackenes Modell) |
-| `tileset_edit` | Schreiben (ein Undo-Schritt) | `req: {package, changes: [{tile, role?, kind?, collision?, sound?, wall?}]}` | `{package, tiles, change}`: ändert Kacheln der Datei `data/tilesets/NNNN.json` als ein Dateischritt („Tileset 0000 geändert (2 Kacheln)“), geänderte Kacheln bekommen `origin: user`, `wall: null` entfernt die Wandkachel; danach backen die sauberen Welt-Karten dieses Pakets neu (auch bei Undo und Redo), schmutzige backt das nächste Speichern |
+| `tileset_edit` | Schreiben (ein Undo-Schritt) | `req: {package, changes?: [{tile, role?, kind?, collision?, sound?, wall?}], sets?}` (`changes` optional, Vorgabe leer; `sets` seit 6.4b, siehe „Smart Drawing (6.4b)“) | `{package, tiles, change}`: ändert Kacheln der Datei `data/tilesets/NNNN.json` als ein Dateischritt („Tileset 0000 geändert (2 Kacheln)“), geänderte Kacheln bekommen `origin: user`, `wall: null` entfernt die Wandkachel; danach backen die sauberen Welt-Karten dieses Pakets neu (auch bei Undo und Redo), schmutzige backt das nächste Speichern |
 
 `world_get` antwortet zusätzlich mit `bake` (dasselbe wie `world_bake`, `null` ohne Welt und bei einer Welt, deren Zeilen sich nicht lesen; dann bleibt `world` mit `faces: 0`, `world_bake` lehnt mit dem ersten Fehler ab, etwa „world.schema: world.layers[0].tiles[0]: 31 Zellen statt 32.“). `world_create` und `world_edit` antworten mit `bake` des Schritts: ein abgelehntes Backen (`ok: false`, etwa `bake.model-too-big`, `bake.texture-missing`, `world.no-area`, `world.verbatim-mixed`, `world.side-file`) ist kein Fehler des Aufrufs, der Strich bleibt, das Modell bleibt das letzte (`model_kept: true`), BDHC und Permissions folgen der Welt.
 
@@ -504,17 +504,18 @@ Seit 6.4a malt ein Agent Welt-Karten mit drei kuratierten Werkzeugen wie die App
 | Werkzeug | Art | Argumente | Antwort |
 |---|---|---|---|
 | `world_get` | lesend | `{map}` | `{map, world, faces, textures, estimate, share, bake}`: das Weltobjekt (`version`, `tileset` das Kartentextur-Paket, `layers` mit `tiles`, `heights` und `ramps` als je 32 Zeilen zu 32 Token, `pieces`, `permissions`), Flächen und Texturen des Netzes, die geschätzte Modellgröße in Byte und ihr Anteil an 0xF000. `world: null` bei einer Karte ohne Welt, einer binären Karte oder außerhalb eines Textprojekts. `bake` ist das Backen der Karte (Modell- und Terrain-Bytes, Anteil an 0xF000, Texturen, VRAM, `ok`, Meldungen; wie `world_bake` in „Welt-Karten backen (6.3b, über `g4_call`)“), `null` ohne Welt. |
-| `world_edit` | schreibend (ein Undo-Schritt) | `{req: {map, label?, changes: [{layer?, cells: [[x, z]], tile? \| height? \| ramp? \| permission?}]}}` | `{map, tileset, cells, change, bake}` (das Backen des Schritts) |
-| `tileset_get` | lesend | `{package}` | `{package, stored, tileset}`: je Kachel Textur, Größe in Texeln, Rolle (`ground`, `wall`, `ramp`, `water`, `grass`, `piece`), Art, Kollision, Höhenverhalten, Schrittgeräusch (HGSS) und Wandkachel; `stored: false`, solange es aus dem Paket abgeleitet und noch nicht unter `data/tilesets/` liegt (`tileset_save` über `g4_call` schreibt es) |
+| `world_edit` | schreibend (ein Undo-Schritt) | `{req: {map, label?, changes: [{layer?, cells: [[x, z]], tile? \| height? \| ramp? \| permission? \| terrain? \| cliff?}]}}` | `{map, tileset, cells, change, bake, notes?}` (das Backen des Schritts; `notes` seit 6.4b, fehlt ohne Notiz) |
+| `tileset_get` | lesend | `{package}` | `{package, stored, tileset}`: je Kachel Textur, Größe in Texeln, Rolle (`ground`, `wall`, `ramp`, `water`, `grass`, `piece`), Art, Kollision, Höhenverhalten, Schrittgeräusch (HGSS) und Wandkachel; seit 6.4b `edge_sets` (die Kantensätze, fehlt ohne Satz); `stored: false`, solange es aus dem Paket abgeleitet und noch nicht unter `data/tilesets/` liegt (`tileset_save` über `g4_call` schreibt es) |
 
 Eine Änderung in `changes` nennt Zellen `[x, z]` (je 0 bis 31) und genau eines von:
 
 - `tile`: vier Hex-Ziffern, dahinter optional `r1` bis `r3` (Drehung) und `f` (gespiegelt), oder `.` (leer); auf `layer` (Standard 0, der Boden);
 - `height`: Stufen zu 8 Einheiten, −16 bis 62, nur der Boden;
 - `ramp`: `.` (eben) oder `n`, `e`, `s`, `w` mit 1 oder 2 Stufen (`e1`, `n2`), bergauf, nur der Boden;
-- `permission`: `kkcc` hex oder `.` (abgeleitet), ohne `layer`.
+- `permission`: `kkcc` hex oder `.` (abgeleitet), ohne `layer`;
+- `terrain` und `cliff` (seit 6.4b): malen mit einem Kantensatz, siehe „Smart Drawing (6.4b)“.
 
-Alle Änderungen eines Aufrufs sind ein Schritt; ohne `label` heißt er „Welt geändert: Karte 0000 (37 Zellen)“. Ablehnungen (`error`, nichts geändert): außerhalb eines Textprojekts („Boden malen gibt es im Textprojekt (Technik › Textprojekt).“), eine Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“), eine Zelle außerhalb der Karte, eine Kachel jenseits des Tilesets, eine Änderung mit keinem oder mehr als einem Wert, eine Ebene, die es nicht gibt.
+Alle Änderungen eines Aufrufs sind ein Schritt; ohne `label` heißt er „Welt geändert: Karte 0000 (37 Zellen)“. Ablehnungen (`error`, nichts geändert): außerhalb eines Textprojekts („Boden malen gibt es im Textprojekt (Technik › Textprojekt).“), eine Karte ohne Welt („Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“), eine Zelle außerhalb der Karte, eine Kachel jenseits des Tilesets, eine Änderung mit keinem oder mehr als einem Wert („Eine Änderung setzt genau eines von tile, height, ramp, permission, terrain, cliff.“), eine Ebene, die es nicht gibt.
 
 ### Neue Karte malen: `new_painted_map`
 
@@ -567,3 +568,107 @@ Ablehnungen (`error` mit dem Text, nichts geändert):
 - `world_freeform_remove`: ein Index jenseits der Liste („Karte 0000 hat keine Freiform 3 (1 Einträge).“) und das Verbatim-Modell von Form 1 (zurück über „Als binäre Karte übernehmen“).
 - `world_import_tmj`: eine Datei mit Fehlern (der erste mit seinem Pfad und die Zahl, etwa „layers[0].data[0]: GID 500 gehört nicht in diese Ebene. (2 Fehler)“).
 - `world_adopt` mit `form: "gltf"` ohne apicula: „Form 2 braucht apicula (`G4_APICULA` oder tools/apicula).“
+
+## Smart Drawing (6.4b)
+
+Seit 6.4b malt `world_edit` mit **Kantensätzen** des Tilesets: der Terrain-Pinsel setzt eine Fläche samt Rändern und Ecken, der Klippenpinsel hebt Zellen mit dem Rand oben auf dem Plateau. Neue Werkzeuge gibt es dafür nicht: `world_edit` (kuratiert) bekommt `terrain` und `cliff`, `tileset_get` gibt die Sätze unter `tileset.edge_sets` mit aus, Sätze ändert `tileset_edit` mit `sets` über `g4_call` (Expertenmodus, `--expert`). Die Zahl der kuratierten Werkzeuge bleibt 90.
+
+### Kantensatz
+
+Ein Kantensatz steht im Tileset unter `edge_sets` (`data/tilesets/NNNN.json`): `{name, outside, block?, places}`. Er hat zwei Farben: **innen** (die gemalte Fläche) und **außen**. `outside` ist die Kachel der reinen Außenfläche (Pflicht); `block` sagt, welche Zelle einer Klippenkante blockiert: `upper` (Vorgabe, in der Datei weggelassen; die obere Zelle, wie beim Backen ohnehin) oder `lower` (die untere Zelle, der Strich schreibt dafür Permission-Überschreibungen). `places` hat bis zu 15 Plätze, je eine Liste von Kachel-Token (`"0007"`, gedreht `"0007r1"`, gespiegelt `"0007f"`); leere Plätze fehlen. Jede Zelle hat vier Ecken mit den Bits `NW = 1`, `NE = 2`, `SW = 4`, `SE = 8` (gesetzt = innen); jeder Platz gehört zu einer Maske, Maske 0 ist `outside`:
+
+| Platz | Maske | in der App | liegt |
+|---|---|---|---|
+| `center` | 15 | Mitte | ganz innen |
+| `n` | 12 | Kante N | Kante, Norden außen |
+| `s` | 3 | Kante S | Kante, Süden außen |
+| `w` | 10 | Kante W | Kante, Westen außen |
+| `e` | 5 | Kante O | Kante, Osten außen |
+| `outer_nw` | 8 | Ecke außen NW | Außenecke im Nordwesten der Fläche |
+| `outer_ne` | 4 | Ecke außen NO | Außenecke im Nordosten |
+| `outer_sw` | 2 | Ecke außen SW | Außenecke im Südwesten |
+| `outer_se` | 1 | Ecke außen SO | Außenecke im Südosten |
+| `inner_nw` | 14 | Ecke innen NW | Innenecke, die Ecke NW liegt außen |
+| `inner_ne` | 13 | Ecke innen NO | Innenecke, die Ecke NE liegt außen |
+| `inner_sw` | 11 | Ecke innen SW | Innenecke, die Ecke SW liegt außen |
+| `inner_se` | 7 | Ecke innen SO | Innenecke, die Ecke SE liegt außen |
+| `diag_nwse` | 9 | Diagonale NW–SO | NW und SE innen |
+| `diag_nesw` | 6 | Diagonale NO–SW | NE und SW innen |
+
+Dasselbe Token (nach dem Lesen verglichen) steht im Satz nur einmal, auch nicht zugleich als `outside`; eine Kachel darf aber gedreht mehrere Plätze füllen. Ein Platz mit mehreren Einträgen wählt je Zelle einen nach dem Samen des Strichs (`seed`), gleich wahrscheinlich: derselbe Strich mit demselben Samen ergibt dieselben Kacheln. Eine Zelle ist **Mitglied** des Satzes, wenn ihre Kachel in einem Platz steht, **außen**, wenn sie `outside` ist, sonst **fremd**; eine Ecke ist innen, sobald eine angrenzende Mitgliedszelle sie innen meldet. Die Wände einer Klippe zieht das Backen wie bisher mit der `wall` der oberen Kachel (`tileset_edit` mit `changes` setzt sie; „Wand“ im Editor setzt sie für alle Kacheln des Satzes, die Plätze und `outside`, denn oben auf einer Klippe von einer Zelle Breite liegt `outside`).
+
+### Kantensätze ändern: `tileset_edit` mit `sets`
+
+`tileset_edit` nimmt neben `changes` (optional, Vorgabe leer) die Liste `sets` mit Operationen, alle zusammen **ein** Dateischritt:
+
+- `{"put": {name, outside, block?, places}}` ersetzt den Satz gleichen Namens an seiner Stelle oder hängt ihn an;
+- `{"remove": {"name": "Weg"}}` entfernt ihn.
+
+```json
+{ "command": "tileset_edit", "args": { "req": { "package": 0, "changes": [], "sets": [
+  { "put": { "name": "Weg", "outside": "0000", "places": {
+    "center": ["0006"], "n": ["0007"], "e": ["0008"], "s": ["0009"], "w": ["000a"],
+    "outer_nw": ["000b"], "outer_ne": ["000c"], "outer_sw": ["000d"], "outer_se": ["000e"],
+    "inner_nw": ["000f"], "inner_ne": ["0010"], "inner_sw": ["0011"], "inner_se": ["0012"]
+  } } }
+] } } }
+```
+
+Die Antwort ist `{package, tiles, change}` (`tiles` zählt die geänderten Kacheln, bei reinen Satz-Operationen 0). Mit `sets` heißt der Schritt nach der ersten Operation „Kantensatz „Weg“ angelegt: Tileset 0000“, „Kantensatz „Weg“ geändert: Tileset 0000“ oder „Kantensatz „Weg“ entfernt: Tileset 0000“; Undo schreibt die Datei, wie sie war, und die sauberen Welt-Karten des Pakets backen neu.
+
+Ablehnungen (nichts geändert), dazu die von `tileset_edit` in „Welt-Karten backen (6.3b, über `g4_call`)“:
+
+- `remove` eines Satzes, den es nicht gibt: „Kantensatz „Weg“ gibt es im Tileset 0000 nicht.“
+- ein Satz ohne Namen („data/tilesets/0000.json: edge_sets[0].name: Ein Kantensatz braucht einen Namen.“), ein Token zweimal („data/tilesets/0000.json: edge_sets[0].places.e[0]: Kachel 0007r1 steht zweimal im Satz („n“ und „e“).“), `.` in einem Platz, eine Kachel jenseits des Tilesets;
+- ein `put`, das den Satz nicht ändert: „Nichts zu ändern.“
+
+Unvollständige Sätze lassen sich speichern; erst ein Strich, der einen leeren Platz bräuchte, lehnt ab.
+
+### Malen: `world_edit` mit `terrain` und `cliff`
+
+Zwei weitere Felder einer Änderung in `changes`, je genau eines pro Änderung („Eine Änderung setzt genau eines von tile, height, ramp, permission, terrain, cliff.“):
+
+- `terrain: {set, inside? (Vorgabe true), seed? (Vorgabe 0)}` auf `layer` (Vorgabe 0): jede genannte Zelle setzt ihre vier Ecken auf innen (mit `inside: false` auf außen, die Fläche wird weggenommen); danach bekommt jede Zelle, die eine geänderte Ecke berührt, die Kachel ihrer neuen Maske. Zellen, deren Maske gleich bleibt, und fremde Zellen mit Maske 0 bleiben, wie sie sind; Mitglieder mit Maske 0 bekommen `outside`.
+- `cliff: {set, height, seed? (Vorgabe 0)}`, nur auf der Bodenebene: die Zellen bekommen die absolute Höhe `height` (Stufen zu 8 Einheiten, −16 bis 62; Rampen dort gehen weg), der Rand des Satzes liegt oben auf dem Plateau, tiefere Zellen behalten ihre Kachel. Mit `block: lower` schreibt der Strich Permission-Überschreibungen für jede Kante ab 16 Einheiten Unterschied, deren obere oder untere Zelle an P oder dem Ring darum liegt (obere Zelle frei, untere blockiert); eine Überschreibung dort, die der alte Kachelwert der Zelle oder dieser `| 0x80` ist, gilt als vom Pinsel geschrieben und wird neu berechnet (an keiner Kante mehr: gelöscht), eine eigene Permission (etwa eine Tür) bleibt. Eine Klippe von einer Zelle Breite hat keinen Rand: oben liegt `outside`.
+
+Der Kernel löst die Änderungen der Reihe nach auf (eine spätere sieht die frühere), alles ist **ein** Undo-Schritt und wird im selben Schritt gebacken; ohne `label` zählt der Schritt die genannten Zellen („Welt geändert: Karte 0000 (45 Zellen)“). Ein Strich, der nichts ändert, antwortet „Nichts zu ändern.“
+
+**Naht:** Liegt die Karte in einer Matrix, liest der Kernel aus der ersten Matrixzelle, die sie zeigt, den Ring der Nachbarkarten direkt hinter dem Rand (nur Welt-Karten mit demselben Tileset; für `terrain` die Kacheln derselben Ebene, für `cliff` die Höhen des Bodens). Nachbarkarten werden **nie** geschrieben. Passt eine Nachbarzelle danach nicht mehr, steht eine Notiz in `notes` der Antwort (fehlt ohne Notiz), etwa „Naht zu Karte 0001: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die Nachbarkarte bleibt, wie sie ist.“ oder für eine Klippe mit `block: lower` „Zelle (12, 21) hat eine eigene Permission; die Klippe lässt sie stehen.“ (mehrere Zellen in einem Strich: „3 Zellen haben eine eigene Permission (erste: (12, 21)); die Klippe lässt sie stehen.“, die erste in Zeilenfolge)
+
+**Beispiel „das Plus“:** auf einer Karte ganz aus `0000` mit dem Satz „Weg“ oben ein Querbalken x 4–12, z 8–10 und ein Längsbalken x 7–9, z 5–13 in einem Aufruf:
+
+```json
+{ "req": { "map": 0, "changes": [{ "terrain": { "set": "Weg" }, "cells": [
+  [7, 5], [8, 5], [9, 5], [7, 6], [8, 6], [9, 6], [7, 7], [8, 7], [9, 7],
+  [4, 8], [5, 8], [6, 8], [7, 8], [8, 8], [9, 8], [10, 8], [11, 8], [12, 8],
+  [4, 9], [5, 9], [6, 9], [7, 9], [8, 9], [9, 9], [10, 9], [11, 9], [12, 9],
+  [4, 10], [5, 10], [6, 10], [7, 10], [8, 10], [9, 10], [10, 10], [11, 10], [12, 10],
+  [7, 11], [8, 11], [9, 11], [7, 12], [8, 12], [9, 12], [7, 13], [8, 13], [9, 13]
+] }] } }
+```
+
+Die Plätze danach, x 2–14 und z 3–15 (`.` außen, `C` Mitte, `N`/`E`/`S`/`W` Kanten, `1`–`4` Außenecken NW, NO, SW, SO, `5`–`8` Innenecken NW, NO, SW, SO); die gemalten Zellen sind Mitte, der Ring darum Kanten und Ecken:
+
+```
+.............
+....1NNN2....
+....WCCCE....
+....WCCCE....
+.1NN5CCC6NN2.
+.WCCCCCCCCCE.
+.WCCCCCCCCCE.
+.WCCCCCCCCCE.
+.3SS7CCC8SS4.
+....WCCCE....
+....WCCCE....
+....3SSS4....
+.............
+```
+
+Eine Klippe mit demselben Satz zwei Stufen hoch: `{ "cells": [[20, 20], [21, 20], [20, 21], [21, 21]], "cliff": { "set": "Weg", "height": 2 } }`.
+
+Ablehnungen (`error`, nichts geändert), dazu die von `world_edit` in „Malen (6.4a)“:
+
+- ein Satz, den das Tileset nicht hat: „Kantensatz „Fels“ gibt es im Tileset 0000 nicht.“
+- ein Platz, den der Strich bräuchte, ohne Kachel: „Kantensatz „Weg“: der Platz „Ecke innen NW“ hat keine Kachel (Zelle (6, 7)).“
+- `cliff` auf einer anderen Ebene als 0: „Klippen gibt es nur auf der Bodenebene.“; eine Höhe außerhalb von −16 bis 62; eine Ebene, die es nicht gibt („Ebene 2 gibt es nicht (Karte 0000 hat 1).“).

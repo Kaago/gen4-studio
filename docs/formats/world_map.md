@@ -1,4 +1,4 @@
-# Welt-Karte (Weltdokument einer Karte, Phasen 6.3a, 6.3b, 6.4a und 6.5b)
+# Welt-Karte (Weltdokument einer Karte, Phasen 6.3a, 6.3b, 6.4a, 6.5b und 6.4b)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Eine Karte des Textprojekts kann
 statt nur ihrer Binärteile ein **Weltdokument** tragen, das Objekt `world` in
@@ -9,11 +9,11 @@ den Git zeilenweise vergleicht. Quelle: [Spezifikation Phase 6](../superpowers/s
 [entscheidungen.md](../research/2026-11-05-phase-6/entscheidungen.md) („Malen, Weltformat,
 Import, Tiled“, „Writer“, „BDHC“), Pläne [2026-11-05-phase-6-3a-weltformat.md](../superpowers/plans/2026-11-05-phase-6-3a-weltformat.md)
 und [2026-11-06-phase-6-3b-backen-build.md](../superpowers/plans/2026-11-06-phase-6-3b-backen-build.md)
-(je „Entscheidungen“), das Malen in der App aus [2026-11-07-phase-6-4a-malen.md](../superpowers/plans/2026-11-07-phase-6-4a-malen.md), Freiform, Teilmodell-Geometrie und Form 2 aus [2026-11-07-phase-6-5b-freiform-austausch.md](../superpowers/plans/2026-11-07-phase-6-5b-freiform-austausch.md). Implementierung: `crates/g4-kernel/src/world/` (`doc.rs` serde-Form, `grid.rs`
+(je „Entscheidungen“), das Malen in der App aus [2026-11-07-phase-6-4a-malen.md](../superpowers/plans/2026-11-07-phase-6-4a-malen.md), Freiform, Teilmodell-Geometrie und Form 2 aus [2026-11-07-phase-6-5b-freiform-austausch.md](../superpowers/plans/2026-11-07-phase-6-5b-freiform-austausch.md), Smart Drawing aus [2026-11-07-phase-6-4b-smart-drawing.md](../superpowers/plans/2026-11-07-phase-6-4b-smart-drawing.md). Implementierung: `crates/g4-kernel/src/world/` (`doc.rs` serde-Form, `grid.rs`
 Grammatik und Raster, `mesh.rs` Vernetzer, `bake.rs` Backen, `record.rs` Datensatz je Karte,
 `build.rs` Build-Schritt `world`, `adopt.rs` „Karte als Quelle übernehmen“, `edit.rs` Anlegen,
 Ändern und Aufgeben, `keep.rs` Mitnehmen beim Schreiben, `check.rs` Prüfungen, `places.rs` Paket
-und Karten, seit 6.5b `freeform.rs` Beifiles und Freiform, `tmj.rs` Austausch mit Tiled, [tmj.md](tmj.md)); das Tileset, auf das die Kacheln zeigen, steht in [tileset.md](tileset.md). Alle
+und Karten, seit 6.5b `freeform.rs` Beifiles und Freiform, `tmj.rs` Austausch mit Tiled, [tmj.md](tmj.md); seit 6.4b `edge.rs` Kantensätze, `smart.rs` Terrain- und Klippenpinsel); das Tileset, auf das die Kacheln zeigen, steht in [tileset.md](tileset.md). Alle
 Beispiele stammen aus synthetischen Welten (`world::doc::fixtures`, Tileset `Tileset::synthetic()`),
 nicht aus einer ROM.
 
@@ -541,8 +541,9 @@ Permissions-Overlay und GLB der Szene der Welt ohne Sonderweg.
   keins: „Karte 0123 liegt in keiner Matrixzelle mit Header; Tileset angeben (`tileset`).“). Ein
   Undo-Schritt „Welt angelegt: Karte 0123“; ⌘Z setzt die Welt wieder auf `null`.
 - **`world_edit`** (`{map, label?, changes: [{layer?, cells: [[x, z], …], tile? | height? | ramp? |
-  permission?}]}`): je Änderung genau ein Feld („Eine Änderung setzt genau eines von tile, height,
-  ramp, permission.“), Token wie in der Datei; Höhe und Rampe nur auf Ebene 0, `permission` ohne
+  permission? | terrain? | cliff?}]}`): je Änderung genau ein Feld („Eine Änderung setzt genau eines
+  von tile, height, ramp, permission, terrain, cliff.“), Token wie in der Datei; `terrain` und
+  `cliff` sind Striche mit einem Kantensatz (6.4b, „Smart Drawing (6.4b)“); Höhe und Rampe nur auf Ebene 0, `permission` ohne
   `layer`. Alle Änderungen eines Aufrufs sind **ein** Undo-Schritt, Label vorgegeben „Welt
   geändert: Karte 0123 (37 Zellen)“ („(1 Zelle)“). Geschrieben werden nur die berührten Zeilen;
   `ramps` und `override` entstehen bei Bedarf als 32 Zeilen `.` und gehen wieder, wenn die
@@ -821,7 +822,7 @@ Tilesets und leere Zellen ergeben keine Fläche.
   liegen, eine senkrechte Fläche vom unteren zum oberen Profil, Vorderseite zur niedrigeren Zelle,
   `layer` 0. Textur: `wall` der Kachel der oberen Zelle im Tileset, ohne `wall` deren eigene
   Kachel. Wandstücke einer Linie mit gleicher Wandkachel (Kachelindex, nicht Texturname), gleicher
-  Richtung und geradem Unter- und Oberprofil werden eine Fläche. Keine Wand an der Kartengrenze (Nachbarkarten sieht erst 6.4b), zu
+  Richtung und geradem Unter- und Oberprofil werden eine Fläche. Keine Wand an der Kartengrenze (Wände zu Nachbarkarten kommen später; 6.4b liest Nachbarkarten nur für die Kantensätze an der Naht), zu
   einer leeren Zelle und wo sich die Profile **kreuzen** (gegenläufige Rampen nebeneinander). Liegt
   eine Rampe neben einer ebenen Zelle, die an einem Ende gleich hoch ist, wird die Wand ein
   **entartetes Viereck**: zwei Ecken fallen zusammen, es ist ein Dreieck.
@@ -881,7 +882,8 @@ Karte übernehmen“. Gestaltung: [design-system/README.md](../../design-system/
 
 ## Malen (6.4a)
 
-In der App malt das Werkzeug „Gelände malen“ (Taste B) eine Welt-Karte mit sieben Unterwerkzeugen.
+In der App malt das Werkzeug „Gelände malen“ (Taste B) eine Welt-Karte mit sieben Unterwerkzeugen
+(seit 6.4b neun, „Smart Drawing (6.4b)“).
 Jeder Strich wird zu **einem** `world_edit` mit eigenem `label`, also einem Undo-Schritt, der im
 selben Schritt backt. Quelle: Plan
 [2026-11-07-phase-6-4a-malen.md](../superpowers/plans/2026-11-07-phase-6-4a-malen.md) („Entscheidungen“).
@@ -974,6 +976,175 @@ Dieselbe Folge malen die Szenarien `pt-gemalt.yaml` und `hg-gemalt.yaml` über M
 der Testumgebung, `left_click_drag`, nur von einem Punkt zu einem zweiten führt). Für Agenten: [mcp.md](../mcp.md), „Malen (6.4a)“. Gestaltung:
 [design-system/README.md](../../design-system/README.md), „Nachtrag 6.4a“.
 
+## Smart Drawing (6.4b)
+
+Seit 6.4b malt `world_edit` auch mit den **Kantensätzen** des Tilesets ([tileset.md](tileset.md),
+„Kantensätze (6.4b)“): der **Terrain-Pinsel** setzt eine Fläche samt Kanten und Ecken, der
+**Klippenpinsel** hebt oder senkt Zellen und legt den Rand des Satzes oben auf das Plateau. Quelle:
+Plan [2026-11-07-phase-6-4b-smart-drawing.md](../superpowers/plans/2026-11-07-phase-6-4b-smart-drawing.md)
+(„Entscheidungen“). Implementierung: im Kernel `world/smart.rs` (`paint_terrain`, `paint_cliff`, die
+Naht `seams`, die Auflösung `expand`), `world/edge.rs` (Plätze, `variant`), `world/places.rs`
+(`neighbour_maps`) und `world/edit.rs` (`TerrainPaint`, `CliffPaint`, `WorldReport.notes`); in der
+App die Unterwerkzeuge in `workbench/paintTools.ts`, der Strich in `world/paint/ops.ts`
+(`strokeRequest`, `cliffTarget`) und `usePaintSession.ts`, der Editor in
+`workbench/inspector/EdgeSetEditor.tsx`. Datenmodell nach Tileds Wang-Ecken, Logik eigenständig; kein
+Code aus Tiled oder PDSMS. Weltformat, Bäcker und Schemata bleiben, wie sie sind (`WORLD_VERSION` 2,
+`TILESET_VERSION` 1): ein Strich erzeugt nur Kacheln, Höhen, entfernte Rampen und
+Permission-Überschreibungen, die das Format schon hat.
+
+**Änderungen.** Zwei weitere Felder einer Änderung von `world_edit`, je Änderung genau eines der
+sechs („Eine Änderung setzt genau eines von tile, height, ramp, permission, terrain, cliff.“):
+
+| Feld | Inhalt | Ebene |
+|---|---|---|
+| `terrain` | `{set, inside = true, seed = 0}`: der Satz nach Namen, `inside: false` nimmt die Fläche weg (⇧ in der App), der Samen der Varianten | `layer` (Vorgabe 0) |
+| `cliff` | `{set, height, seed = 0}`: der Satz, die **absolute** Höhe der gemalten Zellen in Stufen (−16 bis 62), der Samen | nur die Bodenebene |
+
+Der Kernel löst die Änderungen eines Aufrufs der Reihe nach auf einer Arbeitskopie auf (eine spätere
+sieht die frühere, auch eine gewöhnliche) und ersetzt jeden Strich durch seine Zell-Änderungen (Höhen,
+entfernte Rampen, Kacheln je Token, Überschreibungen); dann gilt der Weg von oben: Prüfung, **ein**
+Undo-Schritt, Backen im selben Schritt. Das Label ohne `label` zählt die **gemalten** Zellen, nicht
+den aufgelösten Ring („Welt geändert: Karte 0000 (45 Zellen)“). Ein Strich, der keine Zelle ändert,
+ist „Nichts zu ändern.“. Notizen stehen in `notes` des Berichts (`WorldReport.notes`, fehlt ohne
+Notiz).
+
+**Terrain-Pinsel.** Der Kernel liest die Eckfarben der Ebene (Regel „Eckfarben lesen“ in
+[tileset.md](tileset.md): Mitglied, außen oder fremd; eine Ecke ist innen, sobald eine angrenzende
+lesbare Zelle sie innen meldet). Jede gemalte Zelle setzt ihre **vier Ecken** auf innen (`inside:
+false`: außen); danach bekommt jede Zelle der Karte, die eine geänderte Ecke berührt, und jede gemalte
+Zelle die Kachel ihrer neuen Maske. Unverändert bleiben Zellen, deren Maske gleich bleibt (keine neue
+Zufallswahl), und fremde Zellen mit der neuen Maske 0; Mitglieder mit Maske 0 bekommen `outside`. So
+wächst die Fläche um einen Ring aus Kanten und Ecken, und zwei Striche desselben Satzes verschmelzen.
+Braucht eine Zelle einen leeren Platz, lehnt der Strich ab, mit der ersten solchen Zelle in
+Zeilenfolge.
+
+**Klippe.** Die gemalten Zellen P bekommen die Höhe `height` (Rampen dort gehen weg). Eine Ecke, die P
+berührt, ist innen, wenn **alle** angrenzenden Zellen (in der Karte und lesbare Nahtzellen) mindestens
+`height` hoch liegen, sonst außen. Neu aufgelöst werden P und jede Zelle mit Höhe ≥ `height`, die eine
+geänderte Ecke berührt; tiefere Zellen behalten ihre Kachel. Der Rand des Satzes liegt damit **oben**
+auf dem Plateau (die Klippenkante wie in PDSMS), der Boden darunter bleibt. Die Wand an der Höhenkante
+zieht der Vernetzer wie bisher mit der `wall` der oberen Kachel („Vernetzer“). Auf einer
+Überlagerung: „Klippen gibt es nur auf der Bodenebene.“
+
+- **Schmale Klippe:** eine Klippe von einer Zelle Breite (ein einzelner Zug mit K) hat **keinen
+  Rand**: jede ihrer Ecken berührt eine tiefere Zelle, ist also außen, und oben liegt `outside`. Die
+  13 Plätze der Wang-Ecken können einen Streifen von einer Zelle nicht umranden; der Rand braucht
+  mindestens zwei Zellen Breite. Die Wand zieht der Vernetzer trotzdem, mit der `wall` von
+  `outside` („Wand“ im Editor setzt sie für alle Kacheln des Satzes, auch Außen).
+- **Neben einer höheren Klippe:** wird eine Klippe neben einer früheren, höheren gesetzt, werden
+  deren Randzellen, die die neue berühren, zu Kacheln der Mitte (eine Ecke zählt als innen, wenn alle
+  angrenzenden Zellen ≥ `height` liegen, und die höhere tut das). Wände und Kollision bleiben
+  richtig; nur der Rand der höheren Klippe fehlt dort.
+
+Welche Zelle an der Klippe blockiert, sagt `block` des Satzes:
+
+- **`upper`** (Vorgabe): nichts zusätzlich. Beim Backen blockiert `terrain::block_edges` die obere
+  Zelle jeder Kante mit mindestens `edge.free_below` (16 E, zwei Stufen) Unterschied („Permissions“,
+  [terrain.md](terrain.md) „Kollisionsableitung“); bei zwei Stufen (Vorgabe der App) ist das genau
+  der Rand des Plateaus.
+- **`lower`**: der Strich schreibt für jede solche Kante (`terrain::high_edges` auf den neuen Höhen),
+  deren obere oder untere Zelle in P oder im Ring der 8 Nachbarn um P liegt, Überschreibungen in
+  `permissions.override`: die obere Zelle ihren Kachelwert ohne das Bit der Kante (`tile_cells`), die
+  untere diesen Wert `| 0x80` (ist eine Zelle beides, gewinnt unten). Eine schon vorhandene
+  Überschreibung auf einer Zelle in P oder dem Ring, deren Wert der **alte** Kachelwert der Zelle
+  (`tile_cells` vor dem Strich) oder dieser `| 0x80` ist, gilt als vom Pinsel geschrieben: sie wird
+  neu berechnet, mit dem neuen Wert, oder gelöscht (`.`), wenn die Zelle an keiner hohen Kante mehr
+  liegt; ein gleicher Wert wird nicht noch einmal geschrieben. So verschmelzen zwei Klippen mit
+  `lower` ohne blockierte Linie im Plateau, und derselbe Strich noch einmal ändert nichts. Jede andere
+  Überschreibung bleibt, mit **einer** Notiz je Strich: „Zelle (12, 21) hat eine eigene Permission;
+  die Klippe lässt sie stehen.“, bei mehreren „3 Zellen haben eine eigene Permission (erste: (12,
+  21)); die Klippe lässt sie stehen.“ (die erste in Zeilenfolge); eine Tür-Überschreibung geht so nie
+  verloren. Der Bäcker bleibt unverändert.
+
+**Naht zu Nachbarkarten.** Der Kernel sucht die **erste** Matrixzelle, die die Karte zeigt (Matrizen
+aufsteigend, Zellen zeilenweise), und liest aus den 8 Nachbarzellen dieser Matrix den Ring der Zellen
+direkt hinter dem Kartenrand (Koordinate −1 und 32): für den Terrain-Pinsel die Kacheln der
+Ebene mit demselben Index, für die Klippe die Höhen der Bodenebene. Gelesen werden nur
+Welt-Karten mit demselben Tileset; eine leere Zelle, eine binäre Karte, eine Welt auf einem anderen
+Paket, eine Karte, die sich nicht liest, und die Karte selbst lesen nichts. Nachbarkarten werden
+**nie** geschrieben. Passt eine Nachbarzelle danach nicht mehr zum Satz, steht eine Notiz im Bericht:
+„Naht zu Karte 0124: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die Nachbarkarte bleibt, wie sie
+ist.“ („1 Zelle dort passt …“). **Wände zu Nachbarkarten** gibt es weiter nicht: eine Wand an der Naht
+machte das Backen einer Karte von der Nachbarkarte abhängig (Eingabe-Hash, Build, Byte-Treue).
+
+**Abgelehnt** (nichts geändert), geprüft in dieser Reihenfolge, dazu die Ablehnungen von `world_edit`
+oben: mehr oder weniger als ein Feld (`ONE_FIELD`); `cliff` außerhalb der Bodenebene; eine Ebene, die
+es nicht gibt („Ebene 2 gibt es nicht (Karte 0000 hat 1).“), eine Zelle außerhalb; ein Satz, den das
+Tileset nicht hat („Kantensatz „Fels“ gibt es im Tileset 0000 nicht.“); eine Höhe außerhalb von −16
+bis 62; ein Platz ohne Kachel („Kantensatz „Weg“: der Platz „Ecke innen NW“ hat keine Kachel (Zelle
+(6, 7)).“, die Außenfläche heißt dort „Außen“).
+
+**In der App.** Zwei Unterwerkzeuge kommen hinter „Rampe“ dazu:
+
+| Unterwerkzeug | Taste | Symbol | Geste | Änderung (`changes`) | Verlaufstext |
+|---|---|---|---|---|---|
+| Terrain-Pinsel | T | `terrain` (Phosphor `Mountains`) | Ziehen, ⇧ nimmt weg | `{layer: <aktiv>, cells, terrain: {set: <aktiv>, inside: !⇧, seed}}` | „Gelände gemalt: Karte 0666 (27 Zellen)“, ⇧ „Gelände entfernt: …“ |
+| Klippenpinsel | K | `cliff` (Phosphor `Stack`) | Ziehen, ⇧ senkt | `{cells, cliff: {set: <aktiv>, height, seed}}` | „Klippe gesetzt: …“, ⇧ „Klippe gesenkt: …“ |
+
+- **Tasten:** T und K gelten wie die übrigen Unterwerkzeuge, solange „Gelände malen“ eine Welt-Karte
+  malt; T ist dann „Terrain-Pinsel“, „Tür“ geht nur über seine Taste in der Leiste (wie G und
+  „Gebäude“). Esc wie 6.4a.
+- **Aktiver Satz:** das Radio „Aktiv“ im Abschnitt „Kantensätze“ des Inspectors (`PaintState.edgeSet`,
+  ein Name). Ohne Satz geht kein Aufruf, die Statusleiste sagt „Erst einen Kantensatz wählen
+  (Inspector › Kantensätze).“.
+- **Samen:** je Strich ein neuer aus `crypto.getRandomValues`; Undo und Redo stellen die Kacheln aus dem
+  Dokument her.
+- **Höhe der Klippe:** „Stufen der Klippe“ im Abschnitt „Kantensätze“ (1 bis 8, Vorgabe 2,
+  `PaintState.cliffRise`); Ziel ist die Höhe der **ersten** Zelle des Strichs plus die Stufen (⇧
+  minus), geklemmt auf −16 bis 62 (`cliffTarget`). Kein Aufruf geht nur, wenn die erste Zelle schon an
+  der Grenze ihrer Richtung steht; dann sagt die Statusleiste „30 Zellen schon an der Grenze (−16 bis
+  62).“ wie beim Unterwerkzeug Höhe.
+- **Statusleiste:** „Gelände malen · Terrain-Pinsel · Ziehen malt „Weg“ · ⇧Ziehen nimmt es weg“ und
+  „Gelände malen · Klippenpinsel · Ziehen hebt um 2 Stufen mit dem Rand „Weg“ · ⇧Ziehen senkt“; ohne
+  Satz „Ziehen malt (erst einen Kantensatz wählen)“.
+- **Vorschau:** bis zur Antwort Platten wie in 6.4a; der Terrain-Pinsel in der Platzhalterfarbe der
+  Rolle der ersten `center`-Kachel des Satzes (⇧: der `outside`-Kachel), die Klippe in der Farbe der
+  Zielstufe. Den Ring kennt erst die Antwort; danach kommen Netz, Höhen und Weltdokument neu.
+- **Still:** ein Strich, der nichts ändert, zeigt keinen Fehler (wie „Unveränderte Zellen“ in 6.4a);
+  die Notizen der Antwort (Naht, eigene Permission) gehen als **ein** Hinweis (verbunden mit „ · “) an die Statusleiste. Der nächste Strich baut
+  erst auf dem danach gelesenen Dokument auf, denn welche Zellen ein Smart-Strich ändert, weiß nur der
+  Kernel.
+
+**Muster der Schicht „Gelände“.** Seit 6.4b zeichnet die Schicht „Gelände“ auf allen Karten (binär
+und Welt), solange sie sichtbar ist, je Zelle ein Muster über ihre Farbe
+(`apps/studio/src/world/scene/patterns.ts`, `patternOf`): ein Vorsprung (Klasse `ledge`) einen
+**Pfeil** in Sprungrichtung aus dem Verhaltensnamen (`…NORTH`/`EAST`/`SOUTH`/`WEST`, sonst Nord),
+sonst Bit 7 der Kollision eine **Schraffur**, sonst Wasser **Wellen**, hohes Gras **Punkte**, Eis eine
+**Kreuzschraffur**, sonst keins. So sieht man den Rand einer Klippe und mit `block: lower` den
+blockierten Ring darunter. Gestaltung und Legende: [design-system/README.md](../../design-system/README.md),
+„Nachtrag 6.4b“.
+
+**Beispiel „das Plus“** (der feste Musterfall des Gates): auf einer Welt ganz aus `0000` mit dem Satz
+`weg13` („Weg“, [tileset.md](tileset.md)) ein Querbalken x 4–12, z 8–10 und ein Längsbalken x 7–9,
+z 5–13 als **ein** Strich `{layer: 0, cells: <die 45 Zellen>, terrain: {set: "Weg"}}`
+(`smart::fixtures::plus_cells`). Die Plätze danach, x 2–14 und z 3–15 (`smart::fixtures::PLUS_EXPECTED`;
+`.` außen, `C` Mitte, `N`/`E`/`S`/`W` Kanten, `1`–`4` Außenecken NW, NO, SW, SO, `5`–`8` Innenecken
+NW, NO, SW, SO); das Plus braucht alle 13 Plätze und keine Diagonale, jede andere Zelle bleibt `0000`:
+
+```
+.............
+....1NNN2....
+....WCCCE....
+....WCCCE....
+.1NN5CCC6NN2.
+.WCCCCCCCCCE.
+.WCCCCCCCCCE.
+.WCCCCCCCCCE.
+.3SS7CCC8SS4.
+....WCCCE....
+....WCCCE....
+....3SSS4....
+.............
+```
+
+Mit `weg13` heißt das in Kacheln: `C` = `0006`, `N`/`E`/`S`/`W` = `0007`/`0008`/`0009`/`000a`, `1`–`4`
+= `000b`–`000e`, `5`–`8` = `000f`–`0012`. Eine Klippe mit demselben Satz zwei Stufen hoch: `{cells:
+[[20, 20], [21, 20], [20, 21], [21, 21]], cliff: {set: "Weg", height: 2}}`; die vier Zellen werden
+die Ecken außen des Satzes oben auf dem Plateau, mit `block: upper` blockiert das Backen genau sie.
+Dieselben Striche malen die Szenarien `pt-klippe.yaml` und `hg-klippe.yaml` über MCP und das
+Phasen-Gate über die Oberfläche (dort mit den Kacheln des Spiels). Für Agenten: [mcp.md](../mcp.md),
+„Smart Drawing (6.4b)“.
+
 ## Was später kommt
 
 - **Seit 6.4a da:** Malwerkzeuge, Palette, Ebenen (`world_layers`) und Tileset-Editor in der App
@@ -989,9 +1160,7 @@ der Testumgebung, `left_click_drag`, nur von einem Punkt zu einem zweiten führt
   Asset `HEADER_TABLE`; die VRAM-Schätzung `terrain::vram_bytes` zählt geteilte Texel doppelt (für
   eine Welt-Karte kommt das Budget aus dem Bake). Beides liegt in `world/tileset.rs` bzw. `terrain/`
   und wird nach 6.4b neu bewertet. Pinselgröße über 1, Stempel aus einer Auswahl, Zufall und Formen
-  außer dem Rechteck gibt es nicht.
-- **6.4b:** Kantensätze (`edge_sets` im Tileset) mit Terrain-Pinsel, Wände zu Nachbarkarten und die
-  Muster-Shader der Schicht „Gelände“.
+  außer dem Rechteck gibt es nicht (Zufall nur für die Varianten eines Kantensatzes, seit 6.4b).
 - **Seit 6.5b da:** Freiform-Beifiles und die Geometrie der Teilmodelle im Backen („Freiform und
   Beifiles (6.5b)“, „Teilmodelle mit Geometrie (6.5b)“), Form 2 von „Karte als Quelle übernehmen“
   („Form 2: Als glTF übernehmen (6.5b)“) und der Austausch mit Tiled ([tmj.md](tmj.md)). Ein
@@ -1003,3 +1172,7 @@ der Testumgebung, `left_click_drag`, nur von einem Punkt zu einem zweiten führt
   aus Polygonen.
   Vanilla-Teilmodelle herauslösen, Vanilla-NSBMD zurück ins Raster, Bearbeiten von
   Vanilla-Modellen über den Codec, eine Tiled-Erweiterung und Automapping sind nicht in Phase 6.
+- **Seit 6.4b da:** Kantensätze (`edge_sets` im Tileset, [tileset.md](tileset.md) „Kantensätze
+  (6.4b)“), Terrain- und Klippenpinsel in `world_edit` und in der App, der Kantensatz-Editor und die
+  Muster der Schicht „Gelände“ („Smart Drawing (6.4b)“).
+- **später:** Wände zu Nachbarkarten, Kanten-Sätze (Tiled „edge“, Linien), Automapping.

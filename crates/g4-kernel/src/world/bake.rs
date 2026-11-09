@@ -217,11 +217,21 @@ pub struct WorldBakeReport {
     pub single_quads: usize,
 }
 
-/// The derived permissions of `grid` (`derive: true`, before the hand values): per cell the
-/// tile of the top layer that has one (`kind`, `collision`, HeartGold/SoulSilver `| sound`),
-/// [`EMPTY_CELL`] without; the footprint of a piece sets the piece's tile; then the edge rule
-/// blocks the upper cell of every high edge ([`block_edges`]).
+/// The derived permissions of `grid` (`derive: true`, before the hand values): the cells from
+/// tiles and footprints ([`tile_cells`]), then the edge rule blocks the upper cell of every high
+/// edge ([`block_edges`]).
 pub fn world_permissions(grid: &WorldGrid, tileset: &Tileset, family: Family) -> Vec<Cell> {
+    let mut cells = tile_cells(grid, tileset, family);
+    block_edges(&grid.height_grid(), &mut cells);
+    cells
+}
+
+/// The cells of `grid` from tiles and footprints, before the edge rule and the hand values (first half of
+/// `world_permissions`, which is now `tile_cells` + `block_edges`).
+///
+/// Per cell the tile of the top layer that has one (`kind`, `collision`, HeartGold/SoulSilver
+/// `| sound`), [`EMPTY_CELL`] without; the footprint of a piece sets the piece's tile.
+pub(crate) fn tile_cells(grid: &WorldGrid, tileset: &Tileset, family: Family) -> Vec<Cell> {
     let cell_of = |t: &TileJson| Cell {
         kind: t.kind,
         collision: if family == Family::Hgss {
@@ -259,7 +269,6 @@ pub fn world_permissions(grid: &WorldGrid, tileset: &Tileset, family: Family) ->
             }
         }
     }
-    block_edges(&grid.height_grid(), &mut cells);
     cells
 }
 
@@ -581,6 +590,21 @@ pub fn world_derived_refusal(map: u16) -> String {
 /// Pack textures for `Tileset::synthetic()`: each name with palette `<name>_pl`, sizes of the tiles.
 pub fn synthetic_pack_textures() -> Vec<PackTexture> {
     Tileset::synthetic()
+        .tiles
+        .iter()
+        .map(|t| PackTexture {
+            name: t.texture.clone(),
+            palette: format!("{}_pl", t.texture),
+            width: t.size[0],
+            height: t.size[1],
+        })
+        .collect()
+}
+
+#[cfg(any(test, feature = "test-support"))]
+/// Pack textures for `Tileset::synthetic_edges()` (22 tiles), as [`synthetic_pack_textures`].
+pub fn synthetic_edge_pack_textures() -> Vec<PackTexture> {
+    Tileset::synthetic_edges()
         .tiles
         .iter()
         .map(|t| PackTexture {

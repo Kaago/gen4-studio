@@ -31,7 +31,7 @@ pub use apply::{
 pub use budget::{
     BudgetItem, BudgetState, MapBudget, TextureBudget, budget_state, map_budget, vram_bytes,
 };
-pub use derive::{CellOverride, apply_overrides, block_edges, derive_permissions};
+pub use derive::{CellOverride, apply_overrides, block_edges, derive_permissions, high_edges};
 pub use g4_formats::bdhc::{Direction, HeightGrid, Ramp};
 pub use heights::{FreeStep, free_steps, map_heights};
 pub(crate) use rows::EMPTY;
