@@ -1,16 +1,30 @@
 import i18next from "i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setLocale } from "../api.base";
-import { applyLanguage, detectLanguage, effectiveLanguage, init, LANGUAGE_KEY, matchesAnyLanguage, readLanguage } from "./index";
+import { setLocale, systemLanguage } from "../api.base";
+import {
+  applyLanguage,
+  detectLanguage,
+  effectiveLanguage,
+  forgetSystemLanguage,
+  init,
+  LANGUAGE_KEY,
+  matchesAnyLanguage,
+  readLanguage,
+  resolveSystemLanguage,
+  startLanguage,
+  SYSTEM_LANGUAGE_TIMEOUT_MS,
+} from "./index";
 
-vi.mock("../api.base", () => ({ setLocale: vi.fn(() => Promise.resolve()) }));
+// `systemLanguage` is the Tauri side's `system_language`: `null` stands for the browser (nothing to ask), a string for the OS locale.
+vi.mock("../api.base", () => ({ setLocale: vi.fn(() => Promise.resolve()), systemLanguage: vi.fn(() => Promise.resolve(null)) }));
 
 const setLocaleMock = vi.mocked(setLocale);
+const systemLanguageMock = vi.mocked(systemLanguage);
 
 /** A promise the test resolves by hand. */
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((r) => {
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
     resolve = r;
   });
   return { promise, resolve };
@@ -41,6 +55,9 @@ beforeEach(() => {
   localStorage.clear();
   setLocaleMock.mockReset();
   setLocaleMock.mockResolvedValue(undefined);
+  systemLanguageMock.mockReset();
+  systemLanguageMock.mockResolvedValue(null);
+  forgetSystemLanguage();
 });
 
 afterEach(async () => {
@@ -153,6 +170,112 @@ describe("applyLanguage", () => {
     expect(document.documentElement.lang).toBe("en");
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+});
+
+describe("resolveSystemLanguage", () => {
+  it.each([
+    ["de-AT", "de"],
+    ["de_DE.UTF-8", "de"],
+    ["fr-FR", "en"],
+    ["en-US", "en"],
+  ] as const)("inside Tauri the OS locale %s gives %s, whatever the navigator says", async (os, expected) => {
+    stubNavigatorLanguage(expected === "de" ? "en-US" : "de-DE");
+    systemLanguageMock.mockResolvedValue(os);
+    await expect(resolveSystemLanguage()).resolves.toBe(expected);
+    expect(effectiveLanguage("system")).toBe(expected);
+  });
+
+  it("asks the backend once and keeps the answer, also when the navigator changes", async () => {
+    stubNavigatorLanguage("en-US");
+    systemLanguageMock.mockResolvedValue("de-DE");
+    await Promise.all([resolveSystemLanguage(), resolveSystemLanguage()]);
+    await resolveSystemLanguage();
+    expect(systemLanguageMock).toHaveBeenCalledTimes(1);
+    stubNavigatorLanguage("fr-FR");
+    expect(effectiveLanguage("system")).toBe("de");
+    // A fixed choice stays what it is.
+    expect(effectiveLanguage("en")).toBe("en");
+  });
+
+  it("falls back to the navigator when the backend fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubNavigatorLanguage("de-AT");
+    systemLanguageMock.mockRejectedValue({ code: "error", message: "unknown command system_language", asset: null });
+    await expect(resolveSystemLanguage()).resolves.toBe("de");
+    expect(warn).toHaveBeenCalledTimes(1);
+    // Nothing is kept: the navigator goes on deciding.
+    stubNavigatorLanguage("en-GB");
+    expect(effectiveLanguage("system")).toBe("en");
+    warn.mockRestore();
+  });
+
+  it("lets the navigator decide in the browser, where there is nothing to ask", async () => {
+    stubNavigatorLanguage("de-CH");
+    await expect(resolveSystemLanguage()).resolves.toBe("de");
+    stubNavigatorLanguage("en-US");
+    expect(effectiveLanguage("system")).toBe("en");
+  });
+
+  it("does not wait longer than the timeout and drops a late answer", async () => {
+    vi.useFakeTimers();
+    try {
+      stubNavigatorLanguage("en-US");
+      const late = deferred<string | null>();
+      systemLanguageMock.mockReturnValue(late.promise);
+      const resolved = track(resolveSystemLanguage());
+      await vi.advanceTimersByTimeAsync(SYSTEM_LANGUAGE_TIMEOUT_MS - 1);
+      expect(resolved.state()).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(resolved.state()).toBe("fulfilled");
+      await expect(resolveSystemLanguage()).resolves.toBe("en");
+      late.resolve("de-DE");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(effectiveLanguage("system")).toBe("en");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("startLanguage", () => {
+  it("with System, waits for the backend's system language before it switches, then shows that one", async () => {
+    // The suite shows German and the navigator says German; the OS (through the backend) says French, so English.
+    stubNavigatorLanguage("de-DE");
+    const os = deferred<string | null>();
+    systemLanguageMock.mockReturnValue(os.promise);
+
+    const started = track(startLanguage());
+    await settle();
+    expect(started.state()).toBe("pending");
+    expect(i18next.language).toBe("de");
+    expect(setLocaleMock).not.toHaveBeenCalled();
+
+    os.resolve("fr-FR");
+    await vi.waitFor(() => expect(started.state()).toBe("fulfilled"));
+    expect(i18next.language).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(setLocaleMock).toHaveBeenCalledWith("en");
+    expect(localStorage.getItem(LANGUAGE_KEY)).toBe("system");
+  });
+
+  it("with a fixed choice, does not wait for the backend but asks it for a later switch to System", async () => {
+    localStorage.setItem(LANGUAGE_KEY, "en");
+    stubNavigatorLanguage("en-US");
+    const os = deferred<string | null>();
+    systemLanguageMock.mockReturnValue(os.promise);
+
+    await startLanguage();
+    expect(i18next.language).toBe("en");
+    expect(systemLanguageMock).toHaveBeenCalledTimes(1);
+
+    os.resolve("de-AT");
+    await settle();
+    // The switch in Einstellungen finds the answer at once and asks no second time.
+    await applyLanguage("system");
+    expect(i18next.language).toBe("de");
+    expect(setLocaleMock).toHaveBeenLastCalledWith("de");
+    expect(systemLanguageMock).toHaveBeenCalledTimes(1);
   });
 });
 

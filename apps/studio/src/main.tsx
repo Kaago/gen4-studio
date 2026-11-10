@@ -12,7 +12,7 @@ import "./ui/tokens/base.css";
 import "dockview/dist/styles/dockview.css";
 import "./ui/tokens/dockview-theme.css";
 import { applyDensity, applyTheme, readDensity, readTheme } from "./ui/tokens/theme";
-import { applyLanguage, readLanguage } from "./i18n";
+import { startLanguage } from "./i18n";
 import { inTauri } from "./platform/transport";
 import App from "./App";
 
@@ -21,12 +21,13 @@ const Gallery = lazy(() => import("./ui/gallery/Gallery").then((m) => ({ default
 
 /**
  * Styling first (it must not wait for the backend), then the language (the first render must already speak it, and the backend
- * must know it), then the render. i18next itself is initialised earlier, by `./i18n/boot`.
+ * must know it; with „System“ inside Tauri that is the OS language the backend reports), then the render. i18next itself is
+ * initialised earlier, by `./i18n/boot`, with the navigator's guess.
  */
 async function boot(): Promise<void> {
   applyTheme(readTheme());
   applyDensity(readDensity());
-  await applyLanguage(readLanguage());
+  await startLanguage();
 
   const showGallery = !inTauri() && new URLSearchParams(location.search).has("gallery");
 
