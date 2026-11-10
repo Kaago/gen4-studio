@@ -95,13 +95,12 @@ fn the_irreversible_sentence_names_a_replaced_binary_file() {
     assert_eq!(plan(false, None).irreversible(), None);
     assert_eq!(
         plan(true, None).irreversible().as_deref(),
-        Some("Level-Script-Datei 910 wird angelegt und bleibt")
+        Some("Level script file 910 is created and stays")
     );
     assert_eq!(
         plan(true, Some(909)).irreversible().as_deref(),
         Some(
-            "Level-Script-Datei 910 wird angelegt und bleibt; die Einträge der binären \
-             Level-Script-Datei 909 werden nicht übernommen"
+            "Level script file 910 is created and stays; the entries of the binary level script file 909 are not carried over"
         )
     );
 }
@@ -118,8 +117,7 @@ fn a_kept_level_script_is_named_in_the_error() {
     match kept_level_script(failed, Some(910)) {
         KernelError::Partial(m) => assert_eq!(
             m,
-            "Die Geschichte ist schreibgeschützt. Level-Script-Datei 910 wurde angelegt und \
-             bleibt."
+            "Die Geschichte ist schreibgeschützt. Level script file 910 was created and stays."
         ),
         other => panic!("{other:?}"),
     }
@@ -133,8 +131,7 @@ fn a_kept_level_script_is_named_in_the_error() {
     match kept_level_script(compile, Some(910)) {
         KernelError::Partial(m) => assert_eq!(
             m,
-            "1 problem(s) in scripts, texts or the text project: expanded/scripts/0910.json:3:7: \
-             unknown script 4. Level-Script-Datei 910 wurde angelegt und bleibt."
+            "1 problem(s) in scripts, texts or the text project: expanded/scripts/0910.json:3:7: unknown script 4. Level script file 910 was created and stays."
         ),
         other => panic!("{other:?}"),
     }

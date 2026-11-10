@@ -161,18 +161,18 @@ fn list_names_the_seven_recipes_up_to_new_trainer_here_first() {
     let list = recipes::list();
     let shown: Vec<(RecipeId, &str, bool)> = list[..7]
         .iter()
-        .map(|r| (r.id, r.title, r.irreversible))
+        .map(|r| (r.id, r.title.as_str(), r.irreversible))
         .collect();
     assert_eq!(
         shown,
         [
-            (RecipeId::CreateArea, "Gebiet anlegen", false),
-            (RecipeId::CreateRoom, "Raum anlegen", false),
-            (RecipeId::ExtendArea, "Gebiet erweitern", false),
-            (RecipeId::EmptyRegion, "Welt leeren", true),
-            (RecipeId::NewFigure, "Neue Figur", false),
-            (RecipeId::ConnectDoors, "Tür verbinden", false),
-            (RecipeId::NewTrainerHere, "Neuer Trainer hier", true),
+            (RecipeId::CreateArea, "Create area", false),
+            (RecipeId::CreateRoom, "Create room", false),
+            (RecipeId::ExtendArea, "Extend area", false),
+            (RecipeId::EmptyRegion, "Empty world", true),
+            (RecipeId::NewFigure, "New character", false),
+            (RecipeId::ConnectDoors, "Connect door", false),
+            (RecipeId::NewTrainerHere, "New Trainer here", true),
         ]
     );
     assert_eq!(
@@ -197,13 +197,13 @@ fn next_steps_after_3d5_lock_with_3d9_and_later() {
             .any(|r| serde_json::to_value(r.id).unwrap() == serde_json::json!(id))
     };
     let steps = next_steps(&[
-        ("edit_dialog", "Dialog bearbeiten"),
-        ("story_join", "Zu einer Geschichte"),
-        ("play_here", "Hier spielen"),
-        ("new_figure", "Neue Figur hier"),
-        ("connect_doors", "Tür verbinden"),
-        ("new_trainer_here", "Neuer Trainer hier"),
-        ("adjust_terrain", "Gelände anpassen"),
+        "edit_dialog",
+        "story_join",
+        "play_here",
+        "new_figure",
+        "connect_doors",
+        "new_trainer_here",
+        "adjust_terrain",
     ]);
     let short: BTreeMap<&str, (bool, Option<&str>)> = steps
         .iter()
@@ -211,7 +211,7 @@ fn next_steps_after_3d5_lock_with_3d9_and_later() {
         .collect();
     assert_eq!(short["edit_dialog"], (true, None));
     assert_eq!(short["story_join"], (true, None));
-    assert_eq!(short["play_here"], (false, Some("Kommt mit 3d.9")));
+    assert_eq!(short["play_here"], (false, Some("Coming with 3d.9")));
     assert_eq!(short["new_figure"], (true, None));
     assert_eq!(short["adjust_terrain"], (true, None));
     // All three recipes of 3d.5 are in the list, so free.
@@ -220,8 +220,8 @@ fn next_steps_after_3d5_lock_with_3d9_and_later() {
         assert_eq!(short[id], (true, None), "{id}");
     }
     // An unknown step comes later (the transitional „Kommt mit 3d.7“ is gone).
-    let unknown = next_steps(&[("something_new", "Etwas Neues")]);
-    assert_eq!(unknown[0].reason.as_deref(), Some("Kommt später"));
+    let unknown = next_steps(&["something_new"]);
+    assert_eq!(unknown[0].reason.as_deref(), Some("Coming later"));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -277,10 +277,10 @@ fn plan_of_a_figure_writes_nothing_and_names_event_message_and_slot() {
     let notes = draft.notes.join(" ");
     assert!(notes.contains("#3"), "{notes}");
     assert!(
-        notes.contains(&format!("Nachricht {messages} in Archiv {ARCHIVE}")),
+        notes.contains(&format!("message {messages} in archive {ARCHIVE}")),
         "{notes}"
     );
-    assert!(notes.contains("Flag 0x0100"), "{notes}");
+    assert!(notes.contains("flag 0x0100"), "{notes}");
 
     // The given look wins over the default.
     let look = NewFigureInput {
@@ -365,7 +365,7 @@ fn apply_of_a_figure_is_one_undo_step_with_a_numbered_message() {
     assert_eq!(store.undo_depth(), depth + 1);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Figur „Hallo, ich bin neu h…“ aufgestellt")
+        Some("Character “Hallo, ich bin neu h…” placed")
     );
     let next: Vec<(&str, bool)> = outcome
         .next
@@ -536,14 +536,14 @@ fn a_figure_on_a_taken_tile_and_an_empty_text_are_refused() {
     let (depth, source) = (store.undo_depth(), source_of(&store, 0));
 
     let why = refused(new_figure::plan(&mut store, &input(40, 7, "Zweite")));
-    assert_eq!(why, "auf 40, 7 steht schon Objekt 0");
+    assert_eq!(why, "object 0 already stands at 40, 7");
     assert_eq!(
         refused(new_figure::apply(&mut store, &input(40, 7, "Zweite"))),
         why
     );
     for text in ["", "  \n"] {
         let why = refused(new_figure::apply(&mut store, &input(41, 7, text)));
-        assert!(why.contains("Text"), "{why}");
+        assert!(why.contains("text"), "{why}");
     }
     // A tile outside the header's matrix and a flag outside the save.
     let why = refused(new_figure::plan(&mut store, &input(64, 7, "x")));
@@ -868,11 +868,11 @@ fn plan_of_two_doors_names_both_ends_and_the_door_tiles() {
     assert!(draft.irreversible.is_empty(), "{:?}", draft.irreversible);
     assert_eq!(
         draft.notes[0],
-        "Tür A: T02 Tür 0 → Tür B: Twinleaf Town Tür 0, und zurück."
+        "Door A: T02 door 0 → door B: Twinleaf Town door 0, and back."
     );
     let notes = draft.notes.join(" ");
     assert!(notes.contains("x 5, z 6"), "{notes}");
-    assert!(notes.contains("wird zur Tür"), "{notes}");
+    assert!(notes.contains("becomes a door"), "{notes}");
 
     // Without door tiles the plan has none.
     let plain = ConnectDoorsInput {
@@ -937,14 +937,14 @@ fn apply_connects_two_event_files_in_one_step() {
     assert_eq!(store.undo_depth(), depth + 1);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Tür „T02“ ↔ „Twinleaf Town“ verbunden")
+        Some("Door “T02” ↔ “Twinleaf Town” connected")
     );
     let next: Vec<(&str, bool, Option<&str>)> = outcome
         .next
         .iter()
         .map(|s| (s.id.as_str(), s.available, s.reason.as_deref()))
         .collect();
-    assert_eq!(next, [("play_here", false, Some("Kommt mit 3d.9"))]);
+    assert_eq!(next, [("play_here", false, Some("Coming with 3d.9"))]);
 
     // Undo puts both event files and the map back byte for byte; redo brings the step back.
     let after = door_bytes(&store);
@@ -971,7 +971,7 @@ fn apply_connects_two_event_files_in_one_step() {
         "input": { "a": { "header": 1, "warp": 0, "tür": 1 }, "b": { "header": 0, "warp": 0 } },
     }))
     .unwrap();
-    assert!(refused(recipes::plan(&mut store, &wrong)).contains("Tür verbinden"));
+    assert!(refused(recipes::plan(&mut store, &wrong)).contains("Connect door"));
 }
 
 #[test]
@@ -1023,7 +1023,7 @@ fn the_same_door_twice_and_a_taken_tile_are_refused() {
         assert_eq!(refused(connect_doors::apply(store, input)), why);
         why
     };
-    const SAME: &str = "Tür A und Tür B sind dieselbe Tür";
+    const SAME: &str = "Door A and door B are the same door";
 
     // The same warp, also through two headers that share the event file.
     assert_eq!(
@@ -1042,7 +1042,7 @@ fn the_same_door_twice_and_a_taken_tile_are_refused() {
     // A tile a warp stands on.
     assert_eq!(
         both(&mut store, &doors(tile_end(0, 5, 6), tile_end(1, 10, 10))),
-        "auf 10, 10 liegt schon Tür 0; wähle sie als Tür"
+        "door 0 already lies at 10, 10; choose it as the door"
     );
     // An end needs exactly one of door and tile.
     let neither = DoorEnd {
@@ -1052,7 +1052,7 @@ fn the_same_door_twice_and_a_taken_tile_are_refused() {
     };
     assert_eq!(
         both(&mut store, &doors(neither.clone(), warp_end(0, 0))),
-        "Tür A braucht eine Tür oder eine Kachel"
+        "Door A needs a door or a tile"
     );
     let two = DoorEnd {
         tile: Some(Tile { x: 5, z: 6 }),
@@ -1060,12 +1060,12 @@ fn the_same_door_twice_and_a_taken_tile_are_refused() {
     };
     assert_eq!(
         both(&mut store, &doors(tile_end(0, 5, 6), two)),
-        "Tür B braucht eine Tür oder eine Kachel"
+        "Door B needs a door or a tile"
     );
     // A door the event file does not have, a header the game does not have, a tile outside
     // the header's matrix.
     let why = both(&mut store, &doors(warp_end(0, 3), tile_end(0, 5, 6)));
-    assert!(why.contains("Tür 3"), "{why}");
+    assert!(why.contains("door 3"), "{why}");
     let why = both(&mut store, &doors(warp_end(9, 0), tile_end(0, 5, 6)));
     assert!(why.contains("header 9"), "{why}");
     let why = both(&mut store, &doors(warp_end(0, 0), tile_end(0, 64, 6)));
@@ -1103,7 +1103,7 @@ fn without_back_only_a_points_to_b() {
     assert_eq!((draft.events[0].x, draft.events[0].z), (10, 10));
     assert_eq!(
         draft.notes[0],
-        "Tür A: T02 Tür 0 → Tür B: Twinleaf Town Tür 0."
+        "Door A: T02 door 0 → door B: Twinleaf Town door 0."
     );
 
     let outcome = connect_doors::apply(&mut store, &input).unwrap();
@@ -1125,7 +1125,7 @@ fn without_back_only_a_points_to_b() {
         ..doors(warp_end(1, 0), tile_end(0, 20, 6))
     };
     let why = refused(connect_doors::plan(&mut store, &input));
-    assert!(why.contains("Rückweg"), "{why}");
+    assert!(why.contains("way back"), "{why}");
 }
 
 #[test]
@@ -1430,13 +1430,9 @@ fn plan_of_a_trainer_names_the_next_id_the_flag_and_three_messages() {
     );
     assert_eq!(
         draft.notes[0],
-        "Legt Trainer „Youngster Jens“ als Nummer 3 an (nächste freie), Team 1 Pokémon, \
-         Trainer-Flag 0x0553."
+        "Creates trainer “Youngster Jens” as number 3 (next free), party 1 Pokémon, trainer flag 0x0553."
     );
-    assert_eq!(
-        draft.irreversible,
-        ["Trainer 3 wird angelegt (Undo-Sperre)"]
-    );
+    assert_eq!(draft.irreversible, ["Trainer 3 is created (undo barrier)"]);
     // A text before the battle without \r is a warning, no refusal.
     let mut open = trainer_input(40, 7);
     open.texts.before = "Halt!".into();
@@ -1467,9 +1463,9 @@ fn plan_of_a_trainer_names_the_next_id_the_flag_and_three_messages() {
         .unwrap()
     };
     let why = refused(recipes::plan(&mut store, &call(0)));
-    assert!(why.contains("Sichtweite 0"), "{why}");
+    assert!(why.contains("Sight range 0"), "{why}");
     let why = refused(recipes::apply(&mut store, &call(16)));
-    assert!(why.contains("Sichtweite 16"), "{why}");
+    assert!(why.contains("Sight range 16"), "{why}");
     let default: NewTrainerHereInput = serde_json::from_value(serde_json::json!({
         "header": 0, "x": 40, "z": 7, "dir": 0, "class": 1, "name": "Jens",
         "party": [{ "species": 25, "level": 12 }],
@@ -1533,7 +1529,7 @@ fn apply_creates_the_trainer_then_one_step_for_team_texts_and_object() {
         .iter()
         .map(|s| (s.id.as_str(), s.available, s.reason.as_deref()))
         .collect();
-    assert_eq!(next, [("play_here", false, Some("Kommt mit 3d.9"))]);
+    assert_eq!(next, [("play_here", false, Some("Coming with 3d.9"))]);
 
     // The trainer: class, name, team, texts.
     assert_eq!(trainer_count(&store), 4);
@@ -1567,7 +1563,7 @@ fn apply_creates_the_trainer_then_one_step_for_team_texts_and_object() {
     let history = store.history().0;
     assert_eq!(
         history[history.len() - 2..],
-        ["Trainer 3 angelegt", "Trainer „Jens“ hier aufgestellt"]
+        ["Trainer 3 angelegt", "Trainer “Jens” placed here"]
     );
     store.undo().unwrap();
     assert!(store.event(0).unwrap().object_events.is_empty());
@@ -1714,8 +1710,8 @@ fn is_irreversible_names_trainer_anlegen() {
     }))
     .unwrap();
     assert_eq!(
-        recipes::is_irreversible(&call).unwrap(),
-        Some("Trainer anlegen")
+        recipes::is_irreversible(&call).unwrap().as_deref(),
+        Some("Create trainer")
     );
     let unreadable: recipes::RecipeCall = serde_json::from_value(serde_json::json!({
         "recipe": "new_trainer_here", "input": { "header": 0 },
@@ -1735,8 +1731,8 @@ fn the_seen_slot_is_skipped_like_create_trainer() {
 
     let input = trainer_input(40, 7);
     let notes = plan_trainer(&mut store, &meta, &input).unwrap().notes;
-    assert!(notes[0].contains("als Nummer 5"), "{notes:?}");
-    assert!(notes.join(" ").contains("Nummer 4"), "{notes:?}");
+    assert!(notes[0].contains("as number 5"), "{notes:?}");
+    assert!(notes.join(" ").contains("Number 4"), "{notes:?}");
     let outcome = apply_trainer(&mut store, &meta, &input).unwrap();
     let report = &outcome.report;
     assert_eq!(
@@ -1767,7 +1763,7 @@ fn the_seen_slot_is_skipped_like_create_trainer() {
     let history = store.history().0;
     assert_eq!(
         history[history.len() - 2..],
-        ["Trainer 5 angelegt", "Trainer „Jens“ hier aufgestellt"]
+        ["Trainer 5 angelegt", "Trainer “Jens” placed here"]
     );
 }
 
@@ -1784,24 +1780,24 @@ fn a_trainer_with_a_bad_team_name_sight_or_tile_is_refused() {
     };
     let mon = |species: u16, level: u8| PartyMon { species, level };
     let cases: Vec<(NewTrainerHereInput, &str)> = vec![
-        (trainer_input(40, 7), "auf 40, 7 steht schon Objekt 0"),
+        (trainer_input(40, 7), "object 0 already stands at 40, 7"),
         (with(&|i| i.x = 64), "outside matrix"),
-        (with(&|i| i.party.clear()), "1 bis 6"),
-        (with(&|i| i.party = vec![mon(25, 12); 7]), "1 bis 6"),
+        (with(&|i| i.party.clear()), "1 to 6"),
+        (with(&|i| i.party = vec![mon(25, 12); 7]), "1 to 6"),
         (
             with(&|i| i.party = vec![mon(species as u16, 12)]),
-            "gibt es nicht",
+            "does not exist",
         ),
         (with(&|i| i.party = vec![mon(25, 0)]), "Level"),
         (with(&|i| i.party = vec![mon(25, 101)]), "Level"),
-        (with(&|i| i.sight = 0), "Sichtweite"),
-        (with(&|i| i.sight = 16), "Sichtweite"),
-        (with(&|i| i.dir = 4), "Blickrichtung"),
+        (with(&|i| i.sight = 0), "Sight range"),
+        (with(&|i| i.sight = 16), "Sight range"),
+        (with(&|i| i.dir = 4), "Facing direction"),
         (
             with(&|i| i.name = "Jens-Peter".into()),
             "höchstens 7 passen",
         ),
-        (with(&|i| i.name = String::new()), "Name"),
+        (with(&|i| i.name = String::new()), "name"),
     ];
     for (input, expected) in cases {
         let why = refused(plan_trainer(&mut store, &meta, &input));
@@ -1944,7 +1940,7 @@ fn vanilla_trainer_here_in_the_town() {
         history[history.len() - 2..],
         [
             format!("Trainer {id} angelegt"),
-            "Trainer „Jens“ hier aufgestellt".to_owned()
+            "Trainer “Jens” placed here".to_owned()
         ]
     );
 

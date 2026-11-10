@@ -23,8 +23,8 @@ use g4_kernel::textproject::manifest::SchemaState;
 use g4_kernel::textproject::quirks::quirks_from_state;
 use g4_kernel::textproject::sync::{UnitSide, apply_one_sided, scan};
 use g4_kernel::textproject::{
-    ExportOptions, ExportReport, ImportOptions, UNSYNCED_EXPORT, check, export, import,
-    import_with, sources, unsynced_export as unsynced_export_of,
+    ExportOptions, ExportReport, ImportOptions, check, export, import, import_with, sources,
+    unsynced_export as unsynced_export_of, unsynced_export_prefix,
 };
 
 use common::{TextFixture, synthetic_map_bytes};
@@ -462,7 +462,7 @@ fn import_refuses_members_without_json() {
     assert!(
         problems[0]
             .message
-            .contains("seit der Aufzeichnung unverändert sind (textproject.member-removed)"),
+            .contains("unchanged since the recording (textproject.member-removed)"),
         "{}",
         problems[0].message
     );
@@ -471,9 +471,9 @@ fn import_refuses_members_without_json() {
 
 /// The end of the sentence for a surplus member of a pair art: neither tool makes the missing
 /// counterpart, so it names DSPRE and not `g4k text export` or `import`.
-const SURPLUS_WAY_OUT: &str = "Weder Export noch Import legen ein Gegenstück an: das Member in \
-                               DSPRE ergänzen oder entfernen (es ist keine Entität, die sich im \
-                               Studio löschen ließe).";
+const SURPLUS_WAY_OUT: &str = "Neither export nor import creates a counterpart: add or remove \
+                               the member in DSPRE (it is not an entity that could be deleted in \
+                               the Studio).";
 
 /// A trainer has a properties member and a party member; one that only one archive has (DSPRE
 /// left one archive longer) is no entity, so no JSON names it: the import reports it as
@@ -753,7 +753,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
             force: false,
         },
     ));
-    assert_eq!(text, "Kein Textprojekt für Diamant/Perl in Phase 4.");
+    assert_eq!(text, "No text project for Diamond/Pearl in phase 4.");
 
     // No base mark.
     let unmarked = Fx::unmarked(|_| {});
@@ -794,7 +794,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
             force: false,
         },
     ));
-    assert!(text.ends_with("`g4k text migrate` ausführen."), "{text}");
+    assert!(text.ends_with("run `g4k text migrate`."), "{text}");
 
     // Scripts not adopted and not to be adopted.
     let scripts = Fx::new();
@@ -806,10 +806,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
             force: false,
         },
     ));
-    assert_eq!(
-        text,
-        "Die Scripts sind noch nicht übernommen (adopt_scripts)."
-    );
+    assert_eq!(text, "The scripts are not adopted yet (adopt_scripts).");
 
     for fx in [&dp, &unmarked, &other, &old, &scripts] {
         assert!(!fx.exists("data"), "a refused export writes nothing");
@@ -838,7 +835,7 @@ fn a_failing_base_is_an_error_not_an_unchecked_member() {
     for p in &problems {
         assert_eq!(p.severity, Severity::Error);
         assert!(
-            p.message.contains("Basisschicht ließ sich nicht anlegen"),
+            p.message.contains("base layer could not be created"),
             "{}",
             p.message
         );
@@ -1010,8 +1007,7 @@ fn member_newer_is_kept_and_a_later_json_edit_conflicts() {
     assert_eq!(newer[0].severity, Severity::Warning);
     assert_eq!(
         newer[0].message,
-        "textproject.member-newer: unpacked/moveData/0001 ist neuer als data/moves/0001.json; \
-         g4k text export übernimmt ihn, g4k text import verwirft ihn."
+        "textproject.member-newer: unpacked/moveData/0001 is newer than data/moves/0001.json; g4k text export takes it over, g4k text import discards it."
     );
     assert_eq!(fx.read(MOVE_1), dspre, "the member is kept");
 
@@ -1023,8 +1019,7 @@ fn member_newer_is_kept_and_a_later_json_edit_conflicts() {
     assert_eq!(codes(&problems), ["textproject.conflict"], "{problems:?}");
     assert_eq!(
         problems[0].message,
-        "textproject.conflict: data/moves/0001.json und unpacked/moveData/0001 sind beide \
-         geändert; nichts geschrieben."
+        "textproject.conflict: data/moves/0001.json and unpacked/moveData/0001 are both changed; nothing written."
     );
     assert_eq!(problems[0].file, Path::new(MOVE_1_JSON));
     assert_eq!(fx.mtimes(), before, "nothing written");
@@ -1052,8 +1047,7 @@ fn full_run_never_overwrites_a_member_that_left_the_base() {
     assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
     assert_eq!(
         problems[0].message,
-        "textproject.unsynced: unpacked/moveData/0001 weicht von data/moves/0001.json und von \
-         der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt)."
+        "textproject.unsynced: unpacked/moveData/0001 differs from data/moves/0001.json and from the base; g4k text import (JSON applies) or g4k text export (member applies)."
     );
     assert_eq!(fx.mtimes(), before, "nothing written");
     assert_eq!(fx.read(MOVE_1), dspre);
@@ -1130,9 +1124,7 @@ fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert_eq!(problems[0].file, Path::new("g4-project.json"));
     assert!(
-        problems[0]
-            .message
-            .ends_with("`g4k text migrate` ausführen."),
+        problems[0].message.ends_with("run `g4k text migrate`."),
         "{}",
         problems[0].message
     );
@@ -1241,9 +1233,7 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     assert_eq!(found[0].severity, Severity::Warning);
     assert_eq!(
         found[0].message,
-        "textproject.member-newer: unpacked/moveData/0004 hat noch keine data/moves/0004.json; \
-         g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht nur \
-         Member am Ende, die seit der Aufzeichnung unverändert sind)."
+        "textproject.member-newer: unpacked/moveData/0004 has no data/moves/0004.json yet; g4k text export creates it, g4k text import refuses the member (the import removes only members at the end that are unchanged since the recording)."
     );
     assert_eq!(fx.read("unpacked/moveData/0004"), appended);
 
@@ -1254,10 +1244,7 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
     assert_eq!(
         problems[0].message,
-        "textproject.unsynced: unpacked/moveData/0004 hat keine data/moves/0004.json und fehlt \
-         in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das \
-         Member ab (der Import löscht nur Member am Ende, die seit der Aufzeichnung \
-         unverändert sind)."
+        "textproject.unsynced: unpacked/moveData/0004 has no data/moves/0004.json and is missing in the base; g4k text export creates it (member applies), g4k text import refuses the member (the import removes only members at the end that are unchanged since the recording)."
     );
     assert_eq!(fx.mtimes(), before, "nothing written");
 
@@ -1294,7 +1281,7 @@ fn a_surplus_trainer_member_gets_the_way_out_in_incremental_and_full_runs() {
         let message = &problems[0].message;
         assert!(
             message.ends_with(SURPLUS_WAY_OUT)
-                && message.contains("verschieden viele Member")
+                && message.contains("different numbers of members")
                 && !message.contains("g4k text"),
             "full: {full}, {message}"
         );
@@ -1339,7 +1326,7 @@ fn a_packed_member_without_its_folder_is_judged_by_the_base() {
     assert!(
         problems[0]
             .message
-            .starts_with("textproject.unsynced: unpacked/moveData/0001 weicht"),
+            .starts_with("textproject.unsynced: unpacked/moveData/0001 differs"),
         "{}",
         problems[0].message
     );
@@ -1399,16 +1386,17 @@ fn refused<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
 /// The export's refusal naming `list`.
 fn unsynced_export(list: &str) -> String {
     format!(
-        "{UNSYNCED_EXPORT} ({list}); der Export würde sie verwerfen: erst bauen (g4k build) \
-         oder g4k text import, dann exportieren."
+        "{} ({list}); the export would discard them: build first (g4k build) or g4k text \
+         import, then export.",
+        unsynced_export_prefix()
     )
 }
 
 /// The import's refusal naming `list`.
 fn unsynced_import(list: &str) -> String {
     format!(
-        "Member sind neuer als ihre JSON ({list}); der Import würde sie überschreiben: erst \
-         exportieren (g4k text export), dann importieren."
+        "Members are newer than their JSON ({list}); the import would overwrite them: export \
+         first (g4k text export), then import."
     )
 }
 
@@ -1540,11 +1528,11 @@ fn a_unit_changed_on_both_sides_refuses_export_and_import() {
     let before = fx.mtimes();
     assert_eq!(
         refusal(fx.try_export()),
-        unsynced_export("data/moves/0001.json (auch unpacked/moveData/0001 geändert)")
+        unsynced_export("data/moves/0001.json (unpacked/moveData/0001 changed too)")
     );
     assert_eq!(
         refused(import(&fx.p(), None)),
-        unsynced_import("unpacked/moveData/0001 (auch data/moves/0001.json geändert)")
+        unsynced_import("unpacked/moveData/0001 (data/moves/0001.json changed too)")
     );
     assert_eq!(fx.mtimes(), before, "nothing written");
 }
@@ -1678,7 +1666,7 @@ fn a_json_restored_after_a_build_is_still_newer_than_its_member() {
     fx.write(MOVE_1_JSON, &old);
     assert_eq!(
         refusal(fx.try_export()),
-        unsynced_export("data/moves/0001.json (auch unpacked/moveData/0001 geändert)")
+        unsynced_export("data/moves/0001.json (unpacked/moveData/0001 changed too)")
     );
     assert_eq!(fx.read(MOVE_1_JSON), old, "nothing written");
 }
@@ -1762,7 +1750,7 @@ fn a_save_of_one_part_over_a_hand_edited_part_records_no_json() {
     let before = fx.mtimes();
     assert_eq!(
         refusal(fx.try_export()),
-        unsynced_export(&format!("{species} (auch {learnset} geändert)"))
+        unsynced_export(&format!("{species} ({learnset} changed too)"))
     );
     let problems = compile_problems(build::prepare(&fx.p()));
     assert!(
@@ -3011,7 +2999,7 @@ fn the_sync_takes_a_trailing_member_without_json_as_the_files_side() {
     assert!(
         unit.problems[0]
             .message
-            .ends_with("Löschen geht im Studio („Löschen…“)."),
+            .ends_with("Deleting is done in the Studio (“Delete…”)."),
         "{}",
         unit.problems[0].message
     );

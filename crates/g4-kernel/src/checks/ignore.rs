@@ -815,12 +815,12 @@ mod id_tests {
             (
                 "\"index\": 1",
                 "\"index\": \"TRAINER_YOUNGSTER_KAI\"",
-                "Unbekannte ID: TRAINER_YOUNGSTER_KAI (kein Textprojekt).",
+                "Unknown ID: TRAINER_YOUNGSTER_KAI (no text project).",
             ),
             (
                 "\"index\": \"MAP_T01\"",
                 "\"index\": \"MAP_X\"",
-                "Unbekannte ID: MAP_X.",
+                "Unknown ID: MAP_X.",
             ),
             (
                 "\"index\": 3",

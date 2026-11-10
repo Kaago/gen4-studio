@@ -126,7 +126,7 @@ pub(crate) fn hints(project: &Project, manifest: &Manifest) -> Result<Vec<Proble
                 &Path::new(DATA_DIR).join(&name),
                 UNKNOWN_ART_CODE,
                 Severity::Warning,
-                format!("data/{name}/ ist keine bekannte Art; Export und Import lassen den Ordner, wie er ist."),
+                t!("textproject.unknown_art", name = name).into_owned(),
             ));
         }
     }
@@ -148,9 +148,7 @@ pub(crate) fn hints(project: &Project, manifest: &Manifest) -> Result<Vec<Proble
                     Path::new(MANIFEST_FILE),
                     RESERVED_CODE,
                     Severity::Info,
-                    format!(
-                        "`{key}` ist reserviert; Phase 4 hält den Inhalt, liest ihn aber nicht."
-                    ),
+                    t!("textproject.reserved_key", key = key).into_owned(),
                 )
             });
         }
@@ -187,17 +185,23 @@ fn shadowed(project: &Project) -> Result<Vec<Problem>, KernelError> {
     let mut out = Vec::new();
     for id in files.shadowed {
         let why = match (id.rotom, id.other) {
-            (Some(value), _) => format!("rotom kennt den Namen schon als {value}"),
-            (None, Some(kind)) => format!("der Name ist schon eine ID der Art {}", kind.prefix()),
+            (Some(value), _) => t!("textproject.shadowed_by_rotom", value = value).into_owned(),
+            (None, Some(kind)) => {
+                t!("textproject.shadowed_by_kind", kind = kind.prefix()).into_owned()
+            }
             (None, None) => continue,
         };
-        let meaning = id
-            .rotom
-            .map_or(String::new(), |v| format!("; in Scripts gilt {v}"));
-        let message = format!(
-            "`{}` ({}) fehlt in den ID-Dateien für rotom: {why}{meaning}.",
-            id.id, id.number
-        );
+        let meaning = id.rotom.map_or(String::new(), |v| {
+            t!("textproject.shadowed_meaning", value = v).into_owned()
+        });
+        let message = t!(
+            "textproject.shadowed",
+            id = id.id,
+            number = id.number,
+            why = why,
+            meaning = meaning
+        )
+        .into_owned();
         let problem = match registry_file(id.kind) {
             Some(file) => {
                 let rel = Path::new(IDS_DIR).join(file);
@@ -267,7 +271,7 @@ fn dangling(
                     &rel,
                     ID_DANGLING_CODE,
                     Severity::Warning,
-                    format!("`{id}` nennt Nummer {n}, die es nicht mehr gibt; die ID bleibt eingefroren."),
+                    t!("textproject.id_dangling", id = id, n = n).into_owned(),
                 )
             });
         }
@@ -427,7 +431,7 @@ mod tests {
         assert_eq!(warning.line, line);
         assert_eq!(
             warning.message,
-            "story.dangling-ref: steps[0].uses[0].trainer: Unbekannte ID: TRAINER_NOPE."
+            "story.dangling-ref: steps[0].uses[0].trainer: Unknown ID: TRAINER_NOPE."
         );
         // A warning holds nothing up: the check finds no error.
         assert!(

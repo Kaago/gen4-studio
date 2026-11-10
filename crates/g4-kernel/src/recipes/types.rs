@@ -31,23 +31,24 @@ pub enum RecipeId {
 }
 
 impl RecipeId {
-    /// The name the user reads.
-    pub fn title(self) -> &'static str {
-        match self {
-            RecipeId::CreateArea => "Gebiet anlegen",
-            RecipeId::CreateRoom => "Raum anlegen",
-            RecipeId::ExtendArea => "Gebiet erweitern",
-            RecipeId::EmptyRegion => "Welt leeren",
-            RecipeId::NewFigure => "Neue Figur",
-            RecipeId::ConnectDoors => "Tür verbinden",
-            RecipeId::NewTrainerHere => "Neuer Trainer hier",
-            RecipeId::NewStory => "Neue Geschichte",
-            RecipeId::TalkAdvances => "Gespräch schaltet weiter",
-            RecipeId::FigureAppears => "Figur erscheint/verschwindet ab Schritt",
-            RecipeId::SceneOnEnter => "Szene beim Betreten",
-            RecipeId::RewardOnce => "Belohnung einmalig",
-            RecipeId::NewPaintedMap => "Neue Karte malen",
-        }
+    /// The name the user reads, in the current locale.
+    pub fn title(self) -> String {
+        let key = match self {
+            RecipeId::CreateArea => "recipes.title_create_area",
+            RecipeId::CreateRoom => "recipes.title_create_room",
+            RecipeId::ExtendArea => "recipes.title_extend_area",
+            RecipeId::EmptyRegion => "recipes.title_empty_region",
+            RecipeId::NewFigure => "recipes.title_new_figure",
+            RecipeId::ConnectDoors => "recipes.title_connect_doors",
+            RecipeId::NewTrainerHere => "recipes.title_new_trainer_here",
+            RecipeId::NewStory => "recipes.title_new_story",
+            RecipeId::TalkAdvances => "recipes.title_talk_advances",
+            RecipeId::FigureAppears => "recipes.title_figure_appears",
+            RecipeId::SceneOnEnter => "recipes.title_scene_on_enter",
+            RecipeId::RewardOnce => "recipes.title_reward_once",
+            RecipeId::NewPaintedMap => "recipes.title_new_painted_map",
+        };
+        t!(key).into_owned()
     }
 
     /// Every recipe, in the order the lists show them.
@@ -228,26 +229,45 @@ impl<R: Serialize> Outcome<R> {
 /// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe or the
 /// step is no recipe the app runs (`edit_dialog` opens the dialog editor, `story_join` „Gespräch
 /// schaltet weiter“ with the figure set, `adjust_terrain` the terrain painting of the new cell),
-/// else locked with `reason` „Kommt später“ (`play_here`: „Kommt mit 3d.9“).
-pub fn next_steps(ids: &[(&str, &str)]) -> Vec<NextStep> {
+/// else locked with `reason` „Coming later“ (`play_here`: „Coming with 3d.9“). The label of a
+/// step is its name in the current locale ([`step_label`]).
+pub fn next_steps(ids: &[&str]) -> Vec<NextStep> {
     ids.iter()
-        .map(|&(id, label)| {
+        .map(|&id| {
             let known = matches!(id, "edit_dialog" | "story_join" | "adjust_terrain")
                 || serde_json::from_value::<RecipeId>(serde_json::Value::from(id))
                     .is_ok_and(|recipe| super::list().iter().any(|r| r.id == recipe));
             let reason = match id {
                 _ if known => None,
-                "play_here" => Some("Kommt mit 3d.9"),
-                _ => Some("Kommt später"),
+                "play_here" => Some(t!("recipes.step_comes_with_3d9").into_owned()),
+                _ => Some(t!("recipes.step_comes_later").into_owned()),
             };
             NextStep {
                 id: id.to_owned(),
-                label: label.to_owned(),
+                label: step_label(id),
                 available: known,
-                reason: reason.map(str::to_owned),
+                reason,
             }
         })
         .collect()
+}
+
+/// The name of next step `id` in the current locale; an id without a name is its own label.
+fn step_label(id: &str) -> String {
+    let key = match id {
+        "connect_doors" => "recipes.next_connect_doors",
+        "new_figure" => "recipes.next_new_figure",
+        "edit_dialog" => "recipes.next_edit_dialog",
+        "story_join" => "recipes.next_story_join",
+        "figure_appears" => "recipes.next_figure_appears",
+        "scene_on_enter" => "recipes.next_scene_on_enter",
+        "talk_advances" => "recipes.next_talk_advances",
+        "play_here" => "recipes.next_play_here",
+        "adjust_terrain" => "recipes.next_adjust_terrain",
+        "create_area" => "recipes.next_create_area",
+        _ => return id.to_owned(),
+    };
+    t!(key).into_owned()
 }
 
 /// What a run did so far that undo does not take back: the patch and the members it created
@@ -459,13 +479,14 @@ mod tests {
     #[test]
     fn next_steps_lock_what_is_not_there_yet() {
         let steps = next_steps(&[
-            ("create_area", "Gebiet anlegen"),
-            ("new_figure", "Neue Figur hier"),
-            ("edit_dialog", "Dialog bearbeiten"),
-            ("story_join", "Zu einer Geschichte"),
-            ("play_here", "Hier spielen"),
-            ("adjust_terrain", "Gelände anpassen"),
+            "create_area",
+            "new_figure",
+            "edit_dialog",
+            "story_join",
+            "play_here",
+            "adjust_terrain",
         ]);
+        assert_eq!(steps[4].label, "Play here");
         let short: Vec<(&str, bool, Option<&str>)> = steps
             .iter()
             .map(|s| (s.id.as_str(), s.available, s.reason.as_deref()))
@@ -477,7 +498,7 @@ mod tests {
                 ("new_figure", true, None),
                 ("edit_dialog", true, None),
                 ("story_join", true, None),
-                ("play_here", false, Some("Kommt mit 3d.9")),
+                ("play_here", false, Some("Coming with 3d.9")),
                 ("adjust_terrain", true, None),
             ]
         );

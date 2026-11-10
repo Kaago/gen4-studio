@@ -2073,7 +2073,7 @@ mod tests {
         ) {
             Err(DispatchError::Cmd(e)) => assert_eq!(
                 e.message,
-                g4_kernel::textproject::rename::NOT_A_TEXT_PROJECT
+                g4_kernel::textproject::rename::not_a_text_project()
             ),
             other => panic!("{other:?}"),
         }
@@ -2312,7 +2312,7 @@ mod tests {
         });
         // Matrix 0 has no header section yet: refused as the kernel words it.
         match dispatch(&state, &policy, "create_area", json!({ "spec": spec })) {
-            Err(DispatchError::Cmd(e)) => assert!(e.message.contains("keine Weltkarte"), "{e:?}"),
+            Err(DispatchError::Cmd(e)) => assert!(e.message.contains("not a world map"), "{e:?}"),
             Err(e) => panic!("{e:?}"),
             Ok(_) => panic!("a matrix without a header section is no target"),
         }

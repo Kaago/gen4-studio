@@ -57,7 +57,7 @@ use super::schema::data::{
     EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity,
     TrainerTextTableEntity, import_items,
 };
-use super::schema::header::{HeaderWrite, NO_DP, import_headers_with, write_headers};
+use super::schema::header::{HeaderWrite, import_headers_with, no_dp, write_headers};
 use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
@@ -226,16 +226,14 @@ impl<'a> LazyBase<'a> {
                     return BaseLayer::ensure(self.root, base)
                         .map(|(layer, _)| layer)
                         .map_err(|e| {
-                            NoLayer::Failed(format!(
-                                "die Basisschicht ließ sich nicht anlegen ({e})"
-                            ))
+                            NoLayer::Failed(
+                                t!("textproject.base_layer_failed", error = e).into_owned(),
+                            )
                         });
                 }
                 Err(NoLayer::Unavailable(match &self.mark {
                     Some(mark) => missing_text(mark),
-                    None => {
-                        "Das Projekt kennt seine Basis-ROM nicht (.g4/base.json fehlt).".to_owned()
-                    }
+                    None => t!("textproject.import_no_mark").into_owned(),
                 }))
             })
             .as_ref()
@@ -309,7 +307,7 @@ pub fn import_with(
 ) -> Result<ImportReport, KernelError> {
     let start = Instant::now();
     if project.family == Family::Dp {
-        return Err(KernelError::Refused(NO_DP.to_owned()));
+        return Err(KernelError::Refused(no_dp()));
     }
     if let (Some(base), Some(mark)) = (base, read_base_mark(&project.root))
         && !mark.sha1.eq_ignore_ascii_case(base.sha1())
@@ -402,7 +400,7 @@ fn wanted(only: Option<&BTreeSet<PathBuf>>, paths: &[PathBuf]) -> bool {
 /// members as they are on disk, and they are not read: a plan reads the members of the units
 /// it plans and nothing else. An appended member, of an entity or of a binary kind, must
 /// follow the last member on disk or one this plan appends before it (in index order);
-/// otherwise it is an error (`textproject.schema`, "nur als NNNN möglich"). A requested
+/// otherwise it is an error (`textproject.schema`, „only as NNNN possible“). A requested
 /// binary member with neither a file nor a base member is an error too
 /// (`textproject.member-without-json` when the member exists on disk, else
 /// `textproject.schema`); the scan for files and members beyond the requested ones is
@@ -429,9 +427,11 @@ pub(crate) fn plan_import(
         plan.problems.push(located(
             Path::new(MANIFEST_FILE),
             &bytes,
-            &format!(
-                "{SCHEMA_CODE}: game.code: das Textprojekt gehört zu {}, das Projekt ist {}.",
-                manifest.game.code, project.game_code
+            &t!(
+                "textproject.game_code_mismatch",
+                code = SCHEMA_CODE,
+                text_project = manifest.game.code,
+                project = project.game_code
             ),
         ));
     }
@@ -579,7 +579,7 @@ fn plan_egg_moves(
             warn(
                 plan,
                 EGG_MOVES_LOCKED_CODE,
-                format!("{reason}; die Ei-Attacken der Dateien werden nicht geschrieben."),
+                t!("textproject.egg_moves_locked", reason = reason).into_owned(),
             );
             return Ok(());
         }
@@ -590,11 +590,7 @@ fn plan_egg_moves(
         warn(
             plan,
             EGG_MOVES_UNEXPORTED_CODE,
-            "das Textprojekt hält die Ei-Attacken noch nicht (vor dem Feld `egg_moves` \
-             exportiert, `eggMoves` fehlt in g4-project.json); erst einmal `g4k text export` \
-             ausführen (schreibt die Tabelle in jede Spezies-Datei) oder die Ei-Attacken im \
-             Studio speichern, bis dahin schreibt der Import sie nicht."
-                .to_owned(),
+            t!("textproject.egg_moves_unexported").into_owned(),
         );
         return Ok(());
     }
@@ -676,8 +672,13 @@ fn import_egg_moves(
 
 /// The file `rel` (relative to the root), or the problem that it cannot be read.
 fn read_source(root: &Path, rel: &Path) -> Result<Vec<u8>, Problem> {
-    crate::fsutil::read_noted(root.join(rel))
-        .map_err(|e| problem(rel, SCHEMA_CODE, format!("{ROOT}: nicht lesbar ({e}).")))
+    crate::fsutil::read_noted(root.join(rel)).map_err(|e| {
+        problem(
+            rel,
+            SCHEMA_CODE,
+            t!("textproject.file_unreadable", root = ROOT, error = e).into_owned(),
+        )
+    })
 }
 
 /// `T` from file `rel`'s `bytes` without the tombstone envelope (the import writes the members
@@ -688,9 +689,9 @@ fn parse<T: DeserializeOwned>(rel: &Path, bytes: &[u8]) -> Result<T, Problem> {
 }
 
 /// What the import says of the members without JSON it does not remove.
-pub(crate) const REMOVES_ONLY: &str = "der Import löscht nur Member am Ende ohne JSON, die seit \
-                                       der Aufzeichnung unverändert sind \
-                                       (textproject.member-removed).";
+pub(crate) fn removes_only() -> String {
+    t!("textproject.removes_only").into_owned()
+}
 
 /// The rule of 3d.4 for members (or headers) without JSON at the end of an art: the import
 /// removes them when every one of `files` (relative to the root) is `recorded` (holds what the
@@ -826,14 +827,20 @@ fn check_numbering(
                 let found = problem(
                     &file,
                     MEMBER_WITHOUT_JSON_CODE,
-                    format!("{ROOT}: die Datei fehlt, das Member {gap:04} ist da; {REMOVES_ONLY}"),
+                    t!(
+                        "textproject.file_missing_member_there",
+                        root = ROOT,
+                        member = gap : {:04},
+                        removes_only = removes_only()
+                    )
+                    .into_owned(),
                 );
                 plan.push_orphan(found, file, members_of(gap));
             } else {
                 plan.problems.push(problem(
                     &file,
                     SCHEMA_CODE,
-                    format!("{ROOT}: die Datei fehlt; die Dateien sind lückenlos von 0000 an nummeriert."),
+                    t!("textproject.file_missing_numbered_from_zero", root = ROOT).into_owned(),
                 ));
             }
         }
@@ -848,11 +855,13 @@ fn check_numbering(
                 ..problem(
                     &file,
                     MEMBER_REMOVED_CODE,
-                    format!(
-                        "{ROOT}: das Archiv hat {members} Member, die Dateien enden vor \
-                         {next:04}; die Member ab {next:04} sind seit der Aufzeichnung \
-                         unverändert und nicht in der Basis: der Import entfernt sie."
-                    ),
+                    t!(
+                        "textproject.members_removed",
+                        root = ROOT,
+                        members = members,
+                        next = next : {:04}
+                    )
+                    .into_owned(),
                 )
             });
             plan.removals.extend(trailing);
@@ -860,10 +869,14 @@ fn check_numbering(
             let found = problem(
                 &file,
                 MEMBER_WITHOUT_JSON_CODE,
-                format!(
-                    "{ROOT}: das Archiv hat {members} Member, die Dateien enden vor {next:04}; \
-                     {REMOVES_ONLY}"
-                ),
+                t!(
+                    "textproject.members_past_files",
+                    root = ROOT,
+                    members = members,
+                    next = next : {:04},
+                    removes_only = removes_only()
+                )
+                .into_owned(),
             );
             plan.push_orphan(found, file, trailing);
         }
@@ -1005,12 +1018,14 @@ fn plan_entities<E: EntitySchema>(
                         plan.problems.push(problem(
                             &file,
                             SCHEMA_CODE,
-                            format!(
-                                "{ROOT}: {} hat {} Member, ein neues ist nur als {:04} möglich.",
-                                project.archives.unpacked_name(kind),
-                                next[k],
-                                next[k]
-                            ),
+                            t!(
+                                "textproject.new_member_only_as",
+                                root = ROOT,
+                                folder = project.archives.unpacked_name(kind),
+                                count = next[k],
+                                next = next[k] : {:04}
+                            )
+                            .into_owned(),
                         ));
                         continue;
                     }
@@ -1027,10 +1042,14 @@ fn plan_entities<E: EntitySchema>(
                     problem(
                         &file,
                         MEMBER_WITHOUT_JSON_CODE,
-                        format!(
-                            "{ROOT}: das Member {n:04} von {} fehlt in der Datei; {REMOVES_ONLY}",
-                            project.archives.unpacked_name(kind)
-                        ),
+                        t!(
+                            "textproject.member_missing_in_file",
+                            root = ROOT,
+                            member = n : {:04},
+                            folder = project.archives.unpacked_name(kind),
+                            removes_only = removes_only()
+                        )
+                        .into_owned(),
                     ),
                     file.clone(),
                     vec![member_rel(project, kind, n)],
@@ -1148,11 +1167,12 @@ fn plan_items(
             plan.problems.push(problem(
                 &rel_dir,
                 SCHEMA_CODE,
-                format!(
-                    "{ROOT}: {} hat keine geprüfte Item-Tabelle; Item-Dateien gibt es nur mit \
-                     ihr.",
-                    project.game_code
-                ),
+                t!(
+                    "textproject.no_item_table",
+                    root = ROOT,
+                    game = project.game_code
+                )
+                .into_owned(),
             ));
         }
         return Ok(());
@@ -1172,9 +1192,7 @@ fn plan_items(
             plan.problems.push(problem(
                 &rel_dir.join(format!("{expected:04}.json")),
                 SCHEMA_CODE,
-                format!(
-                    "{ROOT}: die Datei fehlt; die Item-Dateien sind lückenlos nach ID nummeriert."
-                ),
+                t!("textproject.item_file_missing", root = ROOT).into_owned(),
             ));
             broken = true;
             break;
@@ -1293,11 +1311,14 @@ fn plan_headers(
                     ..problem(
                         &rel_dir.join(format!("{count:04}.json")),
                         MEMBER_REMOVED_CODE,
-                        format!(
-                            "{ROOT}: mapname.bin hat {current} Einträge, data/headers {count} \
-                             Dateien; die Header ab {count:04} sind seit der Aufzeichnung \
-                             unverändert und nicht in der Basis: der Import entfernt sie."
-                        ),
+                        t!(
+                            "textproject.headers_removed",
+                            root = ROOT,
+                            current = current,
+                            count = count,
+                            from = count : {:04}
+                        )
+                        .into_owned(),
                     )
                 });
             }
@@ -1407,7 +1428,7 @@ fn plan_binary(
                         plan.problems.push(problem(
                             &file,
                             SCHEMA_CODE,
-                            format!("{ROOT}: nicht lesbar ({e})."),
+                            t!("textproject.file_unreadable", root = ROOT, error = e).into_owned(),
                         ));
                     });
             }
@@ -1477,10 +1498,14 @@ fn plan_binary(
                 Ok(Some(_)) if i > next => plan.problems.push(problem(
                     &file_of(i),
                     SCHEMA_CODE,
-                    format!(
-                        "{ROOT}: {} hat {next} Member, ein neues ist nur als {next:04} möglich.",
-                        project.archives.unpacked_name(kind),
-                    ),
+                    t!(
+                        "textproject.new_member_only_as",
+                        root = ROOT,
+                        folder = project.archives.unpacked_name(kind),
+                        count = next,
+                        next = next : {:04}
+                    )
+                    .into_owned(),
                 )),
                 Ok(Some(want)) => {
                     stats.entities += 1;
@@ -1492,11 +1517,12 @@ fn plan_binary(
                         problem(
                             &file_of(i),
                             MEMBER_WITHOUT_JSON_CODE,
-                            format!(
-                                "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in \
-                                 der Basisschicht; der Import entfernt keine Texturen und \
-                                 Modelle (neue am Ende entfernt „Nummer freigeben“ im Studio)."
-                            ),
+                            t!(
+                                "textproject.member_without_file_or_base",
+                                root = ROOT,
+                                member = i : {:04}
+                            )
+                            .into_owned(),
                         ),
                         file_of(i),
                         vec![member_rel(project, kind, i)],
@@ -1505,9 +1531,12 @@ fn plan_binary(
                 Ok(None) => plan.problems.push(problem(
                     &file_of(i),
                     SCHEMA_CODE,
-                    format!(
-                        "{ROOT}: weder die Datei noch ein Member {i:04} der Basisschicht ist da."
-                    ),
+                    t!(
+                        "textproject.neither_file_nor_base",
+                        root = ROOT,
+                        member = i : {:04}
+                    )
+                    .into_owned(),
                 )),
             }
         }
@@ -1529,11 +1558,12 @@ fn plan_binary(
                         problem(
                             &file_of(i),
                             MEMBER_WITHOUT_JSON_CODE,
-                            format!(
-                                "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in \
-                                 der Basisschicht; der Import entfernt keine Texturen und \
-                                 Modelle (neue am Ende entfernt „Nummer freigeben“ im Studio)."
-                            ),
+                            t!(
+                                "textproject.member_without_file_or_base",
+                                root = ROOT,
+                                member = i : {:04}
+                            )
+                            .into_owned(),
                         ),
                         file_of(i),
                         vec![member_rel(project, kind, i)],
@@ -1542,7 +1572,7 @@ fn plan_binary(
                 Ok(None) => plan.problems.push(problem(
                     &file_of(i),
                     SCHEMA_CODE,
-                    format!("{ROOT}: die Datei fehlt; die Dateien sind lückenlos nummeriert."),
+                    t!("textproject.file_missing_numbered", root = ROOT).into_owned(),
                 )),
             }
             i += 1;
@@ -1554,10 +1584,7 @@ fn plan_binary(
             ..problem(
                 &rel_dir,
                 BASE_UNCHECKED_CODE,
-                format!(
-                    "{art}: ohne Basisschicht und Basis-ROM bleiben die Member ohne Datei, wie sie \
-                     sind."
-                ),
+                t!("textproject.base_unchecked", art = art).into_owned(),
             )
         });
     }
@@ -1644,11 +1671,12 @@ fn plan_quirks(
                 ..problem(
                     rel,
                     QUIRK_KEY_CODE,
-                    format!(
-                        "quirks: `{key}` ist keine vorhandene Quelle unter {} (Pfad mit `/`, \
-                         relativ zur Wurzel).",
-                        scripts::SOURCE_ROOT
-                    ),
+                    t!(
+                        "textproject.quirk_key_unknown",
+                        key = key,
+                        root = scripts::SOURCE_ROOT
+                    )
+                    .into_owned(),
                 )
             });
         }
@@ -2014,7 +2042,7 @@ mod tests {
         assert_eq!(only.problems.len(), 1, "{:?}", only.problems);
         assert_eq!(only.problems[0].file, Path::new("data/moves/0005.json"));
         assert!(
-            only.problems[0].message.contains("nur als 0004 möglich"),
+            only.problems[0].message.contains("possible only as 0004"),
             "{}",
             only.problems[0].message
         );
@@ -2037,7 +2065,7 @@ mod tests {
         let (only, _) = plan(&p, Some(&["data/map_textures/0003.nsbtx"]));
         assert!(only.writes.is_empty());
         assert_eq!(only.problems.len(), 1, "{:?}", only.problems);
-        assert!(only.problems[0].message.contains("nur als 0001 möglich"));
+        assert!(only.problems[0].message.contains("possible only as 0001"));
         std::fs::remove_file(p.root.join("data/map_textures/0003.nsbtx")).unwrap();
         // Requested together, 0001 and 0002 append one after the other, as in a full plan.
         write_to(&p, "data/map_textures/0001.nsbtx", b"BTX0 one");
@@ -2824,7 +2852,7 @@ mod tests {
                 .expect("the move");
             assert!(
                 found.message.starts_with(&format!(
-                    "textproject.schema: egg_moves[1]: {shown} ist keine Ei-Attacke (Attacken 1 bis 467)"
+                    "textproject.schema: egg_moves[1]: {shown} is not an egg move (moves 1 to 467)"
                 )),
                 "{found:?}"
             );
@@ -2997,7 +3025,7 @@ mod tests {
         assert!(
             refused[0]
                 .message
-                .starts_with("textproject.map-source: model: Eine Welt-Karte trägt"),
+                .starts_with("textproject.map-source: model: A world map carries"),
             "{refused:#?}"
         );
     }
@@ -3091,7 +3119,7 @@ mod tests {
         assert_eq!(schema[0].severity, Severity::Error);
         assert!(
             schema[0].message.starts_with(
-                "world.schema: world.tileset: Kartentextur-Paket 0200 gibt es nicht ("
+                "world.schema: world.tileset: Map texture package 0200 does not exist ("
             ),
             "{schema:#?}"
         );
@@ -3142,7 +3170,7 @@ mod tests {
         assert!(
             schema[0]
                 .message
-                .starts_with("world.schema: world.layers[0].tiles[4]: Zelle 3: `00g2`"),
+                .starts_with("world.schema: world.layers[0].tiles[4]: Cell 3: `00g2`"),
             "{schema:#?}"
         );
         // Map 1 is planned, map 0 is not.

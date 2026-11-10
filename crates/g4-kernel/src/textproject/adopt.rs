@@ -34,7 +34,9 @@ use super::{DATA_DIR, MANIFEST_FILE};
 
 /// The refusal of [`revert`] (and of [`adopt`] on a text project) while the sync finds
 /// something pending.
-pub const REVERT_PENDING: &str = "Erst abgleichen: es gibt Änderungen von außen, Konflikte oder fehlerhafte Dateien (Technik › Textprojekt).";
+pub fn revert_pending() -> String {
+    t!("textproject.revert_pending").into_owned()
+}
 
 /// A phase of [`adopt`]: adopting the scripts (`total` 0 when they are adopted already), the
 /// base layer, the entities (the art folders, then the blobs) and the records (`total` the
@@ -96,7 +98,7 @@ fn ms_since(start: Instant) -> u64 {
 /// (when they are not), the export with its progress, the id files for rotom, and the sync
 /// and every text archive recorded as they are now. On a text project it is an export that
 /// writes nothing, plus the records; a change the sync has not settled yet (from outside, a
-/// conflict, a broken file) refuses it with [`REVERT_PENDING`] first, as the export would
+/// conflict, a broken file) refuses it with [`revert_pending`] first, as the export would
 /// overwrite the JSON from the members. Gen4 Studio refuses a text project before it gets here
 /// („Das Projekt ist schon ein Textprojekt.“); this repair is `g4k text adopt`'s.
 pub fn adopt(
@@ -188,7 +190,7 @@ pub(crate) fn adopt_as(
 }
 
 /// Takes the text project back to a DSPRE folder: refuses while a scan finds a change from
-/// outside, a conflict or a broken file ([`REVERT_PENDING`]), while a script source uses an id
+/// outside, a conflict or a broken file ([`revert_pending`]), while a script source uses an id
 /// only the id files define (without them it would not compile, [`ids_in_scripts`]), and while
 /// `g4-world.json` or `g4-checks.json` cannot be read; then writes those two with numbers,
 /// moves `g4-project.json`, `data/` and the id files in rotom's constant folder to a new
@@ -257,7 +259,7 @@ fn rewrite_git_templates(root: &Path) -> (Option<TemplateReport>, Option<String>
         Ok(report) => (Some(report), None),
         Err(e) => (
             None,
-            Some(format!("Die Git-Vorlagen ließen sich nicht umstellen: {e}")),
+            Some(t!("textproject.git_templates_failed", error = e).into_owned()),
         ),
     }
 }
@@ -275,22 +277,19 @@ pub fn ids_in_scripts(uses: &[String]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     if uses.len() > USES_NAMED {
-        named.push_str(&format!(" und {} weitere", uses.len() - USES_NAMED));
+        named.push_str(&t!("textproject.and_more", n = uses.len() - USES_NAMED));
     }
-    format!(
-        "Scripts nutzen IDs, die nur das Textprojekt kennt; ohne es ließen sie sich nicht mehr \
-         übersetzen. Erst durch Nummern ersetzen: {named}."
-    )
+    t!("textproject.ids_in_scripts", named = named).into_owned()
 }
 
-/// Refuses with [`REVERT_PENDING`] when a scan finds a unit that is not in step (a change
+/// Refuses with [`revert_pending`] when a scan finds a unit that is not in step (a change
 /// from outside, a conflict, a broken file). What is in step is recorded first (also when
 /// something is pending), nothing is taken over.
 fn refuse_pending(project: &Project) -> Result<(), KernelError> {
     let scan = sync::scan(project, &mut |_| {})?;
     sync::apply_one_sided(project, &scan, &|_| true)?;
     if scan.units.iter().any(|u| u.side != UnitSide::InSync) {
-        return Err(KernelError::Refused(REVERT_PENDING.to_owned()));
+        return Err(KernelError::Refused(revert_pending()));
     }
     Ok(())
 }
@@ -304,9 +303,9 @@ fn with_numbers(project: &Project) -> Result<Vec<(PathBuf, String)>, KernelError
     let ids = Resolver::for_project(project)?;
     let numbers = Resolver::fixed();
     let unreadable = |file: &str, why: &str| {
-        KernelError::Refused(format!(
-            "{file} ist nicht lesbar ({why}). Erst reparieren, dann zurücknehmen."
-        ))
+        KernelError::Refused(
+            t!("textproject.revert_unreadable", file = file, why = why).into_owned(),
+        )
     };
     let mut changed = Vec::new();
     let world = root.join(WORLD_FILE);
@@ -523,7 +522,7 @@ mod tests {
         let before = tree(&fx);
         let mut seen = Vec::new();
         match adopt(&fx.project(), &fx.base(), &mut |p| seen.push(p)) {
-            Err(KernelError::Refused(why)) => assert_eq!(why, REVERT_PENDING),
+            Err(KernelError::Refused(why)) => assert_eq!(why, revert_pending()),
             other => panic!("expected the refusal, got {other:?}"),
         }
         assert!(seen.is_empty(), "{seen:?}");
@@ -588,7 +587,7 @@ mod tests {
         assert_eq!(report.templates, None);
         let warning = report.templates_warning.expect("a warning");
         assert!(
-            warning.starts_with("Die Git-Vorlagen ließen sich nicht umstellen: .gitignore: ")
+            warning.starts_with("The Git templates could not be switched: .gitignore: ")
                 && warning.contains(BROKEN_BLOCK),
             "{warning}"
         );
@@ -708,7 +707,7 @@ mod tests {
     fn the_refusal_names_five_uses_and_counts_the_rest() {
         let uses: Vec<String> = (1..=7).map(|n| format!("a.rotom:{n} X")).collect();
         let why = ids_in_scripts(&uses);
-        assert!(why.ends_with("a.rotom:5 X und 2 weitere."), "{why}");
+        assert!(why.ends_with("a.rotom:5 X and 2 more."), "{why}");
     }
 
     #[test]
@@ -780,8 +779,8 @@ mod tests {
         match revert(&fx.project()) {
             Err(KernelError::Refused(why)) => assert_eq!(
                 why,
-                "g4-world.json ist nicht lesbar (unbekannte ID MAP_X in roomNames). \
-                 Erst reparieren, dann zurücknehmen."
+                "g4-world.json cannot be read (unbekannte ID MAP_X in roomNames). Repair it \
+                 first, then take the text project back."
             ),
             other => panic!("expected the refusal, got {other:?}"),
         }
@@ -800,7 +799,7 @@ mod tests {
         fx.write(member, &bytes);
         let before = tree(&fx);
         match revert(&fx.project()) {
-            Err(KernelError::Refused(why)) => assert_eq!(why, REVERT_PENDING),
+            Err(KernelError::Refused(why)) => assert_eq!(why, revert_pending()),
             other => panic!("expected the refusal, got {other:?}"),
         }
         assert_eq!(tree(&fx), before, "nothing moved");

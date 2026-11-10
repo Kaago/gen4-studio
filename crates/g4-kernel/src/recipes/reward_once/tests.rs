@@ -5,9 +5,9 @@ fn key_label_and_refusal_name_flag_figure_and_item() {
     assert_eq!(step_key(256), "r256");
     assert_eq!(
         label(5, "Testfaden"),
-        "Belohnung von Figur 5 in „Testfaden“"
+        "Reward from character 5 in “Testfaden”"
     );
-    assert_eq!(no_item_text(0), "Gegenstand 0 gibt es nicht.");
+    assert_eq!(no_item_text(0), "Item 0 does not exist.");
 }
 
 #[test]

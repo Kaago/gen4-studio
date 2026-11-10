@@ -875,7 +875,7 @@ fn empty_region_apply_is_one_step_with_file_steps() {
     assert_eq!(outcome.next.len(), 1);
     assert_eq!(
         (outcome.next[0].id.as_str(), outcome.next[0].label.as_str()),
-        ("create_area", "Gebiet anlegen")
+        ("create_area", "Create area")
     );
     assert!(outcome.next[0].available);
     // The dispatcher applies the same recipe from JSON (here refused: the world is empty now).
@@ -983,7 +983,7 @@ fn undo_refuses_a_script_changed_meanwhile() {
     std::fs::write(&source, &text).unwrap();
     let changed = script_files(&project);
     let why = refused(store.undo());
-    assert!(why.contains("Scriptdatei 0000"), "{why}");
+    assert!(why.contains("Script file 0000"), "{why}");
     let differ = differing(&script_files(&project), &changed);
     assert!(differ.is_empty(), "differ: {differ:?}");
     // The step left the history; the store keeps the empty region it had.
@@ -1069,7 +1069,7 @@ fn undo_refuses_a_compile_state_changed_meanwhile() {
     let why = refused(store.undo());
     assert!(why.contains("Übersetzungsstand der Scripts"), "{why}");
     assert!(why.contains(STATE_FILE), "{why}");
-    assert!(!why.contains("Scriptdatei"), "{why}");
+    assert!(!why.contains("Script file"), "{why}");
     let differ = differing(&script_files(&project), &changed);
     assert!(differ.is_empty(), "differ: {differ:?}");
     assert_eq!(store.undo_depth(), depth);

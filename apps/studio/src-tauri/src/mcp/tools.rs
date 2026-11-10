@@ -3959,7 +3959,7 @@ mod tests {
         unasked("base_missing");
         crate::commands::assign_base_impl(&d.state, d.nds.to_str().unwrap()).unwrap();
         let message = unasked("not_adopted");
-        assert_eq!(message, g4_kernel::textproject::NOT_ADOPTED);
+        assert_eq!(message, g4_kernel::textproject::not_adopted());
         d.toolbox
             .call(
                 "set_matrix_cell",
@@ -4007,9 +4007,9 @@ mod tests {
         assert_eq!(
             message,
             format!(
-                "{} (data/moves/0001.json); der Export würde sie verwerfen: erst bauen (g4k \
-                 build) oder g4k text import, dann exportieren.",
-                g4_kernel::textproject::UNSYNCED_EXPORT
+                "{} (data/moves/0001.json); the export would discard them: build first (g4k \
+                 build) or g4k text import, then export.",
+                g4_kernel::textproject::unsynced_export_prefix()
             )
         );
         assert_eq!(state.agents.status().question, None);
@@ -4156,7 +4156,7 @@ mod tests {
             failed(by_id.call("data_edit", edit(json!("SPECIES_NOPE")), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("unknown_id", "Unbekannte ID: SPECIES_NOPE.")
+            ("unknown_id", "Unknown ID: SPECIES_NOPE.")
         );
         assert_eq!(history(&by_id), before);
     }
@@ -4548,7 +4548,7 @@ mod tests {
         let (code, message, _) = failed(toolbox.call("recipe_apply", scene(1), AGENT));
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.contains(g4_kernel::recipes::LEVEL_SCRIPT_FILE),
+            message.contains(&g4_kernel::recipes::level_script_file()),
             "{message}"
         );
         assert_eq!(history(&toolbox)["undo"].as_array().unwrap().len(), undo);
@@ -4626,14 +4626,14 @@ mod tests {
         );
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.contains(g4_kernel::recipes::LEVEL_SCRIPT_FILE),
+            message.contains(&g4_kernel::recipes::level_script_file()),
             "{message}"
         );
         // A call the user confirmed goes on; so does a command that does not depend on the
         // project.
         let confirmed = Admitted {
             changes: true,
-            confirm: Some(g4_kernel::recipes::LEVEL_SCRIPT_FILE.to_owned()),
+            confirm: Some(g4_kernel::recipes::level_script_file()),
         };
         assert!(call.recheck("recipe_apply", &args, &confirmed).is_ok());
         assert!(call.recheck("save", &json!({}), &admitted).is_ok());

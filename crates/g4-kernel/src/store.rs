@@ -876,7 +876,7 @@ impl Tx<'_> {
 
     /// Edits the world of map `map` ([`AssetKind::WorldMap`]; `None`: the map has none). `edit`
     /// may set, change or remove it; an error from `edit` fails the transaction. Outside a text
-    /// project the world is refused ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]).
+    /// project the world is refused ([`crate::world::world_needs_text_project`]).
     ///
     /// A world that is there afterwards is baked into the map at once, as a second part of the
     /// same step: [`bake_world`] over the map as the transaction holds it, with the verbatim
@@ -1818,7 +1818,7 @@ impl Store {
         if id.kind == AssetKind::WorldMap && *self.project.source_mode() != SourceMode::TextProject
         {
             return Err(KernelError::Refused(
-                crate::world::WORLD_NEEDS_TEXT_PROJECT.to_owned(),
+                crate::world::world_needs_text_project(),
             ));
         }
         self.ensure_unpacked(id.kind)?;
@@ -1854,7 +1854,7 @@ impl Store {
             }
             // No member: a world is read from its map's unit in a text project only.
             (Location::Derived { .. }, None) => Err(KernelError::Refused(
-                crate::world::WORLD_NEEDS_TEXT_PROJECT.to_owned(),
+                crate::world::world_needs_text_project(),
             )),
             (Location::Entity { unit, .. }, None) => {
                 let json = unit
@@ -1944,7 +1944,7 @@ impl Store {
 
     /// The world of map `map` (`None`: a map without world), read from the map's JSON in a text
     /// project on first use. Outside a text project it is refused
-    /// ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]); a `world` that does not read is the
+    /// ([`crate::world::world_needs_text_project`]); a `world` that does not read is the
     /// [`KernelError::Compile`] of the JSON (file, line, path).
     pub fn world(&mut self, map: u16) -> Result<Option<&WorldJson>, KernelError> {
         let id = world_id(map);
@@ -5799,7 +5799,7 @@ mod tests {
             std::fs::write(&path, b"von DSPRE").unwrap();
             let err = st.undo().unwrap_err();
             assert!(
-                matches!(&err, KernelError::Refused(r) if r == "Scriptdatei 0000 wurde seit dem \
+                matches!(&err, KernelError::Refused(r) if r == "Script file 0000 wurde seit dem \
                     Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt den Schritt nicht \
                     zurück, er fällt aus dem Verlauf."),
                 "{err}"
@@ -5821,7 +5821,7 @@ mod tests {
             std::fs::write(&path, b"von DSPRE").unwrap();
             let err = st.redo().unwrap_err();
             assert!(
-                matches!(&err, KernelError::Refused(r) if r == "Scriptdatei 0000 wurde seit dem \
+                matches!(&err, KernelError::Refused(r) if r == "Script file 0000 wurde seit dem \
                     Rückgängigmachen außerhalb des Studios geändert; ⌘⇧Z stellt den Schritt nicht \
                     wieder her, er fällt aus dem Verlauf."),
                 "{err}"
@@ -5937,13 +5937,13 @@ mod tests {
 
         #[test]
         fn asset_label_names_the_kind_in_german_with_four_digits() {
-            assert_eq!(crate::original::asset_label(MAP), "Karte 0000");
+            assert_eq!(crate::original::asset_label(MAP), "Map 0000");
             assert_eq!(
                 crate::original::asset_label(AssetId {
                     kind: AssetKind::InteriorBuildingModel,
                     index: 12,
                 }),
-                "Innenraum-Gebäudemodell 0012"
+                "Interior building model 0012"
             );
             assert_eq!(
                 crate::original::asset_label(AssetId {

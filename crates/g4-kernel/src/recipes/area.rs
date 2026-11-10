@@ -418,12 +418,12 @@ fn check_header_fits(
     Ok(())
 }
 
-/// „1 Karte“, „2 Karten“.
+/// „1 map“, „2 maps“.
 pub(super) fn maps_text(n: usize) -> String {
     if n == 1 {
-        "1 Karte".to_owned()
+        t!("recipes.maps_one").into_owned()
     } else {
-        format!("{n} Karten")
+        t!("recipes.maps_other", n = n).into_owned()
     }
 }
 
@@ -440,33 +440,38 @@ pub(super) fn assign_notes(
     let mut notes = Vec::new();
     if let Some(new) = &assign.new_header {
         let name = new_header_name(store, new, base)?;
-        notes.push(format!(
-            "Legt Header {id} „{name}“ als Kopie von Header {} an.",
-            new.template
-        ));
+        notes.push(
+            t!(
+                "recipes.note_new_header",
+                id = id,
+                name = name,
+                template = new.template
+            )
+            .into_owned(),
+        );
     }
     notes.push(match matrix {
-        Some(m) => format!("Header {id} zeigt auf Weltkarte {m:04}."),
-        None => format!("Header {id} zeigt auf die neue Weltkarte."),
+        Some(m) => t!("recipes.note_header_matrix", id = id, matrix = m : {:04}).into_owned(),
+        None => t!("recipes.note_header_new_matrix", id = id).into_owned(),
     });
     match assign.event_file {
         EventFileChoice::Keep => {}
-        EventFileChoice::New => notes.push(format!("Header {id} bekommt eine leere Eventdatei.")),
-        EventFileChoice::Copy(n) => notes.push(format!(
-            "Header {id} bekommt eine Kopie von Eventdatei {n:04}."
-        )),
+        EventFileChoice::New => {
+            notes.push(t!("recipes.note_header_empty_event_file", id = id).into_owned());
+        }
+        EventFileChoice::Copy(n) => notes.push(
+            t!("recipes.note_header_event_file_copy", id = id, event_file = n : {:04}).into_owned(),
+        ),
     }
     match &assign.place {
         None => {}
         Some(PlaceChoice::Existing(i)) => {
             let names = places::location_names(store)?;
             let name = names.get(usize::from(*i)).map_or("", String::as_str);
-            notes.push(format!("Header {id} bekommt den Ort „{name}“."));
+            notes.push(t!("recipes.note_header_place", id = id, name = name).into_owned());
         }
-        Some(PlaceChoice::New(name)) => notes.push(format!(
-            "Header {id} bekommt den neuen Ort „{}“.",
-            name.trim()
-        )),
+        Some(PlaceChoice::New(name)) => notes
+            .push(t!("recipes.note_header_new_place", id = id, name = name.trim()).into_owned()),
     }
     Ok(notes)
 }
@@ -479,10 +484,10 @@ pub(super) fn assign_irreversible(
 ) -> Result<Vec<String>, KernelError> {
     let mut out = Vec::new();
     if needs_patch(store, assign)? {
-        out.push("Der Header-Patch wird eingespielt".to_owned());
+        out.push(t!("recipes.irreversible_patch_applied").into_owned());
     }
     if assign.new_header.is_some() {
-        out.push(format!("Header {} wird angelegt", assign.id));
+        out.push(t!("recipes.irreversible_header_created", id = assign.id).into_owned());
     }
     Ok(out)
 }
@@ -491,8 +496,10 @@ pub(super) fn assign_irreversible(
 pub(super) fn event_file_irreversible(choice: EventFileChoice) -> Option<String> {
     match choice {
         EventFileChoice::Keep => None,
-        EventFileChoice::New => Some("Eine leere Eventdatei wird angelegt".to_owned()),
-        EventFileChoice::Copy(n) => Some(format!("Eventdatei {n:04} wird kopiert")),
+        EventFileChoice::New => Some(t!("recipes.irreversible_empty_event_file").into_owned()),
+        EventFileChoice::Copy(n) => {
+            Some(t!("recipes.irreversible_event_file_copied", event_file = n : {:04}).into_owned())
+        }
     }
 }
 
@@ -549,9 +556,9 @@ fn check_target(store: &mut Store, spec: &AreaSpec) -> Result<u16, KernelError> 
     let replaced = {
         let m = store.matrix(target.matrix)?;
         let Some(headers) = &m.headers else {
-            return Err(refused(format!(
-                "Anordnung {:04} ist keine Weltkarte: ihren Zellen sind keine Orte zugeordnet.",
-                target.matrix
+            return Err(refused(t!(
+                "recipes.matrix_not_world_map",
+                matrix = target.matrix : {:04}
             )));
         };
         // The last column and row of the block; the area has at least one cell.
@@ -565,10 +572,12 @@ fn check_target(store: &mut Store, spec: &AreaSpec) -> Result<u16, KernelError> 
         if !inside
             || !(u16::from(target.y)..=y2).all(|y| (u16::from(target.x)..=x2).all(|x| free(x, y)))
         {
-            return Err(refused(format!(
-                "Die Zellen x {} bis {x2}, y {} bis {y2} sind nicht frei: dort liegen Gebiete \
-                 oder sie liegen außerhalb der Weltkarte.",
-                target.x, target.y
+            return Err(refused(t!(
+                "recipes.cells_not_free",
+                x1 = target.x,
+                x2 = x2,
+                y1 = target.y,
+                y2 = y2
             )));
         }
         // Inside the block every filled cell is landscape.
@@ -586,7 +595,7 @@ fn check_target(store: &mut Store, spec: &AreaSpec) -> Result<u16, KernelError> 
 
 /// The label of the area's undo step.
 fn label(spec: &AreaSpec) -> String {
-    format!("Gebiet „{}“ angelegt", spec.name)
+    t!("recipes.area_created", name = spec.name).into_owned()
 }
 
 /// What [`apply`] would do, found with the same checks and without writing: a cell per
@@ -616,32 +625,40 @@ pub fn plan(store: &mut Store, spec: &AreaSpec) -> Result<Draft, KernelError> {
         ..Draft::default()
     };
     let n = spec.cells.len();
-    draft.notes.push(format!(
-        "Legt Gebiet „{}“ mit {} an.",
-        spec.name,
-        maps_text(n)
-    ));
+    draft
+        .notes
+        .push(t!("recipes.note_area", name = spec.name, maps = maps_text(n)).into_owned());
     match spec.target {
-        Some(t) => {
-            draft.notes.push(format!(
-                "Das Gebiet liegt auf Weltkarte {:04} ab Zelle x {}, y {}.",
-                t.matrix, t.x, t.y
-            ));
+        Some(target) => {
+            draft.notes.push(
+                t!(
+                    "recipes.note_area_position",
+                    matrix = target.matrix : {:04},
+                    x = target.x,
+                    y = target.y
+                )
+                .into_owned(),
+            );
             if checked.replaced > 0 {
-                draft.notes.push(format!(
-                    "Es ersetzt {} Landschaft.",
-                    if checked.replaced == 1 {
-                        "eine Zelle".to_owned()
-                    } else {
-                        format!("{} Zellen", checked.replaced)
-                    }
-                ));
+                draft.notes.push(if checked.replaced == 1 {
+                    t!("recipes.note_replaces_landscape_one").into_owned()
+                } else {
+                    t!(
+                        "recipes.note_replaces_landscape_other",
+                        n = checked.replaced
+                    )
+                    .into_owned()
+                });
             }
         }
-        None => draft.notes.push(format!(
-            "Das Gebiet bekommt eine eigene Weltkarte mit {} × {} Zellen.",
-            spec.width, spec.height
-        )),
+        None => draft.notes.push(
+            t!(
+                "recipes.note_area_own_matrix",
+                width = spec.width,
+                height = spec.height
+            )
+            .into_owned(),
+        ),
     }
     if let Some(assign) = &spec.header {
         let matrix = spec.target.map(|t| t.matrix);
@@ -654,18 +671,18 @@ pub fn plan(store: &mut Store, spec: &AreaSpec) -> Result<Draft, KernelError> {
     }
     match n {
         0 => {}
-        1 => draft.irreversible.push(format!(
-            "Karte {:04} wird kopiert",
-            spec.cells[0].source_map
-        )),
+        1 => draft.irreversible.push(
+            t!("recipes.irreversible_map_copied", map = spec.cells[0].source_map : {:04})
+                .into_owned(),
+        ),
         n => draft
             .irreversible
-            .push(format!("{n} Karten werden kopiert")),
+            .push(t!("recipes.irreversible_maps_copied", n = n).into_owned()),
     }
     if spec.target.is_none() {
         draft
             .irreversible
-            .push("Eine neue Weltkarte wird angelegt".to_owned());
+            .push(t!("recipes.irreversible_new_matrix").into_owned());
     }
     if let Some(assign) = &spec.header {
         draft
@@ -763,9 +780,6 @@ pub fn apply(store: &mut Store, spec: &AreaSpec) -> Result<Outcome<AreaReport>, 
         created: created.objects(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[
-            ("connect_doors", "Tür verbinden"),
-            ("new_figure", "Neue Figur hier"),
-        ]),
+        next: next_steps(&["connect_doors", "new_figure"]),
     })
 }

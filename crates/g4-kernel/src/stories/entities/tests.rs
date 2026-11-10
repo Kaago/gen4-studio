@@ -11,7 +11,7 @@ use crate::text::Severity;
 use crate::textproject::canon::to_canonical;
 use crate::textproject::codes::{ID_DANGLING_CODE, ID_MISMATCH_CODE, SCHEMA_CODE};
 use crate::textproject::ids::unknown_id_text;
-use crate::textproject::rename::{NOT_A_TEXT_PROJECT, rename_id, rename_id_files};
+use crate::textproject::rename::{not_a_text_project, rename_id, rename_id_files};
 use crate::textproject::symbols::SymbolKind;
 
 use super::super::schema::{Position, StepKind, Use, layout_rel, read_story, story_rel};
@@ -235,12 +235,12 @@ fn create_refuses_the_dspre_layout() {
     let fx = TextFixture::dspre();
     assert_eq!(
         refused(create_story_files(&fx.project(), &testfaden())),
-        NOT_A_TEXT_PROJECT
+        not_a_text_project()
     );
     let mut st = store(&fx);
     assert_eq!(
         refused(create_story(&mut st, &testfaden())),
-        NOT_A_TEXT_PROJECT
+        not_a_text_project()
     );
     assert!(st.history().0.is_empty());
     assert!(!fx.root().join("data").exists());
@@ -549,13 +549,13 @@ fn renaming_a_story_id_changes_register_and_file() {
     assert_eq!(
         refusal("WAECHTER").as_deref(),
         Some(
-            "Die neue ID muss mit STORY_ beginnen und darf danach nur A–Z, 0–9 und _ enthalten \
-             (höchstens 64 Zeichen)."
+            "The new ID must start with STORY_ and may then contain only A–Z, 0–9 and _ (at \
+             most 64 characters)."
         )
     );
     assert_eq!(
         refusal("STORY_0003").as_deref(),
-        Some("STORY_0003 ist die Ersatz-ID der Nummer 3.")
+        Some("STORY_0003 is the fallback ID of number 3.")
     );
     create_story_files(
         &fx.project(),
@@ -564,7 +564,7 @@ fn renaming_a_story_id_changes_register_and_file() {
     .unwrap();
     assert_eq!(
         refusal("STORY_ZWEI").as_deref(),
-        Some("STORY_ZWEI gibt es schon (Nummer 1).")
+        Some("STORY_ZWEI already exists (number 1).")
     );
     assert_eq!(
         crate::stories::number_of(&fx.project(), "STORY_WAECHTER").unwrap(),

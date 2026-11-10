@@ -22,7 +22,7 @@ use crate::textproject::codes::SCHEMA_CODE;
 use crate::textproject::ids::{RefInput, Resolver, unknown_id_text};
 use crate::textproject::manifest::{SchemaState, refusal, schema_state};
 use crate::textproject::registry::{IDS_DIR, Registry, registry_file};
-use crate::textproject::rename::{MAX_ID_LEN, NOT_A_TEXT_PROJECT, apply_file_step};
+use crate::textproject::rename::{MAX_ID_LEN, not_a_text_project, apply_file_step};
 use crate::textproject::symbols::{SymbolKind, fallback_id, normalize, parse_fallback};
 
 use super::schema::{
@@ -89,7 +89,7 @@ pub struct StoryReport {
 /// smallest free number, register entry, JSON (canonical) and an empty layout, as one file
 /// step labelled „Geschichte „<name>“ angelegt“. Refused before anything is written
 /// ([`KernelError::Refused`]): not a current text project
-/// ([`NOT_A_TEXT_PROJECT`](crate::textproject::rename::NOT_A_TEXT_PROJECT)), an empty name
+/// ([`not_a_text_project`](crate::textproject::rename::not_a_text_project)), an empty name
 /// ([`name_empty_text`]), a progress id that resolves nowhere
 /// ([`unknown_id_text`](crate::textproject::ids::unknown_id_text)), a duplicate step key
 /// ([`duplicate_key_text`]). A value above `u16` does not deserialize.
@@ -154,7 +154,7 @@ pub fn update_story_files(
 /// all three back byte-equal. No tombstone and nothing to free: nothing points at a story, so
 /// its number is free again at once. A file that is missing already (a register entry without
 /// its file) is left out of the step. Refused before anything is written: not a current text
-/// project ([`NOT_A_TEXT_PROJECT`](crate::textproject::rename::NOT_A_TEXT_PROJECT)), an id the
+/// project ([`not_a_text_project`](crate::textproject::rename::not_a_text_project)), an id the
 /// register does not have ([`unknown_id_text`](crate::textproject::ids::unknown_id_text)).
 pub fn delete_story(store: &mut Store, id: &str) -> Result<StoryReport, KernelError> {
     let started = Instant::now();
@@ -257,8 +257,8 @@ fn refuse<T>(why: impl Into<String>) -> Result<T, KernelError> {
 fn text_project(project: &Project) -> Result<(), KernelError> {
     match schema_state(&project.root)? {
         SchemaState::Current => Ok(()),
-        SchemaState::Missing => refuse(NOT_A_TEXT_PROJECT),
-        state => refuse(refusal(state).unwrap_or_else(|| NOT_A_TEXT_PROJECT.to_owned())),
+        SchemaState::Missing => refuse(not_a_text_project()),
+        state => refuse(refusal(state).unwrap_or_else(not_a_text_project)),
     }
 }
 

@@ -407,7 +407,7 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         "recipe_apply" => serde_json::from_value::<RecipeCall>(args.clone())
             .ok()
             .and_then(|call| recipes::is_irreversible(&call).ok().flatten())
-            .map_or(Class::Write, |why| Class::Irreversible(why.to_owned())),
+            .map_or(Class::Write, Class::Irreversible),
         "delete_entity" if frees_number(args) => {
             Kind::Irreversible("mcp.access.free_number").into()
         }
@@ -426,11 +426,11 @@ pub fn frees_number(args: &Value) -> bool {
 
 /// Whether [`classify`]'s answer `class` for `command` depends on the project, so that
 /// [`classify_in`] answers it exactly: `recipe_apply` of a visibility or a scene, which
-/// [`classify`] holds irreversible ([`recipes::LEVEL_SCRIPT_FILE`]) without knowing whether
+/// [`classify`] holds irreversible ([`recipes::level_script_file`]) without knowing whether
 /// the place needs a level script file of its own.
 pub fn needs_store(command: &str, class: &Class) -> bool {
     command == "recipe_apply"
-        && matches!(class, Class::Irreversible(why) if why == recipes::LEVEL_SCRIPT_FILE)
+        && matches!(class, Class::Irreversible(why) if *why == recipes::level_script_file())
 }
 
 /// [`classify`] with the project's store at hand: where the answer depends on the project
@@ -451,7 +451,7 @@ pub fn classify_in(command: &str, args: &Value, policy: &UserPolicy, store: &mut
     };
     match recipes::is_irreversible_in(store, &call) {
         Ok(None) => Class::Write,
-        Ok(Some(why)) => Class::Irreversible(why.to_owned()),
+        Ok(Some(why)) => Class::Irreversible(why),
         Err(_) => class,
     }
 }
@@ -870,7 +870,7 @@ mod tests {
         // The reason is the recipe's own (the kernel names it), passed on as it is.
         let reason = |args: &Value| {
             let call: RecipeCall = serde_json::from_value(args.clone()).unwrap();
-            Class::Irreversible(recipes::is_irreversible(&call).unwrap().unwrap().to_owned())
+            Class::Irreversible(recipes::is_irreversible(&call).unwrap().unwrap())
         };
         let patch = reason(&area(true));
         assert_eq!(classify(area(true)), patch);
@@ -956,7 +956,7 @@ mod tests {
                 json!({ "story": story, "header": header, "step": 0, "text": "Willkommen" }),
             )
         };
-        let level = Class::Irreversible(recipes::LEVEL_SCRIPT_FILE.to_owned());
+        let level = Class::Irreversible(recipes::level_script_file());
 
         // Without the store.
         let bare = |args: &Value| classify("recipe_apply", args, &policy);

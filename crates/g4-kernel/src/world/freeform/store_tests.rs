@@ -12,8 +12,8 @@ use crate::model_import::samples::{BIG_OBJ, CUBE_OBJ, PLANE_GLB, write_samples};
 use crate::project::{AssetKind, Project};
 use crate::store::Store;
 use crate::test_support::{TextFixture, world_ready};
-use crate::world::WORLD_NEEDS_TEXT_PROJECT;
 use crate::world::edit::{WorldCreateRequest, world_create};
+use crate::world::world_needs_text_project;
 
 const SIDE: &str = "data/maps/0000.g4_imp_cube.glb";
 
@@ -132,7 +132,7 @@ fn freeform_add_is_one_undo_step_with_pack_and_side_file() {
     let (undo_before, _) = st.history();
     let report =
         world_freeform_add(&mut st, &req(&fx, 0, CUBE_OBJ, json!({"at": [16, 0, -32]}))).unwrap();
-    let label = "Freiform hinzugefügt: Karte 0000 (0000.g4_imp_cube.glb)";
+    let label = "Free-form added: Map 0000 (0000.g4_imp_cube.glb)";
     assert_eq!(freeform_label(0, &report.glb), label);
     assert!(report.change.is_some());
     let bake = report.bake.as_ref().expect("a bake");
@@ -196,7 +196,7 @@ fn a_failed_world_step_rolls_back_pack_and_side_file() {
     let side = fx.root().join(SIDE);
     let e = in_one_step(
         &mut st,
-        "Freiform hinzugefügt: Karte 0000 (0000.g4_imp_cube.glb)",
+        "Free-form added: Map 0000 (0000.g4_imp_cube.glb)",
         Some((0, &bound.new)),
         step,
         |st| {
@@ -301,7 +301,7 @@ fn a_model_over_the_budget_is_refused_by_inspect_and_add() {
         bake.messages
     );
     let text = refusal(world_freeform_add(&mut st, &big));
-    assert!(text.starts_with("Freiform nicht hinzugefügt: "), "{text}");
+    assert!(text.starts_with("Free-form not added: "), "{text}");
     let after = (
         pack(&project),
         maps_dir(&fx),
@@ -336,15 +336,15 @@ fn add_refuses_without_world_and_outside_the_text_project() {
     let cube = req(&fx, 0, CUBE_OBJ, json!({}));
     assert_eq!(
         refusal(world_freeform_add(&mut st, &cube)),
-        WORLD_NEEDS_TEXT_PROJECT
+        world_needs_text_project()
     );
     assert_eq!(
         refusal(world_freeform_inspect(&mut st, &cube)),
-        WORLD_NEEDS_TEXT_PROJECT
+        world_needs_text_project()
     );
     assert_eq!(
         refusal(world_freeform_remove(&mut st, 0, 0)),
-        WORLD_NEEDS_TEXT_PROJECT
+        world_needs_text_project()
     );
     assert!(st.history().0.is_empty());
     assert!(!fx.root().join("data/maps").exists());
@@ -368,7 +368,7 @@ fn remove_drops_the_entry_and_the_unshared_side_file() {
     assert!(!fx.root().join(SIDE).exists());
     assert_eq!(
         st.history().0.last().map(String::as_str),
-        Some("Freiform entfernt: Karte 0000 (0000.g4_imp_cube.glb)")
+        Some("Free-form removed: Map 0000 (0000.g4_imp_cube.glb)")
     );
     st.undo().unwrap();
     assert_eq!(fx.read(SIDE), side);
@@ -394,7 +394,7 @@ fn remove_drops_the_entry_and_the_unshared_side_file() {
     // Past the entries.
     assert_eq!(
         refusal(world_freeform_remove(&mut st, 0, 1)),
-        "Karte 0000 hat keine Freiform 1 (1 Einträge)."
+        "Map 0000 has no free-form 1 (1 entries)."
     );
 }
 
@@ -432,8 +432,7 @@ fn remove_refuses_a_verbatim_entry() {
     let history = st.history();
     assert_eq!(
         refusal(world_freeform_remove(&mut st, 0, 0)),
-        "Freiform 0 von Karte 0000 ist das Originalmodell (Form 1); zurück zur binären Karte \
-         über „Als binäre Karte übernehmen“."
+        "Free-form 0 of Map 0000 is the original model (Form 1); back to the binary map through “Adopt as binary map”."
     );
     assert_eq!(st.history(), history);
     assert_eq!(entries(&mut st).len(), 1);

@@ -300,10 +300,9 @@ impl EntitySource {
         out: &mut SourceWrite,
     ) -> Result<(), KernelError> {
         let Some(table) = project.item_table_to_write() else {
-            return Err(KernelError::Refused(format!(
-                "{} hat keine geprüfte Item-Tabelle; Item-Dateien gibt es nur mit ihr.",
-                project.game_code
-            )));
+            return Err(KernelError::Refused(
+                t!("textproject.no_item_table_write", game = project.game_code).into_owned(),
+            ));
         };
         let member_of: Vec<u16> = table.entries.iter().map(|e| e.data).collect();
         let ids: Vec<u32> = member_of
@@ -359,11 +358,15 @@ impl EntitySource {
                 .get(..count * NAME_LEN)
                 .map(<[u8]>::to_vec)
                 .ok_or_else(|| {
-                    KernelError::InvalidProject(format!(
-                        "{} hat {} Einträge, die Header-Tabelle {count}.",
-                        path.display(),
-                        disk.len() / NAME_LEN
-                    ))
+                    KernelError::InvalidProject(
+                        t!(
+                            "textproject.names_entries",
+                            file = path.display(),
+                            entries = disk.len() / NAME_LEN,
+                            count = count
+                        )
+                        .into_owned(),
+                    )
                 });
         }
         let dir_rel = Art::Headers.dir();
@@ -398,11 +401,15 @@ impl EntitySource {
             let path = project.mapname_path();
             let disk = std::fs::read(&path).map_err(io_at(&path))?;
             let rest = disk.get(names.len()..want).ok_or_else(|| {
-                KernelError::InvalidProject(format!(
-                    "{} hat {} Einträge, die Header-Tabelle {count}.",
-                    path.display(),
-                    disk.len() / NAME_LEN
-                ))
+                KernelError::InvalidProject(
+                    t!(
+                        "textproject.names_entries",
+                        file = path.display(),
+                        entries = disk.len() / NAME_LEN,
+                        count = count
+                    )
+                    .into_owned(),
+                )
             })?;
             names.extend_from_slice(rest);
         }
@@ -424,10 +431,14 @@ impl EntitySource {
             return Ok(());
         };
         if !table.len().is_multiple_of(HEADER_LEN) {
-            return Err(KernelError::InvalidProject(format!(
-                "{} Byte Header-Tabelle sind kein Vielfaches von {HEADER_LEN}.",
-                table.len()
-            )));
+            return Err(KernelError::InvalidProject(
+                t!(
+                    "textproject.header_table_length",
+                    len = table.len(),
+                    header_len = HEADER_LEN
+                )
+                .into_owned(),
+            ));
         }
         let count = table.len() / HEADER_LEN;
         let names = self.header_names(project, count)?;
@@ -495,7 +506,11 @@ impl EntitySource {
             .into_iter()
             .next()
             .map(|(_, json)| json)
-            .ok_or_else(|| KernelError::InvalidProject(format!("Header {index:04}: keine JSON")))
+            .ok_or_else(|| {
+                KernelError::InvalidProject(
+                    t!("textproject.no_json", what = format!("Header {index:04}")).into_owned(),
+                )
+            })
     }
 
     /// Writes `data/<art>/NNNN.<ext>` of a binary member where it differs from the base

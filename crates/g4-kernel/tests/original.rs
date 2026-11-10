@@ -20,8 +20,8 @@ use g4_kernel::diff::DiffSubject;
 use g4_kernel::dynamic_headers;
 use g4_kernel::error::KernelError;
 use g4_kernel::original::{
-    ChangeState, ChangedReport, NO_ORIGINAL, Original, ResetChange, ResetTarget, availability,
-    changed_from_original, header_fields, plan_reset, reset,
+    ChangeState, ChangedReport, Original, ResetChange, ResetTarget, availability,
+    changed_from_original, header_fields, no_original, plan_reset, reset,
 };
 use g4_kernel::project::{AssetId, AssetKind, Location, Project};
 use g4_kernel::scripts::{self, ScriptSource, SourceKind};
@@ -624,7 +624,7 @@ fn changed_list_after_edits_names_them_and_after_reset_not() {
     edit(&mut store, &trainer);
     store.save().unwrap();
     let edited = compare();
-    assert_eq!(labels(&edited), ["Karte 0003", "Trainer 0001"]);
+    assert_eq!(labels(&edited), ["Map 0003", "Trainer 0001"]);
     let targets: Vec<_> = edited.entries.iter().map(|e| e.target).collect();
     assert_eq!(targets, [Some(map), Some(trainer)]);
 
@@ -740,9 +740,9 @@ fn refusal<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
 /// The line of a tombstone in the plan of a reset.
 fn grabstein() -> ResetChange {
     ResetChange {
-        label: "Grabstein".to_owned(),
-        before: "gelöscht".to_owned(),
-        after: "vorhanden".to_owned(),
+        label: "Tombstone".to_owned(),
+        before: "deleted".to_owned(),
+        after: "present".to_owned(),
     }
 }
 
@@ -767,10 +767,7 @@ fn reset_of_a_tombstoned_original_takes_the_tombstone_back() {
     assert_eq!(result.changed, target.assets());
     assert!(!store.is_deleted(deleted));
     assert_eq!(store.undo_depth(), depth + 1, "one step");
-    assert_eq!(
-        last_label(&store),
-        "Auf Original zurückgesetzt: Trainer 0001"
-    );
+    assert_eq!(last_label(&store), "Reset to original: Trainer 0001");
     assert!(plan_reset(&mut store, &base, &target).unwrap().same);
 
     // Edited and deleted: the tombstone line first, then the member; one step takes both
@@ -820,13 +817,16 @@ fn reset_of_a_tombstoned_new_entity_stays_no_original() {
 
     assert_eq!(
         availability(&target, &base, store.project()).unwrap(),
-        Some(NO_ORIGINAL.to_owned())
+        Some(no_original())
     );
-    assert_eq!(refusal(plan_reset(&mut store, &base, &target)), NO_ORIGINAL);
+    assert_eq!(
+        refusal(plan_reset(&mut store, &base, &target)),
+        no_original()
+    );
     let depth = store.undo_depth();
     assert_eq!(
         refusal(reset(&mut store, &base, &target, None)),
-        NO_ORIGINAL
+        no_original()
     );
     assert_eq!(store.undo_depth(), depth);
     assert!(
@@ -860,19 +860,19 @@ fn changed_from_original_lists_a_tombstone_as_deleted() {
     let listed: Vec<_> = report
         .entries
         .iter()
-        .filter(|e| e.group == "Trainer" || e.group == "Eventdateien")
+        .filter(|e| e.group == "Trainers" || e.group == "Event files")
         .map(|e| (e.label.as_str(), e.state, e.target))
         .collect();
     assert_eq!(
         listed,
         [
             (
-                "Eventdatei 0000",
+                "Event file 0000",
                 ChangeState::Deleted,
                 Some(ResetTarget::EventFile { index: 0 })
             ),
             (
-                "Eventdatei 0001",
+                "Event file 0001",
                 ChangeState::Changed,
                 Some(ResetTarget::EventFile { index: 1 })
             ),

@@ -203,8 +203,10 @@ pub(crate) fn insert_rule(
     file: u16,
 ) -> Result<String, KernelError> {
     let missing = || {
-        refused(format!(
-            "Der Sichtbarkeits-Block von Geschichte {story} fehlt in Scriptdatei {file}."
+        refused(t!(
+            "recipes.visibility_block_missing",
+            story = story,
+            script_file = file
         ))
     };
     let marker = visibility_end_marker(story, header);

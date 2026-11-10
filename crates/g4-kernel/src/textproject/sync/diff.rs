@@ -59,7 +59,9 @@ pub const MAX_LINES: usize = 40;
 const CONTEXT: usize = 3;
 
 /// What a side shows for a value or file it does not have.
-const ABSENT: &str = "fehlt";
+fn absent() -> String {
+    t!("textproject.diff_absent").into_owned()
+}
 
 /// The most cells of the table that aligns two scripts' lines; larger differences are paired
 /// line by line.
@@ -130,7 +132,7 @@ pub(super) fn conflict_diff(
         .transpose()?
         .flatten()
         .ok_or_else(|| {
-            KernelError::InvalidProject(format!("{key} ist keine Einheit des Abgleichs."))
+            KernelError::InvalidProject(t!("textproject.not_a_sync_unit", key = key).into_owned())
         })?;
     let values = match values {
         Some(of) => of(&unit.assets)?,
@@ -283,13 +285,14 @@ fn sized(out: &mut Lines, path: &str, studio: Option<&[u8]>, dspre: Option<&[u8]
     }
     let same_size = studio.map(<[u8]>::len) == dspre.map(<[u8]>::len);
     let shown = |b: Option<&[u8]>| match b {
-        None => ABSENT.to_owned(),
-        Some(b) if same_size => format!(
-            "{} Byte · xxh3 {:016x}",
-            b.len(),
-            xxhash_rust::xxh3::xxh3_64(b)
-        ),
-        Some(b) => format!("{} Byte", b.len()),
+        None => absent(),
+        Some(b) if same_size => t!(
+            "textproject.diff_bytes_hash",
+            n = b.len(),
+            hash = xxhash_rust::xxh3::xxh3_64(b) : {:016x}
+        )
+        .into_owned(),
+        Some(b) => t!("textproject.diff_bytes", n = b.len()).into_owned(),
     };
     out.push(path.to_owned(), shown(studio), shown(dspre));
 }
@@ -315,12 +318,9 @@ fn at(prefix: &str, path: &str) -> String {
     }
 }
 
-/// A value for the user: compact JSON, [`ABSENT`] when the side has none.
+/// A value for the user: compact JSON, [`absent`] when the side has none.
 fn shown(value: Option<&Value>) -> String {
-    value.map_or_else(
-        || ABSENT.to_owned(),
-        |v| serde_json::to_string(v).unwrap_or_default(),
-    )
+    value.map_or_else(absent, |v| serde_json::to_string(v).unwrap_or_default())
 }
 
 /// The differing values of `studio` and `dspre` below `path`: objects by key (the Studio's
@@ -343,15 +343,21 @@ fn bytes(out: &mut Lines, prefix: &str, studio: Option<&[u8]>, dspre: Option<&[u
     if studio == dspre {
         return;
     }
-    let size =
-        |b: Option<&[u8]>| b.map_or_else(|| ABSENT.to_owned(), |b| format!("{} Byte", b.len()));
-    let hash = |b: Option<&[u8]>| {
-        b.map_or_else(
-            || ABSENT.to_owned(),
-            |b| format!("{:016x}", xxhash_rust::xxh3::xxh3_64(b)),
-        )
+    let size = |b: Option<&[u8]>| {
+        b.map_or_else(absent, |b| {
+            t!("textproject.diff_bytes", n = b.len()).into_owned()
+        })
     };
-    out.push(at(prefix, "Größe"), size(studio), size(dspre));
+    let hash = |b: Option<&[u8]>| {
+        b.map_or_else(absent, |b| {
+            format!("{:016x}", xxhash_rust::xxh3::xxh3_64(b))
+        })
+    };
+    out.push(
+        at(prefix, &t!("textproject.diff_size")),
+        size(studio),
+        size(dspre),
+    );
     out.push(at(prefix, "xxh3"), hash(studio), hash(dspre));
 }
 
@@ -498,7 +504,7 @@ fn blob(project: &Project, file: &Path, unit: &Unit, out: &mut Lines) -> Result<
 /// The differing lines of two texts with [`CONTEXT`] lines around them: the lines aligned by
 /// their longest common subsequence, in each run between equal lines the Studio's removed
 /// lines paired with DSPRE's added ones. `Zeile` is the Studio's line number (DSPRE's for a
-/// line only DSPRE has); a missing side is [`ABSENT`].
+/// line only DSPRE has); a missing side is [`absent`].
 fn lines(out: &mut Lines, studio: &str, dspre: &str) {
     let a: Vec<&str> = studio.lines().collect();
     let b: Vec<&str> = dspre.lines().collect();
@@ -519,9 +525,9 @@ fn lines(out: &mut Lines, studio: &str, dspre: &str) {
     for (&(i, j), _) in pairs.iter().zip(&show).filter(|(_, s)| **s) {
         let number = i.or(j).map_or(0, |n| n + 1);
         out.push(
-            format!("Zeile {number}"),
-            i.map_or_else(|| ABSENT.to_owned(), |i| a[i].to_owned()),
-            j.map_or_else(|| ABSENT.to_owned(), |j| b[j].to_owned()),
+            t!("textproject.diff_line", number = number).into_owned(),
+            i.map_or_else(absent, |i| a[i].to_owned()),
+            j.map_or_else(absent, |j| b[j].to_owned()),
         );
     }
 }
@@ -617,9 +623,9 @@ mod tests {
         let b = "1\n2\n3\n4\n5\ny\n7\n8\n9\n10\n11\n";
         let got = diff(a, b);
         assert_eq!(got.len(), 7, "{got:?}");
-        assert_eq!(got[0], line("Zeile 3", "3", "3"));
-        assert_eq!(got[3], line("Zeile 6", "x", "y"));
-        assert_eq!(got[6], line("Zeile 9", "9", "9"));
+        assert_eq!(got[0], line("Line 3", "3", "3"));
+        assert_eq!(got[3], line("Line 6", "x", "y"));
+        assert_eq!(got[6], line("Line 9", "9", "9"));
     }
 
     #[test]
@@ -628,10 +634,10 @@ mod tests {
         assert_eq!(
             got,
             [
-                line("Zeile 1", "a", "a"),
-                line("Zeile 2", ABSENT, "new"),
-                line("Zeile 2", "b", "b"),
-                line("Zeile 3", "c", "c"),
+                line("Line 1", "a", "a"),
+                line("Line 2", &absent(), "new"),
+                line("Line 2", "b", "b"),
+                line("Line 3", "c", "c"),
             ]
         );
     }
@@ -641,9 +647,9 @@ mod tests {
         let mut out = Lines::default();
         texts(&mut out, "a\nb\n", "a\r\nb\r\n");
         let paths: Vec<&str> = out.lines.iter().map(|l| l.path.as_str()).collect();
-        assert_eq!(paths, ["Größe", "xxh3"]);
-        assert_eq!(out.lines[0].studio, "4 Byte");
-        assert_eq!(out.lines[0].dspre, "6 Byte");
+        assert_eq!(paths, ["Size", "xxh3"]);
+        assert_eq!(out.lines[0].studio, "4 bytes");
+        assert_eq!(out.lines[0].dspre, "6 bytes");
     }
 
     #[test]
@@ -656,8 +662,8 @@ mod tests {
             out.lines,
             [
                 line("data.power", "1", "2"),
-                line("data.list[1]", "2", ABSENT),
-                line("new", ABSENT, "true"),
+                line("data.list[1]", "2", &absent()),
+                line("new", &absent(), "true"),
             ]
         );
     }

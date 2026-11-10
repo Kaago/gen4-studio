@@ -25,7 +25,9 @@ use crate::store::Store;
 use crate::stories::{Step, StepKind, Use, duplicate_key_text};
 
 /// The refusal for an empty text.
-const NO_TEXT: &str = "Die Belohnung braucht einen Text.";
+fn no_text() -> String {
+    t!("recipes.reward_needs_text").into_owned()
+}
 
 /// The kind word of the flag's id: `FLAG_STORY_<NAME>_BELOHNUNG_<local_id>`.
 const FLAG_KIND: &str = "BELOHNUNG";
@@ -69,24 +71,39 @@ fn step_key(flag: u16) -> String {
 
 /// The undo label, also the flag's description.
 fn label(local_id: u16, story: &str) -> String {
-    format!("Belohnung von Figur {local_id} in „{story}“")
+    t!("recipes.reward_label", local_id = local_id, story = story).into_owned()
 }
 
 /// The refusal for an item the game does not have.
 fn no_item_text(item: u16) -> String {
-    format!("Gegenstand {item} gibt es nicht.")
+    t!("recipes.item_missing", item = item).into_owned()
 }
 
 /// The sentences of the dialog: the reward, the flag's name and where script and message go.
 fn notes(local_id: u16, from: u16, item: u16, flag: (u16, &str), hull: &Hull) -> Vec<String> {
     let (number, flag_id) = flag;
     vec![
-        format!("Figur {local_id} gibt ab Schritt {from} einmal Gegenstand {item}."),
-        format!("Benennt Flag 0x{number:04X} als {flag_id}."),
-        format!(
-            "Script #{} in Scriptdatei {}, Nachricht {} in Archiv {}.",
-            hull.slot, hull.files.script_file, hull.message, hull.files.text_archive
-        ),
+        t!(
+            "recipes.note_reward",
+            local_id = local_id,
+            from = from,
+            item = item
+        )
+        .into_owned(),
+        t!(
+            "recipes.note_names_flag",
+            flag = number : {:04X},
+            id = flag_id
+        )
+        .into_owned(),
+        t!(
+            "recipes.note_hull_script",
+            slot = hull.slot,
+            script_file = hull.files.script_file,
+            message = hull.message,
+            archive = hull.files.text_archive
+        )
+        .into_owned(),
     ]
 }
 
@@ -104,7 +121,9 @@ fn item_count(store: &Store) -> Result<usize, KernelError> {
 /// message and the flag.
 fn reward_step(name: Option<&str>, from: u16, flag: (u16, &str), hull: &Hull) -> Step {
     let local_id = hull.figure.local_id;
-    let name = step_name(name, || format!("Belohnung von Figur {local_id}"));
+    let name = step_name(name, || {
+        t!("recipes.reward_step", local_id = local_id).into_owned()
+    });
     Step {
         key: step_key(flag.0),
         value: from,
@@ -163,7 +182,7 @@ fn check(store: &mut Store, input: &RewardOnceInput) -> Result<Checked, KernelEr
         &HullRequest {
             figure: &input.figure,
             text: &input.text,
-            no_text: NO_TEXT,
+            no_text: &no_text(),
             name: &reward_name,
         },
     )?;
@@ -267,7 +286,7 @@ pub fn apply(
         created: Vec::new(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("play_here", "Hier spielen")]),
+        next: next_steps(&["play_here"]),
     })
 }
 

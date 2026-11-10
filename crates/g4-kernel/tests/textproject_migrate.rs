@@ -229,7 +229,7 @@ fn migrate_refuses_a_newer_schema() {
 
     assert_eq!(
         refused(migrate(&root).unwrap_err()),
-        "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 7)."
+        "The text project comes from a newer version of Gen4 Studio (schema version 7)."
     );
     assert_eq!(
         std::fs::read_to_string(root.join(MANIFEST_FILE)).unwrap(),
@@ -240,7 +240,7 @@ fn migrate_refuses_a_newer_schema() {
     let empty = tempfile::tempdir().unwrap();
     assert_eq!(
         refused(migrate(empty.path()).unwrap_err()),
-        "Kein Textprojekt: g4-project.json fehlt."
+        "No text project: g4-project.json is missing."
     );
 }
 
@@ -446,8 +446,7 @@ fn a_v1_project_is_refused_until_migrated() {
     assert_eq!(
         refused(read_manifest(&root).unwrap_err()),
         format!(
-            "Das Textprojekt hat Schema-Version 1, diese Fassung kennt {SCHEMA_VERSION}: \
-             `g4k text migrate` ausführen."
+            "The text project has schema version 1, this version of the Studio knows {SCHEMA_VERSION}: run `g4k text migrate`."
         )
     );
     migrate(&root).unwrap();

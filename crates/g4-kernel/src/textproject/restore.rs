@@ -25,10 +25,13 @@ use super::base_layer::{BaseLayer, COMPLETE};
 use super::{ImportReport, MANIFEST_FILE, import, sync};
 
 /// What the app says about a folder [`needs_restore`] is true for.
-pub const RESTORE_NEEDED: &str =
-    "Dieser Ordner ist ein Textprojekt ohne Spieldateien, etwa ein frischer Git-Klon.";
+pub fn restore_needed() -> String {
+    t!("textproject.restore_needed").into_owned()
+}
 /// The refusal of [`restore_from_base`] for a project that has its game files.
-pub const HAS_GAME_FILES: &str = "Das Projekt hat seine Spieldateien schon.";
+pub fn has_game_files() -> String {
+    t!("textproject.has_game_files").into_owned()
+}
 
 /// The file whose presence makes a folder a project; [`restore_from_base`] writes it last.
 const HEADER_FILE: &str = "header.yaml";
@@ -94,7 +97,7 @@ pub struct RestoreReport {
 ///    [`sync::record_all`] records every watched file as in step, so none is left without a
 ///    record.
 ///
-/// Refused, with nothing written, without [`needs_restore`] ([`HAS_GAME_FILES`]), without a
+/// Refused, with nothing written, without [`needs_restore`] ([`has_game_files`]), without a
 /// base mark ([`NO_MARK`]; an unreadable or newer mark with its own sentence) and for another
 /// ROM than the mark's (the sentence of [`other_rom`], as the import and `patch create` say
 /// it). Staging folders of earlier runs (`.g4/tmp/restore-*`) are removed first, this run's
@@ -107,7 +110,7 @@ pub fn restore_from_base(
 ) -> Result<RestoreReport, KernelError> {
     let started = Instant::now();
     if !needs_restore(root) {
-        return Err(KernelError::Refused(HAS_GAME_FILES.to_owned()));
+        return Err(KernelError::Refused(has_game_files()));
     }
     let mark = match mark_state(root) {
         MarkState::Present(mark) => mark,
@@ -628,9 +631,9 @@ mod tests {
         let fx = TextFixture::exported();
         assert!(!needs_restore(fx.root()), "header.yaml is there");
         let err = restore_from_base(fx.root(), &fx.base(), &mut |_| {}).unwrap_err();
-        assert_eq!(refusal(err), HAS_GAME_FILES);
+        assert_eq!(refusal(err), has_game_files());
         let err = restore_from_base(dspre.root(), &dspre.base(), &mut |_| {}).unwrap_err();
-        assert_eq!(refusal(err), HAS_GAME_FILES);
+        assert_eq!(refusal(err), has_game_files());
     }
 
     #[cfg(unix)]

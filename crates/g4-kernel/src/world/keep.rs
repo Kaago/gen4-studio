@@ -219,47 +219,42 @@ fn put(fresh: Vec<u8>, source: Value, world: Option<Value>) -> Result<Vec<u8>, K
     Ok(to_canonical(&Value::Object(out)))
 }
 
-/// „textproject.map-source: Karte 0123 ist eine Welt-Karte, ihr Member lässt sich nicht lesen;
-/// Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder die Welt aus der Datei
-/// sichern).“ The number comes from the reason of the locked member (`map 0123: …`); without
-/// one the sentence says „Diese Karte“.
+/// „textproject.map-source: Map 0123 is a world map, its member does not read; writing would
+/// lose the world object. …“ The number comes from the reason of the locked member
+/// (`map 0123: …`); without one the sentence says „This map“.
 fn locked_world_refusal(reason: &str) -> String {
     let number = reason
         .strip_prefix("map ")
         .and_then(|rest| rest.get(..4))
         .filter(|digits| digits.bytes().all(|b| b.is_ascii_digit()));
     let map = match number {
-        Some(digits) => format!("Karte {digits}"),
-        None => "Diese Karte".to_owned(),
+        Some(digits) => t!("world.map_label", map = digits).into_owned(),
+        None => t!("world.this_map").into_owned(),
     };
     world_refusal(&map)
 }
 
-/// [`locked_world_refusal`] for map `map` („Karte 0123 ist eine Welt-Karte, …“): a stroke on a
+/// [`locked_world_refusal`] for map `map` („Map 0123 is a world map, …“): a stroke on a
 /// world map whose member does not read is refused ([`super::edit::world_edit`]), as writing it
 /// would be. A binary map that is to become a world map has its own text
 /// ([`super::edit::binary_map_refusal`]: `world_create`, `world_adopt`).
 pub(crate) fn locked_map_refusal(map: u16) -> String {
-    world_refusal(&format!("Karte {map:04}"))
+    world_refusal(&t!("world.map_label", map = map : {:04}))
 }
 
 /// The refusal of a world on a locked map, the map named `map`.
 fn world_refusal(map: &str) -> String {
-    format!(
-        "{MAP_SOURCE_CODE}: {map} ist eine Welt-Karte, ihr Member lässt sich nicht lesen; \
-         Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder die Welt aus der \
-         Datei sichern)."
-    )
+    t!("world.locked_world", code = MAP_SOURCE_CODE, map = map).into_owned()
 }
 
-/// „source: „world“ braucht das Objekt `world`.“ as a `textproject.map-source` error.
+/// „source: “world” needs the object `world`.“ as a `textproject.map-source` error.
 pub(crate) fn source_without_world() -> String {
-    format!("{MAP_SOURCE_CODE}: source: „world“ braucht das Objekt `world`.")
+    t!("world.source_without_world", code = MAP_SOURCE_CODE).into_owned()
 }
 
-/// „world: nur mit source „world“.“ as a `textproject.map-source` error.
+/// „world: only with source “world”.“ as a `textproject.map-source` error.
 pub(crate) fn world_without_source() -> String {
-    format!("{MAP_SOURCE_CODE}: world: nur mit source „world“.")
+    t!("world.world_without_source", code = MAP_SOURCE_CODE).into_owned()
 }
 
 /// The world as a JSON value, in the key order of its struct.
@@ -379,7 +374,7 @@ mod tests {
         v["source"] = json!("binary");
         assert_eq!(
             refused(&to_canonical(&v)),
-            "textproject.map-source: world: nur mit source „world“."
+            "textproject.map-source: world: only with source “world”."
         );
         let kept = carried(&v);
         assert_eq!(
@@ -390,7 +385,7 @@ mod tests {
         v.as_object_mut().unwrap().remove("world");
         assert_eq!(
             refused(&to_canonical(&v)),
-            "textproject.map-source: source: „world“ braucht das Objekt `world`."
+            "textproject.map-source: source: “world” needs the object `world`."
         );
         let kept = carried(&v);
         assert_eq!(kept["source"], "world");
@@ -419,9 +414,7 @@ mod tests {
             "locked": "map 0123: does not write back byte for byte",
             "raw": {"file": "0123.map.bin"}
         }));
-        let refusal = "textproject.map-source: Karte 0123 ist eine Welt-Karte, ihr Member lässt \
-                       sich nicht lesen; Schreiben verlöre das Weltobjekt. Erst den Member \
-                       reparieren (oder die Welt aus der Datei sichern).";
+        let refusal = "textproject.map-source: Map 0123 is a world map, its member cannot be read; writing would lose the world object. Repair the member first (or save the world from the file).";
         let refused = |r: Result<Vec<u8>, KernelError>| match r {
             Err(KernelError::Refused(text)) => text,
             other => panic!("{other:?}"),
@@ -445,7 +438,7 @@ mod tests {
         let other = to_canonical(&json!({"locked": "kaputt", "raw": {"hex": "00"}}));
         assert!(
             refused(carry_world(Some(&world_file), other))
-                .starts_with("textproject.map-source: Diese Karte ist eine Welt-Karte,")
+                .starts_with("textproject.map-source: This map is a world map,")
         );
     }
 

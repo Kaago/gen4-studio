@@ -2,7 +2,7 @@
 //! Karte übernehmen“ ([`world_to_binary`]): each is one undo step on the store's world map
 //! asset ([`AssetKind::WorldMap`]), whose bytes are the world object of the map's JSON, and
 //! (create, edit) on the map it bakes into ([`crate::store::Tx::edit_world`]). All are refused
-//! outside a text project of the current schema ([`WORLD_NEEDS_TEXT_PROJECT`]) and change
+//! outside a text project of the current schema ([`world_needs_text_project`]) and change
 //! nothing when they are refused.
 //!
 //! A change names cells and exactly one of `tile` (on a layer, the ground by default),
@@ -33,21 +33,29 @@ use super::tileset::{Tileset, tile_outside};
 
 /// Why painting is refused outside a text project (`world_create`, `world_edit`,
 /// `tileset_save` in the DSPRE layout or a text project of another schema).
-pub const WORLD_NEEDS_TEXT_PROJECT: &str =
-    "Boden malen gibt es im Textprojekt (Technik › Textprojekt).";
+pub fn world_needs_text_project() -> String {
+    t!("world.needs_text_project").into_owned()
+}
 /// A change with none or more than one of its fields.
-pub const ONE_FIELD: &str =
-    "Eine Änderung setzt genau eines von tile, height, ramp, permission, terrain, cliff.";
+pub fn one_field() -> String {
+    t!("world.one_field").into_owned()
+}
 /// A call whose changes leave the world as it is.
-pub const NOTHING_TO_CHANGE: &str = "Nichts zu ändern.";
+pub fn nothing_to_change() -> String {
+    t!("world.nothing_to_change").into_owned()
+}
 /// Why a world has no state to go back to (`reset` „Auf Original zurücksetzen“).
-pub const WORLD_HAS_NO_ORIGINAL: &str =
-    "Eine Welt hat kein Original; erst „Als binäre Karte übernehmen“.";
+pub fn world_has_no_original() -> String {
+    t!("world.has_no_original").into_owned()
+}
 /// A height or a ramp on an overlay.
-const GROUND_ONLY: &str = "Höhen und Rampen gibt es nur auf der Bodenebene (0).";
+fn ground_only() -> String {
+    t!("world.heights_ground_only").into_owned()
+}
 /// A permission with a layer.
-const PERMISSION_NO_LAYER: &str =
-    "permission gilt für die Karte, nicht für eine Ebene; layer weglassen.";
+fn permission_no_layer() -> String {
+    t!("world.permission_no_layer").into_owned()
+}
 /// The tile a new world is filled with.
 const DEFAULT_FILL: &str = "0000";
 /// Cells per row and rows per layer.
@@ -55,32 +63,35 @@ const MAP_CELLS: usize = g4_formats::map::MAP_SIZE;
 /// The token of an empty cell.
 const EMPTY: &str = ".";
 
-/// „Karte 0123 ist keine Welt-Karte; erst „Welt anlegen“ (world_create).“
+/// „Map 0123 is no world map; first “Create world” (world_create).“
 pub fn not_a_world_map(map: u16) -> String {
-    format!("Karte {map:04} ist keine Welt-Karte; erst „Welt anlegen“ (world_create).")
+    t!("world.not_a_world_map", map = map : {:04}).into_owned()
 }
 
-/// „Karte 0123 ist schon eine Welt-Karte.“
+/// „Map 0123 is already a world map.“
 pub fn already_world(map: u16) -> String {
-    format!("Karte {map:04} ist schon eine Welt-Karte.")
+    t!("world.already_world", map = map : {:04}).into_owned()
 }
 
-/// „Karte 0123 liegt in keiner Matrixzelle mit Header; Tileset angeben (`tileset`).“
+/// „Map 0123 lies in no matrix cell with a header; specify a tileset (`tileset`).“
 fn no_package(map: u16) -> String {
-    format!("Karte {map:04} liegt in keiner Matrixzelle mit Header; Tileset angeben (`tileset`).")
+    t!("world.no_package", map = map : {:04}).into_owned()
 }
 
-/// „Zelle (32, 4) liegt außerhalb der Karte (0 bis 31).“
+/// „Cell (32, 4) is outside the map (0 to 31).“
 pub(crate) fn cell_outside(x: u8, z: u8) -> String {
-    format!(
-        "Zelle ({x}, {z}) liegt außerhalb der Karte (0 bis {}).",
-        MAP_CELLS - 1
-    )
+    t!("world.cell_outside", x = x, z = z, max = MAP_CELLS - 1).into_owned()
 }
 
-/// „Ebene 2 gibt es nicht (Karte 0123 hat 1).“
+/// „Layer 2 does not exist (Map 0123 has 1).“
 fn no_layer(layer: u8, map: u16, layers: usize) -> String {
-    format!("Ebene {layer} gibt es nicht (Karte {map:04} hat {layers}).")
+    t!(
+        "world.no_layer",
+        layer = layer,
+        map = map : {:04},
+        layers = layers
+    )
+    .into_owned()
 }
 
 /// `world_create`: the map, the map texture package (`None`: the first package of the headers
@@ -175,9 +186,9 @@ pub struct WorldReport {
     pub notes: Vec<String>,
 }
 
-/// „Welt aufgegeben: Karte 0123“, the label of [`world_to_binary`].
+/// „World discarded: Map 0123“, the label of [`world_to_binary`].
 pub fn world_to_binary_label(map: u16) -> String {
-    format!("Welt aufgegeben: Karte {map:04}")
+    t!("world.to_binary_label", map = map : {:04}).into_owned()
 }
 
 /// The rows a change writes to.
@@ -199,7 +210,7 @@ struct Checked<'a> {
 /// Refused outside a text project of the current schema.
 pub(super) fn require_text_project(store: &Store) -> Result<(), KernelError> {
     if *store.project().source_mode() != SourceMode::TextProject {
-        return Err(KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()));
+        return Err(KernelError::Refused(world_needs_text_project()));
     }
     Ok(())
 }
@@ -257,14 +268,16 @@ pub(super) fn refuse_locked_map(
     Ok(())
 }
 
-/// „Karte 0001 lässt sich nicht übernehmen: ihr Member lässt sich nicht lesen (…).“: why a
-/// binary map whose member is locked or does not read does not become a world map; `action`
-/// is what was asked („übernehmen“, „als Welt anlegen“), `cause` the decoder's error or the
-/// lock's reason.
-pub(super) fn binary_map_refusal(map: u16, action: &str, cause: &str) -> String {
-    format!(
-        "Karte {map:04} lässt sich nicht {action}: ihr Member lässt sich nicht lesen ({cause})."
-    )
+/// „Map 0001 cannot be adopted: its member does not read (…).“: why a binary map whose member
+/// is locked or does not read does not become a world map; `adopting` says what was asked
+/// (adopt it, else create a world on it), `cause` the decoder's error or the lock's reason.
+pub(super) fn binary_map_refusal(map: u16, adopting: bool, cause: &str) -> String {
+    let key = if adopting {
+        "world.binary_map_unreadable_adopt"
+    } else {
+        "world.binary_map_unreadable_create"
+    };
+    t!(key, map = map : {:04}, cause = cause).into_owned()
 }
 
 /// Refused with `text` (a parser's sentence).
@@ -272,11 +285,11 @@ fn refused(text: String) -> KernelError {
     KernelError::Refused(text)
 }
 
-/// „Welt anlegen“: the world of map `req.map` as one undo step „Welt angelegt: Karte 0123“, a
-/// ground layer „Boden“ all `fill` at `height`, no ramp, permissions derived.
+/// „Welt anlegen“: the world of map `req.map` as one undo step „World created: Map 0123“, a
+/// ground layer („Boden“, [`super::doc`]) all `fill` at `height`, no ramp, permissions derived.
 ///
 /// Refused ([`KernelError::Refused`], nothing changed): outside a text project
-/// ([`WORLD_NEEDS_TEXT_PROJECT`]), a map that is a world map already ([`already_world`]), a map
+/// ([`world_needs_text_project`]), a map that is already a world map ([`already_world`]), a map
 /// whose member does not read (it cannot carry a world, see [`super::keep::carry_world`]), no
 /// package given and none from the headers, a package that is not there (the refusal of
 /// [`Store::tileset`]), a `fill` that is no tile or lies past the tileset, a height outside
@@ -290,9 +303,7 @@ pub fn world_create(
     if store.world(map)?.is_some() {
         return Err(refused(already_world(map)));
     }
-    refuse_locked_map(store, map, |cause| {
-        binary_map_refusal(map, "als Welt anlegen", cause)
-    })?;
+    refuse_locked_map(store, map, |cause| binary_map_refusal(map, false, cause))?;
     let package = match req.tileset {
         Some(package) => package,
         None => *packs_of_map(store, map)?
@@ -301,11 +312,9 @@ pub fn world_create(
     };
     let tiles = store.tileset(package)?.tiles.len();
     let token = req.fill.as_deref().unwrap_or(DEFAULT_FILL);
-    let fill = parse_tile(token).map_err(refused)?.ok_or_else(|| {
-        refused(format!(
-            "`{token}` füllt keinen Boden; eine Kachel angeben."
-        ))
-    })?;
+    let fill = parse_tile(token)
+        .map_err(refused)?
+        .ok_or_else(|| refused(t!("world.token_fills_no_ground", token = token).into_owned()))?;
     if usize::from(fill.tile) >= tiles {
         return Err(refused(tile_outside("fill", fill.tile, package, tiles)));
     }
@@ -313,7 +322,7 @@ pub fn world_create(
     parse_height(&height.to_string()).map_err(refused)?;
     let world = WorldJson::blank(package, fill, height);
     first_error(&world)?;
-    let label = format!("Welt angelegt: Karte {map:04}");
+    let label = t!("world.created_label", map = map : {:04}).into_owned();
     let (bake, change) = store.transaction(&label, |tx| {
         tx.edit_world(map, |w| {
             *w = Some(world);
@@ -336,16 +345,16 @@ pub fn world_create(
 /// anew; the world must read into cells and fit its tileset before and after.
 ///
 /// Refused ([`KernelError::Refused`], nothing changed): outside a text project
-/// ([`WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]), a world that does
+/// ([`world_needs_text_project`]), a map without world ([`not_a_world_map`]), a world that does
 /// not read into cells or does not fit its tileset already (its first error with path, a tile
 /// past the tileset: [`tile_outside`]), a change with none or more than
-/// one field ([`ONE_FIELD`]), a permission with a layer, a height or ramp off the ground, a
+/// one field ([`one_field`]), a permission with a layer, a height or ramp off the ground, a
 /// layer the world lacks, a cell off the map, a token the parser refuses (its sentence), a tile
 /// past the tileset ([`tile_outside`]), a package that is not there, changes that change
-/// nothing ([`NOTHING_TO_CHANGE`]); for a stroke `terrain` or `cliff` (resolved in order by
+/// nothing ([`nothing_to_change`]); for a stroke `terrain` or `cliff` (resolved in order by
 /// [`super::smart::expand`]; the label counts the painted cells, the notes go to
 /// [`WorldReport::notes`]): a set the tileset lacks ([`super::edge::missing_set`]), a place
-/// without tile, a cliff off the ground ([`super::smart::CLIFF_GROUND_ONLY`]), a cliff height
+/// without tile, a cliff off the ground ([`super::smart::cliff_ground_only`]), a cliff height
 /// outside −16 to 62.
 pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldReport, KernelError> {
     require_text_project(store)?;
@@ -399,14 +408,14 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
         world.permissions.overrides = None;
     }
     if world == before {
-        return Err(refused(NOTHING_TO_CHANGE.to_owned()));
+        return Err(refused(nothing_to_change()));
     }
     first_error_with(&world, &tileset)?;
     let cells: usize = req.changes.iter().map(|c| c.cells.len()).sum();
     let label = match &req.label {
         Some(label) => label.clone(),
-        None if cells == 1 => format!("Welt geändert: Karte {map:04} (1 Zelle)"),
-        None => format!("Welt geändert: Karte {map:04} ({cells} Zellen)"),
+        None if cells == 1 => t!("world.changed_label_one", map = map : {:04}).into_owned(),
+        None => t!("world.changed_label_other", map = map : {:04}, cells = cells).into_owned(),
     };
     let package = world.tileset;
     let (bake, change) = store.transaction(&label, |tx| {
@@ -431,7 +440,7 @@ pub fn world_edit(store: &mut Store, req: &WorldEditRequest) -> Result<WorldRepo
 /// writes the map binary, with its permissions, model and BDHC.
 ///
 /// Refused ([`KernelError::Refused`], nothing changed): outside a text project
-/// ([`WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]).
+/// ([`world_needs_text_project`]), a map without world ([`not_a_world_map`]).
 pub fn world_to_binary(store: &mut Store, map: u16) -> Result<WorldReport, KernelError> {
     require_text_project(store)?;
     let package = store
@@ -481,7 +490,7 @@ fn apply_checked(world: &mut WorldJson, change: &Checked) -> Result<(), KernelEr
     Ok(())
 }
 
-/// Refused with [`ONE_FIELD`] unless `change` sets exactly one of its fields.
+/// Refused with [`one_field`] unless `change` sets exactly one of its fields.
 pub(super) fn check_one_field(change: &WorldChange) -> Result<(), KernelError> {
     let fields = [
         change.tile.is_some(),
@@ -492,7 +501,7 @@ pub(super) fn check_one_field(change: &WorldChange) -> Result<(), KernelError> {
         change.cliff.is_some(),
     ];
     if fields.iter().filter(|&&set| set).count() != 1 {
-        return Err(refused(ONE_FIELD.to_owned()));
+        return Err(refused(one_field()));
     }
     Ok(())
 }
@@ -528,10 +537,10 @@ fn check_change<'a>(
     check_one_field(change)?;
     let layer = change.layer.unwrap_or(0);
     if change.permission.is_some() && change.layer.is_some() {
-        return Err(refused(PERMISSION_NO_LAYER.to_owned()));
+        return Err(refused(permission_no_layer()));
     }
     if (change.height.is_some() || change.ramp.is_some()) && layer != 0 {
-        return Err(refused(GROUND_ONLY.to_owned()));
+        return Err(refused(ground_only()));
     }
     check_place(change, map, world)?;
     let (rows, token) = if let Some(token) = &change.tile {
@@ -556,7 +565,7 @@ fn check_change<'a>(
         )
     } else {
         // A stroke: `expand` resolves it before; never one of the cell changes checked here.
-        return Err(refused(ONE_FIELD.to_owned()));
+        return Err(refused(one_field()));
     };
     Ok(Checked {
         rows,
@@ -569,7 +578,7 @@ fn check_change<'a>(
 /// when the world has none yet.
 fn rows_of(world: &mut WorldJson, rows: Rows) -> Result<&mut Vec<String>, KernelError> {
     let empty = || vec![vec![EMPTY; MAP_CELLS].join(" "); MAP_CELLS];
-    let missing = || refused("world.layers: die Bodenebene fehlt.".to_owned());
+    let missing = || refused(t!("world.ground_layer_missing").into_owned());
     Ok(match rows {
         Rows::Tiles(layer) => &mut world.layers.get_mut(layer).ok_or_else(missing)?.tiles,
         Rows::Heights => world
@@ -721,8 +730,8 @@ mod tests {
         assert_eq!(
             undo,
             [
-                "Welt angelegt: Karte 0000",
-                "Welt geändert: Karte 0000 (41 Zellen)"
+                "World created: Map 0000",
+                "World changed: Map 0000 (41 cells)"
             ]
         );
         assert!(redo.is_empty());
@@ -881,9 +890,9 @@ mod tests {
         assert_eq!(
             store.history().0,
             [
-                "Welt angelegt: Karte 0000",
+                "World created: Map 0000",
                 "Gebäude verschoben",
-                "Welt geändert: Karte 0000 (1 Zelle)"
+                "World changed: Map 0000 (1 cell)"
             ]
         );
         // Each step writes the member (a world step its bake, the building move its own part)
@@ -966,81 +975,74 @@ mod tests {
                 &mut store,
                 json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]})
             )),
-            "Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create)."
+            "Map 0000 is not a world map; first “Create world” (world_create)."
         );
         create(&mut store, 0);
         store.save().unwrap();
         let file = fx.read(MAP);
         let world_before = world(&mut store, 0);
         let history = store.history();
+        let (one, nothing) = (one_field(), nothing_to_change());
         let cases: Vec<(Value, &str)> = vec![
-            (json!([{"cells": [[0, 0]]}]), ONE_FIELD),
+            (json!([{"cells": [[0, 0]]}]), &one),
             (
                 json!([{"cells": [[0, 0]], "tile": "0001", "height": 2}]),
-                ONE_FIELD,
+                &one,
             ),
             (
                 json!([{"cells": [[0, 0]], "ramp": "n1", "permission": "0080"}]),
-                ONE_FIELD,
+                &one,
             ),
             (
                 json!([{"cells": [[32, 4]], "tile": "0001"}]),
-                "Zelle (32, 4) liegt außerhalb der Karte (0 bis 31).",
+                "Cell (32, 4) is outside the map (0 to 31).",
             ),
             (
                 json!([{"layer": 2, "cells": [[0, 0]], "tile": "0001"}]),
-                "Ebene 2 gibt es nicht (Karte 0000 hat 1).",
+                "Layer 2 does not exist (Map 0000 has 1).",
             ),
             (
                 json!([{"layer": 1, "cells": [[0, 0]], "height": 2}]),
-                "Höhen und Rampen gibt es nur auf der Bodenebene (0).",
+                "Heights and ramps exist only on the ground layer (0).",
             ),
             (
                 json!([{"layer": 1, "cells": [[0, 0]], "ramp": "n1"}]),
-                "Höhen und Rampen gibt es nur auf der Bodenebene (0).",
+                "Heights and ramps exist only on the ground layer (0).",
             ),
             (
                 json!([{"layer": 0, "cells": [[0, 0]], "permission": "0080"}]),
-                "permission gilt für die Karte, nicht für eine Ebene; layer weglassen.",
+                "permission applies to the map, not to a layer; leave out layer.",
             ),
             (
                 json!([{"cells": [[0, 0]], "tile": "00g2"}]),
-                "`00g2` ist keine Kachel (`.` oder vier Hex-Ziffern, dahinter `r1` bis `r3` \
-                 und `f`).",
+                "`00g2` is not a tile (`.` or four hex digits, followed by `r1` to `r3` and `f`).",
             ),
             (
                 json!([{"cells": [[0, 0]], "height": 70}]),
-                "`70` liegt nicht in \u{2212}16 bis 62.",
+                "`70` is not within −16 to 62.",
             ),
             (
                 json!([{"cells": [[0, 0]], "ramp": "n3"}]),
-                "`n3` ist keine Rampe (`.` oder `n`, `e`, `s`, `w` mit 1 oder 2 Stufen).",
+                "`n3` is not a ramp (`.` or `n`, `e`, `s`, `w` with 1 or 2 steps).",
             ),
             (
                 json!([{"cells": [[0, 0]], "permission": "80"}]),
-                "`80` ist keine Permission (`.` oder `kkcc` aus vier Hex-Ziffern, Art und \
-                 Kollision).",
+                "`80` is not a permission (`.` or `kkcc` of four hex digits, kind and collision).",
             ),
             (
                 json!([{"cells": [[0, 0]], "tile": "0006"}]),
-                "changes[0].tile: Kachel 0x0006 gibt es im Tileset 0000 nicht (6 Kacheln).",
+                "changes[0].tile: Tile 0x0006 does not exist in tileset 0000 (6 tiles).",
             ),
             (
                 json!([{"cells": [[0, 0]], "tile": "0001"}, {"cells": [[0, 40]], "tile": "0001"}]),
-                "Zelle (0, 40) liegt außerhalb der Karte (0 bis 31).",
+                "Cell (0, 40) is outside the map (0 to 31).",
             ),
-            (
-                json!([{"cells": [[0, 0]], "tile": "0000"}]),
-                NOTHING_TO_CHANGE,
-            ),
-            (json!([{"cells": [[0, 0]], "height": 0}]), NOTHING_TO_CHANGE),
-            (json!([{"cells": [[0, 0]], "ramp": "."}]), NOTHING_TO_CHANGE),
-            (
-                json!([{"cells": [[0, 0]], "permission": "."}]),
-                NOTHING_TO_CHANGE,
-            ),
-            (json!([{"cells": [], "tile": "0001"}]), NOTHING_TO_CHANGE),
-            (json!([]), NOTHING_TO_CHANGE),
+            (json!([{"cells": [[0, 0]], "tile": "0000"}]), &nothing),
+            (json!([{"cells": [[0, 0]], "height": 0}]), &nothing),
+            (json!([{"cells": [[0, 0]], "ramp": "."}]), &nothing),
+            (json!([{"cells": [[0, 0]], "permission": "."}]), &nothing),
+            (json!([{"cells": [], "tile": "0001"}]), &nothing),
+            (json!([]), &nothing),
         ];
         for (changes, expected) in cases {
             let text = refused(edit(&mut store, json!({"map": 0, "changes": changes})));
@@ -1069,31 +1071,29 @@ mod tests {
         let cases: Vec<(Value, String)> = vec![
             (
                 json!({"map": 0, "tileset": 0, "fill": "00g2"}),
-                "`00g2` ist keine Kachel (`.` oder vier Hex-Ziffern, dahinter `r1` bis `r3` und \
-                 `f`)."
+                "`00g2` is not a tile (`.` or four hex digits, followed by `r1` to `r3` and `f`)."
                     .to_owned(),
             ),
             (
                 json!({"map": 0, "tileset": 0, "fill": "0007"}),
-                "fill: Kachel 0x0007 gibt es im Tileset 0000 nicht (6 Kacheln).".to_owned(),
+                "fill: Tile 0x0007 does not exist in tileset 0000 (6 tiles).".to_owned(),
             ),
             (
                 json!({"map": 0, "tileset": 0, "fill": "."}),
-                "`.` füllt keinen Boden; eine Kachel angeben.".to_owned(),
+                "`.` fills no ground; specify a tile.".to_owned(),
             ),
             (
                 json!({"map": 0, "tileset": 0, "height": 70}),
-                "`70` liegt nicht in \u{2212}16 bis 62.".to_owned(),
+                "`70` is not within −16 to 62.".to_owned(),
             ),
             (
                 json!({"map": 0, "tileset": 0, "height": -17}),
-                "`-17` liegt nicht in \u{2212}16 bis 62.".to_owned(),
+                "`-17` is not within −16 to 62.".to_owned(),
             ),
             // Map 2 lies in no matrix cell of the synthetic project.
             (
                 json!({"map": 2}),
-                "Karte 0002 liegt in keiner Matrixzelle mit Header; Tileset angeben \
-                 (`tileset`)."
+                "Map 0002 lies in no matrix cell with a header; specify a tileset (`tileset`)."
                     .to_owned(),
             ),
         ];
@@ -1111,7 +1111,7 @@ mod tests {
             &create_req(json!({"map": 0, "tileset": 200})),
         ));
         assert!(
-            text.starts_with("Kartentextur-Paket 0200 gibt es nicht ("),
+            text.starts_with("Map texture package 0200 does not exist ("),
             "{text}"
         );
         create(&mut store, 0);
@@ -1120,7 +1120,7 @@ mod tests {
                 &mut store,
                 &create_req(json!({"map": 0, "tileset": 0}))
             )),
-            "Karte 0000 ist schon eine Welt-Karte."
+            "Map 0000 is already a world map."
         );
         assert_eq!(store.history().0.len(), 1);
         assert_eq!(fx.read(MAP), file);
@@ -1153,8 +1153,7 @@ mod tests {
                 &mut store,
                 &create_req(json!({"map": 0, "tileset": 0}))
             )),
-            "Karte 0000 lässt sich nicht als Welt anlegen: ihr Member lässt sich nicht lesen \
-             (data truncated: needed 4 bytes, have 1)."
+            "Map 0000 cannot be created as a world: its member cannot be read (data truncated: needed 4 bytes, have 1)."
         );
         assert!(store.history().0.is_empty());
         assert_eq!(fx.read(MAP), locked);
@@ -1174,7 +1173,7 @@ mod tests {
             &mut store,
             json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]}),
         ));
-        assert_eq!(text, "world.layers[0].tiles: 31 Zeilen statt 32.");
+        assert_eq!(text, "world.layers[0].tiles: 31 rows instead of 32.");
         assert_eq!(world(&mut store, 0), Some(broken));
         assert!(store.history().0.is_empty());
         assert!(store.dirty().is_empty());
@@ -1223,8 +1222,7 @@ mod tests {
         ));
         assert_eq!(
             text,
-            "world.layers[0].tiles[2]: Zelle 3: Kachel 0x0120 gibt es im Tileset 0000 nicht \
-             (6 Kacheln)."
+            "world.layers[0].tiles[2]: Cell 3: Tile 0x0120 does not exist in tileset 0000 (6 tiles)."
         );
         assert_eq!(world(&mut store, 0), Some(broken));
         assert!(store.history().0.is_empty());
@@ -1247,16 +1245,16 @@ mod tests {
                 &mut store,
                 &create_req(json!({"map": 0, "tileset": 0}))
             )),
-            WORLD_NEEDS_TEXT_PROJECT
+            world_needs_text_project()
         );
         assert_eq!(
             refused(edit(
                 &mut store,
                 json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]})
             )),
-            WORLD_NEEDS_TEXT_PROJECT
+            world_needs_text_project()
         );
-        assert_eq!(refused(store.world(0)), WORLD_NEEDS_TEXT_PROJECT);
+        assert_eq!(refused(store.world(0)), world_needs_text_project());
         assert!(store.history().0.is_empty());
         assert!(!fx.root().join("data/maps").exists());
         assert_eq!(
@@ -1279,9 +1277,9 @@ mod tests {
                 &mut store,
                 &create_req(json!({"map": 0, "tileset": 0}))
             )),
-            WORLD_NEEDS_TEXT_PROJECT
+            world_needs_text_project()
         );
-        assert_eq!(refused(store.world(0)), WORLD_NEEDS_TEXT_PROJECT);
+        assert_eq!(refused(store.world(0)), world_needs_text_project());
     }
 
     #[test]
@@ -1311,7 +1309,7 @@ mod tests {
             rows,
             [(
                 ChangeState::Changed,
-                "Karte 0000",
+                "Map 0000",
                 &DiffSubject::Map { index: 0 }
             )]
         );
@@ -1454,9 +1452,7 @@ mod tests {
                 &mut store,
                 json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]})
             )),
-            "textproject.map-source: Karte 0000 ist eine Welt-Karte, ihr Member lässt sich \
-             nicht lesen; Schreiben verlöre das Weltobjekt. Erst den Member reparieren (oder \
-             die Welt aus der Datei sichern)."
+            "textproject.map-source: Map 0000 is a world map, its member cannot be read; writing would lose the world object. Repair the member first (or save the world from the file)."
         );
         assert_eq!(world(&mut store, 0), before);
         assert_eq!(store.history(), history);
@@ -1493,7 +1489,7 @@ mod tests {
         let maps = fx.project().unpacked_dir(AssetKind::Map);
         std::fs::remove_dir_all(&maps).unwrap();
         let mut store = store(&fx);
-        assert_eq!(refused(store.world(0)), WORLD_NEEDS_TEXT_PROJECT);
+        assert_eq!(refused(store.world(0)), world_needs_text_project());
         assert!(!maps.exists());
     }
 }
@@ -1514,25 +1510,20 @@ pub struct WorldLayersRequest {
     pub op: LayerOp,
 }
 
-/// The ground layer cannot go.
-const GROUND_STAYS: &str = "Die Bodenebene (0) bleibt.";
-/// A layer name that is empty after trimming.
-const LAYER_NEEDS_NAME: &str = "Eine Ebene braucht einen Namen.";
-
-/// „Ebene „Büsche“ gibt es schon.“
+/// „Layer “Bushes” already exists.“
 fn layer_taken(name: &str) -> String {
-    format!("Ebene „{name}“ gibt es schon.")
+    t!("world.layer_taken", name = name).into_owned()
 }
 
 /// One undo step: `Add` appends an overlay (role `overlay`, 32 rows of `.`) named `name`
-/// (trimmed), label „Ebene „Büsche“ angelegt: Karte 0123“; `Remove` drops overlay `layer`, label
-/// „Ebene 2 „Büsche“ entfernt: Karte 0123“.
+/// (trimmed), label „Layer “Bushes” added: Map 0123“; `Remove` drops overlay `layer`, label
+/// „Layer 2 “Bushes” removed: Map 0123“.
 ///
 /// Refused ([`KernelError::Refused`], nothing changed) as [`world_edit`] (outside a text
 /// project, a map without world, a locked map, a world that does not read into cells) and with
-/// „Die Bodenebene (0) bleibt.“, „Eine Ebene braucht einen Namen.“, „Ebene „Büsche“ gibt es
-/// schon.“ (names compared trimmed, case-sensitive) and a layer the world lacks
-/// ([`no_layer`]). [`WorldReport::cells`] is 0.
+/// „The ground layer (0) stays.“, „A layer needs a name.“, „Layer “Bushes” already exists.“
+/// (names compared trimmed, case-sensitive) and a layer the world lacks ([`no_layer`]).
+/// [`WorldReport::cells`] is 0.
 pub fn world_layers(
     store: &mut Store,
     req: &WorldLayersRequest,
@@ -1549,7 +1540,7 @@ pub fn world_layers(
         LayerOp::Add { name } => {
             let name = name.trim();
             if name.is_empty() {
-                return Err(refused(LAYER_NEEDS_NAME.to_owned()));
+                return Err(refused(t!("world.layer_needs_name").into_owned()));
             }
             if world.layers.iter().any(|l| l.name.trim() == name) {
                 return Err(refused(layer_taken(name)));
@@ -1561,18 +1552,24 @@ pub fn world_layers(
                 heights: None,
                 ramps: None,
             });
-            format!("Ebene „{name}“ angelegt: Karte {map:04}")
+            t!("world.layer_added_label", name = name, map = map : {:04}).into_owned()
         }
         LayerOp::Remove { layer } => {
             if *layer == 0 {
-                return Err(refused(GROUND_STAYS.to_owned()));
+                return Err(refused(t!("world.ground_stays").into_owned()));
             }
             let at = usize::from(*layer);
             if at >= world.layers.len() {
                 return Err(refused(no_layer(*layer, map, world.layers.len())));
             }
             let removed = world.layers.remove(at);
-            format!("Ebene {layer} „{}“ entfernt: Karte {map:04}", removed.name)
+            t!(
+                "world.layer_removed_label",
+                layer = layer,
+                name = removed.name,
+                map = map : {:04}
+            )
+            .into_owned()
         }
     };
     first_error(&world)?;
@@ -1666,10 +1663,7 @@ mod layer_tests {
         assert_eq!(now.layers[0], before.layers[0]);
         assert_eq!(
             store.history().0,
-            [
-                "Welt angelegt: Karte 0000",
-                "Ebene „Büsche“ angelegt: Karte 0000"
-            ]
+            ["World created: Map 0000", "Layer “Büsche” added: Map 0000"]
         );
         store.undo().unwrap();
         assert_eq!(world(&mut store).layers.len(), 1);
@@ -1705,7 +1699,7 @@ mod layer_tests {
         assert_eq!(names, ["Boden", "Zaun"]);
         assert_eq!(
             store.history().0.last().unwrap(),
-            "Ebene 1 „Büsche“ entfernt: Karte 0000"
+            "Layer 1 “Büsche” removed: Map 0000"
         );
         store.undo().unwrap();
         assert_eq!(world(&mut store), two);
@@ -1728,7 +1722,7 @@ mod layer_tests {
         refuses(
             &mut store,
             json!({"map": 0, "op": {"remove": {"layer": 0}}}),
-            "Die Bodenebene (0) bleibt.",
+            "The ground layer (0) stays.",
         );
     }
 
@@ -1738,7 +1732,7 @@ mod layer_tests {
         refuses(
             &mut store,
             json!({"map": 0, "op": {"add": {"name": "   "}}}),
-            "Eine Ebene braucht einen Namen.",
+            "A layer needs a name.",
         );
         layers(
             &mut store,
@@ -1748,12 +1742,12 @@ mod layer_tests {
         refuses(
             &mut store,
             json!({"map": 0, "op": {"add": {"name": " Büsche"}}}),
-            "Ebene „Büsche“ gibt es schon.",
+            "Layer “Büsche” already exists.",
         );
         refuses(
             &mut store,
             json!({"map": 0, "op": {"add": {"name": "Boden"}}}),
-            "Ebene „Boden“ gibt es schon.",
+            "Layer “Boden” already exists.",
         );
         // Names differ by case.
         layers(
@@ -1776,12 +1770,12 @@ mod layer_tests {
         refuses(
             &mut store,
             json!({"map": 0, "op": {"remove": {"layer": 1}}}),
-            "Ebene 1 gibt es nicht (Karte 0000 hat 1).",
+            "Layer 1 does not exist (Map 0000 has 1).",
         );
         refuses(
             &mut store,
             json!({"map": 0, "op": {"remove": {"layer": 7}}}),
-            "Ebene 7 gibt es nicht (Karte 0000 hat 1).",
+            "Layer 7 does not exist (Map 0000 has 1).",
         );
     }
 
@@ -1792,7 +1786,7 @@ mod layer_tests {
         let add = json!({"map": 0, "op": {"add": {"name": "Büsche"}}});
         assert_eq!(
             refused(layers(&mut store, add.clone())),
-            WORLD_NEEDS_TEXT_PROJECT
+            world_needs_text_project()
         );
         assert!(store.history().0.is_empty());
         // A map without world.

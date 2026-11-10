@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dynamic_headers;
 use crate::error::KernelError;
-use crate::original::changed::{GROUPS, HEADER_GROUP, group_of};
+use crate::original::changed::{HEADER_GROUP, group_name, group_of};
 use crate::original::{ResetTarget, asset_label};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::textproject::source::{entity_of_data_file, item_member_of, item_members};
@@ -163,7 +163,7 @@ impl DiffSubject {
     /// member, „Projektdateien“ for a file, „Geschichten“ for a story.
     pub fn group(&self) -> String {
         match self {
-            DiffSubject::Header { .. } => GROUPS[HEADER_GROUP].to_owned(),
+            DiffSubject::Header { .. } => group_name(HEADER_GROUP),
             DiffSubject::Member { folder, .. } => folder.clone(),
             DiffSubject::File { .. } => FILES_GROUP.to_owned(),
             DiffSubject::Story { .. } => STORIES_GROUP.to_owned(),
@@ -173,7 +173,7 @@ impl DiffSubject {
                     Some(kind) => kind,
                     None => return FILES_GROUP.to_owned(),
                 };
-                group_of(kind).map_or_else(|| FILES_GROUP.to_owned(), |g| GROUPS[g].to_owned())
+                group_of(kind).map_or_else(|| FILES_GROUP.to_owned(), group_name)
             }
         }
     }
@@ -420,8 +420,8 @@ mod tests {
         assert_eq!(DiffSubject::Header { index: 3 }.label(), "Header 0003");
         assert_eq!(member.label(), "pokeHeight 0005");
         assert_eq!(DiffSubject::Species { index: 25 }.label(), "Pokémon 0025");
-        assert_eq!(trainer.group(), "Trainer");
-        assert_eq!(DiffSubject::Matrix { index: 0 }.group(), "Matrizen");
+        assert_eq!(trainer.group(), "Trainers");
+        assert_eq!(DiffSubject::Matrix { index: 0 }.group(), "Matrices");
         assert_eq!(member.group(), "pokeHeight");
         assert_eq!(
             DiffSubject::File {

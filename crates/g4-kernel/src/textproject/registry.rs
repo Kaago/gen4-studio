@@ -126,13 +126,13 @@ impl Registry {
                 problems.push(at_key(
                     id,
                     SCHEMA_CODE,
-                    format!("Die ID `{id}` beginnt nicht mit `{prefix}_`."),
+                    t!("textproject.id_prefix", id = id, prefix = prefix).into_owned(),
                 ));
             } else if let Some(own) = parse_fallback(self.kind, id).filter(|&own| own != n) {
                 problems.push(at_key(
                     id,
                     SCHEMA_CODE,
-                    format!("Die ID `{id}` gehört der Nummer {own}, nicht {n}."),
+                    t!("textproject.id_owner", id = id, own = own, n = n).into_owned(),
                 ));
             } else if let Some(first) = owners.insert(n, id) {
                 // Restore the first owner, so a third id names the first again.
@@ -140,7 +140,7 @@ impl Registry {
                 problems.push(at_key(
                     id,
                     SCHEMA_CODE,
-                    format!("Die Nummer {n} hat die IDs `{first}` und `{id}`."),
+                    t!("textproject.number_two_ids", n = n, first = first, id = id).into_owned(),
                 ));
             }
         }
@@ -250,7 +250,7 @@ fn duplicate_keys(rel: &Path, bytes: &[u8]) -> Vec<Problem> {
                 ..problem(
                     rel,
                     SCHEMA_CODE,
-                    format!("Die ID `{key}` steht mehrfach in der Datei."),
+                    t!("textproject.id_twice_in_file", id = key).into_owned(),
                 )
             });
         }
@@ -613,7 +613,7 @@ mod tests {
         for (text, needle) in [
             (
                 "{\"TRAINER_KAI\": -1}",
-                "TRAINER_KAI: die Zahl -1 passt nicht in u32",
+                "TRAINER_KAI: the number -1 does not fit in u32",
             ),
             ("{\"TRAINER_KAI\": 1, \"TRAINER_UDO\": 1}", "TRAINER_UDO"),
             ("{\"MAP_T01\": 1}", "MAP_T01"),
@@ -647,7 +647,7 @@ mod tests {
         .unwrap();
         let problems = compile_problems(Registry::load(root, SymbolKind::Trainer).unwrap_err());
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].message.contains("mehrfach"));
+        assert!(problems[0].message.contains("more than once"));
         assert_eq!((problems[0].line, problems[0].col), (3, 3));
 
         // Symbols::load collects the problems of every register.

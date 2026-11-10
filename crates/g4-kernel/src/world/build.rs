@@ -67,13 +67,10 @@ pub struct WorldBuild {
     pub problems: Vec<Problem>,
 }
 
-/// „Karte 0123: Der Member wurde außerhalb des Studios geändert (DSPRE?). In Technik ›
-/// Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“.“
+/// „Map 0123: The member was changed outside the Studio (DSPRE?). In Technical › Text project
+/// “Bake again” or “Adopt as binary map”.“
 pub(crate) fn member_changed_text(map: u16) -> String {
-    format!(
-        "Karte {map:04}: Der Member wurde außerhalb des Studios geändert (DSPRE?). In Technik › \
-         Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“."
-    )
+    t!("world.member_changed", map = map : {:04}).into_owned()
 }
 
 /// Whether the entity file `bytes` carries the tombstone `"deleted": true`.
@@ -262,17 +259,17 @@ pub fn bake_world_maps(
 /// recorded only while it still holds those bytes (a write of DSPRE meanwhile stays a change).
 pub fn take_member_as_binary(project: &Project, map: u16) -> Result<(), KernelError> {
     if !world_maps(project)?.contains(&map) {
-        return Err(KernelError::Refused(format!(
-            "Karte {map:04} ist keine Welt-Karte."
-        )));
+        return Err(KernelError::Refused(
+            t!("world.not_a_world_map_plain", map = map : {:04}).into_owned(),
+        ));
     }
     let path = project.member_path(AssetKind::Map, map);
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(KernelError::Refused(format!(
-                "Karte {map:04} hat keinen Member, den sie übernehmen könnte."
-            )));
+            return Err(KernelError::Refused(
+                t!("world.no_member_to_adopt", map = map : {:04}).into_owned(),
+            ));
         }
         Err(e) => return Err(io_at(&path)(e)),
     };

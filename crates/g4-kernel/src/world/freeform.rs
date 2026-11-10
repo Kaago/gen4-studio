@@ -235,10 +235,14 @@ pub fn side_glb(
     let mut order: Vec<(&PackTexture, Primitive)> = Vec::new();
     for (i, face) in faces.iter().enumerate() {
         let Some(texture) = textures.iter().find(|t| t.name == face.texture) else {
-            return Err(KernelError::Refused(format!(
-                "Fläche {i} nutzt die Textur „{}“, die das Kartentextur-Paket nicht hat.",
-                face.texture
-            )));
+            return Err(KernelError::Refused(
+                t!(
+                    "world.face_texture_missing",
+                    face = i,
+                    texture = face.texture
+                )
+                .into_owned(),
+            ));
         };
         let at = match order.iter().position(|(t, _)| t.name == texture.name) {
             Some(at) => at,
@@ -409,7 +413,7 @@ pub fn side_faces(
         return Err(WorldBakeMessage::error(
             SIDE_FILE_CODE,
             vec![shown.clone()],
-            format!("Das Beifile {shown} fehlt."),
+            t!("world.side_file_missing", file = shown).into_owned(),
         ));
     }
     let unreadable = |reason: &str| unreadable(&shown, reason);
@@ -446,7 +450,7 @@ fn unreadable(shown: &str, reason: &str) -> WorldBakeMessage {
     WorldBakeMessage::error(
         SIDE_FILE_CODE,
         vec![shown.to_owned(), reason.to_owned()],
-        format!("Das Beifile {shown} lässt sich nicht lesen ({reason})."),
+        t!("world.side_file_unreadable", file = shown, reason = reason).into_owned(),
     )
 }
 
@@ -518,7 +522,7 @@ fn side_plan(map: u16, world: &WorldJson, tileset: Option<&Tileset>) -> Vec<Side
                 kind: SideKind::Freeform { at: entry.at },
                 refused: side_name_of(file, map)
                     .is_none()
-                    .then(|| format!("kein Beifile-Name der Karte {map:04}")),
+                    .then(|| t!("world.no_side_name_map", map = map : {:04}).into_owned()),
             })
         })
         .collect();
@@ -545,7 +549,7 @@ fn side_plan(map: u16, world: &WorldJson, tileset: Option<&Tileset>) -> Vec<Side
             kind: SideKind::Piece { tile: piece.tile },
             refused: side_parts(&piece_file(package, name))
                 .is_none()
-                .then(|| format!("kein Beifile-Name des Pakets {package:04}")),
+                .then(|| t!("world.no_side_name_package", package = package : {:04}).into_owned()),
         });
     }
     plan
@@ -708,14 +712,14 @@ pub struct FreeformReport {
     pub bake: Option<WorldBakeReport>,
 }
 
-/// „Freiform hinzugefügt: Karte 0123 (0123.haus.glb)“, the label of [`world_freeform_add`].
+/// „Free-form added: Map 0123 (0123.haus.glb)“, the label of [`world_freeform_add`].
 pub fn freeform_label(map: u16, glb: &str) -> String {
-    format!("Freiform hinzugefügt: Karte {map:04} ({glb})")
+    t!("world.freeform_added_label", map = map : {:04}, glb = glb).into_owned()
 }
 
-/// „Freiform entfernt: Karte 0123 (0123.haus.glb)“, the label of [`world_freeform_remove`].
+/// „Free-form removed: Map 0123 (0123.haus.glb)“, the label of [`world_freeform_remove`].
 pub fn freeform_remove_label(map: u16, glb: &str) -> String {
-    format!("Freiform entfernt: Karte {map:04} ({glb})")
+    t!("world.freeform_removed_label", map = map : {:04}, glb = glb).into_owned()
 }
 
 /// A model file bound against a package: the faces (world units, layer 0), the figures, the
@@ -753,9 +757,9 @@ pub(crate) fn bind_model(
         .project()
         .map_tileset_member(package)?
         .ok_or_else(|| {
-            KernelError::Refused(format!(
-                "Kartentextur-Paket {package:04} gibt es nicht im Archiv."
-            ))
+            KernelError::Refused(
+                t!("world.package_not_in_archive", package = package : {:04}).into_owned(),
+            )
         })?;
     let (mesh, read_notes) = match read_model(path) {
         Ok(read) => read,
@@ -953,9 +957,9 @@ pub(crate) fn in_one_step<T>(
         }
         Err(e) => match store.rollback_to(mark) {
             Ok(_) => Err(e),
-            Err(undo) => Err(KernelError::Partial(format!(
-                "{e}; zurückgenommen wurde nicht alles: {undo}"
-            ))),
+            Err(undo) => Err(KernelError::Partial(
+                t!("world.undo_incomplete", error = e, undo = undo).into_owned(),
+            )),
         },
     }
 }
@@ -1058,7 +1062,7 @@ fn prepare(
 /// (ModelRefusal).
 ///
 /// Refused ([`KernelError::Refused`]): outside a text project
-/// ([`super::edit::WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]),
+/// ([`super::edit::world_needs_text_project`]), a map without world ([`not_a_world_map`]),
 /// options out of range.
 pub fn world_freeform_inspect(
     store: &mut Store,
@@ -1067,9 +1071,9 @@ pub fn world_freeform_inspect(
     Ok(prepare(store, req)?.map(|p| p.report))
 }
 
-/// „Freiform nicht hinzugefügt: …“ with the first error of a bake (or the model's refusal).
+/// „Free-form not added: …“ with the first error of a bake (or the model's refusal).
 fn not_added(why: &str) -> KernelError {
-    KernelError::Refused(format!("Freiform nicht hinzugefügt: {why}"))
+    KernelError::Refused(t!("world.freeform_not_added", why = why).into_owned())
 }
 
 /// One undo step (squash_since, label freeform_label): new textures appended to `world.tileset`,
@@ -1142,7 +1146,7 @@ pub fn world_freeform_add(
 /// past index.
 ///
 /// Refused besides ([`KernelError::Refused`], nothing changed): outside a text project
-/// ([`super::edit::WORLD_NEEDS_TEXT_PROJECT`]), a map without world ([`not_a_world_map`]), a
+/// ([`super::edit::world_needs_text_project`]), a map without world ([`not_a_world_map`]), a
 /// map whose member is locked ([`locked_map_refusal`]), a busy store.
 pub fn world_freeform_remove(
     store: &mut Store,
@@ -1161,15 +1165,20 @@ pub fn world_freeform_remove(
     refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
     let count = world.freeform.len();
     let Some(entry) = world.freeform.get(index) else {
-        return Err(KernelError::Refused(format!(
-            "Karte {map:04} hat keine Freiform {index} ({count} Einträge)."
-        )));
+        return Err(KernelError::Refused(
+            t!(
+                "world.freeform_missing",
+                map = map : {:04},
+                index = index,
+                count = count
+            )
+            .into_owned(),
+        ));
     };
     let Some(glb) = entry.glb.clone() else {
-        return Err(KernelError::Refused(format!(
-            "Freiform {index} von Karte {map:04} ist das Originalmodell (Form 1); zurück zur \
-             binären Karte über „Als binäre Karte übernehmen“."
-        )));
+        return Err(KernelError::Refused(
+            t!("world.freeform_is_original", index = index, map = map : {:04}).into_owned(),
+        ));
     };
     world.freeform.remove(index);
     let shared = world
@@ -1413,7 +1422,7 @@ mod tests {
         faces[0].texture = "fremd".to_owned();
         let e = side_glb(&faces, &synthetic_pack_textures(), FREEFORM_UNIT).unwrap_err();
         assert!(
-            matches!(&e, KernelError::Refused(t) if t.contains("„fremd“")),
+            matches!(&e, KernelError::Refused(t) if t.contains("“fremd”")),
             "{e}"
         );
     }
@@ -1432,7 +1441,7 @@ mod tests {
         assert_eq!(m.args, ["syn_boden"]);
         assert_eq!(
             m.message,
-            "Die Textur „syn_boden“ fehlt im Kartentextur-Paket oder hat dort keine Palette."
+            "The texture “syn_boden” is missing in the map texture package or has no palette there."
         );
     }
 
@@ -1444,7 +1453,10 @@ mod tests {
         assert_eq!(m.code, SIDE_FILE_CODE);
         assert_eq!(m.level, Level::Error);
         assert_eq!(m.args, ["data/maps/0003.haus.glb"]);
-        assert_eq!(m.message, "Das Beifile data/maps/0003.haus.glb fehlt.");
+        assert_eq!(
+            m.message,
+            "The side file data/maps/0003.haus.glb is missing."
+        );
     }
 
     #[test]
@@ -1459,7 +1471,7 @@ mod tests {
         assert_eq!(
             m.message,
             format!(
-                "Das Beifile data/maps/0003.haus.glb lässt sich nicht lesen ({}).",
+                "The side file data/maps/0003.haus.glb cannot be read ({}).",
                 m.args[1]
             )
         );

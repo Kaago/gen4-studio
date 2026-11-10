@@ -42,22 +42,25 @@ use super::schema::data::{
     EncounterEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity, TrainerTextTableEntity,
     export_items,
 };
-use super::schema::header::{HeaderHgssEntity, HeaderPtEntity, NO_DP, export_headers};
+use super::schema::header::{HeaderHgssEntity, HeaderPtEntity, export_headers, no_dp};
 use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
 use super::schema::{EntitySchema, ExportCtx};
 use super::step;
-pub use super::step::UNSYNCED_EXPORT;
+pub use super::step::unsynced_export_prefix;
 use super::symbols::SymbolKind;
 use super::tombstone::{file_deleted, to_canonical_entity, with_envelope};
 
 /// The refusal of a project without base mark.
-const NO_MARK: &str =
-    "Das Projekt kennt seine Basis-ROM nicht (.g4/base.json fehlt): erst eine Basis-ROM zuordnen.";
+fn no_mark() -> String {
+    t!("textproject.export_no_mark").into_owned()
+}
 /// The refusal of a project whose scripts are not adopted, without `adopt_scripts` (the app
 /// answers it with its own code).
-pub const NOT_ADOPTED: &str = "Die Scripts sind noch nicht übernommen (adopt_scripts).";
+pub fn not_adopted() -> String {
+    t!("textproject.not_adopted").into_owned()
+}
 
 /// How [`export`] runs.
 #[derive(Debug, Clone, Default)]
@@ -66,12 +69,12 @@ pub struct ExportOptions {
     pub adopt_scripts: bool,
     /// Export also over changes of the text project the members lack (`g4k text export
     /// --force`): they are thrown away. Without it the export refuses them
-    /// ([`UNSYNCED_EXPORT`]).
+    /// ([`unsynced_export_prefix`]).
     pub force: bool,
 }
 
 /// The refusal of [`export`] without `force` when the text project holds changes the members
-/// lack ([`UNSYNCED_EXPORT`]), found without exporting and without writing anything (a
+/// lack ([`unsynced_export_prefix`]), found without exporting and without writing anything (a
 /// missing base layer is not made). The app asks it before its question „Textprojekt
 /// exportieren“.
 pub fn unsynced_export(project: &Project) -> Result<Option<String>, KernelError> {
@@ -147,7 +150,7 @@ pub struct ExportProgress {
 /// newer schema version, text archives in conflict ([`KernelError::TextConflict`]), missing
 /// itemData members that hide the item table (named ones or a gap; the import first),
 /// scripts that are not adopted unless `opts.adopt_scripts`, and, unless `opts.force`,
-/// changes of the text project the members lack ([`UNSYNCED_EXPORT`]: what the build step
+/// changes of the text project the members lack ([`unsynced_export_prefix`]: what the build step
 /// would write into the members since its last sync point, side files and blobs included, or
 /// a unit changed on both sides), which the export would overwrite or delete. The base layer
 /// is made only when it is not there (before that last refusal). Afterwards every JSON equals
@@ -198,7 +201,7 @@ pub(super) fn run_checked(
     let mut report = ExportReport::default();
     let adopted = scripts::is_adopted(project);
     if !adopted && !opts.adopt_scripts {
-        return Err(KernelError::Refused(NOT_ADOPTED.to_owned()));
+        return Err(KernelError::Refused(not_adopted()));
     }
     let layer_start = Instant::now();
     let base_step = |done| ExportProgress {
@@ -253,13 +256,13 @@ pub(super) fn preflight(
     base: &BaseRom,
 ) -> Result<Option<Manifest>, KernelError> {
     if project.family == Family::Dp {
-        return Err(KernelError::Refused(NO_DP.to_owned()));
+        return Err(KernelError::Refused(no_dp()));
     }
     let mark = match mark_state(&project.root) {
         MarkState::Present(mark) => mark,
         other => {
             return Err(KernelError::Refused(
-                other.refusal().unwrap_or_else(|| NO_MARK.to_owned()),
+                other.refusal().unwrap_or_else(no_mark),
             ));
         }
     };
@@ -304,20 +307,21 @@ fn missing_item_members(project: &Project) -> Result<Option<String>, KernelError
     let dir = project.unpacked_dir(AssetKind::Item);
     let dir = crate::build::step::key(dir.strip_prefix(&project.root).unwrap_or(&dir));
     Ok(Some(if !missing.is_empty() {
-        format!(
-            "In {dir} fehlen {} Item-Member, die die Item-Tabelle nennt ({}): erst `g4k text \
-             import` ausführen, dann exportieren.",
-            missing.len(),
-            numbers(&missing)
+        t!(
+            "textproject.items_missing_named",
+            dir = dir,
+            count = missing.len(),
+            numbers = numbers(&missing)
         )
+        .into_owned()
     } else {
-        format!(
-            "In {dir} fehlen {} Item-Member, die keine Item-ID nennt ({}): erst die Lücke \
-             schließen (etwa mit `g4k text import`, wenn `data/raw/` die Member hat), dann \
-             exportieren.",
-            gap.len(),
-            numbers(&gap)
+        t!(
+            "textproject.items_missing_gap",
+            dir = dir,
+            count = gap.len(),
+            numbers = numbers(&gap)
         )
+        .into_owned()
     }))
 }
 
@@ -657,10 +661,9 @@ pub(crate) fn entity_files(
         Art::TrainerTextTable => json::<TrainerTextTableEntity>(index, parts, ctx, deleted)?,
         Art::TrainerTextOffsets => json::<TrainerTextOffsetsEntity>(index, parts, ctx, deleted)?,
         Art::Items | Art::Binary(_) => {
-            return Err(KernelError::InvalidProject(format!(
-                "{}: keine Art aus ganzen Membern",
-                art.name()
-            )));
+            return Err(KernelError::InvalidProject(
+                t!("textproject.art_not_whole_members", art = art.name()).into_owned(),
+            ));
         }
     };
     let mut files = vec![(format!("{index:04}.json"), json)];
@@ -1006,8 +1009,7 @@ mod tests {
         };
         assert!(
             text.starts_with(
-                "textproject.map-source: Karte 0000 ist eine Welt-Karte, ihr Member lässt sich \
-                 nicht lesen;"
+                "textproject.map-source: Map 0000 is a world map, its member cannot be read;"
             ),
             "{text}"
         );

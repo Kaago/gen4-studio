@@ -183,8 +183,7 @@ fn a_changed_member_fails_the_step_and_writes_nothing() {
     assert_eq!(changed[0].severity, Severity::Error);
     assert_eq!(
         changed[0].message,
-        "world.member-changed: Karte 0000: Der Member wurde außerhalb des Studios geändert \
-         (DSPRE?). In Technik › Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“."
+        "world.member-changed: Map 0000: The member was changed outside the Studio (DSPRE?). In Technical › Text project, “Bake again” or “Adopt as binary map”."
     );
     // Nothing written, nothing recorded.
     assert_eq!(member(&fx, 0), outside);
@@ -298,7 +297,7 @@ fn a_refused_bake_fails_the_step_with_world_bake() {
     assert!(
         bake[0]
             .message
-            .starts_with("world.bake: world: bake.model-too-big: Das gebackene Modell hat"),
+            .starts_with("world.bake: world: bake.model-too-big: The baked model has"),
         "{}",
         bake[0].message
     );
@@ -388,7 +387,7 @@ fn the_import_refuses_a_world_member_changed_outside_before_writing() {
     assert!(
         problems.iter().any(|p| p.severity == Severity::Error
             && p.file == std::path::Path::new("data/maps/0000.json")
-            && p.message.starts_with("world.member-changed: Karte 0000:")),
+            && p.message.starts_with("world.member-changed: Map 0000:")),
         "{problems:#?}"
     );
     // Nothing written.

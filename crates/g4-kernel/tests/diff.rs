@@ -296,7 +296,7 @@ fn head_entries_list_a_file_whose_envelope_changed() {
         .iter()
         .map(|e| (e.state, e.group.as_str(), e.label.as_str()))
         .collect();
-    assert_eq!(listed, [(ChangeState::Changed, "Trainer", "Trainer 0001")]);
+    assert_eq!(listed, [(ChangeState::Changed, "Trainers", "Trainer 0001")]);
 
     let sources = DiffSources {
         original: None,

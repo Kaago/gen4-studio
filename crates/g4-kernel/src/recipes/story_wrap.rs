@@ -42,14 +42,18 @@ use crate::stories::entities::append_step;
 use crate::text::json_path;
 
 /// The refusal for a trainer: its texts are its battle texts.
-pub(crate) const TRAINER_TEXT: &str = "Trainer sprechen über ihre Kampftexte (Bereich Pokémon).";
+pub(crate) fn trainer_text() -> String {
+    t!("recipes.trainer_speaks_battle_texts").into_owned()
+}
 
 /// The refusal for a figure that speaks through common script `script`.
 pub(crate) fn common_script_text(local_id: u16, script: u16) -> String {
-    format!(
-        "Figur {local_id} spricht über das gemeinsame Script {script}; das Rezept braucht ein \
-         eigenes Script."
+    t!(
+        "recipes.figure_common_script",
+        local_id = local_id,
+        script = script
     )
+    .into_owned()
 }
 
 /// Refuses a project whose scripts are not adopted ([`ADOPT_FIRST`]): a hull is rotom source.
@@ -67,9 +71,10 @@ pub(crate) fn require_rotom(project: &Project, header: u16, file: u16) -> Result
     if scripts::source_kind(project, file) == SourceKind::Script {
         Ok(())
     } else {
-        Err(refused(format!(
-            "Die Scriptdatei {file:04} von Header {header} ist keine rotom-Quelle; in Bauen eine \
-             Scriptdatei zuweisen."
+        Err(refused(t!(
+            "recipes.script_file_not_rotom",
+            script_file = file : {:04},
+            header = header
         )))
     }
 }
@@ -105,7 +110,7 @@ pub(crate) struct Hull {
 }
 
 /// Every check of a hull before the first write, in this order: the figure (an object of the
-/// header's event file), no trainer ([`TRAINER_TEXT`]), its dialog local or none
+/// header's event file), no trainer ([`trainer_text`]), its dialog local or none
 /// ([`common_script_text`] for a common script, an unreadable dialog with its reason), a rotom
 /// source as the header's script file, a writable event file and text archive, a text, a local
 /// slot below the common scripts, a script name the file does not use, a message number the
@@ -118,7 +123,7 @@ pub(crate) fn check_hull(
     let at = request.figure;
     let found = figure(store, at)?;
     if found.trainer {
-        return Err(refused(TRAINER_TEXT));
+        return Err(refused(trainer_text()));
     }
     let files = header_files(store, at.header)?;
     let dialog = dialog_of(
@@ -134,7 +139,7 @@ pub(crate) fn check_hull(
         DialogSource::Common { script } => {
             return Err(refused(common_script_text(found.local_id, script)));
         }
-        DialogSource::Trainer { .. } => return Err(refused(TRAINER_TEXT)),
+        DialogSource::Trainer { .. } => return Err(refused(trainer_text())),
         DialogSource::Unreadable { reason } => return Err(refused(reason)),
     };
     let project = store.project_arc();
@@ -151,16 +156,20 @@ pub(crate) fn check_hull(
         Tail::End
     } else {
         let name = slot_name(&source, previous_slot).ok_or_else(|| {
-            refused(format!(
-                "Die Scriptdatei {script_file:04} hat kein Script #{previous_slot}."
+            refused(t!(
+                "recipes.script_slot_missing",
+                script_file = script_file : {:04},
+                slot = previous_slot
             ))
         })?;
         Tail::Jump(name)
     };
     let name = (request.name)(found.local_id, slot);
     if scripts::names_identifier(&source, &name) {
-        return Err(refused(format!(
-            "Die Scriptdatei {script_file:04} nennt schon {name}; in Bauen umbenennen."
+        return Err(refused(t!(
+            "recipes.script_file_names_already",
+            script_file = script_file : {:04},
+            name = name
         )));
     }
     let family = project.family;
@@ -235,9 +244,9 @@ pub(crate) fn rolled_back<T>(
             let rolled = store.rollback_to(mark).map(|_| ());
             match restored.and(rolled) {
                 Ok(()) => Err(e),
-                Err(back) => Err(KernelError::InvalidProject(format!(
-                    "{e}; das Zurücknehmen scheiterte: {back}"
-                ))),
+                Err(back) => Err(KernelError::InvalidProject(
+                    t!("recipes.rollback_failed", error = e, back = back).into_owned(),
+                )),
             }
         }
     }
@@ -374,8 +383,11 @@ pub(crate) fn check_message_number(
     if got == expected {
         Ok(())
     } else {
-        Err(refused(format!(
-            "Die Nachricht bekam Nummer {got} statt {expected} in Textarchiv {archive}."
+        Err(refused(t!(
+            "recipes.message_number_mismatch",
+            got = got,
+            expected = expected,
+            archive = archive
         )))
     }
 }
@@ -389,10 +401,10 @@ pub(crate) fn check_no_literal(
     archive: u16,
 ) -> Result<(), KernelError> {
     if touched.contains(&archive) {
-        Err(refused(format!(
-            "Der Compile der Scriptdatei {script_file:04} schrieb ein Text-Literal in Textarchiv \
-             {archive}, in das die neue Nachricht kommt; erst die Scriptdatei in Bauen \
-             kompilieren und speichern."
+        Err(refused(t!(
+            "recipes.compile_wrote_literal",
+            script_file = script_file : {:04},
+            archive = archive
         )))
     } else {
         Ok(())
@@ -456,8 +468,11 @@ fn write_hull(
         })?;
         if !pointed {
             // Checked before the first write; a failed transaction records nothing.
-            return Err(refused(format!(
-                "Objekt {index} der Eventdatei {event_file:04} ist nicht mehr Figur {local_id}."
+            return Err(refused(t!(
+                "recipes.object_no_longer_figure_plain",
+                index = index,
+                event_file = event_file : {:04},
+                local_id = local_id
             )));
         }
         Ok(message)

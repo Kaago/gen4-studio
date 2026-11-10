@@ -73,7 +73,7 @@ mod tests;
 mod watch;
 
 pub use conflict::{
-    BrokenEntry, ConflictEntry, Keep, NO_CONFLICT, Other, SyncEntry, SyncOutcome, resolve,
+    BrokenEntry, ConflictEntry, Keep, Other, SyncEntry, SyncOutcome, no_conflict, resolve,
     resolve_files, sync_store,
 };
 pub use diff::{ConflictDiff, DiffLine, MAX_LINES, StoreValues};

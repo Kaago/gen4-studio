@@ -264,13 +264,17 @@ pub fn plan(store: &mut Store, spec: &RoomSpec) -> Result<Draft, KernelError> {
         }],
         ..Draft::default()
     };
-    draft.notes.push(format!(
-        "Legt Raum „{}“ als Kopie von Karte {:04} an.",
-        spec.name, spec.source_map
-    ));
+    draft.notes.push(
+        t!(
+            "recipes.note_room",
+            name = spec.name,
+            map = spec.source_map : {:04}
+        )
+        .into_owned(),
+    );
     draft
         .notes
-        .push("Der Raum entsteht auf einer neuen Weltkarte.".to_owned());
+        .push(t!("recipes.note_room_new_matrix").into_owned());
     draft
         .notes
         .extend(assign_notes(store, assign, &spec.name, None)?);
@@ -297,19 +301,29 @@ pub fn plan(store: &mut Store, spec: &RoomSpec) -> Result<Draft, KernelError> {
                 warp: Some(plan.outside_index),
             }),
         });
-        draft.notes.push(format!(
-            "Eine Tür bei x {}, z {} von Header {} führt in den Raum.",
-            entrance.x, entrance.z, entrance.outside_header
-        ));
+        draft.notes.push(
+            t!(
+                "recipes.note_room_entrance",
+                x = entrance.x,
+                z = entrance.z,
+                header = entrance.outside_header
+            )
+            .into_owned(),
+        );
         draft.notes.push(match plan.reused {
-            Some(i) => format!(
-                "Der kopierte Warp {i} bei x {}, z {} im Raum führt künftig nach draußen.",
-                entrance.inside_x, entrance.inside_z
-            ),
-            None => format!(
-                "Eine Tür bei x {}, z {} im Raum führt zurück.",
-                entrance.inside_x, entrance.inside_z
-            ),
+            Some(i) => t!(
+                "recipes.note_room_reused_warp",
+                warp = i,
+                x = entrance.inside_x,
+                z = entrance.inside_z
+            )
+            .into_owned(),
+            None => t!(
+                "recipes.note_room_way_back",
+                x = entrance.inside_x,
+                z = entrance.inside_z
+            )
+            .into_owned(),
         });
         if plan.outside_door {
             draft.tiles.push(DraftTile {
@@ -317,10 +331,14 @@ pub fn plan(store: &mut Store, spec: &RoomSpec) -> Result<Draft, KernelError> {
                 x: entrance.x,
                 z: entrance.z,
             });
-            draft.notes.push(format!(
-                "Die Kachel bei x {}, z {} draußen wird zur Tür.",
-                entrance.x, entrance.z
-            ));
+            draft.notes.push(
+                t!(
+                    "recipes.note_room_outside_door_tile",
+                    x = entrance.x,
+                    z = entrance.z
+                )
+                .into_owned(),
+            );
         }
         if plan.inside_door {
             draft.tiles.push(DraftTile {
@@ -328,10 +346,14 @@ pub fn plan(store: &mut Store, spec: &RoomSpec) -> Result<Draft, KernelError> {
                 x: entrance.inside_x,
                 z: entrance.inside_z,
             });
-            draft.notes.push(format!(
-                "Die Kachel bei x {}, z {} im Raum wird zur Tür.",
-                entrance.inside_x, entrance.inside_z
-            ));
+            draft.notes.push(
+                t!(
+                    "recipes.note_room_inside_door_tile",
+                    x = entrance.inside_x,
+                    z = entrance.inside_z
+                )
+                .into_owned(),
+            );
         }
     }
     draft
@@ -339,10 +361,10 @@ pub fn plan(store: &mut Store, spec: &RoomSpec) -> Result<Draft, KernelError> {
         .extend(assign_irreversible(store, assign)?);
     draft
         .irreversible
-        .push(format!("Karte {:04} wird kopiert", spec.source_map));
+        .push(t!("recipes.irreversible_map_copied", map = spec.source_map : {:04}).into_owned());
     draft
         .irreversible
-        .push("Eine neue Weltkarte wird angelegt".to_owned());
+        .push(t!("recipes.irreversible_new_matrix").into_owned());
     draft
         .irreversible
         .extend(event_file_irreversible(assign.event_file));
@@ -351,7 +373,7 @@ pub fn plan(store: &mut Store, spec: &RoomSpec) -> Result<Draft, KernelError> {
 
 /// Creates a 1 x 1 matrix with a copy of a map, points a header at it and, with an entrance,
 /// links a warp outside with a warp inside, then makes the door tiles (outside, inside): the
-/// edits are one undo step `Raum „…“ angelegt`. When the outside header and the room header
+/// edits are one undo step `Room “…” created`. When the outside header and the room header
 /// share the event file (`Keep`), the room warp is appended right after the outside warp in
 /// that one file. A copied event file that has a warp on the inside tile keeps it as the way
 /// back, pointed outside: the game takes the first warp of a tile.
@@ -378,7 +400,7 @@ pub fn apply(store: &mut Store, spec: &RoomSpec) -> Result<Outcome<RoomReport>, 
     let room_file = event_file.unwrap_or(kept_file);
 
     let bank = places::location_bank(store.project());
-    let label = format!("Raum „{}“ angelegt", spec.name);
+    let label = t!("recipes.room_created", name = spec.name).into_owned();
     let entrance = spec.entrance.as_ref().zip(plan.as_ref());
     let (door_tiles, change) = store.transaction(&label, |tx| {
         tx.edit_matrix(matrix, |m| {
@@ -421,6 +443,6 @@ pub fn apply(store: &mut Store, spec: &RoomSpec) -> Result<Outcome<RoomReport>, 
         created: created.objects(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("new_figure", "Neue Figur hier")]),
+        next: next_steps(&["new_figure"]),
     })
 }

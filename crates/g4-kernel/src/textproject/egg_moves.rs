@@ -78,10 +78,14 @@ pub(crate) fn resolve_field(
                 .ok()
                 .filter(|&m| m != 0 && usize::from(m) < limit)
                 .ok_or_else(|| {
-                    format!(
-                        "{SCHEMA_CODE}: {path}: {n} ist keine Ei-Attacke (Attacken 1 bis {}).",
-                        limit.saturating_sub(1)
+                    t!(
+                        "textproject.egg_move_invalid",
+                        code = SCHEMA_CODE,
+                        path = path,
+                        n = n,
+                        max = limit.saturating_sub(1)
                     )
+                    .into_owned()
                 })
         })
         .collect()
@@ -194,9 +198,13 @@ pub(crate) fn location_bytes(location: &Location) -> Result<Option<Vec<u8>>, Ker
         Location::Member(path) => (path, None),
         Location::Slice { path, offset, len } => (path, Some((*offset, *len))),
         other => {
-            return Err(KernelError::InvalidProject(format!(
-                "die Ei-Attacken liegen nicht in {other:?}"
-            )));
+            return Err(KernelError::InvalidProject(
+                t!(
+                    "textproject.egg_moves_location",
+                    location = format!("{other:?}")
+                )
+                .into_owned(),
+            ));
         }
     };
     let bytes = match crate::fsutil::read_noted(path) {
@@ -385,11 +393,11 @@ mod tests {
         let err = resolve_field(&[SymRef::Num(0)], &sym, Some(468)).unwrap_err();
         assert_eq!(
             err,
-            "textproject.schema: egg_moves[0]: 0 ist keine Ei-Attacke (Attacken 1 bis 467)."
+            "textproject.schema: egg_moves[0]: 0 is not an egg move (moves 1 to 467)."
         );
         let err = resolve_field(&[SymRef::Num(5), SymRef::Num(468)], &sym, Some(468)).unwrap_err();
         assert!(
-            err.starts_with("textproject.schema: egg_moves[1]: 468 ist keine"),
+            err.starts_with("textproject.schema: egg_moves[1]: 468 is not an"),
             "{err}"
         );
         assert_eq!(

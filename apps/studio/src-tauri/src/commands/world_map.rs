@@ -16,7 +16,7 @@
 //! count the faces of free-form and piece models too.
 //!
 //! Painting is for text projects only: outside one the writers refuse with
-//! [`WORLD_NEEDS_TEXT_PROJECT`], while `world_get` answers `world: null` and `get_world_mesh`
+//! [`world_needs_text_project`], while `world_get` answers `world: null` and `get_world_mesh`
 //! an empty mesh (the scene shows the map's model then); `tileset_get` derives the tileset in
 //! any layout.
 //!
@@ -47,7 +47,7 @@ use crate::state::AppState;
 use g4_kernel::map_import::PartMessage;
 use g4_kernel::world::{
     FreeformAddRequest, FreeformReport, PieceSetReport, PieceSetRequest, TmjExportReport,
-    TmjImportReport, WORLD_NEEDS_TEXT_PROJECT,
+    TmjImportReport, world_needs_text_project,
 };
 
 /// What `world_get` answers: the world of the map (`None`: none, or outside a text project),
@@ -455,13 +455,13 @@ pub struct FreeformInspectDto {
     pub notes: Vec<PartMessage>,
 }
 
-/// Refused with [`WORLD_NEEDS_TEXT_PROJECT`] outside a text project (the TMJ exchange would
+/// Refused with [`world_needs_text_project`] outside a text project (the TMJ exchange would
 /// otherwise answer that the map has no world).
 fn require_text_project(store: &Store) -> Result<(), CmdError> {
     if is_text_project(store) {
         Ok(())
     } else {
-        Err(g4_kernel::error::KernelError::Refused(WORLD_NEEDS_TEXT_PROJECT.to_owned()).into())
+        Err(g4_kernel::error::KernelError::Refused(world_needs_text_project()).into())
     }
 }
 
@@ -851,7 +851,7 @@ mod tests {
         // It is there already.
         assert_eq!(
             refused(&state, &policy, "tileset_save", json!({ "package": 0 })),
-            "data/tilesets/0000.json gibt es schon."
+            "data/tilesets/0000.json already exists."
         );
     }
 
@@ -869,7 +869,7 @@ mod tests {
         ] {
             assert_eq!(
                 refused(&state, &policy, name, args),
-                WORLD_NEEDS_TEXT_PROJECT,
+                world_needs_text_project(),
                 "{name}"
             );
         }
@@ -958,10 +958,7 @@ mod tests {
             "{released}"
         );
         assert!(released["change"].is_number(), "{released}");
-        assert_eq!(
-            labels(&state).last().unwrap(),
-            "Welt aufgegeben: Karte 0000"
-        );
+        assert_eq!(labels(&state).last().unwrap(), "World discarded: Map 0000");
         let binary = call(&state, &policy, "world_get", json!({ "map": 0 }));
         assert_eq!(
             (&binary["world"], &binary["bake"]),
@@ -972,7 +969,7 @@ mod tests {
         assert_eq!(heights["heights"][4 * 32 + 3], json!(16.0));
         assert_eq!(
             refused(&state, &policy, "world_to_binary", json!({ "map": 0 })),
-            "Karte 0000 ist keine Welt-Karte; erst „Welt anlegen“ (world_create)."
+            "Map 0000 is not a world map; first “Create world” (world_create)."
         );
 
         call(&state, &policy, "undo", json!({}));
@@ -1072,7 +1069,7 @@ mod tests {
                     "world_adopt",
                     json!({ "req": { "map": 0, "form": "gltf" } })
                 ),
-                "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula)."
+                "Form 2 needs apicula (`G4_APICULA` or tools/apicula)."
             );
         }
         let report = call(
@@ -1096,7 +1093,7 @@ mod tests {
         assert_eq!(report["bake"]["verbatim_terrain"], true, "{report}");
         assert_eq!(
             labels(&state).last().unwrap(),
-            "Karte als Quelle übernommen: Karte 0000"
+            "Map adopted as source: Map 0000"
         );
         let got = call(&state, &policy, "world_get", json!({ "map": 0 }));
         assert_eq!(got["world"]["tileset"], 0, "{got}");
@@ -1114,7 +1111,7 @@ mod tests {
                 "world_adopt",
                 json!({ "req": { "map": 0 } })
             ),
-            "Karte 0000 ist schon eine Welt-Karte."
+            "Map 0000 is already a world map."
         );
         call(&state, &policy, "undo", json!({}));
         assert_eq!(
@@ -1153,7 +1150,7 @@ mod tests {
         assert!(report["change"].is_number(), "{report}");
         assert_eq!(
             labels(&state).last().unwrap(),
-            "Tileset 0000 geändert (1 Kachel)"
+            "Tileset 0000 changed (1 tile)"
         );
         let tileset = call(&state, &policy, "tileset_get", json!({ "package": 0 }));
         assert_eq!(tileset["tileset"]["tiles"][0]["role"], "grass");
@@ -1172,7 +1169,7 @@ mod tests {
                 "tileset_edit",
                 json!({ "req": { "package": 1, "changes": [{ "tile": 0, "kind": 2 }] } })
             ),
-            "Erst `tileset_save` für Paket 0001."
+            "First `tileset_save` for package 0001."
         );
     }
 
@@ -1190,7 +1187,7 @@ mod tests {
         ] {
             assert_eq!(
                 refused(&state, &policy, name, args),
-                WORLD_NEEDS_TEXT_PROJECT,
+                world_needs_text_project(),
                 "{name}"
             );
         }
@@ -1426,7 +1423,7 @@ mod tests {
         assert_eq!(added["bake"]["ok"], true, "{added}");
         assert_eq!(
             labels(&state).last().unwrap(),
-            "Freiform hinzugefügt: Karte 0000 (0000.g4_imp_cube.glb)"
+            "Free-form added: Map 0000 (0000.g4_imp_cube.glb)"
         );
         let mesh = call(&state, &policy, "get_world_mesh", json!({ "map": 0 }));
         assert_eq!(
@@ -1482,7 +1479,7 @@ mod tests {
         assert!(removed["change"].is_number(), "{removed}");
         assert_eq!(
             labels(&state).last().unwrap(),
-            "Freiform entfernt: Karte 0000 (0000.g4_imp_cube.glb)"
+            "Free-form removed: Map 0000 (0000.g4_imp_cube.glb)"
         );
         assert!(!mesh_layers(&state, &policy).contains(&254));
         assert_eq!(
@@ -1492,7 +1489,7 @@ mod tests {
                 "world_freeform_remove",
                 json!({ "map": 0, "index": 0 })
             ),
-            "Karte 0000 hat keine Freiform 0 (0 Einträge)."
+            "Map 0000 has no free-form 0 (0 entries)."
         );
         call(&state, &policy, "undo", json!({}));
         assert!(mesh_layers(&state, &policy).contains(&254));
@@ -1535,7 +1532,7 @@ mod tests {
         assert!(report["change"].is_number(), "{report}");
         assert_eq!(
             labels(&state).last().unwrap(),
-            "Karte als Quelle übernommen: Karte 0000"
+            "Map adopted as source: Map 0000"
         );
         assert!(fx.root().join("data/maps/0000.model.glb").is_file());
     }
@@ -1621,7 +1618,7 @@ mod tests {
         assert!(report["change"].is_number(), "{report}");
         assert_eq!(
             labels(&state).last().unwrap(),
-            "Teilmodell gesetzt: Kachel 5 in Tileset 0000 (baum)"
+            "Piece set: Tile 5 in tileset 0000 (baum)"
         );
         let tile =
             call(&state, &policy, "tileset_get", json!({ "package": 0 }))["tileset"]["tiles"][5]
@@ -1669,7 +1666,7 @@ mod tests {
         ] {
             assert_eq!(
                 refused(&state, &policy, name, args),
-                WORLD_NEEDS_TEXT_PROJECT,
+                world_needs_text_project(),
                 "{name}"
             );
         }
@@ -1768,7 +1765,7 @@ mod tests {
                 "world_layers",
                 json!({ "req": { "map": 0, "op": { "remove": { "layer": 0 } } } }),
             ),
-            "Die Bodenebene (0) bleibt."
+            "The ground layer (0) stays."
         );
     }
 
@@ -1939,8 +1936,8 @@ mod tests {
         assert_eq!(
             labels[labels.len() - 2..],
             [
-                "Kantensatz „Weg“ angelegt: Tileset 0000",
-                "Welt geändert: Karte 0000 (45 Zellen)",
+                "Edge set “Weg” added: Tileset 0000",
+                "World changed: Map 0000 (45 cells)",
             ]
         );
         let ground = call(&state, &policy, "world_get", json!({ "map": 0 }));
@@ -1957,7 +1954,7 @@ mod tests {
                 "world_edit",
                 json!({ "req": { "map": 0, "changes": [{ "cells": [[1, 1]], "terrain": { "set": "Fels" } }] } }),
             ),
-            "Kantensatz „Fels“ gibt es im Tileset 0000 nicht."
+            "Edge set “Fels” does not exist in tileset 0000."
         );
         call(&state, &policy, "undo", json!({}));
         call(&state, &policy, "undo", json!({}));
@@ -2007,8 +2004,7 @@ mod tests {
         assert_eq!(
             report["notes"],
             json!([
-                "Naht zu Karte 0001: 3 Zellen dort passen nicht mehr zum Satz „Weg“; die \
-                 Nachbarkarte bleibt, wie sie ist."
+                "Seam to Map 0001: 3 cells there no longer fit the set “Weg”; the neighboring map stays as it is."
             ]),
             "{report}"
         );

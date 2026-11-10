@@ -1864,11 +1864,11 @@ fn text_adopt(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Fa
 /// phase.
 fn text_restore(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
     use g4_kernel::textproject::restore::{
-        HAS_GAME_FILES, RestorePhase, needs_restore, restore_from_base,
+        RestorePhase, has_game_files, needs_restore, restore_from_base,
     };
 
     if !needs_restore(root) {
-        return Err(Failure::Message(HAS_GAME_FILES.to_owned()));
+        return Err(Failure::Message(has_game_files()));
     }
     let mark = required_mark(root)?;
     let base = required_base(root, &mark, base_rom)?;

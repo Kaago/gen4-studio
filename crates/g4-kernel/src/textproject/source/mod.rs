@@ -320,11 +320,14 @@ impl EntitySource {
     /// The symbols read again when their files changed, the base layer looked for.
     fn refresh(&mut self, project: &Project) -> Result<(), KernelError> {
         if project.root != self.root {
-            return Err(KernelError::InvalidProject(format!(
-                "die Quelle gehört zu {}, nicht zu {}",
-                self.root.display(),
-                project.root.display()
-            )));
+            return Err(KernelError::InvalidProject(
+                t!(
+                    "textproject.source_other_root",
+                    root = self.root.display(),
+                    project = project.root.display()
+                )
+                .into_owned(),
+            ));
         }
         if !self
             .stamps
@@ -570,14 +573,16 @@ impl EntitySource {
     ) -> Result<SourceWrite, KernelError> {
         if self.for_diff && self.dry.is_none() {
             return Err(KernelError::InvalidProject(
-                "die Quelle des Diffs schreibt nicht".to_owned(),
+                t!("textproject.diff_source_writes_not").into_owned(),
             ));
         }
         self.refresh(project)?;
         let mut units: BTreeMap<String, (Place, Given<'_>)> = BTreeMap::new();
         for (id, bytes) in writes {
             let place = place_of(project, *id).ok_or_else(|| {
-                KernelError::InvalidProject(format!("{id} hat keine JSON im Textprojekt."))
+                KernelError::InvalidProject(
+                    t!("textproject.asset_without_json", id = id).into_owned(),
+                )
             })?;
             units
                 .entry(place.key())
@@ -621,7 +626,7 @@ impl EntitySource {
     /// `create_header`); envelopes stay as they are on disk.
     pub fn append(&mut self, project: &Project, id: AssetId) -> Result<SourceWrite, KernelError> {
         let bytes = disk_bytes(project, id)?.ok_or_else(|| {
-            KernelError::InvalidProject(format!("{id} ist nicht auf der Platte."))
+            KernelError::InvalidProject(t!("textproject.asset_not_on_disk", id = id).into_owned())
         })?;
         let deleted = deleted_on_disk(&self.root);
         self.write(project, &[(id, bytes)], &|_| None, &deleted)

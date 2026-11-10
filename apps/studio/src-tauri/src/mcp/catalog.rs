@@ -3531,7 +3531,7 @@ mod tests {
         let undo = call("history", json!({}))["undo"].clone();
         assert_eq!(
             undo.as_array().unwrap().last().unwrap(),
-            "Welt geändert: Karte 0000 (2 Zellen)",
+            "World changed: Map 0000 (2 cells)",
             "{undo}"
         );
         let got = call("world_get", json!({ "map": 0 }));

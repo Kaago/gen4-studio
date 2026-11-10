@@ -314,7 +314,7 @@ pub enum Location {
     /// A store kind without member: the world map ([`AssetKind::WorldMap`]), whose bytes the
     /// map's JSON `json` (`data/maps/NNNN.json`) holds. Read only from a text project's unit
     /// ([`Location::Entity`] around it); read alone (outside a text project) it is refused
-    /// ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]), and saving it writes no member.
+    /// ([`crate::world::world_needs_text_project`]), and saving it writes no member.
     Derived { json: PathBuf },
     /// An asset of a text project ([`SourceMode::TextProject`]): its unit's JSON under `data/`
     /// is its source, `members` (one of the locations above) the build's intermediate state.
