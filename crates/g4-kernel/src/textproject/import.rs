@@ -1741,7 +1741,7 @@ fn binary_map_writes(project: &Project, plan: &ImportPlan) -> Vec<u16> {
         .filter_map(|w| {
             let name = w.path.file_name()?.to_str()?;
             (name.len() == 4 && name.bytes().all(|b| b.is_ascii_digit()))
-                .then(|| name.parse().ok())
+                .then(|| name.parse::<u16>().ok())
                 .flatten()
         })
         .collect()
