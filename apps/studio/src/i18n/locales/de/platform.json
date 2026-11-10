@@ -1,0 +1,20 @@
+{
+  "transport": {
+    "bridgeDown": "Brücke nicht erreichbar",
+    "bridgeHttp": "Brücke: HTTP {{status}}",
+    "noBackend": "Kein Tauri und keine Brücke"
+  },
+  "dialogs": {
+    "chooseFolder": "Ordner wählen",
+    "chooseFile": "Datei wählen",
+    "saveAs": "Speichern unter"
+  },
+  "webDialog": {
+    "question": "Rückfrage",
+    "no": "Nein",
+    "yes": "Ja",
+    "cancel": "Abbrechen",
+    "ok": "OK",
+    "path": "Pfad"
+  }
+}

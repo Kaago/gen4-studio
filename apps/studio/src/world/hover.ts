@@ -1,4 +1,5 @@
 import type { TileBehavior } from "../api";
+import { t } from "../i18n";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { heightWords } from "./ground";
@@ -27,20 +28,33 @@ export function describeTile(cell: [number, number], names: Map<number, TileBeha
   };
 }
 
-/** The plain word of a behaviour class that says what the tile is to walk on; the others (a warp, a door, ...) have none. */
-const CLASS_WORDS: Record<string, string> = { grass: "hohes Gras", water: "Wasser", ledge: "Vorsprung", ice: "Eis" };
+/** The plain word of a behaviour class that says what the tile is to walk on; the others (a warp, a door, ...) are just walkable. */
+function classWord(cls: string | null): string {
+  switch (cls) {
+    case "grass":
+      return t("world:hover.classes.grass");
+    case "water":
+      return t("world:hover.classes.water");
+    case "ledge":
+      return t("world:hover.classes.ledge");
+    case "ice":
+      return t("world:hover.classes.ice");
+    default:
+      return t("world:hover.walkable");
+  }
+}
 
 /**
- * One-line status text, the BDHC height of the tile centre (`units`, see `heightWords`) last. Tüfteln: "Karte 0187 · Kachel x 8, y 4 ·
- * Typ 0x5E WARP_STAIRS_EAST · blockiert · Höhe 32 E (4 Stufen)"; Bauen leaves out the type and the ROM constant and puts the tile first:
- * "Kachel x 8, y 4 · Karte 0187 · blockiert · Höhe 4 Stufen" (or "begehbar", "hohes Gras" ...).
+ * One-line status text, the BDHC height of the tile centre (`units`, see `heightWords`) last. Tüfteln (in German): „Karte 0187 · Kachel x 8,
+ * y 4 · Typ 0x5E WARP_STAIRS_EAST · blockiert · Höhe 32 E (4 Stufen)“; Bauen leaves out the type and the ROM constant and puts the tile
+ * first: „Kachel x 8, y 4 · Karte 0187 · blockiert · Höhe 4 Stufen“ (or „begehbar“, „hohes Gras“ ...).
  */
 export function tileSummary(map: number, x: number, y: number, info: TileInfo, depth: Depth, units: number | null): string {
-  const where = `Karte ${String(map).padStart(4, "0")}`;
-  const tile = `Kachel x ${x}, y ${y}`;
+  const where = t("world:hover.map", { map: String(map).padStart(4, "0") });
+  const tile = t("world:hover.tile", { x, y });
   const height = heightWords(units, depth);
-  if (!depthAtLeast(depth, "tuefteln")) return [tile, where, info.blocked ? "blockiert" : (CLASS_WORDS[info.class ?? ""] ?? "begehbar"), height].join(" · ");
+  if (!depthAtLeast(depth, "tuefteln")) return [tile, where, info.blocked ? t("world:hover.blocked") : classWord(info.class), height].join(" · ");
   const hex = `0x${info.kind.toString(16).toUpperCase().padStart(2, "0")}`;
   const type = info.name === null ? hex : `${hex} ${info.name}`;
-  return [where, tile, `Typ ${type}`, info.blocked ? "blockiert" : "begehbar", height].join(" · ");
+  return [where, tile, t("world:hover.type", { type }), info.blocked ? t("world:hover.blocked") : t("world:hover.walkable"), height].join(" · ");
 }

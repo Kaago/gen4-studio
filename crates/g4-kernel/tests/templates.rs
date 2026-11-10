@@ -26,10 +26,10 @@ use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::recipes::CreatedObject;
 use g4_kernel::recipes::empty_region::{self, EmptyRegionInput};
 use g4_kernel::scripts::{self, ScriptSource};
-use g4_kernel::start::DP_LOCKED;
+use g4_kernel::start::dp_locked;
 use g4_kernel::store::{CoordEvent, MapHeader, ObjectEvent, Store, WarpEvent};
 use g4_kernel::templates::{
-    REGION_LABEL, apply_empty_region, plan_empty_region, region_recipe, start_script, wrap_message,
+    apply_empty_region, plan_empty_region, region_label, region_recipe, start_script, wrap_message,
 };
 
 /// Internal names of the synthetic world, by header id: 0 the "everywhere" header, 1 the
@@ -349,7 +349,7 @@ fn plan_picks_the_empty_level_script_of_header_0() {
 #[test]
 fn plan_refuses_diamond() {
     match region_recipe(Family::Dp) {
-        Err(KernelError::Refused(why)) => assert_eq!(why, DP_LOCKED),
+        Err(KernelError::Refused(why)) => assert_eq!(why, dp_locked()),
         other => panic!("expected a refusal, got {other:?}"),
     }
     // A Diamond project is refused before anything is read.
@@ -361,7 +361,7 @@ fn plan_refuses_diamond() {
     .unwrap();
     let mut store = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
     match plan_empty_region(&mut store) {
-        Err(KernelError::Refused(why)) => assert_eq!(why, DP_LOCKED),
+        Err(KernelError::Refused(why)) => assert_eq!(why, dp_locked()),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
@@ -514,7 +514,7 @@ fn start_script_template_fills_every_placeholder() {
     assert!(text.contains(r#""Sag \"Hallo\"""#), "{text}");
     assert_eq!(
         refused(start_script(&recipe, Family::Dp, 2, "x")),
-        DP_LOCKED
+        dp_locked()
     );
 }
 
@@ -570,7 +570,7 @@ fn apply_refuses_diamond() {
     )
     .unwrap();
     let mut store = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
-    assert_eq!(refused(apply_empty_region(&mut store)), DP_LOCKED);
+    assert_eq!(refused(apply_empty_region(&mut store)), dp_locked());
 }
 
 #[test]
@@ -586,7 +586,10 @@ fn apply_is_one_undo_step() {
     let report = apply_empty_region(&mut store).unwrap();
     let (undo, redo) = store.history();
     assert_eq!(undo.len(), undo_before.len() + 1);
-    assert_eq!(undo.last().map(String::as_str), Some(REGION_LABEL));
+    assert_eq!(
+        undo.last().map(String::as_str),
+        Some(region_label().as_str())
+    );
     assert!(redo.is_empty());
     assert!(report.change.is_some());
     assert_eq!(report.plan.start_header, 1);
@@ -835,8 +838,11 @@ fn empty_region_apply_is_one_step_with_file_steps() {
     let outcome = empty_region::apply(&mut store, &EmptyRegionInput::default()).unwrap();
     assert_eq!(store.undo_depth(), depth + 1);
     let (undo, redo) = store.history();
-    assert_eq!(undo.iter().filter(|l| *l == REGION_LABEL).count(), 1);
-    assert_eq!(undo.last().map(String::as_str), Some(REGION_LABEL));
+    assert_eq!(undo.iter().filter(|l| **l == region_label()).count(), 1);
+    assert_eq!(
+        undo.last().map(String::as_str),
+        Some(region_label().as_str())
+    );
     assert!(redo.is_empty());
     let report = &outcome.report;
     assert_eq!(report.plan.start_header, plan.start_header);
@@ -875,7 +881,7 @@ fn empty_region_apply_is_one_step_with_file_steps() {
     assert_eq!(outcome.next.len(), 1);
     assert_eq!(
         (outcome.next[0].id.as_str(), outcome.next[0].label.as_str()),
-        ("create_area", "Gebiet anlegen")
+        ("create_area", "Create area")
     );
     assert!(outcome.next[0].available);
     // The dispatcher applies the same recipe from JSON (here refused: the world is empty now).
@@ -958,7 +964,7 @@ fn undo_and_redo_of_the_empty_region_restore_every_file() {
     assert_ne!(store.current_bytes(text_id(433)).unwrap(), archive);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some(REGION_LABEL)
+        Some(region_label().as_str())
     );
     store.undo().unwrap();
     let differ = differing(&script_files(&project), &before);
@@ -983,14 +989,14 @@ fn undo_refuses_a_script_changed_meanwhile() {
     std::fs::write(&source, &text).unwrap();
     let changed = script_files(&project);
     let why = refused(store.undo());
-    assert!(why.contains("Scriptdatei 0000"), "{why}");
+    assert!(why.contains("Script file 0000"), "{why}");
     let differ = differing(&script_files(&project), &changed);
     assert!(differ.is_empty(), "differ: {differ:?}");
     // The step left the history; the store keeps the empty region it had.
     assert_eq!(store.undo_depth(), depth);
     assert_ne!(
         store.history().0.last().map(String::as_str),
-        Some(REGION_LABEL)
+        Some(region_label().as_str())
     );
     assert_eq!(
         (
@@ -1040,7 +1046,7 @@ fn undo_and_redo_after_a_compile_restore_every_file() {
     assert!(differ.is_empty(), "differ after redo: {differ:?}");
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some(REGION_LABEL)
+        Some(region_label().as_str())
     );
 }
 
@@ -1067,9 +1073,9 @@ fn undo_refuses_a_compile_state_changed_meanwhile() {
     let changed = script_files(&project);
 
     let why = refused(store.undo());
-    assert!(why.contains("Übersetzungsstand der Scripts"), "{why}");
+    assert!(why.contains("compile state of the scripts"), "{why}");
     assert!(why.contains(STATE_FILE), "{why}");
-    assert!(!why.contains("Scriptdatei"), "{why}");
+    assert!(!why.contains("Script file"), "{why}");
     let differ = differing(&script_files(&project), &changed);
     assert!(differ.is_empty(), "differ: {differ:?}");
     assert_eq!(store.undo_depth(), depth);
@@ -1242,7 +1248,7 @@ fn vanilla_empty_region_undo_restores_the_world() {
     let report = apply_empty_region(&mut store).unwrap();
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some(REGION_LABEL)
+        Some(region_label().as_str())
     );
     assert!(!store.dirty().is_empty());
     let touched: Vec<u16> = report
@@ -1307,7 +1313,7 @@ fn vanilla_empty_region_undo_restores_the_world() {
     store.redo().unwrap();
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some(REGION_LABEL)
+        Some(region_label().as_str())
     );
     let differ = differing(&script_files(&project), &applied);
     assert!(differ.is_empty(), "differ after redo: {differ:?}");

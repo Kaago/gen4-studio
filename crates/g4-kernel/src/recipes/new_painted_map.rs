@@ -64,9 +64,9 @@ pub struct NewPaintedMapReport {
     pub bake: Option<WorldBakeReport>,
 }
 
-/// „Neue Karte gemalt: „Waldweg“ (Karte 0667)“
+/// „New map painted: “Forest path” (Map 0667)“
 pub fn label(name: &str, map: u16) -> String {
-    format!("Neue Karte gemalt: „{name}“ (Karte {map:04})")
+    t!("recipes.painted_map_label", name = name, map = map : {:04}).into_owned()
 }
 
 /// Everything [`plan`] and [`apply`] need, found by [`resolve`] before the first write.
@@ -130,11 +130,11 @@ fn package_of_header(store: &mut Store, header: u16) -> Result<Option<u16>, Kern
 /// `height`.
 fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, KernelError> {
     if !store.in_text_project() {
-        return Err(refused(crate::world::WORLD_NEEDS_TEXT_PROJECT));
+        return Err(refused(crate::world::world_needs_text_project()));
     }
     check_name(&input.name)?;
     if input.name.trim().is_empty() {
-        return Err(refused("Die Karte braucht einen Namen."));
+        return Err(refused(t!("recipes.map_needs_name")));
     }
     let matrix = input.matrix.unwrap_or(DEFAULT_MATRIX);
     check_member(store, AssetKind::Matrix, matrix, "matrix")?;
@@ -143,14 +143,17 @@ fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, Ke
         let m = store.matrix(matrix)?;
         let width = u8::try_from(u16::from(x) + 1)
             .map(|w| w.max(m.width))
-            .map_err(|_| refused("Die Weltkarte würde breiter als 255 Zellen."))?;
+            .map_err(|_| refused(t!("recipes.matrix_too_wide")))?;
         let height = u8::try_from(u16::from(y) + 1)
             .map(|h| h.max(m.height))
-            .map_err(|_| refused("Die Weltkarte würde höher als 255 Zellen."))?;
+            .map_err(|_| refused(t!("recipes.matrix_too_high")))?;
         let inside = x < m.width && y < m.height;
         if inside && m.maps[cell_index(m.width, x, y)] != MATRIX_EMPTY {
-            return Err(refused(format!(
-                "Zelle ({x}, {y}) der Weltkarte {matrix:04} ist nicht leer."
+            return Err(refused(t!(
+                "recipes.cell_not_empty",
+                x = x,
+                y = y,
+                matrix = matrix : {:04}
             )));
         }
         let grows = (width, height) != (m.width, m.height);
@@ -165,9 +168,9 @@ fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, Ke
     check_writable(store, id(AssetKind::Matrix, matrix))?;
     if let Some(header) = input.header {
         if !has_headers {
-            return Err(refused(format!(
-                "Weltkarte {matrix:04} hat keine Header-Spalte; die Karte gehört zum Header der \
-                 Weltkarte."
+            return Err(refused(t!(
+                "recipes.matrix_without_headers",
+                matrix = matrix : {:04}
             )));
         }
         check_header_id(store, header)?;
@@ -180,16 +183,13 @@ fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, Ke
 
     if let Some(source) = input.source_map {
         if input.tileset.is_some() || input.fill_tile.is_some() || input.height.is_some() {
-            return Err(refused(
-                "Mit `source_map` kommt die Welt aus der Karte; `tileset`, `fill_tile` und \
-                 `height` weglassen.",
-            ));
+            return Err(refused(t!("recipes.source_map_excludes_ground")));
         }
         check_member(store, AssetKind::Map, source, "map")?;
         let Some(world) = store.world(source)?.cloned() else {
-            return Err(refused(format!(
-                "Karte {source:04} ist keine Welt-Karte; eine binäre Karte kopiert „Gebiet \
-                 erweitern“."
+            return Err(refused(t!(
+                "recipes.source_not_world_map",
+                map = source : {:04}
             )));
         };
         return Ok(Resolved {
@@ -205,9 +205,7 @@ fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, Ke
     }
 
     let Some((base, _)) = next else {
-        return Err(refused(format!(
-            "Neben Zelle ({x}, {y}) liegt keine Karte; `source_map` nennen."
-        )));
+        return Err(refused(t!("recipes.no_neighbor_map", x = x, y = y)));
     };
     let package = match (input.tileset, header) {
         (Some(package), _) => Some(package),
@@ -218,16 +216,12 @@ fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, Ke
             .first()
             .map(|&(_, pack)| pack),
     };
-    let package = package.ok_or_else(|| {
-        refused("Kein Header zeigt eine Nachbarkarte; Tileset angeben (`tileset`).")
-    })?;
+    let package = package.ok_or_else(|| refused(t!("recipes.no_header_shows_neighbor")))?;
     let tiles = store.tileset(package)?.tiles.len();
     let token = input.fill_tile.as_deref().unwrap_or(DEFAULT_FILL);
-    let fill = parse_tile(token).map_err(refused)?.ok_or_else(|| {
-        refused(format!(
-            "`{token}` füllt keinen Boden; eine Kachel angeben."
-        ))
-    })?;
+    let fill = parse_tile(token)
+        .map_err(refused)?
+        .ok_or_else(|| refused(t!("world.token_fills_no_ground", token = token)))?;
     if usize::from(fill.tile) >= tiles {
         return Err(refused(tile_outside(
             "fill_tile",
@@ -270,33 +264,48 @@ pub fn plan(store: &mut Store, input: &NewPaintedMapInput) -> Result<Draft, Kern
         }],
         ..Draft::default()
     };
-    draft.notes.push(format!(
-        "Neue Karte „{}“ in Zelle x {}, y {} der Weltkarte {:04}.",
-        input.name, input.x, input.y, r.matrix
-    ));
+    draft.notes.push(
+        t!(
+            "recipes.note_painted_map",
+            name = input.name,
+            x = input.x,
+            y = input.y,
+            matrix = r.matrix : {:04}
+        )
+        .into_owned(),
+    );
     if let Some(header) = r.header {
         draft
             .notes
-            .push(format!("Gebietsdaten von Header {header}."));
+            .push(t!("recipes.note_area_data_of_header", header = header).into_owned());
     }
     match &r.painted {
-        Some(p) => draft.notes.push(format!(
-            "Boden aus Tileset {:04}, Kachel {}, Höhe {}.",
-            p.tileset, p.fill_tile, p.height
-        )),
+        Some(p) => draft.notes.push(
+            t!(
+                "recipes.note_ground",
+                tileset = p.tileset : {:04},
+                tile = p.fill_tile,
+                height = p.height
+            )
+            .into_owned(),
+        ),
         None => draft
             .notes
-            .push(format!("Die Welt kommt aus Karte {:04}.", r.base)),
+            .push(t!("recipes.note_world_from_map", map = r.base : {:04}).into_owned()),
     }
     if r.grows {
-        draft.notes.push(format!(
-            "Die Weltkarte wächst auf {} × {} Zellen.",
-            r.width, r.height
-        ));
+        draft.notes.push(
+            t!(
+                "recipes.note_matrix_grows",
+                width = r.width,
+                height = r.height
+            )
+            .into_owned(),
+        );
     }
     draft
         .irreversible
-        .push(format!("Karte {map:04} wird angelegt"));
+        .push(t!("recipes.irreversible_map_created", map = map : {:04}).into_owned());
     draft.painted = r.painted;
     Ok(draft)
 }
@@ -354,7 +363,7 @@ pub fn apply(
         created: created.objects(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("adjust_terrain", "Gelände anpassen")]),
+        next: next_steps(&["adjust_terrain"]),
     })
 }
 
@@ -480,12 +489,12 @@ mod tests {
         assert_eq!(
             draft.notes,
             [
-                "Neue Karte „Waldweg“ in Zelle x 1, y 0 der Weltkarte 0000.",
-                "Gebietsdaten von Header 1.",
-                "Boden aus Tileset 0002, Kachel 0000, Höhe 0.",
+                "New map “Waldweg” in cell x 1, y 0 of world map 0000.",
+                "Area data of Header 1.",
+                "Ground from tileset 0002, tile 0000, height 0.",
             ]
         );
-        assert_eq!(draft.irreversible, [format!("Karte {n:04} wird angelegt")]);
+        assert_eq!(draft.irreversible, [format!("Map {n:04} is created")]);
         assert_eq!(next_map(&store), n);
         assert_eq!(store.history(), history);
     }
@@ -513,7 +522,7 @@ mod tests {
         assert_eq!(history.last().unwrap(), &label("Waldweg", n));
         assert_eq!(
             label("Waldweg", n),
-            format!("Neue Karte gemalt: „Waldweg“ (Karte {n:04})")
+            format!("New map painted: “Waldweg” (Map {n:04})")
         );
         assert_eq!(
             store.world(n).unwrap(),
@@ -586,7 +595,7 @@ mod tests {
                 name: name.to_owned(),
                 ..at(1, 0)
             };
-            refused_both(&mut store, &input, "Die Karte braucht einen Namen.");
+            refused_both(&mut store, &input, "The map needs a name.");
         }
     }
 
@@ -597,7 +606,7 @@ mod tests {
         let draft = plan(&mut store, &at(0, 1)).unwrap();
         assert_eq!(
             draft.notes.last().unwrap(),
-            "Die Weltkarte wächst auf 4 × 2 Zellen."
+            "The world map grows to 4 × 2 cells."
         );
         let outcome = apply(&mut store, &at(0, 1)).unwrap();
         assert_eq!((outcome.report.width, outcome.report.height), (4, 2));
@@ -615,17 +624,17 @@ mod tests {
         refused_both(
             &mut store,
             &at(0, 0),
-            "Zelle (0, 0) der Weltkarte 0000 ist nicht leer.",
+            "Cell (0, 0) of world map 0000 is not empty.",
         );
         refused_both(
             &mut store,
             &at(255, 0),
-            "Die Weltkarte würde breiter als 255 Zellen.",
+            "The world map would become wider than 255 cells.",
         );
         refused_both(
             &mut store,
             &at(0, 255),
-            "Die Weltkarte würde höher als 255 Zellen.",
+            "The world map would become higher than 255 cells.",
         );
     }
 
@@ -640,7 +649,7 @@ mod tests {
         refused_both(
             &mut store,
             &input,
-            "Weltkarte 0001 hat keine Header-Spalte; die Karte gehört zum Header der Weltkarte.",
+            "World map 0001 has no header column; the map belongs to the header of the world map.",
         );
     }
 
@@ -667,7 +676,7 @@ mod tests {
         refused_both(
             &mut store,
             &lone,
-            "Kein Header zeigt eine Nachbarkarte; Tileset angeben (`tileset`).",
+            "No header shows a neighboring map; specify a tileset (`tileset`).",
         );
         let with_tileset = NewPaintedMapInput {
             tileset: Some(0),
@@ -701,7 +710,7 @@ mod tests {
         assert!(
             draft
                 .notes
-                .contains(&"Boden aus Tileset 0000, Kachel 0003r1f, Höhe 2.".to_owned()),
+                .contains(&"Ground from tileset 0000, tile 0003r1f, height 2.".to_owned()),
             "{:?}",
             draft.notes
         );
@@ -730,16 +739,12 @@ mod tests {
             fill_tile: Some(".".to_owned()),
             ..at(3, 0)
         };
-        refused_both(
-            &mut store,
-            &empty,
-            "`.` füllt keinen Boden; eine Kachel angeben.",
-        );
+        refused_both(&mut store, &empty, "`.` fills no ground; specify a tile.");
         let high = NewPaintedMapInput {
             height: Some(70),
             ..at(3, 0)
         };
-        refused_both(&mut store, &high, "`70` liegt nicht in \u{2212}16 bis 62.");
+        refused_both(&mut store, &high, "`70` is not within −16 to 62.");
     }
 
     /// Map 0's header cell made landscape (header 0), saved.
@@ -777,7 +782,7 @@ mod tests {
         refused_both(
             &mut store,
             &at(0, 1),
-            "Neben Zelle (0, 1) liegt keine Karte; `source_map` nennen.",
+            "No map lies next to cell (0, 1); name `source_map`.",
         );
     }
 
@@ -787,7 +792,7 @@ mod tests {
         refused_both(
             &mut store,
             &at(1, 1),
-            "Neben Zelle (1, 1) liegt keine Karte; `source_map` nennen.",
+            "No map lies next to cell (1, 1); name `source_map`.",
         );
     }
 
@@ -820,7 +825,7 @@ mod tests {
         assert!(
             draft
                 .notes
-                .contains(&"Die Welt kommt aus Karte 0000.".to_owned()),
+                .contains(&"The world comes from Map 0000.".to_owned()),
             "{:?}",
             draft.notes
         );
@@ -847,7 +852,7 @@ mod tests {
         refused_both(
             &mut store,
             &input,
-            "Karte 0001 ist keine Welt-Karte; eine binäre Karte kopiert „Gebiet erweitern“.",
+            "Map 0001 is not a world map; “Extend area” copies a binary map.",
         );
     }
 
@@ -855,8 +860,7 @@ mod tests {
     fn source_map_with_fill_is_refused() {
         let (_fx, mut store) = ready();
         world_of_map_0(&mut store);
-        let text = "Mit `source_map` kommt die Welt aus der Karte; `tileset`, `fill_tile` und \
-                    `height` weglassen.";
+        let text = "With `source_map` the world comes from the map; leave out `tileset`, `fill_tile` and `height`.";
         for input in [
             NewPaintedMapInput {
                 source_map: Some(0),
@@ -886,7 +890,11 @@ mod tests {
             source_map: None,
             ..at(2, 0)
         };
-        refused_both(&mut store, &input, crate::world::WORLD_NEEDS_TEXT_PROJECT);
+        refused_both(
+            &mut store,
+            &input,
+            &crate::world::world_needs_text_project(),
+        );
     }
 
     #[test]
@@ -907,7 +915,7 @@ mod tests {
             outcome.next,
             [NextStep {
                 id: "adjust_terrain".to_owned(),
-                label: "Gelände anpassen".to_owned(),
+                label: "Adjust terrain".to_owned(),
                 available: true,
                 reason: None,
             }]

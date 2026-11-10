@@ -1,0 +1,293 @@
+{
+  "warp.dest-header": {
+    "title": "Tür führt ins Leere",
+    "text": "Die Tür führt zu Header {1:id}, den es nicht gibt (das Projekt hat {2} Header). Wähle ein Ziel oder lösche die Tür.",
+    "building": {
+      "text": "Die Tür führt zu Ort {1:id}, den es nicht gibt (das Projekt hat {2} Orte). Wähle ein Ziel oder lösche die Tür."
+    }
+  },
+  "warp.dest-warp": {
+    "title": "Ziel-Warp fehlt",
+    "text": "Die Tür führt zu Warp {2} in Header {1:id}, aber dessen Eventdatei {3:id} hat nur {4} Warps. Wähle einen anderen Ziel-Warp oder lege dort einen Warp an.",
+    "building": {
+      "text": "Die Tür führt zu Warp {2} von Ort {1:id}, aber dessen Eventdatei {3:id} hat nur {4} Warps. Wähle einen anderen Ziel-Warp oder lege dort einen Warp an."
+    }
+  },
+  "warp.off-map": {
+    "title": "Tür außerhalb der Karte",
+    "text": "Die Tür steht auf x {1}, z {2}, außerhalb der Karten von Header {3:id}. Verschiebe sie auf eine Karte oder lösche sie.",
+    "building": {
+      "text": "Die Tür steht auf x {1}, z {2}, außerhalb der Karten von Ort {3:id}. Verschiebe sie auf eine Karte oder lösche sie."
+    }
+  },
+  "warp.never-fires": {
+    "title": "Tür löst nie aus",
+    "text": "Die Tür auf x {1}, z {2} steht auf keiner Tür- oder Treppenkachel, und kein Warp führt zu ihr. Setze sie auf eine Tür oder blende den Hinweis aus."
+  },
+  "event.trainer-missing": {
+    "title": "Trainer fehlt",
+    "text": "Script {1} startet einen Kampf gegen Trainer {2}, den es nicht gibt (das Projekt hat {3} Trainer). Wähle einen Trainer oder ein anderes Script."
+  },
+  "event.off-map": {
+    "title": "Event außerhalb der Karte",
+    "text": "Das Event steht auf x {2}, z {3}, außerhalb der Karten von Header {4:id}. Verschiebe es auf eine Karte oder lösche es.",
+    "building": {
+      "text": "Das Event steht auf x {2}, z {3}, außerhalb der Karten von Ort {4:id}. Verschiebe es auf eine Karte oder lösche es."
+    }
+  },
+  "event.trainer-blind": {
+    "title": "Trainer sieht nicht",
+    "text": "Die Figur kämpft als Trainer {2}, hat aber Trainerart 0: sie entdeckt den Spieler nie und kämpft nur, wenn man sie anspricht. Setze die Trainerart oder blende die Warnung aus."
+  },
+  "event.trigger-empty": {
+    "title": "Auslöser ohne Script",
+    "text": "Der Auslöser auf x {1}, z {2} hat Script 0 und tut nichts. Wähle ein Script oder lösche den Auslöser."
+  },
+  "event.same-spot": {
+    "title": "Zwei Figuren auf einem Feld",
+    "text": "Objekt {1} steht auf x {2}, z {3} an derselben Stelle wie Objekt {0}, beide ohne Versteck-Flag. Verschiebe eine Figur oder gib einer ein Flag."
+  },
+  "header.ref-range": {
+    "title": "Header verweist ins Leere",
+    "text": "Header {0:id} nennt als {1:field} {2}, aber es gibt nur {3}. Wähle im Header einen gültigen Wert.",
+    "building": {
+      "title": "Ort verweist ins Leere",
+      "text": "Ort {0:id} nennt als {1:field} {2}, aber es gibt nur {3}. Wähle beim Ort einen gültigen Wert."
+    }
+  },
+  "header.wild-dangling": {
+    "title": "Begegnungen fehlen",
+    "text": "Header {0:id} nennt Begegnungsdatei {1:id}, aber es gibt nur {2}. Wähle im Header eine Begegnungsdatei oder „keine“.",
+    "building": {
+      "text": "Ort {0:id} nennt Begegnungsdatei {1:id}, aber es gibt nur {2}. Wähle beim Ort eine Begegnungsdatei oder „keine“."
+    }
+  },
+  "header.text-split": {
+    "title": "Scriptdatei mit mehreren Textarchiven",
+    "text": "Die Header {2} teilen Scriptdatei {0:id}, nutzen aber die Textarchive {1}; ihre Nachrichtennummern passen nur zu einem. Gib den Headern dasselbe Textarchiv oder eigene Scriptdateien.",
+    "building": {
+      "text": "Die Orte {2} teilen Scriptdatei {0:id}, nutzen aber die Textarchive {1}; ihre Nachrichtennummern passen nur zu einem. Gib den Orten dasselbe Textarchiv oder eigene Scriptdateien."
+    }
+  },
+  "matrix.map-range": {
+    "title": "Zelle nennt fehlende Karte",
+    "text": "Die Zelle nennt Karte {3:id}, aber es gibt nur {4}. Wähle eine vorhandene Karte oder leere die Zelle."
+  },
+  "matrix.header-range": {
+    "title": "Zelle nennt fehlenden Header",
+    "text": "Die Zelle nennt Header {3:id}, aber es gibt nur {4}. Wähle einen vorhandenen Header.",
+    "building": {
+      "title": "Zelle nennt fehlenden Ort",
+      "text": "Die Zelle nennt Ort {3:id}, aber es gibt nur {4}. Wähle einen vorhandenen Ort."
+    }
+  },
+  "matrix.header-elsewhere": {
+    "title": "Header einer anderen Matrix",
+    "text": "Die Zelle nennt Header {3:id}, der Matrix {4} nutzt; seine Events erscheinen hier nicht. Wähle einen Header dieser Matrix oder ändere die Matrix des Headers.",
+    "building": {
+      "title": "Gebiet einer anderen Weltkarte",
+      "text": "Die Zelle nennt Gebiet {3:id}, das Weltkarte {4} nutzt; seine Events erscheinen hier nicht. Wähle ein Gebiet dieser Weltkarte oder ändere die Weltkarte des Gebiets."
+    }
+  },
+  "map.model-invalid": {
+    "title": "Kartenmodell ungültig",
+    "text": "Das Modell von Karte {0:id} ist ungültig ({1}). Importiere ein gültiges Modell."
+  },
+  "map.bdhc-size": {
+    "title": "Terrain ungültig",
+    "text": "Das Terrain (BDHC) von Karte {0:id} ist ungültig ({1}). Importiere ein gültiges Terrain."
+  },
+  "map.building-range": {
+    "title": "Gebäude ohne Modell",
+    "text": "Ein Gebäude von Karte {0:id} nutzt Modell {2}, aber es gibt nur {3}. Wähle ein vorhandenes Modell oder lösche das Gebäude."
+  },
+  "map.altitude-walkable": {
+    "title": "Höhe an begehbarer Zelle",
+    "text": "Zelle {1}, {2} von Weltkarte {0:id} liegt auf Höhe {3} und trägt Header {4:id}; das Spiel zeichnet das Modell höher als den Boden, die Figur läuft darunter. Setze die Höhe der Zelle auf 0.",
+    "building": {
+      "text": "Zelle {1}, {2} von Weltkarte {0:id} liegt auf Höhe {3} und trägt Ort {4:id}; das Spiel zeichnet das Modell höher als den Boden, die Figur läuft darunter. Setze die Höhe der Zelle auf 0."
+    }
+  },
+  "map.step-unblocked": {
+    "title": "Stufe ohne Sperre",
+    "text": "Zwischen Kachel {1}, {2} und {3}, {4} von Karte {0:id} liegt eine Stufe von {5} Einheiten, die das Spiel betreten lässt. Blockiere die obere Zelle oder setze eine Treppe."
+  },
+  "map.buildings-over-limit": {
+    "title": "Zu viele Gebäude",
+    "text": "Karte {0:id} hat {1} Gebäude; das Spiel lädt höchstens {2}, die übrigen fehlen im Spiel. Lösche Gebäude oder verteile sie auf Nachbarkarten."
+  },
+  "area.tileset-range": {
+    "title": "Texturen fehlen",
+    "text": "Area-Data {0:id} nennt als {1:field} {2}, aber es gibt nur {3}. Wähle ein vorhandenes Texturpaket."
+  },
+  "place.name-too-long": {
+    "title": "Ortsname zu lang",
+    "text": "Der Ortsname „{1}“ ist {2} Zeichen lang; das Spiel zeigt höchstens 16. Kürze ihn im Inspector eines Gebiets (Ort umbenennen)."
+  },
+  "place.index-out-of-bank": {
+    "title": "Ort fehlt in der Ortsnamen-Bank",
+    "text": "Header {0:id} zeigt auf Ortsname {1}, die Bank hat nur {2} Namen. Wähle im Inspector einen vorhandenen Ort.",
+    "building": {
+      "text": "Das Gebiet {0:id} zeigt auf einen Ort, den es nicht gibt. Wähle im Inspector einen vorhandenen Ort."
+    }
+  },
+  "trainer.no-party": {
+    "title": "Trainer ohne Team",
+    "text": "Trainer {0:id} hat kein Pokémon: der Kampf läuft gegen ein unsichtbares Pokémon auf Stufe 0. Gib ihm ein Team."
+  },
+  "trainer.empty-species": {
+    "title": "Teamplatz ohne Pokémon",
+    "text": "Ein Platz im Team hat kein Pokémon. Wähle ein Pokémon oder entferne den Platz."
+  },
+  "trainer.id-range": {
+    "title": "Trainer nennt Unbekanntes",
+    "text": "Als {2:field} steht {3}, aber es gibt nur {4}. Wähle einen vorhandenen Wert."
+  },
+  "trainer.no-moves": {
+    "title": "Pokémon ohne Attacken",
+    "text": "Das Team hat eigene Attacken, aber dieses Pokémon hat keine und kann nicht angreifen. Gib ihm Attacken oder schalte die eigenen Attacken aus."
+  },
+  "trainer.double-one": {
+    "title": "Doppelkampf mit einem Pokémon",
+    "text": "Trainer {0:id} kämpft im Doppelkampf, hat aber nur {1} Pokémon. Gib ihm ein zweites Pokémon oder wähle einen Einzelkampf."
+  },
+  "encounter.empty-slot": {
+    "title": "Leerer Platz gibt Glitch-Pokémon",
+    "text": "Der Platz ist leer, wird aber genutzt: dort erscheint ein Glitch-Pokémon. Wähle ein Pokémon für den Platz."
+  },
+  "encounter.level-zero": {
+    "title": "Pokémon auf Level 0",
+    "text": "Art {2:id} erscheint auf Level 0. Gib dem Platz ein Level ab 1."
+  },
+  "encounter.level-high": {
+    "title": "Level über 100",
+    "text": "Der Platz hat Level {2}, mehr als 100. Wähle ein Level bis 100."
+  },
+  "encounter.min-max": {
+    "title": "Mindestlevel über Höchstlevel",
+    "text": "Das Mindestlevel {2} liegt über dem Höchstlevel {3}; das Spiel tauscht sie. Tausche die beiden oder blende den Hinweis aus."
+  },
+  "encounter.rate-byte": {
+    "title": "Rate über 255",
+    "text": "Die Rate {1} ist größer als 255, das Spiel liest nur {2}. Wähle eine Rate bis 255."
+  },
+  "build.hidden-file": {
+    "title": "Versteckte Datei im ROM-Ordner",
+    "text": "Die versteckte Datei {0} liegt unter files/ und käme beim Bauen in die ROM; der Build bricht daran ab. „Entfernen“ verschiebt sie nach .g4/backup."
+  },
+  "build.member-gap": {
+    "title": "Lücke im Archivordner",
+    "text": "Im Ordner unpacked/{0} passt {1} nicht in die Reihe 0000, 0001, …; der Build bricht daran ab. Ergänze die fehlende Datei oder entferne die fremde."
+  },
+  "build.unpacked-not-packed": {
+    "title": "Ordner wird nicht gepackt",
+    "text": "Im Ordner unpacked/{0} haben sich {1} Dateien geändert, das Studio packt ihn aber nicht; die Änderung fehlt in der gebauten ROM. Packe das Archiv in DSPRE neu oder nimm die Änderung zurück.",
+    "one": "Im Ordner unpacked/{0} hat sich 1 Datei geändert, das Studio packt ihn aber nicht; die Änderung fehlt in der gebauten ROM. Packe das Archiv in DSPRE neu oder nimm die Änderung zurück."
+  },
+  "build.base-missing": {
+    "title": "Basis-ROM unbekannt",
+    "text": "Das Projekt kennt seine Basis-ROM nicht. „Veröffentlichen“ und „Auf Original zurücksetzen“ brauchen sie. Ordne sie in Technik unter „Veröffentlichen“ zu."
+  },
+  "asset.unreadable": {
+    "title": "Datei nicht lesbar",
+    "text": "{asset} ist nicht lesbar ({2}). Stelle die Datei wieder her; bis dahin prüft das Studio ohne sie."
+  },
+  "event.script-missing": {
+    "title": "Script fehlt",
+    "text": "Das Event ruft Script {2} auf, aber Scriptdatei {3:id} hat nur Scripts bis {4}. Lege das Script an oder wähle ein vorhandenes."
+  },
+  "header.level-target": {
+    "title": "Level-Script ruft fehlendes Script",
+    "text": "Das Level-Script {1:id} startet Script {2}, aber Scriptdatei {3:id} hat nur Scripts bis {4}. Lege das Script an oder ändere das Level-Script."
+  },
+  "header.script-kind": {
+    "title": "Falsche Scriptart",
+    "text": "Header {0:id} nennt als {1:field} die Datei {2:id}, die von der anderen Art ist. Wähle eine Datei der richtigen Art.",
+    "building": {
+      "text": "Ort {0:id} nennt als {1:field} die Datei {2:id}, die von der anderen Art ist. Wähle eine Datei der richtigen Art."
+    }
+  },
+  "script.message-missing": {
+    "title": "Nachricht fehlt",
+    "text": "Das Script nutzt Nachricht {2}, aber Textarchiv {3:id} hat nur {4} Nachrichten. Lege die Nachricht an oder wähle eine vorhandene."
+  },
+  "script.unreadable": {
+    "title": "Scriptdatei nicht lesbar",
+    "text": "Scriptdatei {0:id} ist nicht lesbar ({1}), der Build würde daran scheitern. Repariere die Datei oder stelle sie wieder her."
+  },
+  "text.too-wide": {
+    "title": "Zeile zu breit",
+    "text": "Die Zeile ist {3} px breit, das Textfenster nur {4} px. Brich sie um oder kürze den Text."
+  },
+  "text.three-lines": {
+    "title": "Zu viele Zeilen",
+    "text": "Seite {2} hat {3} Zeilen, das Textfenster zeigt nur {4}. Teile die Seite mit einem Seitenumbruch oder kürze den Text."
+  },
+  "text.encode": {
+    "title": "Text nicht kodierbar",
+    "text": "Die Nachricht enthält ein Zeichen, das das Spiel nicht kennt ({2}); der Build bricht daran ab. Ersetze das Zeichen."
+  },
+  "text.json-broken": {
+    "title": "Textarchiv nicht lesbar",
+    "text": "Textarchiv {0:id} ist nicht lesbar ({1}). Repariere die JSON-Datei oder stelle sie wieder her."
+  },
+  "_words": {
+    "areas": {
+      "welt": "Welt",
+      "scripts": "Scripts",
+      "texte": "Texte",
+      "pokemon": "Pokémon",
+      "projekt": "Projekt"
+    },
+    "fields": {
+      "matrixId": "Matrix",
+      "eventFileId": "Eventdatei",
+      "scriptFileId": "Scriptdatei",
+      "levelScriptId": "Level-Script",
+      "textArchiveId": "Textarchiv",
+      "areaDataId": "Area-Data",
+      "wildPokemon": "Begegnungen",
+      "mapTileset": "Karten-Texturen",
+      "buildingsTileset": "Gebäude-Texturen",
+      "class": "Klasse",
+      "items": "Gegenstand",
+      "species": "Pokémon",
+      "item": "Gegenstand",
+      "moves": "Attacke"
+    },
+    "building": {
+      "matrixId": "Weltkarte",
+      "matrix": "Weltkarte",
+      "headerTable": "Ortstabelle",
+      "dynamicHeaders": "Ortsdateien",
+      "header": "Ort"
+    },
+    "wholeArchive": "Das Archiv {{word}}",
+    "locked": "{{name}} ist gesperrt ({{why}}): das Studio würde sie nicht Byte für Byte zurückschreiben. Stelle die Datei wieder her, dann lässt sie sich ändern.",
+    "progress": {
+      "cheap": "Welt und Daten",
+      "load": "Dateien",
+      "scripts": "Scripts",
+      "texts": "Texte"
+    },
+    "checking": "Prüft …",
+    "checkingPass": "Prüft … {{what}} {{done}}/{{total}}",
+    "skipped": {
+      "ignoreFile": "{{file}} ist nicht lesbar ({{why}}): nichts ist ausgeblendet oder abgeschaltet, und das Studio schreibt die Datei nicht. Repariere oder lösche sie, dann geht beides wieder.",
+      "notAdopted": "{{title}}: nicht geprüft, die Scripts sind nicht übernommen. Übernimm sie unter Script, dann prüft das Studio sie.",
+      "commonBuilding_one": "{{title}}: {{count}} Common-Scripts ohne Ort nicht geprüft.",
+      "commonBuilding_other": "{{title}}: {{count}} Common-Scripts ohne Ort nicht geprüft.",
+      "commonTech_one": "{{title}}: {{count}} Common-Scripts ohne Header nicht geprüft.",
+      "commonTech_other": "{{title}}: {{count}} Common-Scripts ohne Header nicht geprüft.",
+      "levelScript": "Level-Script",
+      "scriptFile": "Scriptdatei",
+      "oneFile": "{{title}}: {{kind}} {{id}} nicht geprüft ({{why}}). Behebe den Fehler in der Datei, dann prüft das Studio sie.",
+      "other": "{{title}}: nicht geprüft ({{why}}). Sieh unter „{{unreadable}}“ nach, was fehlt, und prüfe dann erneut."
+    },
+    "mark": {
+      "error": "Fehler gefunden",
+      "warning": "Warnung gefunden",
+      "title": "{{label}}, siehe Probleme"
+    }
+  }
+}

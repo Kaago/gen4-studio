@@ -1,11 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
+import { t } from "../../i18n";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { ListPane } from "../../ui/frame/ListPane";
 import { Badge, EmptyState, Icon, IconButton, TextField, TreeRow, useRovingList } from "../../ui/primitives";
 import type { ProblemRow } from "../problems/problems";
 import { textArchiveOf } from "../problems/problems";
-import { TERMS, id4 } from "../terms";
+import { unnamedPlace } from "../places";
+import { id4, termLabel, termPlural } from "../terms";
 import { DialogList } from "./DialogList";
 import { useTextArea } from "./TextAreaContext";
 import { filterArchives } from "./textModel";
@@ -14,7 +17,8 @@ import styles from "./TextList.module.css";
 
 type Group = "orte" | "spielweit";
 
-const GROUP_LABEL: Record<Group, string> = { orte: "Orte", spielweit: "Spielweit" };
+/** The word of a group: the places, and the archives the whole game uses. */
+const groupLabel = (group: Group) => (group === "orte" ? termPlural("place") : t("workbench:textList.gameWide"));
 
 /** The overlong texts the problems name, per archive: only archives a save checked are in it. */
 function overlongByArchive(problems: readonly ProblemRow[]): Map<number, number> {
@@ -27,24 +31,25 @@ function overlongByArchive(problems: readonly ProblemRow[]): Map<number, number>
   return counts;
 }
 
-/** "3 Texte zu lang, in 2 geprüften Archiven". */
+/** „3 Texte zu lang, in 2 geprüften Archiven“. */
 function overlongSum(counts: ReadonlyMap<number, number>): string {
   let texts = 0;
   for (const n of counts.values()) texts += n;
   const archives = counts.size;
-  return `${texts} ${texts === 1 ? "Text" : "Texte"} zu lang, in ${archives} geprüften ${archives === 1 ? "Archiv" : "Archiven"}`;
+  return t("workbench:textList.overlongSum", { texts: t("workbench:textList.overlong", { count: texts }), archives: t("workbench:textList.checkedArchives", { count: archives }) });
 }
 
 /** The name an archive row shows: its place, else what it is. */
-const rowLabel = (row: ArchiveRow) => row.place ?? (row.users.length > 0 ? "Ohne Ortsnamen" : TERMS.textArchive.label);
+const rowLabel = (row: ArchiveRow) => row.place ?? (row.users.length > 0 ? unnamedPlace() : termLabel("textArchive"));
 
 /** One archive of the list. Memoised: a selection or filter change renders the rows whose props changed, not all of them. */
 const ArchiveItem = memo(function ArchiveItem({ row, selected, count, overlong, onSelect }: { row: ArchiveRow; selected: boolean; count: number | null; overlong: number; onSelect: (index: number) => void }) {
+  const { t } = useTranslation("workbench");
   const label = rowLabel(row);
-  const name = `${TERMS.textArchive.label} ${id4(row.index)}`;
+  const name = `${termLabel("textArchive")} ${id4(row.index)}`;
   // Only the open archive's message count is known: reading all of them to list it would decode every archive. The row shows the bare
   // number (the name keeps its room), its hint and the accessible name say what it counts.
-  const messages = count === null ? null : `${count} ${count === 1 ? TERMS.message.label : TERMS.message.plural}`;
+  const messages = count === null ? null : `${count} ${count === 1 ? termLabel("message") : termPlural("message")}`;
   const trailing =
     count !== null || overlong > 0 ? (
       <>
@@ -54,7 +59,7 @@ const ArchiveItem = memo(function ArchiveItem({ row, selected, count, overlong, 
           </span>
         )}
         {overlong > 0 && (
-          <Badge kind="warning" title={`${overlong} ${overlong === 1 ? "Text" : "Texte"} zu lang`}>
+          <Badge kind="warning" title={t("textList.overlong", { count: overlong })}>
             {overlong}
           </Badge>
         )}
@@ -86,6 +91,7 @@ export function TextList({ open, onToggle }: { open: boolean; onToggle: () => vo
  * and *Spielweit* (all others), a filter by place or number, `+` for a new archive, and the overlong texts the problems know of.
  */
 function ArchiveList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const { t } = useTranslation("workbench");
   const { project, rows, archive, loaded, archiveCount, problems, select, createArchive } = useTextArea();
   const [filter, setFilter] = useState("");
   const [closed, setClosed] = useState<ReadonlySet<Group>>(() => new Set());
@@ -133,27 +139,27 @@ function ArchiveList({ open, onToggle }: { open: boolean; onToggle: () => void }
     }
   });
 
-  const actions = <IconButton label="Textarchiv anlegen" icon="plus" disabled={project === null || archiveCount === undefined} onClick={createArchive} />;
+  const actions = <IconButton label={t("textList.create")} icon="plus" disabled={project === null || archiveCount === undefined} onClick={createArchive} />;
   return (
-    <ListPane title="Textarchive" subtitle={project ? `${rows.length} Archive` : undefined} actions={actions} open={open} onToggle={onToggle}>
+    <ListPane title={termPlural("textArchive")} subtitle={project ? t("textList.archiveCount", { count: rows.length }) : undefined} actions={actions} open={open} onToggle={onToggle}>
       {project === null ? (
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann stehen hier seine Textarchive." />
+        <EmptyState what={t("textList.noProject.what")} why={t("textList.noProject.why")} />
       ) : (
         <div className={styles.column}>
           <div className={styles.top}>
-            <TextField type="search" label="Textarchive filtern" placeholder="Ort oder Archivnummer" value={filter} onChange={setFilter} onCommit={setFilter} />
+            <TextField type="search" label={t("textList.filter.label")} placeholder={t("textList.filter.placeholder")} value={filter} onChange={setFilter} onCommit={setFilter} />
           </div>
-          <div ref={tree} role="tree" aria-label="Textarchive" className={styles.host}>
-            {shown.length === 0 && filter.trim() !== "" && <p className={styles.note}>Kein Archiv passt zum Filter.</p>}
+          <div ref={tree} role="tree" aria-label={termPlural("textArchive")} className={styles.host}>
+            {shown.length === 0 && filter.trim() !== "" && <p className={styles.note}>{t("textList.noMatch")}</p>}
             {(["orte", "spielweit"] as const).map((group) => {
               const list = groups[group];
               if (list.length === 0) return null;
               const expanded = filter.trim() !== "" || !closed.has(group);
               return (
-                <div key={group} role="group" aria-label={GROUP_LABEL[group]}>
+                <div key={group} role="group" aria-label={groupLabel(group)}>
                   <TreeRow
                     depth={0}
-                    label={GROUP_LABEL[group]}
+                    label={groupLabel(group)}
                     selected={false}
                     expanded={expanded}
                     onToggle={() => toggle(group)}

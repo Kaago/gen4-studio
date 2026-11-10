@@ -270,7 +270,7 @@ fn an_edited_cell_imports_as_one_step() {
     let (history, _) = store.history();
     assert_eq!(history.len(), undo + 1);
     assert_eq!(history.last().unwrap(), &import_label(0));
-    assert_eq!(import_label(123), "Tiled importiert: Karte 0123");
+    assert_eq!(import_label(123), "Tiled imported: Map 0123");
     let world = store.world(0).unwrap().cloned().unwrap();
     let grid = WorldGrid::parse(&world).unwrap();
     let before = WorldGrid::parse(&gate_world(0, "0000", "0001", "0002")).unwrap();
@@ -337,8 +337,7 @@ fn base64_reads_and_compression_is_refused() {
         has(
             &e,
             "layers[1].compression",
-            "Komprimierte Ebenen liest das Studio nicht; in Tiled unter Karte › Eigenschaften \
-             „Kachelebenenformat“ CSV wählen."
+            "The Studio cannot read compressed layers; in Tiled, choose CSV under Map › Properties “Tile Layer Format”."
         ),
         "{e:?}"
     );
@@ -357,8 +356,7 @@ fn an_external_tileset_is_refused() {
         has(
             &e,
             "tilesets[1].source",
-            "Ausgelagerte Tilesets (`source`) liest das Studio nicht; in Tiled das Tileset \
-             einbetten."
+            "The Studio cannot read external tilesets (`source`); embed the tileset in Tiled."
         ),
         "{e:?}"
     );
@@ -414,7 +412,7 @@ fn an_object_off_the_grid_is_named() {
         has(
             &e,
             &format!("layers[{pieces}].objects[1]"),
-            &format!("Objekt {id} liegt nicht auf dem Raster.")
+            &format!("Object {id} is not on the grid.")
         ),
         "{e:?}"
     );
@@ -422,7 +420,7 @@ fn an_object_off_the_grid_is_named() {
         has(
             &e,
             &format!("layers[{overrides}].objects[0]"),
-            &format!("Objekt {oid} liegt nicht auf dem Raster.")
+            &format!("Object {oid} is not on the grid.")
         ),
         "{e:?}"
     );
@@ -437,7 +435,7 @@ fn an_object_off_the_grid_is_named() {
         has(
             &e,
             &format!("layers[{pieces}].objects[0]"),
-            &format!("Objekt {id}: Kachel 0x0001 ist kein Teilmodell.")
+            &format!("Object {id}: Tile 0x0001 is not a piece.")
         ),
         "{e:?}"
     );
@@ -453,7 +451,7 @@ fn an_object_off_the_grid_is_named() {
         has(
             &e,
             &format!("layers[{overrides}].objects[1]"),
-            "Zelle (12, 21) ist zweimal überschrieben."
+            "Cell (12, 21) is overwritten twice."
         ),
         "{e:?}"
     );
@@ -469,23 +467,19 @@ fn foreign_sizes_and_packages_are_refused() {
     sizes["infinite"] = json!(true);
     let e = errors(&sizes, &world);
     assert!(
-        has(
-            &e,
-            "width",
-            "Die Karte ist 30 × 32 Kacheln groß; eine Karte hat 32 × 32."
-        ),
+        has(&e, "width", "The map is 30 × 32 tiles; a map has 32 × 32."),
         "{e:?}"
     );
     assert!(
         has(
             &e,
             "tilewidth",
-            "Kacheln sind 32 × 16 Pixel; das Studio schreibt 16 × 16."
+            "Tiles are 32 × 16 pixels; the Studio writes 16 × 16."
         ),
         "{e:?}"
     );
     assert!(
-        has(&e, "infinite", "Unendliche Karten liest das Studio nicht."),
+        has(&e, "infinite", "The Studio cannot read infinite maps."),
         "{e:?}"
     );
     // Another package than the world's.
@@ -498,7 +492,7 @@ fn foreign_sizes_and_packages_are_refused() {
         has(
             &e,
             "properties",
-            "Die Datei nutzt Paket 0006, die Welt Paket 0007."
+            "The file uses package 0006, the world package 0007."
         ),
         "{e:?}"
     );
@@ -510,7 +504,7 @@ fn foreign_sizes_and_packages_are_refused() {
         has(
             &e,
             "tilesets[0].tilecount",
-            "Das Tileset hat 5 Kacheln, Paket 0000 hat 6."
+            "The tileset has 5 tiles, package 0000 has 6."
         ),
         "{e:?}"
     );
@@ -521,12 +515,12 @@ fn foreign_sizes_and_packages_are_refused() {
         errors(&set, &world),
         [(
             "type".to_owned(),
-            "Keine Tiled-Karte (`type` ist nicht „map“).".to_owned()
+            "No Tiled map (`type` is not “map”).".to_owned()
         )]
     );
     let e = errors(&json!({"name": "x"}), &world);
     assert_eq!(e.len(), 1, "{e:?}");
-    assert_eq!(e[0].1, "Keine Tiled-Karte (`type` ist nicht „map“).");
+    assert_eq!(e[0].1, "No Tiled map (`type` is not “map”).");
     let broken = from_tmj(b"{ nicht json", &world, &Tileset::synthetic()).unwrap_err();
     assert_eq!(broken.len(), 1);
     assert!(!broken[0].message.is_empty());
@@ -551,19 +545,19 @@ fn gids_past_the_tileset_are_refused() {
         has(
             &e,
             "layers[0].data[0]",
-            "GID 7 gehört nicht in diese Ebene."
+            "GID 7 does not belong in this layer."
         ),
         "{e:?}"
     );
     assert!(
-        has(&e, "layers[0].data[1]", "Sechseck-Drehung gibt es nicht."),
+        has(&e, "layers[0].data[1]", "There is no hexagonal turn."),
         "{e:?}"
     );
     assert!(
         has(
             &e,
             &format!("layers[{heights}].data[2]"),
-            "GID 3 gehört nicht in diese Ebene."
+            "GID 3 does not belong in this layer."
         ),
         "{e:?}"
     );
@@ -571,7 +565,7 @@ fn gids_past_the_tileset_are_refused() {
         has(
             &e,
             &format!("layers[{heights}].data[{}]", cell(1, 3)),
-            "Zelle (1, 3) hat keine Höhe."
+            "Cell (1, 3) has no height."
         ),
         "{e:?}"
     );
@@ -579,7 +573,7 @@ fn gids_past_the_tileset_are_refused() {
         has(
             &e,
             "layers[0].data[32]",
-            "GID 500 gehört nicht in diese Ebene."
+            "GID 500 does not belong in this layer."
         ),
         "{e:?}"
     );
@@ -587,7 +581,7 @@ fn gids_past_the_tileset_are_refused() {
     let mut flat = v.clone();
     flat["layers"].as_array_mut().unwrap().remove(heights);
     let e = errors(&flat, &world);
-    assert!(has(&e, "layers", "Die Ebene „Höhe“ fehlt."), "{e:?}");
+    assert!(has(&e, "layers", "The layer “Höhe” is missing."), "{e:?}");
 }
 
 /// The gate world (ramps, overrides) for the GID tests.
@@ -701,7 +695,7 @@ fn import_refuses_a_file_with_errors() {
     match world_import_tmj(&mut store, 0, &path) {
         Err(KernelError::Refused(m)) => assert_eq!(
             m,
-            "layers[0].data[0]: GID 500 gehört nicht in diese Ebene. (2 Fehler)"
+            "layers[0].data[0]: GID 500 does not belong in this layer. (2 errors)"
         ),
         other => panic!("{other:?}"),
     }

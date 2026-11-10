@@ -1,11 +1,10 @@
 import { useId } from "react";
+import { useTranslation } from "react-i18next";
 import { Icon, Popover } from "../ui/primitives";
 import { legendEntries } from "../world/legend";
 import type { TerrainEntry } from "../world/legend";
 import type { Pattern } from "../world/scene/patterns";
 import styles from "./Legend.module.css";
-
-const ENTRIES = legendEntries();
 
 function Swatch({ color }: { color: string }) {
   return <span className={styles.swatch} style={{ background: color }} /* dyn */ aria-hidden="true" />;
@@ -71,36 +70,39 @@ export function PatternSwatch({ entry }: { entry: Pick<TerrainEntry, "color" | "
 
 /** The legend of the scene at the bottom left of the 3D view: every colour (terrain with its pattern) with its name (never the colour alone). */
 export function Legend() {
+  const { t } = useTranslation("workbench");
   const id = useId();
+  // Read at render, not at module scope: the entries carry words in the language shown.
+  const entries = legendEntries();
   return (
     <div className={styles.legend}>
       <Popover
         trigger={
           <>
             <Icon name="legend" />
-            Legende
+            {t("legend.title")}
           </>
         }
       >
         <section className={styles.group} aria-labelledby={`${id}-terrain`}>
           <h3 id={`${id}-terrain`} className={styles.heading}>
-            Gelände
+            {t("legend.terrain")}
           </h3>
           <ul className={styles.list}>
-            {ENTRIES.terrain.map((t) => (
-              <li key={t.key} className={styles.entry}>
-                <PatternSwatch entry={t} />
-                {t.label}
+            {entries.terrain.map((entry) => (
+              <li key={entry.key} className={styles.entry}>
+                <PatternSwatch entry={entry} />
+                {entry.label}
               </li>
             ))}
           </ul>
         </section>
         <section className={styles.group} aria-labelledby={`${id}-events`}>
           <h3 id={`${id}-events`} className={styles.heading}>
-            Ereignisse
+            {t("legend.events")}
           </h3>
           <ul className={styles.list}>
-            {ENTRIES.events.map((e) => (
+            {entries.events.map((e) => (
               <li key={e.kind} className={styles.entry}>
                 <Swatch color={e.color} />
                 <Icon name={e.icon} />

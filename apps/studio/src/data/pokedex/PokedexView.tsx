@@ -1,5 +1,7 @@
-import { id4 } from "../../workbench/terms";
+import { id4, termLabel } from "../../workbench/terms";
 import { useMemo, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { BattleSpriteRequest, DataKind, HeaderSummary, NavTargetDto, RefDto, SpeciesRowExtra, SpriteSlotsDto } from "../../api";
 import { DSPokedexProfile, Notice, Reference, Segmented, Sprite, StatBar, Switch, TypeBadge } from "../../ui/primitives";
 import type { Area } from "../../ui/primitives";
@@ -52,21 +54,20 @@ function firstPer(list: readonly RefDto[]): RefDto[] {
 }
 
 /** The place of an encounter file: the location of the header that uses it, else the file. */
-function placeName(ref: RefDto, headers: readonly HeaderSummary[]): string {
-  if (ref.nav.kind !== "header") return `Begegnungen ${id4(ref.source.index)}`;
+function placeName(ref: RefDto, headers: readonly HeaderSummary[], t: TFunction<"data">): string {
+  if (ref.nav.kind !== "header") return `${t("dataModel.fallbackWord.encounter")} ${id4(ref.source.index)}`;
   const id = ref.nav.id;
   const header = headers.find((h) => h.id === id);
-  return header?.location_name || header?.internal_name || `Header ${id4(id)}`;
+  return header?.location_name || header?.internal_name || `${termLabel("header")} ${id4(id)}`;
 }
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** "Fundorte" (encounters and trainer parties) and "Verwendet in" (everything else that names the species). */
 function Uses({ index }: { index: number }) {
+  const { t } = useTranslation("data");
   const { headers, goTo } = useDataArea("pokemon");
   const found = useRefs("pokemon", { kind: "species", index }, REFERRING);
-  if (found === null) return <p className={styles.note}>Fundorte werden gesucht …</p>;
-  if (found.error !== null || found.refs === null) return <p className={styles.note}>{`Fundorte nicht lesbar: ${found.error ?? ""}`}</p>;
+  if (found === null) return <p className={styles.note}>{t("pokedexView.searching")}</p>;
+  if (found.error !== null || found.refs === null) return <p className={styles.note}>{t("pokedexView.placesUnreadable", { error: found.error ?? "" })}</p>;
   const all = found.refs;
   const places = firstPer(all.filter((r) => r.source.kind === "Encounter"));
   const trainers = firstPer(all.filter((r) => r.source.kind === "TrainerParty" || r.source.kind === "TrainerProperties"));
@@ -77,19 +78,19 @@ function Uses({ index }: { index: number }) {
   };
   return (
     <>
-      <section className={styles.section} aria-label="Fundorte">
+      <section className={styles.section} aria-label={t("pokedexView.places")}>
         <h3 className={styles.sectionTitle}>
-          Fundorte <span className={styles.count}>{`${plural(places.length, "Ort", "Orte")}, ${plural(trainers.length, "Trainer-Team", "Trainer-Teams")}`}</span>
+          {t("pokedexView.places")} <span className={styles.count}>{t("pokedexView.placesCount", { places: t("pokedexView.placeCount", { count: places.length }), trainers: t("pokedexView.trainerParties", { count: trainers.length }) })}</span>
         </h3>
         {places.length + trainers.length === 0 ? (
-          <p className={styles.note}>Wartet in keiner Begegnung und in keinem Trainer-Team.</p>
+          <p className={styles.note}>{t("pokedexView.nowhere")}</p>
         ) : (
           <div className={styles.chips}>
             {places.map((r) => (
               <Reference
                 key={`p${r.source.index}`}
                 area="welt"
-                label={placeName(r, headers)}
+                label={placeName(r, headers, t)}
                 tech={id4(r.source.index)}
                 disabled={navTarget(r.nav) === null}
                 onOpen={() => open(r.nav)}
@@ -102,8 +103,8 @@ function Uses({ index }: { index: number }) {
           </div>
         )}
       </section>
-      <section className={styles.section} aria-label="Verwendet in">
-        <h3 className={styles.sectionTitle}>Verwendet in</h3>
+      <section className={styles.section} aria-label={t("uses.usedIn")}>
+        <h3 className={styles.sectionTitle}>{t("uses.usedIn")}</h3>
         {other.length > 0 && (
           <div className={styles.chips}>
             {other.map((r, i) => (
@@ -111,16 +112,11 @@ function Uses({ index }: { index: number }) {
             ))}
           </div>
         )}
-        <p className={styles.note}>{`${other.length === 0 ? "Nirgends sonst" : plural(other.length, "Stelle", "Stellen")}, ohne Scripts gezählt.`}</p>
+        <p className={styles.note}>{other.length === 0 ? t("pokedexView.otherNone") : t("pokedexView.otherUses", { count: other.length })}</p>
       </section>
     </>
   );
 }
-
-const SIDES = [
-  { value: "front", label: "Vorderseite" },
-  { value: "back", label: "Rückseite" },
-] as const;
 
 /**
  * "Spielerblick": the Pokédex page as the player sees it on the DS (number, name, types, the battle picture), with the side, ♀ and shiny
@@ -147,25 +143,30 @@ function PlayerView({
   onChoice: (patch: Partial<PlayerChoice>) => void;
 }) {
   // Unknown slots (no readable sprites) lock nothing: the picture is the placeholder anyway.
+  const { t } = useTranslation("data");
+  const sides = [
+    { value: "front", label: t("pokedexView.front") },
+    { value: "back", label: t("pokedexView.back") },
+  ] as const;
   const noFemale = slots !== null && !slots.female;
   const onlyFemale = slots !== null && !slots.male && slots.female;
   const isFemale = onlyFemale || (!noFemale && female);
   const request: BattleSpriteRequest = { species: index, side, female: isFemale, shiny };
   const url = useIcon(battleSpriteKey(request), () => battleSprite(request), true);
-  const lockText = noFemale ? "Kein eigenes Bild für ♀" : onlyFemale ? "Nur ♀" : null;
+  const lockText = noFemale ? t("pokedexView.noFemale") : onlyFemale ? t("pokedexView.onlyFemale") : null;
   return (
-    <section className={styles.section} aria-label="Spielerblick" data-ds-profile-section="">
-      <h3 className={styles.sectionTitle}>Spielerblick</h3>
+    <section className={styles.section} aria-label={t("pokedexView.playerView")} data-ds-profile-section="">
+      <h3 className={styles.sectionTitle}>{t("pokedexView.playerView")}</h3>
       <DSPokedexProfile number={number} name={name} types={types} spriteUrl={url} decorative />
       <div className={styles.profileControls}>
         <div data-side={side}>
-          <Segmented options={SIDES} value={side} onChange={(next) => onChoice({ side: next })} ariaLabel="Seite" size="s" />
+          <Segmented options={sides} value={side} onChange={(next) => onChoice({ side: next })} ariaLabel={t("pokedexView.side")} size="s" />
         </div>
         <div data-female={isFemale}>
-          <Switch label="Weiblich" checked={isFemale} onChange={(next) => onChoice({ female: next })} disabled={lockText !== null} hint={lockText ?? undefined} />
+          <Switch label={t("pokedexView.female")} checked={isFemale} onChange={(next) => onChoice({ female: next })} disabled={lockText !== null} hint={lockText ?? undefined} />
         </div>
         <div data-shiny={shiny}>
-          <Switch label="Schillernd" checked={shiny} onChange={(next) => onChoice({ shiny: next })} />
+          <Switch label={t("pokedexView.shiny")} checked={shiny} onChange={(next) => onChoice({ shiny: next })} />
         </div>
       </div>
     </section>
@@ -174,6 +175,7 @@ function PlayerView({
 
 /** The view (Schau) of a species: name, types and abilities, its base stats against the average of all species, where it is found and used. */
 export function PokedexView() {
+  const { t } = useTranslation("data");
   const { row, rows, labelOf, names, selected } = useDataArea("pokemon");
   const { doc, error } = useSpecies(selected);
   const reset = useReset();
@@ -189,7 +191,7 @@ export function PokedexView() {
   const personal = doc?.personal;
   const abilities = personal ? [personal.ability1, personal.ability2].filter((a, i, all) => a !== 0 && all.indexOf(a) === i) : [];
   return (
-    <section className={styles.view} aria-label={`Übersicht ${name}`}>
+    <section className={styles.view} aria-label={t("pokedexView.overview", { name })}>
       <header className={styles.head}>
         <Sprite url={icon} label={name} size={48} area="pokemon" decorative />
         <div className={styles.headText}>
@@ -204,7 +206,7 @@ export function PokedexView() {
               {personal.type2 !== personal.type1 && <TypeBadge type={personal.type2} />}
             </span>
             <span className={styles.abilities}>
-              {abilities.length === 0 ? "Keine Fähigkeit" : `${abilities.length === 1 ? "Fähigkeit" : "Fähigkeiten"}: ${abilities.map((a) => abilityName(names.abilities, a)).join(", ")}`}
+              {abilities.length === 0 ? t("pokedexModel.noAbility") : t("pokedexView.abilityList", { count: abilities.length, list: abilities.map((a) => abilityName(names.abilities, a)).join(", ") })}
             </span>
           </div>
         )}
@@ -212,8 +214,8 @@ export function PokedexView() {
         <HeadActions items={[resetEntry({ kind: "species", index: selected }, reset.status, reset.open)]} />
       </header>
       <div className={styles.viewBody}>
-        {error !== null && <Notice kind="error">{`Diese Art ist nicht lesbar: ${error}`}</Notice>}
-        {doc !== null && personalLocked && <Notice kind="warning">{`${lockText(doc.locked ?? "", doc.locked_asset)}. Ihre Werte sind nicht lesbar.`}</Notice>}
+        {error !== null && <Notice kind="error">{t("pokedexView.unreadable", { error })}</Notice>}
+        {doc !== null && personalLocked && <Notice kind="warning">{t("pokedexView.lockedValues", { reason: lockText(doc.locked ?? "", doc.locked_asset) })}</Notice>}
         {doc !== null && !personalLocked && (
           <PlayerView
             index={selected}
@@ -226,15 +228,15 @@ export function PokedexView() {
           />
         )}
         {doc !== null && !personalLocked && (
-          <section className={styles.section} aria-label="Basiswerte">
-            <h3 className={styles.sectionTitle}>Basiswerte</h3>
+          <section className={styles.section} aria-label={t("pokedexView.baseStats")}>
+            <h3 className={styles.sectionTitle}>{t("pokedexView.baseStats")}</h3>
             <div>
               {STATS.map((s) => (
                 <StatBar key={s.field} label={s.label} value={doc.personal[s.field]} average={averages[s.field]} deviates={doc.personal[s.field] !== doc.saved[s.field]} />
               ))}
             </div>
-            <p className={styles.sum}>{sumText(statSum(doc.personal), statSum(doc.saved))}</p>
-            <p className={styles.note}>Strich: Schnitt aller Arten. Vorher: Stand der letzten Speicherung.</p>
+            <p className={styles.sum}>{sumText(t, statSum(doc.personal), statSum(doc.saved))}</p>
+            <p className={styles.note}>{t("pokedexView.baseStatsNote")}</p>
           </section>
         )}
         <Uses index={selected} />
@@ -243,4 +245,4 @@ export function PokedexView() {
   );
 }
 
-const sumText = (now: number, saved: number) => (now === saved ? `Summe ${now}` : `Summe ${now}, vorher ${saved}`);
+const sumText = (t: TFunction<"data">, now: number, saved: number) => (now === saved ? t("pokedexView.sum", { now }) : t("pokedexView.sumChanged", { now, saved }));

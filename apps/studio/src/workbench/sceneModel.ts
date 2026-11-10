@@ -4,13 +4,14 @@ import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import type { IconName } from "../ui/primitives";
 import type { MapBuildings } from "../world/scene/types";
-import { groupEvents } from "./context";
+import { t } from "../i18n";
+import { groupEvents, kindPlural } from "./context";
 import { headerIdentity } from "./headerIdentity";
 import type { HeaderIdentity } from "./headerIdentity";
 import type { InspectorModel } from "./Inspector";
 import { buildPlaces, scriptChildren } from "./places";
 import type { Place } from "./places";
-import { TERMS, id4, techLabel } from "./terms";
+import { id4, techLabel, termLabel, termPlural } from "./terms";
 import { scriptTrainerLabel } from "./trainerScript";
 
 /** The groups below the root of „In dieser Szene“, in this order: maps, figures, doors, triggers, signs, scripts. */
@@ -71,7 +72,9 @@ const GROUPS: readonly SceneGroup[] = ["maps", "object", "warp", "coord", "bg", 
 /** What starts open: the root and every group; a map's buildings start closed. */
 export const SCENE_OPEN: ReadonlySet<string> = new Set([ROOT_KEY, ...GROUPS.map(groupKey)]);
 
-const GROUP_LABEL: Record<SceneGroup, string> = { maps: TERMS.map.plural, object: "Figuren", warp: "Türen", coord: "Auslöser", bg: "Schilder", scripts: TERMS.script.plural };
+/** The word of a group row, in the language that is shown (resolved when asked, not at module scope). */
+const groupLabel = (group: SceneGroup): string =>
+  group === "maps" ? termPlural("map") : group === "scripts" ? termPlural("script") : kindPlural(group);
 export const GROUP_ICON: Record<SceneGroup, IconName> = { maps: "map", object: "figure", warp: "door", coord: "trigger", bg: "sign", scripts: "script" };
 
 /** The root's symbol by what the header is, as the folded place row of the list has it: a header that is neither area nor room is a place. */
@@ -174,12 +177,12 @@ export function sceneRows(input: SceneInput, open: ReadonlySet<string>, query: s
         const children = models.map((model, index) => ({
           key: `building:${map}:${index}`,
           kind: "building" as const,
-          label: `Gebäude ${index + 1} · Modell ${model}`,
+          label: t("workbench:sceneModel.building", { n: index + 1, model }),
           icon: "building" as const,
           ref: { kind: "building" as const, map, index },
         }));
         return {
-          row: { key: `map:${x},${y}`, kind: "map", ...(tinker ? { label: `Karte ${id4(map)} · Zelle ${x}, ${y}` } : { label: `Karte ${id4(map)}`, tech: `${x}, ${y}` }), icon: "map", ref: { kind: "matrixCell", matrix: matrix.index, x, y } },
+          row: { key: `map:${x},${y}`, kind: "map", ...(tinker ? { label: `${termLabel("map")} ${id4(map)} · ${t("workbench:sceneModel.cell", { x, y })}` } : { label: `${termLabel("map")} ${id4(map)}`, tech: `${x}, ${y}` }), icon: "map", ref: { kind: "matrixCell", matrix: matrix.index, x, y } },
           ...(children.length > 0 ? { children } : {}),
         };
       }),
@@ -198,7 +201,7 @@ export function sceneRows(input: SceneInput, open: ReadonlySet<string>, query: s
           if (r.dest === undefined) return { row: { ...base, label: r.title } };
           const target = byId.get(r.dest);
           const second =
-            target === undefined ? `→ unbekanntes Ziel ${id4(r.dest)}` : tinker ? `→ ${techLabel("header", r.dest)} · ${nameOf(target)}` : `→ ${nameOf(target)}`;
+            target === undefined ? t("workbench:sceneModel.unknownDest", { id: id4(r.dest) }) : tinker ? `→ ${techLabel("header", r.dest)} · ${nameOf(target)}` : `→ ${nameOf(target)}`;
           return { row: { ...base, label: `Warp ${r.index}`, second, dest: target === undefined ? null : r.dest } };
         }),
       );
@@ -232,7 +235,7 @@ export function sceneRows(input: SceneInput, open: ReadonlySet<string>, query: s
 
   for (const group of GROUPS) {
     const all = groups.get(group) ?? [];
-    const label = GROUP_LABEL[group];
+    const label = groupLabel(group);
     // While searching: the group's word keeps all its rows; else the rows that match, a map also for a matching building.
     const shown: Child[] =
       !searching || label.toLowerCase().includes(q)

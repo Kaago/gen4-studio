@@ -162,7 +162,7 @@ fn a_wrong_offset_fails_the_signature_and_locks_the_asset() {
         Err(signature_missing(0x2923E))
     );
     let mut st = store_of(root);
-    let reason = "Ei-Attacken: Overlay 5 trägt an 0x2923E keine Tabelle (Signatur fehlt)";
+    let reason = "Egg moves: overlay 5 holds no table at 0x2923E (signature missing)";
     match st.egg_moves() {
         Err(KernelError::ReadOnly { asset, reason: r }) => {
             assert_eq!(asset, EGG_MOVES);
@@ -194,7 +194,7 @@ fn an_unverified_code_is_locked_with_the_reason() {
     )
     .unwrap();
     let p = Project::open(root).unwrap();
-    let reason = "Ei-Attacken: Lage in Overlay 5 für CPUE nicht geprüft";
+    let reason = "Egg moves: location in overlay 5 not checked for CPUE";
     assert_eq!(egg_moves_place(&p).unwrap(), Err(reason.to_owned()));
     let mut st = store_of(root);
     match st.egg_moves() {
@@ -267,7 +267,7 @@ fn edit_over_the_budget_is_refused_and_records_nothing() {
     match err {
         KernelError::Refused(why) => {
             assert_eq!(why, budget_full(1910));
-            assert_eq!(why, "Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen");
+            assert_eq!(why, "Egg move table full: 1 910 of 1 910 entries");
         }
         other => panic!("{other:?}"),
     }
@@ -315,7 +315,7 @@ fn an_overlay_table_that_does_not_read_locks_the_egg_moves() {
     let p = Project::open(root).unwrap();
     let reason = egg_moves_place(&p).unwrap().unwrap_err();
     assert!(
-        reason.starts_with("Ei-Attacken: Overlay 5 lässt sich nicht finden"),
+        reason.starts_with("Egg moves: overlay 5 cannot be found"),
         "{reason}"
     );
     std::fs::remove_file(root.join("arm9_overlays/overlays.yaml")).unwrap();

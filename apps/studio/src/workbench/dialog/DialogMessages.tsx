@@ -1,32 +1,36 @@
 import { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { editTextArchive, errorText, splitMessage } from "../../api";
 import type { DialogMessage, DialogSource } from "../../api";
 import type { ScriptFiles } from "../../data/useDataArea";
+import { t } from "../../i18n";
 import { Badge, Button } from "../../ui/primitives";
 import { MessageEditor } from "../text/MessageEditor";
 import { sharedText } from "./dialogModel";
 import type { DialogTarget, DistinctMessage } from "./dialogModel";
 import styles from "./DialogMessages.module.css";
 
-/** The store label of a text written here (one undo step per commit, „Dialog geändert“ in the history). */
-const EDIT_LABEL = "Dialog geändert";
+/** The store label of a text written here (one undo step per commit, „Dialog geändert“ in the history), in the language that is shown. */
+const editLabel = () => t("workbench:dialogMessages.editLabel");
 
 /** A message's key: „archive:index“. */
 export const messageKey = (m: Pick<DialogMessage, "archive" | "index">) => `${m.archive}:${m.index}`;
 
 /** „wenn …“ (or „sonst“) for a message in a branch of the script. */
-const branchText = (branch: string) => (branch === "else" ? "sonst" : `wenn ${branch}`);
+const branchText = (branch: string) => (branch === "else" ? t("workbench:dialogMessages.else") : t("workbench:dialogMessages.if", { branch }));
 
 /**
  * „Nachricht 4 · Archiv 554“, with „wenn …“ (or „sonst“) for a message in a branch of the script and „auch Zeile 9 (wenn …)“ for the
  * other places the script shows the same message.
  */
 function messageHead(m: DialogMessage, others: readonly DialogMessage[]): string {
-  let head = `Nachricht ${m.index} · Archiv ${m.archive}`;
+  let head = t("workbench:dialogMessages.head", { index: m.index, archive: m.archive });
   if (m.branch !== null) head += ` · ${branchText(m.branch)}`;
   if (others.length === 0) return head;
-  const uses = others.map((o) => (o.branch === null ? `Zeile ${o.line}` : `Zeile ${o.line} (${branchText(o.branch)})`));
-  return `${head} · auch ${uses.join(", ")}`;
+  const uses = others.map((o) =>
+    o.branch === null ? t("workbench:dialogMessages.line", { line: o.line }) : t("workbench:dialogMessages.lineInBranch", { line: o.line, branch: branchText(o.branch) }),
+  );
+  return t("workbench:dialogMessages.also", { head, uses: uses.join(", ") });
 }
 
 /** What the writes of a dialog need from their owner (the dialog editor, the hand of the texts). */
@@ -67,7 +71,7 @@ export function useDialogWrites(target: DialogTarget, source: DialogSource | nul
 
   const commit = async (m: DialogMessage, written: string): Promise<boolean> => {
     try {
-      await editTextArchive(m.archive, { Set: { index: m.index, text: written } }, EDIT_LABEL);
+      await editTextArchive(m.archive, { Set: { index: m.index, text: written } }, editLabel());
     } catch (e) {
       setNotice({ kind: "error", text: errorText(e) });
       return false;
@@ -93,7 +97,7 @@ export function useDialogWrites(target: DialogTarget, source: DialogSource | nul
       onChanged();
       void scriptFiles?.reload(file);
       onSplit(messageKey({ archive: report.archive, index: report.new_index }));
-      setNotice({ kind: "success", text: narrating ? "Die Nachricht gilt jetzt nur für diese Figur." : `Nachricht ${report.new_index} ist jetzt nur diese Figur.` });
+      setNotice({ kind: "success", text: narrating ? t("workbench:dialogMessages.splitDoneNarrating") : t("workbench:dialogMessages.splitDone", { index: report.new_index }) });
       reload();
     } catch (e) {
       setNotice({ kind: "error", text: errorText(e) });
@@ -126,11 +130,13 @@ export interface DialogMessagesProps {
  * In Erzählen (`narrating`) the head only counts („Nachricht 1 von 2“): archives, numbers and script conditions are Bauen's.
  */
 export function DialogMessages({ kind, distinct, currentKey, onChoose, onDraft, writes, narrating = false }: DialogMessagesProps) {
+  // Renders the list again when the language changes; the heads are read at render time.
+  useTranslation("workbench");
   const { commit, split, splitting } = writes;
   // The editor and the hand may show the same figure at once: the ids of the refusals are this list's own.
   const id = useId();
   return (
-    <ol className={styles.messages} aria-label="Nachrichten">
+    <ol className={styles.messages} aria-label={t("workbench:dialogMessages.messages")}>
       {distinct.map(({ message: m, others }, position) => {
         const key = messageKey(m);
         const selected = key === currentKey;
@@ -139,7 +145,7 @@ export function DialogMessages({ kind, distinct, currentKey, onChoose, onDraft, 
           <li key={key} className={styles.message} data-dialog-message={key} data-selected={selected ? "" : undefined} onFocus={() => onChoose(key)}>
             <div className={styles.head}>
               <Button kind="quiet" size="s" aria-pressed={selected} onClick={() => onChoose(key)}>
-                <span className={styles.headText}>{narrating ? `Nachricht ${position + 1} von ${distinct.length}` : messageHead(m, others)}</span>
+                <span className={styles.headText}>{narrating ? t("workbench:dialogMessages.position", { n: position + 1, total: distinct.length }) : messageHead(m, others)}</span>
               </Button>
               {m.shared_with > 0 && (
                 <Badge kind="warning" icon="shared">
@@ -148,7 +154,7 @@ export function DialogMessages({ kind, distinct, currentKey, onChoose, onDraft, 
               )}
             </div>
             {m.text === null ? (
-              <p className={styles.note}>{narrating ? "Diese Nachricht fehlt im Text des Orts." : `Archiv ${m.archive} hat keine Nachricht ${m.index}.`}</p>
+              <p className={styles.note}>{narrating ? t("workbench:dialogMessages.missingNarrating") : t("workbench:dialogMessages.missing", { archive: m.archive, index: m.index })}</p>
             ) : (
               <MessageEditor key={key} value={m.text} onCommit={(written) => commit(m, written)} onDraft={onDraft && ((typed) => onDraft(key, typed))} />
             )}
@@ -158,7 +164,7 @@ export function DialogMessages({ kind, distinct, currentKey, onChoose, onDraft, 
             {m.shared_with > 0 && kind === "object" && m.text !== null && (
               <div className={styles.split} data-split-refusal={m.split_refusal === null ? undefined : ""}>
                 <Button kind="secondary" size="s" disabled={splitting || m.split_refusal !== null} aria-describedby={m.split_refusal === null ? undefined : refusalId} onClick={() => void split(m)}>
-                  Für diese Figur abspalten
+                  {t("workbench:dialogMessages.split")}
                 </Button>
                 {m.split_refusal !== null && (
                   <p id={refusalId} className={styles.note}>

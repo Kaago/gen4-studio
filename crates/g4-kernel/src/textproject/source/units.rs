@@ -498,9 +498,8 @@ pub(super) fn import_art(
         Art::Trainers => import_one::<TrainerEntity>(index, rel, bytes, ctx),
         Art::TrainerTextTable => import_one::<TrainerTextTableEntity>(index, rel, bytes, ctx),
         Art::TrainerTextOffsets => import_one::<TrainerTextOffsetsEntity>(index, rel, bytes, ctx),
-        Art::Binary(_) => Err(KernelError::InvalidProject(format!(
-            "{}: keine JSON",
-            art.name()
-        ))),
+        Art::Binary(_) => Err(KernelError::InvalidProject(
+            t!("textproject.no_json", what = art.name()).into_owned(),
+        )),
     }
 }

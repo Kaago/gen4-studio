@@ -22,9 +22,11 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 
 use crate::mcp::discovery::{self, DISCOVERY_VERSION, Discovery};
 
-/// What `studio mcp` says when no running app serves MCP (exit code 2).
-pub const NOT_RUNNING: &str = "Gen4 Studio läuft nicht oder „Lokale Agenten zulassen“ ist aus; \
-                               kopflos mit --project <Ordner>";
+/// What `studio mcp` says when no running app serves MCP (exit code 2), in the language of
+/// the server.
+pub fn not_running() -> String {
+    t!("mcp.proxy.not_running").into_owned()
+}
 
 const SESSION_HEADER: &str = "mcp-session-id";
 const VERSION_HEADER: &str = "mcp-protocol-version";
@@ -38,19 +40,20 @@ const INTERNAL_ERROR: i64 = -32603;
 const MESSAGE_LIMIT: usize = 300;
 
 /// The discovery file in `dir`, if the app that wrote it still runs; otherwise
-/// [`NOT_RUNNING`] (or a note that app and `studio mcp` do not match).
+/// [`not_running`] (or a note that app and `studio mcp` do not match).
 pub fn locate(dir: &Path) -> Result<Discovery, String> {
-    let found = discovery::read(dir).map_err(|_| NOT_RUNNING.to_owned())?;
+    let found = discovery::read(dir).map_err(|_| not_running())?;
     if !alive(found.pid) {
-        return Err(NOT_RUNNING.to_owned());
+        return Err(not_running());
     }
     if found.version != DISCOVERY_VERSION {
-        return Err(format!(
-            "{}: Version {}, erwartet {DISCOVERY_VERSION} (App und studio mcp passen nicht \
-             zusammen)",
-            dir.join(discovery::DISCOVERY_FILE).display(),
-            found.version
-        ));
+        return Err(t!(
+            "mcp.proxy.version_mismatch",
+            path = dir.join(discovery::DISCOVERY_FILE).display(),
+            found = found.version,
+            expected = DISCOVERY_VERSION
+        )
+        .into_owned());
     }
     Ok(found)
 }
@@ -92,7 +95,7 @@ impl Target {
     /// The target of `discovery`: an `http://` URL on a loopback host only (the token must
     /// not leave the machine).
     fn of(discovery: &Discovery) -> Result<Target, String> {
-        let invalid = || format!("Ungültige URL in mcp.json: {}", discovery.url);
+        let invalid = || t!("mcp.proxy.invalid_url", url = discovery.url).into_owned();
         let uri: Uri = discovery.url.parse().map_err(|_| invalid())?;
         if uri.scheme_str() != Some("http") {
             return Err(invalid());
@@ -103,10 +106,7 @@ impl Target {
             .trim_start_matches('[')
             .trim_end_matches(']');
         if !["127.0.0.1", "localhost", "::1"].contains(&host) {
-            return Err(format!(
-                "mcp.json nennt keinen lokalen Server: {}",
-                discovery.url
-            ));
+            return Err(t!("mcp.proxy.not_local", url = discovery.url).into_owned());
         }
         let port = authority.port_u16().ok_or_else(invalid)?;
         Ok(Target {
@@ -130,11 +130,13 @@ impl Target {
             tokio::net::TcpStream::connect((self.host.as_str(), self.port)),
         )
         .await
-        .map_err(|_| Failure::Unreachable("nicht erreichbar (Zeitüberschreitung)".to_owned()))?
-        .map_err(|e| Failure::Unreachable(format!("nicht erreichbar: {e}")))?;
+        .map_err(|_| Failure::Unreachable(t!("mcp.proxy.unreachable_timeout").into_owned()))?
+        .map_err(|e| Failure::Unreachable(t!("mcp.proxy.unreachable", error = e).into_owned()))?;
         let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
             .await
-            .map_err(|e| Failure::Unreachable(format!("Verbindung fehlgeschlagen: {e}")))?;
+            .map_err(|e| {
+                Failure::Unreachable(t!("mcp.proxy.connection_failed", error = e).into_owned())
+            })?;
         tokio::spawn(async move {
             let _ = connection.await;
         });
@@ -153,16 +155,16 @@ impl Target {
         }
         let request = request
             .body(Full::new(body))
-            .map_err(|e| Failure::Broken(format!("Anfrage ungültig: {e}")))?;
+            .map_err(|e| Failure::Broken(t!("mcp.proxy.bad_request", error = e).into_owned()))?;
         let response = sender
             .send_request(request)
             .await
-            .map_err(|e| Failure::Broken(format!("Anfrage fehlgeschlagen: {e}")))?;
+            .map_err(|e| Failure::Broken(t!("mcp.proxy.request_failed", error = e).into_owned()))?;
         let (parts, body) = response.into_parts();
         let body = body
             .collect()
             .await
-            .map_err(|e| Failure::Broken(format!("Antwort abgebrochen: {e}")))?
+            .map_err(|e| Failure::Broken(t!("mcp.proxy.answer_aborted", error = e).into_owned()))?
             .to_bytes();
         Ok(Answer {
             status: parts.status,
@@ -241,7 +243,7 @@ where
             Ok(0) => break,
             Ok(_) => {}
             Err(e) => {
-                result = Err(format!("stdin nicht lesbar: {e}"));
+                result = Err(t!("mcp.proxy.stdin_unreadable", error = e).into_owned());
                 break;
             }
         }
@@ -252,7 +254,7 @@ where
         let replies = proxy.forward(message).await;
         if let Err(e) = write_lines(&mut output, &replies).await {
             // The client is gone.
-            result = Err(format!("stdout nicht schreibbar: {e}"));
+            result = Err(t!("mcp.proxy.stdout_unwritable", error = e).into_owned());
             break;
         }
     }
@@ -417,7 +419,7 @@ impl Proxy {
         let text = if answer.status == StatusCode::NOT_FOUND && had_session {
             // The app closed the session and no new one could be opened.
             self.session = Session::default();
-            "Sitzung beendet".to_owned()
+            t!("mcp.proxy.session_ended").into_owned()
         } else {
             refusal_text(answer.status, &answer.body)
         };
@@ -458,7 +460,9 @@ fn refusal_text(status: StatusCode, body: &[u8]) -> String {
     let text = String::from_utf8_lossy(body);
     let text = text.trim();
     if text.is_empty() {
-        return status.canonical_reason().unwrap_or("Fehler").to_owned();
+        return status
+            .canonical_reason()
+            .map_or_else(|| t!("mcp.proxy.error").into_owned(), str::to_owned);
     }
     let mut short: String = text.chars().take(MESSAGE_LIMIT).collect();
     if short.len() < text.len() {
@@ -540,10 +544,11 @@ mod tests {
 
     #[test]
     fn refusal_text_prefers_the_message() {
-        let refusal = br#"{"code":"error","message":"Token fehlt oder ist falsch","asset":null,"problems":[]}"#;
+        let refusal =
+            br#"{"code":"error","message":"Token is missing or wrong","asset":null,"problems":[]}"#;
         assert_eq!(
             refusal_text(StatusCode::UNAUTHORIZED, refusal),
-            "Token fehlt oder ist falsch"
+            "Token is missing or wrong"
         );
         assert_eq!(
             refusal_text(StatusCode::BAD_REQUEST, b"Bad Request: no\nway"),
@@ -589,14 +594,14 @@ mod tests {
     #[test]
     fn locate_needs_a_living_app() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(locate(dir.path()).unwrap_err(), NOT_RUNNING);
+        assert_eq!(locate(dir.path()).unwrap_err(), not_running());
         let ours = Discovery::new(4711, "c0ffee");
         discovery::write(dir.path(), &ours).unwrap();
         assert_eq!(locate(dir.path()).unwrap(), ours);
         let mut newer = ours.clone();
         newer.version = DISCOVERY_VERSION + 1;
         discovery::write(dir.path(), &newer).unwrap();
-        assert!(locate(dir.path()).unwrap_err().contains("Version"));
+        assert!(locate(dir.path()).unwrap_err().contains("version"));
     }
 
     /// An app on `127.0.0.1` that answers every request with 503 (no session to be had), and

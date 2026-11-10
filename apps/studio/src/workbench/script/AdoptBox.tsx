@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { errorText } from "../../api";
 import type { AdoptProgressDto, AdoptReportDto } from "../../api";
 import { Button, Notice } from "../../ui/primitives";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel, termPlural } from "../terms";
 import styles from "./AdoptBox.module.css";
 
 export interface AdoptBoxProps {
@@ -18,6 +19,7 @@ type Phase = { kind: "idle" } | { kind: "running"; progress: AdoptProgressDto | 
 
 /** The box the Script panel shows until rotom has taken the project's scripts over (spec §7.3): an info notice with progress and report. */
 export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {
+  const { t } = useTranslation("workbench");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   // Progress that arrives after the end must not bring the bar back.
   const running = useRef(false);
@@ -37,22 +39,20 @@ export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {
 
   return (
     <div className={styles.box}>
-      <Notice kind="info" title={`${TERMS.script.plural} übernehmen`}>
+      <Notice kind="info" title={t("adoptBox.title")}>
         {phase.kind === "done" ? (
           <Report report={phase.report} onClose={onClose} />
         ) : (
           <div className={styles.body}>
             <p className={styles.text}>
-              Das Studio legt <code className={styles.code}>rotom.toml</code> und <code className={styles.code}>.rotom/</code> im Projekt an und dekompiliert alle {fileCount}{" "}
-              {TERMS.scriptFile.plural} nach <code className={styles.code}>expanded/scripts/</code>. DSPRE benutzt danach dieselben Quellen und schaltet seinen alten
-              Scripteditor ab.
+              <Trans t={t} i18nKey="adoptBox.intro" values={{ files: fileCount }} components={{ code: <code className={styles.code} /> }} />
             </p>
             {phase.kind === "running" ? (
               <AdoptProgress progress={phase.progress} total={fileCount} />
             ) : (
               <div>
                 <Button kind="primary" onClick={() => void start()}>
-                  Übernehmen
+                  {t("adoptBox.adopt")}
                 </Button>
               </div>
             )}
@@ -66,35 +66,35 @@ export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {
 
 /** The bar of a running adoption and "done / total Scriptdateien" (`total` until the first progress names it); the wizard "Welt leeren" shows it too. */
 export function AdoptProgress({ progress, total }: { progress: AdoptProgressDto | null; total: number }) {
+  const { t } = useTranslation("workbench");
   const max = Math.max(progress?.total ?? total, 1);
   const done = progress?.done ?? 0;
   const share = Math.min(done / max, 1) * 100;
   return (
     <div className={styles.progress}>
-      <div className={styles.track} role="progressbar" aria-label="Fortschritt der Übernahme" aria-valuemin={0} aria-valuemax={max} aria-valuenow={done}>
+      <div className={styles.track} role="progressbar" aria-label={t("adoptBox.progress")} aria-valuemin={0} aria-valuemax={max} aria-valuenow={done}>
         <div className={styles.fill} style={{ width: `${share}%` } /* dyn */} />
       </div>
       <span className={styles.count}>
-        {done} / {progress?.total ?? total} {TERMS.scriptFile.plural}
+        {done} / {progress?.total ?? total} {termPlural("scriptFile")}
       </span>
     </div>
   );
 }
 
 function Report({ report, onClose }: { report: AdoptReportDto; onClose: () => void }) {
+  const { t } = useTranslation("workbench");
+  const counts = { decompiled: report.decompiled, skipped: report.skipped_empty, failed: report.failed.length };
   return (
     <div className={styles.body}>
-      <p className={styles.text}>
-        {report.decompiled} {TERMS.scriptFile.plural} dekompiliert, {report.skipped_empty} leere übersprungen
-        {report.failed.length > 0 ? `, ${report.failed.length} fehlgeschlagen` : ""}.
-      </p>
+      <p className={styles.text}>{report.failed.length > 0 ? t("adoptBox.reportFailed", counts) : t("adoptBox.report", counts)}</p>
       {report.failed.length > 0 && (
         <>
-          <p className={styles.text}>Diese Dateien bleiben binär:</p>
+          <p className={styles.text}>{t("adoptBox.staysBinary")}</p>
           <ul className={styles.failed}>
             {report.failed.map(([file, message]) => (
               <li key={file}>
-                {TERMS.scriptFile.label} {id4(file)}: {message}
+                {termLabel("scriptFile")} {id4(file)}: {message}
               </li>
             ))}
           </ul>
@@ -102,7 +102,7 @@ function Report({ report, onClose }: { report: AdoptReportDto; onClose: () => vo
       )}
       <div>
         <Button kind="primary" onClick={onClose}>
-          Weiter
+          {t("adoptBox.next")}
         </Button>
       </div>
     </div>

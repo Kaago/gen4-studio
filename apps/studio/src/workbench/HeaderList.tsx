@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary, ProjectInfo } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
@@ -11,7 +12,7 @@ import type { Depth, ListSort } from "../ui/frame/shellState";
 import { EntityStateBadge, ListRow, TextField, useRovingList } from "../ui/primitives";
 import { filterHeaders, showsMatrix } from "./headers";
 import { ShownMark } from "./ShownMark";
-import { TERMS, id4, techLabel } from "./terms";
+import { id4, techLabel, termLabel, termPlural } from "./terms";
 import { sortHeaders } from "./worldSort";
 import styles from "./WorldExplorer.module.css";
 
@@ -50,12 +51,13 @@ const HeaderRow = memo(function HeaderRow({
   mark: MarkSeverity | undefined;
   onSelect: (h: HeaderSummary) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const name = h.location_name || h.internal_name;
   // The same entries as the world tree's rows (the list is the tree's other view).
   const { status, open } = useReset();
   const { restore } = useDelete();
   const deleted = h.deleted === true;
-  const reset = resetEntry({ kind: "header", id: h.id }, status, open, "Header auf Original zurücksetzen…");
+  const reset = resetEntry({ kind: "header", id: h.id }, status, open, t("resetMenu.header"));
   return (
     <ListRow
       contextMenu={deleted ? [restoreEntry({ kind: "header", id: h.id }, restore), reset] : [reset]}
@@ -67,8 +69,8 @@ const HeaderRow = memo(function HeaderRow({
       // Building speaks of the game: the number and the code, no technical words.
       title={
         tinker
-          ? `${techLabel("header", h.id)} ${h.location_name} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`
-          : `${name} · Nummer ${id4(h.id)} · ${h.internal_name}`
+          ? `${techLabel("header", h.id)} ${h.location_name} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${t("shownMark.label", { matrix: termLabel("matrix") })})` : ""}`
+          : t("headerList.title", { name, id: id4(h.id), code: h.internal_name })
       }
       dataAttrs={{ "data-header-id": h.id, "data-deleted": deleted ? "true" : undefined }}
       trailing={
@@ -91,6 +93,7 @@ const HeaderRow = memo(function HeaderRow({
  * `onSelect` must keep its identity for that.
  */
 export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, depth, sort, onSelect, marks, showDeleted, onShowDeleted }: Props) {
+  const { t } = useTranslation("workbench");
   const [query, setQuery] = useState("");
   const sorted = useMemo(() => sortHeaders(showDeleted ? headers : headers.filter((h) => h.deleted !== true), sort), [headers, sort, showDeleted]);
   const shown = useMemo(() => filterHeaders(sorted, query), [sorted, query]);
@@ -122,13 +125,13 @@ export const HeaderList = memo(function HeaderList({ info, headers, selected, sh
       <div className={styles.top}>
         {info && (
           <p className={styles.caption}>
-            {info.header_count} {depthAtLeast(depth, "tuefteln") ? TERMS.header.plural : info.header_count === 1 ? TERMS.place.label : TERMS.place.plural}
+            {info.header_count} {depthAtLeast(depth, "tuefteln") ? termPlural("header") : info.header_count === 1 ? termLabel("place") : termPlural("place")}
           </p>
         )}
-        <TextField type="search" label={depthAtLeast(depth, "tuefteln") ? "Header suchen" : "Orte suchen"} placeholder="Ort, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
+        <TextField type="search" label={depthAtLeast(depth, "tuefteln") ? t("headerList.searchHeaders") : t("headerList.searchPlaces")} placeholder={t("headerList.searchPlaceholder")} value={query} onChange={setQuery} onCommit={setQuery} />
         <ShowDeleted checked={showDeleted} onChange={onShowDeleted} />
       </div>
-      <div ref={list} role="listbox" aria-label={depthAtLeast(depth, "tuefteln") ? TERMS.header.plural : TERMS.place.plural} className={styles.host}>
+      <div ref={list} role="listbox" aria-label={depthAtLeast(depth, "tuefteln") ? termPlural("header") : termPlural("place")} className={styles.host}>
         {shown.map((h) => (
           <HeaderRow key={h.id} header={h} selected={h.id === selected} marked={showsMatrix(h, shownMatrix)} tinker={depthAtLeast(depth, "tuefteln")} mark={marks?.get(h.id)} onSelect={onSelect} />
         ))}

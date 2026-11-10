@@ -1,5 +1,12 @@
 # NSBTX (BTX0 / TEX0)
 
+**In English:** Documents NSBTX (BTX0/TEX0), the texture pack format: the container, the TEX0
+section with its texture and palette info, and the texture formats. It also describes how Gen4
+Studio writes a pack, appends new textures to an existing one and converts PNG images into textures
+and palettes, and how errors are handled. Layout references are apicula and GBATEK, plus own
+measurements. The code is `crates/g4-formats/src/nsbtx.rs` (reader and decoder) and
+`crates/g4-formats/src/nsbtx/write.rs` (writer); all values are little endian.
+
 Quellen: apicula `src/nitro/{container,tex,info_block,name}.rs` und
 `src/nds/decode_texture.rs` (0BSD) für Layout und Texturformate; GBATEK „DS 3D Texture
 Formats“ und „DS 3D Texture Attributes“; Gutachten A

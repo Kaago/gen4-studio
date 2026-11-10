@@ -113,11 +113,14 @@ pub(super) fn apply_keys(
                 if !done {
                     failed.push((
                         unit.key.clone(),
-                        refused(format!(
-                            "rotom dekompiliert {} nicht; {} bleibt, wie sie ist.",
-                            key(&unit.members[0]),
-                            unit.key
-                        )),
+                        refused(
+                            t!(
+                                "textproject.rotom_no_decompile",
+                                member = key(&unit.members[0]),
+                                unit = unit.key
+                            )
+                            .into_owned(),
+                        ),
                     ));
                 }
                 done
@@ -135,12 +138,14 @@ pub(super) fn apply_keys(
                 if !done {
                     failed.push((
                         unit.key.clone(),
-                        refused(format!(
-                            "{} fehlt; ohne Basisschicht ist die Fassung der Basis von {} nicht \
-                             bekannt.",
-                            unit.key,
-                            key(&file)
-                        )),
+                        refused(
+                            t!(
+                                "textproject.base_version_unknown",
+                                unit = unit.key,
+                                file = key(&file)
+                            )
+                            .into_owned(),
+                        ),
                     ));
                 }
                 done
@@ -158,7 +163,7 @@ pub(super) fn apply_keys(
             _ => {
                 failed.push((
                     unit.key.clone(),
-                    refused(format!("{} übernimmt der Abgleich nicht.", unit.label)),
+                    refused(t!("textproject.sync_takes_not", unit = unit.label).into_owned()),
                 ));
                 false
             }
@@ -218,10 +223,9 @@ fn world_map_of(unit: &SyncUnit) -> Result<u16, KernelError> {
         .find(|a| a.kind == AssetKind::Map)
         .map(|a| a.index)
         .ok_or_else(|| {
-            KernelError::Refused(format!(
-                "{}: Die Einheit einer Welt-Karte nennt keine Karte.",
-                unit.label
-            ))
+            KernelError::Refused(
+                t!("textproject.world_unit_without_map", unit = unit.label).into_owned(),
+            )
         })
 }
 
@@ -676,7 +680,7 @@ mod tests {
     fn world_unit(assets: Vec<AssetId>) -> SyncUnit {
         SyncUnit {
             key: "maps/0003".to_owned(),
-            label: "Karte 0003".to_owned(),
+            label: "Map 0003".to_owned(),
             side: UnitSide::Files,
             assets,
             sources: Vec::new(),

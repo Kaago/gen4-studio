@@ -166,7 +166,7 @@ fn description_only_keeps_the_id() {
     ] {
         assert_eq!(
             refused(name_flag_files(&fx.project(), &request)),
-            NOTHING_TO_CHANGE
+            nothing_to_change()
         );
     }
 }
@@ -177,11 +177,11 @@ fn naming_refuses_a_number_outside_the_save() {
     let family = fx.project().family;
     assert_eq!(
         not_in_save_text(FlagKind::Flag, 0xFFF, family),
-        "Nummer 0x0FFF liegt außerhalb des Spielstands (Flags 0x0001 bis 0x0B5F)."
+        "Number 0x0FFF is outside the save game (flags 0x0001 to 0x0B5F)."
     );
     assert_eq!(
         not_in_save_text(FlagKind::Var, 0x3FFF, family),
-        "Nummer 0x3FFF liegt außerhalb des Spielstands (Variablen 0x4000 bis 0x411F)."
+        "Number 0x3FFF is outside the save game (variables 0x4000 to 0x411F)."
     );
     for (kind, n, id) in [
         (FlagKind::Flag, 0xFFF, "FLAG_AUSSEN"),
@@ -215,12 +215,11 @@ fn naming_refuses_taken_and_malformed_ids() {
         ".rotom/command_database/extra.json",
         b"{\"7\": \"FLAG_SEVEN\"}\n",
     );
-    let format = "Die neue ID muss mit FLAG_ beginnen und darf danach nur A–Z, 0–9 und _ \
-                  enthalten (höchstens 64 Zeichen).";
+    let format = "The new ID must start with FLAG_ and may then contain only A–Z, 0–9 and _ (at most 64 characters).";
     let cases: Vec<(NameRequest, String)> = vec![
         (
             req(FlagKind::Flag, 148, Some("FLAG_UNUSED_0x0095"), None),
-            "FLAG_UNUSED_0x0095 ist der pret-Name der Nummer 149.".to_owned(),
+            "FLAG_UNUSED_0x0095 is the pret name of number 149.".to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, Some("flag_x"), None),
@@ -236,19 +235,19 @@ fn naming_refuses_taken_and_malformed_ids() {
         ),
         (
             req(FlagKind::Flag, 148, Some("FLAG_0149"), None),
-            "FLAG_0149 ist die Ersatz-ID der Nummer 149.".to_owned(),
+            "FLAG_0149 is the fallback ID of number 149.".to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, Some("FLAG_SEVEN"), None),
-            "FLAG_SEVEN kennt rotom schon als Nummer 7.".to_owned(),
+            "FLAG_SEVEN is already known to rotom as number 7.".to_owned(),
         ),
         (
             req(FlagKind::Var, 0x406C, Some("VAR_RESULT"), None),
-            "VAR_RESULT ist der pret-Name der Nummer 32780.".to_owned(),
+            "VAR_RESULT is the pret name of number 32780.".to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, None, Some("Ohne Namen")),
-            ID_REQUIRED.to_owned(),
+            id_required(),
         ),
     ];
     for (request, why) in &cases {
@@ -261,7 +260,7 @@ fn naming_refuses_taken_and_malformed_ids() {
     assert_eq!(fx.text(FLAG_REGISTER), "{}\n");
     assert!(!fx.root().join("data/flags").exists());
 
-    assert_eq!(taken_text("FLAG_X", TakenBy::Register(148)), "FLAG_X gibt es schon (Nummer 148).");
+    assert_eq!(taken_text("FLAG_X", TakenBy::Register(148)), "FLAG_X already exists (number 148).");
     name_medaille(&fx);
     // Taken in the register by another number; a second own name for 148.
     assert_eq!(
@@ -269,14 +268,14 @@ fn naming_refuses_taken_and_malformed_ids() {
             &fx.project(),
             &req(FlagKind::Flag, 150, Some(MEDAILLE), None)
         )),
-        "FLAG_HAT_MEDAILLE gibt es schon (Nummer 148)."
+        "FLAG_HAT_MEDAILLE already exists (number 148)."
     );
     assert_eq!(
         refused(name_flag_files(
             &fx.project(),
             &req(FlagKind::Flag, 148, Some("FLAG_ZWEITER_NAME"), None)
         )),
-        HAS_OWN_NAME
+        has_own_name()
     );
     // The pret name of its own number (when it has the form of an id) and the own fallback
     // are fine; a pret name with a lower-case `0x` is no id.
@@ -300,10 +299,10 @@ fn naming_refuses_the_dspre_layout() {
     let request = req(FlagKind::Flag, 148, Some(MEDAILLE), None);
     assert_eq!(
         refused(name_flag_files(&fx.project(), &request)),
-        NOT_A_TEXT_PROJECT
+        not_a_text_project()
     );
     let mut store = Store::new(Arc::new(fx.project()));
-    assert_eq!(refused(name_flag(&mut store, &request)), NOT_A_TEXT_PROJECT);
+    assert_eq!(refused(name_flag(&mut store, &request)), not_a_text_project());
     assert!(store.history().0.is_empty());
     assert!(!fx.root().join("data").exists());
     assert!(
@@ -326,7 +325,7 @@ fn name_flag_over_the_store_is_one_undo_step() {
     assert!(report.created);
     assert_eq!(
         store.history().0,
-        ["Flag benannt: FLAG_HAT_MEDAILLE (0x0094)"]
+        ["Flag named: FLAG_HAT_MEDAILLE (0x0094)"]
     );
     assert!(fx.text(FLAG_IDS).contains(MEDAILLE));
 
@@ -359,9 +358,9 @@ fn name_flag_over_the_store_is_one_undo_step() {
     assert_eq!(
         store.history().0,
         [
-            "Flag benannt: FLAG_HAT_MEDAILLE (0x0094)",
-            "Beschreibung geändert: FLAG_HAT_MEDAILLE",
-            "Variable benannt: VAR_MEIN_ZAEHLER (0x406C)",
+            "Flag named: FLAG_HAT_MEDAILLE (0x0094)",
+            "Description changed: FLAG_HAT_MEDAILLE",
+            "Variable named: VAR_MEIN_ZAEHLER (0x406C)",
         ]
     );
 }

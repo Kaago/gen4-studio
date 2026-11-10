@@ -73,9 +73,10 @@ pub fn methods(e: &Encounters, family: Family) -> Vec<MethodDto> {
         .collect()
 }
 
-/// The German label of a replacement list key.
-pub fn list_label(list: &str) -> &'static str {
-    labels::label(labels::ENCOUNTER, list).unwrap_or("Ersatzliste")
+/// The label of a replacement list key, in the language of the process.
+pub fn list_label(list: &str) -> String {
+    labels::label(labels::ENCOUNTER, list)
+        .unwrap_or_else(|| t!("commands.data.replacement_list").into_owned())
 }
 
 /// The replacement lists the file stores, in the kernel's order, each entry as a slot with
@@ -717,7 +718,7 @@ mod tests {
         assert_eq!(species(land), [6]);
         let sinnoh = x.iter().find(|l| l.list == "radio_sinnoh").unwrap();
         assert_eq!(species(sinnoh), [0, 7]);
-        assert_eq!(sinnoh.label, "Radio Sinnoh");
+        assert_eq!(sinnoh.label, "Sinnoh Sound");
         let SlotDto { replaces, .. } = &sinnoh.slots[1];
         let targets: Vec<_> = replaces.iter().map(|t| (t.method, t.slot)).collect();
         assert_eq!(targets, [("grass", 4), ("grass", 5)]);
@@ -746,8 +747,12 @@ mod tests {
         assert!(lists.iter().all(|l| l.list != "trophy_garden"));
         let radar = lists.iter().find(|l| l.list == "radar").unwrap();
         assert_eq!(
-            (radar.label, radar.slots.len(), radar.slots[2].share),
-            ("Poké-Radar", 4, 1)
+            (
+                radar.label.as_str(),
+                radar.slots.len(),
+                radar.slots[2].share
+            ),
+            ("Poké Radar", 4, 1)
         );
         assert_eq!(extras(&pt).form_rates, Some([0; 5]));
     }

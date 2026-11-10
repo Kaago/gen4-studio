@@ -14,8 +14,8 @@ use std::time::Instant;
 use g4_kernel::base::{BaseRom, base_label};
 use g4_kernel::error::KernelError;
 use g4_kernel::original::{
-    self, ChangedProgress, ChangedReport, NEW_MESSAGE, NO_ORIGINAL, ResetPlan, ResetResult,
-    ResetTarget,
+    self, ChangedProgress, ChangedReport, ResetPlan, ResetResult, ResetTarget, new_message,
+    no_original,
 };
 use g4_kernel::project::Project;
 use serde::Serialize;
@@ -37,7 +37,7 @@ pub enum OriginalStatusDto {
         sha1: String,
         counts: BTreeMap<&'static str, usize>,
     },
-    /// No base mark, an unreadable mark or a base ROM that is not found: why (`NO_MARK`,
+    /// No base mark, an unreadable mark or a base ROM that is not found: why (`no_mark()`,
     /// `base::missing_text`, the refusal of the mark).
     Unavailable { reason: String },
 }
@@ -60,16 +60,16 @@ fn same_project<'s>(
     if Arc::ptr_eq(&session.project, project) {
         Ok(session)
     } else {
-        Err("Das Projekt wurde gewechselt; nichts zurückgesetzt.".into())
+        Err(t!("commands.original.project_switched").into_owned().into())
     }
 }
 
 /// A kernel error of a plan or reset as the app answers it: the refusals of
-/// `original::availability` ([`NO_ORIGINAL`], [`NEW_MESSAGE`]) are `no_original`; anything
+/// `original::availability` ([`no_original`], [`new_message`]) are `no_original`; anything
 /// else as everywhere (a locked asset `read_only`, its reason after „ is read-only: “).
 fn reset_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(why) if why == NO_ORIGINAL || why == NEW_MESSAGE => CmdError {
+        KernelError::Refused(why) if why == no_original() || why == new_message() => CmdError {
             code: "no_original",
             message: why,
             asset: None,
@@ -238,7 +238,7 @@ mod tests {
 
     use super::*;
     use crate::commands::{
-        NO_MARK, adopt_scripts_impl, assign_base_impl, history_impl, open_project_impl,
+        adopt_scripts_impl, assign_base_impl, history_impl, no_mark, open_project_impl,
         open_synthetic, save_script_impl,
     };
     use g4_kernel::base::missing_text;
@@ -296,7 +296,7 @@ mod tests {
         let status = original_status_impl(&d.state).unwrap();
         assert_eq!(
             serde_json::to_value(&status).unwrap(),
-            json!({ "state": "unavailable", "reason": NO_MARK })
+            json!({ "state": "unavailable", "reason": no_mark() })
         );
         // No project open: an error, not a status.
         assert!(original_status_impl(&AppState::default()).is_err());
@@ -319,11 +319,17 @@ mod tests {
     #[test]
     fn reset_without_a_found_base_answers_base_missing_and_records_nothing() {
         let d = dspre();
-        // No mark: the reason is NO_MARK, for the plan as for the reset.
+        // No mark: the reason is no_mark(), for the plan as for the reset.
         let err = plan_reset_impl(&d.state, TRAINER_1).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
         let err = reset_to_original_impl(&d.state, TRAINER_1, None).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
 
         // The base ROM vanishes between the dialog and „Zurücksetzen“ (moved away).
         let _elsewhere = assign_and_move_away(&d);
@@ -353,7 +359,10 @@ mod tests {
         let d = dspre();
         let mut calls = 0;
         let err = changed_from_original_impl(&d.state, &mut |_| calls += 1).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
 
         let _elsewhere = assign_and_move_away(&d);
         let mark = read_base_mark(&d.root).unwrap();
@@ -368,15 +377,18 @@ mod tests {
 
     #[test]
     fn availability_refusals_answer_no_original_and_the_rest_keeps_its_code() {
-        for why in [NO_ORIGINAL, NEW_MESSAGE] {
-            let err = reset_error(KernelError::Refused(why.to_owned()));
-            assert_eq!((err.code, err.message.as_str()), ("no_original", why));
+        for why in [no_original(), new_message()] {
+            let err = reset_error(KernelError::Refused(why.clone()));
+            assert_eq!(
+                (err.code, err.message.as_str()),
+                ("no_original", why.as_str())
+            );
             assert_eq!(err.asset, None);
         }
         // Other refusals keep the plain mapping.
-        let other = original::FIELDS_ONLY_FOR_HEADERS;
-        let err = reset_error(KernelError::Refused(other.to_owned()));
-        assert_eq!((err.code, err.message.as_str()), ("error", other));
+        let other = original::fields_only_for_headers();
+        let err = reset_error(KernelError::Refused(other.clone()));
+        assert_eq!((err.code, err.message.as_str()), ("error", other.as_str()));
         // A locked asset is `read_only` as everywhere, its German reason after the lead the
         // UI strips (`eventReadOnlyReason`).
         let asset = AssetId {
@@ -414,14 +426,8 @@ mod tests {
         {
             let mut guard = crate::commands::lock(&state).unwrap();
             let store = &mut crate::commands::session(&mut guard).unwrap().store;
-            store.record_file_step(
-                "Auf Original zurückgesetzt: Scriptdatei 0002",
-                step(script(2)),
-            );
-            store.record_file_step(
-                "Auf Original zurückgesetzt: Scriptdatei 0000",
-                step(script(0)),
-            );
+            store.record_file_step("Reset to original: Script file 0002", step(script(2)));
+            store.record_file_step("Reset to original: Script file 0000", step(script(0)));
         }
         let text = crate::commands::read_script_impl(&state, 0).unwrap();
         let crate::commands::ScriptSourceDto::Rotom { text } = text else {
@@ -431,7 +437,7 @@ mod tests {
         // The step of script 0 is gone; the one of script 2 stays.
         assert_eq!(
             history_impl(&state).unwrap().undo,
-            ["Auf Original zurückgesetzt: Scriptdatei 0002"]
+            ["Reset to original: Script file 0002"]
         );
     }
 
@@ -491,7 +497,7 @@ mod tests {
         adopt_scripts_impl(&state, &mut |_| {}).unwrap();
         record_steps(&state, &[script(2), script(0)]);
         crate::commands::add_script_impl(&state, 0).unwrap();
-        assert_eq!(history_impl(&state).unwrap().undo, ["Scriptdatei 0002"]);
+        assert_eq!(history_impl(&state).unwrap().undo, ["Script file 0002"]);
     }
 
     #[test]
@@ -499,7 +505,7 @@ mod tests {
         let (_f, state) = open_synthetic();
         record_steps(&state, &[script(2), MAP_0, script(0)]);
         adopt_scripts_impl(&state, &mut |_| {}).unwrap();
-        assert_eq!(history_impl(&state).unwrap().undo, ["Karte 0000"]);
+        assert_eq!(history_impl(&state).unwrap().undo, ["Map 0000"]);
     }
 
     /// The vanilla copy with its base ROM assigned (the `.nds` next to the vanilla project,
@@ -598,7 +604,7 @@ mod tests {
                 .undo
                 .last()
                 .map(String::as_str),
-            Some("Auf Original zurückgesetzt: Trainer 0001")
+            Some("Reset to original: Trainer 0001")
         );
         save_impl(&state).unwrap();
         for kind in [AssetKind::TrainerProperties, AssetKind::TrainerParty] {
@@ -634,7 +640,7 @@ mod tests {
         let err = plan_reset_impl(&state, ResetTarget::Trainer { index: past }).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_original", NO_ORIGINAL)
+            ("no_original", no_original().as_str())
         );
 
         // `ms` counts from entering the command (finding and opening the base included): a

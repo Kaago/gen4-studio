@@ -148,8 +148,17 @@ pub(crate) fn required<'m>(
     art: &str,
     index: u32,
 ) -> Result<&'m [u8], KernelError> {
-    member(members, i)
-        .ok_or_else(|| KernelError::InvalidProject(format!("{art} {index:04}: Member {i} fehlt.")))
+    member(members, i).ok_or_else(|| {
+        KernelError::InvalidProject(
+            t!(
+                "textproject.member_missing",
+                art = art,
+                index = index : {:04},
+                member = i
+            )
+            .into_owned(),
+        )
+    })
 }
 
 /// The number of reference `r` at JSON `path`: an id of `kind` or a number, at most `max`.
@@ -162,9 +171,14 @@ pub(crate) fn resolve_max(
 ) -> Result<u32, String> {
     let n = resolve(sym, kind, r, path)?;
     if n > max {
-        return Err(format!(
-            "{SCHEMA_CODE}: {path}: {n} liegt nicht in 0..={max}."
-        ));
+        return Err(t!(
+            "textproject.number_out_of_range",
+            code = SCHEMA_CODE,
+            path = path,
+            n = n,
+            max = max
+        )
+        .into_owned());
     }
     Ok(n)
 }
@@ -186,11 +200,14 @@ pub(crate) fn check_id(
     if sym.number(kind, id) == Some(index) {
         return Ok(());
     }
-    Err(format!(
-        "{ID_MISMATCH_CODE}: id: `{id}` ist nicht die ID von Nummer {index} (`{}`); die ID \
-         umzubenennen geht hier nicht.",
-        entity_id(sym, kind, index)
-    ))
+    Err(t!(
+        "textproject.id_mismatch",
+        code = ID_MISMATCH_CODE,
+        id = id,
+        index = index,
+        own = entity_id(sym, kind, index)
+    )
+    .into_owned())
 }
 
 /// `bytes` as a locked member with `reason`; the raw part compares with the base layer's

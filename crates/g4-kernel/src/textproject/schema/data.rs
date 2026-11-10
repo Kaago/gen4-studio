@@ -237,20 +237,32 @@ fn learnset_bytes(j: &LearnsetJson, ctx: &ImportCtx<'_>) -> Result<Vec<u8>, Stri
             &format!("{field}.move"),
         )?;
         if move_id > 0x1FF {
-            return Err(format!(
-                "{SCHEMA_CODE}: {field}.move: {move_id} liegt nicht in 0..=511."
-            ));
+            return Err(t!(
+                "textproject.number_out_of_range",
+                code = SCHEMA_CODE,
+                path = format!("{field}.move"),
+                n = move_id,
+                max = 511
+            )
+            .into_owned());
         }
         if m.level > 0x7F {
-            return Err(format!(
-                "{SCHEMA_CODE}: {field}.level: {} liegt nicht in 0..=127.",
-                m.level
-            ));
+            return Err(t!(
+                "textproject.number_out_of_range",
+                code = SCHEMA_CODE,
+                path = format!("{field}.level"),
+                n = m.level,
+                max = 127
+            )
+            .into_owned());
         }
         if move_id == 0x1FF && m.level == 0x7F {
-            return Err(format!(
-                "{SCHEMA_CODE}: {field}: Attacke 511 auf Level 127 ist das Endezeichen 0xFFFF."
-            ));
+            return Err(t!(
+                "textproject.learnset_end_marker",
+                code = SCHEMA_CODE,
+                field = field
+            )
+            .into_owned());
         }
         entries.push(LearnEntry {
             move_id: move_id as u16,
@@ -263,9 +275,7 @@ fn learnset_bytes(j: &LearnsetJson, ctx: &ImportCtx<'_>) -> Result<Vec<u8>, Stri
         None => Vec::new(),
     };
     if !j.terminated && !tail.is_empty() {
-        return Err(format!(
-            "{SCHEMA_CODE}: learnset.tail: ohne Endezeichen (`terminated: false`) gibt es keinen Rest."
-        ));
+        return Err(t!("textproject.learnset_tail", code = SCHEMA_CODE).into_owned());
     }
     Ok(encode_learnset(&entries, j.terminated, &tail))
 }
@@ -586,11 +596,14 @@ pub(crate) fn import_items(
         let id = items.len().min(member_of.len()) as u32;
         errors.push((
             id,
-            format!(
-                "{SCHEMA_CODE}: {ROOT}: die Item-Tabelle hat {} IDs, es gibt {} Item-Dateien.",
-                member_of.len(),
-                items.len()
-            ),
+            t!(
+                "textproject.item_table_count",
+                code = SCHEMA_CODE,
+                root = ROOT,
+                ids = member_of.len(),
+                files = items.len()
+            )
+            .into_owned(),
         ));
     }
     let name = |id: u32| entity_id(ctx.symbols, SymbolKind::Item, id);
@@ -600,23 +613,35 @@ pub(crate) fn import_items(
         let result = (|| -> Result<(), String> {
             check_id(ctx.symbols, SymbolKind::Item, id, &item.id)?;
             match (&item.data, &item.same_member_as) {
-                (Some(_), Some(_)) => Err(format!(
-                    "{SCHEMA_CODE}: same_member_as: `data` und `same_member_as` schließen sich aus."
-                )),
-                (None, None) if m < members => Err(format!(
-                    "{SCHEMA_CODE}: {ROOT}: weder `data` noch `same_member_as` (Member {m:04})."
-                )),
+                (Some(_), Some(_)) => Err(t!(
+                    "textproject.item_data_and_same_member",
+                    code = SCHEMA_CODE
+                )
+                .into_owned()),
+                (None, None) if m < members => Err(t!(
+                    "textproject.item_neither_data_nor_same",
+                    code = SCHEMA_CODE,
+                    root = ROOT,
+                    member = m : {:04}
+                )
+                .into_owned()),
                 (None, None) => Ok(()),
-                (Some(_), None) if m >= members => Err(format!(
-                    "{SCHEMA_CODE}: data: die ID zeigt auf Member {m:04}, das Archiv hat {members}."
-                )),
+                (Some(_), None) if m >= members => Err(t!(
+                    "textproject.item_member_past_archive",
+                    code = SCHEMA_CODE,
+                    member = m : {:04},
+                    members = members
+                )
+                .into_owned()),
                 (Some(data), None) => {
                     if let Some(other) = carrier[m] {
-                        return Err(format!(
-                            "{SCHEMA_CODE}: data: Member {m:04} hat schon Daten von `{}`; hier \
-                             `same_member_as` schreiben.",
-                            name(other)
-                        ));
+                        return Err(t!(
+                            "textproject.item_member_has_data",
+                            code = SCHEMA_CODE,
+                            member = m : {:04},
+                            other = name(other)
+                        )
+                        .into_owned());
                     }
                     let current = ctx.current.get(m).and_then(|c| c.as_deref());
                     let bytes = record_bytes::<Item>(data, "data", item_key(id), current, ctx)?;
@@ -626,24 +651,35 @@ pub(crate) fn import_items(
                 }
                 (None, Some(target)) => {
                     let Some(t) = ctx.symbols.number(SymbolKind::Item, target) else {
-                        return Err(format!(
-                            "{}: same_member_as: `{target}` ist keine bekannte ID (ITEM_…).",
-                            super::super::record::UNKNOWN_ID_CODE
-                        ));
+                        return Err(t!(
+                            "textproject.item_same_unknown",
+                            code = super::super::record::UNKNOWN_ID_CODE,
+                            target = target
+                        )
+                        .into_owned());
                     };
                     let target_member = member_of.get(t as usize).map(|&x| usize::from(x));
                     if target_member != Some(m) {
-                        return Err(format!(
-                            "{SCHEMA_CODE}: same_member_as: `{target}` nutzt {}, diese ID \
-                             Member {m:04}.",
-                            target_member
-                                .map_or("keinen Member".to_owned(), |x| format!("Member {x:04}"))
-                        ));
+                        let uses = target_member.map_or_else(
+                            || t!("textproject.no_member").into_owned(),
+                            |x| t!("textproject.member_n", member = x : {:04}).into_owned(),
+                        );
+                        return Err(t!(
+                            "textproject.item_same_other_member",
+                            code = SCHEMA_CODE,
+                            target = target,
+                            uses = uses,
+                            member = m : {:04}
+                        )
+                        .into_owned());
                     }
                     if items.get(t as usize).is_none_or(|i| i.data.is_none()) {
-                        return Err(format!(
-                            "{SCHEMA_CODE}: same_member_as: `{target}` trägt keine Daten."
-                        ));
+                        return Err(t!(
+                            "textproject.item_same_without_data",
+                            code = SCHEMA_CODE,
+                            target = target
+                        )
+                        .into_owned());
                     }
                     Ok(())
                 }
@@ -1202,7 +1238,7 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].0, 5);
         assert!(
-            errors[0].1.contains("Member 0001") && errors[0].1.contains("Member 0000"),
+            errors[0].1.contains("member 0001") && errors[0].1.contains("member 0000"),
             "{errors:?}"
         );
 
@@ -1211,7 +1247,7 @@ mod tests {
         twice[5].same_member_as = None;
         twice[5].data = items[0].data.clone();
         let errors = import_items(&twice, &member_of, 6, &ctx).unwrap_err();
-        assert!(errors[0].1.contains("schon Daten"), "{errors:?}");
+        assert!(errors[0].1.contains("already has data"), "{errors:?}");
         let mut unknown = items.clone();
         unknown[5].same_member_as = Some("ITEM_FOO".into());
         let errors = import_items(&unknown, &member_of, 6, &ctx).unwrap_err();
@@ -1222,7 +1258,7 @@ mod tests {
         let mut neither = items.clone();
         neither[5].same_member_as = None;
         let errors = import_items(&neither, &member_of, 6, &ctx).unwrap_err();
-        assert!(errors[0].1.contains("weder"), "{errors:?}");
+        assert!(errors[0].1.contains("neither"), "{errors:?}");
         let errors = import_items(&items[..5], &member_of, 6, &ctx).unwrap_err();
         assert!(errors[0].1.contains("6 IDs"), "{errors:?}");
     }

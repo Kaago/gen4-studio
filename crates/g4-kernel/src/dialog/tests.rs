@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use super::*;
-use crate::data::trainer_create::ADOPT_FIRST;
+use crate::data::trainer_create::adopt_first;
 use crate::scripts::ScriptSource;
 use crate::store::{BgEvent, ObjectEvent};
 use crate::test_support::{TextFixture, synthetic_hgss_project};
@@ -98,7 +98,7 @@ fn a_figure_with_one_message_names_archive_index_and_line() {
                 col: 13,
                 branch: None,
                 shared_with: 0,
-                split_refusal: Some(NOT_SHARED.into()),
+                split_refusal: Some(not_shared()),
             }],
             followed: vec![],
         }
@@ -178,7 +178,7 @@ fn an_archive_that_does_not_load_makes_the_dialog_unreadable() {
     let DialogSource::Unreadable { reason } = of(&mut st, 0).source else {
         panic!("not unreadable");
     };
-    assert!(reason.starts_with("Textarchiv 9999"), "{reason}");
+    assert!(reason.starts_with("Text archive 9999"), "{reason}");
     // A script without messages does not need the archive.
     let quiet = of(&mut st, 1);
     assert!(matches!(quiet.source, DialogSource::Local { slot: 2, .. }));
@@ -354,7 +354,7 @@ fn a_binary_script_file_is_unreadable_with_a_reason() {
     let DialogSource::Unreadable { reason } = of(&mut st, 0).source else {
         panic!("not unreadable");
     };
-    assert!(reason.starts_with(ADOPT_FIRST), "{reason}");
+    assert!(reason.starts_with(&adopt_first()), "{reason}");
 
     // Adopted, but the file has no rotom source.
     let fx = TextFixture::exported();
@@ -487,7 +487,7 @@ fn split_copies_the_message_and_rewrites_this_figures_uses_as_one_step() {
     assert_eq!(st.undo_depth(), depth + 1);
     assert_eq!(
         st.history().0.last().map(String::as_str),
-        Some("Dialog von Figur 3 abgespalten")
+        Some("Dialog of character 3 split off")
     );
     let (source_after, archive_after) = (source_of(&st), archive_bytes(&st));
     let member_after = scripts::snapshot_script(st.project(), 0).unwrap();
@@ -522,7 +522,7 @@ fn split_refuses_a_message_in_a_shared_label() {
     let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
     assert_eq!(
         refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 7)),
-        SHARED_LABEL
+        shared_label()
     );
     assert_eq!(st.undo_depth(), depth);
     assert_eq!(archive_bytes(&st), archive);
@@ -556,7 +556,7 @@ fn split_refuses_a_message_in_a_shared_label() {
     );
     assert_eq!(
         refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 7)),
-        SHARED_LABEL
+        shared_label()
     );
 }
 
@@ -582,9 +582,9 @@ fn the_dialog_says_why_a_split_would_be_refused() {
                   hilfe:\n    Message 2\n    Return\n";
     let mut st = store_with(&fx, source, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
     let three = of(&mut st, 3);
-    assert_eq!(refusal_of(&three, 1), Some(NOT_SHARED.to_owned()));
+    assert_eq!(refusal_of(&three, 1), Some(not_shared()));
     assert_eq!(refusal_of(&three, 12), Some(missing_message(ARCHIVE, 12)));
-    assert_eq!(refusal_of(&three, 2), Some(SHARED_LABEL.to_owned()));
+    assert_eq!(refusal_of(&three, 2), Some(shared_label()));
     assert_eq!(refusal_of(&three, 5), None);
     for message in [1, 12, 2] {
         assert_eq!(
@@ -603,7 +603,7 @@ fn the_dialog_says_why_a_split_would_be_refused() {
         &[0, 0, 0, 3, 3],
     );
     let three = of(&mut st, 3);
-    assert_eq!(refusal_of(&three, 5), Some(SHARED_SCRIPT.to_owned()));
+    assert_eq!(refusal_of(&three, 5), Some(shared_script()));
     assert_eq!(
         Some(refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5))),
         refusal_of(&three, 5)
@@ -618,7 +618,7 @@ fn the_dialog_says_why_a_split_would_be_refused() {
     let mut st = store_with(&fx, source, &texts, &[0, 0, 0, 3, 0, 0, 0, 7]);
     let three = of(&mut st, 3);
     let reason = refusal_of(&three, 5).unwrap();
-    assert!(reason.starts_with(NUMBER_TOO_HIGH), "{reason}");
+    assert!(reason.starts_with(&number_too_high()), "{reason}");
     assert_eq!(refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)), reason);
 
     // A sign gets no copy.
@@ -644,7 +644,7 @@ fn the_dialog_says_why_a_split_would_be_refused() {
     })
     .unwrap();
     let sign = dialog_of(&mut st, 0, 0, DialogKind::Bg, 0).unwrap();
-    assert_eq!(refusal_of(&sign, 4), Some(NOT_AN_OBJECT.to_owned()));
+    assert_eq!(refusal_of(&sign, 4), Some(not_an_object()));
 }
 
 #[test]
@@ -660,14 +660,14 @@ fn split_refuses_an_unshared_message() {
     let depth = st.undo_depth();
     assert_eq!(
         refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 1)),
-        NOT_SHARED
+        not_shared()
     );
     // A message the figure does not show, another archive and a script two figures run
     // are refused as well; nothing is recorded.
     let reason = refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 4));
-    assert!(reason.contains("Nachricht 4"), "{reason}");
+    assert!(reason.contains("message 4"), "{reason}");
     let reason = refused(split_message(&mut st, 0, 0, 3, ARCHIVE + 1, 5));
-    assert!(reason.contains("Nachricht 5"), "{reason}");
+    assert!(reason.contains("message 5"), "{reason}");
     assert_eq!(st.undo_depth(), depth);
 
     let fx = TextFixture::exported();
@@ -679,7 +679,7 @@ fn split_refuses_an_unshared_message() {
     );
     assert_eq!(
         refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)),
-        SHARED_SCRIPT
+        shared_script()
     );
 }
 
@@ -714,7 +714,7 @@ fn split_refuses_when_another_script_jumps_into_this_figures_body() {
     let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
     assert_eq!(
         refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)),
-        SHARED_LABEL
+        shared_label()
     );
     assert_eq!(st.undo_depth(), depth);
     assert_eq!(archive_bytes(&st), archive);
@@ -727,7 +727,7 @@ fn split_refuses_when_another_script_jumps_into_this_figures_body() {
     let mut st = store_with(&fx, source, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
     assert_eq!(
         refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)),
-        SHARED_LABEL
+        shared_label()
     );
     assert_eq!(source_of(&st), source);
 }
@@ -768,7 +768,7 @@ fn a_copy_past_the_commands_message_type_is_refused() {
     let mut st = store_with(&fx, source, &texts, &[0, 0, 0, 3, 0, 0, 0, 7]);
     let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
     let reason = refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5));
-    assert!(reason.starts_with(NUMBER_TOO_HIGH), "{reason}");
+    assert!(reason.starts_with(&number_too_high()), "{reason}");
     assert!(reason.contains("255") && reason.contains("256"), "{reason}");
     assert_eq!(st.undo_depth(), depth);
     assert_eq!(archive_bytes(&st), archive);
@@ -996,7 +996,7 @@ fn an_unreadable_dialog_is_a_figure_not_an_error() {
     let DialogSource::Unreadable { reason } = &place.figures[0].source else {
         panic!("{place:?}");
     };
-    assert!(reason.starts_with(ADOPT_FIRST), "{reason}");
+    assert!(reason.starts_with(&adopt_first()), "{reason}");
     assert_eq!(place.figures[1].trainer, Some(6));
 
     // A slot the file does not declare, and an archive that does not load for a figure with
@@ -1020,7 +1020,7 @@ fn an_unreadable_dialog_is_a_figure_not_an_error() {
     let place = dialogs_of_header(&mut st, 0).unwrap();
     let sources: Vec<&DialogSource> = place.figures.iter().map(|f| &f.source).collect();
     assert!(
-        matches!(sources[0], DialogSource::Unreadable { reason } if reason.starts_with("Textarchiv 9999")),
+        matches!(sources[0], DialogSource::Unreadable { reason } if reason.starts_with("Text archive 9999")),
         "{sources:?}"
     );
     assert!(matches!(sources[1], DialogSource::Local { slot: 2, .. }));

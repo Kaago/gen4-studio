@@ -1,4 +1,6 @@
 import type { KeyboardEvent, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { t as translate } from "../../i18n";
 import { Badge } from "./Badge";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
@@ -26,21 +28,22 @@ export type StoryNodeProps = {
   dataAttrs?: RowDataAttrs;
 };
 
-const words: Record<StoryNodeKind, { word: string; icon: IconName }> = {
-  start: { word: "Start", icon: "play" },
-  dialog: { word: "Dialog", icon: "stories" },
-  condition: { word: "Bedingung", icon: "tree" },
-  battle: { word: "Kampf", icon: "trigger" },
-  reward: { word: "Belohnung", icon: "items" },
-  progress: { word: "Fortschritt", icon: "flag" },
-  appearance: { word: "Erscheinen/Verschwinden", icon: "figure" },
-  value: { word: "Wert", icon: "thread" },
-  place: { word: "Ort", icon: "place" },
+/** The symbol of each kind; its word is `storyNode.kinds.<kind>` in the `ui` catalog. */
+const icons: Record<StoryNodeKind, IconName> = {
+  start: "play",
+  dialog: "stories",
+  condition: "tree",
+  battle: "trigger",
+  reward: "items",
+  progress: "flag",
+  appearance: "figure",
+  value: "thread",
+  place: "place",
 };
 
-/** Start, Dialog, Bedingung, Kampf, Belohnung, Fortschritt, Erscheinen/Verschwinden, Wert, Ort. */
+/** Start, Dialog, Bedingung, Kampf, Belohnung, Fortschritt, Erscheinen/Verschwinden, Wert, Ort (German); read when asked, in the language shown. */
 export function storyKindWord(kind: StoryNodeKind): string {
-  return words[kind].word;
+  return translate(`ui:storyNode.kinds.${kind}`);
 }
 
 /**
@@ -48,7 +51,9 @@ export function storyKindWord(kind: StoryNodeKind): string {
  * last line with the second line and the states as plaketten (there, never beside the word: „Erscheinen/Verschwinden“ fills the head).
  */
 export function StoryNode({ kind, title, subtitle, selected, notedOnly, loose, onOpen, action, dataAttrs }: StoryNodeProps) {
-  const { word, icon } = words[kind];
+  const { t } = useTranslation("ui");
+  const word = t(`storyNode.kinds.${kind}`);
+  const icon = icons[kind];
   const className = [styles.node, kind === "place" ? styles.place : styles.value, selected ? styles.selected : "", notedOnly ? styles.notedOnly : "", loose ? styles.loose : ""]
     .filter(Boolean)
     .join(" ");
@@ -87,8 +92,8 @@ export function StoryNode({ kind, title, subtitle, selected, notedOnly, loose, o
       {(subtitle !== undefined || notedOnly || loose) && (
         <span className={styles.foot}>
           {subtitle !== undefined && <span className={styles.subtitle}>{subtitle}</span>}
-          {notedOnly && <Badge kind="neutral">nur notiert</Badge>}
-          {loose && <Badge kind="neutral">ohne Wert</Badge>}
+          {notedOnly && <Badge kind="neutral">{t("storyNode.notedOnly")}</Badge>}
+          {loose && <Badge kind="neutral">{t("storyNode.noValue")}</Badge>}
         </span>
       )}
     </div>

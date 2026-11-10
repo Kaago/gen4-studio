@@ -1,3 +1,5 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import styles from "./HexBlock.module.css";
 
 /** How a field's bytes read: unsigned or signed little-endian numbers, a bit range under `mask`, or plain bytes. */
@@ -36,14 +38,14 @@ function bitRange(mask: number): [number, number] {
 }
 
 /** The footer line: where the field lies, its name, and its value as the field's kind reads it. */
-function footerOf(bytes: readonly number[], field: HexFieldSpan, label: string): string {
+function footerOf(bytes: readonly number[], field: HexFieldSpan, label: string, t: TFunction<"ui">): string {
   const last = field.offset + field.len - 1;
-  const where = field.len === 1 ? `Byte ${field.offset}` : `Byte ${field.offset} bis ${last}`;
+  const where = field.len === 1 ? t("hexBlock.byte", { offset: field.offset }) : t("hexBlock.bytes", { from: field.offset, to: last });
   const raw = rawOf(bytes, field);
   if (field.kind === "bits") {
     if (field.mask === undefined || field.mask === 0 || raw === undefined) return `${where}: ${label}`;
     const [low, high] = bitRange(field.mask);
-    const bits = low === high ? `Bit ${low}` : `Bits ${low} bis ${high}`;
+    const bits = low === high ? t("hexBlock.bit", { bit: low }) : t("hexBlock.bits", { from: low, to: high });
     return `${where}, ${bits}: ${label}, ${((raw & field.mask) >>> 0) >>> low}`;
   }
   if (field.kind === "bytes" || raw === undefined) return `${where}: ${label}`;
@@ -55,13 +57,15 @@ function footerOf(bytes: readonly number[], field: HexFieldSpan, label: string):
 
 /** The raw bytes of a member, 16 to a row with their offsets; the highlighted field is marked and named below. */
 export function HexBlock({ bytes, fields, highlight, path, member, labelOf = (name) => name }: HexBlockProps) {
+  const { t } = useTranslation("ui");
   const field = highlight === undefined ? undefined : fields.find((f) => f.name === highlight);
   const marked = (offset: number) => field !== undefined && offset >= field.offset && offset < field.offset + field.len;
   const rows = Array.from({ length: Math.ceil(bytes.length / PER_ROW) }, (_, r) => r * PER_ROW);
   return (
     <figure className={styles.block}>
       <figcaption className={styles.caption}>
-        <span className={styles.path}>{path}</span>, Eintrag {member}, {bytes.length} {bytes.length === 1 ? "Byte" : "Bytes"}
+        <span className={styles.path}>{path}</span>
+        {t("hexBlock.captionRest", { member, count: bytes.length })}
       </figcaption>
       <table className={styles.table}>
         <tbody>
@@ -89,7 +93,7 @@ export function HexBlock({ bytes, fields, highlight, path, member, labelOf = (na
           ))}
         </tbody>
       </table>
-      {field && <p className={styles.footer}>{footerOf(bytes, field, labelOf(field.name))}</p>}
+      {field && <p className={styles.footer}>{footerOf(bytes, field, labelOf(field.name), t)}</p>}
     </figure>
   );
 }

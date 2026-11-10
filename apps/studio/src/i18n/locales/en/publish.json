@@ -1,0 +1,57 @@
+{
+  "publishWords": {
+    "kernel": {
+      "badVersion": "The version must not be empty, must be at most 32 characters long and must contain neither spaces nor / \\ : * ? \" < > |.",
+      "versionTaken": "This version already exists.",
+      "badFile": "The file name must not be empty and must contain neither / \\ : * ? \" < > | nor control characters.",
+      "noRomContent": "No ROM content, only the patch: anyone who applies it needs the same base ROM."
+    },
+    "noBase": "Assign a base ROM first.",
+    "phase": {
+      "build": "Saving and building…",
+      "encode": "Encoding the patch…",
+      "verify": "Self-check…",
+      "write": "Writing files…",
+      "record": "Recording the release…"
+    },
+    "filesLine_one": "{{count}} file, {{size}}",
+    "filesLine_other": "{{count}} files, {{size}}",
+    "subject": {
+      "now": "Snapshot {{when}}",
+      "published": "Published v{{version}}"
+    }
+  },
+  "publishWizard": {
+    "title": "Publish",
+    "steps": {
+      "version": "Version",
+      "patch": "Patch",
+      "check": "Check",
+      "done": "Done"
+    },
+    "fileColumns": {
+      "file": "File",
+      "size": "Size"
+    },
+    "chooseLocationTitle": "Choose location",
+    "readingReleases": "Reading the releases…",
+    "version": "Version",
+    "notes": "Change notes",
+    "notesHint": "What changed since the last version. Goes into the companion file.",
+    "location": "Location",
+    "chooseFolder": "Choose folder…",
+    "fileName": "File name",
+    "patchNote": "Saves, builds the ROM and writes the patch against the base ROM. The built ROM stays in build/ in the project.",
+    "readme": "Also write the change notes as README.txt next to it",
+    "replace": "Replace",
+    "selfCheckPassed": "Self-check passed: applied to the base ROM, the patch gives exactly the built ROM.",
+    "checkSummary": "Base {{base}} → target {{target}}, verified in {{ms}} ms",
+    "handedOn": "What you share",
+    "handOnPatch": "Share the patch: anyone with the same base ROM applies it with Rom Patcher JS or xdelta3.",
+    "commitNext": "Save a snapshot creates a commit with “{{subject}}”.",
+    "publishedTitle": "Published: v{{version}}",
+    "saveSnapshot": "Save a snapshot…",
+    "summary": "Writes {{file}} and the companion file to {{dir}}.",
+    "showInFinder": "Show in Finder"
+  }
+}

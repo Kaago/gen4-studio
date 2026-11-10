@@ -1,5 +1,13 @@
 # Trainer-Texttabellen (`trainerTextTable/0000`, `trainerTextOffset/0000`)
 
+**In English:** Documents the two trainer text tables, `trainerTextTable/0000` and
+`trainerTextOffset/0000`, which are archives with exactly one member each. The text table is a
+sequence of 4-byte entries (trainer ID and trigger) in which entry `i` belongs to message `i` of the
+battle text archive; the offset table holds byte offsets into the text table, one per trainer. The
+sizes were checked on all three vanilla projects, and the document notes what is not known, such as
+how the game behaves for a missing offset. The codec is
+`crates/g4-formats/src/data/trainer_text.rs`; all values are little endian.
+
 Quelle: DSPRE `RomInfo.cs` (`trainerTextTable`, `trainerTextOffset`); Recherche
 `docs/research/2026-10-23-3b3/dspre-report.md` §0.1 und
 `docs/research/2026-10-23-3b3/task0-3b3a.md`. Die Größen sind an allen drei

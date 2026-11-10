@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, gitCommitAll, gitCommitPrepare } from "../api";
 import type { CommitPhase, CommitReport, GitStatus } from "../api";
 import { commitSubjectNow } from "../publish/publishWords";
@@ -7,15 +8,6 @@ import { CheckList, Dialog, Notice, TextField } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
 import { changedFilesText, commitDoneText, gitFoundText } from "./gitWords";
 import styles from "./CommitDialog.module.css";
-
-const DESCRIPTION = "Legt einen Commit mit allen Änderungen im lokalen Repository an (git add -A, git commit). Nichts wird hochgeladen.";
-
-/** The progress line of each phase. */
-const PHASE_TEXT: Record<CommitPhase, string> = {
-  templates: "Vorlagen prüfen …",
-  add: "Dateien aufnehmen …",
-  commit: "Commit …",
-};
 
 export type CommitDialogProps = {
   open: boolean;
@@ -46,6 +38,7 @@ export type CommitDialogProps = {
  * would take (after a release in a repository of 4.4, `.g4/releases.json` and the block).
  */
 export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, onRefresh, exclusive = (work) => work(), finalFocus }: CommitDialogProps) {
+  const { t } = useTranslation("git");
   const [subject, setSubject] = useState(() => preset?.message ?? commitSubjectNow(new Date()));
   const [notes, setNotes] = useState(() => preset?.notes ?? "");
   const [running, setRunning] = useState(false);
@@ -111,14 +104,14 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, o
   const git = shown === null ? undefined : shown.cli;
   const changes = shown?.changes ?? null;
   const rows: CheckRow[] = [
-    unsaved ? { id: "saved", state: "error", text: "Erst speichern" } : { id: "saved", state: "ok", text: "Alles gespeichert" },
+    unsaved ? { id: "saved", state: "error", text: t("shared.saveFirst") } : { id: "saved", state: "ok", text: t("shared.allSaved") },
     git === undefined
-      ? { id: "git", state: "info", text: "Git wird gesucht …" }
+      ? { id: "git", state: "info", text: t("shared.lookingForGit") }
       : git === null
-        ? { id: "git", state: "error", text: "Git ist nicht installiert" }
+        ? { id: "git", state: "error", text: t("commitDialog.gitNotInstalled") }
         : { id: "git", state: "ok", text: gitFoundText(git.version) },
     ...(checking
-      ? [{ id: "changes", state: "info", text: "Änderungen werden geprüft …" } satisfies CheckRow]
+      ? [{ id: "changes", state: "info", text: t("commitDialog.checkingChanges") } satisfies CheckRow]
       : changes === null
         ? []
         : [{ id: "changes", state: changes === 0 ? "warning" : "ok", text: changedFilesText(changes, shown?.head === null) } satisfies CheckRow]),
@@ -139,7 +132,7 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, o
         toast.info(commitDoneText(report));
         onClose();
       } else {
-        setFailed(report.reason ?? "Der Commit ist gescheitert.");
+        setFailed(report.reason ?? t("commitDialog.failed"));
       }
     } catch (e) {
       setError(errorText(e));
@@ -154,10 +147,10 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, o
   const actions: DialogAction[] = running
     ? []
     : failed !== null
-      ? [{ label: "Schließen", onClick: onClose }]
+      ? [{ label: t("shared.close"), onClick: onClose }]
       : [
-          { label: "Abbrechen", onClick: onClose },
-          { label: "Sichern", kind: "primary", onClick: () => void run(), disabled: !ready },
+          { label: t("shared.cancel"), onClick: onClose },
+          { label: t("commitDialog.save"), kind: "primary", onClick: () => void run(), disabled: !ready },
         ];
 
   return (
@@ -167,8 +160,8 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, o
         if (!next && !busy.current) onClose();
       }}
       dismissible={!running}
-      title="Stand sichern?"
-      description={DESCRIPTION}
+      title={t("commitDialog.title")}
+      description={t("commitDialog.description")}
       data={{ "data-commit-dialog": "" }}
       finalFocus={finalFocus}
       actions={actions}
@@ -176,15 +169,15 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, o
       <div className={styles.content}>
         {failed === null && (
           <>
-            <CheckList ariaLabel="Vor dem Sichern" rows={rows} />
-            <TextField label="Betreff" showLabel value={subject} onCommit={setSubject} disabled={running} />
-            <TextField label="Notiz" showLabel multiline value={notes} onCommit={setNotes} disabled={running} hint="Optional; steht im Commit unter dem Betreff." />
+            <CheckList ariaLabel={t("commitDialog.beforeSaving")} rows={rows} />
+            <TextField label={t("commitDialog.subject")} showLabel value={subject} onCommit={setSubject} disabled={running} />
+            <TextField label={t("commitDialog.note")} showLabel multiline value={notes} onCommit={setNotes} disabled={running} hint={t("commitDialog.noteHint")} />
           </>
         )}
         {running && (
           <p role="status" className={styles.progress} data-commit-progress="">
             {/* Before the first phase reports (always in the dev bridge): the first phase. */}
-            {PHASE_TEXT[phase ?? "templates"]}
+            {t(`commitDialog.phase.${phase ?? "templates"}`)}
           </p>
         )}
         {failed !== null && <Notice kind="warning">{failed}</Notice>}

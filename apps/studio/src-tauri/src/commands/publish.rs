@@ -15,8 +15,8 @@ use std::time::Instant;
 use g4_kernel::base::{BaseRom, Located};
 use g4_kernel::error::KernelError;
 use g4_kernel::patch::{
-    self, BAD_FILE, BAD_VERSION, EXISTS, NO_CHANGES, NOT_A_FOLDER, PublishOptions, PublishPhase,
-    PublishProgress, PublishReport, PublishTargets, RELEASES_BROKEN, Release, VERSION_TAKEN,
+    self, PublishOptions, PublishPhase, PublishProgress, PublishReport, PublishTargets, Release,
+    bad_file, bad_version, exists, no_changes, not_a_folder, releases_broken, version_taken,
 };
 use g4_kernel::project::Project;
 use g4_kernel::start::BaseMark;
@@ -31,10 +31,14 @@ use crate::errors::CmdError;
 use crate::state::AppState;
 
 /// The refusal of `publish_patch` with unsaved changes, before anything is asked or built.
-pub const PUBLISH_UNSAVED: &str = "Erst speichern: veröffentlicht wird der gespeicherte Stand.";
+pub fn publish_unsaved() -> String {
+    t!("commands.publish.unsaved").into_owned()
+}
 
 /// `reveal_path` of a path that is neither a release file of the list nor its folder.
-pub const NOT_A_RELEASE_FILE: &str = "Diesen Pfad kennt die Liste der Veröffentlichungen nicht.";
+pub fn not_a_release_file() -> String {
+    t!("commands.publish.not_a_release_file").into_owned()
+}
 
 /// The releases of the open project, as Technik › Veröffentlichen lists them. `stem` is the
 /// project part of a release's file name (`patch::project_stem`), `next_version` the proposal
@@ -86,30 +90,30 @@ impl PublishArgs {
 }
 
 /// The kernel's refusals of a release with a code of their own: `releases_broken`
-/// ([`RELEASES_BROKEN`] with path and reason), `bad_version` ([`BAD_VERSION`]),
-/// `version_taken` ([`VERSION_TAKEN`]), `bad_file` ([`BAD_FILE`]), `bad_dir` (the place is a
-/// file or lies below one, [`NOT_A_FOLDER`] with the path), `exists` (`<Datei> ` + [`EXISTS`])
-/// and `no_changes` ([`NO_CHANGES`]); `base_missing` for the kernel's [`patch::NO_MARK`]. Any
+/// ([`releases_broken`] with path and reason), `bad_version` ([`bad_version`]),
+/// `version_taken` ([`version_taken`]), `bad_file` ([`bad_file`]), `bad_dir` (the place is a
+/// file or lies below one, [`not_a_folder`] with the path), `exists` (`<Datei> ` + [`exists`])
+/// and `no_changes` ([`no_changes`]); `base_missing` for the kernel's [`patch::no_mark`]. Any
 /// other error as it is (the failed self-check is an `error` with its sentence).
 fn publish_error(e: KernelError) -> CmdError {
     let KernelError::Refused(why) = &e else {
         return e.into();
     };
-    let code = if why.starts_with(RELEASES_BROKEN) {
+    let code = if why.starts_with(&releases_broken()) {
         "releases_broken"
-    } else if why == BAD_VERSION {
+    } else if *why == bad_version() {
         "bad_version"
-    } else if why == VERSION_TAKEN {
+    } else if *why == version_taken() {
         "version_taken"
-    } else if why == BAD_FILE {
+    } else if *why == bad_file() {
         "bad_file"
-    } else if why.starts_with(NOT_A_FOLDER) {
+    } else if why.starts_with(&not_a_folder()) {
         "bad_dir"
-    } else if why.ends_with(EXISTS) {
+    } else if why.ends_with(&exists()) {
         "exists"
-    } else if why == NO_CHANGES {
+    } else if *why == no_changes() {
         "no_changes"
-    } else if why == patch::NO_MARK {
+    } else if *why == patch::no_mark() {
         return base_missing(why.clone());
     } else {
         return e.into();
@@ -152,16 +156,16 @@ fn place(
         Some(&targets.rom),
     ];
     for path in files.into_iter().flatten() {
-        let text = path.to_str().ok_or_else(|| {
-            CmdError::from(format!("Pfad ist kein gültiger Text: {}", path.display()))
-        })?;
+        let text = path
+            .to_str()
+            .ok_or_else(|| super::path_not_text(path.display()))?;
         check(policy, text)?;
     }
     Ok(())
 }
 
 /// The refusals of a release that need no build, in this order: a session that refuses
-/// writes (`busy`), unsaved changes (`unsaved`, [`PUBLISH_UNSAVED`]), the list and the version
+/// writes (`busy`), unsaved changes (`unsaved`, [`publish_unsaved`]), the list and the version
 /// (`releases_broken`, `bad_version`, `version_taken`), the file name (`bad_file`), then the
 /// place under `policy` (`Policy::check_target`, which makes nothing) before anything at it is
 /// looked at, so a place outside the allowed folders is refused alike whether it exists or
@@ -178,7 +182,7 @@ fn checked(
         let session = super::session(&mut guard)?;
         session.writable()?;
         if !session.store.dirty().is_empty() {
-            return Err(CmdError::refused("unsaved", PUBLISH_UNSAVED));
+            return Err(CmdError::refused("unsaved", publish_unsaved()));
         }
         Arc::clone(&session.project)
     };
@@ -257,12 +261,10 @@ pub(crate) fn publish_patch_with(
     if let Some(policy) = policy {
         place(policy, &targets, |policy, path| policy.check_output(path))?;
     }
-    let rom = targets.rom.to_str().ok_or_else(|| {
-        CmdError::from(format!(
-            "Pfad ist kein gültiger Text: {}",
-            targets.rom.display()
-        ))
-    })?;
+    let rom = targets
+        .rom
+        .to_str()
+        .ok_or_else(|| super::path_not_text(targets.rom.display()))?;
 
     progress(PublishProgress {
         phase: PublishPhase::Build,
@@ -273,9 +275,7 @@ pub(crate) fn publish_patch_with(
     let build_ms = elapsed_ms(build_started);
     // The build takes the session as it is then: another project opened meanwhile was built.
     if !Arc::ptr_eq(&super::open_project_arc(state)?, &project) {
-        return Err(
-            "Das Projekt wurde während des Exports gewechselt; nichts veröffentlicht.".into(),
-        );
+        return Err(t!("commands.publish.project_switched").into_owned().into());
     }
 
     let base = BaseRom::open(&hit.path, Some(&mark.sha1))?;
@@ -312,15 +312,13 @@ pub fn publish_patch_impl(
 /// Shows `path` in the file manager (macOS `open -R`, Windows `explorer /select,`, Linux
 /// `xdg-open` on its folder). `path` (relative ones from the project root) must exist and be
 /// a release file of the list (its entry relative to the project root, or absolute) or that
-/// file's folder; else [`NOT_A_RELEASE_FILE`]. A broken list is `releases_broken`.
+/// file's folder; else [`not_a_release_file`]. A broken list is `releases_broken`.
 pub fn reveal_path_impl(state: &AppState, path: &str) -> Result<(), CmdError> {
     let project = super::open_project_arc(state)?;
     let releases = patch::read_releases(&project.root).map_err(publish_error)?;
-    let given = project
-        .root
-        .join(path)
-        .canonicalize()
-        .map_err(|e| CmdError::from(format!("Pfad nicht gefunden: {path}: {e}")))?;
+    let given = project.root.join(path).canonicalize().map_err(|e| {
+        CmdError::from(t!("commands.publish.path_not_found", path = path, error = e).into_owned())
+    })?;
     let known = releases.releases.iter().any(|release| {
         let file = project.root.join(&release.file);
         let folder = file.parent().map(Path::to_path_buf);
@@ -331,7 +329,7 @@ pub fn reveal_path_impl(state: &AppState, path: &str) -> Result<(), CmdError> {
             .any(|candidate| candidate == given)
     });
     if !known {
-        return Err(NOT_A_RELEASE_FILE.into());
+        return Err(not_a_release_file().into());
     }
     reveal(&given)
 }
@@ -375,13 +373,19 @@ fn ran(command: &mut std::process::Command, path: &Path) -> Result<(), CmdError>
     if status.success() {
         Ok(())
     } else {
-        Err(format!("Dateimanager meldet {status}: {}", path.display()).into())
+        Err(t!(
+            "commands.publish.file_manager_failed",
+            status = status,
+            path = path.display()
+        )
+        .into_owned()
+        .into())
     }
 }
 
 #[cfg(not(test))]
 fn not_started(e: std::io::Error) -> CmdError {
-    CmdError::from(format!("Dateimanager nicht startbar: {e}"))
+    CmdError::from(t!("commands.publish.file_manager_not_started", error = e).into_owned())
 }
 
 /// In tests the file manager is never started.
@@ -563,7 +567,11 @@ mod tests {
         std::fs::write(d.root.join(RELEASES_FILE), "{kaputt").unwrap();
         let err = releases_impl(&d.state).unwrap_err();
         assert_eq!(err.code, "releases_broken");
-        assert!(err.message.starts_with(RELEASES_BROKEN), "{}", err.message);
+        assert!(
+            err.message.starts_with(&releases_broken()),
+            "{}",
+            err.message
+        );
         // Publishing is refused with it too, and the file stays as it was.
         let err = check_publish_patch(&d.state, &opts("0.1.0"), None).unwrap_err();
         assert_eq!(err.code, "releases_broken");
@@ -610,7 +618,7 @@ mod tests {
         let err = publish(opts("0.1.0"));
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("unsaved", PUBLISH_UNSAVED)
+            ("unsaved", publish_unsaved().as_str())
         );
         save_impl(&d.state).unwrap();
 
@@ -619,17 +627,20 @@ mod tests {
         let err = publish(opts("0.1.0"));
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("version_taken", VERSION_TAKEN)
+            ("version_taken", version_taken().as_str())
         );
         let err = publish(opts("0.1 beta"));
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("bad_version", BAD_VERSION)
+            ("bad_version", bad_version().as_str())
         );
         let mut bad = opts("0.2.0");
         bad.file = Some("a/b".into());
         let err = publish(bad);
-        assert_eq!((err.code, err.message.as_str()), ("bad_file", BAD_FILE));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("bad_file", bad_file().as_str())
+        );
 
         // An existing file at the chosen place, without overwrite.
         std::fs::create_dir_all(d.root.join("out")).unwrap();
@@ -638,7 +649,7 @@ mod tests {
         existing.dir = Some("out".into());
         let err = publish(existing.clone());
         assert_eq!(err.code, "exists", "{}", err.message);
-        assert_eq!(err.message, format!("X-v0.2.0.xdelta {EXISTS}"));
+        assert_eq!(err.message, format!("X-v0.2.0.xdelta {}", exists()));
         // A place that is a file.
         let mut file_dir = opts("0.2.0");
         file_dir.dir = Some("out/X-v0.2.0.xdelta".into());
@@ -663,7 +674,7 @@ mod tests {
         let err = publish_patch_impl(&d.state, opts("0.1.0"), &mut |_| {}).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("base_missing", patch::NO_MARK)
+            ("base_missing", patch::no_mark().as_str())
         );
         assert!(!d.root.join("build").exists());
         assert!(!d.root.join(RELEASES_FILE).exists());
@@ -770,7 +781,10 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("no_changes", NO_CHANGES));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_changes", no_changes().as_str())
+        );
         assert!(!d.root.join(RELEASES_FILE).exists());
         assert!(!d.root.join("build/X-v0.1.0.xdelta").exists());
     }
@@ -783,7 +797,7 @@ mod tests {
         std::fs::write(d.root.join("build/anderes.txt"), b"x").unwrap();
         // Nothing listed yet: even the file is unknown.
         let err = reveal_path_impl(&d.state, "build/X-v0.1.0.xdelta").unwrap_err();
-        assert_eq!(err.message, NOT_A_RELEASE_FILE);
+        assert_eq!(err.message, not_a_release_file());
 
         let elsewhere = tempfile::tempdir().unwrap();
         let outside = elsewhere.path().join("Y-v0.2.0.xdelta");
@@ -805,12 +819,12 @@ mod tests {
         let stranger = std::env::current_exe().unwrap();
         for path in ["build/anderes.txt", ".", stranger.to_str().unwrap()] {
             let err = reveal_path_impl(&d.state, path).unwrap_err();
-            assert_eq!(err.message, NOT_A_RELEASE_FILE, "{path}");
+            assert_eq!(err.message, not_a_release_file(), "{path}");
         }
         let err = reveal_path_impl(&d.state, "build/fehlt.xdelta").unwrap_err();
         assert!(
             err.message
-                .starts_with("Pfad nicht gefunden: build/fehlt.xdelta"),
+                .starts_with("Path not found: build/fehlt.xdelta"),
             "{}",
             err.message
         );

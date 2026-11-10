@@ -1,8 +1,9 @@
 import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataRowDto, ItemEntryDto } from "../../api";
 import { FilterChips, Notice } from "../../ui/primitives";
 import { DataList, RowIcon } from "../DataList";
-import { POCKET_NAMES, itemPocket, itemPrice } from "../dataModel";
+import { itemPocket, itemPrice, pocketNames } from "../dataModel";
 import { itemIcon, itemIconKey } from "../icons";
 import { useDataArea, useDataSearch } from "../useDataArea";
 import { dataMemberOf, hasIcon } from "./itemModel";
@@ -20,13 +21,15 @@ function ItemIcon({ row, label, entry }: { row: DataRowDto; label: string; entry
  * the data members ("Daten 0017") without icons, and a note says why.
  */
 export function ItemsList() {
+  const { t } = useTranslation("data");
   const { rows, dirty, itemTable } = useDataArea("gegenstaende");
   const { filter, setFilter } = useDataSearch("gegenstaende");
-  const options = useMemo(() => POCKET_NAMES.map((label, pocket) => ({ value: String(pocket), label, count: rows.filter((r) => itemPocket(r) === pocket).length })), [rows]);
+  const names = useMemo(() => pocketNames(), [t]);
+  const options = useMemo(() => names.map((label, pocket) => ({ value: String(pocket), label, count: rows.filter((r) => itemPocket(r) === pocket).length })), [names, rows]);
   const chosen = useMemo(() => new Set(filter.pocket === null ? [] : [String(filter.pocket)]), [filter.pocket]);
   const onPockets = useCallback(
     (next: Set<string>) => {
-      // A chip that was not on before is the new pocket; turning the one chosen off (or "Filter lösen") shows all pockets.
+      // A chip that was not on before is the new pocket; turning the one chosen off (or „Filter lösen“) shows all pockets.
       const added = [...next].find((p) => !chosen.has(p));
       setFilter({ ...filter, pocket: added === undefined ? null : Number(added) });
     },
@@ -38,22 +41,22 @@ export function ItemsList() {
     (row: DataRowDto) => (
       <span className={styles.trailing}>
         <span className={styles.price}>{itemPrice(row)}</span>
-        {unsaved.has(dataMemberOf(row)) && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
+        {unsaved.has(dataMemberOf(row)) && <span className={styles.dot} role="img" aria-label={t("unsaved")} />}
       </span>
     ),
-    [unsaved],
+    [unsaved, t],
   );
   return (
     <DataList
       area="gegenstaende"
-      label="Gegenstände"
+      label={t("itemsList.list")}
       attr="data-item"
       leading={leading}
       trailing={trailing}
       filters={
         <>
-          {itemTable === null && <Notice kind="info">Item-Tabelle nicht lesbar: Namen und Symbole fehlen</Notice>}
-          <FilterChips ariaLabel="Taschen" options={options} value={chosen} onChange={onPockets} visible={POCKET_NAMES.length} />
+          {itemTable === null && <Notice kind="info">{t("itemsList.tableUnreadable")}</Notice>}
+          <FilterChips ariaLabel={t("itemsList.pockets")} options={options} value={chosen} onChange={onPockets} visible={names.length} />
         </>
       }
     />

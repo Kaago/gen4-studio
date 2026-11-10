@@ -1,5 +1,6 @@
-import { fieldLabels } from "../../api";
+import { fieldLabel } from "../../api";
 import type { AssetId, DataRowDto, LearnEntryDto, NameTablesDto, PersonalDto, PersonalField, SpeciesRowExtra, SpeciesTab } from "../../api";
+import { t } from "../../i18n";
 import type { SelectOption } from "../../ui/primitives";
 import { typeName } from "../../ui/primitives/pokemonTypes";
 import { id4 } from "../../workbench/terms";
@@ -7,15 +8,26 @@ import { id4 } from "../../workbench/terms";
 /** The six base stats in the order the games list them (summary screen). */
 export type StatField = "hp" | "attack" | "defense" | "sp_attack" | "sp_defense" | "speed";
 
-/** The base stats with their label and their place in a row's `extra.stats` (HP, Attack, Defense, Speed, Special Attack, Special Defense). */
-export const STATS: readonly { field: StatField; label: string; row: number }[] = [
-  { field: "hp", label: fieldLabels.species.hp, row: 0 },
-  { field: "attack", label: fieldLabels.species.attack, row: 1 },
-  { field: "defense", label: fieldLabels.species.defense, row: 2 },
-  { field: "sp_attack", label: fieldLabels.species.sp_attack, row: 4 },
-  { field: "sp_defense", label: fieldLabels.species.sp_defense, row: 5 },
-  { field: "speed", label: fieldLabels.species.speed, row: 3 },
-];
+/**
+ * The base stats with their label and their place in a row's `extra.stats` (HP, Attack, Defense, Speed, Special Attack, Special Defense).
+ * Each label is read when asked for (in the language shown then), never when this module loads.
+ */
+export const STATS: readonly { field: StatField; readonly label: string; row: number }[] = (
+  [
+    ["hp", 0],
+    ["attack", 1],
+    ["defense", 2],
+    ["sp_attack", 4],
+    ["sp_defense", 5],
+    ["speed", 3],
+  ] as const
+).map(([field, row]) => ({
+  field,
+  row,
+  get label() {
+    return fieldLabel("species", field);
+  },
+}));
 
 /** The highest species of the National Dex; members after it are the eggs (494, 495) and the forms (496 to 507). */
 const LAST_SPECIES = 493;
@@ -53,8 +65,8 @@ export const statSum = (stats: Pick<PersonalDto, StatField>): number => STATS.re
 export function speciesCount(rows: readonly DataRowDto[]): string {
   const species = rows.filter((r) => isSpecies(r.index)).length;
   const forms = rows.filter((r) => isForm(r.index)).length;
-  const parts = [`${species} ${species === 1 ? "Art" : "Arten"}`];
-  if (forms > 0) parts.push(`${forms} ${forms === 1 ? "Form" : "Formen"}`);
+  const parts = [t("data:dataParts.noun.species", { count: species })];
+  if (forms > 0) parts.push(t("data:pokedexModel.forms", { count: forms }));
   return parts.join(", ");
 }
 
@@ -70,49 +82,47 @@ export const evYieldWord = (values: readonly number[]): number => EV_YIELD.reduc
 
 /** The gender ratios the games use, in words; another byte shows as "Wert 100". */
 export const GENDER: readonly SelectOption<number>[] = [
-  { value: 0, label: "nur männlich" },
-  { value: 31, label: "87,5 % männlich" },
-  { value: 63, label: "75 % männlich" },
-  { value: 127, label: "50 % männlich" },
-  { value: 191, label: "75 % weiblich" },
-  { value: 225, label: "87,5 % weiblich" },
-  { value: 254, label: "nur weiblich" },
-  { value: 255, label: "geschlechtslos" },
+  lazy(0, () => t("data:pokedexModel.gender.maleOnly")),
+  lazy(31, () => t("data:pokedexModel.gender.male875")),
+  lazy(63, () => t("data:pokedexModel.gender.male75")),
+  lazy(127, () => t("data:pokedexModel.gender.even")),
+  lazy(191, () => t("data:pokedexModel.gender.female75")),
+  lazy(225, () => t("data:pokedexModel.gender.female875")),
+  lazy(254, () => t("data:pokedexModel.gender.femaleOnly")),
+  lazy(255, () => t("data:pokedexModel.gender.genderless")),
 ];
-export const genderText = (ratio: number): string => GENDER.find((g) => g.value === ratio)?.label ?? `Wert ${ratio}`;
+export const genderText = (ratio: number): string => GENDER.find((g) => g.value === ratio)?.label ?? t("data:value", { value: ratio });
+
+/** An option whose `label` is read when asked for (in the language shown then), never when this module loads. */
+function lazy(value: number, label: () => string): SelectOption<number> {
+  return {
+    value,
+    get label() {
+      return label();
+    },
+  };
+}
 
 /** A whole number with German thousands points ("3.840"). */
-const grouped = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+const grouped = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, t("data:pokedexModel.thousands"));
 
 /** The steps to hatch an egg: 256 per cycle. */
-export const hatchText = (cycles: number): string => `${cycles} ${cycles === 1 ? "Zyklus" : "Zyklen"}, ${grouped(cycles * 256)} Schritte`;
+export const hatchText = (cycles: number): string => t("data:pokedexModel.hatch", { count: cycles, steps: grouped(cycles * 256) });
 
 /** The six growth rates by their number in the personal data (dspre-report §1.4). */
-export const GROWTH_RATES: readonly SelectOption<number>[] = ["Mittelschnell", "Unregelmäßig", "Schwankend", "Mittellangsam", "Schnell", "Langsam"].map(
-  (label, value) => ({ value, label }),
+export const GROWTH_RATES: readonly SelectOption<number>[] = (["mediumFast", "erratic", "fluctuating", "mediumSlow", "fast", "slow"] as const).map((name, value) =>
+  lazy(value, () => t(`data:pokedexModel.growthRates.${name}`)),
 );
 
 /** The fifteen egg groups (1 to 15). */
-export const EGG_GROUPS: readonly SelectOption<number>[] = [
-  "Monster",
-  "Wasser 1",
-  "Käfer",
-  "Flug",
-  "Feld",
-  "Fee",
-  "Pflanze",
-  "Humanotyp",
-  "Wasser 3",
-  "Mineral",
-  "Amorph",
-  "Wasser 2",
-  "Ditto",
-  "Drache",
-  "Unbekannt",
-].map((label, i) => ({ value: i + 1, label }));
+export const EGG_GROUPS: readonly SelectOption<number>[] = (
+  ["monster", "water1", "bug", "flying", "field", "fairy", "grass", "humanLike", "water3", "mineral", "amorphous", "water2", "ditto", "dragon", "undiscovered"] as const
+).map((name, i) => lazy(i + 1, () => t(`data:pokedexModel.eggGroups.${name}`)));
 
 /** The body colours of the Pokédex search (bits 0 to 6 of the colour byte). */
-export const COLORS: readonly SelectOption<number>[] = ["Rot", "Blau", "Gelb", "Grün", "Schwarz", "Braun", "Violett", "Grau", "Weiß", "Rosa"].map((label, value) => ({ value, label }));
+export const COLORS: readonly SelectOption<number>[] = (["red", "blue", "yellow", "green", "black", "brown", "purple", "gray", "white", "pink"] as const).map((name, value) =>
+  lazy(value, () => t(`data:pokedexModel.colors.${name}`)),
+);
 
 /** What the parameter of an evolution method means (dspre-report §1.4); `number` for a method the games do not know. */
 export type ParamKind = "none" | "level" | "item" | "move" | "species" | "beauty" | "number";
@@ -120,67 +130,91 @@ export type ParamKind = "none" | "level" | "item" | "move" | "species" | "beauty
 /** The evolution methods 0 to 26 of the fourth generation (pokeplatinum `EVO_*`, DSPRE `EvolutionFile.cs`) and their parameter. */
 export const EVO_METHODS: readonly (SelectOption<number> & { param: ParamKind })[] = (
   [
-    ["Keine", "none"],
-    ["Freundschaft", "none"],
-    ["Freundschaft am Tag", "none"],
-    ["Freundschaft in der Nacht", "none"],
-    ["Level", "level"],
-    ["Tausch", "none"],
-    ["Tausch mit getragenem Gegenstand", "item"],
-    ["Gegenstand anwenden", "item"],
-    ["Level, Angriff größer als Verteidigung", "level"],
-    ["Level, Angriff gleich Verteidigung", "level"],
-    ["Level, Angriff kleiner als Verteidigung", "level"],
-    ["Level, Persönlichkeitswert niedrig", "level"],
-    ["Level, Persönlichkeitswert hoch", "level"],
-    ["Level, Ninjask-Zweig", "level"],
-    ["Level, Ninjatom bei freiem Platz", "level"],
-    ["Schönheit", "beauty"],
-    ["Gegenstand anwenden, männlich", "item"],
-    ["Gegenstand anwenden, weiblich", "item"],
-    ["Level am Tag mit getragenem Gegenstand", "item"],
-    ["Level in der Nacht mit getragenem Gegenstand", "item"],
-    ["Level mit Attacke", "move"],
-    ["Level mit Art im Team", "species"],
-    ["Level, männlich", "level"],
-    ["Level, weiblich", "level"],
-    ["Level am Kraterberg", "none"],
-    ["Level im Ewigwald", "none"],
-    ["Level auf Route 217", "none"],
+    ["none", "none"],
+    ["friendship", "none"],
+    ["friendshipDay", "none"],
+    ["friendshipNight", "none"],
+    ["level", "level"],
+    ["trade", "none"],
+    ["tradeItem", "item"],
+    ["useItem", "item"],
+    ["levelAttackHigher", "level"],
+    ["levelAttackEqual", "level"],
+    ["levelAttackLower", "level"],
+    ["levelPersonalityLow", "level"],
+    ["levelPersonalityHigh", "level"],
+    ["levelNinjask", "level"],
+    ["levelShedinja", "level"],
+    ["beauty", "beauty"],
+    ["useItemMale", "item"],
+    ["useItemFemale", "item"],
+    ["levelDayItem", "item"],
+    ["levelNightItem", "item"],
+    ["levelMove", "move"],
+    ["levelSpecies", "species"],
+    ["levelMale", "level"],
+    ["levelFemale", "level"],
+    ["levelCoronet", "none"],
+    ["levelEterna", "none"],
+    ["levelRoute217", "none"],
   ] as const
-).map(([label, param], value) => ({ value, label, param }));
+).map(([name, param], value) => ({
+  value,
+  // Read when asked for (in the language shown then), never when this module loads.
+  get label() {
+    return t(`data:pokedexModel.evoMethods.${name}`);
+  },
+  param,
+}));
 
 export const paramKind = (method: number): ParamKind => EVO_METHODS[method]?.param ?? "number";
 
 /** What the parameter field of a kind is called ("Level, Entwicklung 1"). */
-export const PARAM_LABEL: Record<ParamKind, string> = {
-  none: "Parameter",
-  level: "Level",
-  item: "Gegenstand",
-  move: "Attacke",
-  species: "Art",
-  beauty: "Schönheit",
-  number: "Parameter",
+export const PARAM_LABEL: Readonly<Record<ParamKind, string>> = {
+  // Read when asked for (in the language shown then), never when this module loads.
+  get none() {
+    return t("data:pokedexModel.params.parameter");
+  },
+  get level() {
+    return t("data:pokedexModel.params.level");
+  },
+  get item() {
+    return t("data:dataModel.fallbackWord.item");
+  },
+  get move() {
+    return t("data:dataModel.fallbackWord.move");
+  },
+  get species() {
+    return t("data:dataModel.fallbackWord.species");
+  },
+  get beauty() {
+    return t("data:pokedexModel.params.beauty");
+  },
+  get number() {
+    return t("data:pokedexModel.params.parameter");
+  },
 };
 
 /** The parts of a species document by asset kind, as a lock names them. */
-const PART_NAME: Partial<Record<AssetId["kind"], string>> = { Personal: "Pokémon-Daten", Learnset: "Lernset", Evolution: "Entwicklungen" };
+const PART_NAME: Partial<Record<AssetId["kind"], "personalData" | "learnset" | "evolutionData">> = { Personal: "personalData", Learnset: "learnset", Evolution: "evolutionData" };
 
 /**
  * The German sentence of a lock: the kernel says "personal 0397: 36 bytes, expected 44", the editor "Pokémon-Daten 0397: 36 Bytes statt
  * 44". A reason in another shape follows the part as the kernel says it.
  */
 export function lockText(locked: string, asset: AssetId | null): string {
-  const part = asset === null ? "Pokémon-Daten" : (PART_NAME[asset.kind] ?? asset.kind);
+  const partKey = asset === null ? "personalData" : PART_NAME[asset.kind];
+  const part = partKey === undefined ? asset!.kind : t(`data:dataModel.lockParts.${partKey}`);
   const where = asset === null ? part : `${part} ${String(asset.index).padStart(4, "0")}`;
   const lengths = /: (\d+) bytes, expected (\d+)$/.exec(locked);
-  return lengths ? `${where}: ${lengths[1]} Bytes statt ${lengths[2]}` : `${where}: ${locked}`;
+  return lengths ? t("data:pokedexModel.lockLengths", { where, actual: lengths[1], expected: lengths[2] }) : t("data:pokedexModel.lockOther", { where, reason: locked });
 }
 
 /** TM01 to TM92, then VM01 to VM08 (the number `n` of a `Tm` patch). */
 export const TM_COUNT = 92;
 export const MACHINE_COUNT = 100;
-export const machineLabel = (n: number): string => (n < TM_COUNT ? `TM${String(n + 1).padStart(2, "0")}` : `VM${String(n - TM_COUNT + 1).padStart(2, "0")}`);
+export const machineLabel = (n: number): string =>
+  n < TM_COUNT ? `${t("data:pokedexModel.machineTm")}${String(n + 1).padStart(2, "0")}` : `${t("data:pokedexModel.machineHm")}${String(n - TM_COUNT + 1).padStart(2, "0")}`;
 
 /** The most egg moves one species may have (`data_edit` refuses more; `move0` to `move15` of `g4k check-data`). */
 export const MAX_EGG_MOVES = 16;
@@ -238,15 +272,13 @@ export const sortLearnset = (entries: readonly LearnEntryDto[]): LearnEntryDto[]
     .map(([e]) => e);
 
 /** The tabs of the editor (the ids `NavTarget` names) with their labels; `raw` only while tinkering. */
-export const TABS: readonly { id: SpeciesTab; label: string }[] = [
-  { id: "values", label: "Werte" },
-  { id: "abilities", label: "Fähigkeiten und Typen" },
-  { id: "learnset", label: "Lernset" },
-  { id: "eggMoves", label: "Ei-Attacken" },
-  { id: "evolution", label: "Entwicklung" },
-  { id: "machines", label: "TM/VM" },
-  { id: "raw", label: "Rohdaten" },
-];
+export const TABS: readonly { id: SpeciesTab; readonly label: string }[] = (["values", "abilities", "learnset", "eggMoves", "evolution", "machines", "raw"] as const).map((id) => ({
+  id,
+  // Read when asked for (in the language shown then), never when this module loads.
+  get label() {
+    return t(`data:pokedexModel.tabs.${id}`);
+  },
+}));
 
 /**
  * The part of the species each tab edits: its dot comes from that asset's unsaved changes (Rohdaten shows all three). The egg move table
@@ -274,13 +306,13 @@ export function tableName(table: readonly string[], id: number, word: string): s
 }
 
 /** An ability by number; 0 is none. */
-export const abilityName = (abilities: readonly string[], id: number): string => (id === 0 ? "Keine Fähigkeit" : tableName(abilities, id, "Fähigkeit"));
+export const abilityName = (abilities: readonly string[], id: number): string => (id === 0 ? t("data:pokedexModel.noAbility") : tableName(abilities, id, t("data:pokedexModel.ability")));
 /** An item by item id; 0 is none. */
-export const itemName = (items: readonly string[], id: number): string => (id === 0 ? "Kein Gegenstand" : tableName(items, id, "Gegenstand"));
+export const itemName = (items: readonly string[], id: number): string => (id === 0 ? t("data:pokedexModel.noItem") : tableName(items, id, t("data:dataModel.fallbackWord.item")));
 /** A move by number. */
-export const moveName = (moves: readonly string[], id: number): string => tableName(moves, id, "Attacke");
+export const moveName = (moves: readonly string[], id: number): string => tableName(moves, id, t("data:dataModel.fallbackWord.move"));
 
-const optionLabel = (options: readonly SelectOption<number>[], value: number) => options.find((o) => o.value === value)?.label ?? `Wert ${value}`;
+const optionLabel = (options: readonly SelectOption<number>[], value: number) => options.find((o) => o.value === value)?.label ?? t("data:value", { value });
 
 /** A value of the personal data in words for an undo label ("Normal", "Mittellangsam", "Bedroher"); numbers stay numbers. */
 export function personalText(field: PersonalField, value: number, names: Pick<NameTablesDto, "abilities" | "items">): string {
@@ -310,4 +342,4 @@ export function personalText(field: PersonalField, value: number, names: Pick<Na
 
 /** The undo label of a personal field: "Staravia: Angriff 75 → 85", "Staravia: Typ 2 Flug → Feuer". */
 export const personalLabel = (name: string, field: PersonalField, old: number, value: number, names: Pick<NameTablesDto, "abilities" | "items">): string =>
-  `${name}: ${fieldLabels.species[field]} ${personalText(field, old, names)} → ${personalText(field, value, names)}`;
+  `${name}: ${fieldLabel("species", field)} ${personalText(field, old, names)} → ${personalText(field, value, names)}`;

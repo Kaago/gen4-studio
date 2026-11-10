@@ -10,9 +10,9 @@ use g4_formats::narc::Narc;
 use g4_kernel::build;
 use g4_kernel::data::refs::{Access, Ref, RefIndex, Target};
 use g4_kernel::delete::{
-    CANNOT_FREE_ORIGINAL, DeletePlan, DeleteTarget, FreeInfo, NO_TOMBSTONE_FOR_BINARIES,
-    NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT, ORIGINAL_KIND, Rule, guard_header, guard_reference,
-    later_entries_live, plan_delete,
+    DeletePlan, DeleteTarget, FreeInfo, Rule, cannot_free_original, guard_header, guard_reference,
+    later_entries_live, no_tombstone_for_binaries, no_tombstone_for_files, not_a_text_project,
+    original_kind, plan_delete,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag_files};
@@ -94,9 +94,9 @@ fn labels_use_the_words_of_the_app() {
     assert_eq!(label(DeleteTarget::Header { id: 593 }), "Header 0593");
     assert_eq!(
         label(DeleteTarget::Script { file: 1124 }),
-        "Scriptdatei 1124"
+        "Script file 1124"
     );
-    assert_eq!(label(DeleteTarget::Place { index: 125 }), "Ort 125");
+    assert_eq!(label(DeleteTarget::Place { index: 125 }), "Place 125");
     assert_eq!(label(DeleteTarget::Flag { number: 0x94 }), "Flag 0x0094");
     assert_eq!(
         label(DeleteTarget::Var { number: 0x4000 }),
@@ -104,44 +104,41 @@ fn labels_use_the_words_of_the_app() {
     );
     assert_eq!(
         label(DeleteTarget::Encounter { index: 3 }),
-        "Begegnungsdatei 0003"
+        "Encounter file 0003"
     );
     assert_eq!(
         label(DeleteTarget::EventFile { index: 3 }),
-        "Eventdatei 0003"
+        "Event file 0003"
     );
     assert_eq!(label(DeleteTarget::Matrix { index: 3 }), "Matrix 0003");
-    assert_eq!(label(DeleteTarget::Map { index: 3 }), "Karte 0003");
-    assert_eq!(
-        label(DeleteTarget::AreaData { index: 3 }),
-        "Gebietsdaten 0003"
-    );
+    assert_eq!(label(DeleteTarget::Map { index: 3 }), "Map 0003");
+    assert_eq!(label(DeleteTarget::AreaData { index: 3 }), "Area data 0003");
     assert_eq!(
         label(DeleteTarget::TextArchive { index: 3 }),
-        "Textarchiv 0003"
+        "Text archive 0003"
     );
     assert_eq!(
         label(DeleteTarget::MapTexture { index: 3 }),
-        "Kartentextur 0003"
+        "Map texture 0003"
     );
 
     // The word of a kind, for the sentences.
     assert_eq!(DeleteTarget::Trainer { index: 0 }.kind_word(), "Trainer");
     assert_eq!(
         DeleteTarget::Encounter { index: 0 }.kind_word(),
-        "Begegnungsdatei"
+        "Encounter file"
     );
     assert_eq!(DeleteTarget::Header { id: 0 }.kind_word(), "Header");
     // `{Art}` of the refusal of an original is the plural.
     assert_eq!(
-        ORIGINAL_KIND.replace("{Art}", DeleteTarget::Header { id: 0 }.kind_plural()),
-        "Original-Header lassen sich nicht löschen: der Spielcode verweist unsichtbar darauf (ARM9, Overlays)."
+        original_kind(DeleteTarget::Header { id: 0 }),
+        "Original headers cannot be deleted: the game code refers to them invisibly (ARM9, overlays)."
     );
     assert_eq!(
-        ORIGINAL_KIND.replace("{Art}", DeleteTarget::Script { file: 0 }.kind_plural()),
-        "Original-Scriptdateien lassen sich nicht löschen: der Spielcode verweist unsichtbar darauf (ARM9, Overlays)."
+        original_kind(DeleteTarget::Script { file: 0 }),
+        "Original script files cannot be deleted: the game code refers to them invisibly (ARM9, overlays)."
     );
-    let plurals: Vec<&str> = [
+    let plurals: Vec<String> = [
         DeleteTarget::Header { id: 0 },
         DeleteTarget::Script { file: 0 },
         DeleteTarget::TextArchive { index: 0 },
@@ -157,36 +154,36 @@ fn labels_use_the_words_of_the_app() {
     assert_eq!(
         plurals,
         [
-            "Header",
-            "Scriptdateien",
-            "Textarchive",
-            "Gebietsdaten",
-            "Kartentexturen",
-            "Gebäudetexturen",
-            "Gebäudemodelle",
-            "Innenraum-Gebäudemodelle",
+            "headers",
+            "script files",
+            "text archives",
+            "area data",
+            "map textures",
+            "building textures",
+            "building models",
+            "interior building models",
         ]
     );
     // One later entry, several.
     assert_eq!(
         later_entries_live(593, 1),
-        "Nummer 593 bleibt belegt, weil 1 späterer Eintrag lebt."
+        "Number 593 stays taken because 1 later entry still exists."
     );
     assert_eq!(
         later_entries_live(901, 2),
-        "Nummer 901 bleibt belegt, weil 2 spätere Einträge leben."
+        "Number 901 stays taken because 2 later entries still exist."
     );
     assert_eq!(
-        NO_TOMBSTONE_FOR_FILES,
-        "Scriptdateien und Textarchive haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen."
+        no_tombstone_for_files(),
+        "Script files and text archives have no tombstone; new ones at the end can be removed with “Free the number”."
     );
     assert_eq!(
-        NO_TOMBSTONE_FOR_BINARIES,
-        "Texturen und Modelle haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen."
+        no_tombstone_for_binaries(),
+        "Textures and models have no tombstone; new ones at the end can be removed with “Free the number”."
     );
     assert_eq!(
-        NOT_A_TEXT_PROJECT,
-        "Echtes Löschen gibt es im Textprojekt (Technik › Textprojekt)."
+        not_a_text_project(),
+        "Real deleting is available in a text project (Technical › Text project)."
     );
 
     // Assets as a reset names them; the header table for a header.
@@ -350,29 +347,28 @@ fn plan_refuses_an_original_header_script_and_archive_with_the_reason() {
         assert!(p.original, "{target:?}");
         assert_eq!(
             p.refusal.as_deref(),
-            Some(
-                ORIGINAL_KIND
-                    .replace("{Art}", target.kind_plural())
-                    .as_str()
-            ),
+            Some(original_kind(target).as_str()),
             "{target:?}"
         );
         assert_eq!(p.label, target.label());
         assert_eq!(p.rule, target.rule());
         assert!(p.can_free.is_none(), "{target:?}");
-        assert_eq!(p.cannot_free.as_deref(), Some(CANNOT_FREE_ORIGINAL));
+        assert_eq!(
+            p.cannot_free.as_deref(),
+            Some(cannot_free_original().as_str())
+        );
     }
-    assert_eq!(
-        CANNOT_FREE_ORIGINAL,
-        "Original-Einträge lassen sich nicht freigeben."
-    );
+    assert_eq!(cannot_free_original(), "Original entries cannot be freed.");
 
     // A new script file (the base has two, the project three) gets no tombstone; as the last
     // one its number can be freed.
     let newer = Base::of(fx.root(), &[(AssetKind::Script, 2)]);
     let p = plan(&mut st, &newer, DeleteTarget::Script { file: 2 });
     assert!(!p.original);
-    assert_eq!(p.refusal.as_deref(), Some(NO_TOMBSTONE_FOR_FILES));
+    assert_eq!(
+        p.refusal.as_deref(),
+        Some(no_tombstone_for_files().as_str())
+    );
     let free = p.can_free.expect("the last script file can be freed");
     assert_eq!(free.count, 1);
     let member = rel(&fx, fx.project().member_path(AssetKind::Script, 2));
@@ -388,13 +384,16 @@ fn plan_refuses_an_original_header_script_and_archive_with_the_reason() {
     assert!(p.can_free.is_none());
     assert_eq!(
         p.cannot_free.as_deref(),
-        Some("Nummer 1 bleibt belegt, weil 1 späterer Eintrag lebt.")
+        Some("Number 1 stays taken because 1 later entry still exists.")
     );
 
     // Textures and models have no envelope either.
     let newer = Base::of(fx.root(), &[(AssetKind::BuildingModel, 0)]);
     let p = plan(&mut st, &newer, DeleteTarget::BuildingModel { index: 0 });
-    assert_eq!(p.refusal.as_deref(), Some(NO_TOMBSTONE_FOR_BINARIES));
+    assert_eq!(
+        p.refusal.as_deref(),
+        Some(no_tombstone_for_binaries().as_str())
+    );
     assert_eq!(p.can_free.map(|f| f.count), Some(1));
 }
 
@@ -563,7 +562,7 @@ fn plan_warns_for_an_original_trainer_and_allows() {
     let dspre = TextFixture::dspre();
     let mut st = Store::new(Arc::new(dspre.project()));
     let p = plan(&mut st, &ProjectOriginal::new(dspre.root()), target);
-    assert_eq!(p.refusal.as_deref(), Some(NOT_A_TEXT_PROJECT));
+    assert_eq!(p.refusal.as_deref(), Some(not_a_text_project().as_str()));
 }
 
 #[test]
@@ -626,11 +625,8 @@ fn guard_reference_refuses_a_tombstone() {
         Err(KernelError::Refused(why)) => why,
         other => panic!("{target:?}: {other:?}"),
     };
-    assert_eq!(refused(Target::Trainer(1)), "Trainer 0001 ist gelöscht.");
-    assert_eq!(
-        refused(Target::EventFile(1)),
-        "Eventdatei 0001 ist gelöscht."
-    );
+    assert_eq!(refused(Target::Trainer(1)), "Trainer 0001 is deleted.");
+    assert_eq!(refused(Target::EventFile(1)), "Event file 0001 is deleted.");
     assert!(guard_reference(&st, Target::Trainer(0)).is_ok());
     assert!(guard_reference(&st, Target::Header(1)).is_ok());
     assert!(guard_reference(&st, Target::Species(1)).is_ok());
@@ -662,21 +658,15 @@ fn referenced_names_the_entity_and_the_count() {
         access: Access::Read,
         value: None,
     };
-    let e = KernelError::Referenced {
-        label: "Trainer 0001".into(),
-        references: vec![r, r],
-    };
+    let e = KernelError::referenced("Trainer 0001".into(), vec![r, r]);
     assert_eq!(
         e.to_string(),
-        "Trainer 0001 wird noch verwendet (2 Verweise)."
+        "Trainer 0001 is still in use (2 references)."
     );
-    let one = KernelError::Referenced {
-        label: "Trainer 0001".into(),
-        references: vec![r],
-    };
+    let one = KernelError::referenced("Trainer 0001".into(), vec![r]);
     assert_eq!(
         one.to_string(),
-        "Trainer 0001 wird noch verwendet (1 Verweis)."
+        "Trainer 0001 is still in use (1 reference)."
     );
 }
 
@@ -695,7 +685,7 @@ fn free_info_serializes_its_count_and_files() {
 // --- delete, restore and „Nummer freigeben“ (task 5) ---
 
 use g4_kernel::delete::{
-    DeleteResult, IRREVERSIBLE, PLACE_ONLY_LAST, delete, free_number, locked_refusal, restore,
+    DeleteResult, delete, free_number, irreversible, locked_refusal, place_only_last, restore,
 };
 use g4_kernel::places::{create_place, location_names};
 use g4_kernel::textproject::check;
@@ -756,7 +746,7 @@ fn delete_sets_the_tombstone_as_one_step_and_restore_takes_it_back() {
     assert_eq!(result.freed, None);
     assert!(st.is_deleted(target));
     assert_eq!(st.undo_depth(), depth + 1);
-    assert_eq!(last_label(&st), "Gelöscht: Trainer 0001");
+    assert_eq!(last_label(&st), "Deleted: Trainer 0001");
 
     // ⌘Z takes it back; saved, the file is the one before.
     st.undo().unwrap();
@@ -774,19 +764,19 @@ fn delete_sets_the_tombstone_as_one_step_and_restore_takes_it_back() {
     );
     assert_eq!(
         refused(delete(&mut st, &mut RefIndex::new(), &base, target)),
-        "Trainer 0001 ist schon gelöscht."
+        "Trainer 0001 is already deleted."
     );
     let result = restore(&mut st, target).unwrap();
     assert!(result.change.is_some());
     assert_eq!(result.changed, [trainer_asset(1)]);
-    assert_eq!(last_label(&st), "Wiederhergestellt: Trainer 0001");
+    assert_eq!(last_label(&st), "Restored: Trainer 0001");
     assert!(!st.is_deleted(target));
     st.save().unwrap();
     assert_eq!(fx.read(json), before);
 
     assert_eq!(
         refused(restore(&mut st, target)),
-        "Trainer 0001 ist nicht gelöscht."
+        "Trainer 0001 is not deleted."
     );
 }
 
@@ -798,7 +788,9 @@ fn delete_refuses_a_referenced_trainer_with_the_list() {
     let depth = st.undo_depth();
     let target = DeleteTarget::Trainer { index: 1 };
     match delete(&mut st, &mut RefIndex::new(), &base, target) {
-        Err(KernelError::Referenced { label, references }) => {
+        Err(KernelError::Referenced {
+            label, references, ..
+        }) => {
             assert_eq!(label, "Trainer 0001");
             assert_eq!(references.len(), 1, "{references:?}");
         }
@@ -818,7 +810,7 @@ fn delete_refuses_a_referenced_trainer_with_the_list() {
             &base,
             DeleteTarget::Trainer { index: 2 }
         )),
-        NOT_A_TEXT_PROJECT
+        not_a_text_project()
     );
 }
 
@@ -861,7 +853,7 @@ fn delete_of_a_flag_name_removes_file_and_register_entry_as_a_file_step() {
     let result = delete(&mut st, &mut RefIndex::new(), &base, target).unwrap();
     assert!(result.change.is_some());
     assert_eq!(st.undo_depth(), depth + 1);
-    assert_eq!(last_label(&st), "Gelöscht: Flag 0x0094");
+    assert_eq!(last_label(&st), "Deleted: Flag 0x0094");
     assert!(!exists(&fx, FLAG_FILE));
     assert_eq!(fx.text(FLAG_REGISTER), "{}\n");
     // The event names the number again, which stays valid.
@@ -917,7 +909,7 @@ fn delete_of_the_last_own_place_is_one_step() {
             &base,
             DeleteTarget::Place { index: 0 }
         )),
-        PLACE_ONLY_LAST
+        place_only_last()
     );
 
     let target = DeleteTarget::Place {
@@ -926,7 +918,7 @@ fn delete_of_the_last_own_place_is_one_step() {
     let result = delete(&mut st, &mut RefIndex::new(), &base, target).unwrap();
     assert!(result.change.is_some());
     assert_eq!(st.undo_depth(), depth + 1);
-    assert_eq!(last_label(&st), "Ort entfernt: Neuort");
+    assert_eq!(last_label(&st), "Place removed: Neuort");
     assert_eq!(location_names(&mut st).unwrap().len(), count - 1);
     assert!(!fx.text(PLACE_REGISTER).contains("PLACE_NEUORT"));
 
@@ -968,11 +960,19 @@ fn plan_of_a_place_allows_only_the_last_own_one() {
     // An own place before it and an original one: refused with the sentence.
     for index in [first, 0] {
         let p = plan(&mut st, &base, DeleteTarget::Place { index });
-        assert_eq!(p.refusal.as_deref(), Some(PLACE_ONLY_LAST), "{index}");
-        assert_eq!(p.cannot_free.as_deref(), Some(PLACE_ONLY_LAST), "{index}");
         assert_eq!(
-            PLACE_ONLY_LAST,
-            "Nur der letzte eigene Ort lässt sich entfernen; Orte rücken nicht nach."
+            p.refusal.as_deref(),
+            Some(place_only_last().as_str()),
+            "{index}"
+        );
+        assert_eq!(
+            p.cannot_free.as_deref(),
+            Some(place_only_last().as_str()),
+            "{index}"
+        );
+        assert_eq!(
+            place_only_last(),
+            "Only the last place of your own can be removed; places do not move up."
         );
     }
 
@@ -1029,15 +1029,12 @@ fn free_number_truncates_a_new_trainer_at_the_end() {
     assert_eq!(
         labels[labels.len() - 2..],
         [
-            "Gelöscht: Trainer 0002".to_owned(),
-            "Nummer freigegeben: Trainer 0002".to_owned()
+            "Deleted: Trainer 0002".to_owned(),
+            "Number freed: Trainer 0002".to_owned()
         ]
     );
-    assert_eq!(refused(st.undo()), IRREVERSIBLE);
-    assert_eq!(
-        IRREVERSIBLE,
-        "Nummer freigeben lässt sich nicht rückgängig machen"
-    );
+    assert_eq!(refused(st.undo()), irreversible());
+    assert_eq!(irreversible(), "Freeing the number cannot be undone");
     // Unsaved are only the trainer names and battle text offsets the barrier shortened.
     assert!(
         st.dirty().iter().all(|id| matches!(
@@ -1084,7 +1081,7 @@ fn free_number_takes_the_trailing_tombstones_with_it() {
         assert!(!exists(&fx, json), "{json}");
     }
     assert!(exists(&fx, "data/trainers/0000.json"));
-    assert_eq!(last_label(&st), "Nummer freigegeben: Trainer 0001");
+    assert_eq!(last_label(&st), "Number freed: Trainer 0001");
 }
 
 #[test]
@@ -1097,7 +1094,7 @@ fn free_number_refuses_a_tombstone_before_a_living_entry() {
     let depth = st.undo_depth();
     assert_eq!(
         refused(free_number(&mut st, &mut refs, &base, target)),
-        "Nummer 1 bleibt belegt, weil 1 späterer Eintrag lebt."
+        "Number 1 stays taken because 1 later entry still exists."
     );
     assert_eq!(st.undo_depth(), depth);
     assert!(exists(&fx, "data/trainers/0001.json"));
@@ -1117,7 +1114,7 @@ fn plan_refuses_a_locked_trainer_up_front_in_german() {
     let sentence = locked_refusal("Trainer 0002", PLACEHOLDER_REASON);
     assert_eq!(
         sentence,
-        "Trainer 0002 ist der Platzhalter des Sicht-Scripts und lässt sich nicht löschen."
+        "Trainer 0002 is the placeholder for the sight script and cannot be deleted."
     );
     let p = plan(&mut st, &base, target);
     assert_eq!(p.refusal.as_deref(), Some(sentence.as_str()));
@@ -1139,8 +1136,8 @@ fn plan_refuses_a_locked_trainer_up_front_in_german() {
     assert_eq!(
         other.refusal.as_deref(),
         Some(
-            "Trainer 0001 ist schreibgeschützt (17 bytes read, 16 would be written) und lässt \
-             sich nicht löschen."
+            "Trainer 0001 is read-only (17 bytes read, 16 would be written) and cannot be \
+             deleted."
         )
     );
     assert_eq!(other.can_free, None);
@@ -1158,7 +1155,7 @@ fn free_number_refuses_an_original() {
             &base,
             DeleteTarget::Trainer { index: 2 }
         )),
-        CANNOT_FREE_ORIGINAL
+        cannot_free_original()
     );
     assert_eq!(st.undo_depth(), depth);
     assert!(exists(&fx, "data/trainers/0002.json"));
@@ -1188,11 +1185,11 @@ fn free_number_of_a_new_script_removes_source_member_and_compile_entry() {
     let after = snapshot_script(&fx.project(), 2).unwrap();
     assert_eq!(after, Default::default());
     assert_eq!(st.member_count(AssetKind::Script).unwrap(), 2);
-    assert_eq!(last_label(&st), "Nummer freigegeben: Scriptdatei 0002");
-    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+    assert_eq!(last_label(&st), "Number freed: Script file 0002");
+    assert_eq!(refused(st.undo()), irreversible());
     // No tombstone step before it: script files have none.
     assert!(
-        !st.history().0.iter().any(|l| l.starts_with("Gelöscht")),
+        !st.history().0.iter().any(|l| l.starts_with("Deleted")),
         "{:?}",
         st.history().0
     );
@@ -1220,7 +1217,7 @@ fn free_number_of_a_new_text_archive_removes_json_and_member() {
     assert!(!exists(&fx, &member));
     assert_eq!(st.member_count(AssetKind::TextArchive).unwrap(), count - 1);
     assert!(!BuildState::load(fx.root()).texts.contains_key(&last));
-    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+    assert_eq!(refused(st.undo()), irreversible());
 }
 
 /// The base of the fixture with its first `headers` headers only (the ones after are new).
@@ -1281,7 +1278,7 @@ fn free_number_of_a_new_header_shortens_the_table() {
     assert_eq!(std::fs::read(&mapname).unwrap().len(), 32);
     assert_eq!(st.header_table().unwrap().len(), 2);
     assert_eq!(fx.project().header_count().unwrap(), 2);
-    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+    assert_eq!(refused(st.undo()), irreversible());
     assert!(st.dirty().is_empty(), "{:?}", st.dirty());
     st.save().unwrap();
     let report = check(&fx.project()).unwrap();
@@ -1312,8 +1309,8 @@ fn free_number_works_in_the_dspre_layout() {
         assert!(!exists(&fx, member), "{}", member.display());
     }
     assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 2);
-    assert_eq!(st.history().0, ["Nummer freigegeben: Trainer 0002"]);
-    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+    assert_eq!(st.history().0, ["Number freed: Trainer 0002"]);
+    assert_eq!(refused(st.undo()), irreversible());
 }
 
 // --- fix round 1: a freed trainer number is taken again ---
@@ -1392,7 +1389,7 @@ fn a_freed_trainer_number_is_created_again() {
             base_offsets,
             "text project: {text_project}"
         );
-        assert_eq!(refused(st.undo()), IRREVERSIBLE);
+        assert_eq!(refused(st.undo()), irreversible());
         st.save().unwrap();
 
         // The number is free: the next trainer takes it, also in a store opened anew.
@@ -1635,7 +1632,9 @@ fn destinations(st: &mut Store, file: u16) -> Vec<(u16, u16)> {
 
 fn referenced<T: std::fmt::Debug>(result: Result<T, KernelError>) -> (String, Vec<Ref>) {
     match result {
-        Err(KernelError::Referenced { label, references }) => (label, references),
+        Err(KernelError::Referenced {
+            label, references, ..
+        }) => (label, references),
         other => panic!("expected Referenced, got {other:?}"),
     }
 }
@@ -1692,7 +1691,7 @@ fn deleting_a_targeted_door_is_refused_with_the_list() {
     let (_fx, mut st) = doors(&[(0, 1), (0, 2)]);
     let depth = st.undo_depth();
     let (label, references) = referenced(delete_warp(&mut st, &mut RefIndex::new(), 0, 1));
-    assert_eq!(label, "Eventdatei 0000, Tür 1");
+    assert_eq!(label, "Event file 0000, door 1");
     assert_eq!(references.len(), 1, "{references:?}");
     assert_eq!(
         references[0].target,
@@ -1746,7 +1745,7 @@ fn a_script_moving_a_later_warp_blocks_the_delete() {
         b"script Main #1:\n    SetWarpEventPos 2, 10, 12\n    End\nscript Second #2:\n    End\n",
     );
     let (label, references) = referenced(delete_warp(&mut st, &mut refs, 0, 0));
-    assert_eq!(label, "Eventdatei 0000, Tür 0");
+    assert_eq!(label, "Event file 0000, door 0");
     let found: Vec<(AssetKind, &str, Target)> = references
         .iter()
         .map(|r| (r.source.kind, r.field, r.target))
@@ -1794,7 +1793,7 @@ fn guard_header_refuses_only_a_new_reference_to_a_tombstone() {
     tombstone(&mut st, DeleteTarget::EventFile { index: other });
     match guard_header(&st, &before, &after) {
         Err(KernelError::Refused(why)) => {
-            assert_eq!(why, format!("Eventdatei {other:04} ist gelöscht."));
+            assert_eq!(why, format!("Event file {other:04} is deleted."));
         }
         other => panic!("{other:?}"),
     }
@@ -1943,7 +1942,7 @@ fn deleting_a_trainer_a_story_mentions_warns_and_does_not_lock() {
         .collect();
     assert_eq!(
         open,
-        ["story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 ist gelöscht."]
+        ["story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 is deleted."]
     );
 
     // ⌘Z takes the tombstone back; restoring answers no mentions.
@@ -1977,7 +1976,9 @@ fn a_hard_reference_still_locks_with_the_story_beside_it() {
     // The figure locks it; the story changes nothing about that.
     let depth = st.undo_depth();
     match delete(&mut st, &mut RefIndex::new(), &base, target) {
-        Err(KernelError::Referenced { label, references }) => {
+        Err(KernelError::Referenced {
+            label, references, ..
+        }) => {
             assert_eq!(label, "Trainer 0001");
             assert_eq!(references.len(), 1, "{references:?}");
         }

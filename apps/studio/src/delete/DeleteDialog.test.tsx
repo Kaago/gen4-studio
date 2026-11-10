@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteEntity, planDelete } from "../api";
 import type { DeletePlan, DeleteResult, StoryMention } from "../api";
+import deDelete from "../i18n/locales/de/delete.json";
+import enDelete from "../i18n/locales/en/delete.json";
 import { pressKey } from "../ui/primitives/testUtils";
-import { DeleteDialog, MENTIONS_HINT } from "./DeleteDialog";
+import { DeleteDialog } from "./DeleteDialog";
 import type { DeleteDialogProps } from "./DeleteDialog";
 import { TRAINER_901, deletePlan, deleteResult, figureRef } from "./deleteTesting";
 
@@ -21,6 +24,7 @@ vi.mock("../api", async (importOriginal) => ({
 const ORIGINAL_WARNING = "Original aus der Basis-ROM: der Eintrag bleibt im ROM; „Auf Original zurücksetzen“ holt ihn zurück.";
 const KEEPS = "Inhalt und Member bleiben; ⌘Z holt den Eintrag zurück.";
 const FREE = "Nummer freigeben (nicht rückgängig)";
+const MENTIONS_HINT = "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.";
 
 /** A promise and the function that settles it, for a step the test lets go on. */
 function deferred<T>() {
@@ -229,9 +233,6 @@ describe("DeleteDialog", () => {
     expect(chips().map((c) => c.textContent)).toEqual(["Testfaden › Kampf gegen Kai", "Testfaden"]);
     expect(chips().map((c) => c.dataset.deleteMention)).toEqual(["STORY_TESTFADEN", "STORY_TESTFADEN"]);
     expect(mentions()?.textContent).toContain(MENTIONS_HINT);
-    expect(MENTIONS_HINT).toBe(
-      "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.",
-    );
     expect(notices("alert")).toEqual([]);
     expect(notices("status")).toEqual([KEEPS]);
     expect(button("Löschen")?.disabled).toBe(false);
@@ -282,5 +283,19 @@ describe("DeleteDialog", () => {
     expect(notices("alert")).toEqual(["1 Verweis: zuerst umhängen."]);
     expect(references().map((r) => r.textContent)).toEqual(["Figur 3 in Eventdatei 0008Eventdatei 0008"]);
     expect(button("Löschen")?.disabled).toBe(true);
+  });
+});
+
+describe("the kernel's refusal in the DSPRE layout", () => {
+  it("not_a_text_project_mirrors_the_kernel_sentence", () => {
+    // The dialog knows the kernel's refusal by its words in either language: a change in the kernel must show here.
+    // The kernel sentence lives in its catalogs as `delete.not_a_text_project`.
+    const sentence = (lang: "de" | "en") => {
+      const catalog = readFileSync(`../../crates/g4-kernel/locales/${lang}.yml`, "utf8");
+      const section = /^delete:\n((?:(?: .*)?\n)*)/m.exec(catalog)?.[1] ?? "";
+      return /^ {2}not_a_text_project: "((?:[^"\\]|\\.)*)"$/m.exec(section)?.[1];
+    };
+    expect(sentence("de")).toBe(deDelete.deleteDialog.notATextProject);
+    expect(sentence("en")).toBe(enDelete.deleteDialog.notATextProject);
   });
 });

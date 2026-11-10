@@ -44,13 +44,16 @@ use super::places::packs_of_map;
 /// The most a sampled cell centre may lie off its step (`8 · step` units), in world units.
 pub const ADOPT_TOLERANCE: f64 = 0.1;
 /// Why Form 2 is refused without apicula.
-pub const ADOPT_NEEDS_APICULA: &str = "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula).";
+pub fn adopt_needs_apicula() -> String {
+    t!("world.adopt_needs_apicula").into_owned()
+}
 /// A material of Form 2 that binds no texture of the package.
 pub const ADOPT_TEXTURE_CODE: &str = "world.adopt-texture";
 /// The `<name>` of the side file of Form 2: `NNNN.model.glb`.
 pub const FORM2_SIDE_NAME: &str = "model";
 
-/// The name of the ground layer of an adopted world.
+/// The name of the ground layer of an adopted world: content of the map's JSON (and of a TMJ
+/// export), not a message, so it is the same in every locale.
 const GROUND_NAME: &str = "Boden";
 /// Cells per row and rows per layer.
 const MAP_CELLS: usize = g4_formats::map::MAP_SIZE;
@@ -145,9 +148,9 @@ pub struct WorldAdoptReport {
     pub form2: Option<Form2Report>,
 }
 
-/// „Karte als Quelle übernommen: Karte 0123“, the label of [`world_adopt`].
+/// „Map adopted as source: Map 0123“, the label of [`world_adopt`].
 pub fn adopt_label(map: u16) -> String {
-    format!("Karte als Quelle übernommen: Karte {map:04}")
+    t!("world.adopt_label", map = map : {:04}).into_owned()
 }
 
 /// The step of a cell centre at `height` world units: `round(y / 8)` (ties to even), within
@@ -218,9 +221,7 @@ fn source(
     if store.world(map)?.is_some() {
         return Err(KernelError::Refused(already_world(map)));
     }
-    refuse_locked_map(store, map, |cause| {
-        binary_map_refusal(map, "übernehmen", cause)
-    })?;
+    refuse_locked_map(store, map, |cause| binary_map_refusal(map, true, cause))?;
     let file = store.map(map)?.clone();
     let (package, guessed) = match req.tileset {
         Some(package) => (package, false),
@@ -340,7 +341,7 @@ fn set_world(
         Ok(tx.bake_report(map))
     })?;
     let bake = bake.ok_or_else(|| {
-        KernelError::InvalidProject(format!("Karte {map:04}: das Übernehmen backte nicht."))
+        KernelError::InvalidProject(t!("world.adopt_baked_nothing", map = map : {:04}).into_owned())
     })?;
     Ok((bake, change))
 }
@@ -359,8 +360,8 @@ fn set_world(
 /// folder is removed afterwards, whatever the outcome.
 ///
 /// Refused ([`KernelError::Refused`], nothing changed): outside a text project
-/// ([`super::WORLD_NEEDS_TEXT_PROJECT`]), Form 2 without apicula ([`ADOPT_NEEDS_APICULA`]), a
-/// map that is a world map already ([`already_world`]), a locked map or one whose member does
+/// ([`super::world_needs_text_project`]), Form 2 without apicula ([`adopt_needs_apicula`]), a
+/// map that is already a world map ([`already_world`]), a locked map or one whose member does
 /// not read ([`super::edit::binary_map_refusal`]: „Karte 0001 lässt sich nicht übernehmen: ihr
 /// Member lässt sich nicht lesen (…).“), a package that is not there (the refusal of
 /// [`Store::tileset`]), and what [`world_adopt_glb`] refuses. apicula's own failure is its
@@ -373,7 +374,7 @@ pub fn world_adopt_with(
     require_text_project(store)?;
     if req.form == AdoptForm::Gltf {
         let Some(apicula) = apicula else {
-            return Err(KernelError::Refused(ADOPT_NEEDS_APICULA.to_owned()));
+            return Err(KernelError::Refused(adopt_needs_apicula()));
         };
         return adopt_through_apicula(store, req, apicula);
     }
@@ -401,7 +402,7 @@ pub fn world_adopt_with(
     })
 }
 
-/// [`world_adopt_with`] without apicula: Form 1, or the refusal [`ADOPT_NEEDS_APICULA`].
+/// [`world_adopt_with`] without apicula: Form 1, or the refusal [`adopt_needs_apicula`].
 pub fn world_adopt(
     store: &mut Store,
     req: &WorldAdoptRequest,
@@ -481,9 +482,11 @@ pub fn world_adopt_glb(
     let (_, textures) = bake_pack(store, package, &tileset, None)?;
     let bindings = bind_vanilla_materials(&mesh, &source.file.model, &textures).map_err(|m| {
         form2_refusal(
-            &format!(
-                "Material „{m}“ der Karte {map:04} bindet keine Textur des Pakets {package:04}; \
-                 Form 2 geht für diese Karte nicht, Form 1 schon."
+            &t!(
+                "world.adopt_material_unbound",
+                material = m,
+                map = map : {:04},
+                package = package : {:04}
             ),
             ADOPT_TEXTURE_CODE,
         )

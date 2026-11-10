@@ -55,11 +55,14 @@ use super::sync;
 pub const MAX_ID_LEN: usize = 64;
 
 /// Why a folder without manifest has no ids to rename.
-pub const NOT_A_TEXT_PROJECT: &str =
-    "Kein Textprojekt: IDs gibt es erst nach „Als Textprojekt einrichten…“.";
+pub fn not_a_text_project() -> String {
+    t!("textproject.not_a_text_project").into_owned()
+}
 
 /// Why a rename to the same id is refused.
-pub const SAME_ID: &str = "Die neue ID ist die alte.";
+pub fn same_id() -> String {
+    t!("textproject.same_id").into_owned()
+}
 
 /// Every kind, to split an id by its longest prefix (`TRAINER_CLASS_X` is a class).
 const KINDS: [SymbolKind; 12] = [
@@ -147,7 +150,10 @@ pub fn rename_id(
     project.editable()?;
     let (plan, step) = prepared_step(&project, old_id, new_id)?;
     let warnings = apply_file_step(&project, &step)?;
-    let change = store.record_file_step(&format!("ID umbenannt: {old_id} → {new_id}"), step);
+    let change = store.record_file_step(
+        &t!("textproject.id_renamed_label", old = old_id, new = new_id),
+        step,
+    );
     Ok(RenameResult {
         plan,
         change,
@@ -253,16 +259,10 @@ pub(crate) fn after_move(
         })
         .collect();
     if let Err(e) = sync::record_known(project, &known) {
-        warnings.push(format!(
-            "Der Abgleich ist nicht neu aufgezeichnet ({e}); der nächste Abgleich prüft die \
-             Dateien."
-        ));
+        warnings.push(t!("textproject.sync_not_recorded", error = e).into_owned());
     }
     if let Err(e) = write_include(project) {
-        warnings.push(format!(
-            "Die ID-Dateien für rotom sind nicht neu geschrieben ({e}); der nächste Compile \
-             schreibt sie."
-        ));
+        warnings.push(t!("textproject.id_files_not_written", error = e).into_owned());
     }
     warnings
 }
@@ -423,11 +423,12 @@ pub fn kind_of(id: &str) -> Option<SymbolKind> {
 
 /// The sentence for a new id of `kind` that breaks the rules of an id.
 pub fn format_text(kind: SymbolKind) -> String {
-    format!(
-        "Die neue ID muss mit {}_ beginnen und darf danach nur A–Z, 0–9 und _ enthalten \
-         (höchstens {MAX_ID_LEN} Zeichen).",
-        kind.prefix()
+    t!(
+        "textproject.id_format",
+        prefix = kind.prefix(),
+        max = MAX_ID_LEN
     )
+    .into_owned()
 }
 
 /// Whether `id` is the prefix of `kind`, `_` and at least one of `A–Z`, `0–9`, `_`, at most
@@ -458,11 +459,9 @@ struct Judged {
 fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, String>, KernelError> {
     match schema_state(&project.root)? {
         SchemaState::Current => {}
-        SchemaState::Missing => return Ok(Err(NOT_A_TEXT_PROJECT.to_owned())),
+        SchemaState::Missing => return Ok(Err(not_a_text_project())),
         state => {
-            return Ok(Err(
-                refusal(state).unwrap_or_else(|| NOT_A_TEXT_PROJECT.to_owned())
-            ));
+            return Ok(Err(refusal(state).unwrap_or_else(not_a_text_project)));
         }
     }
     let Some(kind) = kind_of(old) else {
@@ -474,10 +473,7 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
             .or_else(|| parse_fallback(kind, old))
             .is_some();
         return Ok(Err(if fixed {
-            format!(
-                "{old} steht in einer festen Tabelle; umbenennen lassen sich nur IDs mit \
-                 Register (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_, FLAG_, VAR_)."
-            )
+            t!("textproject.id_fixed_table", id = old).into_owned()
         } else {
             unknown_id_text(old)
         }));
@@ -487,7 +483,7 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
         return Ok(Err(unknown_id_text(old)));
     };
     if new == old {
-        return Ok(Err(SAME_ID.to_owned()));
+        return Ok(Err(same_id()));
     }
     // A flag or variable: its own name must not be the pret name of another number (checked
     // before the form, as pret names may have a lower-case `0x`).
@@ -495,27 +491,40 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
         .and_then(|flag| names(project.family, flag).number(new))
         .filter(|&n| u32::from(n) != number)
     {
-        return Ok(Err(format!("{new} ist der pret-Name der Nummer {owner}.")));
+        return Ok(Err(t!(
+            "textproject.id_is_pret_name",
+            id = new,
+            owner = owner
+        )
+        .into_owned()));
     }
     if !well_formed(kind, new) {
         return Ok(Err(format_text(kind)));
     }
     if let Some(other) = kind_of(new).filter(|k| *k != kind) {
-        return Ok(Err(format!(
-            "{new} wäre eine ID der Art {}_; die neue ID muss mit {}_ beginnen, nicht mit {}_.",
-            other.prefix(),
-            kind.prefix(),
-            other.prefix()
-        )));
+        return Ok(Err(t!(
+            "textproject.id_other_kind",
+            id = new,
+            other = other.prefix(),
+            prefix = kind.prefix()
+        )
+        .into_owned()));
     }
     if let Some(owner) = parse_fallback(kind, new).filter(|&n| n != number) {
-        return Ok(Err(format!("{new} ist die Ersatz-ID der Nummer {owner}.")));
+        return Ok(Err(t!(
+            "textproject.id_is_fallback",
+            id = new,
+            owner = owner
+        )
+        .into_owned()));
     }
     let ids = Resolver::for_project(project)?;
     if let Ok(owner) = ids.number(kind, &RefInput::Id(new.to_owned()))
         && owner != number
     {
-        return Ok(Err(format!("{new} gibt es schon (Nummer {owner}).")));
+        return Ok(Err(
+            t!("textproject.id_exists", id = new, owner = owner).into_owned()
+        ));
     }
     let rotom = if scripts::is_adopted(project) {
         Some(scripts::base_constants(project, false)?)
@@ -527,7 +536,12 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
         .and_then(|db| db.get(new))
         .filter(|&v| i64::from(v) != i64::from(number))
     {
-        return Ok(Err(format!("{new} kennt rotom schon als Nummer {theirs}.")));
+        return Ok(Err(t!(
+            "textproject.id_known_to_rotom",
+            id = new,
+            theirs = theirs
+        )
+        .into_owned()));
     }
     Ok(Ok(Judged {
         kind,
@@ -606,11 +620,14 @@ fn prepare(
                 count,
             )),
             Err(why) => {
-                plan.refusal = Some(format!(
-                    "{} lässt sich nicht lesen ({why}); erst die Datei reparieren, dann \
-                     umbenennen.",
-                    slashed(&rel)
-                ));
+                plan.refusal = Some(
+                    t!(
+                        "textproject.rename_unreadable",
+                        file = slashed(&rel),
+                        why = why
+                    )
+                    .into_owned(),
+                );
                 return Ok((plan, Vec::new()));
             }
         }

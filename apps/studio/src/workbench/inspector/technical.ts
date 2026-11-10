@@ -1,9 +1,10 @@
 import { headerFamily } from "../../api";
 import type { AreaDataDto, AssetKind, BuildingDto, EventKind, MapHeader } from "../../api";
+import { t } from "../../i18n";
 import { formatNumber } from "../../ui/primitives";
 import type { EventData } from "../../world/events";
 import type { InspectorModel } from "../Inspector";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import { areaFieldSpecs, areaValue } from "./areaFields";
 import { eventFieldSpecs, EVENT_FIELDS } from "./eventFields";
 import { fieldValue, headerFieldSpecs } from "./fields";
@@ -62,15 +63,15 @@ export function technicalRows(source: TechnicalSource): TechnicalRow[] {
 export function assetLine(model: InspectorModel): string {
   switch (model.kind) {
     case "header":
-      return `${TERMS.header.label} ${id4(model.id)}, Eintrag der Header-Tabelle`;
+      return t("workbench:technical.headerLine", { term: termLabel("header"), id: id4(model.id) });
     case "area":
-      return `${TERMS.areaData.label} ${id4(model.id)}`;
+      return `${termLabel("areaData")} ${id4(model.id)}`;
     case "building":
-      return `${TERMS.map.label} ${id4(model.map)}, Index ${model.index}`;
+      return t("workbench:technical.indexLine", { term: termLabel("map"), id: id4(model.map), index: model.index });
     case "event":
-      return `${TERMS.eventFile.label} ${id4(model.eventFile)}, Index ${model.index}`;
+      return t("workbench:technical.indexLine", { term: termLabel("eventFile"), id: id4(model.eventFile), index: model.index });
     case "matrixCell":
-      return `${TERMS.matrix.label} ${id4(model.matrix)}, Zelle ${model.x}, ${model.y}`;
+      return t("workbench:technical.cellLine", { term: termLabel("matrix"), id: id4(model.matrix), x: model.x, y: model.y });
     case "none":
     case "eventHover":
     case "tile":

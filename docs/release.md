@@ -1,9 +1,11 @@
+*English: [docs/en/release.md](en/release.md)*
+
 # Release: macOS-DMG und Windows-Installer
 
 Gen4 Studio erscheint als DMG für macOS (arm64) und als NSIS-Installer für Windows (x64). Beide Pakete entstehen aus den
 hermetischen Quellen: keine ROM, kein Spielstand, kein Geheimnis. Das DMG baut `scripts/release-local.sh` auf dem Mac des
 Maintainers, der auch Tag und Release-Entwurf anlegt; nur den Installer baut der Workflow `release.yml` auf einem gehosteten
-Windows-Runner, von Hand gestartet. Eine automatische CI gibt es nicht mehr (Abschnitt „Workflows, Tags und Versionen“). Dieses
+Windows-Runner, von Hand gestartet. Die CI `ci.yml` läuft bei jedem Pull Request und jedem Push auf `main` (Abschnitt „Workflows, Tags und Versionen“). Dieses
 Dokument beschreibt beide Bundles, den Weg vom Tag zum Release, die Lizenzhinweise und den vorbereiteten Schritt zum Signieren.
 Die Abnahme mit einer ROM und mit dem fertigen Paket steht in `docs/release-ci-gate.md`.
 
@@ -65,8 +67,9 @@ der Entitlement `com.apple.security.cs.disable-library-validation` oder einer mi
 Binary die Linker-Signatur; ein heruntergeladenes DMG galt dann als „beschädigt“ statt „nicht verifiziert“ (Gate G5, Befund B1).
 Beim ersten Start verlangt Gatekeeper deshalb eine Freigabe:
 
-- Rechtsklick auf die App, dann Öffnen (und im Dialog noch einmal Öffnen); oder Systemeinstellungen, Datenschutz & Sicherheit,
-  Trotzdem öffnen.
+- Systemeinstellungen, Datenschutz & Sicherheit: nach dem ersten blockierten Start die Meldung zu Gen4 Studio suchen und
+  „Trotzdem öffnen“ wählen.
+- Unter macOS 14 und älter geht auch Rechtsklick auf die App, dann Öffnen (und im Dialog noch einmal Öffnen).
 - Oder im Terminal: `xattr -dr com.apple.quarantine "/Applications/Gen4 Studio.app"`.
 
 Nur die Architektur des Build-Rechners (`aarch64-apple-darwin`); ein Universal-Binary ist nicht vorgesehen. Mindestsystem
@@ -115,14 +118,17 @@ der Workflow setzt keine.
 
 ## Workflows, Tags und Versionen
 
-**Keine automatische CI.** Seit dem 5. November 2026 startet kein Push, kein Pull Request und kein Tag mehr einen Workflow:
-gehostete Minuten kosten Geld (ein Push auf `main` lief rund 1,80 $, macOS-Minuten zählen zehnfach), und die Prüfung, die zählt,
-ist ohnehin das volle `scripts/gate.sh` auf dem Mac vor jedem Merge (`docs/dev-setup.md`). Beide Workflows laufen nur von Hand
-(`workflow_dispatch`).
+**CI bei Pull Requests, kein Workflow bei einem Tag.** Solange das Repository privat war (seit dem 5. November 2026), startete kein
+Push und kein Pull Request einen Workflow: gehostete Minuten kosteten Geld (ein Push auf `main` lief rund 1,80 $, macOS-Minuten
+zählen zehnfach). Für öffentliche Repositories sind die Standard-Runner kostenlos, deshalb läuft `ci.yml` jetzt bei jedem Pull
+Request gegen `main` und bei jedem Push auf `main`, ohne Pfadfilter. Das volle `scripts/gate.sh` auf dem Mac vor jedem Merge
+(`docs/dev-setup.md`) bleibt die Abnahme, es fährt auch die ROM-gebundenen Schritte. Kein Tag startet einen Workflow, und `release.yml`
+läuft nur von Hand (`workflow_dispatch`).
 
 **`ci.yml`** fährt nur hermetische Schritte: `gate-macos` das hermetische Gate (`G4_GATE_HERMETIC=1 bash scripts/gate.sh`),
 `gate-windows` nur `cargo clippy` und `cargo test --workspace --all-features --no-fail-fast` (`target/` und `TEMP` auf einem
-Dev Drive). `gate-macos` läuft bei jedem Start, `gate-windows` nur mit dem Eingang `windows`:
+Dev Drive). `gate-macos` läuft bei jedem Pull Request gegen `main`, bei jedem Push auf `main` und bei jedem Handstart,
+`gate-windows` nur mit dem Eingang `windows` (also nur von Hand):
 
 ```sh
 gh workflow run ci.yml                    # nur gate-macos

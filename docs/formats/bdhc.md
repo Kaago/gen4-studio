@@ -1,5 +1,13 @@
 # BDHC (Laufhöhen)
 
+**In English:** BDHC is the fourth section of a map file and tells the game at which height a
+character stands at any point of the map; collision (permissions) is separate. The document gives
+the byte layout: a 16-byte header followed by points, normals, constants, plates, strips and an
+access list. It draws on the public pokeplatinum decompilation (read only, as format knowledge) and
+on Gen4 Studio's own measurements and emulator probe from the phase 6 expert report. The reader and
+the writer are in `crates/g4-formats/src/bdhc.rs`, and the generator that builds a BDHC from a height
+grid is in `crates/g4-formats/src/bdhc/grid.rs`. All values are little endian.
+
 Quelle: pret/pokeplatinum `include/overlay005/bdhc.h` und `src/overlay005/bdhc.c`
 (Leser und Höhensuche, nur gelesen, Formatwissen), Messungen und Emulator-Probe aus
 [Gutachten B](../research/2026-11-05-phase-6/gutachten-b-bdhc-engine.md) §2.1, §2.2, §2.5 mit

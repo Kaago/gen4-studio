@@ -1,4 +1,5 @@
 import type { BuildingDto } from "../api";
+import { t } from "../i18n";
 import type { AreaId, PokemonSub } from "../ui/frame/shellState";
 import { snapTo } from "./drag";
 import { MAP_SIZE, MODEL_SCALE } from "./layout";
@@ -59,18 +60,28 @@ const SUB_KEYS: Readonly<Record<string, PokemonSub>> = { "1": "pokedex", "2": "t
  * Every app-level shortcut as the settings list it (read only): its keys as shown and what it does. A record over `ShortcutAction`, so no
  * action can be left out; a test presses each entry's keys through `shortcutAction`, so the keys cannot drift either.
  */
-export const SHORTCUTS: Readonly<Record<ShortcutAction, { keys: string; label: string }>> = {
-  open: { keys: "⌘O", label: "Projekt öffnen" },
-  palette: { keys: "⌘K", label: "Befehlspalette öffnen" },
-  save: { keys: "⌘S", label: "Speichern" },
-  undo: { keys: "⌘Z", label: "Rückgängig" },
-  redo: { keys: "⇧⌘Z", label: "Wiederholen" },
-  play: { keys: "⌘R", label: "Hier spielen (nur in der App)" },
-  pokedex: { keys: "⌘1", label: "Pokédex (im Bereich Pokémon)" },
-  trainer: { keys: "⌘2", label: "Trainer (im Bereich Pokémon)" },
-  encounters: { keys: "⌘3", label: "Begegnungen (im Bereich Pokémon)" },
-  moves: { keys: "⌘4", label: "Attacken (im Bereich Pokémon)" },
+export const SHORTCUTS: Readonly<Record<ShortcutAction, { keys: string; readonly label: string }>> = {
+  open: shortcut("⌘O", "open"),
+  palette: shortcut("⌘K", "palette"),
+  save: shortcut("⌘S", "save"),
+  undo: shortcut("⌘Z", "undo"),
+  redo: shortcut("⇧⌘Z", "redo"),
+  play: shortcut("⌘R", "play"),
+  pokedex: shortcut("⌘1", "pokedex"),
+  trainer: shortcut("⌘2", "trainer"),
+  encounters: shortcut("⌘3", "encounters"),
+  moves: shortcut("⌘4", "moves"),
 };
+
+/** One entry of `SHORTCUTS`: its `label` is read when asked for (in the language shown then), never when this module loads. */
+function shortcut(keys: string, action: ShortcutAction): { keys: string; readonly label: string } {
+  return {
+    keys,
+    get label() {
+      return t(`world:shortcuts.${action}`);
+    },
+  };
+}
 
 /**
  * The app-level shortcut a key event asks for (Cmd/Ctrl+O, +K, +S, +Z, +Shift+Z, and +R for "Hier spielen" inside the app), or null; none
@@ -159,6 +170,9 @@ export function settleBuilding(list: BuildingDto[], index: number, expected: Bui
 
 /** Text of the confirmation before a building is deleted: its number (1-based, like every building label), map, model and position. */
 export function deletePrompt(map: number, index: number, b: Pick<BuildingDto, "model_id" | "x" | "y" | "z"> | undefined): string {
-  const what = `Gebäude ${index + 1} von Karte ${String(map).padStart(4, "0")}`;
-  return b ? `${what} (Modell ${b.model_id}, x ${b.x}, y ${b.y}, z ${b.z}) löschen?` : `${what} löschen?`;
+  const number = index + 1;
+  const where = String(map).padStart(4, "0");
+  return b
+    ? t("world:buildings.deletePromptAt", { number, map: where, model: b.model_id, x: b.x, y: b.y, z: b.z })
+    : t("world:buildings.deletePrompt", { number, map: where });
 }

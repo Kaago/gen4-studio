@@ -365,8 +365,8 @@ fn form2_still_refuses_a_named_texture_missing_from_the_pack() {
     let before = map_bytes(&mut st);
     assert_eq!(
         refused(world_adopt_glb(&mut st, &gltf(), &path)),
-        "Material „gras_lm2“ der Karte 0000 bindet keine Textur des Pakets 0000; Form 2 geht \
-         für diese Karte nicht, Form 1 schon. (world.adopt-texture)"
+        "Material “gras_lm2” of Map 0000 binds no texture of package 0000; Form 2 does not \
+         work for this map, Form 1 does. (world.adopt-texture)"
     );
     assert!(st.history().0.is_empty());
     assert!(!fx.root().join(SIDE).exists());
@@ -493,7 +493,7 @@ fn form2_picks_the_package_that_holds_the_textures() {
     // No package holds them: the first header package, as before.
     let (fx, path) = packages_fixture(3);
     let why = refused(world_adopt_glb(&mut store(&fx), &gltf(), &path));
-    assert!(why.contains(" des Pakets 0000; "), "{why}");
+    assert!(why.contains(" of package 0000; "), "{why}");
 }
 
 #[test]
@@ -521,7 +521,7 @@ fn form2_over_the_budget_leaves_no_step() {
     let mut st = store(&fx);
     let before = map_bytes(&mut st);
     let why = refused(world_adopt_glb(&mut st, &gltf(), &path));
-    assert!(why.starts_with("Das gebackene Modell hat "), "{why}");
+    assert!(why.starts_with("The baked model has "), "{why}");
     assert!(why.ends_with(" (bake.model-too-big)"), "{why}");
     assert_eq!(st.history(), (Vec::new(), Vec::new()));
     assert!(!fx.root().join(SIDE).exists());
@@ -535,8 +535,8 @@ fn form2_over_the_budget_leaves_no_step() {
 fn form2_without_apicula_is_refused() {
     let (fx, _) = fixture();
     let mut st = store(&fx);
-    let needs = "Form 2 braucht apicula (`G4_APICULA` oder tools/apicula).";
-    assert_eq!(ADOPT_NEEDS_APICULA, needs);
+    let needs = "Form 2 needs apicula (`G4_APICULA` or tools/apicula).";
+    assert_eq!(adopt_needs_apicula(), needs);
     assert_eq!(refused(world_adopt(&mut st, &gltf())), needs);
     assert_eq!(refused(world_adopt_with(&mut st, &gltf(), None)), needs);
     // An apicula that is not there: its error, nothing changed, no temporary folder left.
@@ -561,7 +561,7 @@ fn form2_is_one_undo_step() {
     let before = map_bytes(&mut st);
     let report = adopt_glb(&mut st, &path);
     assert!(report.change.is_some());
-    assert_eq!(st.history().0, ["Karte als Quelle übernommen: Karte 0000"]);
+    assert_eq!(st.history().0, ["Map adopted as source: Map 0000"]);
     let adopted = st.world(0).unwrap().cloned();
     let baked = map_bytes(&mut st);
     let side = fx.read(SIDE);
@@ -617,5 +617,5 @@ fn form2_through_apicula_binds_by_mdl0_names() {
     assert_eq!(report.bake.textures, ["syn_boden", "syn_gras"]);
     assert!(fx.root().join(SIDE).exists());
     assert!(!fx.root().join(TMP).exists());
-    assert_eq!(st.history().0, ["Karte als Quelle übernommen: Karte 0000"]);
+    assert_eq!(st.history().0, ["Map adopted as source: Map 0000"]);
 }

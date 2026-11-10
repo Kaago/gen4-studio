@@ -59,6 +59,8 @@ describe("Hinge", () => {
   it("is_a_toolbar_called_Scharnier_with_the_crumbs_the_last_one_marked", () => {
     show(base());
     expect(bar().getAttribute("aria-label")).toBe("Scharnier");
+    // F6 (`app/useF6Ring`) finds the hinge by this attribute, whatever language its label speaks.
+    expect(bar().hasAttribute("data-hinge")).toBe(true);
     const nav = container.querySelector("nav")!;
     expect(nav.textContent).toContain("Zweiblattdorf");
     expect(nav.textContent).toContain("0414");

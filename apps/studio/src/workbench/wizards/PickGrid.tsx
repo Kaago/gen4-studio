@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary, MatrixDto } from "../../api";
+import { t } from "../../i18n";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { AreaGrid } from "../AreaGrid";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import styles from "./PickGrid.module.css";
 
 /** The place and colour of a header, as the matrix tab tints its cells. */
@@ -24,20 +26,20 @@ interface Props {
   label?: string;
 }
 
-/** "Route 201 · Header 0342 · Karte 0521" (Bauen: "Route 201 · Karte 0521"): which place a cell belongs to (a 32 px cell has room for no number). */
+/** „Route 201 · Header 0342 · Karte 0521“ (Bauen: „Route 201 · Karte 0521“): which place a cell belongs to (a 32 px cell has room for no number). */
 export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, y: number, depth: Depth = "tuefteln"): string | null {
   if (x < 0 || y < 0 || x >= matrix.width || y >= matrix.height) return null;
   const i = y * matrix.width + x;
   const map = matrix.maps[i] ?? null;
-  if (map === null) return `Keine ${TERMS.map.label} bei x ${x}, y ${y}`;
+  if (map === null) return t("workbench:pickGrid.noMap", { x, y });
   const header = matrix.headers?.[i];
   const parts: string[] = [];
   if (header !== undefined) {
     const place = places.get(header);
     if (place) parts.push(place.name);
-    if (depthAtLeast(depth, "tuefteln")) parts.push(`${TERMS.header.label} ${id4(header)}`);
+    if (depthAtLeast(depth, "tuefteln")) parts.push(`${termLabel("header")} ${id4(header)}`);
   }
-  parts.push(`${TERMS.map.label} ${id4(map)}`);
+  parts.push(`${termLabel("map")} ${id4(map)}`);
   return parts.join(" · ");
 }
 
@@ -47,6 +49,8 @@ export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, 
  * grid itself is not built again for it.
  */
 export function PickGrid({ matrix, headers, areaFallback, selected, places, last, onCellClick, depth = "tuefteln", label }: Props) {
+  // Renders the caption again when the language changes (`cellCaption` reads the catalog at render time).
+  useTranslation("workbench");
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const colorOf = useMemo(() => (header: number | null) => (header === null ? null : (places.get(header)?.color ?? null)), [places]);
   const grid = useMemo(

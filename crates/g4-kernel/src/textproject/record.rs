@@ -215,23 +215,39 @@ fn read_number(
             &format!("{path}.{name}"),
         )?),
         (Value::Number(n), _) => n.as_u64().ok_or_else(|| {
-            format!("{SCHEMA_CODE}: {path}.{name}: {n} liegt nicht in 0..={max}.")
+            t!(
+                "textproject.number_out_of_range",
+                code = SCHEMA_CODE,
+                path = format!("{path}.{name}"),
+                n = n,
+                max = max
+            )
+            .into_owned()
         })?,
         (other, kind) => {
-            let what = if kind.is_some() {
-                "ID oder Zahl"
+            let key = if kind.is_some() {
+                "textproject.expected_id_or_number"
             } else {
-                "Zahl"
+                "textproject.expected_number"
             };
-            return Err(format!(
-                "{SCHEMA_CODE}: {path}.{name}: {what} erwartet, gefunden {other}."
-            ));
+            return Err(t!(
+                key,
+                code = SCHEMA_CODE,
+                path = format!("{path}.{name}"),
+                found = other
+            )
+            .into_owned());
         }
     };
     if n > max {
-        return Err(format!(
-            "{SCHEMA_CODE}: {path}.{name}: {n} liegt nicht in 0..={max}."
-        ));
+        return Err(t!(
+            "textproject.number_out_of_range",
+            code = SCHEMA_CODE,
+            path = format!("{path}.{name}"),
+            n = n,
+            max = max
+        )
+        .into_owned());
     }
     Ok(n as u32)
 }
@@ -239,16 +255,24 @@ fn read_number(
 /// The `len` bytes of hex field `name` at JSON `path`.
 fn read_hex(v: &Value, path: &str, name: &str, len: usize) -> Result<Vec<u8>, String> {
     let Value::String(text) = v else {
-        return Err(format!(
-            "{SCHEMA_CODE}: {path}.{name}: Hex-Text erwartet, gefunden {v}."
-        ));
+        return Err(t!(
+            "textproject.expected_hex",
+            code = SCHEMA_CODE,
+            path = format!("{path}.{name}"),
+            found = v
+        )
+        .into_owned());
     };
     let bytes = unhex(text).map_err(|e| format!("{SCHEMA_CODE}: {path}.{name}: {e}"))?;
     if bytes.len() != len {
-        return Err(format!(
-            "{SCHEMA_CODE}: {path}.{name}: {} Byte statt {len}.",
-            bytes.len()
-        ));
+        return Err(t!(
+            "textproject.hex_length",
+            code = SCHEMA_CODE,
+            path = format!("{path}.{name}"),
+            count = bytes.len(),
+            len = len
+        )
+        .into_owned());
     }
     Ok(bytes)
 }
@@ -288,21 +312,33 @@ pub(crate) fn record_from_json_at<R: RawRecord>(
     let mut given: HashMap<&str, &Value> = HashMap::with_capacity(j.0.len());
     for (k, v) in &j.0 {
         if !known.iter().any(|n| n == k) {
-            return Err(format!(
-                "{SCHEMA_CODE}: {path}.{k}: unbekannter Schlüssel (`{record}` hat dieses Feld nicht)."
-            ));
+            return Err(t!(
+                "textproject.record_unknown_key",
+                code = SCHEMA_CODE,
+                path = format!("{path}.{k}"),
+                record = record
+            )
+            .into_owned());
         }
         if given.insert(k, v).is_some() {
-            return Err(format!(
-                "{SCHEMA_CODE}: {path}.{k}: der Schlüssel steht doppelt."
-            ));
+            return Err(t!(
+                "textproject.record_duplicate_key",
+                code = SCHEMA_CODE,
+                path = format!("{path}.{k}")
+            )
+            .into_owned());
         }
     }
     let take = |name: &str| {
-        given
-            .get(name)
-            .copied()
-            .ok_or_else(|| format!("{SCHEMA_CODE}: {path}: Schlüssel `{name}` fehlt."))
+        given.get(name).copied().ok_or_else(|| {
+            t!(
+                "textproject.record_missing_key",
+                code = SCHEMA_CODE,
+                path = path,
+                name = name
+            )
+            .into_owned()
+        })
     };
 
     let mut raw = vec![0u8; R::LEN];
@@ -318,10 +354,13 @@ pub(crate) fn record_from_json_at<R: RawRecord>(
                             v.as_i64()
                                 .filter(|n| (-128..=127).contains(n))
                                 .ok_or_else(|| {
-                                    format!(
-                                        "{SCHEMA_CODE}: {path}.{}: {v} liegt nicht in -128..=127.",
-                                        f.name
+                                    t!(
+                                        "textproject.i8_out_of_range",
+                                        code = SCHEMA_CODE,
+                                        path = format!("{path}.{}", f.name),
+                                        value = v
                                     )
+                                    .into_owned()
                                 })?;
                         slot[0] = n as i8 as u8;
                     }
@@ -345,11 +384,13 @@ pub(crate) fn record_from_json_at<R: RawRecord>(
                         }
                     };
                     if rest_bytes(&rest_padded(&rest, c), c, bits) != rest {
-                        return Err(format!(
-                            "{SCHEMA_CODE}: {path}.{key}: setzt Bits, die ein Bit-Feld von \
-                             `{}` hat.",
-                            c.name
-                        ));
+                        return Err(t!(
+                            "textproject.rest_sets_bits",
+                            code = SCHEMA_CODE,
+                            path = format!("{path}.{key}"),
+                            field = c.name
+                        )
+                        .into_owned());
                     }
                     raw[c.offset..c.offset + c.len].copy_from_slice(&rest);
                 }
@@ -400,10 +441,14 @@ pub(crate) fn resolve(
     match r {
         SymRef::Num(n) => Ok(*n),
         SymRef::Id(id) => sym.number(kind, id).ok_or_else(|| {
-            format!(
-                "{UNKNOWN_ID_CODE}: {field}: `{id}` ist keine bekannte ID ({}_…).",
-                kind.prefix()
+            t!(
+                "textproject.unknown_id_of_kind",
+                code = UNKNOWN_ID_CODE,
+                field = field,
+                id = id,
+                prefix = kind.prefix()
             )
+            .into_owned()
         }),
     }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { dataGet, dataRaw, errorText } from "../../api";
 import type { NameTablesDto, PartyMonDto, RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
@@ -16,15 +17,16 @@ import type { DocEdit } from "../useDataDoc";
 import {
   ABILITY_OPTIONS,
   AI_LEVELS,
-  AI_OPTIONS,
-  BATTLE_OPTIONS,
   GENDER_OPTIONS,
   PARTY_MAX,
-  PLACEHOLDER_TEXT,
   TEXT_KINDS,
   abilityOf,
+  aiHex,
   aiLevel,
+  aiOptions,
   aiText,
+  battleChange,
+  battleOptions,
   battleText,
   bitLabel,
   classOptions,
@@ -39,6 +41,7 @@ import {
   nameError,
   newMon,
   optionText,
+  placeholderText,
   problemText,
   slotLabel,
   speciesName,
@@ -75,7 +78,6 @@ export interface Editing {
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const moveText = (names: NameTablesDto, id: number) => (id === 0 ? "Keine" : moveName(names.moves, id));
 
 /** A column of the hand: a bold title with its grey note. */
 export function Column({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
@@ -94,11 +96,12 @@ export function Column({ title, note, children }: { title: string; note?: string
 
 /** One card of the hand's team: a filled place selects its details, a free one adds a Pokémon. */
 function SlotCard({ e, slot, chosen, onChoose, onAdd }: { e: Editing; slot: number; chosen: boolean; onChoose: () => void; onAdd: () => void }) {
+  const { t } = useTranslation("data");
   const mon = e.doc.party[slot];
   const species = mon?.species ?? 0;
   const icon = useIcon(mon ? monIconKey(species) : null, () => monIcon(species), true);
   if (!mon) {
-    return <PokemonCard state="empty" slot={slot + 1} ariaLabel={`Platz ${slot + 1} leer, Pokémon hinzufügen`} onClick={onAdd} disabled={e.locked} dataAttrs={{ "data-slot": slot }} />;
+    return <PokemonCard state="empty" slot={slot + 1} ariaLabel={t("trainerHand.slotEmpty", { slot: slot + 1 })} onClick={onAdd} disabled={e.locked} dataAttrs={{ "data-slot": slot }} />;
   }
   const name = speciesName(e.names.species, mon.species);
   return (
@@ -110,7 +113,7 @@ function SlotCard({ e, slot, chosen, onChoose, onAdd }: { e: Editing; slot: numb
       item={mon.item ? itemName(e.names.items, mon.item) : undefined}
       iconUrl={icon}
       slot={slot + 1}
-      ariaLabel={`Platz ${slot + 1}: ${name}, Level ${mon.level}`}
+      ariaLabel={t("trainerHand.slotCard", { slot: slot + 1, name, level: mon.level })}
       onClick={onChoose}
       disabled={e.locked}
       dataAttrs={{ "data-slot": slot }}
@@ -128,14 +131,16 @@ export function Row({ label, children }: { label: string; children: ReactNode })
  * forms, the item with items on, four moves with own moves on, and removing the Pokémon. Each change writes the whole party as one step.
  */
 function SlotDetails({ e, slot, narrating, onRemoved }: { e: Editing; slot: number; narrating: boolean; onRemoved: () => void }) {
+  const { t } = useTranslation("data");
   const mon = e.doc.party[slot]!;
-  const place = `Platz ${slot + 1}`;
+  const place = t("trainerHand.slot", { slot: slot + 1 });
+  const moveText = (names: NameTablesDto, id: number) => (id === 0 ? t("none") : moveName(names.moves, id));
   const hgss = e.family === "Hgss";
   const strength = strengthField(e.family);
   const forms = formCount(mon.species);
   const off = e.locked;
   // The switches for items and own moves are in the Trainer tab of Bauen only.
-  const switches = narrating ? "in Bauen, Reiter Trainer" : "Reiter Trainer";
+  const switches = narrating ? t("trainerHand.switchesNarrating") : t("trainerHand.switches");
   /** Writes the Pokémon at this place changed by `change`, labelled "<title>: Platz 1 <rest>". */
   const setMon = (change: (m: PartyMonDto) => PartyMonDto, rest: (old: PartyMonDto, next: PartyMonDto) => string) =>
     e.write((now, title) => {
@@ -151,10 +156,10 @@ function SlotDetails({ e, slot, narrating, onRemoved }: { e: Editing; slot: numb
         {place} <span className={styles.count}>{species(mon)}</span>
       </h3>
       <div className={styles.columns}>
-        <Column title="Pokémon">
-          <Row label="Art">
+        <Column title={t("trainerHand.pokemon")}>
+          <Row label={t("trainerHand.species")}>
             <PickField
-              label={`Art von ${place}`}
+              label={t("trainerHand.speciesOf", { slot: slot + 1 })}
               text={species(mon)}
               choice="species"
               only={isEvolutionTarget}
@@ -162,8 +167,8 @@ function SlotDetails({ e, slot, narrating, onRemoved }: { e: Editing; slot: numb
               onPick={(v) => setMon((m) => ({ ...m, species: v, form: m.form < formCount(v) ? m.form : 0 }), (o, n) => `${species(o)} → ${species(n)}`)}
             />
           </Row>
-          <Row label="Level">
-            <NumberField label="Level" value={mon.level} min={1} max={100} disabled={off} showBase={e.showBase} onCommit={(v) => setMon((m) => ({ ...m, level: v }), (o, n) => `Level ${o.level} → ${n.level}`)} />
+          <Row label={t("trainerHand.level")}>
+            <NumberField label={t("trainerHand.level")} value={mon.level} min={1} max={100} disabled={off} showBase={e.showBase} onCommit={(v) => setMon((m) => ({ ...m, level: v }), (o, n) => t("trainerHand.levelChange", { from: o.level, to: n.level }))} />
           </Row>
           <Row label={strength.label}>
             <NumberField
@@ -173,34 +178,34 @@ function SlotDetails({ e, slot, narrating, onRemoved }: { e: Editing; slot: numb
               hint={strength.hint}
               disabled={off}
               showBase={e.showBase}
-              onCommit={(v) => setMon((m) => withStrength(m, e.family, v), (o, n) => `Stärke ${strengthOf(o, e.family)} → ${strengthOf(n, e.family)}`)}
+              onCommit={(v) => setMon((m) => withStrength(m, e.family, v), (o, n) => t("trainerHand.strengthChange", { from: strengthOf(o, e.family), to: strengthOf(n, e.family) }))}
             />
           </Row>
           {hgss && (
             <>
-              <Row label="Geschlecht">
+              <Row label={t("trainerHand.gender")}>
                 <SelectField
-                  label="Geschlecht"
+                  label={t("trainerHand.gender")}
                   value={genderOf(mon)}
                   options={GENDER_OPTIONS}
                   disabled={off}
-                  onChange={(v) => setMon((m) => ({ ...m, gender: v, ability: abilityOf(m) }), (o, n) => `Geschlecht ${optionText(GENDER_OPTIONS, genderOf(o))} → ${optionText(GENDER_OPTIONS, genderOf(n))}`)}
+                  onChange={(v) => setMon((m) => ({ ...m, gender: v, ability: abilityOf(m) }), (o, n) => t("trainerHand.genderChange", { from: optionText(GENDER_OPTIONS, genderOf(o)), to: optionText(GENDER_OPTIONS, genderOf(n)) }))}
                 />
               </Row>
-              <Row label="Fähigkeit">
+              <Row label={t("trainerHand.ability")}>
                 <SelectField
-                  label="Fähigkeit"
+                  label={t("trainerHand.ability")}
                   value={abilityOf(mon)}
                   options={ABILITY_OPTIONS}
                   disabled={off}
-                  onChange={(v) => setMon((m) => ({ ...m, ability: v, gender: genderOf(m) }), (o, n) => `Fähigkeit ${optionText(ABILITY_OPTIONS, abilityOf(o))} → ${optionText(ABILITY_OPTIONS, abilityOf(n))}`)}
+                  onChange={(v) => setMon((m) => ({ ...m, ability: v, gender: genderOf(m) }), (o, n) => t("trainerHand.abilityChange", { from: optionText(ABILITY_OPTIONS, abilityOf(o)), to: optionText(ABILITY_OPTIONS, abilityOf(n)) }))}
                 />
               </Row>
             </>
           )}
           {(forms > 1 || mon.form !== 0) && (
-            <Row label="Form">
-              <NumberField label="Form" value={mon.form} min={0} max={Math.min(63, Math.max(forms - 1, mon.form))} disabled={off} onCommit={(v) => setMon((m) => ({ ...m, form: v }), (o, n) => `Form ${o.form} → ${n.form}`)} />
+            <Row label={t("trainerHand.form")}>
+              <NumberField label={t("trainerHand.form")} value={mon.form} min={0} max={Math.min(63, Math.max(forms - 1, mon.form))} disabled={off} onCommit={(v) => setMon((m) => ({ ...m, form: v }), (o, n) => t("trainerHand.formChange", { from: o.form, to: n.form }))} />
             </Row>
           )}
           <span>
@@ -211,48 +216,48 @@ function SlotDetails({ e, slot, narrating, onRemoved }: { e: Editing; slot: numb
               onClick={() => {
                 e.write((now, title) => {
                   const old = now.party[slot];
-                  return old ? { patch: { TrainerParty: { party: now.party.filter((_, i) => i !== slot) } }, label: slotLabel(title, slot, `${species(old)} entfernt`) } : null;
+                  return old ? { patch: { TrainerParty: { party: now.party.filter((_, i) => i !== slot) } }, label: slotLabel(title, slot, t("trainerHand.removed", { species: species(old) })) } : null;
                 });
                 onRemoved();
               }}
             >
-              Pokémon entfernen
+              {t("trainerHand.removeMon")}
             </Button>
           </span>
         </Column>
-        <Column title="Item und Attacken">
+        <Column title={t("trainerHand.itemAndMoves")}>
           {mon.item !== null && e.doc.format.items ? (
-            <Row label="Gegenstand">
+            <Row label={t("trainerHand.item")}>
               <PickField
-                label={`Gegenstand von ${place}`}
+                label={t("trainerHand.itemOf", { slot: slot + 1 })}
                 text={itemName(e.names.items, mon.item)}
                 choice="item"
                 disabled={off}
-                onPick={(v) => setMon((m) => ({ ...m, item: v }), (o, n) => `Gegenstand ${itemName(e.names.items, o.item ?? 0)} → ${itemName(e.names.items, n.item ?? 0)}`)}
+                onPick={(v) => setMon((m) => ({ ...m, item: v }), (o, n) => t("trainerHand.itemChange", { from: itemName(e.names.items, o.item ?? 0), to: itemName(e.names.items, n.item ?? 0) }))}
               />
             </Row>
           ) : (
-            <p className={styles.note}>Items tragen ist aus ({switches}): dieses Pokémon trägt nichts.</p>
+            <p className={styles.note}>{t("trainerHand.itemsOff", { switches })}</p>
           )}
           {mon.moves !== null && e.doc.format.moves ? (
             mon.moves.map((id, k) => (
-              <Row key={k} label={`Attacke ${k + 1}`}>
+              <Row key={k} label={t("trainerHand.move", { n: k + 1 })}>
                 <PickField
-                  label={`Attacke ${k + 1} von ${place}`}
+                  label={t("trainerHand.moveOf", { n: k + 1, slot: slot + 1 })}
                   text={moveText(e.names, id)}
                   choice="move"
                   disabled={off}
                   onPick={(v) =>
                     setMon(
                       (m) => ({ ...m, moves: (m.moves ?? [0, 0, 0, 0]).map((x, j) => (j === k ? v : x)) as [number, number, number, number] }),
-                      (o, n) => `Attacke ${k + 1} ${moveText(e.names, o.moves?.[k] ?? 0)} → ${moveText(e.names, n.moves?.[k] ?? 0)}`,
+                      (o, n) => t("trainerHand.moveChange", { n: k + 1, from: moveText(e.names, o.moves?.[k] ?? 0), to: moveText(e.names, n.moves?.[k] ?? 0) }),
                     )
                   }
                 />
               </Row>
             ))
           ) : (
-            <p className={styles.note}>Eigene Attacken sind aus ({switches}): das Spiel gibt die Attacken aus dem Lernset bis zu seinem Level.</p>
+            <p className={styles.note}>{t("trainerHand.movesOff", { switches })}</p>
           )}
         </Column>
       </div>
@@ -265,6 +270,7 @@ function SlotDetails({ e, slot, narrating, onRemoved }: { e: Editing; slot: numb
  * `narrating`: the hand of Erzählen, whose notes point to the switches of Bauen.
  */
 export function TeamTab({ e, narrating = false }: { e: Editing; narrating?: boolean }) {
+  const { t } = useTranslation("data");
   const [chosen, setChosen] = useState(0);
   const [adding, setAdding] = useState(false);
   const species = useChoices("species", adding, isEvolutionTarget);
@@ -288,24 +294,24 @@ export function TeamTab({ e, narrating = false }: { e: Editing; narrating?: bool
         ? null
         : {
             patch: { TrainerParty: { party: [...now.party, newMon(picked, level, now.format, e.family, moves)] } },
-            label: slotLabel(title, now.party.length, `${speciesName(e.names.species, picked)} hinzugefügt`),
+            label: slotLabel(title, now.party.length, t("trainerHand.added", { species: speciesName(e.names.species, picked) })),
           },
     );
     setChosen(at);
   };
   return (
     <>
-      <div className={styles.team} role="group" aria-label="Team">
+      <div className={styles.team} role="group" aria-label={t("trainerHand.party")}>
         {Array.from({ length: PARTY_MAX }, (_, i) => (
           <SlotCard key={i} e={e} slot={i} chosen={i === slot && i < party.length} onChoose={() => setChosen(i)} onAdd={() => setAdding(true)} />
         ))}
       </div>
       {party.length === 0 ? (
-        <p className={styles.note}>Ohne Pokémon stürzt der Kampf ab: wähle einen freien Platz und eine Art.</p>
+        <p className={styles.note}>{t("trainerHand.emptyParty")}</p>
       ) : (
         <SlotDetails e={e} slot={slot} narrating={narrating} onRemoved={() => setChosen(Math.max(0, slot - 1))} />
       )}
-      <ChoicePicker open={adding} onOpenChange={setAdding} title={`Pokémon für Platz ${party.length + 1} wählen`} items={species} onPick={(v) => void add(v)} />
+      <ChoicePicker open={adding} onOpenChange={setAdding} title={t("trainerHand.pickFor", { slot: party.length + 1 })} items={species} onPick={(v) => void add(v)} />
     </>
   );
 }
@@ -317,37 +323,39 @@ export function TeamTab({ e, narrating = false }: { e: Editing; narrating?: bool
  * `narrating`: Erzählen writes them in the message editor (a new page with Shift+Enter, the codes as chips) and names no raw codes.
  */
 export function Texts({ e, narrating = false }: { e: Editing; narrating?: boolean }) {
+  const { t } = useTranslation("data");
   const [making, setMaking] = useState<ReadonlySet<number>>(new Set());
   const { doc } = e;
   const off = e.locked || doc.texts_locked !== null;
-  const kinds = [...TEXT_KINDS.map((k) => k.kind), ...doc.texts.map((t) => t.kind).filter((k) => !TEXT_KINDS.some((t) => t.kind === k))];
+  const kinds = [...TEXT_KINDS.map((k) => k.kind), ...doc.texts.map((x) => x.kind).filter((k) => !TEXT_KINDS.some((x) => x.kind === k))];
   const setText = (kind: number, text: string) =>
     e.write((now, title) => {
-      const old = now.texts.find((t) => t.kind === kind);
+      const old = now.texts.find((x) => x.kind === kind);
       if (old ? old.text === text : text === "") return null;
-      return { patch: { TrainerTexts: { texts: [{ kind, text }] } }, label: `${title}: Text ${textKind(kind).word} ${old ? "geändert" : "angelegt"}` };
+      const word = textKind(kind).word;
+      return { patch: { TrainerTexts: { texts: [{ kind, text }] } }, label: `${title}: ${old ? t("trainerHand.textChanged", { word }) : t("trainerHand.textCreated", { word })}` };
     });
-  const first = doc.texts.find((t) => t.kind === 0);
+  const first = doc.texts.find((x) => x.kind === 0);
   return (
-    <Column title="Kampftexte" note={narrating ? "der Text vor dem Kampf endet mit einem Seitenende (Umschalt+Enter)" : "der Text vor dem Kampf endet auf \\r (⏎)"}>
-      {doc.texts_locked !== null && <Notice kind="warning">{`Kampftexte schreibgeschützt: Trainertexte passen nicht zur Tabelle (${doc.texts_locked}).`}</Notice>}
+    <Column title={t("trainerHand.battleTexts")} note={narrating ? t("trainerHand.textNoteNarrating") : t("trainerHand.textNote")}>
+      {doc.texts_locked !== null && <Notice kind="warning">{t("trainerHand.textsLocked", { reason: doc.texts_locked })}</Notice>}
       {doc.problems.map((p, i) => (
         <Notice
           key={i}
           kind="warning"
-          actions={isMarkProblem(p) && first && !off && !first.text.endsWith("\\r") ? [{ label: "⏎ anhängen", onClick: () => setText(0, `${first.text}\\r`) }] : undefined}
+          actions={isMarkProblem(p) && first && !off && !first.text.endsWith("\\r") ? [{ label: t("trainerHand.appendReturn"), onClick: () => setText(0, `${first.text}\\r`) }] : undefined}
         >
           {problemText(p)}
         </Notice>
       ))}
       {kinds.map((kind) => {
         const { label } = textKind(kind);
-        const text = doc.texts.find((t) => t.kind === kind);
+        const text = doc.texts.find((x) => x.kind === kind);
         if (!text && !making.has(kind)) {
           return (
             <Row key={kind} label={label}>
-              <Button kind="quiet" size="s" icon="plus" aria-label={`Text ${label} anlegen`} disabled={off} onClick={() => setMaking((all) => new Set([...all, kind]))}>
-                Text anlegen
+              <Button kind="quiet" size="s" icon="plus" aria-label={t("trainerHand.createText", { label })} disabled={off} onClick={() => setMaking((all) => new Set([...all, kind]))}>
+                {t("trainerHand.createTextShort")}
               </Button>
             </Row>
           );
@@ -379,15 +387,16 @@ function setField(e: Editing, field: TrainerField, value: (now: TrainerDoc) => n
 
 /** The class as a select over `options` (Bauen: every class of the bank; Erzählen: the named ones). */
 export function ClassRow({ e, options }: { e: Editing; options: SelectOption<number>[] }) {
+  const { t } = useTranslation("data");
   const { names } = e;
   return (
-    <Row label="Klasse">
+    <Row label={t("trainerHand.class")}>
       <SelectField
-        label="Klasse"
+        label={t("trainerHand.class")}
         value={e.doc.class}
         options={options}
         disabled={e.locked}
-        onChange={(v) => setField(e, "class", () => v, (o, n) => `Klasse ${className(names.classes, o)} → ${className(names.classes, n)}`)}
+        onChange={(v) => setField(e, "class", () => v, (o, n) => t("trainerHand.classChange", { from: className(names.classes, o), to: className(names.classes, n) }))}
       />
     </Row>
   );
@@ -395,27 +404,29 @@ export function ClassRow({ e, options }: { e: Editing; options: SelectOption<num
 
 /** The name (at most 7 characters): a longer one is refused with the reason and writes nothing. */
 export function NameRow({ e }: { e: Editing }) {
+  const { t } = useTranslation("data");
   const [nameProblem, setNameProblem] = useState<string | null>(null);
   const setName = (name: string) => {
     const problem = nameError(name);
     setNameProblem(problem);
     if (problem !== null) return;
-    e.write((now, title) => (now.name === name ? null : { patch: { TrainerName: { name } }, label: `${title}: Name ${now.name} → ${name}` }));
+    e.write((now, title) => (now.name === name ? null : { patch: { TrainerName: { name } }, label: `${title}: ${t("trainerHand.nameChange", { from: now.name, to: name })}` }));
   };
   return (
-    <Row label="Name">
-      <TextField label="Name" value={e.doc.name} disabled={e.locked} hint={nameCount(e.doc.name)} error={nameProblem ?? undefined} onCommit={setName} />
+    <Row label={t("trainerHand.name")}>
+      <TextField label={t("trainerHand.name")} value={e.doc.name} disabled={e.locked} hint={nameCount(e.doc.name)} error={nameProblem ?? undefined} onCommit={setName} />
     </Row>
   );
 }
 
 /** Switches the double battle bit of the battle type, labelled like the segment of Bauen („Kampfart Einzel → Doppel“). */
 export function setDouble(e: Editing, on: boolean) {
-  setField(e, "battle_type", (now) => withDouble(now.battle_type, on), (o, n) => `Kampfart ${battleText(o)} → ${battleText(n)}`);
+  setField(e, "battle_type", (now) => withDouble(now.battle_type, on), (o, n) => battleChange(battleText(o), battleText(n)));
 }
 
 /** Trainer: class and name, battle type and AI, the team's format, four items, the battle texts. */
 function TrainerTabBody({ e }: { e: Editing }) {
+  const { t } = useTranslation("data");
   const { doc, names } = e;
   const off = e.locked;
   const classes = useMemo<SelectOption<number>[]>(() => classOptions(names.classes, doc.class), [names.classes, doc.class]);
@@ -423,53 +434,50 @@ function TrainerTabBody({ e }: { e: Editing }) {
     e.write((now, title) =>
       now.format[part] === on
         ? null
-        : { patch: { TrainerFormat: { moves: part === "moves" ? on : null, items: part === "items" ? on : null } }, label: `${title}: ${part === "moves" ? "eigene Attacken" : "Items tragen"} ${on ? "an" : "aus"}` },
+        : { patch: { TrainerFormat: { moves: part === "moves" ? on : null, items: part === "items" ? on : null } }, label: `${title}: ${part === "moves" ? t("trainerHand.partMoves") : t("trainerHand.partItems")} ${on ? t("trainerHand.on") : t("trainerHand.off")}` },
     );
   const lockOptions = <V extends string>(options: readonly { value: V; label: string; disabled?: boolean }[]) => (off ? options.map((o) => ({ ...o, disabled: true })) : options);
   return (
     <div className={styles.columns}>
-      <Column title="Trainer">
+      <Column title={t("trainerHand.trainer")}>
         <ClassRow e={e} options={classes} />
         <NameRow e={e} />
-        <Row label="Kampfart">
+        <Row label={t("trainerHand.battleType")}>
           <Segmented
-            ariaLabel="Kampfart"
+            ariaLabel={t("trainerHand.battleType")}
             size="s"
-            options={lockOptions(BATTLE_OPTIONS)}
+            options={lockOptions(battleOptions())}
             value={isDouble(doc.battle_type) ? "double" : "single"}
             onChange={(v) => setDouble(e, v === "double")}
           />
         </Row>
-        <Row label="KI">
+        <Row label={t("trainerHand.ai")}>
           <Segmented
-            ariaLabel="KI"
+            ariaLabel={t("trainerHand.ai")}
             size="s"
-            options={lockOptions(AI_OPTIONS)}
+            options={lockOptions(aiOptions())}
             value={aiLevel(doc.ai)}
             onChange={(level) => {
               const preset = AI_LEVELS.find((l) => l.value === level)?.ai;
-              if (preset !== undefined && preset !== null) setField(e, "ai", () => preset, (o, n) => `KI ${aiText(o)} → ${aiText(n)}`);
+              if (preset !== undefined && preset !== null) setField(e, "ai", () => preset, (o, n) => t("trainerHand.aiChange", { from: aiText(o), to: aiText(n) }));
             }}
           />
         </Row>
-        {aiLevel(doc.ai) === "custom" && <p className={styles.note}>{`Eigene KI ${aiText(doc.ai).replace("eigene ", "")}: die Bits stehen unter Tüfteln in Rohdaten.`}</p>}
+        {aiLevel(doc.ai) === "custom" && <p className={styles.note}>{t("trainerHand.customAi", { hex: aiHex(doc.ai) })}</p>}
       </Column>
-      <Column title="Team-Format">
-        <Switch label="Eigene Attacken" checked={doc.format.moves} disabled={off} onChange={(on) => setFormat("moves", on)} />
-        <Switch label="Items tragen" checked={doc.format.items} disabled={off} onChange={(on) => setFormat("items", on)} />
-        <p className={styles.note}>
-          Einschalten gibt jedem Pokémon die Attacken, die das Spiel ihm gäbe (Lernset bis zu seinem Level); Ausschalten verwirft die eigenen Attacken. Items tragen aus verwirft die
-          Items der Pokémon.
-        </p>
-        <h3 className={styles.columnTitle}>Items des Trainers</h3>
+      <Column title={t("trainerHand.partyFormat")}>
+        <Switch label={t("trainerHand.ownMoves")} checked={doc.format.moves} disabled={off} onChange={(on) => setFormat("moves", on)} />
+        <Switch label={t("trainerHand.holdItems")} checked={doc.format.items} disabled={off} onChange={(on) => setFormat("items", on)} />
+        <p className={styles.note}>{t("trainerHand.formatNote")}</p>
+        <h3 className={styles.columnTitle}>{t("trainerHand.trainerItems")}</h3>
         {doc.items.map((id, n) => (
-          <Row key={n} label={`Gegenstand ${n + 1}`}>
+          <Row key={n} label={t("trainerHand.trainerItem", { n: n + 1 })}>
             <PickField
-              label={`Gegenstand ${n + 1}`}
+              label={t("trainerHand.trainerItem", { n: n + 1 })}
               text={itemName(names.items, id)}
               choice="item"
               disabled={off}
-              onPick={(v) => setField(e, `item${n}` as "item0", () => v, (o, x) => `Gegenstand ${n + 1} ${itemName(names.items, o)} → ${itemName(names.items, x)}`)}
+              onPick={(v) => setField(e, `item${n}` as "item0", () => v, (o, x) => t("trainerHand.trainerItemChange", { n: n + 1, from: itemName(names.items, o), to: itemName(names.items, x) }))}
             />
           </Row>
         ))}
@@ -481,22 +489,24 @@ function TrainerTabBody({ e }: { e: Editing }) {
 
 // ---------------------------------------------------------------------------------------------------------------------------- raw
 
-const RAW_LABELS: Readonly<Record<string, string>> = {
-  props_len: "Länge der Eigenschaften",
-  flags: "Flags",
-  has_moves: "Eigene Attacken",
-  has_items: "Items tragen",
-  class: "Klasse",
-  unknown: "Unbekannt",
-  party_count: "Anzahl Pokémon",
-  items: "Gegenstände",
-  ai: "KI",
-  battle_type: "Kampfart",
-  party: "Team",
+/** The fields of the raw trainer bytes by the kernel's name, to the key of their label in the catalog. */
+const RAW_LABEL_KEYS: Readonly<Record<string, "propsLen" | "flags" | "hasMoves" | "hasItems" | "class" | "unknown" | "partyCount" | "items" | "ai" | "battleType" | "party">> = {
+  props_len: "propsLen",
+  flags: "flags",
+  has_moves: "hasMoves",
+  has_items: "hasItems",
+  class: "class",
+  unknown: "unknown",
+  party_count: "partyCount",
+  items: "items",
+  ai: "ai",
+  battle_type: "battleType",
+  party: "party",
 };
 
 /** Both members as the store holds them (`u32 len | properties | party`), read again with every new document. */
 function RawBytes({ index, doc }: { index: number; doc: TrainerDoc | null }) {
+  const { t } = useTranslation("data");
   const [raw, setRaw] = useState<{ raw: RawDto | null; error: string | null } | null>(null);
   useEffect(() => {
     let current = true;
@@ -508,24 +518,25 @@ function RawBytes({ index, doc }: { index: number; doc: TrainerDoc | null }) {
       current = false;
     };
   }, [index, doc]);
-  if (raw === null) return <p className={styles.note}>Lädt …</p>;
-  if (raw.raw === null) return <p className={styles.note}>{`Nicht lesbar: ${raw.error ?? ""}`}</p>;
-  return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => RAW_LABELS[name] ?? name} />;
+  if (raw === null) return <p className={styles.note}>{t("loading")}</p>;
+  if (raw.raw === null) return <p className={styles.note}>{t("notReadable", { error: raw.error ?? "" })}</p>;
+  return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => (RAW_LABEL_KEYS[name] === undefined ? name : t(`trainerHand.raw.${RAW_LABEL_KEYS[name]}`))} />;
 }
 
 /** Rohdaten (Tüfteln): the bytes of both members, all 32 AI bits (11 named) and the battle type as a number. */
 function RawTab({ e, read }: { e: Editing; read: TrainerDoc | null }) {
+  const { t } = useTranslation("data");
   const setAi = (bit: number, on: boolean) =>
     e.write((now, title) => {
       const ai = withBit(now.ai, bit, on);
-      return ai === now.ai ? null : { patch: { Trainer: { field: "ai", value: ai } }, label: `${title}: KI ${aiText(now.ai)} → ${aiText(ai)}` };
+      return ai === now.ai ? null : { patch: { Trainer: { field: "ai", value: ai } }, label: `${title}: ${t("trainerHand.aiChange", { from: aiText(now.ai), to: aiText(ai) })}` };
     });
   return (
     <div className={styles.columns}>
-      <Column title="Bytes" note="Eigenschaften und Team">
+      <Column title={t("trainerHand.bytes")} note={t("trainerHand.bytesNote")}>
         <RawBytes index={e.index} doc={read} />
       </Column>
-      <Column title="KI-Bits" note={`Wert 0x${(e.doc.ai >>> 0).toString(16)}`}>
+      <Column title={t("trainerHand.aiBits")} note={t("trainerHand.aiBitsNote", { hex: aiHex(e.doc.ai) })}>
         <div className={styles.bits}>
           {Array.from({ length: 32 }, (_, bit) => (
             <div key={bit} data-ai-bit={bit}>
@@ -533,14 +544,14 @@ function RawTab({ e, read }: { e: Editing; read: TrainerDoc | null }) {
             </div>
           ))}
         </div>
-        <Row label="Kampfart (roh)">
+        <Row label={t("trainerHand.battleTypeRaw")}>
           <NumberField
-            label="Kampfart (roh)"
+            label={t("trainerHand.battleTypeRaw")}
             value={e.doc.battle_type}
             bits={32}
             disabled={e.locked}
             showBase
-            onCommit={(v) => e.write((now, title) => (now.battle_type === v ? null : { patch: { Trainer: { field: "battle_type", value: v } }, label: `${title}: Kampfart ${now.battle_type} → ${v}` }))}
+            onCommit={(v) => e.write((now, title) => (now.battle_type === v ? null : { patch: { Trainer: { field: "battle_type", value: v } }, label: `${title}: ${battleChange(now.battle_type, v)}` }))}
           />
         </Row>
       </Column>
@@ -582,17 +593,19 @@ export function useTrainerEditing(showBase: boolean) {
 
 /** What a hand shows while its trainer has no document: why it cannot be read, or that it is being read. */
 export function HandWaiting({ error }: { error: string | null }) {
-  return <div className={styles.handEmpty}>{error !== null ? <EmptyState what="Dieser Trainer ist nicht lesbar." why={error} /> : <p className={styles.note}>Lädt …</p>}</div>;
+  const { t } = useTranslation("data");
+  return <div className={styles.handEmpty}>{error !== null ? <EmptyState what={t("trainerHand.unreadable")} why={error} /> : <p className={styles.note}>{t("loading")}</p>}</div>;
 }
 
 /** The top of a hand: why its fields are locked, a failed edit, and the class sprite beside the title. */
 export function HandTop({ e, editError, title }: { e: Editing; editError: string | null; title: string }) {
+  const { t } = useTranslation("data");
   return (
     <>
       {(editError !== null || e.locked) && (
         <div className={styles.notices}>
-          {e.doc.placeholder && <Notice kind="info">{`${PLACEHOLDER_TEXT}: er hält die Nummer frei, die das Kampf-Script für „gesehen“ nutzt. Alle Felder sind gesperrt.`}</Notice>}
-          {!e.doc.placeholder && e.doc.locked !== null && <Notice kind="warning">{`${lockReason(e.doc.locked)}. Die Felder dieses Trainers sind gesperrt.`}</Notice>}
+          {e.doc.placeholder && <Notice kind="info">{t("trainerHand.placeholderNote", { placeholder: placeholderText() })}</Notice>}
+          {!e.doc.placeholder && e.doc.locked !== null && <Notice kind="warning">{t("trainerHand.lockedFields", { reason: lockReason(e.doc.locked) })}</Notice>}
           {editError !== null && <Notice kind="error">{editError}</Notice>}
         </div>
       )}
@@ -610,17 +623,18 @@ export function HandTop({ e, editError, title }: { e: Editing; editError: string
  * placeholder of the sight script and a trainer of the wrong length show their fields disabled.
  */
 export function TrainerHand() {
+  const { t } = useTranslation("data");
   const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   const { row, selected, index, editing, read, error, editError, unsaved, title } = useTrainerEditing(tinkering);
   const [tab, setTab] = useState<TrainerTab>("team");
   const count = editing?.doc.party.length;
   const items = useMemo<TabItem[]>(
     () => [
-      { id: "team", label: "Team", count, unsaved },
-      { id: "trainer", label: "Trainer", unsaved },
-      ...(tinkering ? [{ id: "raw", label: "Rohdaten" }] : []),
+      { id: "team", label: t("trainerHand.party"), count, unsaved },
+      { id: "trainer", label: t("trainerHand.trainer"), unsaved },
+      ...(tinkering ? [{ id: "raw", label: t("rawData") }] : []),
     ],
-    [count, unsaved, tinkering],
+    [count, unsaved, tinkering, t],
   );
 
   if (row === null || selected === null) return null;
@@ -629,7 +643,7 @@ export function TrainerHand() {
   return (
     <div className={styles.hand} data-trainer={index}>
       <HandTop e={editing} editError={editError} title={title} />
-      <Tabs items={items} value={shown} onChange={(id) => setTab(id as TrainerTab)} ariaLabel={`${title} bearbeiten`}>
+      <Tabs items={items} value={shown} onChange={(id) => setTab(id as TrainerTab)} ariaLabel={t("trainerHand.edit", { title })}>
         <div className={styles.tabBody}>
           {shown === "team" && <TeamTab e={editing} />}
           {shown === "trainer" && <TrainerTabBody e={editing} />}

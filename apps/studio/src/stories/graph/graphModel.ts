@@ -1,6 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { NavTargetDto } from "../../api.data";
 import type { GraphEdgeDto, GraphNodeDto, ThreadGraphDto } from "../../api.stories";
+import { t } from "../../i18n";
 import type { StoryNodeKind } from "../../ui/primitives";
 
 /** The field of a level script's condition (`stories::threads::LEVEL_SCRIPT_FIELD`). */
@@ -40,7 +41,7 @@ function nodeData(node: GraphNodeDto): StoryNodeData {
     return {
       kind: node.step.kind,
       title: node.step.name,
-      subtitle: `Wert ${node.value}`,
+      subtitle: t("stories:graphModel.value", { value: node.value }),
       notedOnly: node.noted_only,
       loose: false,
       layoutKey: node.step.key,
@@ -58,9 +59,22 @@ export function edgeLabel(edge: GraphEdgeDto, graph: ThreadGraphDto): string {
   const placeId = edge.from.startsWith("p:") ? edge.from : edge.to;
   const place = graph.nodes.find((n) => n.id === placeId);
   const slot = edge.slot ?? 0;
-  if (place?.kind === "place" && place.source.kind === "Event") return edge.field === "var" ? `Auslöser ${slot}` : `Objekt ${slot}`;
-  if (edge.field === LEVEL_SCRIPT_FIELD) return `Bedingung ${slot + 1}`;
-  return edge.slot === null ? edge.field : `Zeile ${edge.slot} · ${edge.field}`;
+  if (place?.kind === "place" && place.source.kind === "Event") {
+    return edge.field === "var" ? t("stories:graphModel.trigger", { slot }) : t("stories:graphModel.object", { slot });
+  }
+  if (edge.field === LEVEL_SCRIPT_FIELD) return t("stories:graphModel.condition", { number: slot + 1 });
+  return edge.slot === null ? edge.field : t("stories:graphModel.line", { line: edge.slot, field: edge.field });
+}
+
+/**
+ * What a screen reader says for an edge (React Flow would say „Edge from p:script:0101 to v:1“): the place by its header (else its source)
+ * sets or checks the value, and where („Zweiblattdorf setzt Wert 1: Zeile 12 · SetVar“).
+ */
+export function edgeAria(edge: GraphEdgeDto, graph: ThreadGraphDto, where: string): string {
+  const sets = edge.from.startsWith("p:");
+  const place = graph.nodes.find((n) => n.id === (sets ? edge.from : edge.to));
+  const name = place?.kind === "place" ? (place.header_name ?? place.label) : (sets ? edge.from : edge.to);
+  return t(sets ? "stories:graphModel.edgeSets" : "stories:graphModel.edgeChecks", { place: name, value: edge.value, where });
 }
 
 /**
@@ -72,15 +86,17 @@ export function toFlow(graph: ThreadGraphDto): { nodes: Node<StoryNodeData>[]; e
     (node): Node<StoryNodeData> => ({ id: node.id, type: STORY_NODE_TYPE, position: { x: 0, y: 0 }, data: nodeData(node) }),
   );
   const noted = new Set(nodes.filter((n) => n.data.notedOnly).map((n) => n.id));
-  const edges = graph.edges.map(
-    (edge, i): Edge => ({
+  const edges = graph.edges.map((edge, i): Edge => {
+    const label = edgeLabel(edge, graph);
+    return {
       id: `e${i}:${edge.from}>${edge.to}`,
       source: edge.from,
       target: edge.to,
-      label: edgeLabel(edge, graph),
+      label,
+      ariaLabel: edgeAria(edge, graph, label),
       className: [edge.from.startsWith("p:") ? "sets" : "checks", noted.has(edge.from) || noted.has(edge.to) ? "noted" : ""].filter(Boolean).join(" "),
       data: { access: edge.access, value: edge.value },
-    }),
-  );
+    };
+  });
   return { nodes, edges };
 }

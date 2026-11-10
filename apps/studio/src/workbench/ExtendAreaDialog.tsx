@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { extendArea } from "../api";
 import type { DraftDto, ExtendReport, HeaderSummary, MatrixDto, MemberCounts } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
@@ -6,7 +7,8 @@ import type { Depth } from "../ui/frame/shellState";
 import { Checkbox, Dialog, NumberField, Segmented } from "../ui/primitives";
 import { extendDefaults, extendSpec } from "./extend";
 import styles from "./ExtendAreaDialog.module.css";
-import { id4 } from "./terms";
+import { t } from "../i18n";
+import { id4, termLabel } from "./terms";
 import { DraftFailed, DraftIrreversible } from "./wizards/DraftNotes";
 import { useDraftPlan } from "./wizards/useDraftPlan";
 
@@ -39,11 +41,12 @@ interface Props {
   onPaintInstead?: () => void;
 }
 
-/** What happens to the size of the grid: Bauen says "Die Karte wird größer", Tüfteln names the Raster. */
+/** What happens to the size of the grid: Bauen says „Die Karte wird größer“, Tüfteln names the Raster. */
 function sizeNote(building: boolean, matrix: MatrixDto, width: number, height: number): string {
   const grows = width > matrix.width || height > matrix.height;
-  if (building) return grows ? `Die Karte wird größer: ${width} × ${height}.` : `Die Größe bleibt ${width} × ${height}.`;
-  return grows ? `Das Raster wird auf ${width} × ${height} vergrößert.` : `Das Raster bleibt ${width} × ${height} groß.`;
+  const size = { width, height };
+  if (building) return grows ? t("workbench:extendAreaDialog.size.mapGrows", size) : t("workbench:extendAreaDialog.size.mapStays", size);
+  return grows ? t("workbench:extendAreaDialog.size.gridGrows", size) : t("workbench:extendAreaDialog.size.gridStays", size);
 }
 
 /**
@@ -51,6 +54,7 @@ function sizeNote(building: boolean, matrix: MatrixDto, width: number, height: n
  * stays inside, Escape and the cross cancel (not while the request runs; Escape that takes back typed text does not close it).
  */
 export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null, areaHeader = null, depth = "tuefteln", headers, counts, onDone, onError, onDraft, onPaintInstead }: Props) {
+  const { t } = useTranslation("workbench");
   const building = !depthAtLeast(depth, "tuefteln");
   const defaults = extendDefaults(matrix, x, y, prefer);
   const neighbour = defaults.neighbour;
@@ -91,8 +95,8 @@ export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null,
     if (!working) onDone(null);
   };
   const sources = [
-    ...(neighbour ? [{ value: "neighbour" as const, label: `Kopie von Karte ${id4(neighbour.map)} (Nachbarzelle)` }] : []),
-    { value: "pick" as const, label: "Karte wählen" },
+    ...(neighbour ? [{ value: "neighbour" as const, label: t("extendAreaDialog.neighbor", { map: id4(neighbour.map) }) }] : []),
+    { value: "pick" as const, label: t("extendAreaDialog.pick") },
   ];
 
   return (
@@ -101,30 +105,30 @@ export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null,
       onOpenChange={(open) => {
         if (!open) leave();
       }}
-      title={`Karte bei x ${x}, y ${y} anlegen?`}
-      description="Anlegen lässt sich nicht rückgängig machen."
+      title={t("extendAreaDialog.title", { x, y })}
+      description={t("extendAreaDialog.description")}
       actions={[
-        ...(onPaintInstead ? [{ label: "Stattdessen neu malen", onClick: () => !working && onPaintInstead(), data: { "data-paint-instead": "" } as const }] : []),
-        { label: "Abbrechen", onClick: leave },
-        { label: "Karte anlegen", kind: "primary", onClick: () => void create() },
+        ...(onPaintInstead ? [{ label: t("extendAreaDialog.paintInstead"), onClick: () => !working && onPaintInstead(), data: { "data-paint-instead": "" } as const }] : []),
+        { label: t("extendAreaDialog.cancel"), onClick: leave },
+        { label: t("extendAreaDialog.create"), kind: "primary", onClick: () => void create() },
       ]}
     >
       <div className={styles.form} aria-busy={working}>
         <DraftIrreversible draft={plan.draft} />
         <DraftFailed error={plan.error} />
-        {sources.length > 1 && <Segmented ariaLabel="Quelle der Kopie" options={sources} value={mode} onChange={setMode} />}
+        {sources.length > 1 && <Segmented ariaLabel={t("extendAreaDialog.source")} options={sources} value={mode} onChange={setMode} />}
         {mode === "pick" && (
-          <NumberField label="Karte" showLabel hint={`0 bis ${mapMax}`} min={0} max={mapMax} value={picked} disabled={working} onCommit={setPicked} />
+          <NumberField label={termLabel("map")} showLabel hint={t("extendAreaDialog.range", { max: mapMax })} min={0} max={mapMax} value={picked} disabled={working} onCommit={setPicked} />
         )}
-        <Checkbox label="ohne Gebäude" checked={clearBuildings} disabled={working} onChange={setClearBuildings} />
+        <Checkbox label={t("extendAreaDialog.noBuildings")} checked={clearBuildings} disabled={working} onChange={setClearBuildings} />
         {hasHeaders &&
           (belongs ? (
-            <p className={styles.size}>Die neue Karte gehört zu „{areaName ?? id4(headerCell)}“.</p>
+            <p className={styles.size}>{t("extendAreaDialog.belongs", { name: areaName ?? id4(headerCell) })}</p>
           ) : (
             <NumberField
-              label={building ? "Nummer des Gebiets" : "Header-Zelle"}
+              label={building ? t("extendAreaDialog.areaNumber") : t("extendAreaDialog.headerCell")}
               showLabel
-              hint={`0 bis ${headerMax}`}
+              hint={t("extendAreaDialog.range", { max: headerMax })}
               min={0}
               max={headerMax}
               value={headerCell}

@@ -1,5 +1,6 @@
 import { projectPreviewSet } from "../api";
 import type { HeaderSummary, MatrixDto, PreviewDto } from "../api";
+import { t } from "../i18n";
 import { toast } from "../ui/frame/toasts";
 import type { SceneHost } from "../world/scene/SceneHost";
 import { createTopDownRenderer } from "../world/thumbnailRenderer";
@@ -72,7 +73,7 @@ export function mapOfCell(matrix: MatrixDto, x: number, y: number, headers: read
 export async function applyScenePreview(write: () => Promise<PreviewDto>): Promise<PreviewDto | null> {
   try {
     const preview = await write();
-    toast.info("Vorschaubild gesetzt");
+    toast.info(t("project:preview.set"));
     return preview;
   } catch (e) {
     toast.error(previewErrorText(e));

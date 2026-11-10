@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { applyEmptyRegion, errorText, nameTables, planEmptyRegion } from "../api";
 import type { AdoptProgressDto, AdoptReportDto, DraftDto, RegionPlan, RegionReport, ScriptsStatusDto } from "../api";
+import { t } from "../i18n";
 import type { Depth } from "../ui/frame/shellState";
 import { Notice } from "../ui/primitives";
 import { AdoptProgress } from "../workbench/script/AdoptBox";
 import { nextStepsFor } from "../workbench/recipes";
-import { TERMS, id4 } from "../workbench/terms";
+import { id4, termLabel, termPlural } from "../workbench/terms";
 import { DraftNotes } from "../workbench/wizards/DraftNotes";
 import { useDraftPlan } from "../workbench/wizards/useDraftPlan";
 import { DoneResult } from "../workbench/wizards/WizardResult";
@@ -19,7 +20,7 @@ export interface ClearWorldWizardProps {
   depth: Depth;
   /** The project's script status (null: not read yet): the recipe writes rotom sources, so the scripts must be adopted. */
   scripts: ScriptsStatusDto | null;
-  /** "Scripts übernehmen": decompiles the project, calling `onProgress` as files are done; the app's status says adopted afterwards. */
+  /** „Scripts übernehmen“: decompiles the project, calling `onProgress` as files are done; the app's status says adopted afterwards. */
   onAdopt: (onProgress: (progress: AdoptProgressDto) => void) => Promise<AdoptReportDto>;
   /** Unsaved edits of the store and of the open scripts: the recipe writes scripts straight to the disk, so they go first. */
   unsaved: number;
@@ -43,41 +44,31 @@ type PlanState = { kind: "loading" } | { kind: "ready"; plan: RegionPlan } | { k
 
 /** The empty region takes no input. */
 const EMPTY_REGION_INPUT = {};
-const ADOPT_FIRST = "Dafür müssen die Scripts übernommen sein.";
-const SAVE_FIRST = "Speichere zuerst, das Rezept schreibt Scripts direkt auf die Platte.";
-const ALREADY_EMPTY = "Die Welt ist schon leer.";
-
-/** The kernel's refusals of `applyEmptyRegion`, in the wizard's words; anything else is shown as it comes. */
-const REFUSALS: Record<string, string> = {
-  "the world is already empty": ALREADY_EMPTY,
-  "scripts are not adopted": ADOPT_FIRST,
-  "save first": SAVE_FIRST,
+/** The kernel's refusals of `applyEmptyRegion`: the key of the wizard's words for each (`project:clearWorld`); anything else is shown as it comes. */
+const REFUSALS = { "the world is already empty": "alreadyEmpty", "scripts are not adopted": "adoptFirst", "save first": "saveFirst" } as const;
+const refusalOf = (text: string): string | undefined => {
+  const key = (REFUSALS as Readonly<Record<string, (typeof REFUSALS)[keyof typeof REFUSALS]>>)[text];
+  return key === undefined ? undefined : t(`project:clearWorld.${key}`);
 };
 
 /** The town as the game names it, else its header. */
-const townOf = (plan: RegionPlan) => plan.town_name || `${TERMS.header.label} ${id4(plan.start_header)}`;
+const townOf = (plan: RegionPlan) => plan.town_name || `${termLabel("header")} ${id4(plan.start_header)}`;
 
 /** What the app says once it showed the town: "Welt geleert, Zweiblattdorf bleibt." */
-export const clearedAnnouncement = (report: RegionReport) => `Welt geleert, ${townOf(report.plan)} bleibt.`;
+export const clearedAnnouncement = (report: RegionReport) => t("project:clearWorld.cleared", { town: townOf(report.plan) });
 
 /** What stays: the town with its rooms (every kept header but the town itself). */
 function townLine(plan: RegionPlan): string {
   const rooms = plan.kept.length - 1;
-  if (rooms <= 0) return `${townOf(plan)} bleibt.`;
-  return `${townOf(plan)} bleibt mit ${rooms} ${rooms === 1 ? "Raum" : "Räumen"}.`;
+  if (rooms <= 0) return t("project:clearWorld.townStays", { town: townOf(plan) });
+  return t("project:clearWorld.townStaysWithRooms", { town: townOf(plan), count: rooms });
 }
 
-function emptiedLine(n: number): string {
-  return n === 1
-    ? "1 Ort wird geleert: seine Figuren, Türen, Auslöser und Level-Scripts verschwinden. Scripts und Texte bleiben liegen."
-    : `${n} Orte werden geleert: ihre Figuren, Türen, Auslöser und Level-Scripts verschwinden. Scripts und Texte bleiben liegen.`;
-}
+const emptiedLine = (n: number): string => t("project:clearWorld.emptied", { count: n });
 
-function borderLine(n: number): string {
-  return n === 1 ? "1 Feld der Weltkarte wird zu einer gesperrten Randkarte." : `${n} Felder der Weltkarte werden zu einer gesperrten Randkarte.`;
-}
+const borderLine = (n: number): string => t("project:clearWorld.border", { count: n });
 
-const starterLine = (plan: RegionPlan, species: string) => `Ein Start-Script gibt dir ${species} auf Level ${plan.starter_level}, den Pokédex und die Laufschuhe.`;
+const starterLine = (plan: RegionPlan, species: string) => t("project:clearWorld.starter", { species, level: plan.starter_level });
 
 /** "Welt leeren": the empty-region recipe on the open project. Shows what stays and what goes, clears what is in the way, then applies it. */
 export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onApplied, onClose, onShow, onPlay, onStep, onDraft }: ClearWorldWizardProps) {
@@ -149,7 +140,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
       await onApplied(done);
     } catch (e) {
       const text = errorText(e);
-      const known = REFUSALS[text];
+      const known = refusalOf(text);
       if (known === undefined) setTouched(true);
       setRefusal(known ?? text);
     } finally {
@@ -174,7 +165,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
 
   const plan = planState.kind === "ready" ? planState.plan : null;
   const empty = plan?.already_empty === true;
-  const speciesName = plan ? species?.[plan.starter_species]?.trim() || `Art ${plan.starter_species}` : "";
+  const speciesName = plan ? species?.[plan.starter_species]?.trim() || t("project:clearWorld.species", { number: plan.starter_species }) : "";
   const lines = plan ? [townLine(plan), emptiedLine(plan.emptied.length), borderLine(plan.border_cells), starterLine(plan, speciesName)] : [];
   const ready = plan !== null && !empty && !touched && scripts?.adopted === true && unsaved === 0 && adopting === null && !saving;
   // The recipe's draft while „Welt leeren“ can run; gone once it ran.
@@ -184,7 +175,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
   if (planState.kind === "loading") {
     what = (
       <section className={parts.column}>
-        <p className={parts.note}>Lese die Welt …</p>
+        <p className={parts.note}>{t("project:clearWorld.reading")}</p>
       </section>
     );
   } else if (planState.kind === "failed") {
@@ -197,13 +188,13 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
     what = (
       <>
         <section className={parts.column}>
-          <h3 className={parts.heading}>Bleibt</h3>
+          <h3 className={parts.heading}>{t("project:clearWorld.stays")}</h3>
           <p className={parts.text}>{lines[0]}</p>
           <p className={parts.text}>{lines[3]}</p>
         </section>
         {!empty && (
           <section className={parts.column}>
-            <h3 className={parts.heading}>Wird geleert</h3>
+            <h3 className={parts.heading}>{t("project:clearWorld.goes")}</h3>
             <p className={parts.text}>{lines[1]}</p>
             <p className={parts.text}>{lines[2]}</p>
           </section>
@@ -217,16 +208,16 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
   if (empty) {
     needs.push(
       <Notice key="empty" kind="info">
-        {ALREADY_EMPTY}
+        {t("project:clearWorld.alreadyEmpty")}
       </Notice>,
     );
   } else if (plan) {
-    if (scripts === null) needs.push(<p key="status" className={parts.note}>Prüfe die Scripts …</p>);
+    if (scripts === null) needs.push(<p key="status" className={parts.note}>{t("project:clearWorld.checkingScripts")}</p>);
     else if (!scripts.adopted || adopting !== null) {
       needs.push(
-        <Notice key="adopt" kind="warning" actions={adopting === null ? [{ label: "Scripts übernehmen", onClick: () => void adopt() }] : undefined}>
+        <Notice key="adopt" kind="warning" actions={adopting === null ? [{ label: t("project:clearWorld.adopt"), onClick: () => void adopt() }] : undefined}>
           <div className={styles.adopt}>
-            <p>{ADOPT_FIRST}</p>
+            <p>{t("project:clearWorld.adoptFirst")}</p>
             {adopting !== null && <AdoptProgress progress={adopting.progress} total={scripts.file_count} />}
           </div>
         </Notice>,
@@ -239,11 +230,11 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
         </Notice>,
       );
     }
-    if (binary > 0) needs.push(<p key="binary" className={parts.note}>{`${binary} ${binary === 1 ? TERMS.scriptFile.label : TERMS.scriptFile.plural} ließen sich nicht dekompilieren und bleiben binär.`}</p>);
+    if (binary > 0) needs.push(<p key="binary" className={parts.note}>{t("project:clearWorld.binary", { count: binary, term: binary === 1 ? termLabel("scriptFile") : termPlural("scriptFile") })}</p>);
     if (unsaved > 0) {
       needs.push(
-        <Notice key="save" kind="warning" actions={[{ label: "Speichern", onClick: () => void save() }]}>
-          {SAVE_FIRST}
+        <Notice key="save" kind="warning" actions={[{ label: t("project:clearWorld.save"), onClick: () => void save() }]}>
+          {t("project:clearWorld.saveFirst")}
         </Notice>,
       );
     }
@@ -252,7 +243,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
   const steps: WizardStep[] = [
     {
       id: "plan",
-      title: "Was bleibt",
+      title: t("project:clearWorld.stepPlan"),
       canNext: ready,
       content: (
         <>
@@ -263,7 +254,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
     },
     {
       id: "summary",
-      title: "Zusammenfassung",
+      title: t("project:clearWorld.stepSummary"),
       canNext: ready,
       content: (
         <section className={parts.column}>
@@ -280,7 +271,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
     },
   ];
 
-  const summary = plan && !empty ? `Leert die Welt bis auf ${townOf(plan)}. Die Welt holst du mit ⌘Z zurück; Randkarte, Level-Script und Start-Script bleiben als Dateien.` : undefined;
+  const summary = plan && !empty ? t("project:clearWorld.summary", { town: townOf(plan) }) : undefined;
 
   let result = null;
   let showIt: (() => void) | undefined;
@@ -289,9 +280,9 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
     const [file, n] = report.start_script;
     result = (
       <DoneResult
-        title="Welt geleert"
-        lines={[`Randkarte ${id4(report.border_map)}, Level-Script ${id4(report.level_script)}, Start-Script ${id4(file)} #${n}`]}
-        next={["Mit „Hier spielen“: Intro, zu Hause aufwachen, draußen wartet dein erstes Pokémon."]}
+        title={t("project:clearWorld.doneTitle")}
+        lines={[t("project:clearWorld.doneFiles", { border: id4(report.border_map), level: id4(report.level_script), file: id4(file), n })]}
+        next={[t("project:clearWorld.doneNext")]}
         // The step the kernel names after the empty region; the wizard still calls the old command, which answers none.
         steps={nextStepsFor("empty_region")}
         onStep={onStep && ((id) => onStep(id, report))}
@@ -303,7 +294,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
 
   return (
     <WizardFrame
-      title="Welt leeren"
+      title={t("project:clearWorld.title")}
       icon="world"
       steps={steps}
       step={step}
@@ -317,7 +308,7 @@ export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onA
       summary={summary}
       irreversible
       result={result}
-      submitLabel="Welt leeren"
+      submitLabel={t("project:clearWorld.title")}
       onSubmit={() => void apply()}
       // After a run the world was read again already; a failed run that may have written files has it read.
       onCancel={() => onClose(report === null && touched)}

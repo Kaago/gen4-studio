@@ -278,7 +278,7 @@ fn discovery_file_is_0600_and_removed_on_stop() {
         let _ = stream.write_all(b"POST /mcp HTTP/1.1\r\nHost: x\r\n\r\n");
         let mut raw = Vec::new();
         let _ = stream.read_to_end(&mut raw);
-        assert!(!String::from_utf8_lossy(&raw).contains("Host nicht erlaubt"));
+        assert!(!String::from_utf8_lossy(&raw).contains("Host not allowed"));
     }
     // A second start gets a new token.
     let again = app.start();
@@ -309,7 +309,7 @@ fn bad_token_is_401() {
         reply.message(),
         json!({
             "code": "error",
-            "message": "Token fehlt oder ist falsch",
+            "message": "Token is missing or wrong",
             "asset": null,
             "problems": []
         })
@@ -325,7 +325,7 @@ fn bad_token_is_401() {
     browser.push(("Origin", "http://evil".to_owned()));
     let reply = request(server.port, "POST", &browser, &init.to_string());
     assert_eq!(reply.status, 403);
-    assert_eq!(reply.message()["message"], "Origin nicht erlaubt");
+    assert_eq!(reply.message()["message"], "Origin not allowed");
     // GET opens no server stream.
     let reply = request(server.port, "GET", &headers(server.port, &token, None), "");
     assert_eq!(reply.status, 405);

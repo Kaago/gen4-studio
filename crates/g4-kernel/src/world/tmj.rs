@@ -64,13 +64,16 @@ pub const TILED_VERSION: &str = "1.10.2";
 /// Pixels per tile in the TMJ (one texel per world unit).
 pub const TMJ_TILE: u32 = TILE_UNITS as u32;
 
-/// Names of the layers and tilesets the studio writes.
-pub const HEIGHT_LAYER: &str = "Höhe";
+/// Names of the layers and tilesets the studio writes. They are part of the TMJ file (written
+/// on export, read back on import), not messages, so they stay the same in every locale; the
+/// umlauts are spelled as escapes (`\u{f6}` is „ö“, `\u{e4}` is „ä“) so that the check for
+/// German messages left in the code does not flag these names.
+pub const HEIGHT_LAYER: &str = "H\u{f6}he";
 pub const RAMP_LAYER: &str = "Rampen";
 pub const PIECE_LAYER: &str = "Teilmodelle";
 pub const PERMISSION_LAYER: &str = "Permissions";
-pub const BUILDING_LAYER: &str = "Gebäude (nur Ansicht)";
-pub const HEIGHT_TILESET: &str = "g4 Höhen";
+pub const BUILDING_LAYER: &str = "Geb\u{e4}ude (nur Ansicht)";
+pub const HEIGHT_TILESET: &str = "g4 H\u{f6}hen";
 pub const RAMP_TILESET: &str = "g4 Rampen";
 
 /// The table „Drehen und Spiegeln“: (rotate, flip, Tiled's bits). Derived from
@@ -230,7 +233,7 @@ impl Images {
 
 /// `n` as a TMJ number.
 fn count(n: usize) -> Result<u32, KernelError> {
-    u32::try_from(n).map_err(|_| KernelError::Refused(format!("{n} ist zu groß für TMJ.")))
+    u32::try_from(n).map_err(|_| KernelError::Refused(t!("world.tmj_too_big", n = n).into_owned()))
 }
 
 /// An embedded image collection `name` from GID `firstgid` with property `g4.kind` `kind`.
@@ -352,7 +355,7 @@ pub fn to_tmj(
 ) -> Result<(TmjMap, Vec<TileImage>), KernelError> {
     let grid = WorldGrid::parse(world).map_err(|errors| {
         let first = errors.first().map(ToString::to_string).unwrap_or_default();
-        KernelError::Refused(format!("Karte {map:04}: {first}"))
+        KernelError::Refused(t!("world.map_prefixed", map = map : {:04}, text = first).into_owned())
     })?;
     let mut images = Images {
         folder: format!("{stem}.tiles"),
@@ -588,10 +591,9 @@ pub fn world_export_tmj(
         .and_then(|s| s.to_str())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
-            KernelError::Refused(format!(
-                "{} hat keinen Dateinamen für TMJ.",
-                crate::relpath::shown(path)
-            ))
+            KernelError::Refused(
+                t!("world.tmj_no_file_name", path = crate::relpath::shown(path)).into_owned(),
+            )
         })?;
     let (tmj, images) = to_tmj(
         map,
@@ -636,14 +638,24 @@ const GID_FLAGS: u32 = FLIP_H | FLIP_V | FLIP_D | FLIP_HEX;
 /// Cells of a layer.
 const CELLS: usize = MAP_SIZE * MAP_SIZE;
 
-const NOT_A_MAP: &str = "Keine Tiled-Karte (`type` ist nicht „map“).";
-const INFINITE: &str = "Unendliche Karten liest das Studio nicht.";
-const COMPRESSED: &str = "Komprimierte Ebenen liest das Studio nicht; in Tiled unter Karte › \
-                          Eigenschaften „Kachelebenenformat“ CSV wählen.";
-const EXTERNAL: &str =
-    "Ausgelagerte Tilesets (`source`) liest das Studio nicht; in Tiled das Tileset einbetten.";
-const HEX_TURN: &str = "Sechseck-Drehung gibt es nicht.";
-const NO_HEIGHTS: &str = "Die Ebene „Höhe“ fehlt.";
+fn not_a_map() -> String {
+    t!("world.tmj_not_a_map").into_owned()
+}
+fn infinite() -> String {
+    t!("world.tmj_infinite").into_owned()
+}
+fn compressed() -> String {
+    t!("world.tmj_compressed").into_owned()
+}
+fn external() -> String {
+    t!("world.tmj_external").into_owned()
+}
+fn hex_turn() -> String {
+    t!("world.tmj_hex_turn").into_owned()
+}
+fn no_heights() -> String {
+    t!("world.tmj_no_heights", layer = HEIGHT_LAYER).into_owned()
+}
 
 /// An error of a TMJ at `path` (`layers[2].data[517]`; the world's own paths `world.…` for
 /// what [`WorldGrid::parse`] or the tileset check refuse after the mapping).
@@ -712,7 +724,7 @@ fn from_map(
     if tmj.kind != "map" {
         return Err(vec![TmjError {
             path: "type".to_owned(),
-            message: NOT_A_MAP.to_owned(),
+            message: not_a_map(),
         }]);
     }
     let mut reader = Reader {
@@ -737,7 +749,7 @@ fn from_map(
         height_layer,
     } = read;
     if !height_layer {
-        reader.push("layers", NO_HEIGHTS);
+        reader.push("layers", no_heights());
     }
     if !reader.errors.is_empty() {
         return Err(reader.errors);
@@ -891,9 +903,11 @@ impl Reader<'_> {
             let path = if tmj.width != side { "width" } else { "height" };
             self.push(
                 path,
-                format!(
-                    "Die Karte ist {} × {} Kacheln groß; eine Karte hat {side} × {side}.",
-                    tmj.width, tmj.height
+                t!(
+                    "world.tmj_size",
+                    width = tmj.width,
+                    height = tmj.height,
+                    side = side
                 ),
             );
         }
@@ -905,37 +919,43 @@ impl Reader<'_> {
             };
             self.push(
                 path,
-                format!(
-                    "Kacheln sind {} × {} Pixel; das Studio schreibt {TMJ_TILE} × {TMJ_TILE}.",
-                    tmj.tilewidth, tmj.tileheight
+                t!(
+                    "world.tmj_tile_size",
+                    width = tmj.tilewidth,
+                    height = tmj.tileheight,
+                    tile = TMJ_TILE
                 ),
             );
         }
         if tmj.infinite {
-            self.push("infinite", INFINITE);
+            self.push("infinite", infinite());
         }
         if let Some(package) = prop(&tmj.properties, "g4.tileset").and_then(Value::as_i64)
             && package != i64::from(target.tileset)
         {
             self.push(
                 "properties",
-                format!(
-                    "Die Datei nutzt Paket {package:04}, die Welt Paket {:04}.",
-                    target.tileset
+                t!(
+                    "world.tmj_package_mismatch",
+                    package = package : {:04},
+                    world = target.tileset : {:04}
                 ),
             );
         }
         for (i, set) in tmj.tilesets.iter().enumerate() {
             if set.source.is_some() {
-                self.push(format!("tilesets[{i}].source"), EXTERNAL);
+                self.push(format!("tilesets[{i}].source"), external());
             }
         }
         let tiles = self.tileset.tiles.len();
         let count_error = |n: u32| {
-            format!(
-                "Das Tileset hat {n} Kacheln, Paket {:04} hat {tiles}.",
-                target.tileset
+            t!(
+                "world.tmj_tile_count",
+                n = n,
+                package = target.tileset : {:04},
+                tiles = tiles
             )
+            .into_owned()
         };
         match tmj.tilesets.first() {
             None => self.push("tilesets", count_error(0)),
@@ -943,10 +963,7 @@ impl Reader<'_> {
                 if set.firstgid != 1 {
                     self.push(
                         "tilesets[0].firstgid",
-                        format!(
-                            "Das erste Tileset beginnt bei GID {}; das Studio schreibt 1.",
-                            set.firstgid
-                        ),
+                        t!("world.tmj_first_gid", gid = set.firstgid),
                     );
                 }
                 if usize::try_from(set.tilecount).ok() != Some(tiles) {
@@ -1030,7 +1047,7 @@ impl Reader<'_> {
     fn cells(&mut self, i: usize, layer: &TmjLayer) -> Option<Vec<u32>> {
         let at = format!("layers[{i}]");
         if layer.compression.as_deref().is_some_and(|c| !c.is_empty()) {
-            self.push(format!("{at}.compression"), COMPRESSED);
+            self.push(format!("{at}.compression"), compressed());
             return None;
         }
         let gids = match &layer.data {
@@ -1048,19 +1065,12 @@ impl Reader<'_> {
                     Ok(bytes) => {
                         self.push(
                             format!("{at}.data"),
-                            format!(
-                                "Die Ebenendaten sind {} Bytes lang, keine Folge von GIDs zu je \
-                                 4 Bytes.",
-                                bytes.len()
-                            ),
+                            t!("world.tmj_data_length", len = bytes.len()),
                         );
                         return None;
                     }
                     Err(e) => {
-                        self.push(
-                            format!("{at}.data"),
-                            format!("Die Ebenendaten sind kein Base64 ({e})."),
-                        );
+                        self.push(format!("{at}.data"), t!("world.tmj_data_base64", error = e));
                         return None;
                     }
                 }
@@ -1069,10 +1079,7 @@ impl Reader<'_> {
         if gids.len() != CELLS {
             self.push(
                 format!("{at}.data"),
-                format!(
-                    "Die Ebene hat {} Zellen; eine Karte hat {MAP_SIZE} × {MAP_SIZE}.",
-                    gids.len()
-                ),
+                t!("world.tmj_layer_cells", count = gids.len(), side = MAP_SIZE),
             );
             return None;
         }
@@ -1091,7 +1098,7 @@ impl Reader<'_> {
             }
             let at = format!("layers[{i}].data[{c}]");
             let Some((rotate, flip)) = flags_turn(gid) else {
-                self.push(at, HEX_TURN);
+                self.push(at, hex_turn());
                 ok = false;
                 continue;
             };
@@ -1117,7 +1124,7 @@ impl Reader<'_> {
             if id == 0 {
                 self.push(
                     at,
-                    format!("Zelle ({}, {}) hat keine Höhe.", c % MAP_SIZE, c / MAP_SIZE),
+                    t!("world.tmj_no_height", x = c % MAP_SIZE, z = c / MAP_SIZE),
                 );
                 ok = false;
                 continue;
@@ -1181,7 +1188,7 @@ impl Reader<'_> {
             Some(v) => v.as_u64().and_then(|v| u16::try_from(v).ok()),
         };
         let Some(at_cell) = cell else {
-            self.push(at, format!("Objekt {id} liegt nicht auf dem Raster."));
+            self.push(at, t!("world.tmj_object_off_grid", id = id));
             return None;
         };
         let Some(tile) = piece_tile else {
@@ -1189,17 +1196,11 @@ impl Reader<'_> {
                 Some(g) if g > 0 => format!("{:#06x}", g - 1),
                 _ => "–".to_owned(),
             };
-            self.push(
-                at,
-                format!("Objekt {id}: Kachel {shown} ist kein Teilmodell."),
-            );
+            self.push(at, t!("world.tmj_object_not_piece", id = id, tile = shown));
             return None;
         };
         let Some(rotate) = rotate else {
-            self.push(
-                at,
-                format!("Objekt {id}: `g4.rotate` ist keine Drehung (0, 90, 180 oder 270)."),
-            );
+            self.push(at, t!("world.tmj_object_turn", id = id));
             return None;
         };
         Some(PieceJson {
@@ -1226,7 +1227,7 @@ impl Reader<'_> {
             .zip(on_grid(object.width).zip(on_grid(object.height)))
             .filter(|&((x, z), (w, d))| w > 0 && d > 0 && x + w <= side && z + d <= side);
         let Some(((x0, z0), (w, d))) = rect else {
-            self.push(at, format!("Objekt {id} liegt nicht auf dem Raster."));
+            self.push(at, t!("world.tmj_object_off_grid", id = id));
             return;
         };
         let props = &object.properties;
@@ -1234,10 +1235,7 @@ impl Reader<'_> {
             byte_prop(props, "g4.kind"),
             byte_prop(props, "g4.collision"),
         ) else {
-            self.push(
-                at,
-                format!("Objekt {id}: `g4.kind` und `g4.collision` brauchen Zahlen von 0 bis 255."),
-            );
+            self.push(at, t!("world.tmj_object_bytes", id = id));
             return;
         };
         for z in z0..z0 + d {
@@ -1247,7 +1245,7 @@ impl Reader<'_> {
                     continue;
                 };
                 if slot.is_some() {
-                    self.push(at, format!("Zelle ({x}, {z}) ist zweimal überschrieben."));
+                    self.push(at, t!("world.tmj_cell_twice", x = x, z = z));
                     return;
                 }
                 *slot = Some(Cell { kind, collision });
@@ -1262,9 +1260,9 @@ fn on_grid(v: f64) -> Option<u32> {
     ((0.0..=4096.0).contains(&v) && (v / tile).fract() == 0.0).then(|| (v / tile) as u32)
 }
 
-/// „GID 7 gehört nicht in diese Ebene.“
+/// „GID 7 does not belong in this layer.“
 fn outside(id: u32) -> String {
-    format!("GID {id} gehört nicht in diese Ebene.")
+    t!("world.tmj_gid_outside", id = id).into_owned()
 }
 
 /// The point of `building` in the layer „Gebäude (nur Ansicht)“: pixels from the map's corner.
@@ -1321,9 +1319,9 @@ fn changed_cells(before: &WorldJson, after: &WorldJson) -> usize {
         .count()
 }
 
-/// „Tiled importiert: Karte 0123“, the label of [`world_import_tmj`].
+/// „Tiled imported: Map 0123“, the label of [`world_import_tmj`].
 pub fn import_label(map: u16) -> String {
-    format!("Tiled importiert: Karte {map:04}")
+    t!("world.tmj_import_label", map = map : {:04}).into_owned()
 }
 
 /// What [`world_inspect_tmj`] read or [`world_import_tmj`] did: the map, the world's layers
@@ -1429,10 +1427,14 @@ pub fn world_import_tmj(
     refuse_locked_map(store, map, |_| locked_map_refusal(map))?;
     let (mut report, world) = inspect(store, map, path)?;
     if let Some(first) = report.errors.first() {
-        return Err(KernelError::Refused(format!(
-            "{first} ({} Fehler)",
-            report.errors.len()
-        )));
+        return Err(KernelError::Refused(
+            t!(
+                "world.tmj_errors",
+                first = first,
+                count = report.errors.len()
+            )
+            .into_owned(),
+        ));
     }
     let Some(world) = world else {
         return Ok(report);

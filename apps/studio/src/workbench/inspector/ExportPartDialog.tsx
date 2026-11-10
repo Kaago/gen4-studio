@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, exportMapPart, worldExportTmj, worldGet } from "../../api";
 import type { MapPart } from "../../api";
 import { savePath } from "../../platform/dialogs";
 import { inTauri } from "../../platform/transport";
+import { t } from "../../i18n";
 import { Button, Dialog, Notice, Segmented, TextField } from "../../ui/primitives";
 import { id4 } from "../terms";
-import { PART_NAME } from "./importParts";
+import { partName } from "./importParts";
 import styles from "./ImportPartsDialog.module.css";
 
 /** The parts a map file holds (textures live in the area's map texture pack and are not exported), and a world map as a Tiled map (6.5b). */
@@ -15,10 +17,11 @@ const EXTENSION: Record<FilePart, string> = { model: "nsbmd", permissions: "per"
 const PARTS: readonly FilePart[] = ["model", "permissions", "buildings", "bdhc", "bgs", "whole"];
 const WORLD_PARTS: readonly FilePart[] = [...PARTS, "tmj"];
 const KNOWN = new Set(Object.values(EXTENSION));
-const NAME: Record<FilePart, string> = { ...PART_NAME, tmj: "Tiled (TMJ)" };
+/** The name of a part in the language that is shown. */
+const fileName = (part: FilePart): string => (part === "tmj" ? "Tiled (TMJ)" : partName(part));
 
-/** The default file of a part: `karte_0006.per`; a Tiled map `0006.tmj`. */
-const defaultName = (map: number, part: FilePart) => (part === "tmj" ? `${id4(map)}.tmj` : `karte_${id4(map)}.${EXTENSION[part]}`);
+/** The default file of a part: `karte_0006.per` (English `map_0006.per`); a Tiled map `0006.tmj`. */
+const defaultName = (map: number, part: FilePart) => (part === "tmj" ? `${id4(map)}.tmj` : `${t("workbench:exportPartDialog.defaultStem", { id: id4(map) })}.${EXTENSION[part]}`);
 
 /** The folder of the tile images next to a Tiled map: `<stem>.tiles` of the typed file, `0006.tiles` before one is typed. */
 function tilesFolder(path: string, map: number): string {
@@ -53,7 +56,7 @@ function failureText(e: unknown, target: string): string {
   const message = errorText(e);
   const cut = Math.max(target.lastIndexOf("/"), target.lastIndexOf("\\"));
   if (cut > 0 && /\(os error [23]\)\s*$/.test(message)) {
-    return `Den Ordner ${target.slice(0, cut)} gibt es nicht. Lege ihn an oder wähle einen anderen Pfad.`;
+    return t("workbench:exportPartDialog.noFolder", { folder: target.slice(0, cut) });
   }
   return message;
 }
@@ -69,6 +72,8 @@ export interface ExportPartDialogProps {
  * opens) also offers „Tiled (TMJ)“ (`world_export_tmj`, the tile images in `<stem>.tiles` next to it).
  */
 export function ExportPartDialog({ map, open, onClose }: ExportPartDialogProps) {
+  // Renders the dialog again when the language changes; the words below are read at render time.
+  useTranslation("workbench");
   const [chosenPart, setPart] = useState<FilePart>("model");
   const [path, setPath] = useState("");
   const [working, setWorking] = useState(false);
@@ -132,13 +137,13 @@ export function ExportPartDialog({ map, open, onClose }: ExportPartDialogProps) 
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()} title={`Teil von Karte ${id4(map)} exportieren`}>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()} title={t("workbench:exportPartDialog.title", { map: id4(map) })}>
       <div className={styles.body} data-export-dialog={map}>
         <div data-export-part={part}>
-          <Segmented ariaLabel="Teil" options={(world ? WORLD_PARTS : PARTS).map((p) => ({ value: p, label: NAME[p] }))} value={part} onChange={choosePart} size="s" wrap />
+          <Segmented ariaLabel={t("workbench:exportPartDialog.part")} options={(world ? WORLD_PARTS : PARTS).map((p) => ({ value: p, label: fileName(p) }))} value={part} onChange={choosePart} size="s" wrap />
         </div>
         <div className={styles.source}>
-          <TextField label="Pfad" showLabel value={path} onCommit={choosePath} placeholder={`/Pfad/${defaultName(map, part)}`} />
+          <TextField label={t("workbench:exportPartDialog.path")} showLabel value={path} onCommit={choosePath} placeholder={t("workbench:exportPartDialog.pathPlaceholder", { file: defaultName(map, part) })} />
           {inTauri() && (
             <Button
               kind="secondary"
@@ -149,19 +154,19 @@ export function ExportPartDialog({ map, open, onClose }: ExportPartDialogProps) 
                 })
               }
             >
-              Pfad wählen…
+              {t("workbench:exportPartDialog.choosePath")}
             </Button>
           )}
         </div>
-        {part === "tmj" && <p className={styles.reason}>{`Kachelbilder kommen in den Ordner ${tilesFolder(path, map)} daneben.`}</p>}
+        {part === "tmj" && <p className={styles.reason}>{t("workbench:exportPartDialog.tilesFolder", { folder: tilesFolder(path, map) })}</p>}
         {failure !== null && <Notice kind="error">{failure}</Notice>}
-        {written !== null && <Notice kind="success">{`${NAME[written.part]} exportiert nach ${written.path}`}</Notice>}
+        {written !== null && <Notice kind="success">{t("workbench:exportPartDialog.exported", { part: fileName(written.part), path: written.path })}</Notice>}
         <div className={styles.actions}>
           <Button kind="secondary" onClick={onClose}>
-            Schließen
+            {t("workbench:exportPartDialog.close")}
           </Button>
           <Button kind="primary" disabled={path.trim() === "" || working} onClick={() => void run()}>
-            Exportieren
+            {t("workbench:exportPartDialog.export")}
           </Button>
         </div>
       </div>

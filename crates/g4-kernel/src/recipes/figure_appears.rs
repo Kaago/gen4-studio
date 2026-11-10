@@ -48,7 +48,9 @@ const FLAG_KIND: &str = "SICHTBAR";
 
 /// The refusal for a place whose level script starts something else than a slot of the
 /// header's script file on entering (a common script, a slot the file does not declare).
-pub(crate) const TRANSITION_TEXT: &str = "Das Übergangs-Script des Orts ist kein eigener Slot.";
+pub(crate) fn transition_text() -> String {
+    t!("recipes.transition_not_own_slot").into_owned()
+}
 
 /// The input of „Figur erscheint/verschwindet ab Schritt“: the story (its id), the figure, the
 /// step from which on it appears (`appears`) or vanishes (value k; before it the other way),
@@ -88,27 +90,34 @@ fn step_key(flag: u16) -> String {
     format!("a{flag}")
 }
 
-/// What the figure does from the step on.
-fn verb(appears: bool) -> &'static str {
-    if appears { "erscheint" } else { "verschwindet" }
-}
-
 /// The undo label.
 fn label(local_id: u16, step: u16, appears: bool, story: &str) -> String {
-    format!(
-        "Figur {local_id} {} ab Schritt {step} in „{story}“",
-        verb(appears)
-    )
+    let key = if appears {
+        "recipes.figure_appears_label"
+    } else {
+        "recipes.figure_vanishes_label"
+    };
+    t!(key, local_id = local_id, step = step, story = story).into_owned()
 }
 
 /// The flag's description.
 fn description(local_id: u16, story: &str) -> String {
-    format!("Sichtbarkeit von Figur {local_id} in „{story}“")
+    t!(
+        "recipes.visibility_description",
+        local_id = local_id,
+        story = story
+    )
+    .into_owned()
 }
 
 /// The refusal for a figure that has a visibility flag (named `flag`).
 fn has_flag_text(local_id: u16, flag: &str) -> String {
-    format!("Figur {local_id} hat schon das Sichtbarkeits-Flag {flag}.")
+    t!(
+        "recipes.figure_has_visibility_flag",
+        local_id = local_id,
+        flag = flag
+    )
+    .into_owned()
 }
 
 /// Flag `n` as a sentence names it: its own name, else pret's, else its number.
@@ -196,7 +205,7 @@ struct Checked {
 /// the block's end marker, the new rule goes above its `Jump`/`End` line ([`insert_rule`]);
 /// else a free slot below the common scripts, the block's name not yet in the file, the level
 /// script ([`plan_level_script`]) and the script its [`VISIBILITY_ENTRY`](super::level_script::VISIBILITY_ENTRY) entry starts so far
-/// (none, or a slot the file declares: else [`TRANSITION_TEXT`]).
+/// (none, or a slot the file declares: else [`transition_text`]).
 fn check(store: &mut Store, input: &FigureAppearsInput) -> Result<Checked, KernelError> {
     require_adopted(store)?;
     let story = load_story(store, &input.story)?;
@@ -237,8 +246,10 @@ fn check(store: &mut Store, input: &FigureAppearsInput) -> Result<Checked, Kerne
     let marker = visibility_end_marker(story.number, header);
     let block = if source.lines().any(|l| l.trim_end() == marker) {
         let slot = slot_named(&source, &name).ok_or_else(|| {
-            refused(format!(
-                "Der Sichtbarkeits-Block {name} in Scriptdatei {script_file:04} hat keinen Slot."
+            refused(t!(
+                "recipes.visibility_block_without_slot",
+                name = name,
+                script_file = script_file : {:04}
             ))
         })?;
         let grown = insert_rule(
@@ -257,8 +268,10 @@ fn check(store: &mut Store, input: &FigureAppearsInput) -> Result<Checked, Kerne
         }
     } else {
         if scripts::names_identifier(&source, &name) {
-            return Err(refused(format!(
-                "Die Scriptdatei {script_file:04} nennt schon {name}; in Bauen umbenennen."
+            return Err(refused(t!(
+                "recipes.script_file_names_already",
+                script_file = script_file : {:04},
+                name = name
             )));
         }
         let (slot, _) = next_slot(&project, script_file)?;
@@ -266,10 +279,10 @@ fn check(store: &mut Store, input: &FigureAppearsInput) -> Result<Checked, Kerne
         let tail = match level.transition {
             None => Tail::End,
             Some(target) if target >= FIRST_COMMON_SCRIPT => {
-                return Err(refused(TRANSITION_TEXT));
+                return Err(refused(transition_text()));
             }
             Some(target) => {
-                Tail::Jump(slot_name(&source, target).ok_or_else(|| refused(TRANSITION_TEXT))?)
+                Tail::Jump(slot_name(&source, target).ok_or_else(|| refused(transition_text()))?)
             }
         };
         Block::New { slot, tail, level }
@@ -287,19 +300,25 @@ fn check(store: &mut Store, input: &FigureAppearsInput) -> Result<Checked, Kerne
 
 /// The sentences of the dialog: the figure's flag and the block.
 fn notes(checked: &Checked, input: &FigureAppearsInput) -> Vec<String> {
+    let key = if input.appears {
+        "recipes.note_figure_appears"
+    } else {
+        "recipes.note_figure_vanishes"
+    };
     vec![
-        format!(
-            "Figur {} bekommt das Sichtbarkeits-Flag {} und {} ab Schritt {}.",
-            checked.figure.local_id,
-            checked.flag_id,
-            verb(input.appears),
-            input.step
-        ),
-        format!(
-            "Block {} in Scriptdatei {}.",
-            visibility_name(checked.story.number, input.figure.header),
-            checked.files.script_file
-        ),
+        t!(
+            key,
+            local_id = checked.figure.local_id,
+            flag = checked.flag_id,
+            step = input.step
+        )
+        .into_owned(),
+        t!(
+            "recipes.note_visibility_block",
+            name = visibility_name(checked.story.number, input.figure.header),
+            script_file = checked.files.script_file
+        )
+        .into_owned(),
     ]
 }
 
@@ -326,11 +345,12 @@ pub fn plan(store: &mut Store, input: &FigureAppearsInput) -> Result<Draft, Kern
 fn appearance_step(input: &FigureAppearsInput, checked: &Checked) -> Step {
     let local_id = checked.figure.local_id;
     let name = step_name(input.step_name.as_deref(), || {
-        format!(
-            "Figur {local_id} {} ab Schritt {}",
-            verb(input.appears),
-            input.step
-        )
+        let key = if input.appears {
+            "recipes.figure_appears_step"
+        } else {
+            "recipes.figure_vanishes_step"
+        };
+        t!(key, local_id = local_id, step = input.step).into_owned()
     });
     Step {
         key: step_key(input.flag),
@@ -416,7 +436,7 @@ pub fn apply(
         created,
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("play_here", "Hier spielen")]),
+        next: next_steps(&["play_here"]),
     })
 }
 
@@ -500,9 +520,11 @@ fn write_visibility(
         })?;
         if !set {
             // Checked before the first write; a failed transaction records nothing.
-            return Err(refused(format!(
-                "Objekt {index} der Eventdatei {event_file:04} ist nicht mehr Figur {local_id} \
-                 ohne Sichtbarkeits-Flag."
+            return Err(refused(t!(
+                "recipes.object_no_longer_figure",
+                index = index,
+                event_file = event_file : {:04},
+                local_id = local_id
             )));
         }
         if level_created {

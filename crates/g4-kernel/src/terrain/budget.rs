@@ -54,7 +54,7 @@ pub struct TextureBudget {
 }
 
 /// The budgets of map `map`. `textures` is `None` when the area or a pack cannot be found or
-/// read; `textures_missing` then says why (German, shown as it is).
+/// read; `textures_missing` then says why (in the current language, shown as it is).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MapBudget {
     pub map: u16,
@@ -116,16 +116,24 @@ fn bdhc_payload(bytes: &[u8]) -> u64 {
     count(0) * 8 + count(1) * 12 + count(2) * 4 + count(3) * 8 + count(4) * 8 + count(5) * 2
 }
 
-/// A texture pack read and parsed; the German reason when it is missing or unreadable.
+/// A texture pack read and parsed; the reason when it is missing or unreadable.
 fn pack(
     bytes: Result<Option<Vec<u8>>, KernelError>,
     what: &str,
     index: u16,
 ) -> Result<Nsbtx, String> {
-    let unreadable = |why: String| format!("{what} {index} nicht lesbar: {why}.");
+    let unreadable = |why: String| {
+        t!(
+            "terrain.pack_unreadable",
+            what = what,
+            index = index,
+            why = why
+        )
+        .into_owned()
+    };
     let bytes = bytes
         .map_err(|e| unreadable(e.to_string()))?
-        .ok_or_else(|| unreadable("liegt außerhalb des Archivs".to_string()))?;
+        .ok_or_else(|| unreadable(t!("terrain.outside_archive").into_owned()))?;
     Nsbtx::read(&bytes).map_err(|e| unreadable(e.to_string()))
 }
 
@@ -133,16 +141,18 @@ fn pack(
 fn textures(store: &mut Store, map: u16) -> Result<Result<TextureBudget, String>, KernelError> {
     // The first area in table order, the same rule as the baker's (`bake::bake_context`).
     let Some(area) = map_areas(store, map)?.first().copied() else {
-        return Ok(Err("Kein Header zeigt diese Karte.".to_string()));
+        return Ok(Err(t!("terrain.no_header_shows_map").into_owned()));
     };
     let Some(data) = store.area_data_checked(area)? else {
-        return Ok(Err(format!("Gebietsdaten {area} fehlen.")));
+        return Ok(Err(
+            t!("terrain.area_data_missing", area = area).into_owned()
+        ));
     };
     let (map_pack, building_pack) = (data.map_tileset(), data.buildings_tileset());
     let project = store.project();
     let map_btx = match pack(
         project.map_tileset_member(map_pack),
-        "Texturpaket",
+        &t!("terrain.texture_pack"),
         map_pack,
     ) {
         Ok(btx) => btx,
@@ -150,7 +160,7 @@ fn textures(store: &mut Store, map: u16) -> Result<Result<TextureBudget, String>
     };
     let building_btx = match pack(
         project.building_tileset_member(building_pack),
-        "Gebäude-Texturpaket",
+        &t!("terrain.building_texture_pack"),
         building_pack,
     ) {
         Ok(btx) => btx,
@@ -316,7 +326,7 @@ mod tests {
         assert_eq!(b.textures, None);
         assert_eq!(
             b.textures_missing.as_deref(),
-            Some("Kein Header zeigt diese Karte.")
+            Some("No header shows this map.")
         );
         // The synthetic BDHC of map 2 has no header: no payload.
         assert_eq!(b.bdhc.used, 0);
@@ -367,7 +377,7 @@ mod tests {
         // The synthetic packs are 8 bytes, no TEX0.
         let b = map_budget(&mut st, 0).unwrap();
         let why = b.textures_missing.unwrap();
-        assert!(why.starts_with("Texturpaket 0 nicht lesbar: "), "{why}");
+        assert!(why.starts_with("Texture pack 0 unreadable: "), "{why}");
         assert!(why.ends_with('.'), "{why}");
 
         // Header 0 names area data 12, which is not there.
@@ -381,7 +391,7 @@ mod tests {
         let b = map_budget(&mut st, 0).unwrap();
         assert_eq!(
             b.textures_missing.as_deref(),
-            Some("Gebietsdaten 12 fehlen.")
+            Some("Area data 12 is missing.")
         );
     }
 
@@ -398,7 +408,7 @@ mod tests {
         let mut st = Store::new(Arc::new(Project::open(root).unwrap()));
         let why = map_budget(&mut st, 0).unwrap().textures_missing.unwrap();
         assert!(
-            why.starts_with("Gebäude-Texturpaket 0 nicht lesbar: "),
+            why.starts_with("Building texture pack 0 unreadable: "),
             "{why}"
         );
         assert!(why.ends_with('.'), "{why}");
@@ -416,7 +426,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             map_budget(&mut st, 0).unwrap().textures_missing.as_deref(),
-            Some("Gebäude-Texturpaket 5 nicht lesbar: liegt außerhalb des Archivs.")
+            Some("Building texture pack 5 unreadable: outside the archive.")
         );
     }
 }

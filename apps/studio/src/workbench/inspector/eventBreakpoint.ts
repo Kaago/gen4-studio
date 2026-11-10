@@ -2,6 +2,7 @@ import { useMemo, useRef } from "react";
 import type { BreakpointDto, CoordDto, EventKind, EventRef as LiveEventRef, ObjectDto } from "../../api";
 import type { Live } from "../../app/useLive";
 import type { EventData, EventRef } from "../../world/events";
+import { t } from "../../i18n";
 
 /** What the event inspector needs of play mode: the row „Haltepunkt“ shows while `active`. */
 export interface EventLive {
@@ -13,11 +14,11 @@ export interface EventLive {
 }
 
 /** Why a figure takes no breakpoint (the backend's sentence). */
-export const NO_FLAG = "Die Figur hat kein Sichtbarkeits-Flag";
+export const noFlag = (): string => t("workbench:eventBreakpoint.noFlag");
 /** Why a trigger takes no breakpoint (the backend's sentence). */
-export const NO_VAR = "Der Auslöser hat keine Variable";
+export const noVar = (): string => t("workbench:eventBreakpoint.noVar");
 /** Why a door or a sign takes no breakpoint (the backend's sentence). */
-export const FIGURES_AND_TRIGGERS = "Haltepunkte gibt es an Figuren und Auslösern";
+export const figuresAndTriggers = (): string => t("workbench:eventBreakpoint.figuresAndTriggers");
 
 /** The event as play mode names it (`event_file`), or null for a class that takes no breakpoint (a sign). */
 export function liveEventRef(ref: EventRef): LiveEventRef | null {
@@ -27,9 +28,9 @@ export function liveEventRef(ref: EventRef): LiveEventRef | null {
 
 /** Why `event` of `kind` takes no breakpoint, or null: a figure watches its visibility flag, a trigger its variable; 0 is none. */
 export function breakpointLock(kind: EventKind, event: EventData): string | null {
-  if (kind === "object") return (event as ObjectDto).hidden_flag === 0 ? NO_FLAG : null;
-  if (kind === "coord") return (event as CoordDto).var === 0 ? NO_VAR : null;
-  return FIGURES_AND_TRIGGERS;
+  if (kind === "object") return (event as ObjectDto).hidden_flag === 0 ? noFlag() : null;
+  if (kind === "coord") return (event as CoordDto).var === 0 ? noVar() : null;
+  return figuresAndTriggers();
 }
 
 /** Whether `live` has a breakpoint at the event `ref`. */

@@ -1,5 +1,13 @@
 # Ei-Attacken (`eggMoves/0000`, Overlay 5)
 
+**In English:** Documents the egg move table (`eggMoves/0000`), which lists the moves a hatched
+Pokémon can learn from its parent. It is a sequence of little-endian `u16` words in which `20000 +
+species` starts the entry of a species; in HeartGold/SoulSilver it is an archive member, in Platinum
+it lies in overlay 5 within a fixed budget of words. The layout comes from Gen4 Studio's own
+measurements on Platinum DE and HeartGold DE; uxie 0.9.7 served only as a comparison. The codec is
+`crates/g4-formats/src/data/egg_moves.rs`; location, source and sets are handled in
+`crates/g4-kernel/src/data/egg_moves.rs` and `overlay_tables.rs`.
+
 Quelle: eigene Messung, `docs/research/2026-10-30-phase-3d/gutachten-b-flags-variablen-live.md`
 §5 mit `gutachten-b-eier.py` (Platin DE, HeartGold DE). uxie 0.9.7 (`egg_move_data`) nur
 zum Vergleich. Implementierung: `crates/g4-formats/src/data/egg_moves.rs` (Codec

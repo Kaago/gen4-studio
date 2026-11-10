@@ -3,7 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TERMS } from "../../workbench/terms";
+import { TERMS, termLabel, termShort } from "../../workbench/terms";
+import type { TermKey } from "../../workbench/terms";
 import { pressKey } from "../primitives/testUtils";
 import { HelpDialog } from "./HelpDialog";
 
@@ -36,10 +37,11 @@ describe("HelpDialog", () => {
     expect(container.contains(box)).toBe(false);
     expect(box.getAttribute("aria-labelledby")).not.toBeNull();
     const text = box.textContent ?? "";
-    for (const term of Object.values(TERMS)) {
-      expect(text).toContain(term.label);
-      expect(text).toContain(term.short);
-      if (term.tech) expect(text).toContain(term.tech);
+    for (const key of Object.keys(TERMS) as TermKey[]) {
+      expect(text).toContain(termLabel(key));
+      expect(text).toContain(termShort(key));
+      const tech = TERMS[key].tech;
+      if (tech) expect(text).toContain(tech);
     }
     expect(box.querySelectorAll("dt")).toHaveLength(Object.keys(TERMS).length);
   });

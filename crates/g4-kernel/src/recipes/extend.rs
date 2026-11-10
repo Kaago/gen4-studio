@@ -79,23 +79,29 @@ pub fn plan(store: &mut Store, spec: &ExtendSpec) -> Result<Draft, KernelError> 
         }],
         ..Draft::default()
     };
-    draft.notes.push(format!(
-        "Erweitert Weltkarte {:04} um Zelle x {}, y {} mit einer Kopie von Karte {:04}.",
-        spec.matrix, spec.x, spec.y, spec.source_map
-    ));
+    draft.notes.push(
+        t!(
+            "recipes.note_extend",
+            matrix = spec.matrix : {:04},
+            x = spec.x,
+            y = spec.y,
+            map = spec.source_map : {:04}
+        )
+        .into_owned(),
+    );
     if grows {
-        draft.notes.push(format!(
-            "Die Weltkarte wächst auf {width} × {height} Zellen."
-        ));
+        draft
+            .notes
+            .push(t!("recipes.note_matrix_grows", width = width, height = height).into_owned());
     }
     if let Some(header) = spec.header_cell {
         draft
             .notes
-            .push(format!("Die Zelle gehört zu Header {header}."));
+            .push(t!("recipes.note_cell_header", header = header).into_owned());
     }
     draft
         .irreversible
-        .push(format!("Karte {:04} wird kopiert", spec.source_map));
+        .push(t!("recipes.irreversible_map_copied", map = spec.source_map : {:04}).into_owned());
     Ok(draft)
 }
 
@@ -128,6 +134,6 @@ pub fn apply(store: &mut Store, spec: &ExtendSpec) -> Result<Outcome<ExtendRepor
         created: created.objects(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("adjust_terrain", "Gelände anpassen")]),
+        next: next_steps(&["adjust_terrain"]),
     })
 }

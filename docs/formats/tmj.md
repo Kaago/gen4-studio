@@ -1,5 +1,14 @@
 # Tiled-Karte (TMJ, Austausch einer Welt-Karte, Phase 6.5b)
 
+**In English:** Documents the exchange of a world-format map with Tiled through TMJ, the JSON form
+of a Tiled map; this is about Gen4 Studio itself. A map can be written as TMJ together with its tile
+images, painted in Tiled and read back in. TMJ is an exchange format and not the world format: the
+source stays the world document in `data/maps/NNNN.json`, and the TMJ carries heights, ramps,
+partial models and permissions only as layers and properties. The code is
+`crates/g4-kernel/src/world/tmj.rs` and `world/tmj/types.rs`, with the commands in
+`apps/studio/src-tauri/src/commands/world_map.rs` and the interface in the import and export dialogs
+of the Inspector (phase 6.5b).
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Eine [Welt-Karte](world_map.md) lässt
 sich als Tiled-Karte (TMJ, die JSON-Form von Tiled) mit ihren Kachelbildern schreiben, in Tiled
 malen und wieder einlesen. **TMJ ist ein Austausch mit Tiled, kein Weltformat:** die Quelle bleibt

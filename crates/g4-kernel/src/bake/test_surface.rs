@@ -223,9 +223,9 @@ const BLOCK_MAX: u8 = (TILES - 2) as u8;
 /// The block when the old model's frame cannot be read.
 const BLOCK_FALLBACK: (u8, u8) = (15, 15);
 
-/// The undo label of `bake_test` on map `map`: „Testfläche gebacken: Karte 0187“.
+/// The undo label of `bake_test` on map `map`: „Test surface baked: Map 0187“.
 pub fn bake_test_label(map: u16) -> String {
-    format!("Testfläche gebacken: Karte {map:04}")
+    t!("bake.test_label", map = map : {:04}).into_owned()
 }
 
 /// Bakes the test surface into map `opts.map` (plan, „Entscheidungen“ `bake_test`).

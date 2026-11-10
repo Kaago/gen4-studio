@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef } from "react";
 import type { RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
@@ -9,7 +10,8 @@ import { useThumbnail } from "../world/useThumbnail";
 import styles from "./AreaGrid.module.css";
 import { rawCell } from "./matrix";
 import type { CellRect } from "./sceneScope";
-import { id4 } from "./terms";
+import { t } from "../i18n";
+import { id4, termLabel } from "./terms";
 import { useVisible } from "./useVisible";
 import { GRID_GAP } from "./worldMap";
 
@@ -48,7 +50,7 @@ export interface AreaGridProps {
   tinker?: boolean;
   /** Draws the cells as pictures, not buttons (no clicks, no tab stops): for a grid inside another control, a tile of „Weitere Gebiete“. */
   still?: boolean;
-  /** The words of the tooltips (Bauen: "Nummer", Tüfteln: "Header"), for a grid that shows pictures in both depths; default: `tinker`. */
+  /** The words of the tooltips (Bauen: „Nummer“, Tüfteln: „Header“), for a grid that shows pictures in both depths; default: `tinker`. */
   depth?: Depth;
   /**
    * The cells an open wizard plans (its draft), drawn dashed and marked `data-draft-cell`: a cell of the matrix stays that cell, a "+" or
@@ -74,7 +76,7 @@ interface CellProps {
   hasHeaders: boolean;
   cache: ThumbnailCache;
   tinker: boolean;
-  /** The tooltip says "Header" (Tüfteln), else "Nummer". */
+  /** The tooltip says „Header“ (Tüfteln), else „Nummer“. */
   techWords: boolean;
   still: boolean;
   onClick?: AreaGridProps["onCellClick"];
@@ -83,16 +85,17 @@ interface CellProps {
 
 /** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */
 const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, foreign, draft, hasHeaders, cache, tinker, techWords, still, onClick, onDoubleClick }: CellProps) {
+  const { t } = useTranslation("workbench");
   const box = useRef<HTMLElement>(null);
   const visible = useVisible(box, map !== null);
   // Only a cell in view asks for its picture, so a big grid does not queue hundreds of jobs the user never sees.
   const picture = useThumbnail(cache, map, area, visible);
   const parts = [`x ${x}, y ${y}`];
-  if (map !== null) parts.push(`Karte ${id4(map)}`);
-  if (header !== null) parts.push(`${techWords ? "Header" : "Nummer"} ${id4(header)}`);
-  if (altitude !== null) parts.push(`Höhe ${altitude}`);
+  if (map !== null) parts.push(`${termLabel("map")} ${id4(map)}`);
+  if (header !== null) parts.push(techWords ? `Header ${id4(header)}` : t("areaGrid.number", { id: id4(header) }));
+  if (altitude !== null) parts.push(t("areaGrid.altitude", { altitude }));
   const failure = map !== null && picture === null ? cache.failure(map, area) : null;
-  if (failure) parts.push(`Bild fehlgeschlagen: ${failure}`);
+  if (failure) parts.push(t("areaGrid.pictureFailed", { reason: failure }));
 
   // What only the data knows: the picture, the place colour.
   const pictured = map !== null && typeof picture === "string";
@@ -154,10 +157,10 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
 });
 
 /** The words of a cell an open wizard plans. */
-const draftLabel = (x: number, y: number) => `Geplant: Karte bei x ${x}, y ${y}`;
+const draftLabel = (x: number, y: number) => t("workbench:areaGrid.draft", { x, y });
 
 /** The words of a "+" button; the extendable cells of the world map say the step cannot be undone. */
-const plusLabel = (x: number, y: number, notUndoable: boolean) => `Karte bei x ${x}, y ${y} anlegen${notUndoable ? " (nicht rückgängig)" : ""}`;
+const plusLabel = (x: number, y: number, notUndoable: boolean) => (notUndoable ? t("workbench:areaGrid.createNotUndoable", { x, y }) : t("workbench:areaGrid.create", { x, y }));
 
 /** The cells of a matrix as a grid of map pictures; shared by the matrix panel, the wizards and the world map. */
 export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, extendable, window, foreign, label, cache = thumbnails, colorOf, tinker = false, still = false, depth, draftCells }: AreaGridProps) {
@@ -244,7 +247,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
   return (
     <div
       role="group"
-      aria-label={label ?? `Raster ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}
+      aria-label={label ?? t("workbench:areaGrid.label", { matrix: termLabel("matrix"), index: matrix.index, rows: matrix.height, columns: matrix.width })}
       className={styles.grid}
       style={{ gridTemplateColumns: `repeat(${columns}, ${cellSize}px)`, gap: GRID_GAP }} /* dyn */
     >

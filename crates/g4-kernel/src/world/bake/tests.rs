@@ -590,8 +590,7 @@ fn form1_needs_no_area() {
 }
 
 /// The new sentence of `world.verbatim-mixed`.
-const MIXED: &str = "Ein Verbatim-Modell (Form 1) backt nur allein; für Kacheln oder Freiform daneben \
-                     die Karte als binäre Karte übernehmen und mit Form 2 (glTF) neu übernehmen.";
+const MIXED: &str = "A verbatim model (Form 1) bakes only alone; for tiles or free-form next to it, adopt the map as a binary map and adopt it again with Form 2 (glTF).";
 
 #[test]
 fn verbatim_with_tiles_is_refused_and_keeps_the_model() {
@@ -742,7 +741,7 @@ fn a_missing_side_file_refuses_the_model_and_keeps_the_last() {
     assert_eq!(b.messages[0].args, ["data/maps/0000.wuerfel.glb"]);
     assert_eq!(
         b.messages[0].message,
-        "Das Beifile data/maps/0000.wuerfel.glb fehlt."
+        "The side file data/maps/0000.wuerfel.glb is missing."
     );
     assert!(b.model.is_none());
     assert_eq!(b.freeform_faces, 0);
@@ -885,8 +884,7 @@ fn a_painted_world_without_area_reports_no_area() {
     assert_eq!(codes(&b), ["world.no-area"]);
     assert_eq!(
         b.messages[0].message,
-        "Karte 0123 liegt in keiner Matrixzelle mit Header; Backen braucht Licht und VRAM ihres \
-         Gebiets."
+        "Map 0123 lies in no matrix cell with a header; baking needs the light and VRAM of its area."
     );
     assert_eq!(b.messages[0].args, ["123"]);
     assert!(b.model.is_none());

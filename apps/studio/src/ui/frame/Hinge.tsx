@@ -1,4 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { HistoryDto } from "../../api";
 import type { LiveHingeInfo } from "../../api.live";
 import { inTauri } from "../../platform/transport";
@@ -60,10 +61,11 @@ export type HingeProps = {
 
 /** The menu lists this many of the newest undo steps. */
 const MENU_STEPS = 10;
-const DEPTHS_OPTIONS = [
-  { value: "erzaehlen", label: "Erzählen", icon: "narrate" },
-  { value: "bauen", label: "Bauen", icon: "build" },
-  { value: "tuefteln", label: "Tüfteln", icon: "tinker" },
+/** The depths of the segment: the value is the shell's depth, `name` the key of its label in the `ui` catalog (`hinge.<name>`). */
+const DEPTHS = [
+  { value: "erzaehlen", name: "depthTell", icon: "narrate" },
+  { value: "bauen", name: "depthBuild", icon: "build" },
+  { value: "tuefteln", name: "depthTinker", icon: "tinker" },
 ] as const;
 
 /**
@@ -95,23 +97,25 @@ const COUNTERS = [
  * comes in as props. The sizes of the dock's groups are dockview's (its sashes).
  */
 export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, maximized = false, onMaximize, wizard, live }: HingeProps) {
+  const { t } = useTranslation("ui");
+  const depthOptions = DEPTHS.map(({ value, name, icon }) => ({ value, label: t(`hinge.${name}`), icon }));
   const undoSteps = history.undo.length;
   const recent = history.undo.slice(-MENU_STEPS).reverse();
   // Who made each of them, aligned with `recent` (ignored unless aligned with `undo`): an agent's step shows its symbol and the client.
   const agents = history.undo_agents?.length === undoSteps ? history.undo_agents.slice(-MENU_STEPS).reverse() : [];
   const historyItems: MenuEntry[] =
     recent.length === 0
-      ? [{ label: "Noch nichts zurückzunehmen", disabled: true, onSelect: () => {} }]
+      ? [{ label: t("hinge.nothingToUndo"), disabled: true, onSelect: () => {} }]
       : recent.map((label, i) => {
-          const step = { label: label === "" ? "Änderung" : label, onSelect: () => onUndoTo(i + 1) };
+          const step = { label: label === "" ? t("hinge.defaultStep") : label, onSelect: () => onUndoTo(i + 1) };
           const agent = agents[i] ?? null;
           return agent === null ? step : { ...step, icon: "agent" as const, detail: agent };
         });
   const counts = countsText(problems);
   const kind: LightKind = problems.errors > 0 ? "error" : problems.warnings > 0 ? "warning" : problems.infos > 0 ? "info" : unchecked ? "unchecked" : "sound";
   const running = checking !== undefined && checking !== null;
-  const calm = unchecked ? "Nicht geprüft" : "Alles stimmig";
-  const lightLabel = running ? [checking, counts].filter((part) => part !== "").join(", ") : counts === "" ? calm : unchecked ? `${counts}, nicht geprüft` : counts;
+  const calm = unchecked ? t("hinge.notChecked") : t("hinge.allSound");
+  const lightLabel = running ? [checking, counts].filter((part) => part !== "").join(", ") : counts === "" ? calm : unchecked ? t("hinge.countsNotChecked", { counts }) : counts;
   const play = live !== undefined && live !== null && live.state !== "off" ? live : null;
   const barRef = useRef<HTMLDivElement>(null);
   const [squeeze, setSqueeze] = useState(0);
@@ -157,7 +161,7 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
     }
     refocus.current = false;
     if (el === null || (document.activeElement !== null && document.activeElement !== document.body)) return;
-    const next = el.querySelector<HTMLButtonElement>('button[aria-label="Wiederholen"]:not(:disabled)') ?? el.querySelector<HTMLButtonElement>('button[aria-label^="Verlauf"]');
+    const next = el.querySelector<HTMLButtonElement>(`button[aria-label="${t("hinge.redo")}"]:not(:disabled)`) ?? el.querySelector<HTMLButtonElement>(`button[aria-label^="${t("hinge.historyName")}"]`);
     next?.focus();
   });
   const toggleMaximize = () => {
@@ -168,11 +172,11 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
   const classes = [styles.hinge, wizard === true ? styles.wizardMode : null, play ? styles.playMode : null].filter((c) => c !== null).join(" ");
 
   return (
-    <div className={classes} role="toolbar" aria-label="Scharnier" data-hinge-mode={play ? "play" : undefined} data-hinge-squeeze={play ? squeezed : undefined} ref={barRef}>
+    <div className={classes} role="toolbar" aria-label={t("hinge.label")} data-hinge="" data-hinge-mode={play ? "play" : undefined} data-hinge-squeeze={play ? squeezed : undefined} ref={barRef}>
       {wizard !== undefined && <div className={styles.wizard} data-wizard-bar="" hidden={!wizard} />}
       {wizard !== true && (
         <>
-          <nav className={styles.crumbs} aria-label="Brotkrume">
+          <nav className={styles.crumbs} aria-label={t("hinge.crumbs")}>
             <ol>
               {crumbs.map((crumb, i) => {
                 const last = i === crumbs.length - 1;
@@ -214,7 +218,7 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
             </ol>
           </nav>
           <div className={styles.depth}>
-            <Segmented options={DEPTHS_OPTIONS} value={depth} onChange={onDepth} ariaLabel="Tiefe" iconOnly={squeezed >= 1} />
+            <Segmented options={depthOptions} value={depth} onChange={onDepth} ariaLabel={t("hinge.depth")} iconOnly={squeezed >= 1} />
           </div>
           <div className={styles.right}>
             <button type="button" className={`${styles.light} ${styles[kind]}`} data-light={kind} data-running={running ? "" : undefined} aria-label={lightLabel} title={lightCompact ? lightLabel : undefined} onClick={onProblems}>
@@ -234,7 +238,7 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
               )}
             </button>
             <Menu
-              label={`Verlauf, ${undoSteps} ${undoSteps === 1 ? "Schritt" : "Schritte"}`}
+              label={t("hinge.history", { count: undoSteps })}
               trigger={
                 <>
                   <Icon name="history" />
@@ -243,12 +247,12 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
               }
               items={historyItems}
             />
-            <IconButton label="Wiederholen" icon="redo" shortcut="⇧⌘Z" disabled={history.redo.length === 0} onClick={onRedo} />
-            {onMaximize && !maximizeAside && <IconButton label="Schau maximieren" icon="maximize" pressed={maximized} onClick={toggleMaximize} />}
+            <IconButton label={t("hinge.redo")} icon="redo" shortcut="⇧⌘Z" disabled={history.redo.length === 0} onClick={onRedo} />
+            {onMaximize && !maximizeAside && <IconButton label={t("hinge.maximizeView")} icon="maximize" pressed={maximized} onClick={toggleMaximize} />}
             {play ? (
               <div className={styles.liveActions}>
                 <span className={styles.liveBadge} data-live-badge="">
-                  <Badge kind="live">Spielt in melonDS</Badge>
+                  <Badge kind="live">{t("hinge.playing")}</Badge>
                 </span>
                 <span className={styles.liveText} data-live-state={play.state} title={play.text} aria-live="polite">
                   {play.text}
@@ -256,22 +260,22 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
                 <div className={styles.liveButtons} data-live-buttons="">
                   {play.state === "halted" ? (
                     <Button kind="primary" data-live-resume="" onClick={play.onResume}>
-                      Weiter
+                      {t("hinge.resume")}
                     </Button>
                   ) : null}
                   {/* „Neu laden“ builds again: it waits with aria-disabled (keeps the focus) while a build runs. */}
                   <Button kind="secondary" data-live-reload="" aria-disabled={playing || undefined} onClick={() => !playing && play.onReload()}>
-                    Neu laden
+                    {t("hinge.reload")}
                   </Button>
                   <Button kind="secondary" data-live-stop="" onClick={play.onStop}>
-                    Stoppen
+                    {t("hinge.stop")}
                   </Button>
                 </div>
               </div>
             ) : (
               /* Playing blocks with aria-disabled, not `disabled`: the button keeps keyboard focus while it builds (and gets it back from a dialog). */
               <Button kind="play" icon="play" shortcut={inTauri() && !playing ? "⌘R" : undefined} disabled={!canPlay} aria-disabled={playing || undefined} onClick={() => !playing && onPlay()}>
-                {playing ? "Baut …" : "Hier spielen"}
+                {playing ? t("hinge.building") : t("hinge.play")}
               </Button>
             )}
           </div>

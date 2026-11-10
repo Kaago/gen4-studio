@@ -1,4 +1,5 @@
 import type { WorldChange, WorldEditRequest, WorldJson } from "../../api.world";
+import { t } from "../../i18n";
 
 /**
  * The pure model of painting a world map (6.4a): the cells a sub-tool covers, the tokens it turns and flips, and the one
@@ -169,26 +170,15 @@ export function turnRamp(dir: RampDir): RampDir {
   return NEXT_DIR[dir];
 }
 
-const VERBS: Record<PaintSub, string> = {
-  brush: "Gemalt",
-  rect: "Rechteck gemalt",
-  fill: "Gefüllt",
-  erase: "Radiert",
-  pick: "Aufgenommen",
-  height: "Höhe geändert",
-  ramp: "Rampe gesetzt",
-  terrain: "Gelände gemalt",
-  cliff: "Klippe gesetzt",
-};
+/** The words of a stroke by its sub-tool, read when asked for (the language shown then). */
+const verb = (sub: PaintSub): string => t(`world:paint.verbs.${sub}`);
 
 /** The words of a stroke with ⇧ where they differ: the terrain brush takes the area away, the cliff brush lowers. */
-const LOWER_VERBS: Partial<Record<PaintSub, string>> = { terrain: "Gelände entfernt", cliff: "Klippe gesenkt" };
+const lowerVerb = (sub: PaintSub): string | undefined => (sub === "terrain" || sub === "cliff" ? t(`world:paint.lowerVerbs.${sub}`) : undefined);
 
 /** The history text of a stroke (`lower`: drawn with ⇧): „Gemalt: Karte 0123 (3 Zellen)“, „Klippe gesenkt: Karte 0123 (1 Zelle)“. */
 export function strokeLabel(sub: PaintSub, map: number, cells: number, lower = false): string {
-  const count = cells === 1 ? "1 Zelle" : `${cells} Zellen`;
-  const verb = (lower ? LOWER_VERBS[sub] : undefined) ?? VERBS[sub];
-  return `${verb}: Karte ${String(map).padStart(4, "0")} (${count})`;
+  return t("world:paint.strokeLabel", { verb: (lower ? lowerVerb(sub) : undefined) ?? verb(sub), map: String(map).padStart(4, "0"), cells: t("world:paint.cells", { count: cells }) });
 }
 
 /** Whether a height stroke (down with `lower`) leaves `cell` out because it is already at −16 or 62. */

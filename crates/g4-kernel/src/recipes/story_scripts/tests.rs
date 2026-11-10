@@ -249,7 +249,7 @@ fn insert_rule_without_marker_is_refused() {
         assert_eq!(
             why,
             format!(
-                "Der Sichtbarkeits-Block von Geschichte {} fehlt in Scriptdatei 7.",
+                "The visibility block of story {} is missing in script file 7.",
                 query.0
             )
         );

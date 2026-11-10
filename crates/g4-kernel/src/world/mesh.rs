@@ -522,7 +522,7 @@ pub fn estimate_model_bytes(faces: usize, textures: usize) -> usize {
     1024 + 600 * textures + 56 * faces
 }
 
-/// Pieces whose footprint leaves the map: `world.pieces[i]` with „Das Teilmodell ragt über den Kartenrand (x 31, Breite 2).“
+/// Pieces whose footprint leaves the map: `world.pieces[i]` with „Das Teilmodell ragt über den Kartenrand (x 31, width 2).“
 pub fn piece_problems(grid: &WorldGrid, tileset: &Tileset) -> Vec<WorldError> {
     let mut problems = Vec::new();
     for (i, piece) in grid.pieces.iter().enumerate() {
@@ -535,18 +535,15 @@ pub fn piece_problems(grid: &WorldGrid, tileset: &Tileset) -> Vec<WorldError> {
         let [x, z] = piece.at.map(usize::from);
         let mut sides = Vec::new();
         if x + w > MAP_SIZE {
-            sides.push(format!("x {x}, Breite {w}"));
+            sides.push(t!("world.piece_side_x", x = x, w = w).into_owned());
         }
         if z + d > MAP_SIZE {
-            sides.push(format!("z {z}, Tiefe {d}"));
+            sides.push(t!("world.piece_side_z", z = z, d = d).into_owned());
         }
         if !sides.is_empty() {
             problems.push(WorldError {
                 path: format!("world.pieces[{i}]"),
-                message: format!(
-                    "Das Teilmodell ragt über den Kartenrand ({}).",
-                    sides.join("; ")
-                ),
+                message: t!("world.piece_over_edge", sides = sides.join("; ")).into_owned(),
             });
         }
     }
@@ -1172,8 +1169,9 @@ mod tests {
             piece_problems(&g, &t),
             [WorldError {
                 path: "world.pieces[0]".to_owned(),
-                message: "Das Teilmodell ragt über den Kartenrand (x 31, Breite 2; z 31, Tiefe 2)."
-                    .to_owned(),
+                message:
+                    "The piece reaches over the edge of the map (x 31, width 2; z 31, depth 2)."
+                        .to_owned(),
             }]
         );
     }
@@ -1201,8 +1199,8 @@ mod tests {
         assert_eq!(
             texts,
             [
-                "world.pieces[0]: Das Teilmodell ragt über den Kartenrand (x 31, Breite 2).",
-                "world.pieces[1]: Das Teilmodell ragt über den Kartenrand (z 31, Tiefe 2).",
+                "world.pieces[0]: The piece reaches over the edge of the map (x 31, width 2).",
+                "world.pieces[1]: The piece reaches over the edge of the map (z 31, depth 2).",
             ]
         );
     }

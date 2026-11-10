@@ -1,0 +1,31 @@
+{
+  "deleteDialog": {
+    "title": "Delete {{label}}",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "deleteAndFree": "Delete and free the number",
+    "freeNumber": "Free the number (cannot be undone)",
+    "checking": "Checking references…",
+    "deleting": "Deleting…",
+    "alreadyDeleted": "{{label}} is already deleted.",
+    "originalWarning": "Original from the base ROM: the entry stays in the ROM; “Reset to original” brings it back.",
+    "tombstoneKeeps": "Content and members stay; ⌘Z brings the entry back.",
+    "notATextProject": "Real deleting is available in a text project (Technical › Text project).",
+    "clearHint": "Emptying works as an ordinary edit: clear the event file in the Inspector, set encounters to 0.",
+    "referencesLocked_one": "{{count}} reference: this cannot be deleted until it points elsewhere.",
+    "referencesLocked_other": "{{count}} references: this cannot be deleted until they point elsewhere.",
+    "referencesLabel": "References",
+    "softReferencesLabel": "Soft references",
+    "removes_one": "Removes {{count}} file: {{files}}",
+    "removes_other": "Removes {{count}} files: {{files}}",
+    "mentionsTitle": "Mentioned in stories",
+    "mentionsHint": "Stories never block a delete; after you save, the text project check reports each reference that no longer names anything as open."
+  },
+  "deleteContext": {
+    "restore": "Restore"
+  },
+  "showDeleted": {
+    "label": "Show deleted"
+  }
+}

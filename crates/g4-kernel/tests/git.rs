@@ -423,6 +423,7 @@ fn text_project_in_git_builds_from_base_byte_equal() {
     clone_autocrlf(&cli, &root, &second);
     let out = assert_cmd::Command::cargo_bin("g4k")
         .unwrap()
+        .env("G4_LANG", "en")
         .args(["text", "restore"])
         .arg(&second)
         .arg("--base-rom")
@@ -581,7 +582,7 @@ fn trainer_and_text_changes_show_with_field_names_against_head_and_base() {
         "{labels:?} from {status:?}"
     );
     assert!(
-        labels.contains(&"Textarchiv 0001"),
+        labels.contains(&"Text archive 0001"),
         "{labels:?} from {status:?}"
     );
     eprintln!("entries {labels:?} from {} paths", status.paths.len());

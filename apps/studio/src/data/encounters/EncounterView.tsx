@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, isCmdError, splitEncounterFile } from "../../api";
 import type { PlaceDto, SpeciesRowExtra } from "../../api";
 import { Badge, Button, Dialog, Notice, Reference, Sprite, TypeBadge } from "../../ui/primitives";
-import { id4 } from "../../workbench/terms";
+import { id4, termLabel } from "../../workbench/terms";
 import { lockReason } from "../dataModel";
 import { useDataSnapshot } from "../dataStore";
 import { monIcon, monIconKey, useIcon } from "../icons";
@@ -19,6 +20,7 @@ import styles from "./Encounter.module.css";
 
 /** One species of „Wer hier wartet“: picture, name, types, and its share at each time of day („Tags 40 %“). */
 function Waiting({ species, shares, types }: { species: number; shares: Readonly<Record<TimeKey, number>>; types: readonly number[] | null }) {
+  const { t } = useTranslation("data");
   const { names, goTo } = useDataArea("pokemon");
   const name = speciesName(names.species, species);
   const icon = useIcon(monIconKey(species), () => monIcon(species), true);
@@ -27,7 +29,7 @@ function Waiting({ species, shares, types }: { species: number; shares: Readonly
     <li className={styles.waiting} data-species={species}>
       <Sprite url={icon} label={name} size={32} area="pokemon" decorative />
       <span className={styles.waitingName}>
-        <Button kind="quiet" size="s" aria-label={`${name} im Pokédex öffnen`} onClick={() => goTo({ kind: "species", index: species })}>
+        <Button kind="quiet" size="s" aria-label={t("encounterView.openInPokedex", { name })} onClick={() => goTo({ kind: "species", index: species })}>
           {name}
         </Button>
         {a !== undefined && (
@@ -109,6 +111,7 @@ const splitNotes = (() => {
  * one that went through, and the view says what stays (at the copy, as TrainerList does for a partial creation).
  */
 function SplitDialog({ place, onClose }: { place: PlaceDto; onClose: () => void }) {
+  const { t } = useTranslation("data");
   const { bus, onEdited, select, project, selected } = useDataArea("pokemon");
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -145,16 +148,16 @@ function SplitDialog({ place, onClose }: { place: PlaceDto; onClose: () => void 
     <Dialog
       open
       onOpenChange={(open) => !open && onClose()}
-      title={`${place.name} eine eigene Begegnungsdatei geben?`}
-      description={`Die Datei wird für ${place.name} kopiert, die anderen Orte behalten sie. Die Kopie wird sofort angelegt. Das Umhängen des Headers ist rückgängig.`}
+      title={t("encounterView.splitTitle", { place: place.name })}
+      description={t("encounterView.splitDescription", { place: place.name })}
       actions={[
-        { label: "Abbrechen", onClick: onClose },
-        { label: "Abspalten", kind: "primary", onClick: () => void split() },
+        { label: t("trainerList.cancel"), onClick: onClose },
+        { label: t("encounterView.split"), kind: "primary", onClick: () => void split() },
       ]}
     >
       <div className={styles.dialogBody}>
         <span>
-          <Badge kind="irreversible">Nicht rückgängig: die Kopie</Badge>
+          <Badge kind="irreversible">{t("encounterView.irreversible")}</Badge>
         </span>
         {refusal !== null && <Notice kind="error">{refusal}</Notice>}
       </div>
@@ -164,22 +167,23 @@ function SplitDialog({ place, onClose }: { place: PlaceDto; onClose: () => void 
 
 /** „Verwendet von N Orten“: each place as a reference into the world; with more than one, each can get a file of its own. */
 export function Users({ doc }: { doc: EncounterDoc }) {
+  const { t } = useTranslation("data");
   const { goTo } = useDataArea("pokemon");
   const [splitting, setSplitting] = useState<PlaceDto | null>(null);
   const n = doc.users.length;
   return (
-    <section className={styles.section} aria-label="Verwendet von">
-      <h3 className={styles.sectionTitle}>{n === 0 ? "Von keinem Ort verwendet" : `Verwendet von ${n} ${n === 1 ? "Ort" : "Orten"}`}</h3>
+    <section className={styles.section} aria-label={t("encounterView.usedBy")}>
+      <h3 className={styles.sectionTitle}>{n === 0 ? t("encounterView.usedByNone") : t("encounterView.usedByPlaces", { count: n })}</h3>
       {n === 0 ? (
-        <p className={styles.note}>Binde die Datei im Inspector eines Gebiets oder Raums an (Feld „Begegnungen“), dann gilt sie dort.</p>
+        <p className={styles.note}>{t("encounterView.attachNote")}</p>
       ) : (
         <ul className={styles.users}>
           {doc.users.map((u) => (
             <li key={u.header} className={styles.user}>
-              <Reference area="welt" label={u.name} tech={`Header ${id4(u.header)}`} onOpen={() => goTo({ kind: "header", id: u.header })} dataAttrs={{ "data-header": u.header }} />
+              <Reference area="welt" label={u.name} tech={`${termLabel("header")} ${id4(u.header)}`} onOpen={() => goTo({ kind: "header", id: u.header })} dataAttrs={{ "data-header": u.header }} />
               {n > 1 && (
-                <Button kind="quiet" size="s" aria-label={`${u.name}: für diesen Ort abspalten…`} disabled={doc.locked !== null} onClick={() => setSplitting(u)}>
-                  Für diesen Ort abspalten
+                <Button kind="quiet" size="s" aria-label={t("encounterView.splitAria", { name: u.name })} disabled={doc.locked !== null} onClick={() => setSplitting(u)}>
+                  {t("encounterView.splitButton")}
                 </Button>
               )}
             </li>
@@ -196,6 +200,7 @@ export function Users({ doc }: { doc: EncounterDoc }) {
  * use the file (with „Für diesen Ort abspalten“ when several do), and the rules it breaks.
  */
 export function EncounterView() {
+  const { t } = useTranslation("data");
   const { row, labelOf, selected, project } = useDataArea("pokemon");
   const { doc, error } = useEncounter(selected);
   const reset = useReset();
@@ -211,23 +216,23 @@ export function EncounterView() {
   if (row === null || selected === null) return null;
   const title = labelOf(row);
   return (
-    <section className={styles.view} aria-label={`Übersicht ${title}`} data-encounter={selected}>
+    <section className={styles.view} aria-label={t("encounterView.overview", { title })} data-encounter={selected}>
       <div className={styles.viewBody}>
         <header className={styles.head}>
           <h2 className={styles.name}>{title}</h2>
           <span className={styles.tech}>{row.tech}</span>
           <HeadActions
             state={state}
-            items={[{ label: "Löschen…", onSelect: () => remove.open({ kind: "encounter", index: selected }) }, resetEntry({ kind: "encounter", index: selected }, reset.status, reset.open)]}
+            items={[{ label: t("trainerView.delete"), onSelect: () => remove.open({ kind: "encounter", index: selected }) }, resetEntry({ kind: "encounter", index: selected }, reset.status, reset.open)]}
           />
         </header>
         {noted !== null && <Notice kind="warning">{noted}</Notice>}
-        {error !== null && <Notice kind="error">{`Diese Begegnungsdatei ist nicht lesbar: ${error}`}</Notice>}
-        {doc && doc.locked !== null && <Notice kind="warning">{`${lockReason(doc.locked)}. Diese Datei ist gesperrt.`}</Notice>}
+        {error !== null && <Notice kind="error">{t("encounterView.unreadable", { error })}</Notice>}
+        {doc && doc.locked !== null && <Notice kind="warning">{t("encounterView.locked", { reason: lockReason(doc.locked) })}</Notice>}
         {doc && doc.locked === null && <WhoWaits doc={doc} />}
         {doc && <Users doc={doc} />}
         {doc && <FileWarnings doc={doc} />}
-        {doc === null && error === null && <p className={styles.note}>Lädt …</p>}
+        {doc === null && error === null && <p className={styles.note}>{t("loading")}</p>}
       </div>
     </section>
   );
@@ -235,12 +240,13 @@ export function EncounterView() {
 
 /** The rules the file breaks, in German; nothing when it breaks none. */
 export function FileWarnings({ doc }: { doc: EncounterDoc }) {
+  const { t } = useTranslation("data");
   const { names } = useDataArea("pokemon");
   if (doc.warnings.length === 0) return null;
   return (
-    <section className={styles.section} aria-label="Warnungen">
+    <section className={styles.section} aria-label={t("encounterView.warnings")}>
       <h3 className={styles.sectionTitle}>
-        Warnungen <span className={styles.count}>{doc.warnings.length}</span>
+        {t("encounterView.warnings")} <span className={styles.count}>{doc.warnings.length}</span>
       </h3>
       {doc.warnings.map((w, i) => (
         <div key={i} data-warning={i}>
@@ -253,17 +259,18 @@ export function FileWarnings({ doc }: { doc: EncounterDoc }) {
 
 /** „Wer hier wartet“: the grass species with their share per time of day. */
 function WhoWaits({ doc }: { doc: EncounterDoc }) {
+  const { t } = useTranslation("data");
   const waiting = useWaiting(doc);
   const types = useSpeciesTypes();
   const grass = doc.methods.find((m) => m.method === "grass");
   return (
-    <section className={styles.section} aria-label="Wer hier wartet">
+    <section className={styles.section} aria-label={t("encounterView.whoWaits")}>
       <h3 className={styles.sectionTitle}>
-        Wer hier wartet <span className={styles.count}>im Gras, Anteil je Tageszeit (Morgens 4–9, Tags 10–19, Nachts 20–3 Uhr)</span>
+        {t("encounterView.whoWaits")} <span className={styles.count}>{t("encounterView.whoWaitsNote")}</span>
       </h3>
-      {grass !== undefined && grass.rate === 0 && <p className={styles.note}>Gras-Rate 0: im Gras gibt es hier keine Begegnungen.</p>}
+      {grass !== undefined && grass.rate === 0 && <p className={styles.note}>{t("encounterView.grassRateZero")}</p>}
       {waiting.length === 0 ? (
-        <p className={styles.note}>Im Gras wartet niemand.</p>
+        <p className={styles.note}>{t("encounterView.nobody")}</p>
       ) : (
         <ul className={styles.waitingList}>
           {waiting.map((w) => (

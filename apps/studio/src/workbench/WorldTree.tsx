@@ -1,10 +1,12 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, listScriptFiles, searchScripts } from "../api";
 import type { HeaderSummary, ProjectInfo, ResetTarget, ScriptFileDto, ScriptHitDto } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
 import { restoreEntry, useDelete } from "../delete/DeleteContext";
 import { ShowDeleted } from "../delete/ShowDeleted";
+import { t } from "../i18n";
 import { useReset } from "../original/OriginalContext";
 import { resetEntry } from "../original/resetEntry";
 import { depthAtLeast } from "../ui/frame/shellState";
@@ -13,12 +15,11 @@ import { EntityStateBadge, Icon, Notice, TextField, TreeRow, useRovingList } fro
 import type { IconName, MenuEntry } from "../ui/primitives";
 import { showsMatrix } from "./headers";
 import { placeColor } from "./places";
-import { ADOPT_HINT } from "./inspector/scriptNav";
 import { sharedText } from "./sharedRooms";
 import { RoomActions, WorldMapActions } from "./RoomActions";
 import type { AreaChoice, RenameTarget } from "./RoomActions";
 import { ShownMark } from "./ShownMark";
-import { TERMS, id4, techLabel } from "./terms";
+import { id4, techLabel, termLabel, termPlural } from "./terms";
 import { sortWorld } from "./worldSort";
 import type { TreeSort } from "./worldSort";
 import type { Area, Room, World, WorldMap } from "./worldModel";
@@ -62,7 +63,7 @@ export interface WorldTreeProps {
 /** The context menu of a row of the tree: „Header …“ or „Scriptdatei auf Original zurücksetzen…“ (the tree holds both). */
 function useResetMenu(target: ResetTarget): MenuEntry[] {
   const { status, open } = useReset();
-  const label = target.kind === "script" ? "Scriptdatei auf Original zurücksetzen…" : "Header auf Original zurücksetzen…";
+  const label = target.kind === "script" ? t("workbench:resetMenu.scriptFile") : t("workbench:resetMenu.header");
   return [resetEntry(target, status, open, label)];
 }
 
@@ -85,8 +86,8 @@ const OTHER = "group:other";
 const openByDefault = (key: string) => /^w\d+k?$/.test(key);
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-const roomsText = (n: number) => plural(n, TERMS.room.label, TERMS.room.plural);
-const areasText = (n: number) => plural(n, "Gebiet", "Gebiete");
+const roomsText = (n: number) => plural(n, termLabel("room"), termPlural("room"));
+const areasText = (n: number) => plural(n, termLabel("area"), termPlural("area"));
 
 /** The worst mark among headers: an error over a warning. */
 function worstMark(marks: ReadonlyMap<number, MarkSeverity> | undefined, headers: readonly HeaderSummary[]): MarkSeverity | undefined {
@@ -197,7 +198,7 @@ function branchesOf(world: World, tinker: boolean): Map<number, string[]> {
 
 /** The hover text of a header row: Tüfteln names id, code and matrix; Bauen leaves it to the row's name. */
 function techTitle(h: HeaderSummary, marked: boolean): string {
-  return `${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`;
+  return `${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${t("workbench:shownMark.label", { matrix: termLabel("matrix") })})` : ""}`;
 }
 
 /**
@@ -337,6 +338,7 @@ const RoomRow = memo(function RoomRow({
   onRename: (target: RenameTarget, name: string) => void;
   onOwner: (room: number, areaKey: string | null) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const h = room.header;
   const tech = tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined;
   const plain = [room.name, labelled ? room.placeName : null].filter((part) => part !== null).join(", ");
@@ -351,7 +353,7 @@ const RoomRow = memo(function RoomRow({
       tech={tech}
       // The place label would run into the name: the row names itself.
       ariaLabel={labelled ? [room.name, tech, room.placeName].filter(Boolean).join(", ") : undefined}
-      title={tinker ? techTitle(h, marked) : `${plain}${room.manual ? " (von Hand zugeordnet)" : ""}`}
+      title={tinker ? techTitle(h, marked) : room.manual ? t("worldTree.manual", { name: plain }) : plain}
       selected={selected}
       onSelect={() => onPick(h, areaKey)}
       dataAttrs={{ "data-header-id": h.id, "data-room": "", "data-deleted": deletedAttr(h) }}
@@ -360,7 +362,7 @@ const RoomRow = memo(function RoomRow({
           <>
             {deleted && <EntityStateBadge state="deleted" />}
             {room.shared > 0 && (
-              <span className={styles.shared} role="img" aria-label="geteilt" title={sharedText(room.shared)}>
+              <span className={styles.shared} role="img" aria-label={t("worldTree.shared")} title={sharedText(room.shared)}>
                 <Icon name="shared" />
               </span>
             )}
@@ -386,13 +388,13 @@ const SEARCH_LIMIT = 100;
 /** "412 Byte" for a script source; the explorer's grey part says what a file is and which headers use it (Bauen: which places). */
 function fileDetails(f: ScriptFileDto, depth: Depth): string {
   const tinker = depthAtLeast(depth, "tuefteln");
-  const word = tinker ? TERMS.header.plural : f.headers.length === 1 ? TERMS.place.label : TERMS.place.plural;
-  const users = f.headers.length === 0 ? `ohne ${tinker ? TERMS.header.label : TERMS.place.label}` : `${word} ${f.headers.map(id4).join(", ")}`;
-  return [f.kind === "binary" ? "binär" : null, `${f.size} Byte`, users].filter((part) => part !== null).join(" · ");
+  const word = tinker ? termPlural("header") : f.headers.length === 1 ? termLabel("place") : termPlural("place");
+  const users = f.headers.length === 0 ? (tinker ? t("workbench:worldTree.scripts.noHeader") : t("workbench:worldTree.scripts.noPlace")) : `${word} ${f.headers.map(id4).join(", ")}`;
+  return [f.kind === "binary" ? t("workbench:worldTree.scripts.binary") : null, t("workbench:worldTree.scripts.size", { size: f.size }), users].filter((part) => part !== null).join(" · ");
 }
 
 const ScriptFileRow = memo(function ScriptFileRow({ file, depth, onOpenScript }: { file: ScriptFileDto; depth: Depth; onOpenScript: (file: number, line?: number) => void }) {
-  const name = `${file.kind === "levelScript" ? TERMS.levelScript.label : TERMS.scriptFile.label} ${id4(file.file)}`;
+  const name = `${file.kind === "levelScript" ? termLabel("levelScript") : termLabel("scriptFile")} ${id4(file.file)}`;
   const contextMenu = useResetMenu({ kind: "script", file: file.file });
   return (
     <TreeRow
@@ -410,7 +412,7 @@ const ScriptFileRow = memo(function ScriptFileRow({ file, depth, onOpenScript }:
 });
 
 const HitRow = memo(function HitRow({ hit, onOpenScript }: { hit: ScriptHitDto; onOpenScript: (file: number, line?: number) => void }) {
-  const text = `${TERMS.scriptFile.label} ${id4(hit.file)} · Zeile ${hit.line} · ${hit.excerpt}`;
+  const text = `${termLabel("scriptFile")} ${id4(hit.file)} · ${t("workbench:worldTree.scripts.line", { line: hit.line })} · ${hit.excerpt}`;
   return <TreeRow depth={1} label={text} title={text} selected={false} onSelect={() => onOpenScript(hit.file, hit.line)} />;
 });
 
@@ -420,6 +422,7 @@ const HitRow = memo(function HitRow({ hit, onOpenScript }: { hit: ScriptHitDto; 
  * pause in typing. Nothing is asked of the backend while rotom has not taken the scripts over.
  */
 function ScriptsNode({ info, adopted, depth, onOpenScript }: { info: ProjectInfo | null; adopted: boolean; depth: Depth; onOpenScript: (file: number, line?: number) => void }) {
+  const { t } = useTranslation("workbench");
   const [open, setOpen] = useState(false);
   // Bumped with every opening: the list is read again.
   const [opened, setOpened] = useState(0);
@@ -468,7 +471,7 @@ function ScriptsNode({ info, adopted, depth, onOpenScript }: { info: ProjectInfo
       <TreeRow
         depth={0}
         icon="script"
-        label={TERMS.script.plural}
+        label={termPlural("script")}
         selected={false}
         expanded={open}
         onToggle={toggle}
@@ -479,27 +482,27 @@ function ScriptsNode({ info, adopted, depth, onOpenScript }: { info: ProjectInfo
       {open &&
         (!adopted ? (
           <p role="note" className={`${styles.note} ${styles.indented}`}>
-            {ADOPT_HINT}
+            {t("worldTree.scripts.adoptFirst")}
           </p>
         ) : (
           <>
             <div className={styles.scriptSearch} role="none">
-              <TextField type="search" label="Scripts durchsuchen" placeholder="Nummer oder Text suchen" value={query} onChange={setQuery} onCommit={setQuery} />
+              <TextField type="search" label={t("worldTree.scripts.search")} placeholder={t("worldTree.scripts.searchPlaceholder")} value={query} onChange={setQuery} onCommit={setQuery} />
             </div>
             {text !== "" ? (
               answer === null ? (
-                <p className={`${styles.note} ${styles.indented}`}>Suche …</p>
+                <p className={`${styles.note} ${styles.indented}`}>{t("worldTree.scripts.searching")}</p>
               ) : "error" in answer ? (
                 <div className={styles.scriptSearch} role="none">
                   <Notice kind="error">{answer.error}</Notice>
                 </div>
               ) : answer.hits.length === 0 ? (
-                <p className={`${styles.note} ${styles.indented}`}>Keine Treffer.</p>
+                <p className={`${styles.note} ${styles.indented}`}>{t("worldTree.scripts.noHits")}</p>
               ) : (
                 answer.hits.map((hit) => <HitRow key={`${hit.file}:${hit.line}`} hit={hit} onOpenScript={onOpenScript} />)
               )
             ) : list === null ? (
-              <p className={`${styles.note} ${styles.indented}`}>Lade …</p>
+              <p className={`${styles.note} ${styles.indented}`}>{t("worldTree.loading")}</p>
             ) : "error" in list ? (
               <div className={styles.scriptSearch} role="none">
                 <Notice kind="error">{list.error}</Notice>
@@ -513,11 +516,11 @@ function ScriptsNode({ info, adopted, depth, onOpenScript }: { info: ProjectInfo
   );
 }
 
-/** "2 Weltkarten, 5 Gebiete, 40 Räume" (Tüfteln: ", 120 Header"). */
+/** „2 Weltkarten, 5 Gebiete, 40 Räume“ (Tüfteln: „, 120 Header“). */
 export function worldCaption(world: World, headerCount: number, tinker: boolean): string {
   const areas = world.worldMaps.reduce((n, m) => n + m.areas.length, world.moreAreas.length);
-  const parts = [plural(world.worldMaps.length, "Weltkarte", "Weltkarten"), areasText(areas), roomsText(world.roomCount)];
-  if (tinker) parts.push(`${headerCount} ${TERMS.header.plural}`);
+  const parts = [plural(world.worldMaps.length, termLabel("worldMap"), termPlural("worldMap")), areasText(areas), roomsText(world.roomCount)];
+  if (tinker) parts.push(`${headerCount} ${termPlural("header")}`);
   return parts.join(", ");
 }
 
@@ -548,6 +551,7 @@ export function WorldTree({
   showDeleted,
   onShowDeleted,
 }: WorldTreeProps) {
+  const { t } = useTranslation("workbench");
   const tinker = depthAtLeast(depth, "tuefteln");
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
@@ -562,9 +566,9 @@ export function WorldTree({
         ? []
         : [
             ...world.worldMaps.flatMap((m) => m.areas.map((a) => ({ key: a.key, name: a.name, where: m.name }))),
-            ...world.moreAreas.map((a) => ({ key: a.key, name: a.name, where: "Weitere Gebiete" })),
+            ...world.moreAreas.map((a) => ({ key: a.key, name: a.name, where: t("worldTree.groups.more") })),
           ],
-    [world],
+    [world, t],
   );
 
   // The branches whose open state differs from the default (world maps open, the rest closed).
@@ -676,7 +680,7 @@ export function WorldTree({
             onPick={onPick}
             onToggle={toggleBranch}
           />
-          {open && sections && area.headers.map((h, i) => leaf(h, level + 1, `Abschnitt ${i + 1}`, "outside"))}
+          {open && sections && area.headers.map((h, i) => leaf(h, level + 1, t("worldTree.section", { n: i + 1 }), "outside"))}
           {open && rowsOfRooms(area.rooms, area.key, area.placeKey, level + 1)}
         </Fragment>
       );
@@ -702,18 +706,18 @@ export function WorldTree({
   return (
     <div className={styles.column}>
       <div className={styles.top}>
-        <p className={styles.caption}>{sorted !== null ? worldCaption(sorted, byId.length, tinker) : matricesFailed && !matricesLoaded ? "Übersicht nicht verfügbar" : "Lade Übersicht …"}</p>
-        <TextField type="search" label="Welt durchsuchen" placeholder="Gebiet, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
+        <p className={styles.caption}>{sorted !== null ? worldCaption(sorted, byId.length, tinker) : matricesFailed && !matricesLoaded ? t("worldTree.overviewUnavailable") : t("worldTree.loadingOverview")}</p>
+        <TextField type="search" label={t("worldTree.search")} placeholder={t("worldTree.searchPlaceholder")} value={query} onChange={setQuery} onCommit={setQuery} />
         <ShowDeleted checked={showDeleted} onChange={onShowDeleted} />
       </div>
-      <div ref={tree} role="tree" aria-label="Orte" className={styles.host}>
+      <div ref={tree} role="tree" aria-label={termPlural("place")} className={styles.host}>
         <ScriptsNode info={info} adopted={scriptsAdopted} depth={depth} onOpenScript={onOpenScript} />
         {shown === null ? (
           // Until the world is read, the headers by id, so a selection and a link still find their row.
           byId.filter((h) => !searching || textMatches(query.trim().toLowerCase(), h.location_name) || codeMatches(h, query.trim().toLowerCase())).map((h) => leaf(h, 0, h.location_name || h.internal_name))
         ) : (
           <>
-            {empty && searching && <p className={styles.note}>Kein Ort passt zur Suche.</p>}
+            {empty && searching && <p className={styles.note}>{t("worldTree.noMatch")}</p>}
             {shown.worldMaps.map((map) => {
               const open = isOpen(map.key);
               return (
@@ -743,19 +747,19 @@ export function WorldTree({
             })}
             {shown.moreAreas.length > 0 && (
               <>
-                {groupRow(MORE, "Weitere Gebiete", "place", shown.moreAreas.length, areasText(shown.moreAreas.length))}
+                {groupRow(MORE, t("worldTree.groups.more"), "place", shown.moreAreas.length, areasText(shown.moreAreas.length))}
                 {isOpen(MORE) && rowsOfAreas(shown.moreAreas, 1)}
               </>
             )}
             {shown.unconnected.length > 0 && (
               <>
-                {groupRow(UNCONNECTED, "Nicht verbunden", "room", shown.unconnected.length, roomsText(shown.unconnected.length))}
+                {groupRow(UNCONNECTED, t("worldTree.groups.unconnected"), "room", shown.unconnected.length, roomsText(shown.unconnected.length))}
                 {isOpen(UNCONNECTED) && rowsOfRooms(shown.unconnected, null, null, 1)}
               </>
             )}
             {tinker && shown.other.length > 0 && (
               <>
-                {groupRow(OTHER, "Sonstiges", "tinker", shown.other.length, `${shown.other.length} ${TERMS.header.plural}`)}
+                {groupRow(OTHER, t("worldTree.groups.other"), "tinker", shown.other.length, `${shown.other.length} ${termPlural("header")}`)}
                 {isOpen(OTHER) && shown.other.map((h) => leaf(h, 1, h.location_name || h.internal_name))}
               </>
             )}

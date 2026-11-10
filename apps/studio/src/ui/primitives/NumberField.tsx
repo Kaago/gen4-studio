@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Field } from "@base-ui/react/field";
 import { NumberField as BaseNumberField } from "@base-ui/react/number-field";
 import { Icon } from "./Icon";
@@ -37,11 +38,6 @@ function ceiling(max: number | undefined, bits: number | undefined): number | un
   return byBits === undefined ? max : Math.min(max, byBits);
 }
 
-const BASES = [
-  { value: "dec", label: "Dez" },
-  { value: "hex", label: "Hex" },
-] as const;
-
 /**
  * A whole-number field. What is typed stays a draft until blur or Enter; an entry that is unreadable or outside
  * `min..max` (or the bit width) is refused with the bound named, keeps the old value, and is never clamped to the bound.
@@ -52,6 +48,11 @@ const BASES = [
  * are listened to for the `scrub` reason only, and `allowOutOfRange` is set so it never rewrites typed text either.
  */
 export function NumberField({ label, value, onCommit, onClear, min = 0, max, base: baseProp = "dec", bits, step = 1, hint, disabled, showBase, showLabel }: NumberFieldProps) {
+  const { t } = useTranslation("ui");
+  const bases = [
+    { value: "dec", label: t("numberField.baseDec") },
+    { value: "hex", label: t("numberField.baseHex") },
+  ] as const;
   const [chosenBase, setChosenBase] = useState<NumberBase | null>(null);
   const base = chosenBase ?? baseProp;
   const top = ceiling(max, bits);
@@ -135,7 +136,7 @@ export function NumberField({ label, value, onCommit, onClear, min = 0, max, bas
           <BaseNumberField.Input
             className={base === "hex" ? `${styles.input} ${styles.mono}` : styles.input}
             aria-label={label}
-            aria-roledescription="Zahlfeld"
+            aria-roledescription={t("numberField.roleDescription")}
             data-draft=""
             inputMode={base === "hex" ? "text" : "numeric"}
             value={scrub !== null ? formatNumber(snapScrub(scrub), base) : draft.text}
@@ -170,8 +171,8 @@ export function NumberField({ label, value, onCommit, onClear, min = 0, max, bas
           {showBase && (
             <Segmented
               size="s"
-              ariaLabel={`Zahlenbasis von ${label}`}
-              options={BASES}
+              ariaLabel={t("numberField.baseOf", { label })}
+              options={bases}
               value={base}
               onChange={(next) => {
                 draft.revert();

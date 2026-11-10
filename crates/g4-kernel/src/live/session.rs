@@ -74,7 +74,7 @@ impl LiveSession {
         let block = save_block(game_code).ok_or_else(|| {
             LiveError::Io(std::io::Error::new(
                 ErrorKind::Unsupported,
-                format!("Für {game_code} ist die Lage des Spielstands nicht bekannt"),
+                t!("live.save_layout_unknown", game = game_code).into_owned(),
             ))
         })?;
         // From here on the stub is halted; on any error the client is dropped, which closes the

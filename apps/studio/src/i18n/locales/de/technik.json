@@ -1,0 +1,457 @@
+{
+  "syncWords": {
+    "adoptedCount_one": "{{count}} Änderung aus DSPRE übernommen",
+    "adoptedCount_other": "{{count}} Änderungen aus DSPRE übernommen",
+    "appliedCount_one": "{{count}} geänderte Projektdatei übernommen",
+    "appliedCount_other": "{{count}} geänderte Projektdateien übernommen",
+    "conflictsCount_one": "{{count}} Konflikt zwischen Studio und DSPRE",
+    "conflictsCount_other": "{{count}} Konflikte zwischen Studio und DSPRE",
+    "brokenCount_one": "{{count}} Projektdatei ist fehlerhaft",
+    "brokenCount_other": "{{count}} Projektdateien sind fehlerhaft",
+    "conflictListCount_one": "{{count}} Konflikt",
+    "conflictListCount_other": "{{count}} Konflikte",
+    "brokenListCount_one": "{{count}} fehlerhafte Datei",
+    "brokenListCount_other": "{{count}} fehlerhafte Dateien",
+    "moreCount_one": "und {{count}} weitere Abweichung",
+    "moreCount_other": "und {{count}} weitere Abweichungen",
+    "progress": "Gleiche mit DSPRE ab … {{done}} von {{total}}\u00a0Dateien",
+    "buildConflicts": "Erst die Konflikte in Technik › Textprojekt lösen."
+  },
+  "shared": {
+    "noProject": "Kein Projekt geöffnet",
+    "noProjectWhat": "Kein Projekt geöffnet.",
+    "openProject": "Projekt öffnen",
+    "reading": "Wird gelesen …",
+    "notReadable": "Nicht lesbar",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "open": "Öffnen",
+    "file": "Datei",
+    "size": "Größe",
+    "firstRunNote": "Das erste Mal dauert länger; danach geht es schnell."
+  },
+  "stepWords": {
+    "name": {
+      "textproject": "Textprojekt",
+      "rotom": "Scripts",
+      "world": "Karten backen",
+      "chatot": "Texte",
+      "blzArm9": "Spielcode (ARM9)",
+      "blzOverlays": "Overlays",
+      "rom": "ROM schreiben",
+      "crc": "Prüfsummen",
+      "worldMaps": "Weltkarten packen",
+      "gameData": "Spieldaten packen",
+      "packFolder": "{{folder}} packen",
+      "other": "Weiterer Schritt"
+    },
+    "pack": {
+      "maps": "Karten packen",
+      "textArchives": "Texte packen",
+      "scripts": "Scripts packen",
+      "eventFiles": "Eventdateien packen",
+      "matrices": "Matrizen packen",
+      "areaData": "Gebietsdaten packen",
+      "trainerProperties": "Trainer packen",
+      "trainerParty": "Trainer packen",
+      "encounters": "Begegnungen packen",
+      "personalPokeData": "Pokémon-Daten packen"
+    },
+    "reason": {
+      "noState": "erster Build, voll",
+      "cacheStale": "neues Werkzeug, voll gebaut",
+      "outputChanged": "Ausgabe geändert, voll gebaut",
+      "removed": "Datei entfernt, voll gebaut",
+      "romRemoved": "anderes Ziel oder ROM gelöscht, voll gebaut",
+      "fresh": "ohne Cache, voll",
+      "full": "voll gebaut",
+      "fullBecause": "voll gebaut: {{reason}}"
+    },
+    "blz": {
+      "notCompressed": "nicht komprimiert",
+      "fallback": "ohne Cache komprimiert",
+      "cachedAndCompressed": "{{cached}} aus dem Cache, {{compressed}} komprimiert",
+      "cached": "{{cached}} aus dem Cache",
+      "compressed": "{{compressed}} komprimiert"
+    },
+    "crc": {
+      "fromBase": "aus der Basis übernommen",
+      "noBaseMark": "keine Basis-Marke",
+      "secureAreaChanged": "nicht übernommen: Sicherheitsbereich geändert",
+      "notTaken": "nicht übernommen"
+    },
+    "ran": {
+      "rotom": "{{done}} von {{total}} neu",
+      "chatot": "{{count}} kodiert",
+      "packIncremental_one": "{{count}} Member eingesetzt",
+      "packIncremental_other": "{{count}} Member eingesetzt",
+      "packFull_one": "{{count}} Member gepackt",
+      "packFull_other": "{{count}} Member gepackt",
+      "rom": "geschrieben",
+      "incremental": "teilweise neu gebaut",
+      "full": "voll gebaut"
+    },
+    "skipped": "übersprungen",
+    "upToDate": "aktuell",
+    "patchBuildNote": "Build von „Veröffentlichen“ nach {{rom}}",
+    "seconds": "{{value}} s",
+    "underTenMs": "< 0,01 s"
+  },
+  "buildSteps": {
+    "columns": {
+      "step": "Schritt",
+      "result": "Ergebnis",
+      "duration": "Dauer"
+    },
+    "ariaLabel": "Schritte des letzten Builds",
+    "nothingRan": "Kein Schritt lief: alles war aktuell.",
+    "skippedTitle": "Übersprungen ({{count}})",
+    "skippedAriaLabel": "Übersprungene Schritte"
+  },
+  "diffWords": {
+    "side": {
+      "base": "Basis",
+      "project": "Projekt",
+      "commit": "Commit",
+      "saved": "Gespeichert",
+      "unsaved": "Ungespeichert"
+    },
+    "state": {
+      "changed": "Geändert",
+      "new": "Neu",
+      "missing": "Fehlt",
+      "deleted": "Gelöscht",
+      "unsaved": "Ungespeichert"
+    },
+    "noOriginal": "Kein Original",
+    "noReset": "Für diese Art gibt es kein Zurücksetzen."
+  },
+  "changesSurface": {
+    "title": "Änderungen",
+    "against": {
+      "base": "Gegen Basis",
+      "head": "Gegen letzten Commit",
+      "saved": "Gegen gespeichert"
+    },
+    "compareWith": "Vergleichen mit",
+    "unbuilt": "{{named}} und {{count}} weitere",
+    "subtitle": {
+      "noGit": "Kein Git",
+      "noCommit": "Noch kein Commit",
+      "noneSinceCommit": "Keine Änderung seit dem Commit",
+      "sinceCommit_one": "{{count}} Änderung seit dem Commit",
+      "sinceCommit_other": "{{count}} Änderungen seit dem Commit",
+      "nothingUnsaved": "Nichts ungespeichert",
+      "unsaved_one": "{{count}} Eintrag ungespeichert",
+      "unsaved_other": "{{count}} Einträge ungespeichert",
+      "baseMissing": "Basis-ROM fehlt",
+      "comparing": "Vergleiche …",
+      "notCompared": "Noch nicht verglichen",
+      "compareFailed": "Vergleich fehlgeschlagen",
+      "noDifference": "Keine Abweichung",
+      "differs_one": "{{count}} Eintrag weicht ab",
+      "differs_other": "{{count}} Einträge weichen ab"
+    },
+    "headLead": {
+      "repo": "Repository {{workdir}}.",
+      "onBranch": "Gegenüber dem letzten Commit {{id}} „{{summary}}“ auf {{branch}}. Gezählt wird der gespeicherte Stand.",
+      "detached": "Gegenüber dem letzten Commit {{id}} „{{summary}}“ (losgelöst). Gezählt wird der gespeicherte Stand."
+    },
+    "noProjectWhy": "Öffne ein Projekt, dann zeigt Technik hier, was vom Original abweicht.",
+    "base": {
+      "empty": "Alles wie in der Basis-ROM.",
+      "assignHint": "Die Basis-ROM ordnest du in Technik › Veröffentlichen zu.",
+      "lead": "Gegenüber der Basis-ROM {{label}}. Gezählt wird der gespeicherte Stand.",
+      "compareAgain": "Neu vergleichen",
+      "progress": "Vergleiche {{done}} von {{total}} Dateien …",
+      "unbuilt": "Noch nicht gebaut: {{folders}}. Nach dem nächsten Build geht der Vergleich schneller."
+    },
+    "head": {
+      "empty": "Seit dem letzten Commit nichts geändert.",
+      "noRepo": "Dieses Projekt liegt in keinem Git-Repository.",
+      "noRepoHint": "Git einrichten legt ein lokales Repository an; nur lokal oder privat, Gen4 Studio lädt nichts hoch.",
+      "setUpGit": "Git einrichten…",
+      "noCommitNote": "Noch kein Commit: es gibt nichts zu vergleichen.",
+      "saveSnapshot": "Stand sichern…"
+    },
+    "saved": {
+      "empty": "Nichts ungespeichert.",
+      "lead": "Was ungespeichert vom gespeicherten Stand abweicht."
+    }
+  },
+  "entityDiff": {
+    "noPlace": "Für diese Art gibt es keinen Ort in der App.",
+    "part": {
+      "model": "Modell",
+      "permissions": "Bewegungsrechte",
+      "buildings": "Gebäude",
+      "bdhc": "BDHC",
+      "bgs": "BGS",
+      "raw": "Rohdaten"
+    },
+    "choose": "Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.",
+    "loading": "Lade Vergleich …",
+    "same": "Keine Abweichung.",
+    "deleted": "Gelöscht",
+    "restored": "Wiederhergestellt",
+    "columns": {
+      "field": "Feld",
+      "message": "Nachricht",
+      "property": "Eigenschaft",
+      "cell": "Zelle"
+    },
+    "messageNew": "Neu",
+    "messageRemoved": "Entfernt",
+    "moreFields_one": "und {{count}} weitere Felder",
+    "moreFields_other": "und {{count}} weitere Felder",
+    "moreMessages_one": "und {{count}} weitere Nachrichten",
+    "moreMessages_other": "und {{count}} weitere Nachrichten",
+    "moreEntries_one": "und {{count}} weitere Einträge",
+    "moreEntries_other": "und {{count}} weitere Einträge",
+    "moreLines_one": "und {{count}} weitere Zeilen",
+    "moreLines_other": "und {{count}} weitere Zeilen",
+    "asInBase": "wie in der Basis-ROM",
+    "bytes_one": "{{count, number}} Byte",
+    "bytes_other": "{{count, number}} Byte",
+    "partsTitle": "Teile",
+    "partChanged": "geändert",
+    "partSame": "gleich",
+    "cellsTitle": "Zellen der Bewegungsrechte",
+    "cellsAriaLabel": "{{label}}: Zellen der Bewegungsrechte",
+    "buildingsTitle": "Gebäude",
+    "buildingsAriaLabel": "{{label}}: Gebäude",
+    "hunkTitle": "Zeile {{old}} → {{new}}"
+  },
+  "publishSurface": {
+    "title": "Veröffentlichen",
+    "lead": "Ein Patch gibt deine Änderungen weiter, ohne die ROM: wer dieselbe Basis-ROM hat, wendet ihn mit Rom Patcher JS oder xdelta3 an.",
+    "noProjectWhy": "Öffne ein Projekt, dann veröffentlichst du es hier.",
+    "plaque": {
+      "found": "Gefunden",
+      "missing": "Fehlt",
+      "unassigned": "Nicht zugeordnet",
+      "unreadable": "Nicht lesbar"
+    },
+    "subtitle": {
+      "unassigned": "Keine Basis-ROM zugeordnet",
+      "missing": "Basis-ROM fehlt",
+      "unreadable": "Basismarke nicht lesbar",
+      "found": "Bereit zum Veröffentlichen",
+      "published": "Veröffentlicht v{{version}}"
+    },
+    "pickTitle": "Basis-ROM wählen",
+    "pickFilter": "DS-ROM",
+    "baseTitle": "Basis-ROM",
+    "baseText": "Ein Patch beschreibt den Unterschied zu deiner Basis-ROM. Die ROM bleibt außerhalb des Projekts; Gen4 Studio merkt sich nur, wo sie liegt.",
+    "factRom": "ROM",
+    "factSha1": "SHA-1",
+    "suggestion": "Neben dem Projekt liegt „{{name}}“.",
+    "assign": "Zuordnen…",
+    "chooseOther": "Andere Datei wählen…",
+    "noBaseAssigned": "Diesem Projekt ist keine Basis-ROM zugeordnet.",
+    "assignBase": "Basis-ROM zuordnen…",
+    "findBase": "Basis-ROM suchen…",
+    "assigned": "Basis-ROM zugeordnet: {{label}}.",
+    "publishText": "Der Assistent fragt Version und Änderungsnotizen, baut die ROM und schreibt den Patch mit Begleitdatei an den Ort, den du wählst.",
+    "publishButton": "Veröffentlichen…",
+    "previousReleases": "Bisherige Veröffentlichungen",
+    "noRelease": "Noch keine Veröffentlichung.",
+    "columns": {
+      "version": "Version",
+      "date": "Datum",
+      "notes": "Notizen",
+      "action": "Aktion"
+    },
+    "revealRelease": "Im Finder zeigen: v{{version}}",
+    "assignDialog": {
+      "title": "Basis-ROM zuordnen?",
+      "assign": "Zuordnen",
+      "known": "Bekannte Basis-ROM: {{name}}",
+      "writes": "Schreibt die Basismarke .g4/base.json ins Projekt."
+    }
+  },
+  "textProjectSurface": {
+    "title": "Textprojekt",
+    "agentSettingUp": "Wird von einem Agenten eingerichtet …",
+    "setUpLead": "Das Projekt liegt im DSPRE-Layout. Als Textprojekt bekommt jeder Eintrag eine lesbare Datei unter data/, bereit für Git; DSPRE öffnet den Ordner weiter.",
+    "subtitle": {
+      "settingUp": "Wird eingerichtet …",
+      "dspre": "DSPRE-Layout",
+      "older": "Schema veraltet",
+      "syncing": "Gleicht ab …",
+      "synced": "Abgeglichen"
+    },
+    "noProjectWhy": "Öffne ein Projekt, dann zeigt Technik hier sein Textprojekt.",
+    "olderLead": "Textprojekt, Schema-Version {{schema}}: älter als diese Fassung von Gen4 Studio. Bis es angehoben ist, lässt es sich nur lesen.",
+    "newer": "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version {{schema}}).",
+    "setUp": "Als Textprojekt einrichten…",
+    "notSynced": "Noch nicht abgeglichen.",
+    "lastSynced": "Zuletzt abgeglichen {{ago}}.",
+    "currentLead": "Textprojekt, Schema-Version {{schema}}. {{synced}}",
+    "syncNow": "Jetzt abgleichen",
+    "revert": "Zurücknehmen…",
+    "conflictsTitle": "Auf zwei Seiten geändert",
+    "conflict": "Konflikt",
+    "keep": {
+      "world": "Neu backen",
+      "studio": "Studio-Fassung behalten"
+    },
+    "take": {
+      "world": "Als binäre Karte übernehmen",
+      "files": "Geänderte Datei übernehmen",
+      "dspre": "DSPRE-Fassung übernehmen"
+    },
+    "columns": {
+      "field": "Feld",
+      "studioUnsaved": "Studio (ungespeichert)",
+      "studio": "Studio",
+      "file": "Datei",
+      "dspre": "DSPRE"
+    },
+    "worldChanged": "Diese Welt-Karte wurde außerhalb des Studios geändert.",
+    "readingDifferences": "Lese die Abweichungen …",
+    "differencesAriaLabel": "Abweichungen: {{label}}",
+    "discards": "„{{take}}“ verwirft die ungespeicherten Änderungen an diesem Eintrag.",
+    "brokenTitle": "Fehlerhafte Dateien",
+    "takenTitle": "Zuletzt übernommen",
+    "takenFrom": {
+      "dspre": "aus DSPRE",
+      "file": "aus Datei"
+    },
+    "takenNone": "Nichts von außen geändert.",
+    "deleteKind": {
+      "matrix": "Matrix",
+      "map": "Karte",
+      "event_file": "Eventdatei",
+      "area_data": "Gebietsdaten",
+      "script": "Scriptdatei",
+      "text_archive": "Textarchiv"
+    },
+    "deleteTitle": "Löschen",
+    "deleteKindLabel": "Art",
+    "deleteNumber": "Nummer",
+    "deleteButton": "Löschen…"
+  },
+  "technikArea": {
+    "title": "Technik",
+    "entries": {
+      "projekt": "Projekt",
+      "textprojekt": "Textprojekt",
+      "bauen": "Prüfen und Bauen",
+      "veroeffentlichen": "Veröffentlichen",
+      "aenderungen": "Änderungen",
+      "patches": "Patches",
+      "emulator": "Emulator",
+      "werkzeuge": "Werkzeuge"
+    },
+    "previewSource": {
+      "eigen": "Eigenes Vorschaubild",
+      "standard": "Kartenbild der Startstadt"
+    },
+    "noPreview": "Kein Vorschaubild",
+    "patchPlaque": {
+      "applied": "Angewendet",
+      "available": "Verfügbar",
+      "broken": "Fehlerhaft",
+      "unsupported": "Nur Platin und HGSS"
+    },
+    "patchSubtitle": {
+      "applied": "Dynamische Header angewendet",
+      "available": "Dynamische Header verfügbar",
+      "broken": "Dynamische Header fehlerhaft",
+      "unsupported": "Nur Platin und HGSS"
+    },
+    "notBuilt": "Noch nicht gebaut",
+    "builtAgo": "gebaut {{ago}}",
+    "noEmulator": "Kein Emulator gewählt",
+    "emulatorTitle": "Emulator",
+    "emulatorText": "Das Studio startet gebaute ROMs in diesem Emulator. Die Wahl gilt für alle Projekte.",
+    "project": {
+      "title": "Projekt",
+      "noProjectWhy": "Öffne ein Projekt, dann zeigt Technik hier sein Vorschaubild."
+    },
+    "preview": {
+      "heading": "Vorschaubild",
+      "choose": "Vorschaubild wählen…",
+      "remove": "Entfernen",
+      "hintStartTown": "Ohne eigenes Bild zeigt Start das Kartenbild der Startstadt.",
+      "hintTown": "Ohne eigenes Bild zeigt Start das Kartenbild von {{town}}."
+    },
+    "build": {
+      "title": "Prüfen und Bauen",
+      "noProjectWhy": "Öffne ein Projekt, dann prüft und baut Technik es hier.",
+      "build": "Bauen",
+      "rebuild": "Neu bauen (ohne Cache)",
+      "rebuildHint": "Löscht den Bauzustand und baut alles neu",
+      "run": "Starten",
+      "runHint": "Erst bauen, dann starten",
+      "building": "Baue ROM …",
+      "browserMode": "Im Browser-Modus wird nur gebaut",
+      "lastBuild": "Letzter Build",
+      "path": "Pfad",
+      "stepsHeading": "Schritte",
+      "noBuildYet": "Noch kein Build in dieser Sitzung.",
+      "problemsHeading": "Probleme",
+      "noProblems": "Keine Probleme. Beim Speichern und Bauen landen Fehler und Warnungen hier.",
+      "checking": "Prüft das Projekt … Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind.",
+      "unchecked": "Nicht geprüft. {{why}}",
+      "noProblemsChecks": "Keine Probleme. Die Prüfungen laufen nach jeder Änderung; beim Speichern und Bauen landen Fehler und Warnungen hier."
+    },
+    "baseline": {
+      "button": "Ausgangslage übernehmen…",
+      "note": "Blendet alle Warnungen und Hinweise von jetzt aus; Fehler bleiben sichtbar.",
+      "title": "Ausgangslage übernehmen?",
+      "description_one": "{{count}} Warnung oder Hinweis wird ausgeblendet. Ändert sich eine Stelle, meldet sie sich wieder; unter „Wieder melden…“ holst du sie zurück.",
+      "description_other": "{{count}} Warnungen und Hinweise werden ausgeblendet. Ändert sich eine Stelle, meldet sie sich wieder; unter „Wieder melden…“ holst du sie zurück.",
+      "adopt": "Übernehmen"
+    },
+    "switches": {
+      "title": "Prüfungen ein- und ausschalten",
+      "errorsStay": "Fehler lassen sich nicht abschalten."
+    },
+    "patches": {
+      "title": "Patches",
+      "noProjectWhy": "Öffne ein Projekt, dann zeigt Technik hier seine Patches.",
+      "heading": "Dynamische Header",
+      "text": "Neue Orte brauchen eigene Header. Der Patch verlegt die Header in eine Datei je Header und ändert dafür Bytes im Spielcode (arm9.bin). DSPRE kennt ihn.",
+      "checking": "Prüfe den Patch …",
+      "brokenText": "Der Patch ruft im Spielcode eine falsche Funktion auf: das Spiel bleibt nach dem Intro schwarz. Die Reparatur ändert 4 Bytes in arm9.bin.",
+      "apply": "Patch anwenden",
+      "repair": "Patch reparieren",
+      "applying": "Wende an …",
+      "repairing": "Repariere …",
+      "snapshot": "Sicherung des alten Ordners: {{path}}",
+      "dialogTitle": "Patch „Dynamische Header“ anwenden?",
+      "dialogDescription": "Der Patch ändert Bytes im Spielcode (arm9.bin), die Sicherung arm9.bin.backup wird angelegt. Ungespeicherte Änderungen an Gebieten und Räumen bleiben ungespeichert."
+    },
+    "tools": {
+      "title": "Werkzeuge",
+      "lsp": {
+        "aus": "Aus",
+        "startet": "Startet",
+        "bereit": "Bereit",
+        "fehlt": "Fehlt",
+        "fehler": "Fehler"
+      },
+      "apicula": {
+        "unbekannt": "Unbekannt",
+        "bereit": "Bereit",
+        "fehlt": "Fehlt"
+      },
+      "apiculaNote": {
+        "unbekannt": "Zeigt sich beim ersten Kartenbild.",
+        "fehlt": "Ohne apicula gibt es keine Kartenbilder und 3D-Modelle."
+      },
+      "lspNoteNotStarted": "Startet, sobald das Panel Script einmal gezeigt wird.",
+      "lspOff": "Nicht gestartet.",
+      "lspNotStartedBadge": "Nicht gestartet",
+      "apiculaText": "Wandelt die Karten des Spiels in 3D-Modelle und Kartenbilder.",
+      "lspText": "Sprachdienst für Scripts: Vervollständigung und Diagnosen im Editor.",
+      "restart": "Neu starten",
+      "clearWorld": "Welt leeren",
+      "clearWorldText": "Macht aus der Welt eine leere Region mit Startstadt. Die Welt holst du mit ⌘Z zurück.",
+      "clearWorldButton": "Welt leeren…",
+      "needProject": "Erst ein Projekt öffnen"
+    }
+  }
+}

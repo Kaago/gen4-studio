@@ -1,5 +1,6 @@
 import type { Tool } from "../ui/frame/shellState";
 import type { IconName } from "../ui/primitives";
+import { t } from "../i18n";
 import { lockedText } from "../world/events";
 import type { EventKind, EventLock } from "../world/events";
 
@@ -14,101 +15,62 @@ export interface ToolSpec {
   group: 0 | 1 | 2 | 3;
   /** The second line of the tooltip: what a click in the scene does. */
   hint: string;
-  /** Key and effect pairs for the status line ("Klick" + "wählt"). */
+  /** Key and effect pairs for the status line („Klick“ + „wählt“). */
   statusHints: { keys: string; does: string }[];
 }
 
-export const TOOLS: ToolSpec[] = [
-  {
-    id: "select",
-    label: "Auswählen",
-    key: "V",
-    icon: "select",
-    group: 0,
-    hint: "Wählt Marker, Gebäude und Karten in der Szene. Ziehen verschiebt das Gewählte. Malt nie.",
-    statusHints: [
-      { keys: "Klick", does: "wählt" },
-      { keys: "Ziehen", does: "verschiebt" },
-    ],
-  },
-  {
-    id: "paint",
-    label: "Gelände malen",
-    key: "B",
-    icon: "paint",
-    group: 1,
-    hint: "Klick setzt die Kollision der Kachel, Umschalt-Klick löscht sie.",
-    statusHints: [
-      { keys: "Klick", does: "setzt Kollision" },
-      { keys: "⇧Klick", does: "löscht" },
-    ],
-  },
-  {
-    id: "figure",
-    label: "Figur",
-    key: "F",
-    icon: "figure",
-    group: 2,
-    hint: "Klick auf eine Kachel stellt dort eine Figur hin und wählt wieder Auswählen.",
-    statusHints: [
-      { keys: "Klick", does: "stellt eine Figur hin" },
-      { keys: "Esc", does: "bricht ab" },
-    ],
-  },
-  {
-    id: "door",
-    label: "Tür",
-    key: "T",
-    icon: "door",
-    group: 2,
-    hint: "Klick auf eine Kachel legt dort eine Tür an (einen Warp) und wählt wieder Auswählen.",
-    statusHints: [
-      { keys: "Klick", does: "legt eine Tür an" },
-      { keys: "Esc", does: "bricht ab" },
-    ],
-  },
-  {
-    id: "trigger",
-    label: "Auslöser",
-    key: "A",
-    icon: "trigger",
-    group: 2,
-    hint: "Klick auf eine Kachel legt dort einen Auslöser an (einen Trigger) und wählt wieder Auswählen.",
-    statusHints: [
-      { keys: "Klick", does: "legt einen Auslöser an" },
-      { keys: "Esc", does: "bricht ab" },
-    ],
-  },
-  {
-    id: "sign",
-    label: "Schild",
-    key: "S",
-    icon: "sign",
-    group: 2,
-    hint: "Klick auf eine Kachel stellt dort ein Schild auf (ein Hintergrund-Event) und wählt wieder Auswählen.",
-    statusHints: [
-      { keys: "Klick", does: "stellt ein Schild auf" },
-      { keys: "Esc", does: "bricht ab" },
-    ],
-  },
-  {
-    id: "building",
-    label: "Gebäude",
-    key: "G",
-    icon: "building",
-    group: 3,
-    hint: "Klick auf eine Kachel setzt dort ein Gebäude und wählt wieder Auswählen.",
-    statusHints: [
-      { keys: "Klick", does: "setzt ein Gebäude" },
-      { keys: "Esc", does: "bricht ab" },
-    ],
-  },
+/** A key or gesture of a status line, in the language shown („Klick“, „Ziehen“, „⇧Klick“ …); the paint tools name theirs too. */
+export type KeyWord = "click" | "shiftClick" | "drag" | "shiftDrag" | "rightClick" | "esc";
+export const keyWord = (word: KeyWord): string => t(`workbench:keyWords.${word}`);
+
+/** What a tool is apart from its words; label, hint and the two status pairs are `tools.<id>.*`, read when asked. */
+interface ToolDef {
+  id: Tool;
+  key: string;
+  icon: IconName;
+  group: ToolSpec["group"];
+  /** The keys of the two status pairs; what they do is `tools.<id>.does1` and `does2`. */
+  keys: readonly [KeyWord, KeyWord];
+}
+
+const DEFS: readonly ToolDef[] = [
+  { id: "select", key: "V", icon: "select", group: 0, keys: ["click", "drag"] },
+  { id: "paint", key: "B", icon: "paint", group: 1, keys: ["click", "shiftClick"] },
+  { id: "figure", key: "F", icon: "figure", group: 2, keys: ["click", "esc"] },
+  { id: "door", key: "T", icon: "door", group: 2, keys: ["click", "esc"] },
+  { id: "trigger", key: "A", icon: "trigger", group: 2, keys: ["click", "esc"] },
+  { id: "sign", key: "S", icon: "sign", group: 2, keys: ["click", "esc"] },
+  { id: "building", key: "G", icon: "building", group: 3, keys: ["click", "esc"] },
 ];
 
-/** The tooltip hint of „Gelände malen“ on a world map of the text project (6.4a); a binary map keeps the collision hint of `TOOLS`. */
-export const WORLD_PAINT_HINT = "Malt Kacheln, Höhen und Rampen auf die gewählte Welt-Karte.";
+/** A tool whose words are looked up each time they are read: the module loads before i18next has a language. */
+function toolSpec(def: ToolDef, hint: () => string = () => t(`workbench:tools.${def.id}.hint`)): ToolSpec {
+  return {
+    id: def.id,
+    key: def.key,
+    icon: def.icon,
+    group: def.group,
+    get label() {
+      return t(`workbench:tools.${def.id}.label`);
+    },
+    get hint() {
+      return hint();
+    },
+    get statusHints() {
+      return [
+        { keys: keyWord(def.keys[0]), does: t(`workbench:tools.${def.id}.does1`) },
+        { keys: keyWord(def.keys[1]), does: t(`workbench:tools.${def.id}.does2`) },
+      ];
+    },
+  };
+}
 
-const WORLD_TOOLS: ToolSpec[] = TOOLS.map((t) => (t.id === "paint" ? { ...t, hint: WORLD_PAINT_HINT } : t));
+export const TOOLS: ToolSpec[] = DEFS.map((def) => toolSpec(def));
+
+/** The tooltip hint of „Gelände malen“ on a world map of the text project (6.4a); a binary map keeps the collision hint of `TOOLS`. */
+export const worldPaintHint = (): string => t("workbench:tools.worldPaintHint");
+
+const WORLD_TOOLS: ToolSpec[] = DEFS.map((def, i) => (def.id === "paint" ? toolSpec(def, worldPaintHint) : TOOLS[i]!));
 
 /** The tools as the toolbar shows them for the selected map: on a world map „Gelände malen“ says that it paints tiles, heights and ramps. */
 export function toolsFor(worldMap: boolean): ToolSpec[] {
@@ -129,4 +91,4 @@ export const isEventTool = (tool: Tool): boolean => EVENT_TOOL_KIND[tool] !== un
 
 /** Why the event tools wait (the toolbar and the „+“ of the scene say it): a locked event file, or no shown place; null when they may add. */
 export const eventToolsBlocked = (lock: EventLock | null, eventFile: number | null): string | null =>
-  lock ? lockedText(lock.reason) : eventFile === null ? "Erst einen Ort wählen." : null;
+  lock ? lockedText(lock.reason) : eventFile === null ? t("workbench:tools.noPlace") : null;

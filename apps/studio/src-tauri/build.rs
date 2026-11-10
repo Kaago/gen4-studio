@@ -16,6 +16,9 @@ fn main() {
     // well only makes the linker warn about a duplicate -rpath (`scripts/check-bundle.sh` asserts it).
     ensure_bundle_placeholders();
     println!("cargo:rerun-if-changed=build.rs");
+    // `i18n!` embeds `locales/` at compile time, but rustc does not track the files a macro
+    // reads: without this a changed catalog would not recompile the crate.
+    println!("cargo:rerun-if-changed=locales");
     tauri_build::build()
 }
 

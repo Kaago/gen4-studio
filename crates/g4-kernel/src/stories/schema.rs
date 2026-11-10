@@ -32,7 +32,7 @@ pub const STORIES_DIR: &str = "data/stories";
 /// The code of a reference of a story that names nothing in the project (a warning).
 pub const DANGLING_REF_CODE: &str = "story.dangling-ref";
 
-/// What a step of a story is; the user interface says it in German ([`StepKind::word`]).
+/// What a step of a story is; the user interface says it in its language ([`StepKind::word`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StepKind {
@@ -60,18 +60,19 @@ impl StepKind {
         ]
     }
 
-    /// `Start`, `Dialog`, `Bedingung`, `Kampf`, `Belohnung`, `Fortschritt`,
-    /// `Erscheinen/Verschwinden`.
-    pub fn word(self) -> &'static str {
-        match self {
-            StepKind::Start => "Start",
-            StepKind::Dialog => "Dialog",
-            StepKind::Condition => "Bedingung",
-            StepKind::Battle => "Kampf",
-            StepKind::Reward => "Belohnung",
-            StepKind::Progress => "Fortschritt",
-            StepKind::Appearance => "Erscheinen/Verschwinden",
-        }
+    /// `Start`, `Dialog`, `Condition`, `Battle`, `Reward`, `Progress`, `Appear/disappear`, in
+    /// the current language.
+    pub fn word(self) -> String {
+        let key = match self {
+            StepKind::Start => "stories.step_start",
+            StepKind::Dialog => "stories.step_dialog",
+            StepKind::Condition => "stories.step_condition",
+            StepKind::Battle => "stories.step_battle",
+            StepKind::Reward => "stories.step_reward",
+            StepKind::Progress => "stories.step_progress",
+            StepKind::Appearance => "stories.step_appearance",
+        };
+        t!(key).into_owned()
     }
 }
 
@@ -218,11 +219,7 @@ pub(crate) fn judge(registry: &Registry, n: u16, bytes: &[u8]) -> (Option<Story>
                     &path,
                     Severity::Error,
                     SCHEMA_CODE,
-                    format!(
-                        "`{}` hat schon Schritt {j}; jeder Schlüssel steht nur einmal in einer \
-                         Geschichte.",
-                        step.key
-                    ),
+                    t!("stories.key_taken", key = step.key, step = j).into_owned(),
                 ));
             }
             None => {
@@ -242,17 +239,17 @@ fn id_problem(registry: &Registry, n: u16, rel: &Path, bytes: &[u8]) -> Option<P
         .strip_prefix(SymbolKind::Story.prefix())
         .is_some_and(|rest| rest.len() > 1 && rest.starts_with('_'));
     let message = if !prefixed {
-        format!("id: `{id}` beginnt nicht mit `STORY_`.")
+        t!("stories.id_no_prefix", id = id).into_owned()
     } else {
         let own = registry.id_of(u32::from(n));
         if own == Some(id) {
             return None;
         }
         let owner = own.map_or_else(
-            || "das Register nennt keine".to_owned(),
+            || t!("stories.id_owner_none").into_owned(),
             |own| format!("`{own}`"),
         );
-        format!("id: `{id}` ist nicht die ID der Geschichte {n} ({owner}).")
+        t!("stories.id_mismatch", id = id, n = n, owner = owner).into_owned()
     };
     let (line, col) = key_position(bytes, "id", 0);
     Some(Problem {
@@ -377,9 +374,7 @@ pub(crate) fn check_folder(
             problems.push(problem(
                 &rel,
                 SCHEMA_CODE,
-                "Der Dateiname ist keine Nummer (`NNNN.json`, `NNNN.layout.json`); die Datei \
-                 gehört zu keiner Geschichte."
-                    .to_owned(),
+                t!("stories.file_not_numbered").into_owned(),
             ));
             continue;
         };
@@ -405,7 +400,7 @@ pub(crate) fn check_folder(
                     root,
                     id,
                     SCHEMA_CODE,
-                    format!("`{id}`: Nummer {n} ist keine Geschichte (höchstens 65535)."),
+                    t!("stories.number_too_high", id = id, n = n).into_owned(),
                 );
                 found.severity = Severity::Error;
                 problems.push(found);
@@ -422,10 +417,13 @@ pub(crate) fn unfiled(root: &Path, id: &str, n: u16) -> Problem {
         root,
         id,
         ID_DANGLING_CODE,
-        format!(
-            "`{id}` (Nummer {n}) hat keine Datei {}; jede Geschichte hat eine.",
-            story_rel(n).to_string_lossy().replace('\\', "/")
-        ),
+        t!(
+            "stories.unfiled",
+            id = id,
+            n = n,
+            file = story_rel(n).to_string_lossy().replace('\\', "/")
+        )
+        .into_owned(),
     )
 }
 
@@ -758,8 +756,8 @@ mod tests {
         );
         assert_eq!(
             problems[0].message,
-            "textproject.schema: steps[3].key: `s1` hat schon Schritt 1; jeder Schlüssel steht \
-             nur einmal in einer Geschichte."
+            "textproject.schema: steps[3].key: `s1` already has step 1; each key appears only \
+             once in a story."
         );
     }
 
@@ -802,8 +800,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             mismatch.message,
-            "textproject.id-mismatch: id: `STORY_B` ist nicht die ID der Geschichte 0 \
-             (`STORY_A`)."
+            "textproject.id-mismatch: id: `STORY_B` is not the ID of story 0 (`STORY_A`)."
         );
         assert_eq!(mismatch.file, Path::new("data/stories/0000.json"));
         assert_eq!(mismatch.line, 2);
@@ -815,14 +812,13 @@ mod tests {
         );
         assert_eq!(
             problems[0].message,
-            "textproject.id-mismatch: id: `A` beginnt nicht mit `STORY_`."
+            "textproject.id-mismatch: id: `A` does not start with `STORY_`."
         );
         // A number the register does not name.
         let problems = check(1, &story("STORY_A", "\"var\": \"VAR_UNUSED_0x406C\""));
         assert_eq!(
             problems[0].message,
-            "textproject.id-mismatch: id: `STORY_A` ist nicht die ID der Geschichte 1 (das \
-             Register nennt keine)."
+            "textproject.id-mismatch: id: `STORY_A` is not the ID of story 1 (none registered)."
         );
         // No JSON.
         let problems = check(0, "nicht json");
@@ -839,7 +835,7 @@ mod tests {
         );
         assert_eq!(
             problems[0].message,
-            "story.dangling-ref: progress.var: Unbekannte ID: VAR_NOPE."
+            "story.dangling-ref: progress.var: Unknown ID: VAR_NOPE."
         );
         let text = "{\n  \"id\": \"STORY_A\",\n  \"name\": \"A\",\n  \"progress\": {\n    \"flag\": \
                     \"FLAG_0001\"\n  },\n  \"steps\": [\n    {\n      \"key\": \"s0\",\n      \
@@ -859,11 +855,11 @@ mod tests {
         );
         assert_eq!(
             problems[0].message,
-            "story.dangling-ref: steps[0].uses[0].trainer: Unbekannte ID: TRAINER_NIEMAND."
+            "story.dangling-ref: steps[0].uses[0].trainer: Unknown ID: TRAINER_NIEMAND."
         );
         assert_eq!(
             problems[1].message,
-            "story.dangling-ref: flags[0]: Unbekannte ID: FLAG_NIRGENDS."
+            "story.dangling-ref: flags[0]: Unknown ID: FLAG_NIRGENDS."
         );
     }
 
@@ -905,15 +901,15 @@ mod tests {
         );
         assert_eq!(
             problems[0].message,
-            "story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 ist gelöscht."
+            "story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 is deleted."
         );
         assert_eq!(
             problems[1].message,
-            "story.dangling-ref: steps[0].uses[1].object: Eventdatei 0000 ist gelöscht."
+            "story.dangling-ref: steps[0].uses[1].object: Event file 0000 is deleted."
         );
         assert_eq!(
             problems[2].message,
-            "story.dangling-ref: steps[0].uses[2].map: Header 0000 ist gelöscht."
+            "story.dangling-ref: steps[0].uses[2].map: Header 0000 is deleted."
         );
     }
 
@@ -968,9 +964,9 @@ mod tests {
         assert_eq!(
             messages(&problems),
             [
-                "story.dangling-ref: steps[0].uses[2].script: Scriptdatei 0003 gibt es nicht.",
-                "story.dangling-ref: steps[0].uses[4].message: Textarchiv 0698 gibt es nicht.",
-                "story.dangling-ref: steps[0].uses[6].object: Eventdatei 0002 gibt es nicht.",
+                "story.dangling-ref: steps[0].uses[2].script: Script file 0003 does not exist.",
+                "story.dangling-ref: steps[0].uses[4].message: Text archive 0698 does not exist.",
+                "story.dangling-ref: steps[0].uses[6].object: Event file 0002 does not exist.",
             ]
         );
 
@@ -994,8 +990,8 @@ mod tests {
         assert_eq!(
             messages(&problems)[3..],
             [
-                "story.dangling-ref: steps[0].uses[7].trainer: Trainer 0002 gibt es nicht.",
-                "story.dangling-ref: steps[0].uses[8].map: Header 0001 gibt es nicht.",
+                "story.dangling-ref: steps[0].uses[7].trainer: Trainer 0002 does not exist.",
+                "story.dangling-ref: steps[0].uses[8].map: Header 0001 does not exist.",
             ]
         );
     }
@@ -1046,17 +1042,17 @@ mod tests {
     #[test]
     fn kinds_have_seven_words() {
         assert_eq!(StepKind::all().len(), 7);
-        let words: Vec<&str> = StepKind::all().iter().map(|k| k.word()).collect();
+        let words: Vec<String> = StepKind::all().iter().map(|k| k.word()).collect();
         assert_eq!(
             words,
             [
                 "Start",
                 "Dialog",
-                "Bedingung",
-                "Kampf",
-                "Belohnung",
-                "Fortschritt",
-                "Erscheinen/Verschwinden"
+                "Condition",
+                "Battle",
+                "Reward",
+                "Progress",
+                "Appear/disappear"
             ]
         );
         let names: Vec<serde_json::Value> = StepKind::all()

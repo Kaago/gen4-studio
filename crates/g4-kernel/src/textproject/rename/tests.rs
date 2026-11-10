@@ -144,7 +144,7 @@ fn rename_writes_all_files_as_one_undo_step_and_undo_restores_them() {
     let (undo, redo) = st.history();
     assert_eq!(
         undo,
-        ["ID umbenannt: TRAINER_YOUNGSTER_KAI → TRAINER_KID_KAI"]
+        ["ID renamed: TRAINER_YOUNGSTER_KAI → TRAINER_KID_KAI"]
     );
     assert!(redo.is_empty());
 
@@ -237,27 +237,26 @@ fn rename_refuses_taken_fallback_and_malformed_ids_and_writes_nothing() {
         ".rotom/command_database/extra.json",
         b"{\"7\": \"TRAINER_SEVEN\", \"1\": \"TRAINER_ONE\"}\n",
     );
-    let format = "Die neue ID muss mit TRAINER_ beginnen und darf danach nur A–Z, 0–9 und _ \
-                  enthalten (höchstens 64 Zeichen).";
+    let format = "The new ID must start with TRAINER_ and may then contain only A–Z, 0–9 and _ (at most 64 characters).";
     let long = format!("TRAINER_{}", "A".repeat(57));
     assert_eq!(long.len(), 65);
     let cases: Vec<(&str, &str, String)> = vec![
         (
             KAI,
             "TRAINER_POKEMON_TRAINER_MIA",
-            "TRAINER_POKEMON_TRAINER_MIA gibt es schon (Nummer 2).".to_owned(),
+            "TRAINER_POKEMON_TRAINER_MIA already exists (number 2).".to_owned(),
         ),
         (
             KAI,
             "TRAINER_0002",
-            "TRAINER_0002 ist die Ersatz-ID der Nummer 2.".to_owned(),
+            "TRAINER_0002 is the fallback ID of number 2.".to_owned(),
         ),
         (
             KAI,
             "TRAINER_SEVEN",
-            "TRAINER_SEVEN kennt rotom schon als Nummer 7.".to_owned(),
+            "rotom already knows TRAINER_SEVEN as number 7.".to_owned(),
         ),
-        (KAI, KAI, "Die neue ID ist die alte.".to_owned()),
+        (KAI, KAI, "The new ID is the old one.".to_owned()),
         (KAI, "TRAINER_kai", format.to_owned()),
         (KAI, "MAP_KAI", format.to_owned()),
         (KAI, "TRAINER_", format.to_owned()),
@@ -267,9 +266,9 @@ fn rename_refuses_taken_fallback_and_malformed_ids_and_writes_nothing() {
         (
             "TRAINER_NOBODY",
             "TRAINER_X",
-            "Unbekannte ID: TRAINER_NOBODY.".to_owned(),
+            "Unknown ID: TRAINER_NOBODY.".to_owned(),
         ),
-        ("NOTHING", "TRAINER_X", "Unbekannte ID: NOTHING.".to_owned()),
+        ("NOTHING", "TRAINER_X", "Unknown ID: NOTHING.".to_owned()),
     ];
     let before = tree(&fx);
     for (old, new, why) in &cases {
@@ -324,8 +323,8 @@ fn undo_of_a_rename_after_an_outside_edit_writes_nothing() {
     match st.undo() {
         Err(KernelError::Refused(r)) => assert_eq!(
             r,
-            "data/trainers/0001.json wurde seit dem Umbenennen geändert; ⌘Z schreibt nichts, \
-             der Schritt fällt aus dem Verlauf."
+            "data/trainers/0001.json was changed since the rename; ⌘Z writes nothing, the step \
+             drops out of the history."
         ),
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -418,8 +417,7 @@ fn a_trainer_class_rename_is_not_taken_for_a_trainer() {
     assert_eq!(
         plan.refusal.as_deref(),
         Some(
-            "TRAINER_CLASS_KAI wäre eine ID der Art TRAINER_CLASS_; die neue ID muss mit \
-             TRAINER_ beginnen, nicht mit TRAINER_CLASS_."
+            "TRAINER_CLASS_KAI would be an ID of the kind TRAINER_CLASS_; the new ID must start with TRAINER_, not with TRAINER_CLASS_."
         )
     );
     // Nor a class one of the trainer prefix only.
@@ -427,8 +425,7 @@ fn a_trainer_class_rename_is_not_taken_for_a_trainer() {
     assert_eq!(
         plan.refusal.as_deref(),
         Some(
-            "Die neue ID muss mit TRAINER_CLASS_ beginnen und darf danach nur A–Z, 0–9 und _ \
-             enthalten (höchstens 64 Zeichen)."
+            "The new ID must start with TRAINER_CLASS_ and may then contain only A–Z, 0–9 and _ (at most 64 characters)."
         )
     );
 }
@@ -436,8 +433,7 @@ fn a_trainer_class_rename_is_not_taken_for_a_trainer() {
 #[test]
 fn a_fixed_table_id_is_refused() {
     let fx = fixture();
-    let fixed = "steht in einer festen Tabelle; umbenennen lassen sich nur IDs mit Register \
-                 (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_, FLAG_, VAR_).";
+    let fixed = "is in a fixed table; only IDs with a register can be renamed (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_, FLAG_, VAR_).";
     for id in ["SPECIES_PIKACHU", "ITEM_POTION", "MOVE_0001"] {
         let plan = plan_rename(&fx.project(), id, "SPECIES_PIKA").unwrap();
         assert_eq!(plan.refusal, Some(format!("{id} {fixed}")), "{id}");
@@ -447,7 +443,7 @@ fn a_fixed_table_id_is_refused() {
             .unwrap()
             .refusal
             .as_deref(),
-        Some("Unbekannte ID: SPECIES_NOBODY.")
+        Some("Unknown ID: SPECIES_NOBODY.")
     );
 
     // Without a text project there are no ids to rename.
@@ -455,7 +451,7 @@ fn a_fixed_table_id_is_refused() {
     let plan = plan_rename(&dspre.project(), KAI, "TRAINER_KID_KAI").unwrap();
     assert_eq!(
         plan.refusal.as_deref(),
-        Some("Kein Textprojekt: IDs gibt es erst nach „Als Textprojekt einrichten…“.")
+        Some("No text project: IDs only exist after “Set up as a text project…”.")
     );
     assert_eq!(plan.kind, Some(SymbolKind::Trainer));
     assert_eq!(plan.number, None);
@@ -487,12 +483,9 @@ fn a_broken_json_naming_the_id_is_refused() {
     fx.write("g4-world.json", format!("{{ \"{KAI}\": ").as_bytes());
     let plan = plan_rename(&fx.project(), KAI, "TRAINER_KID_KAI").unwrap();
     let why = plan.refusal.unwrap();
+    assert!(why.starts_with("g4-world.json cannot be read ("), "{why}");
     assert!(
-        why.starts_with("g4-world.json lässt sich nicht lesen ("),
-        "{why}"
-    );
-    assert!(
-        why.ends_with("); erst die Datei reparieren, dann umbenennen."),
+        why.ends_with("); repair the file first, then rename."),
         "{why}"
     );
 }
@@ -573,8 +566,8 @@ fn redo_of_a_rename_after_an_outside_edit_writes_nothing() {
     match st.redo() {
         Err(KernelError::Refused(r)) => assert_eq!(
             r,
-            "data/headers/0001.json wurde seit dem Rückgängigmachen des Umbenennens geändert; ⌘⇧Z \
-             schreibt nichts, der Schritt fällt aus dem Verlauf."
+            "data/headers/0001.json was changed since the rename was undone; ⌘⇧Z writes nothing, \
+             the step drops out of the history."
         ),
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -610,7 +603,7 @@ fn what_fails_after_the_files_is_a_warning() {
     let warnings = after_move(&p, &[], &Default::default());
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
-        warnings[0].starts_with("Die ID-Dateien für rotom sind nicht neu geschrieben ("),
+        warnings[0].starts_with("The ID files for rotom were not rewritten ("),
         "{warnings:?}"
     );
 }
@@ -689,7 +682,7 @@ fn renaming_an_own_flag_name_follows_script_and_entity() {
     assert!(result.warnings.is_empty(), "{:?}", result.warnings);
     assert_eq!(
         st.history().0,
-        ["ID umbenannt: FLAG_HAT_MEDAILLE → FLAG_ORDEN"]
+        ["ID renamed: FLAG_HAT_MEDAILLE → FLAG_ORDEN"]
     );
     assert_eq!(
         fx.text("data/ids/flags.json"),
@@ -726,7 +719,7 @@ fn renaming_to_a_pret_name_of_another_number_is_refused() {
     let plan = plan_rename(&fx.project(), "FLAG_HAT_MEDAILLE", "FLAG_UNUSED_0x0095").unwrap();
     assert_eq!(
         plan.refusal.as_deref(),
-        Some("FLAG_UNUSED_0x0095 ist der pret-Name der Nummer 149.")
+        Some("FLAG_UNUSED_0x0095 is the pret name of number 149.")
     );
     // The pret name of its own number is fine (when it has the form of an id); a variable's
     // prefix is not.
@@ -759,7 +752,7 @@ fn renaming_to_a_pret_name_of_another_number_is_refused() {
         .unwrap()
         .refusal
         .as_deref(),
-        Some("FLAG_VILLA_FURNITURE_TABLE ist der pret-Name der Nummer 2455.")
+        Some("FLAG_VILLA_FURNITURE_TABLE is the pret name of number 2455.")
     );
     assert_eq!(
         plan_rename(&fx.project(), "FLAG_HAT_MEDAILLE", "VAR_ORDEN")
@@ -767,8 +760,7 @@ fn renaming_to_a_pret_name_of_another_number_is_refused() {
             .refusal
             .as_deref(),
         Some(
-            "Die neue ID muss mit FLAG_ beginnen und darf danach nur A–Z, 0–9 und _ enthalten \
-             (höchstens 64 Zeichen)."
+            "The new ID must start with FLAG_ and may then contain only A–Z, 0–9 and _ (at most 64 characters)."
         )
     );
 }

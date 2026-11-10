@@ -48,7 +48,9 @@ const NAME_LEN: usize = 16;
 /// Bytes of one header.
 const HEADER_LEN: usize = uxie::map_header::MAP_HEADER_SIZE;
 /// The refusal for Diamond/Pearl.
-pub const NO_DP: &str = "Kein Textprojekt für Diamant/Perl in Phase 4.";
+pub fn no_dp() -> String {
+    t!("textproject.no_dp").into_owned()
+}
 
 /// A Platinum header (uxie `MapHeaderPt`, same fields in the same order).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,7 +123,7 @@ impl EntitySchema for HeaderPtEntity {
     ) -> Result<Self, KernelError> {
         let (header, record) = header_members(members, index)?;
         let MapHeader::Pt(h) = decode(header, GameFamily::Platinum, index)? else {
-            return Err(not_family(index, "Platin"));
+            return Err(not_family(index, &t!("textproject.platinum")));
         };
         let (internal_name, internal_name_bytes) = name_json(record);
         Ok(HeaderPtEntity {
@@ -306,12 +308,17 @@ fn header_members(members: &[Option<Vec<u8>>], index: u32) -> Result<(&[u8], &[u
     let header = required(members, 0, HEADERS_ART, index)?;
     let record = required(members, 1, HEADERS_ART, index)?;
     if header.len() != HEADER_LEN || record.len() != NAME_LEN {
-        return Err(KernelError::InvalidProject(format!(
-            "headers {index:04}: {} Byte Header und {} Byte Name, erwartet {HEADER_LEN} und \
-             {NAME_LEN}.",
-            header.len(),
-            record.len()
-        )));
+        return Err(KernelError::InvalidProject(
+            t!(
+                "textproject.header_lengths",
+                index = index : {:04},
+                header = header.len(),
+                name = record.len(),
+                header_len = HEADER_LEN,
+                name_len = NAME_LEN
+            )
+            .into_owned(),
+        ));
     }
     Ok((header, record))
 }
@@ -322,9 +329,14 @@ fn decode(header: &[u8], family: GameFamily, index: u32) -> Result<MapHeader, Ke
 }
 
 fn not_family(index: u32, family: &str) -> KernelError {
-    KernelError::Uxie(format!(
-        "headers {index:04}: uxie las keinen Header von {family}."
-    ))
+    KernelError::Uxie(
+        t!(
+            "textproject.header_not_family",
+            index = index : {:04},
+            family = family
+        )
+        .into_owned(),
+    )
 }
 
 fn place_ref(sym: &Symbols, n: u8) -> SymRef {
@@ -339,9 +351,14 @@ fn place_of(sym: &Symbols, r: &SymRef) -> Result<u8, String> {
 /// Whether bit field `path` fits `max`.
 fn bits(value: u8, max: u8, path: &str) -> Result<(), String> {
     if value > max {
-        return Err(format!(
-            "{SCHEMA_CODE}: {path}: {value} liegt nicht in 0..={max}."
-        ));
+        return Err(t!(
+            "textproject.number_out_of_range",
+            code = SCHEMA_CODE,
+            path = path,
+            n = value,
+            max = max
+        )
+        .into_owned());
     }
     Ok(())
 }
@@ -364,18 +381,23 @@ fn name_record(name: &str, bytes: Option<&str>) -> Result<Vec<u8>, String> {
             .ok()
             .filter(|&b| b != 0)
             .ok_or_else(|| {
-                format!(
-                    "{SCHEMA_CODE}: internal_name: {c:?} ist kein Zeichen von Latin-1 (ohne \
-                     NUL); mapname.bin hat ein Byte je Zeichen."
+                t!(
+                    "textproject.internal_name_latin1",
+                    code = SCHEMA_CODE,
+                    char = format!("{c:?}")
                 )
+                .into_owned()
             })?;
         record.push(byte);
     }
     if record.len() > NAME_LEN {
-        return Err(format!(
-            "{SCHEMA_CODE}: internal_name: {} Zeichen, höchstens {NAME_LEN}.",
-            record.len()
-        ));
+        return Err(t!(
+            "textproject.internal_name_length",
+            code = SCHEMA_CODE,
+            len = record.len(),
+            max = NAME_LEN
+        )
+        .into_owned());
     }
     let Some(text) = bytes else {
         record.resize(NAME_LEN, 0);
@@ -383,17 +405,24 @@ fn name_record(name: &str, bytes: Option<&str>) -> Result<Vec<u8>, String> {
     };
     let raw = unhex(text).map_err(|e| format!("{SCHEMA_CODE}: internal_name_bytes: {e}"))?;
     if raw.len() != NAME_LEN {
-        return Err(format!(
-            "{SCHEMA_CODE}: internal_name_bytes: {} Byte statt {NAME_LEN}.",
-            raw.len()
-        ));
+        return Err(t!(
+            "textproject.hex_length",
+            code = SCHEMA_CODE,
+            path = "internal_name_bytes",
+            count = raw.len(),
+            len = NAME_LEN
+        )
+        .into_owned());
     }
     let (held, _) = name_json(&raw);
     if held != name {
-        return Err(format!(
-            "{SCHEMA_CODE}: internal_name: „{name}“ passt nicht zu internal_name_bytes \
-             („{held}“); eines von beiden anpassen oder internal_name_bytes löschen."
-        ));
+        return Err(t!(
+            "textproject.internal_name_bytes",
+            code = SCHEMA_CODE,
+            name = name,
+            held = held
+        )
+        .into_owned());
     }
     Ok(raw)
 }
@@ -474,8 +503,9 @@ pub(crate) struct HeaderWrite {
 }
 
 /// What the import says of the headers without JSON it does not remove.
-const REMOVES_ONLY_HEADERS: &str = "der Import entfernt nur Header am Ende, die seit der \
-                                    Aufzeichnung unverändert sind (textproject.member-removed).";
+fn removes_only_headers() -> String {
+    t!("textproject.removes_only_headers").into_owned()
+}
 
 /// The header table as a whole: one canonical JSON per header (index, bytes), from the slice
 /// of `arm9.bin` or the Dynamic Headers files, with the names of `mapname.bin`.
@@ -484,7 +514,7 @@ pub(crate) fn export_headers(
     ctx: &mut ExportCtx<'_>,
 ) -> Result<Vec<(u32, Vec<u8>)>, KernelError> {
     if project.family == Family::Dp {
-        return Err(KernelError::InvalidProject(NO_DP.to_owned()));
+        return Err(KernelError::InvalidProject(no_dp()));
     }
     let (table, names) = read_table(project)?;
     let mut out = Vec::with_capacity(names.len() / NAME_LEN);
@@ -510,11 +540,15 @@ fn read_table(project: &Project) -> Result<(Vec<u8>, Vec<u8>), KernelError> {
     let names_path = project.mapname_path();
     let names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
     if !names.len().is_multiple_of(NAME_LEN) {
-        return Err(KernelError::InvalidProject(format!(
-            "{} hat {} Byte, kein Vielfaches von {NAME_LEN}.",
-            names_path.display(),
-            names.len()
-        )));
+        return Err(KernelError::InvalidProject(
+            t!(
+                "textproject.names_length",
+                file = names_path.display(),
+                len = names.len(),
+                name_len = NAME_LEN
+            )
+            .into_owned(),
+        ));
     }
     Ok((project.read_header_table_bytes()?, names))
 }
@@ -572,7 +606,7 @@ pub(crate) fn import_headers_with(
         return Err(vec![problem(
             &folder,
             SCHEMA_CODE,
-            format!("{ROOT}: {NO_DP}"),
+            format!("{ROOT}: {}", no_dp()),
         )]);
     }
     let mut problems = Vec::new();
@@ -584,15 +618,13 @@ pub(crate) fn import_headers_with(
             problems.push(problem(
                 &file_of(*i),
                 HEADER_COUNT_CODE,
-                format!("{ROOT}: die Nummer {i:04} kommt doppelt vor."),
+                t!("textproject.header_number_twice", root = ROOT, number = i : {:04}).into_owned(),
             ));
         } else if *i > next {
             problems.push(problem(
                 &file_of(next),
                 HEADER_COUNT_CODE,
-                format!(
-                    "{ROOT}: die Datei fehlt; die Header sind lückenlos von 0000 an nummeriert."
-                ),
+                t!("textproject.header_file_missing", root = ROOT).into_owned(),
             ));
         }
         next = next.max(i.saturating_add(1));
@@ -607,18 +639,25 @@ pub(crate) fn import_headers_with(
         Err(e) => problems.push(problem(
             &rel(&project.mapname_path()),
             HEADER_TABLE_CODE,
-            format!("{ROOT}: die Zahl der Header ist nicht lesbar ({e})."),
+            t!(
+                "textproject.header_count_unreadable",
+                root = ROOT,
+                error = e
+            )
+            .into_owned(),
         )),
         Ok((dynamic, current)) => {
             if !dynamic && count != current {
                 problems.push(problem(
                     &file_of(count.min(current) as u32),
                     HEADER_COUNT_CODE,
-                    format!(
-                        "{ROOT}: Die Zahl der Header ändert sich nur mit dem Patch „Dynamische \
-                         Header“. mapname.bin hat {current} Einträge, data/headers {count} \
-                         Dateien."
-                    ),
+                    t!(
+                        "textproject.header_count_needs_patch",
+                        root = ROOT,
+                        current = current,
+                        count = count
+                    )
+                    .into_owned(),
                 ));
             } else if count < current && remove {
                 removes = true;
@@ -626,16 +665,27 @@ pub(crate) fn import_headers_with(
                 problems.push(problem(
                     &file_of(count as u32),
                     MEMBER_WITHOUT_JSON_CODE,
-                    format!(
-                        "{ROOT}: Header {count:04} hat keine Datei (mapname.bin hat {current} \
-                         Einträge, data/headers {count} Dateien); {REMOVES_ONLY_HEADERS}"
-                    ),
+                    t!(
+                        "textproject.header_without_file",
+                        root = ROOT,
+                        header = count : {:04},
+                        current = current,
+                        count = count,
+                        removes_only = removes_only_headers()
+                    )
+                    .into_owned(),
                 ));
             } else if dynamic && count > MAX_HEADERS {
                 problems.push(problem(
                     &file_of(MAX_HEADERS as u32),
                     HEADER_COUNT_CODE,
-                    format!("{ROOT}: {count} Header, höchstens {MAX_HEADERS}."),
+                    t!(
+                        "textproject.header_count_max",
+                        root = ROOT,
+                        count = count,
+                        max = MAX_HEADERS
+                    )
+                    .into_owned(),
                 ));
             }
             // Without the patch the table is a slice of arm9.bin, which must hold it. With
@@ -645,7 +695,12 @@ pub(crate) fn import_headers_with(
                 problems.push(problem(
                     &rel(&project.arm9_path()),
                     HEADER_TABLE_CODE,
-                    format!("{ROOT}: die Header-Tabelle ist nicht lesbar ({e})."),
+                    t!(
+                        "textproject.header_table_unreadable",
+                        root = ROOT,
+                        error = e
+                    )
+                    .into_owned(),
                 ));
             }
         }
@@ -699,12 +754,15 @@ pub(crate) fn write_headers(
 ) -> Result<Vec<PathBuf>, KernelError> {
     let count = w.table.len() / HEADER_LEN;
     if w.table.len() != count * HEADER_LEN || w.mapname.len() != count * NAME_LEN {
-        return Err(KernelError::InvalidProject(format!(
-            "{HEADER_COUNT_CODE}: {} Byte Header-Tabelle und {} Byte mapname.bin passen nicht \
-             zusammen.",
-            w.table.len(),
-            w.mapname.len()
-        )));
+        return Err(KernelError::InvalidProject(
+            t!(
+                "textproject.header_table_names_mismatch",
+                code = HEADER_COUNT_CODE,
+                table = w.table.len(),
+                names = w.mapname.len()
+            )
+            .into_owned(),
+        ));
     }
     let root = &project.root;
     let rel = |p: &Path| p.strip_prefix(root).unwrap_or(p).to_path_buf();
@@ -713,10 +771,17 @@ pub(crate) fn write_headers(
     if dynamic_headers::is_applied(project)? {
         let old = project.mapname_count()?;
         if count < old && !w.remove {
-            return Err(KernelError::InvalidProject(format!(
-                "{MEMBER_WITHOUT_JSON_CODE}: {ROOT}: {count} Header statt {old}; \
-                 {REMOVES_ONLY_HEADERS}"
-            )));
+            return Err(KernelError::InvalidProject(
+                t!(
+                    "textproject.headers_fewer",
+                    code = MEMBER_WITHOUT_JSON_CODE,
+                    root = ROOT,
+                    count = count,
+                    old = old,
+                    removes_only = removes_only_headers()
+                )
+                .into_owned(),
+            ));
         }
         let dir_rel = rel(&dynamic_headers::unpacked_dir(project));
         for (i, chunk) in w.table.chunks(HEADER_LEN).enumerate() {
@@ -742,19 +807,22 @@ pub(crate) fn write_headers(
     match project.member_location(AssetKind::HeaderTable, 0)? {
         Location::Slice { path, offset, len } => {
             if len != w.table.len() {
-                return Err(KernelError::InvalidProject(format!(
-                    "{HEADER_COUNT_CODE}: die Tabelle in arm9.bin hat {} Header, geschrieben \
-                     würden {count}.",
-                    len / HEADER_LEN
-                )));
+                return Err(KernelError::InvalidProject(
+                    t!(
+                        "textproject.arm9_table_count",
+                        code = HEADER_COUNT_CODE,
+                        len = len / HEADER_LEN,
+                        count = count
+                    )
+                    .into_owned(),
+                ));
             }
             let mut arm9 = std::fs::read(&path).map_err(io_at(&path))?;
             let at = usize::try_from(offset).unwrap_or(usize::MAX);
             let slice = arm9.get_mut(at..at.saturating_add(len)).ok_or_else(|| {
-                KernelError::InvalidProject(format!(
-                    "{} endet vor der Header-Tabelle.",
-                    path.display()
-                ))
+                KernelError::InvalidProject(
+                    t!("textproject.arm9_too_short", file = path.display()).into_owned(),
+                )
             })?;
             if *slice != *w.table {
                 slice.copy_from_slice(&w.table);
@@ -1140,7 +1208,7 @@ mod project_tests {
             problems[0].message
         );
         assert!(
-            problems[0].message.ends_with(REMOVES_ONLY_HEADERS),
+            problems[0].message.ends_with(&removes_only_headers()),
             "{}",
             problems[0].message
         );
@@ -1199,14 +1267,13 @@ mod project_tests {
             if patched {
                 assert!(
                     message.starts_with("textproject.member-without-json: $: ")
-                        && message.ends_with(REMOVES_ONLY_HEADERS),
+                        && message.ends_with(&removes_only_headers()),
                     "{message}"
                 );
             } else {
                 assert!(
                     message.starts_with(
-                        "textproject.header-count: $: Die Zahl der Header ändert sich nur mit \
-                         dem Patch „Dynamische Header“."
+                        "textproject.header-count: $: The number of headers changes only with the patch “Dynamic Headers”."
                     ),
                     "{message}"
                 );
@@ -1274,8 +1341,7 @@ mod project_tests {
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
             problems[0].message.starts_with(
-                "textproject.header-count: $: Die Zahl der Header ändert sich nur mit dem Patch \
-                 „Dynamische Header“."
+                "textproject.header-count: $: The number of headers changes only with the patch “Dynamic Headers”."
             ),
             "{}",
             problems[0].message
@@ -1287,8 +1353,7 @@ mod project_tests {
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
             problems[0].message.starts_with(
-                "textproject.header-count: $: Die Zahl der Header ändert sich nur mit dem Patch \
-                 „Dynamische Header“."
+                "textproject.header-count: $: The number of headers changes only with the patch “Dynamic Headers”."
             ),
             "{}",
             problems[0].message

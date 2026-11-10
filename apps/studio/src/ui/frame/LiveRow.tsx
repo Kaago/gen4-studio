@@ -1,3 +1,5 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { MelonDsConfigDto, MelonDsDto } from "../../api.live";
 import styles from "./LiveRow.module.css";
 
@@ -8,24 +10,24 @@ export type LiveRowProps = {
   emulator?: string | null;
 };
 
-/** How the next „Hier spielen“ fixes a setting that keeps melonDS from opening a usable GDB stub. */
-const WHEN = "beim nächsten „Hier spielen“";
-const UNLESS_RUNNING = "wenn melonDS nicht läuft";
-
-/** What is missing for a usable stub, each with what the next „Hier spielen“ does about it; empty when the stub is ready. */
-function missing(config: MelonDsConfigDto): string[] {
+/**
+ * What is missing for a usable stub, each as one sentence that says what the next „Hier spielen“ does about it; empty when the stub is
+ * ready. Read from the catalog in the language that is shown.
+ */
+function missing(config: MelonDsConfigDto, t: TFunction<"ui">): string[] {
   const out: string[] = [];
-  if (!config.enabled) out.push(`GDB-Stub aus: wird ${WHEN} eingeschaltet, ${UNLESS_RUNNING}`);
-  if (config.break_on_startup) out.push(`Halt beim Start an: wird ${WHEN} ausgeschaltet, ${UNLESS_RUNNING}`);
-  if (config.jit) out.push(`JIT an: wird ${WHEN} ausgeschaltet, ${UNLESS_RUNNING}`);
+  if (!config.enabled) out.push(t("liveRow.stubOff"));
+  if (config.break_on_startup) out.push(t("liveRow.breakOnStartup"));
+  if (config.jit) out.push(t("liveRow.jit"));
   return out;
 }
 
 /** The one line of the state: version, stub, port, JIT („melonDS 1.1 · GDB-Stub an · Port 3333 · JIT aus“). */
-function summary(m: MelonDsDto): string {
+function summary(m: MelonDsDto, t: TFunction<"ui">): string {
   const c = m.config;
-  if (c === null) return `melonDS ${m.version} · Einstellungen nicht lesbar`;
-  return [`melonDS ${m.version}`, c.enabled ? "GDB-Stub an" : "GDB-Stub aus", `Port ${c.port}`, c.jit ? "JIT an" : "JIT aus"].join(" · ");
+  if (c === null) return t("liveRow.settingsUnreadable", { version: m.version });
+  const onOff = (on: boolean) => (on ? t("liveRow.on") : t("liveRow.off"));
+  return t("liveRow.summary", { version: m.version, stub: onOff(c.enabled), port: c.port, jit: onOff(c.jit) });
 }
 
 /**
@@ -34,18 +36,19 @@ function summary(m: MelonDsDto): string {
  * the first „Hier spielen“ it says that the next one reads them (with an emulator chosen) or that there is no melonDS.
  */
 export function LiveRow({ melonds, emulator }: LiveRowProps) {
+  const { t } = useTranslation("ui");
   const chosen = emulator !== null && emulator !== undefined && emulator !== "";
   return (
     <div className={styles.row} data-live-row="">
-      <span className={styles.label}>Spielmodus live</span>
+      <span className={styles.label}>{t("liveRow.title")}</span>
       {melonds === null || melonds === undefined ? (
         // The hub reads melonDS at „Hier spielen“.
-        <span className={styles.quiet}>{chosen ? `Noch nicht geprüft: wird ${WHEN} gelesen` : "Kein melonDS gewählt"}</span>
+        <span className={styles.quiet}>{chosen ? t("liveRow.notChecked") : t("liveRow.noMelonDs")}</span>
       ) : (
         <>
-          <span className={styles.state}>{summary(melonds)}</span>
+          <span className={styles.state}>{summary(melonds, t)}</span>
           {melonds.config !== null &&
-            missing(melonds.config).map((line) => (
+            missing(melonds.config, t).map((line) => (
               <span key={line} className={styles.quiet}>
                 {line}
               </span>

@@ -161,12 +161,12 @@ fn conflict_diff_of_a_script_names_lines() {
     let differing: Vec<&DiffLine> = diff.lines.iter().filter(|l| l.studio != l.dspre).collect();
     assert_eq!(differing.len(), 1, "{:?}", diff.lines);
     let at = differing[0];
-    assert!(at.path.starts_with("Zeile "), "{at:?}");
+    assert!(at.path.starts_with("Line "), "{at:?}");
     assert!(
         at.studio.contains("Message 3") && at.dspre.contains("Message 2"),
         "{at:?}"
     );
-    let number: usize = at.path["Zeile ".len()..].parse().unwrap();
+    let number: usize = at.path["Line ".len()..].parse().unwrap();
     let source = fx.text(SCRIPT_0_SOURCE);
     assert_eq!(source.lines().nth(number - 1), Some(at.studio.as_str()));
     // At most three lines of context on either side.
@@ -218,7 +218,7 @@ fn keep_dspre_writes_the_json_from_the_member_and_records() {
     assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
     let conflict = &outcome.conflicts[0];
     assert_eq!(conflict.key, MOVE_1_JSON);
-    assert_eq!(conflict.label, "Attacke 0001 · MOVE_POUND");
+    assert_eq!(conflict.label, "Move 0001 · MOVE_POUND");
     assert!(!conflict.unsaved);
     assert_eq!(conflict.other, Other::Dspre);
 
@@ -341,7 +341,8 @@ fn sync_store_reloads_clean_loaded_assets_it_rewrote() {
 fn resolve_of_a_settled_unit_is_refused() {
     let fx = recorded();
     let mut st = store(&fx);
-    let refused = |e: KernelError| matches!(e, KernelError::Refused(ref why) if why == NO_CONFLICT);
+    let refused =
+        |e: KernelError| matches!(e, KernelError::Refused(ref why) if *why == no_conflict());
     assert!(refused(
         resolve(&mut st, MOVE_1_JSON, Keep::Studio).unwrap_err()
     ));
@@ -464,7 +465,7 @@ fn keep_dspre_of_an_undecompilable_script_names_rotoms_reason() {
     assert_eq!(changed(&report)[0].side, UnitSide::Conflict);
     let err = resolve_files(&fx.project(), &script_key(0), Keep::Dspre).unwrap_err();
     assert!(
-        matches!(&err, KernelError::Refused(why) if why.contains("dekompiliert")),
+        matches!(&err, KernelError::Refused(why) if why.contains("does not decompile")),
         "{err:?}"
     );
     assert!(fx.text(SCRIPT_0_SOURCE).contains("Message 3"));
@@ -487,7 +488,7 @@ fn a_choice_whose_files_moved_since_the_scan_is_refused() {
     let err = resolve_files(&fx.project(), MOVE_1_JSON, Keep::Studio).unwrap_err();
     conflict::AFTER_SCAN.with(|hook| *hook.borrow_mut() = None);
     assert!(
-        matches!(&err, KernelError::Refused(why) if why == conflict::MOVED),
+        matches!(&err, KernelError::Refused(why) if *why == conflict::moved()),
         "{err:?}"
     );
     assert_eq!(member_power(&fx, 1), 51, "nothing written");
@@ -773,7 +774,7 @@ mod world {
         // Settled: no conflict left.
         assert!(matches!(
             resolve(&mut st, MAP_0_JSON, Keep::Studio),
-            Err(KernelError::Refused(why)) if why == NO_CONFLICT
+            Err(KernelError::Refused(why)) if why == no_conflict()
         ));
     }
 
@@ -976,8 +977,8 @@ mod world {
         assert!(
             diff.lines.contains(&line(
                 "model",
-                &format!("{size} Byte"),
-                &format!("{} Byte", size + 4)
+                &format!("{size} bytes"),
+                &format!("{} bytes", size + 4)
             )),
             "{:?}",
             diff.lines

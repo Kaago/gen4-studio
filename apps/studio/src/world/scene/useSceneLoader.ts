@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { errorText, getMap, mapModelTextureStatus } from "../../api";
+import { t } from "../../i18n";
 import type { MatrixDto, TextureIssue, TileBehavior } from "../../api";
 import type { Message } from "../../app/message";
 import type { CellRect } from "../../workbench/sceneScope";
@@ -38,7 +39,7 @@ async function showMaps(
   // Without names the overlay is uncoloured by class and the hover shows raw values only.
   const problems: SceneHost["loadProblems"] = { names: null, maps: [] };
   const namesPending = loadNames().catch((e) => {
-    problems.names = `Kachelnamen nicht geladen: ${errorText(e)}`;
+    problems.names = t("world:scene.tileNamesNotLoaded", { error: errorText(e) });
     return new Map<number, TileBehavior>();
   });
   const ids = [...new Set(matrix.maps.filter((m): m is number => m !== null))];
@@ -56,7 +57,7 @@ async function showMaps(
             try {
               loaded.set(id, { map: await getMap(id) });
             } catch (e) {
-              mapProblems.push(`Karte ${id}: ${errorText(e)}`);
+              mapProblems.push(t("world:scene.mapProblem", { id, error: errorText(e) }));
             }
           }),
         ),
@@ -137,7 +138,7 @@ export async function loadModels(h: SceneHost, matrix: MatrixDto, area: number, 
   const layer = h.buildings;
   const buildingIds = layer ? layer.missingModelIds() : [];
   const buildingTasks = layer ? buildingIds.map((id) => buildingModelJob(h, layer, id, area, stale)) : [];
-  const labels = [...modelIds.map((id) => `Map ${id}`), ...buildingIds.map((id) => `Gebäudemodell ${id}`)];
+  const labels = [...modelIds.map((id) => t("world:scene.mapModel", { id })), ...buildingIds.map((id) => t("world:scene.buildingModel", { id }))];
   const tasks = [...mapTasks, ...buildingTasks];
   let lastReport = 0;
   const progress = (done: number, total: number) => {
@@ -145,7 +146,7 @@ export async function loadModels(h: SceneHost, matrix: MatrixDto, area: number, 
     const now = performance.now();
     if (done < total && now - lastReport < 100) return;
     lastReport = now;
-    report({ kind: "info", text: `Modelle ${done}/${total}` });
+    report({ kind: "info", text: t("world:scene.modelsProgress", { done, total }) });
   };
   progress(0, tasks.length);
   const results = await limitConcurrency(tasks, MODEL_CONCURRENCY, progress);
@@ -153,8 +154,8 @@ export async function loadModels(h: SceneHost, matrix: MatrixDto, area: number, 
   const { names: namesError, maps: mapErrors } = h.loadProblems;
   const problems = [
     namesError,
-    mapErrors.length ? `${mapErrors.length} Karte(n) nicht geladen: ${mapErrors[0]}` : null,
-    modelErrors.length ? `${modelErrors.length} Modell(e) nicht geladen: ${modelErrors[0]}` : null,
+    mapErrors.length ? t("world:scene.mapsNotLoaded", { count: mapErrors.length, first: mapErrors[0] }) : null,
+    modelErrors.length ? t("world:scene.modelsNotLoaded", { count: modelErrors.length, first: modelErrors[0] }) : null,
   ].filter((p): p is string => p !== null);
   const note = textureNote(textureIssues);
   if (problems.length) report({ kind: "error", text: [...problems, note].filter((p) => p !== null).join(" · ") });
@@ -197,7 +198,7 @@ export function useSceneLoader({ matrix, focus, areaDataId, modelsToken, history
       if (!cancelled) refs.callbacks.current.onStatus(message);
     };
     if (!modelsOnly) {
-      report({ kind: "info", text: "Lade Karten ..." });
+      report({ kind: "info", text: t("world:scene.loadingMaps") });
       clearEventStatus();
     }
     const stale = () => cancelled || refs.handle.current !== h;

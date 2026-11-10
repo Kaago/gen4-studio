@@ -1,50 +1,42 @@
 import type { RomInfo } from "../api";
+import { t } from "../i18n";
 
 /** The ending DSPRE expects on a project folder. */
 export const DSPRE_SUFFIX = "_DSPRE_contents";
 
 const MAX_NAME = 64;
 
-const LANGUAGES: Record<NonNullable<RomInfo["language"]>, string> = {
-  german: "Deutsch",
-  english: "Englisch",
-  french: "Französisch",
-  italian: "Italienisch",
-  spanish: "Spanisch",
-  japanese: "Japanisch",
-  korean: "Koreanisch",
-};
-
-/** The game of a ROM in German: "Platin", "HeartGold" (IPK*), "SoulSilver" (IPG*), "Diamant/Perl". */
+/** The game of a ROM in the language shown: "Platin", "HeartGold" (IPK*), "SoulSilver" (IPG*), "Diamant/Perl". */
 export function gameName({ family, game_code }: Pick<RomInfo, "family" | "game_code">): string {
   switch (family) {
     case "pt":
-      return "Platin";
+      return t("project:games.pt");
     case "hgss":
       return game_code.startsWith("IPG") ? "SoulSilver" : game_code.startsWith("IPK") ? "HeartGold" : "HeartGold/SoulSilver";
     case "dp":
-      return "Diamant/Perl";
+      return t("project:games.dp");
     default:
-      return "Unbekanntes Spiel";
+      return t("project:games.unknown");
   }
 }
 
+/** The language of a ROM in the language shown ("Deutsch", "Englisch"). */
 export function languageName(language: RomInfo["language"]): string {
-  return language ? LANGUAGES[language] : "Unbekannte Sprache";
+  return language ? t(`project:languages.${language}`) : t("project:languages.unknown");
 }
 
-/** The name the wizard proposes for a project from this ROM. */
+/** The name the wizard proposes for a project from this ROM: „Neues Platin“, „Neues HeartGold“; „Neues Spiel“ for any other game. */
 export function suggestName(info: RomInfo): string {
-  const game = gameName(info);
-  return game === "Platin" || game === "HeartGold" || game === "SoulSilver" ? `Neues ${game}` : "Neues Spiel";
+  const named = info.family === "pt" || (info.family === "hgss" && (info.game_code.startsWith("IPG") || info.game_code.startsWith("IPK")));
+  return named ? t("project:suggestName.game", { game: gameName(info) }) : t("project:suggestName.other");
 }
 
 /** What is wrong with a project name, or null: it becomes a folder name. */
 export function nameProblem(name: string): string | null {
   const trimmed = name.trim();
-  if (trimmed === "") return "Gib dem Projekt einen Namen.";
-  if (/[/\\:]/.test(trimmed) || trimmed.startsWith(".")) return "Der Name darf kein /, \\ oder : enthalten und nicht mit einem Punkt beginnen.";
-  if (trimmed.length > MAX_NAME) return `Höchstens ${MAX_NAME} Zeichen.`;
+  if (trimmed === "") return t("project:nameProblem.empty");
+  if (/[/\\:]/.test(trimmed) || trimmed.startsWith(".")) return t("project:nameProblem.characters");
+  if (trimmed.length > MAX_NAME) return t("project:nameProblem.tooLong", { max: MAX_NAME });
   return null;
 }
 

@@ -1,6 +1,8 @@
 # Prototyp Gutachten C (3d): Kampfsprites entschlüsseln und mit dem vorhandenen Dekoder lesen.
 # Nicht Teil des Workspace: in einen leeren Ordner als Cargo.toml kopieren, src/main.rs =
-# gutachten-c-proto.rs. Aufruf: proto-c <DSPRE-Ordner (Kopie)>; liest nur, gibt nur Zahlen aus.
+# gutachten-c-proto.rs, Pfade anpassen (die `path`-Einträge sind relativ zu diesem Ort; in der Kopie
+# müssen sie vom Ordner der Kopie zur Repo-Wurzel zeigen). Aufruf: proto-c <DSPRE-Ordner (Kopie)>;
+# liest nur, gibt nur Zahlen aus.
 [package]
 name = "proto-c"
 version = "0.1.0"
@@ -9,7 +11,7 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-g4-formats = { path = "/Users/POLTEP/Projekte/lab/editor/gen4-studio/crates/g4-formats" }
+g4-formats = { path = "../../../crates/g4-formats" }
 
 [profile.release]
 debug = false

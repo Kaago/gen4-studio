@@ -6,7 +6,7 @@ use crate::commands::{
     redo_impl, save_level_script_impl, save_script_impl, undo_impl,
 };
 use g4_kernel::scripts::LevelScriptDoc;
-use g4_kernel::stories::{NOTHING_TO_CHANGE, StepKind};
+use g4_kernel::stories::{StepKind, nothing_to_change};
 use g4_kernel::test_support::TextFixture;
 use serde_json::json;
 
@@ -141,7 +141,7 @@ fn thread_graph_carries_nav_targets_per_place() {
     assert_eq!(values, [1, 2, 3]);
     // The script file: its line.
     let script = place(&graph, "p:script:0000");
-    assert_eq!(script.label, "Scriptdatei 0000");
+    assert_eq!(script.label, "Script file 0000");
     assert_eq!(script.header, Some(0));
     assert!(script.header_name.is_some());
     assert!(!script.loose);
@@ -151,7 +151,7 @@ fn thread_graph_carries_nav_targets_per_place() {
     );
     // The level script: its header.
     let level = place(&graph, "p:script:0001");
-    assert_eq!(level.label, "Level-Script 0001");
+    assert_eq!(level.label, "Level script 0001");
     assert_eq!(level.header, Some(0));
     assert_eq!(json_of(&level.nav), json!({ "kind": "header", "id": 0 }));
     // The trigger: its event, no header.
@@ -234,7 +234,7 @@ fn story_create_and_update_over_the_command_path_are_one_undo_step_each() {
     assert!(report.warnings.is_empty(), "{:?}", report.warnings);
     assert_eq!(
         history_impl(&state).unwrap().undo,
-        ["Geschichte „Starter“ angelegt"]
+        ["Story “Starter” created"]
     );
     for rel in [
         "data/stories/0000.json",
@@ -273,10 +273,7 @@ fn story_create_and_update_over_the_command_path_are_one_undo_step_each() {
     story_update_impl(&state, "STORY_STARTER".into(), patch.clone()).unwrap();
     assert_eq!(
         history_impl(&state).unwrap().undo,
-        [
-            "Geschichte „Starter“ angelegt",
-            "Geschichte „Starter“ geändert"
-        ]
+        ["Story “Starter” created", "Story “Starter” changed"]
     );
     let story = story_get_impl(&state, "STORY_STARTER".into()).unwrap();
     assert_eq!(story.story.notes, "Die Wahl des Starters.");
@@ -286,7 +283,7 @@ fn story_create_and_update_over_the_command_path_are_one_undo_step_each() {
     let err = story_update_impl(&state, "STORY_STARTER".into(), patch).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        ("refused", NOTHING_TO_CHANGE)
+        ("refused", nothing_to_change().as_str())
     );
     let err =
         story_create_impl(&state, request("Neu", Progress::Var("VAR_NOPE".into()))).unwrap_err();
@@ -346,10 +343,7 @@ fn story_delete_over_the_command_path() {
     assert!(report.warnings.is_empty(), "{:?}", report.warnings);
     assert_eq!(
         history_impl(&state).unwrap().undo,
-        [
-            "Geschichte „Starter“ angelegt",
-            "Geschichte „Starter“ gelöscht"
-        ]
+        ["Story “Starter” created", "Story “Starter” deleted"]
     );
     assert!(!fx.root().join("data/stories/0000.json").exists());
     assert!(!fx.root().join("data/stories/0000.layout.json").exists());
@@ -387,7 +381,7 @@ fn story_delete_over_the_command_path() {
     let err = story_delete_impl(&dspre, "STORY_STARTER".into()).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        ("not_text_project", NOT_A_TEXT_PROJECT)
+        ("not_text_project", not_a_text_project().as_str())
     );
 }
 
@@ -398,7 +392,7 @@ fn story_create_refuses_the_dspre_layout() {
         story_create_impl(&state, request("Starter", Progress::Var(STARTER.into()))).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        ("not_text_project", NOT_A_TEXT_PROJECT)
+        ("not_text_project", not_a_text_project().as_str())
     );
     let err = story_update_impl(
         &state,

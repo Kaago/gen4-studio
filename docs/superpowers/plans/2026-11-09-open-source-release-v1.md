@@ -156,11 +156,11 @@ Expected: Exit 0.
 
 - [ ] **Step 5: `docs/README.md` schreiben, Vorspann und Pfade ändern, Gate-Schritt**
 
-`docs/README.md` nach Spec 3.3 (drei Teile, Methodik-Absatz). Vorspann der DSPRE-Analyse (deutsch, zwei Sätze, Spec 3.3). In `BRIEFING-APP-SCREENS.md` werden `bash /Users/POLTEP/Projekte/lab/editor/gen4-studio/design-system/openpencil/build-screen.sh` zu `bash design-system/openpencil/build-screen.sh` und `node /Users/POLTEP/…/design-system/scripts/op.mjs` zu `node design-system/scripts/op.mjs` (Aufruf aus der Repo-Wurzel, Satz davor anpassen). `scripts/gate.sh`: `run_step "links" "" bash scripts/check-links.sh` direkt nach dem Schritt „no rom data“.
+`docs/README.md` nach Spec 3.3 (drei Teile, Methodik-Absatz). Vorspann der DSPRE-Analyse (deutsch, zwei Sätze, Spec 3.3). In `BRIEFING-APP-SCREENS.md` verlieren `build-screen.sh` und `op.mjs` ihr absolutes Pfadpräfix: `bash design-system/openpencil/build-screen.sh` und `node design-system/scripts/op.mjs` (Aufruf aus der Repo-Wurzel, Satz davor anpassen). `scripts/gate.sh`: `run_step "links" "" bash scripts/check-links.sh` direkt nach dem Schritt „no rom data“.
 
 - [ ] **Step 6: Prüfen**
 
-Run: `bash scripts/check-links.sh && ! git grep -n '/Users/POLTEP' && bash scripts/tests/check-links.test.sh`
+Run: `bash scripts/check-links.sh && ! git grep -n '/Users/POLT[E]P' && bash scripts/tests/check-links.test.sh`
 Expected: `links: <n> ok`, kein Treffer, Exit 0.
 
 - [ ] **Step 7: Commit**

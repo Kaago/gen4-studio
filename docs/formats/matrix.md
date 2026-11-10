@@ -1,5 +1,12 @@
 # Map-Matrix
 
+**In English:** Documents the map matrix: a grid of map IDs, optionally with header IDs and heights,
+that forms an area of the world; each map ID points to a member of `land_data.narc`. A matrix is one
+member of `map_matrix.narc` (Diamond/Pearl, Platinum) or of `a/0/4/1` (HeartGold/SoulSilver) and
+starts with a 5-byte header, followed by the cell tables. The layout was verified byte for byte on
+all three vanilla projects (Platinum DE, HeartGold DE and US). The code is
+`crates/g4-formats/src/matrix.rs`; all values are little endian.
+
 Quelle: Das Layout folgt dem Plan bzw. dem Kopfkommentar von DSPRE
 `GameMatrix.cs`; die Implementierung wurde gegen alle drei Vanilla-Projekte
 (Platin DE, HeartGold DE und US) byte-identisch verifiziert.

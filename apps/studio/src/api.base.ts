@@ -1,4 +1,6 @@
-import { invoke } from "./platform/transport";
+import type { Effective } from "./i18n";
+import { t } from "./i18n";
+import { inTauri, invoke } from "./platform/transport";
 import type { RomInfo, Template } from "./project/api.start";
 
 /**
@@ -62,9 +64,9 @@ export const registerBaseRom = (path: string) => invoke<BaseStatus>("register_ba
 
 const UNITS = ["KiB", "MiB", "GiB"] as const;
 
-/** A size for people: „397 Byte“, „4,7 KiB“, „1,2 MiB“ (binary units, one decimal with a comma). */
+/** A size for people: „397 Byte“, „4,7 KiB“, „1,2 MiB“ (binary units, one decimal with the decimal mark of the language shown). */
 export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} Byte`;
+  if (n < 1024) return t("common:bytes.bytes", { count: n });
   let value = n / 1024;
   let unit = 0;
   // Rounded to one decimal, 1023.95 KiB would read „1024,0 KiB“: move on to the next unit.
@@ -72,5 +74,24 @@ export function formatBytes(n: number): string {
     value /= 1024;
     unit += 1;
   }
-  return `${value.toFixed(1).replace(".", ",")} ${UNITS[unit]}`;
+  return t("common:bytes.unit", { value: value.toFixed(1).replace(".", t("common:bytes.decimalMark")), unit: UNITS[unit] });
+}
+
+/**
+ * Tells the backend the language of its own texts (`set_locale`, `de` or `en`). Only inside Tauri there is a backend to tell: the
+ * browser mode and the tests resolve at once.
+ */
+export async function setLocale(lang: Effective): Promise<void> {
+  if (!inTauri()) return;
+  await invoke<void>("set_locale", { lang });
+}
+
+/**
+ * The language of the operating system as the backend reads it (`system_language`, for example „de-DE“), for the choice „System“: inside
+ * Tauri `navigator.language` follows the localizations of the app bundle, not the OS. `null` outside Tauri (the browser's navigator is the
+ * system's there) and when the OS reports none.
+ */
+export async function systemLanguage(): Promise<string | null> {
+  if (!inTauri()) return null;
+  return invoke<string | null>("system_language");
 }

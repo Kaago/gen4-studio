@@ -1656,7 +1656,7 @@ scripts/agent/call.sh get_header '{"id":3}'                 # music_day_id / mus
 
 3d.4 bringt das Löschen mit Referenzsperre: den Grabstein (`deleted: true`, ein Undo-Schritt), den deklarativen Index der Welt-Kanten, `plan_delete`/`delete_entity`/`restore_entity` (MCP) und `g4k delete`, „Nummer freigeben“ mit Undo-Grenze, den Import, der über Git hinweg kürzt, Warp löschen ohne stille Umlenkung, `schemaVersion` 2 mit Migration, den Dialog „Löschen…“, die Plakette im Inspector-Kopf, „Gelöschte zeigen“ und Technik › Änderungen „Gelöscht“. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie. **`scripts/gate.sh` läuft in 3d.4 nicht aus dem Worktree:** die Hauptsitzung führt es einmal auf main nach dem Merge der Welle aus; bis dahin laufen seine Schritte einzeln (Gate-Datei, (1) 2).
 
-**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-4-<zweck>_DSPRE_contents` und `.nds` `3d-4-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `kpt`, `khgde`, `khgus` für das Szenario kopflos (vorher als Textprojekt mit Basis-ROM einrichten, dann `g4k git init`; siehe „Kopflos (2)“), `web` (Platin DE) und `hgweb` (HeartGold DE) für Browser und MCP über die Brücke (ebenso eingerichtet, vor dem Öffnen), `tuer-pt` und `tuer-hg` für die Szenarien, `git-pt` und `git-hgde` für den Branch-Test in `tests/git.rs`. `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`). Alle `3d-4-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-4-<zweck>_DSPRE_contents` und `.nds` `3d-4-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `kpt`, `khgde`, `khgus` für das Szenario kopflos (vorher als Textprojekt mit Basis-ROM einrichten, dann `g4k git init`; siehe „Kopflos (2)“), `web` (Platin DE) und `hgweb` (HeartGold DE) für Browser und MCP über die Brücke (ebenso eingerichtet, vor dem Öffnen), `tuer-pt` und `tuer-hg` für die Szenarien, `git-pt` und `git-hgde` für den Branch-Test in `tests/git.rs`. `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`). Alle `3d-4-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
 
 **Ports:** `G4_VITE_PORT=1740 G4_BRIDGE_PORT=1741` (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1740 G4_BRIDGE_PORT=1741 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1740/?project=<Roms>/_testkopien/3d-4-web_DSPRE_contents`; andere Ports nie anfassen. Chrome headless 1440 × 900; Hell und Dunkel über `Emulation.setEmulatedMedia` in derselben CDP-Verbindung wie das Bild.
 
@@ -1790,9 +1790,9 @@ Erwartet: Rückgabe 0 und auf stdout die Schlusszeile des Runners `{"scenario": 
 
 3d.6 bringt das Lesen von Geschichten: Werte im Referenzindex (`Ref.value`), die Fäden (`list_threads`) und den Graph eines Fadens (`thread_graph`), die Geschichte als Datei des Textprojekts (`data/stories/NNNN.json`, Beifile `NNNN.layout.json`, Register `data/ids/stories.json`) mit `story_list`, `story_get`, `story_create`, `story_update`, `story_delete` und `g4k story`, den Diff als Felder, „ID umbenennen“ und die Erwähnung im Löschweg (`mentions`), dazu den Bereich Geschichten in der App (Fäden, Geschichten, Flags und Variablen). Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
 
-**Kopien:** unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), je `.nds` daneben: `3d-6-pt`, `3d-6-hgde`, `3d-6-hgus` für die gated Tests (seit Teil A da, nur gelesen), `3d-6-kpt` (Platin DE) und `3d-6-khgde` (HeartGold DE) für das Szenario kopflos, `3d-6-web` (Platin DE, seit Task 7 Textprojekt in Git mit den Geschichten „Rivalin“ und „Heimkehr“) und `3d-6-hgweb` (HeartGold DE) für den Browser; alle als Textprojekt über `adopt_text_project` (bzw. `g4k base assign` und `g4k text adopt`), dann `g4k git init`. Die vorhandenen Ordner heißen ohne `_DSPRE_contents`: die Tests von 3d.6 finden `<ordner>.nds` selbst, `g4k text adopt` braucht `--base-rom <kopie>.nds`, die Test-Umgebung `G4_BASE_ROM_DIR=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien`, und Tests anderer Phasen mit Basis-ROM (der Lösch-Test von 3d.4) laufen über Symlinks `<Worktree>/target/agent/t10-vanilla/3d-6-pt_DSPRE_contents` und `3d-6-pt.nds`, in `G4_TEST_PROJECT` absolut (sonst überspringen sie sich still). Neue Kopien dürfen den Zusatz `_DSPRE_contents` tragen. Alle `3d-6-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
+**Kopien:** unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), je `.nds` daneben: `3d-6-pt`, `3d-6-hgde`, `3d-6-hgus` für die gated Tests (seit Teil A da, nur gelesen), `3d-6-kpt` (Platin DE) und `3d-6-khgde` (HeartGold DE) für das Szenario kopflos, `3d-6-web` (Platin DE, seit Task 7 Textprojekt in Git mit den Geschichten „Rivalin“ und „Heimkehr“) und `3d-6-hgweb` (HeartGold DE) für den Browser; alle als Textprojekt über `adopt_text_project` (bzw. `g4k base assign` und `g4k text adopt`), dann `g4k git init`. Die vorhandenen Ordner heißen ohne `_DSPRE_contents`: die Tests von 3d.6 finden `<ordner>.nds` selbst, `g4k text adopt` braucht `--base-rom <kopie>.nds`, die Test-Umgebung `G4_BASE_ROM_DIR=$HOME/Projekte/lab/editor/Roms/_testkopien`, und Tests anderer Phasen mit Basis-ROM (der Lösch-Test von 3d.4) laufen über Symlinks `<Worktree>/target/agent/t10-vanilla/3d-6-pt_DSPRE_contents` und `3d-6-pt.nds`, in `G4_TEST_PROJECT` absolut (sonst überspringen sie sich still). Neue Kopien dürfen den Zusatz `_DSPRE_contents` tragen. Alle `3d-6-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
 
-**Ports:** `G4_VITE_PORT=1760 G4_BRIDGE_PORT=1761` (`G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_BASE_ROM_DIR=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien G4_VITE_PORT=1760 G4_BRIDGE_PORT=1761 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1760/?project=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/3d-6-web`; andere Ports nie anfassen. Chrome headless 1440 × 900 mit eigenem Profil unter `target/agent/`, nur über seine PID beenden; Hell und Dunkel über `prefers-color-scheme`, Kompakt über die Taste der Statusleiste.
+**Ports:** `G4_VITE_PORT=1760 G4_BRIDGE_PORT=1761` (`G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms G4_BASE_ROM_DIR=$HOME/Projekte/lab/editor/Roms/_testkopien G4_VITE_PORT=1760 G4_BRIDGE_PORT=1761 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1760/?project=$HOME/Projekte/lab/editor/Roms/_testkopien/3d-6-web`; andere Ports nie anfassen. Chrome headless 1440 × 900 mit eigenem Profil unter `target/agent/`, nur über seine PID beenden; Hell und Dunkel über `prefers-color-scheme`, Kompakt über die Taste der Statusleiste.
 
 **Wo was ist:** Atlas „Geschichten“, Liste mit „Fäden“, „Geschichten“, „Flags und Variablen“, die Fläche `[data-geschichten=threads|stories|flags]`. Fäden: Zeilen `[data-thread-row=<var>]` mit `[data-thread-name]`, ab Bauen `[data-thread-tech]`, Chip `[data-thread-story]`; nach einem Klick der Graph `[data-thread-graph]` mit `[data-node-count]` und `[data-edge-count]`, Knoten `[data-story-node][data-kind]`, `[data-noted-only]`, `[data-loose]`. Geschichten: „Neue Geschichte…“ `[data-new-story]`, Dialog `[data-new-story-dialog]` mit `[data-progress-kind]` (seit 3d.7 `[data-pool-free]`), Zeilen `[data-story-row=<id>]`, Detail `[data-story-detail=<id>]` mit `[data-story-notes]`, `[data-story-kind]`, `[data-story-empty-graph]`, „Aktionen“ › „Geschichte löschen…“ (`[data-story-delete-dialog]`). Löschen eines Trainers: im Dialog von 3d.4 `[data-delete-mentions]` „Erwähnt in Geschichten“ mit `[data-delete-mention=<STORY_…>]`. Galerie `?gallery`, Seite „Inhalt und Status“, Blöcke `[data-gallery-state=story-nodes]` und `[data-gallery-state=threads]`. Bilder: Teil A `target/agent/gate-2026-11-01/3d-6/`, Teil B `target/agent/gate-2026-11-03/3d-6/`, das Gate `target/agent/gate-<Datum>/3d-6/`.
 
@@ -1809,7 +1809,7 @@ Erwartet: Rückgabe 0 und auf stdout die Schlusszeile des Runners `{"scenario": 
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien; W=$PWD   # W = Wurzel des Worktrees
+R=$HOME/Projekte/lab/editor/Roms; K=$R/_testkopien; W=$PWD   # W = Wurzel des Worktrees
 G4_TIMING_STRICT=1 G4_ROMS_DIR=$R G4_TEST_PROJECT="$K/3d-6-<k>" \
   cargo test --release -p g4-kernel --all-features --test threads --test stories -- --nocapture --test-threads 1
 #   vanilla_threads_count_at_least_the_measured: threads <Spielcode> count=… values=… max_values=… max_places=… ms=… (kalt)
@@ -1829,7 +1829,7 @@ Die Fäden-Tests übernehmen die Scripts einmal je Lauf auf einer Kopie unter `t
 **Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio`:
 
 ```sh
-R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
+R=$HOME/Projekte/lab/editor/Roms; K=$R/_testkopien
 N=$K/3d-6-k<k>.nds; P=$K/3d-6-k<k>              # <k> = pt, hgde
 target/release/g4k base assign $P $N
 target/release/g4k text adopt $P --base-rom $N   # Textprojekt mit übernommenen Scripts
@@ -1878,7 +1878,7 @@ Das Phasen-Gate prüft die ganze Phase 3d an einer kleinen Geschichte: (A) die S
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
 cargo build --release -p g4-kernel --bin g4k && cargo build --release -p studio --bin studio
-R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
+R=$HOME/Projekte/lab/editor/Roms; K=$R/_testkopien
 PT="$R/Pokemon - Platin-Edition (Germany)"; HG="$R/Pokemon - Goldene Edition HeartGold (Germany)"
 cp -cR "${PT}_DSPRE_contents" $K/3d-gate-szen-pt_DSPRE_contents && cp -c "${PT}.nds" $K/3d-gate-szen-pt.nds
 cp -cR "${HG}_DSPRE_contents" $K/3d-gate-szen-hg_DSPRE_contents && cp -c "${HG}.nds" $K/3d-gate-szen-hg.nds
@@ -1937,7 +1937,7 @@ Das Szenario hat keine Änderungen (`mcp: []`, `edits: []`): `studio mcp` speich
 
 **Kopien** (unter `$G4_ROMS_DIR/_testkopien`, je `_DSPRE_contents`, per `cp -cR` bzw. `cp -c`): `6-1-pt`, `6-1-hgde`, `6-1-hgus` für die gated Tests (nur gelesen; geschrieben wird nur auf `vanilla_copy()`); `6-1-szen-pt`, `6-1-szen-hg`, `6-1-szen-hgus` mit `.nds` daneben für die Szenarien. Nach einem Lauf ist eine Szenario-Kopie gespeichert und gebaut: ein neuer Lauf braucht eine neue Kopie (`6-1-szen-pt2` …).
 
-**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA` absolut auf `tools/apicula/bin/apicula` des Haupt-Checkouts. Lange Läufe im Hintergrund mit Log unter `target/agent/6-1/<name>.log`, `uptime` davor; die Bilder der Szenarien unter `target/agent/gate-<datum>/6-1/<szenario>/`. Zeitgrenzen in Tests können unter Last reißen: den Test allein wiederholen, die Grenze nie lockern.
+**Worktree:** `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA` absolut auf `tools/apicula/bin/apicula` des Haupt-Checkouts. Lange Läufe im Hintergrund mit Log unter `target/agent/6-1/<name>.log`, `uptime` davor; die Bilder der Szenarien unter `target/agent/gate-<datum>/6-1/<szenario>/`. Zeitgrenzen in Tests können unter Last reißen: den Test allein wiederholen, die Grenze nie lockern.
 
 | Punkt | Wer | Wie |
 |---|---|---|
@@ -1952,13 +1952,13 @@ Das Szenario hat keine Änderungen (`mcp: []`, `edits: []`): `studio mcp` speich
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+export G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms
 cargo deny --locked check licenses advisories
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 env -u G4_TEST_PROJECT cargo test -p g4-formats -p g4-kernel --all-features
 G4_TEST_PROJECT=$P cargo test --release -p g4-formats --all-features --test vanilla_nitro -- --nocapture --test-threads 1
-G4_TEST_PROJECT=$P G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula \
+G4_TEST_PROJECT=$P G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula \
   cargo test --release --workspace --all-features --test bake -- --nocapture --test-threads 1
 cargo test -p g4-kernel --all-features --lib bake:: -- --nocapture     # Größen der Testfläche (test surface …)
 ```
@@ -1968,9 +1968,9 @@ Erwartet: `cargo deny` „advisories ok, licenses ok“ ohne neue Abhängigkeit 
 **Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-1`), nacheinander. Die Log-Namen sind die der aufgezeichneten Läufe (`t10-<pt|hg|hgus>.log`, Task 10); ein Wiederholungslauf nimmt neue Kopien (`6-1-szen-pt2` …) und eigene Log-Namen (die Nachprüfung des Abschlussreviews: `fix-t10-<pt|hg>.log`), die Befehle sind sonst dieselben:
 
 ```sh
-W=/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-1
-export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k \
-  G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+W=$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-1
+export G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k \
+  G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 O=$W/target/agent/gate-$(date +%F)/6-1; mkdir -p $O/pt-bake $O/hg-bake $O/hgus-bake
 uv run g4emu scenario ../agent/scenarios/pt-bake.yaml --project "$G4_ROMS_DIR/_testkopien/6-1-szen-pt_DSPRE_contents" \
   --out $O/pt-bake > $W/target/agent/6-1/t10-pt.log 2>&1; echo "exit $?" >> $W/target/agent/6-1/t10-pt.log
@@ -1988,7 +1988,7 @@ Erwartet: Rückgabe 0, `"ok": true`; `bake_test` mit Paket 20 (Platin) bzw. 25 (
 
 **Kopien** (unter `$G4_ROMS_DIR/_testkopien`, je `_DSPRE_contents`, die Szenario- und Web-Kopien mit `.nds` daneben): `6-2-pt`, `6-2-hgde`, `6-2-hgus` für die gated Tests (nur gelesen; geschrieben wird nur auf `vanilla_copy()`); `6-2-szen-pt`, `6-2-szen-hg` für `pt-gelaende`/`hg-gelaende` und `6-2-flach-pt`, `6-2-flach-hg` für die Gegenprobe (je Lauf eine frische: nach `build` ist die Kopie verbraucht); `6-2-web` (Platin DE) für Browser und MCP über die Brücke; `6-2-farbe.nds` für die Farbprobe von `g4emu`. Die gated Tests von 6.2 brauchen keine Basis-ROM neben dem Ordner.
 
-**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (`ln -s <Haupt-Checkout>/tools tools`, nie einchecken; der Kern von `g4emu` liegt unter `tools/g4emu/core/`), Test-Umgebung auf eigenen Ports `G4_VITE_PORT=1440 G4_BRIDGE_PORT=1441`. Lange Läufe im Hintergrund mit Log unter `target/agent/6-2/<name>.log`, `uptime` davor und danach; ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+**Worktree:** `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (`ln -s <Haupt-Checkout>/tools tools`, nie einchecken; der Kern von `g4emu` liegt unter `tools/g4emu/core/`), Test-Umgebung auf eigenen Ports `G4_VITE_PORT=1440 G4_BRIDGE_PORT=1441`. Lange Läufe im Hintergrund mit Log unter `target/agent/6-2/<name>.log`, `uptime` davor und danach; ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
 
 **Wo was ist:** Die Leinwand der Szene trägt `canvas[data-hover-tile="<x>,<z>"]` (absolute Kachel unter dem Zeiger) und `[data-hover-ground]` (Höhe der Kachel in Szenen-Einheiten, 1 Kachel = 16 E, also 32 E = `2.000`); die Statusleiste nennt „Kachel x 7, y 8 · Karte 0100 · blockiert · Höhe 4 Stufen“ (1 Stufe = 8 E). Ein gewählter Marker setzt `[data-selected-marker-y]` (Figur auf 32 E: `2.300`, 0,3 über dem Boden). `window.__g4SceneProbe` (nur im Dev-Build) liefert mit `tileToClient(x, z)` den Bildschirmpunkt einer Kachel auf ihrer BDHC-Höhe; an diesem Punkt ein echtes Zeigerereignis auslösen (`computer hover`, CDP-Maus). Die Szenenleiste hat die Taste „Höhen“ (Symbol `heights`, schließt „Gelände“ aus, `[data-heights-shown="true"]`, sieben cividis-Stufen, Isolinien an der höheren Seite) neben „Draufsicht“ (Symbol `topDown`). Der Inspector einer Karte (Bauen, Zelle gewählt) hat den Abschnitt „Budget“ `[data-map-budget]` mit vier Zeilen `[data-budget=model|bdhc|buildings|vram]` („Modell“, „Terrain (BDHC)“, „Gebäude“, „Texturen des Gebiets“ mit „VRAM … von 262.144 B · N Texturen“ und „Vanilla höchstens … B“), je Balken `[data-budget-state=calm|tight|full]` (ruhig ohne Plakette, „Knapp“, „Voll“).
 
@@ -2007,7 +2007,7 @@ Erwartet: Rückgabe 0, `"ok": true`; `bake_test` mit Paket 20 (Platin) bzw. 25 (
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
-export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
+export G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms
 G4_TEST_PROJECT=$P cargo test -p g4-formats --release --test vanilla_bdhc -- --nocapture --test-threads 1
 G4_TEST_PROJECT=$P cargo test -p g4-kernel --release --all-features --test vanilla_checks -- --nocapture --test-threads 1
 G4_TEST_PROJECT=$P cargo test -p g4-kernel --release --all-features --test terrain -- --nocapture --test-threads 1
@@ -2068,7 +2068,7 @@ scripts/agent/mcp.sh call get_map_budget '{"index":188}'       # bdhc {used 2145
 
 **Kopien** (unter `$G4_ROMS_DIR/_testkopien`, `cp -cR` für den Ordner, `cp -c` für die `.nds`): `6-3a-task0-pt`, `6-3a-task0-hgde`, `6-3a-task0-hgus` (ohne `.nds`, nur gelesen) für Task 0 und die gated Tests von `tests/world.rs`; `6-3a-t8-pt_DSPRE_contents`, `6-3a-t8-hgde_DSPRE_contents`, `6-3a-t8-hgus_DSPRE_contents` je mit `6-3a-t8-<spiel>.nds` daneben für Round-Trip, Export und Migration (geschrieben wird nur auf `vanilla_copy()`); `6-3a-web_DSPRE_contents` (Platin DE) mit `6-3a-web.nds` für den Browser, eingerichtet mit `call.sh open_project`, `assign_base '{"nds":"../6-3a-web.nds"}'`, `adopt_text_project`.
 
-**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools/apicula` als Symlink auf den Haupt-Checkout (nie einchecken), Test-Umgebung auf `G4_VITE_PORT=1460 G4_BRIDGE_PORT=1461`. Lange Läufe im Hintergrund mit Log unter `target/agent/6-3a-<zweck>.log`, `uptime` davor und danach; ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+**Worktree:** `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`), `tools/apicula` als Symlink auf den Haupt-Checkout (nie einchecken), Test-Umgebung auf `G4_VITE_PORT=1460 G4_BRIDGE_PORT=1461`. Lange Läufe im Hintergrund mit Log unter `target/agent/6-3a-<zweck>.log`, `uptime` davor und danach; ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
 
 **Wo was ist:** Die Leinwand der Szene trägt bei einer Welt-Karte `canvas[data-world-mesh="<Karte>"]` und `[data-world-mesh-faces="<Flächen>"]` (Karten ohne Welt: GLB, keines der Attribute). Verlauf „Welt angelegt: Karte NNNN“, „Welt geändert: Karte NNNN (N Zellen)“, Zähler „Verlauf, N Schritte“ am Knopf. Befehle über `scripts/agent/mcp.sh call g4_call '{"command":"<name>","args":{…}}'` (vorher `call.sh agent_set_enabled '{"on":true}'`, `agent_set_grant` mit Schreiben, `agent_set_expert '{"on":true}'`): Lesen `world_get {map}`, `tileset_get {package}`, `get_world_mesh {map}`, `get_tileset_texture`; Schreiben `world_create {req: {map, tileset?, fill?, height?}}`, `world_edit {req: {map, changes}}`, `tileset_save`. Ein Schreiben über `call.sh` erreicht die offene Seite nicht; Agenten-Schritte daher über `mcp.sh`.
 
@@ -2085,7 +2085,7 @@ scripts/agent/mcp.sh call get_map_budget '{"index":188}'       # bdhc {used 2145
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
+R=$HOME/Projekte/lab/editor/Roms; K=$R/_testkopien
 G4_ROMS_DIR=$R G4_TEST_PROJECT="$K/6-3a-task0-<k>" \
   cargo test --release -p g4-kernel --all-features --test world -- vanilla_ --nocapture --test-threads 1
 #   tilesets <Spielcode> packages=74 tiles=3130 … (Platin DE) bzw. packages=106 tiles=3659 … (HeartGold DE und US)
@@ -2115,7 +2115,7 @@ Erwartet: Platin DE 74 Pakete, 3 130 Kacheln (1 765 vanilla, 1 365 unklar), Hear
 
 **Kopien** (unter `$G4_ROMS_DIR/_testkopien`, `cp -cR` für den Ordner, `cp -c` für die `.nds`, das Ziel existiert vorher nicht): `6-3b-pt_DSPRE_contents`, `6-3b-hgde_DSPRE_contents`, `6-3b-hgus_DSPRE_contents` je mit `6-3b-<spiel>.nds` daneben für die gated Tests (jeder Test richtet auf `vanilla_copy()` das Textprojekt ein: `assign_base` mit der `.nds` daneben, `export` mit Script-Übernahme); `6-3b-szen-pt*`, `6-3b-szen-hg*` je mit `.nds` für `pt-gemalt`/`hg-gemalt` (je Lauf eine frische: nach `build` ist die Kopie verbraucht); `6-3b-web_DSPRE_contents` (Platin DE) mit `6-3b-web.nds` für den Browser, eingerichtet mit `call.sh open_project`, `assign_base '{"nds":"../6-3b-web.nds"}'`, `adopt_text_project` (65 s).
 
-**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (`ln -s <Haupt-Checkout>/tools tools`, nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`, Test-Umgebung auf `G4_VITE_PORT=1520 G4_BRIDGE_PORT=1521`. Lange Läufe im Hintergrund mit Log unter `target/agent/6-3b/<zweck>.log`, `uptime` davor und danach; ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+**Worktree:** `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (`ln -s <Haupt-Checkout>/tools tools`, nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`, Test-Umgebung auf `G4_VITE_PORT=1520 G4_BRIDGE_PORT=1521`. Lange Läufe im Hintergrund mit Log unter `target/agent/6-3b/<zweck>.log`, `uptime` davor und danach; ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
 
 **Wo was ist:** Der Inspector einer Karte (Bauen, Zelle gewählt) hat über „Budget“ den Abschnitt „Quelle“ `[data-world-source="binary|world"]`: binär „Binäre Karte aus dem ROM oder aus DSPRE.“ mit dem Knopf „Karte als Quelle übernehmen“ `[data-world-adopt]` (außerhalb eines Textprojekts gesperrt, Satz „Boden malen gibt es im Textprojekt (Technik › Textprojekt).“), danach die Notice „Übernommen.“ bzw. „Übernommen. N Kacheln weichen von der Höhe ab.“; Welt „Welt-Karte“ mit `[data-world-bake="ok"]` „Gebacken · Modell 38.876 B · Terrain 146 B“ (Terrain ist die Nutzlast wie im Budget) oder `[data-world-bake="refused"]` mit der ersten Ablehnung, Knopf „Als binäre Karte übernehmen“. Technik › Textprojekt „Jetzt abgleichen“: ein außen geänderter Member einer Welt-Karte steht unter „Auf zwei Seiten geändert“, aufgeklappt „Diese Welt-Karte wurde außerhalb des Studios geändert.“ mit den Knöpfen „Neu backen“ (`studio`) und „Als binäre Karte übernehmen“ (`dspre`). Technik › Prüfen und Bauen „Bauen“: Zeile „Karten backen“ direkt nach dem Textprojekt-Schritt, vor „Scripts“ („Veröffentlichen“ ist der Patch-Assistent). Verlauf „Karte als Quelle übernommen: Karte NNNN“, „Welt aufgegeben: Karte NNNN“, „Tileset NNNN geändert (N Kacheln)“. Befehle über `scripts/agent/mcp.sh call g4_call '{"command":"<name>","args":{…}}'` (vorher `call.sh agent_set_enabled '{"on":true}'`, `agent_set_grant` mit Schreiben, `agent_set_expert '{"on":true}'`): `world_adopt {req: {map, tileset?, form?}}`, `world_to_binary {map}`, `world_bake {map}` (Lesen), `tileset_edit {req: {package, changes}}`; Konflikte über `resolve_external_conflict` (Wortlaut in [mcp.md](mcp.md), „Welt-Karten backen (6.3b, über `g4_call`)“). In Szenarien (Brückenmodus) gehen dieselben Befehle direkt.
 
@@ -2132,8 +2132,8 @@ Erwartet: Platin DE 74 Pakete, 3 130 Kacheln (1 765 vanilla, 1 365 unklar), Hear
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
-export G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+R=$HOME/Projekte/lab/editor/Roms; K=$R/_testkopien
+export G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 G4_ROMS_DIR=$R G4_TEST_PROJECT=$K/6-3b-<k>_DSPRE_contents \
   cargo test --release -p g4-kernel --all-features --test world_bake --test textproject -- --nocapture --test-threads 1
 #   world_bake 5/5, textproject 64/64 (je Spiel etwa 25 bis 28 min unter Last)
@@ -2182,7 +2182,7 @@ Neuer Schritt von `g4emu` (seit 6.3b): `clock HH:MM` setzt die Startzeit der Uhr
 
 **Kopien** (unter `$G4_ROMS_DIR/_testkopien`, je `_DSPRE_contents`, per `cp -cR` bzw. `cp -c`): `6-5a-pt`, `6-5a-hgde`, `6-5a-hgus` für die gated Tests (ohne `.nds`, nur gelesen; geschrieben wird nur auf `vanilla_copy()`); `6-5a-szen-pt2`, `6-5a-szen-hg` mit `.nds` daneben für die Szenarien (nach einem Lauf gespeichert und gebaut: ein neuer Lauf braucht `6-5a-szen-pt3`, `6-5a-szen-hg2`); `6-5a-web` (Platin DE) mit `.nds` für den Browser-Teil, vorher `target/debug/g4k import-samples <Kopie>/import`.
 
-**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA` absolut auf `tools/apicula/bin/apicula` des Haupt-Checkouts, Test-Umgebung auf eigenen Ports `G4_VITE_PORT=1500 G4_BRIDGE_PORT=1501` (andere Ports gehören anderen Sitzungen; `call.sh` liest den Port aus `target/agent/bridge.port`). Lange Läufe im Hintergrund mit Log unter `target/agent/6-5a/<name>.log`, `uptime` davor; die Bilder unter `target/agent/gate-<datum>/6-5a/`. Ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+**Worktree:** `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA` absolut auf `tools/apicula/bin/apicula` des Haupt-Checkouts, Test-Umgebung auf eigenen Ports `G4_VITE_PORT=1500 G4_BRIDGE_PORT=1501` (andere Ports gehören anderen Sitzungen; `call.sh` liest den Port aus `target/agent/bridge.port`). Lange Läufe im Hintergrund mit Log unter `target/agent/6-5a/<name>.log`, `uptime` davor; die Bilder unter `target/agent/gate-<datum>/6-5a/`. Ein Zeittest, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
 
 **Wo was ist:** Kartenzelle wählen: im Baum den Raum (Platin: Header 415 `T01R0202` „Zweiblattdorf › Haus 2, 1. Stock“, Karte 187), dann in „In dieser Szene“ die Zeile „Karte 0187“ oder im Kopf der Schau den Pfad „Karte 0187 Zelle 0, 0“. Der Inspector-Kopf der Karte hat die Taste „Aktionen“ (`aria-label="Aktionen"`) mit „Teile importieren…“. Der Dialog trägt `[data-import-dialog="<Karte>"]`, Quelle „Datei“ | „Karte im Projekt“ (`aria-pressed`), das Feld „Pfade, eine je Zeile“ (`textarea`, Übernahme beim Verlassen, Pfade **absolut**, ein relativer Pfad gibt „Pfad nicht lesbar“; „Dateien wählen…“ gibt es nur in Tauri). Die Zeile „Umwandeln“ ist `[data-import-convert]` mit „Farben je Textur“ (16 | 4) und, nur bei einem Modell, „Einheit“ (16 = eine Kachel). Die Prüfliste hat je Teil eine Zeile `[data-check="model"]` bzw. `[data-check="textures"]` mit `[data-state]` (der Plan nennt sie `[data-part="model"]`; das Attribut der Prüfliste heißt `data-check`), darin die Vorschau `[data-import-preview="<teil>"]`, mit Kästchen (gesperrt bei Fehler), Meldungen und Vorschau („OBJ · 6 Vierecke · 0 Dreiecke · 0 Streifen“, „<Textur> · 16 × 16 · 16 Farben · neu“, „VRAM des Gebiets … B · Vanilla höchstens … B“) und beim Modell den Budgetbalken „Modell … von 61.440 B“ mit `[data-budget-state=calm|tight|full]`. Die VRAM-Zahl im Dialog ist die Messung des Bäckers, die im Inspector-Budget die Schätzung aus 6.2 (geteilte Texel doppelt): sie weichen voneinander ab.
 
@@ -2196,12 +2196,12 @@ Neuer Schritt von `g4emu` (seit 6.3b): `clock HH:MM` setzt die Startzeit der Uhr
 | (4) Browser | Agent | Test-Umgebung auf 1500/1501, Ablauf unten; sechs Bilder über Chrome headless |
 | (5) Blick auf die Bilder, eigene Blender- und PDSMS-Dateien, `docs/formats/model_import.md` | Hand | siehe Gate-Datei, Abschnitt „(5)“ |
 
-**Automatik (1)**, aus der Wurzel des Worktrees (`W=/Users/POLTEP/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-5a`, `K=$G4_ROMS_DIR/_testkopien`; `P` nacheinander `$K/6-5a-pt_DSPRE_contents`, `$K/6-5a-hgde_DSPRE_contents`, `$K/6-5a-hgus_DSPRE_contents`):
+**Automatik (1)**, aus der Wurzel des Worktrees (`W=$HOME/Projekte/lab/editor/gen4-studio/.claude/worktrees/phase-6-5a`, `K=$G4_ROMS_DIR/_testkopien`; `P` nacheinander `$K/6-5a-pt_DSPRE_contents`, `$K/6-5a-hgde_DSPRE_contents`, `$K/6-5a-hgus_DSPRE_contents`):
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms
-export G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+export G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms
+export G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 cargo deny --locked check licenses advisories
 cargo fmt --all --check
 cargo clippy --workspace --all-features --all-targets -- -D warnings
@@ -2219,8 +2219,8 @@ Erwartet: `cargo deny` „advisories ok, licenses ok“ mit den neuen Crates `to
 **Szenarien (3)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`O=$W/target/agent/gate-$(date +%F)/6-5a`), nacheinander, je eine frische Kopie mit `.nds` (`6-5a-szen-pt2`/`6-5a-szen-hg` und die Logs `t10-{pt,hg}.log` sind vom Lauf in Task 10 belegt; die nächsten Namen sind `6-5a-szen-pt3`/`6-5a-szen-hg2`, ein weiterer Lauf zählt weiter):
 
 ```sh
-export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k \
-  G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+export G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k \
+  G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 mkdir -p $O/pt-import $O/hg-import
 K=$G4_ROMS_DIR/_testkopien
 cp -cR "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$K/6-5a-szen-pt3_DSPRE_contents"
@@ -2263,7 +2263,7 @@ Abwarten, bis das Log „Brücke läuft auf 127.0.0.1:1501“ meldet; Seite `htt
 
 **Kopien** (unter `$G4_ROMS_DIR/_testkopien`, `cp -cR` für den Ordner, `cp -c` für die `.nds`, das Ziel existiert vorher nicht): `6-4a-pt`, `6-4a-hgde`, `6-4a-hgus` (je `_DSPRE_contents` mit `.nds` daneben) für die gated Tests (jeder Test richtet auf `vanilla_copy()` das Textprojekt ein); `6-4a-web` (Platin DE) und `6-4a-webhg` (HeartGold DE) mit `.nds` für den Browser-Teil, eingerichtet mit `g4k git init .` in der Kopie, `call.sh open_project`, `assign_base '{"nds":"../6-4a-web.nds"}'`, `adopt_text_project` (1 bis 3 min) und dem Commit „Textprojekt“; `6-4a-szen-pt*`, `6-4a-szen-hg*` mit `.nds` für die Szenarien über MCP (je Lauf eine frische: nach `build` ist die Kopie verbraucht; benutzt sind `-pt`, `-hg`, `-pt2`, `-hg2`, der nächste Lauf braucht `-pt3`/`-hg3`); `6-4a-buehne-pt`, `6-4a-buehne-hg` mit `.nds` für das Phasen-Gate über die Oberfläche (Bühne, dann Malen im Browser, dann `*-gemalt-ui`; `6-4a-t11buehne-*` war eine Probe).
 
-**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`, Test-Umgebung auf `G4_VITE_PORT=1560 G4_BRIDGE_PORT=1561` (andere Ports gehören anderen Sitzungen). **Vite in einem Worktree unter `.claude/` bemerkt Dateiänderungen nicht** (kein HMR, auch nicht nach `touch`): nach jeder Codeänderung die Test-Umgebung beenden und neu starten. Lange Läufe im Hintergrund mit Log unter `target/agent/6-4a/<zweck>.log`, `uptime` davor; ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+**Worktree:** `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`, Test-Umgebung auf `G4_VITE_PORT=1560 G4_BRIDGE_PORT=1561` (andere Ports gehören anderen Sitzungen). **Vite in einem Worktree unter `.claude/` bemerkt Dateiänderungen nicht** (kein HMR, auch nicht nach `touch`): nach jeder Codeänderung die Test-Umgebung beenden und neu starten. Lange Läufe im Hintergrund mit Log unter `target/agent/6-4a/<zweck>.log`, `uptime` davor; ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
 
 **Wo was ist:** Werkzeugleiste „Gelände malen“ mit der Gruppe `[data-paint-tools]` (sieben Tasten, `aria-pressed`; bei niedriger Szene als zweite Spalte `data-paint-beside`); die Leinwand trägt `data-paint-sub` (`brush`, `rect`, `fill`, `erase`, `pick`, `height`, `ramp`), `data-stroke-pending` (unbeantwortete Striche), `data-world-mesh` und `data-world-mesh-faces`, die Höhen-Ebene `data-heights-shown`. Inspector der gewählten Zelle (nur mit „Gelände malen“ auf einer Welt-Karte): „Palette“ `[data-paint-palette]` mit `[data-palette-role]` und `[data-palette-tile="0041"]`, „Ebenen“ `[data-paint-layers]` mit `[data-layer-row="<i>"]` und „Ebene hinzufügen“, „Kachel“ `[data-tile-editor]` mit „Tileset im Projekt anlegen“ `[data-tileset-save]`, Budget mit `[data-budget-refused]` bei abgelehntem Bake; auf einer binären Karte die Notiz `[data-paint-binary]` mit `[data-paint-adopt]`. Rezept: „+“ → „Karte bei x …, y … anlegen?“ → `[data-paint-instead]` „Stattdessen neu malen“ → „Neue Karte malen“ (Name, Boden, Höhe, „Karte malen“), Entwurf `[data-draft-cell="x,y"]`. Verlaufstexte „Neue Karte gemalt: „Malweg“ (Karte 0666)“, „Gemalt: …“, „Rechteck gemalt: …“, „Gefüllt: …“, „Radiert: …“, „Höhe geändert: …“, „Rampe gesetzt: … (N Zellen)“, ohne `label` „Welt geändert: …“.
 
@@ -2284,8 +2284,8 @@ Die Szene messen: `window.__g4SceneProbe.tileToClient(absX, absZ)` nimmt **absol
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
-export G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+R=$HOME/Projekte/lab/editor/Roms; K=$R/_testkopien
+export G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 G4_ROMS_DIR=$R G4_TEST_PROJECT=$K/6-4a-<k>_DSPRE_contents \
   cargo test --release -p g4-kernel --all-features --test world_paint -- --nocapture --test-threads 1
 #   3/3 je Spiel (Platin etwa 10 min, HeartGold 18 bis 20 min unter Last 18)
@@ -2307,7 +2307,7 @@ Erwartet: `paint-gate CPUD map=666 cell=(1,21) rule=nearest strokes=7 nsbmd=2192
 **Szenarien über MCP (2)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-4a`). `BASIS` ist die `.nds` neben der Kopie, relativ zum Projektordner:
 
 ```sh
-export G4_ROMS_DIR=$R G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+export G4_ROMS_DIR=$R G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 uv run g4emu scenario ../agent/scenarios/pt-gemalt.yaml --project $K/6-4a-szen-pt3_DSPRE_contents --out $O/pt-gemalt \
   --set BASIS=../6-4a-szen-pt3.nds --set NEUER_HEADER=593 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445 > $W/target/agent/6-4a/pt-gemalt.log 2>&1
 uv run g4emu scenario ../agent/scenarios/hg-gemalt.yaml --project $K/6-4a-szen-hg3_DSPRE_contents --out $O/hg-gemalt \
@@ -2338,7 +2338,7 @@ Erwartet: Rückgabe 0, `"ok": true`, Header 415, 593 bzw. 64, 540; 17 Zeilen „
 
 **Kopien** (unter `$G4_ROMS_DIR/_testkopien`, `cp -cR` für den Ordner, `cp -c` für die `.nds`, das Ziel existiert vorher nicht): `6-5b-pt`, `6-5b-hgde`, `6-5b-hgus` (je `_DSPRE_contents` mit `.nds`) für die gated Tests (geschrieben wird nur auf `vanilla_copy()`); `6-5b-szen-pt*`, `6-5b-szen-hg*` mit `.nds` für die Szenarien (nach `build` verbraucht; benutzt sind `-pt`, `-hg`, `-pt2`, `-hg2`, der nächste Lauf braucht `-pt3`/`-hg3`); `6-5b-web` (Platin DE) mit `.nds` für den Browser-Teil (verbraucht sind `-web` und `-web2`, die Nachprüfung nach der Fix-Welle; der nächste Lauf nimmt `-web3`), eingerichtet mit `target/debug/g4k import-samples <Kopie>/import`, `call.sh open_project`, `assign_base '{"nds":"../6-5b-web.nds"}'`, `adopt_text_project` (etwa 2 min), `world_create '{"req":{"map":0}}'`, `save`.
 
-**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula` (Form 2 und die apicula-Prüfungen brauchen es; ohne `G4_APICULA` überspringt der Form-2-Gate-Test), Test-Umgebung auf `G4_VITE_PORT=1580 G4_BRIDGE_PORT=1581` (andere Ports gehören anderen Sitzungen). Vite in einem Worktree unter `.claude/` bemerkt Dateiänderungen nicht: nach einer Codeänderung die Test-Umgebung neu starten. Lange Läufe im Hintergrund mit Log unter `target/agent/6-5b/<zweck>.log`, `uptime` davor; die Bilder unter `target/agent/gate-<datum>/6-5b/`. Ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
+**Worktree:** `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula` (Form 2 und die apicula-Prüfungen brauchen es; ohne `G4_APICULA` überspringt der Form-2-Gate-Test), Test-Umgebung auf `G4_VITE_PORT=1580 G4_BRIDGE_PORT=1581` (andere Ports gehören anderen Sitzungen). Vite in einem Worktree unter `.claude/` bemerkt Dateiänderungen nicht: nach einer Codeänderung die Test-Umgebung neu starten. Lange Läufe im Hintergrund mit Log unter `target/agent/6-5b/<zweck>.log`, `uptime` davor; die Bilder unter `target/agent/gate-<datum>/6-5b/`. Ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.
 
 **Wo was ist:** Karte wählen (Platin: Zweiblattdorf › Karte 0000 als Welt; binär Zweiblattdorf › Haus 1 › Karte 0184), Inspector-Kopf „Aktionen“ (`aria-label="Aktionen"`) mit „Teile importieren…“ und „Teile exportieren…“. Der Import-Dialog `[data-import-dialog="<Karte>"]` öffnet auf „Karte im Projekt“; nach „Datei“ das Feld „Pfade, eine je Zeile“ (Pfade **absolut**, Übernahme beim Verlassen). Eine Welt-Karte zeigt für `.obj`/`.gltf`/`.glb` die Zeile `[data-import-part="freeform"]` „Freiform (glTF) · <Datei>“ mit „Lage“ (x, y, z in Welteinheiten von der Kartenmitte) und „Umwandeln“ (Farben, Einheit 16 = eine Kachel), für `.tmj` die Zeile `[data-import-part="tmj"]` „Tiled (TMJ) · <Datei>“ (unverändert: „Keine Änderung.“, Kästchen gesperrt). Der Export-Dialog hat das Segment „Tiled (TMJ)“ mit `[data-export-part="tmj"]`; die Bilder kommen nach `<stem>.tiles/` neben die Datei, `build/` wird angelegt. Abschnitt „Quelle“ einer binären Karte (`[data-world-source="binary"]`): `[data-world-adopt=""]` „Karte als Quelle übernehmen“ (Form 1), `[data-world-adopt="gltf"]` „Als glTF übernehmen (Form 2)“ mit der Notiz „Übernommen als glTF: N Vanilla-Polygone, M gebackene Flächen.“ Szene: `canvas[data-world-mesh="<Karte>"]`, `[data-world-mesh-faces]`. Befehle über `g4_call --expert` bzw. `call.sh`: `world_freeform_inspect`, `world_freeform_add`, `world_freeform_remove`, `tileset_piece_set` (Anfrage unter `req`), `world_export_tmj`, `world_inspect_tmj`, `world_import_tmj` (`map`, `path`), `world_adopt` mit `form: "gltf"` ([mcp.md](mcp.md), „Freiform, Form 2, Tiled (6.5b, über `g4_call`)“).
 
@@ -2357,8 +2357,8 @@ Erwartet: Rückgabe 0, `"ok": true`, Header 415, 593 bzw. 64, 540; 17 Zeilen „
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-export G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms; K=$G4_ROMS_DIR/_testkopien
-export G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+export G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms; K=$G4_ROMS_DIR/_testkopien
+export G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 G4_TEST_PROJECT=$K/6-5b-<k>_DSPRE_contents \
   cargo test --release --workspace --all-features --test world_freeform -- --nocapture --test-threads 1
 #   5/5 je Spiel (7 bis 24 min unter Last)
@@ -2380,8 +2380,8 @@ Erwartet: `world-freeform CPUD map=0 faces=25 freeform_faces=6 nsbmd=1972 share=
 **Szenarien (2)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-5b`), nacheinander, je eine frische Kopie mit `.nds`. `KOPIE` ist der **absolute** Ordner der Kopie (die Brücke löst den relativen Modellpfad gegen ihren eigenen Arbeitsordner auf):
 
 ```sh
-R=/Users/POLTEP/Projekte/lab/editor/Roms
-export G4_ROMS_DIR=$R G4_BRIDGE_BIN=$W/target/debug/studio-bridge G4K_BIN=$W/target/debug/g4k G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+R=$HOME/Projekte/lab/editor/Roms
+export G4_ROMS_DIR=$R G4_BRIDGE_BIN=$W/target/debug/studio-bridge G4K_BIN=$W/target/debug/g4k G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 K=$G4_ROMS_DIR/_testkopien
 cp -cR "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$K/6-5b-szen-pt3_DSPRE_contents"
 cp -c "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds" "$K/6-5b-szen-pt3.nds"
@@ -2423,7 +2423,7 @@ Abwarten, bis das Log „Brücke läuft auf 127.0.0.1:1581“ meldet; einrichten
 
 **Kopien** (unter `$G4_ROMS_DIR/_testkopien`, `cp -cR` für den Ordner, `cp -c` für die `.nds`, das Ziel existiert vorher nicht): `6-4b-pt`, `6-4b-hgde`, `6-4b-hgus` (je `_DSPRE_contents` mit `.nds` daneben) für die gated Tests (jeder Test richtet auf `vanilla_copy()` das Textprojekt ein); `6-4b-web` (Platin DE) mit `.nds` für den Browser-Teil, eingerichtet mit `g4k git init .` in der Kopie, `call.sh open_project`, `assign_base '{"nds":"../6-4b-web.nds"}'`, `adopt_text_project` (2 bis 3 min), Commit „Textprojekt“, nach „Tileset im Projekt anlegen“ und ⌘S Commit „Tileset angelegt“; `6-4b-szen-pt`, `6-4b-szen-hg` mit `.nds` für `pt-klippe`/`hg-klippe` und `6-4b-gemalt-pt`, `6-4b-gemalt-hg` für die Regression `pt-gemalt`/`hg-gemalt` (je Lauf eine frische Kopie: nach `build` ist sie verbraucht; der nächste Lauf braucht `-pt2`/`-hg2`).
 
-**Worktree:** `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`, Test-Umgebung auf `G4_VITE_PORT=1600 G4_BRIDGE_PORT=1601` (andere Ports gehören anderen Sitzungen, 1580/1581 der 6.5b). Vite im Worktree bemerkt Dateiänderungen nicht: nach jeder Codeänderung die Test-Umgebung neu starten. Lange Läufe im Hintergrund mit Log unter `target/agent/6-4b/<zweck>.log`, `uptime` davor; ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert. Gate-Ausgaben unter `target/agent/gate-2026-11-08/6-4b/`.
+**Worktree:** `G4_ROMS_DIR` absolut (`$HOME/Projekte/lab/editor/Roms`), `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`, Test-Umgebung auf `G4_VITE_PORT=1600 G4_BRIDGE_PORT=1601` (andere Ports gehören anderen Sitzungen, 1580/1581 der 6.5b). Vite im Worktree bemerkt Dateiänderungen nicht: nach jeder Codeänderung die Test-Umgebung neu starten. Lange Läufe im Hintergrund mit Log unter `target/agent/6-4b/<zweck>.log`, `uptime` davor; ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert. Gate-Ausgaben unter `target/agent/gate-2026-11-08/6-4b/`.
 
 **Wo was ist:** In der Werkzeugleiste „Gelände malen“ (Welt-Karte) die Tasten „Terrain-Pinsel“ **T** und „Klippenpinsel“ **K** in `[data-paint-tools]`; die Leinwand trägt `data-paint-sub="terrain"` bzw. `"cliff"` und `data-stroke-pending`. Inspector der gewählten Zelle, Abschnitt „Kantensätze“ `[data-edge-sets]` (nach „Palette“, „Ebenen“, „Kachel“): Zeilen `[data-edge-set]` mit Radio „Aktiv“, „Neuer Kantensatz“ (Name, Außen = gewählte Palettenkachel), „Stufen der Klippe“ `[data-cliff-rise]` (1 bis 8, Vorgabe 2), der Editor des aktiven Satzes `[data-edge-editor]` mit den Plätzen `[data-edge-place]` (Platz anklicken, `aria-pressed`, dann eine Palettenkachel anklicken: hängt das Token mit Z/X-Drehung an), Varianten-Chips `[data-edge-variant]` („Entfernen“), „Außen“ `[data-edge-outside]`, „Blockiert an der Klippe“ `[data-edge-block]` (Segment „Obere Zelle“/„Untere Zelle“), „Wand“ `[data-edge-wall]`, „Satz entfernen“, Zähler „13 von 13 Plätzen · Diagonalen 0 von 2“. Szene: `data-terrain-patterns="<n>"` an der Gelände-Schicht (Zellen mit Muster in der ganzen gezeigten Matrix; ohne „Gelände“ kein Attribut), Legende „Gelände“ mit `data-pattern` (`hatch`, `waves`, `dots`, `arrow`, `crosshatch`, `none`). Verlaufstexte „Kantensatz „Weg“ angelegt: Tileset 0015“, „… geändert: …“, „… entfernt: …“, „Gelände gemalt: Karte 0666 (27 Zellen)“, „Gelände entfernt: …“, „Klippe gesetzt: …“, „Klippe gesenkt: …“; ohne Satz die Notiz „Erst einen Kantensatz wählen (Inspector › Kantensätze).“
 
@@ -2441,8 +2441,8 @@ Die Szene messen wie in 6.4a: `window.__g4SceneProbe.tileToClient(absX, absZ)` n
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
-export G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+R=$HOME/Projekte/lab/editor/Roms; K=$R/_testkopien
+export G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 G4_ROMS_DIR=$R G4_TEST_PROJECT=$K/6-4b-<k>_DSPRE_contents \
   cargo test --release -p g4-kernel --all-features --test world_smart -- --nocapture --test-threads 1
 #   2/2 je Spiel (etwa 4 min)
@@ -2465,7 +2465,7 @@ Erwartet: `smart-ring CPUD map=666 package=15 cells=45 places=13 wrong=0 nsbmd=4
 **Szenarien (2)**, aus `scripts/g4emu`, nach `cargo build --workspace --all-features` im Worktree (`W` Worktree, `O=$W/target/agent/gate-$(date +%F)/6-4b`). `BASIS` ist die `.nds` neben der Kopie, relativ zum Projektordner; die 13 Gate-Kacheln stehen fest im YAML (Platin `0040`–`004c`, außen `001c`; HeartGold `0017`–`0023`, außen `0016`), es gibt kein `--set GATE_TILES`:
 
 ```sh
-export G4_ROMS_DIR=$R G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k G4_APICULA=/Users/POLTEP/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
+export G4_ROMS_DIR=$R G4_STUDIO_BIN=$W/target/debug/studio G4K_BIN=$W/target/debug/g4k G4_APICULA=$HOME/Projekte/lab/editor/gen4-studio/tools/apicula/bin/apicula
 uv run g4emu scenario ../agent/scenarios/pt-klippe.yaml --project $K/6-4b-szen-pt2_DSPRE_contents --out $O/pt-klippe \
   --set BASIS=../6-4b-szen-pt2.nds --set NEUER_HEADER=593 --set S_WILD=150 --set L_WILD=5 --set S_GIFT=445 > $W/target/agent/6-4b/pt-klippe.log 2>&1
 uv run g4emu scenario ../agent/scenarios/hg-klippe.yaml --project $K/6-4b-szen-hg2_DSPRE_contents --out $O/hg-klippe \

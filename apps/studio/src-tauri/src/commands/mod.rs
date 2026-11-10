@@ -15,6 +15,7 @@ mod flags;
 mod git;
 mod headers;
 pub mod live;
+mod locale;
 mod map_import;
 mod matrix;
 mod models;
@@ -57,6 +58,7 @@ pub use flags::*;
 pub use git::*;
 pub use headers::*;
 pub use live::*;
+pub use locale::*;
 pub use map_import::*;
 pub use matrix::*;
 pub use models::*;
@@ -95,6 +97,11 @@ pub(crate) fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, 
 
 pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
     guard.as_mut().ok_or_else(|| "no project open".into())
+}
+
+/// The refusal of a path that is no valid text (it cannot be passed on as a string).
+pub(crate) fn path_not_text(path: impl std::fmt::Display) -> CmdError {
+    CmdError::from(t!("commands.common.path_not_text", path = path).into_owned())
 }
 
 /// The open project (its `Arc`; the session lock is released again).

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataKind, DescriptionDto, NavTargetDto, RefDto } from "../../api";
 import { Badge, Button, DSScreen, Notice, Reference, Sprite } from "../../ui/primitives";
 import { id4, numberText } from "../../workbench/terms";
@@ -40,11 +41,12 @@ function UseGroup({ title, refs: list, open }: { title: string; refs: readonly R
 
 /** "Verwendet in": the trainers that carry the item, the teams that hold it, the species that hold it in the wild, the evolutions by it. */
 function Uses({ id }: { id: number }) {
+  const { t } = useTranslation("data");
   const { goTo } = useDataArea("gegenstaende");
   const found = useRefs("gegenstaende", { kind: "item", id }, REFERRING);
   const uses = useMemo(() => (found?.refs ? itemUses(found.refs) : null), [found]);
-  if (found === null) return <p className={styles.note}>Verwendungen werden gesucht …</p>;
-  if (uses === null) return <p className={styles.note}>{`Verwendungen nicht lesbar: ${found.error ?? ""}`}</p>;
+  if (found === null) return <p className={styles.note}>{t("uses.searching")}</p>;
+  if (uses === null) return <p className={styles.note}>{t("uses.unreadable", { error: found.error ?? "" })}</p>;
   const openSpecies = (nav: NavTargetDto) => {
     if (nav.kind === "species") goTo(nav.tab ? { kind: "species", index: nav.index, tab: nav.tab } : { kind: "species", index: nav.index });
   };
@@ -54,28 +56,29 @@ function Uses({ id }: { id: number }) {
   return (
     <>
       <h3 className={styles.sectionTitle}>
-        Verwendet in <span className={styles.count}>{usesText(uses)}</span>
+        {t("uses.usedIn")} <span className={styles.count}>{usesText(uses)}</span>
       </h3>
-      <UseGroup title="Trainer-Items" refs={uses.trainers} open={openTrainer} />
-      <UseGroup title="Team-Items" refs={uses.parties} open={openTrainer} />
-      <UseGroup title="Wild getragen" refs={uses.wild} open={openSpecies} />
-      <UseGroup title="Entwicklungen" refs={uses.evolutions} open={openSpecies} />
-      <p className={styles.note}>Trainer, Teams und Pokémon-Daten, ohne Scripts und Läden gezählt.</p>
+      <UseGroup title={t("itemView.groups.trainers")} refs={uses.trainers} open={openTrainer} />
+      <UseGroup title={t("itemView.groups.parties")} refs={uses.parties} open={openTrainer} />
+      <UseGroup title={t("itemView.groups.wild")} refs={uses.wild} open={openSpecies} />
+      <UseGroup title={t("itemView.groups.evolutions")} refs={uses.evolutions} open={openSpecies} />
+      <p className={styles.note}>{t("itemView.usesNote")}</p>
     </>
   );
 }
 
 /** The description as the game's text box shows it, page by page, with the way to its text. */
 function Description({ description }: { description: DescriptionDto | null }) {
+  const { t } = useTranslation("data");
   const { goTo } = useDataArea("gegenstaende");
   const all = useMemo(() => pages(description?.text ?? ""), [description]);
   const [page, setPage] = useState(0);
   const shown = Math.min(page, all.length - 1);
   return (
-    <section className={styles.section} aria-label="Beschreibung">
-      <h3 className={styles.sectionTitle}>Beschreibung</h3>
+    <section className={styles.section} aria-label={t("description.title")}>
+      <h3 className={styles.sectionTitle}>{t("description.title")}</h3>
       {description === null ? (
-        <p className={styles.note}>Beschreibung nicht gefunden.</p>
+        <p className={styles.note}>{t("description.missing")}</p>
       ) : (
         <>
           <div className={styles.screen}>
@@ -84,19 +87,19 @@ function Description({ description }: { description: DescriptionDto | null }) {
           <div className={styles.actions}>
             {all.length > 1 && (
               <>
-                <span className={styles.note}>{`Seite ${shown + 1} von ${all.length}`}</span>
+                <span className={styles.note}>{t("description.page", { page: shown + 1, pages: all.length })}</span>
                 <Button kind="quiet" size="s" icon="back" disabled={shown === 0} onClick={() => setPage(shown - 1)}>
-                  Zurück
+                  {t("description.back")}
                 </Button>
                 <Button kind="quiet" size="s" disabled={shown >= all.length - 1} onClick={() => setPage(shown + 1)}>
-                  Weiterblättern
+                  {t("description.nextPage")}
                 </Button>
               </>
             )}
             <Reference
               area="texte"
-              label="Beschreibung bearbeiten"
-              tech={`Archiv ${id4(description.archive)}`}
+              label={t("description.edit")}
+              tech={t("archive", { id: id4(description.archive) })}
               onOpen={() => goTo({ kind: "textArchive", index: description.archive, message: description.message })}
             />
           </div>
@@ -108,23 +111,24 @@ function Description({ description }: { description: DescriptionDto | null }) {
 
 /** The figures and badges of the card: pocket, use in battle (any battle pocket), price and selling price, fling power. */
 function Facts({ v }: { v: ItemValues }) {
+  const { t } = useTranslation("data");
   const price = v.price ?? 0;
   return (
     <>
       <div className={styles.badges}>
         <Badge kind="neutral">{pocketLabel(v.field_pocket ?? 0)}</Badge>
-        {usableInBattle(v) && <Badge kind="neutral">Im Kampf nutzbar</Badge>}
-        {(v.prevent_toss ?? 0) !== 0 && <Badge kind="neutral">Nicht wegwerfbar</Badge>}
+        {usableInBattle(v) && <Badge kind="neutral">{t("itemView.usableInBattle")}</Badge>}
+        {(v.prevent_toss ?? 0) !== 0 && <Badge kind="neutral">{t("itemView.cannotToss")}</Badge>}
       </div>
       <div className={styles.figures}>
         <p className={styles.figure}>
-          <span className={styles.figureValue}>{`${price} ₽`}</span> Preis
+          <span className={styles.figureValue}>{`${price} ₽`}</span> {t("itemView.price")}
         </p>
         <p className={styles.figure}>
-          <span className={styles.figureValue}>{`${sellPrice(price)} ₽`}</span> Verkauf
+          <span className={styles.figureValue}>{`${sellPrice(price)} ₽`}</span> {t("itemView.sell")}
         </p>
         <p className={styles.figure}>
-          <span className={styles.figureValue}>{v.fling_power ?? 0}</span> Schleuder-Stärke
+          <span className={styles.figureValue}>{v.fling_power ?? 0}</span> {t("itemView.flingPower")}
         </p>
       </div>
     </>
@@ -136,6 +140,7 @@ function Facts({ v }: { v: ItemValues }) {
  * where it is used.
  */
 export function ItemView() {
+  const { t } = useTranslation("data");
   const { row, labelOf, selected, itemTable, goTo } = useDataArea("gegenstaende");
   const { doc, error } = useItem(selected, row === null ? null : dataMemberOf(row));
   const entry = selected === null ? undefined : itemTable?.[selected];
@@ -148,26 +153,26 @@ export function ItemView() {
   // The name in the item-name archive (message = item id); none without the item table.
   const nameArchive = doc?.name_archive ?? null;
   return (
-    <section className={styles.view} aria-label={`Übersicht ${name}`} data-item={selected}>
+    <section className={styles.view} aria-label={t("itemView.overview", { name })} data-item={selected}>
       <div className={styles.viewBody}>
-        <section className={styles.card} aria-label="Karte">
+        <section className={styles.card} aria-label={t("itemView.card")}>
           <header className={styles.cardHead}>
             <span className={styles.cardIcon}>
               <Sprite url={url} label={name} size={48} area="gegenstaende" />
             </span>
             <h2 className={styles.name}>
-              {nameArchive === null ? name : <Reference area="texte" label={name} tech={`Archiv ${id4(nameArchive)}`} onOpen={() => goTo({ kind: "textArchive", index: nameArchive, message: selected })} />}
+              {nameArchive === null ? name : <Reference area="texte" label={name} tech={t("archive", { id: id4(nameArchive) })} onOpen={() => goTo({ kind: "textArchive", index: nameArchive, message: selected })} />}
             </h2>
             <span className={styles.tech}>{numberText(row.index)}</span>
           </header>
-          {error !== null && <Notice kind="error">{`Dieser Gegenstand ist nicht lesbar: ${error}`}</Notice>}
-          {locked !== null && <Notice kind="warning">{`${lockText(locked)}. Die Werte dieses Gegenstands sind nicht lesbar.`}</Notice>}
+          {error !== null && <Notice kind="error">{t("itemView.unreadable", { error })}</Notice>}
+          {locked !== null && <Notice kind="warning">{t("itemView.lockedValues", { reason: lockText(locked) })}</Notice>}
           {doc !== null && locked === null && <Facts v={itemValues(doc.fields)} />}
           {shared > 0 && <p className={styles.note}>{sharedNote(shared)}</p>}
         </section>
         {doc !== null && <Description key={selected} description={doc.description} />}
-        <section className={styles.section} aria-label="Verwendet in">
-          {itemTable ? <Uses id={selected} /> : <p className={styles.note}>Ohne Item-Tabelle lassen sich die Verwendungen nicht suchen.</p>}
+        <section className={styles.section} aria-label={t("uses.usedIn")}>
+          {itemTable ? <Uses id={selected} /> : <p className={styles.note}>{t("itemView.noTable")}</p>}
         </section>
       </div>
     </section>

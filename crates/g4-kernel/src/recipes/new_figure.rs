@@ -21,7 +21,7 @@ use super::types::{
     Draft, DraftEvent, DraftEventKind, DraftMessage, Outcome, check_header_id, check_writable, id,
     next_steps, refused,
 };
-use crate::data::trainer_create::ADOPT_FIRST;
+use crate::data::trainer_create::adopt_first;
 use crate::dialog::highest_message;
 use crate::error::KernelError;
 use crate::flags::{FlagKind, in_save, not_in_save_text};
@@ -124,14 +124,14 @@ fn message_command(family: Family) -> &'static str {
     }
 }
 
-/// The undo label: `Figur „…“ aufgestellt` with the text cut to [`LABEL_CHARS`] characters.
+/// The undo label: `Figure “…” placed` with the text cut to [`LABEL_CHARS`] characters.
 fn label(text: &str) -> String {
     let text = text.trim();
     let mut short: String = text.chars().take(LABEL_CHARS).collect();
     if short.len() < text.len() {
         short = format!("{}…", short.trim_end());
     }
-    format!("Figur „{short}“ aufgestellt")
+    t!("recipes.figure_placed", text = short).into_owned()
 }
 
 /// What [`check`] found, everything [`apply`] needs before its first write.
@@ -155,7 +155,7 @@ struct Checked {
 }
 
 /// Every check before the first write, in this order: the header, adopted scripts
-/// ([`ADOPT_FIRST`]), a text, a flag the save holds, a rotom source as the header's script file,
+/// ([`adopt_first`]), a text, a flag the save holds, a rotom source as the header's script file,
 /// a writable event file and text archive, a tile of the header's matrix no object of the file
 /// stands on, a local slot below the common scripts, a script name the file does not use, a
 /// message number the message command takes.
@@ -163,10 +163,10 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
     check_header_id(store, input.header)?;
     let family = store.project().family;
     if !scripts::is_adopted(store.project()) {
-        return Err(refused(ADOPT_FIRST));
+        return Err(refused(adopt_first()));
     }
     if input.text.trim().is_empty() {
-        return Err(refused("Die Figur braucht einen Text."));
+        return Err(refused(t!("recipes.figure_needs_text")));
     }
     let hidden_flag = input.hidden_flag.unwrap_or(0);
     if hidden_flag != 0 && !in_save(family, FlagKind::Flag, hidden_flag) {
@@ -182,10 +182,10 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
         .map(|h| (h.script_file_id(), h.text_archive_id()))
         .ok_or_else(|| refused(format!("header {} does not exist", input.header)))?;
     if scripts::source_kind(store.project(), script_file) != SourceKind::Script {
-        return Err(refused(format!(
-            "Die Scriptdatei {script_file:04} von Header {} ist keine rotom-Quelle; in Bauen \
-             eine Scriptdatei zuweisen.",
-            input.header
+        return Err(refused(t!(
+            "recipes.script_file_not_rotom",
+            script_file = script_file : {:04},
+            header = input.header
         )));
     }
     let event_file = header_event_file(store, input.header)?;
@@ -198,9 +198,11 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
         .iter()
         .position(|o| (o.x, o.z) == (input.x, input.z))
     {
-        return Err(refused(format!(
-            "auf {}, {} steht schon Objekt {k}",
-            input.x, input.z
+        return Err(refused(t!(
+            "recipes.object_on_tile",
+            x = input.x,
+            z = input.z,
+            object = k
         )));
     }
 
@@ -211,9 +213,11 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
         .max()
         .map_or(1, |id| id + 1);
     if next >= u32::from(FIRST_COMMON_SCRIPT) {
-        return Err(refused(format!(
-            "Die Scriptdatei {script_file:04} hat keinen freien lokalen Slot: #{next} wäre ein \
-             gemeinsames Script (ab #{FIRST_COMMON_SCRIPT})."
+        return Err(refused(t!(
+            "recipes.no_free_local_slot",
+            script_file = script_file : {:04},
+            next = next,
+            first_common = FIRST_COMMON_SCRIPT
         )));
     }
     // Below FIRST_COMMON_SCRIPT, so it fits.
@@ -223,8 +227,10 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
         .map_err(|_| refused(format!("event file {event_file:04} has too many objects")))?;
     let name = format!("figur_{local_id}");
     if scripts::names_identifier(&source, &name) {
-        return Err(refused(format!(
-            "Die Scriptdatei {script_file:04} nennt schon {name}; in Bauen umbenennen."
+        return Err(refused(t!(
+            "recipes.script_file_names_already",
+            script_file = script_file : {:04},
+            name = name
         )));
     }
     let command = message_command(family);
@@ -233,9 +239,12 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
         .ok()
         .filter(|&m| u32::from(m) <= highest)
         .ok_or_else(|| {
-            refused(format!(
-                "Textarchiv {archive} hat schon {messages} Nachrichten; {command} nimmt Nummern \
-                 bis {highest}, die neue Nachricht bekäme {messages}."
+            refused(t!(
+                "recipes.archive_full",
+                archive = archive,
+                messages = messages,
+                command = command,
+                highest = highest
             ))
         })?;
     let look = match input.graphics_id {
@@ -263,15 +272,23 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
 /// the wizard (script slot, message number, visibility flag). Nothing is irreversible.
 pub fn plan(store: &mut Store, input: &NewFigureInput) -> Result<Draft, KernelError> {
     let checked = check(store, input)?;
-    let mut notes = vec![format!(
-        "Stellt Figur mit Script #{} und Nachricht {} in Archiv {} auf.",
-        checked.slot, checked.message, checked.archive
-    )];
+    let mut notes = vec![
+        t!(
+            "recipes.note_figure",
+            slot = checked.slot,
+            message = checked.message,
+            archive = checked.archive
+        )
+        .into_owned(),
+    ];
     if checked.hidden_flag != 0 {
-        notes.push(format!(
-            "Sichtbar, solange Flag 0x{:04X} 0 ist.",
-            checked.hidden_flag
-        ));
+        notes.push(
+            t!(
+                "recipes.note_visible_while_flag",
+                flag = checked.hidden_flag : {:04X}
+            )
+            .into_owned(),
+        );
     }
     Ok(Draft {
         events: vec![DraftEvent {
@@ -405,10 +422,10 @@ pub fn apply(
     if touched.contains(&archive) {
         // rotom appended a text literal of the file where the figure's message goes.
         store.rollback_to(mark)?;
-        return Err(refused(format!(
-            "Der Compile der Scriptdatei {script_file:04} schrieb ein Text-Literal in Textarchiv \
-             {archive}, in das die Nachricht der Figur kommt; erst die Scriptdatei in Bauen \
-             kompilieren und speichern."
+        return Err(refused(t!(
+            "recipes.compile_wrote_literal_figure",
+            script_file = script_file : {:04},
+            archive = archive
         )));
     }
     for &a in &touched {
@@ -433,9 +450,6 @@ pub fn apply(
         created: Vec::new(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[
-            ("edit_dialog", "Dialog bearbeiten"),
-            ("story_join", "Zu einer Geschichte"),
-        ]),
+        next: next_steps(&["edit_dialog", "story_join"]),
     })
 }

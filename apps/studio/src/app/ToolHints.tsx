@@ -1,4 +1,6 @@
 import { Fragment } from "react";
+import { useTranslation } from "react-i18next";
+import { t } from "../i18n";
 import type { WorldGetDto } from "../api.world";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth, Tool } from "../ui/frame/shellState";
@@ -10,12 +12,13 @@ import { TOOLS } from "../workbench/tools";
 import styles from "./ToolHints.module.css";
 
 /**
- * The left of the status line: the active tool and what its keys do ("Auswählen · Klick wählt · Ziehen verschiebt"). `placing` names the
+ * The left of the status line: the active tool and what its keys do („Auswählen · Klick wählt · Ziehen verschiebt“). `placing` names the
  * trainer the figure tool places („In der Welt platzieren“): "Figur · Klick setzt Wanderer Jens · Esc hebt die Bindung auf". While
- * „Gelände malen“ paints a world map (`usePaint().target`) it names the sub-tool and its keys: "Gelände malen · Pinsel · Ziehen malt · …";
+ * „Gelände malen“ paints a world map (`usePaint().target`) it names the sub-tool and its keys: „Gelände malen · Pinsel · Ziehen malt · …“;
  * Tüfteln adds the tokens of the hovered cell of that map („Kachel 0041r1 · Ebene 0 · Höhe 2 (16 E)“).
  */
 export function ToolHints({ tool, placing = null, hover = null, depth = "bauen" }: { tool: Tool; placing?: string | null; hover?: SceneHover | null; depth?: Depth }) {
+  const { t: tr } = useTranslation("app");
   const spec = TOOLS.find((t) => t.id === tool);
   const paint = usePaint();
   if (!spec) return null;
@@ -25,8 +28,8 @@ export function ToolHints({ tool, placing = null, hover = null, depth = "bauen" 
     ? paintStatusHints(paint.state)
     : tool === "figure" && placing !== null
       ? [
-          { keys: "Klick", does: `setzt ${placing}` },
-          { keys: "Esc", does: "hebt die Bindung auf" },
+          { keys: tr("toolHints.click"), does: tr("toolHints.places", { name: placing }) },
+          { keys: "Esc", does: tr("toolHints.unbind") },
         ]
       : spec.statusHints;
   return (
@@ -67,5 +70,5 @@ function cellTokens(world: WorldGetDto | null, layer: number, x: number, z: numb
   if (!doc) return null;
   const tile = doc.layers[layer]?.tiles[z]?.split(" ")[x] ?? ".";
   const step = Number.parseInt(doc.layers[0]?.heights?.[z]?.split(" ")[x] ?? "0", 10) || 0;
-  return `Kachel ${tile} · Ebene ${layer} · Höhe ${step} (${step * UNITS_PER_STEP} E)`;
+  return t("app:toolHints.cell", { tile, layer, step, units: step * UNITS_PER_STEP });
 }

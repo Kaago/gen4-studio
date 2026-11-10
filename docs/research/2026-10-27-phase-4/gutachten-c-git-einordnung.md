@@ -1,6 +1,6 @@
 # Gutachten C: Git minimal (4.4), Einordnung von 3d und Anforderungen an das Projektformat
 
-Stand: 2026-10-26 (für die Gutachten-Runde 2026-10-27). Gutachter: Architektur-Review (nur lesend am Code, mit Messungen). Repo: `/Users/POLTEP/Projekte/lab/editor/gen4-studio`, Branch `main` (`2c79058`).
+Stand: 2026-10-26 (für die Gutachten-Runde 2026-10-27). Gutachter: Architektur-Review (nur lesend am Code, mit Messungen). Repo: `$HOME/Projekte/lab/editor/gen4-studio`, Branch `main` (`2c79058`).
 
 Gelesen: `docs/ROADMAP.md` (Phase 3c, „Ausbau nach Phase 3“, Phase 4 mit Schnitt 4.0 bis 4.4, „Schon da“, offene Fragen, Phase 5, Phase 6, „Aus dem Design-System, später“), Spec 3c §13, `docs/research/2026-10-25-ausbau/entscheidungen.md`, Gutachten C vom 2026-10-25 (Stil), die Hauptspezifikation §5 und §6, die Spezifikation 4.0 auf dem Branch `phase-4-0-nebenaufgaben` (nur über `git show` gelesen, der Worktree ist unberührt), dazu im Code `crates/g4-kernel/src/{build,start,text,fsutil,world_meta,run,export,dynamic_headers,scripts,store}.rs`, `checks/ignore.rs`, `data/refs.rs`, `metadata/archives.yaml`, `metadata/scrcmd/*.json`, `crates/g4-formats/src/data/record.rs`, `apps/studio/src-tauri/src/commands/{models,buildings}.rs`, `mcp/tools.rs`, `apps/studio/src/technik/TechnikArea.tsx`, `apps/studio/src/app/{useHistory,useProjectSession}.ts`, `scripts/g4emu/g4emu/{paths,cli,steps}.py`.
 

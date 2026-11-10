@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { GitStatus } from "../../api";
 import { statusText, statusTooltip } from "../../git/gitWords";
 import { Button, Tooltip } from "../primitives";
@@ -18,12 +19,13 @@ export type GitStatusItemProps = {
  * symbol is hidden, the tooltip is not linked) and holds the visible text.
  */
 export function GitStatusItem({ status, onOpen, error = null }: GitStatusItemProps) {
+  const { t } = useTranslation("ui");
   if (error !== null) {
     return (
       <span className={`${styles.item} ${styles.unreadable}`}>
         <Tooltip content={error}>
           <Button kind="quiet" size="s" icon="git" onClick={onOpen} data-git-status="" data-git-error="">
-            Git: nicht lesbar
+            {t("gitStatusItem.unreadable")}
           </Button>
         </Tooltip>
       </span>
@@ -34,7 +36,7 @@ export function GitStatusItem({ status, onOpen, error = null }: GitStatusItemPro
   return (
     <span className={styles.item}>
       <Tooltip content={statusTooltip(status)}>
-        <Button kind="quiet" size="s" icon="git" onClick={onOpen} aria-label={`Git: ${text}`} data-git-status="">
+        <Button kind="quiet" size="s" icon="git" onClick={onOpen} aria-label={t("gitStatusItem.label", { text })} data-git-status="">
           {text}
         </Button>
       </Tooltip>

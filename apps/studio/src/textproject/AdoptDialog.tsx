@@ -1,41 +1,44 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { adoptTextProject, errorText, isCmdError } from "../api";
 import type { AdoptProgress, AdoptReport } from "../api";
 import { templatesNote } from "../git/gitWords";
+import { matchesAnyLanguage, t } from "../i18n";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
-import { NBSP } from "../words";
 import styles from "./AdoptDialog.module.css";
 
 /**
- * The backend's answer when the files were set up but the open session changed meanwhile and was kept (`textsource::REOPEN`): the project
- * must be opened anew, setting it up again would be refused.
+ * Whether `message` is the backend's answer when the files were set up but the open session changed meanwhile and was kept
+ * (`commands.textsource.reopen`, `textproject:adoptDialog.reopen`): the project must be opened anew, setting it up again would be refused.
+ * The refusal has no code of its own, and the backend says it in the language it was set to: the words of both catalogs count, so the
+ * hint stays when the backend speaks another language than the app shows.
  */
-export const REOPEN = "Die Dateien sind umgestellt, aber die offene Sitzung wurde inzwischen geändert und bleibt, wie sie ist; das Projekt bitte neu öffnen.";
+export const isReopen = (message: string): boolean => matchesAnyLanguage("textproject:adoptDialog.reopen", message);
 
 /** The unsaved count as the kernel says it („Erst speichern: 1 ungespeicherte Änderung.“). */
 export function unsavedText(n: number): string {
-  return `Erst speichern: ${n} ungespeicherte ${n === 1 ? "Änderung" : "Änderungen"}.`;
+  return t("textproject:adoptDialog.unsaved", { count: n });
 }
 
 /** The progress line of the set-up. */
 export function adoptProgressText(p: AdoptProgress): string {
-  const counted = p.total > 0 ? ` ${p.done} von ${p.total}` : "";
+  const counted = p.total > 0;
   switch (p.phase) {
     case "scripts":
-      return `Scripts übernehmen …${counted}`;
+      return counted ? t("textproject:adoptDialog.progress.scriptsCount", { done: p.done, total: p.total }) : t("textproject:adoptDialog.progress.scripts");
     case "base_layer":
-      return "Basisschicht anlegen …";
+      return t("textproject:adoptDialog.progress.baseLayer");
     case "entities":
-      return `Einträge schreiben …${counted}${p.total > 0 ? " Arten" : ""}`;
+      return counted ? t("textproject:adoptDialog.progress.entitiesCount", { done: p.done, total: p.total }) : t("textproject:adoptDialog.progress.entities");
     case "sync":
-      return "Abgleich vorbereiten …";
+      return t("textproject:adoptDialog.progress.sync");
   }
 }
 
 /** The message after the set-up: the files of the text project and the seconds it took, then what became of the Git templates. */
 export function adoptedText(report: AdoptReport): string {
-  return `Textprojekt eingerichtet: ${report.export.files.toLocaleString("de-DE")}${NBSP}Dateien in ${Math.round(report.ms / 1000)}${NBSP}s.${templatesNote(report)}`;
+  return `${t("textproject:adoptDialog.done", { count: report.export.files, seconds: Math.round(report.ms / 1000) })}${templatesNote(report)}`;
 }
 
 export type AdoptDialogProps = {
@@ -61,6 +64,7 @@ export type AdoptDialogProps = {
  * meanwhile); a refusal shows its sentence and the dialog can try again.
  */
 export function AdoptDialog({ unsaved, baseLabel, baseReason, scriptsAdopted, onClose, onAdopted, exclusive = (work) => work() }: AdoptDialogProps) {
+  const { t } = useTranslation("textproject");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<AdoptProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,13 +73,13 @@ export function AdoptDialog({ unsaved, baseLabel, baseReason, scriptsAdopted, on
   const busy = useRef(false);
 
   const rows: CheckRow[] = [
-    unsaved === 0 ? { id: "saved", state: "ok", text: "Alles gespeichert" } : { id: "saved", state: "error", text: unsavedText(unsaved) },
+    unsaved === 0 ? { id: "saved", state: "ok", text: t("adoptDialog.allSaved") } : { id: "saved", state: "error", text: unsavedText(unsaved) },
     baseLabel !== null
-      ? { id: "base", state: "ok", text: `Basis-ROM gefunden: ${baseLabel}` }
+      ? { id: "base", state: "ok", text: t("adoptDialog.baseFound", { label: baseLabel }) }
       : baseReason !== null
         ? { id: "base", state: "error", text: baseReason }
-        : { id: "base", state: "info", text: "Basis-ROM wird gesucht …" },
-    scriptsAdopted ? { id: "scripts", state: "ok", text: "Scripts übernommen" } : { id: "scripts", state: "info", text: "Scripts werden dabei übernommen" },
+        : { id: "base", state: "info", text: t("adoptDialog.baseSearching") },
+    scriptsAdopted ? { id: "scripts", state: "ok", text: t("adoptDialog.scriptsAdopted") } : { id: "scripts", state: "info", text: t("adoptDialog.scriptsAdoptedAlong") },
   ];
   const ready = unsaved === 0 && baseLabel !== null;
 
@@ -91,7 +95,7 @@ export function AdoptDialog({ unsaved, baseLabel, baseReason, scriptsAdopted, on
       onClose();
     } catch (e) {
       setError(errorText(e));
-      setReopen(isCmdError(e) && e.message === REOPEN);
+      setReopen(isCmdError(e) && isReopen(e.message));
     } finally {
       busy.current = false;
       setRunning(false);
@@ -101,10 +105,10 @@ export function AdoptDialog({ unsaved, baseLabel, baseReason, scriptsAdopted, on
   const actions: DialogAction[] = running
     ? []
     : reopen
-      ? [{ label: "Schließen", onClick: onClose }]
+      ? [{ label: t("adoptDialog.close"), onClick: onClose }]
       : [
-          { label: "Abbrechen", onClick: onClose },
-          { label: "Einrichten", kind: "primary", onClick: () => void adopt(), disabled: !ready },
+          { label: t("adoptDialog.cancel"), onClick: onClose },
+          { label: t("adoptDialog.setUp"), kind: "primary", onClick: () => void adopt(), disabled: !ready },
         ];
 
   return (
@@ -114,16 +118,16 @@ export function AdoptDialog({ unsaved, baseLabel, baseReason, scriptsAdopted, on
         if (!open && !busy.current) onClose();
       }}
       dismissible={!running}
-      title="Als Textprojekt einrichten?"
-      description="Schreibt g4-project.json und rund 6 500 Dateien unter data/. Die Spieldateien bleiben, wie sie sind; zurücknehmen geht in Technik › Textprojekt."
+      title={t("adoptDialog.title")}
+      description={t("adoptDialog.description")}
       data={{ "data-adopt-dialog": "" }}
       actions={actions}
     >
       <div className={styles.content}>
-        <CheckList ariaLabel="Vor dem Einrichten" rows={rows} />
+        <CheckList ariaLabel={t("adoptDialog.beforeSetUp")} rows={rows} />
         {running && (
           <p role="status" className={styles.progress} data-adopt-progress="">
-            {progress === null ? "Wird eingerichtet …" : adoptProgressText(progress)}
+            {progress === null ? t("adoptDialog.settingUp") : adoptProgressText(progress)}
           </p>
         )}
         {error !== null && <Notice kind="error">{error}</Notice>}

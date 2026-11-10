@@ -19,14 +19,14 @@ mod tombstone;
 mod types;
 pub mod warps;
 
-pub use free::{IRREVERSIBLE, check_free, free_number};
+pub use free::{check_free, free_number, irreversible};
 pub use plan::{
-    CANNOT_FREE_ORIGINAL, DeletePlan, FreeInfo, IDENTIFIER_FIELD, PLACE_ONLY_LAST, guard_header,
-    guard_reference, later_entries_live, locked_refusal, plan_delete,
+    DeletePlan, FreeInfo, IDENTIFIER_FIELD, cannot_free_original, guard_header, guard_reference,
+    later_entries_live, locked_refusal, place_only_last, plan_delete,
 };
 pub use tombstone::{DeleteResult, delete, restore};
 pub(crate) use types::TOMBSTONE_ARTS;
 pub use types::{
-    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
-    ORIGINAL_KIND, Rule,
+    DeleteTarget, Rule, no_tombstone_for_binaries, no_tombstone_for_files, not_a_text_project,
+    original_kind,
 };

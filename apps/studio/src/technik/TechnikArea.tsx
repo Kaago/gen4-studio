@@ -1,11 +1,13 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { Against, AssetId, BuildStep, ChangedEntry, DiffSubject, HeaderPatchDto, LiveStatusDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
-import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
+import { CHECK_CODES, checkMessage } from "../checks/messages";
 import type { ChecksApi } from "../checks/useChecks";
 import type { GitStatusApi } from "../git/useGitStatus";
+import { t } from "../i18n";
 import { useReset } from "../original/OriginalContext";
 import { useProjectPreview } from "../project/useProjectPreview";
 import type { ProjectPreviewState } from "../project/useProjectPreview";
@@ -18,7 +20,7 @@ import { ago, useNow } from "../ui/frame/timeAgo";
 import { Badge, Button, Dialog, EmptyState, ListRow, Notice, Section, Switch, useRovingList } from "../ui/primitives";
 import type { BadgeKind, IconName } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { ChecksFoot, ChecksNotes, ProblemsTable, UNCHECKED_WHY, UncheckedNotice, checksPending } from "../workbench/problems/ProblemsPanel";
+import { ChecksFoot, ChecksNotes, ProblemsTable, UncheckedNotice, checksPending, uncheckedWhy } from "../workbench/problems/ProblemsPanel";
 import { countsText, isFinding } from "../workbench/problems/problems";
 import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
@@ -120,24 +122,23 @@ export type TechnikAreaProps = {
   onChangesChosen?: (subject: DiffSubject | null) => void;
 };
 
-const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
-  { id: "projekt", label: "Projekt", icon: "open" },
-  { id: "textprojekt", label: "Textprojekt", icon: "textproject" },
-  { id: "bauen", label: "Prüfen und Bauen", icon: "build" },
-  { id: "veroeffentlichen", label: "Veröffentlichen", icon: "publish" },
-  { id: "aenderungen", label: "Änderungen", icon: "changes" },
-  { id: "patches", label: "Patches", icon: "patch" },
-  { id: "emulator", label: "Emulator", icon: "game" },
-  { id: "werkzeuge", label: "Werkzeuge", icon: "tools" },
+/** The entries of the list: their label is `technikArea.entries.<id>` in the catalog. */
+const ENTRIES: readonly { id: TechnikEntry; icon: IconName }[] = [
+  { id: "projekt", icon: "open" },
+  { id: "textprojekt", icon: "textproject" },
+  { id: "bauen", icon: "build" },
+  { id: "veroeffentlichen", icon: "publish" },
+  { id: "aenderungen", icon: "changes" },
+  { id: "patches", icon: "patch" },
+  { id: "emulator", icon: "game" },
+  { id: "werkzeuge", icon: "tools" },
 ];
 
-const PREVIEW_SUBTITLE = { eigen: "Eigenes Vorschaubild", standard: "Kartenbild der Startstadt" } as const;
-
 function previewSubtitle(state: ProjectPreviewState | null): string {
-  if (state === null) return "Kein Projekt geöffnet";
-  if (state.preview === null) return "Wird gelesen …";
+  if (state === null) return t("technik:shared.noProject");
+  if (state.preview === null) return t("technik:shared.reading");
   const { source } = state.preview;
-  return source === null ? "Kein Vorschaubild" : PREVIEW_SUBTITLE[source];
+  return source === null ? t("technik:technikArea.noPreview") : t(`technik:technikArea.previewSource.${source}`);
 }
 
 /** The last part of a folder path: the project's name. */
@@ -154,24 +155,13 @@ function patchState(patch: HeaderPatchDto): PatchState {
   return patch.applied ? "applied" : "available";
 }
 
-const PATCH_PLAQUE: Record<PatchState, { kind: BadgeKind; text: string }> = {
-  applied: { kind: "success", text: "Angewendet" },
-  available: { kind: "info", text: "Verfügbar" },
-  broken: { kind: "error", text: "Fehlerhaft" },
-  unsupported: { kind: "ptHgssOnly", text: "Nur Platin und HGSS" },
-};
-
-const PATCH_SUBTITLE: Record<PatchState, string> = {
-  applied: "Dynamische Header angewendet",
-  available: "Dynamische Header verfügbar",
-  broken: "Dynamische Header fehlerhaft",
-  unsupported: "Nur Platin und HGSS",
-};
+/** The colour of the plaque of each state of the patch; its word is `technikArea.patchPlaque.<state>`. */
+const PATCH_PLAQUE_KIND: Record<PatchState, BadgeKind> = { applied: "success", available: "info", broken: "error", unsupported: "ptHgssOnly" };
 
 function patchSubtitle(patch: HeaderPatch | null): string {
-  if (patch === null) return "Kein Projekt geöffnet";
-  if (patch.patch !== null) return PATCH_SUBTITLE[patchState(patch.patch)];
-  return patch.error === null ? "Wird gelesen …" : "Nicht lesbar";
+  if (patch === null) return t("technik:shared.noProject");
+  if (patch.patch !== null) return t(`technik:technikArea.patchSubtitle.${patchState(patch.patch)}`);
+  return patch.error === null ? t("technik:shared.reading") : t("technik:shared.notReadable");
 }
 
 /**
@@ -191,6 +181,7 @@ function WithProject(props: TechnikAreaProps) {
 }
 
 function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: HeaderPatch | null; preview: ProjectPreviewState | null }) {
+  const { t } = useTranslation("technik");
   const { entry, onEntry, listOpen, onToggleList, lastBuiltAt, emulatorPath, tools } = props;
   const status = useSyncExternalStore(tools.subscribe, tools.get);
   const original = useReset().status;
@@ -200,19 +191,19 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
   const subtitles: Record<TechnikEntry, string> = {
     projekt: previewSubtitle(preview),
     textprojekt: textProjectSubtitle(props.textProject),
-    bauen: lastBuiltAt === null ? "Noch nicht gebaut" : `gebaut ${ago(lastBuiltAt, now)}`,
+    bauen: lastBuiltAt === null ? t("technikArea.notBuilt") : t("technikArea.builtAgo", { ago: ago(lastBuiltAt, now) }),
     veroeffentlichen: publishSubtitle(props.base),
     aenderungen: changesSubtitle(props.against, props.changes, original, props.git?.status ?? null, props.unsaved),
     patches: patchSubtitle(patch),
-    emulator: emulatorPath ?? "Kein Emulator gewählt",
+    emulator: emulatorPath ?? t("technikArea.noEmulator"),
     werkzeuge: toolsText(status),
   };
   return (
     <div className={styles.area}>
-      <ListPane title="Technik" open={listOpen} onToggle={onToggleList}>
-        <div ref={list} role="listbox" aria-label="Technik" className={styles.list}>
+      <ListPane title={t("technikArea.title")} open={listOpen} onToggle={onToggleList}>
+        <div ref={list} role="listbox" aria-label={t("technikArea.title")} className={styles.list}>
           {ENTRIES.map((e) => (
-            <ListRow key={e.id} label={e.label} icon={e.icon} subtitle={subtitles[e.id]} selected={e.id === entry} onSelect={() => onEntry(e.id)} />
+            <ListRow key={e.id} label={t(`technikArea.entries.${e.id}`)} icon={e.icon} subtitle={subtitles[e.id]} selected={e.id === entry} onSelect={() => onEntry(e.id)} />
           ))}
         </div>
       </ListPane>
@@ -246,8 +237,8 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
       ) : entry === "patches" ? (
         <PatchSurface patch={patch} onOpenProject={props.onOpenProject} />
       ) : entry === "emulator" ? (
-        <Surface entry="emulator" title="Emulator">
-          <p className={styles.text}>Das Studio startet gebaute ROMs in diesem Emulator. Die Wahl gilt für alle Projekte.</p>
+        <Surface entry="emulator" title={t("technikArea.emulatorTitle")}>
+          <p className={styles.text}>{t("technikArea.emulatorText")}</p>
           <EmulatorRow path={emulatorPath} onPick={props.onPickEmulator} />
           <LiveRow melonds={props.live?.melonds} emulator={emulatorPath} />
         </Surface>
@@ -275,7 +266,8 @@ function Surface({ entry, title, subtitle, children }: { entry: TechnikEntry; ti
 }
 
 function NoProject({ why, onOpenProject }: { why: string; onOpenProject: () => void }) {
-  return <EmptyState what="Kein Projekt geöffnet." why={why} action={{ label: "Projekt öffnen", onClick: onOpenProject }} />;
+  const { t } = useTranslation("technik");
+  return <EmptyState what={t("shared.noProjectWhat")} why={why} action={{ label: t("shared.openProject"), onClick: onOpenProject }} />;
 }
 
 type ProjectSurfaceProps = { project: string | null; preview: ProjectPreviewState | null; startTown?: (header: number) => string | null; onOpenProject: () => void };
@@ -286,10 +278,11 @@ type ProjectSurfaceProps = { project: string | null; preview: ProjectPreviewStat
  * hint which picture Start shows without an own one, naming the start town when the world knows its name.
  */
 function ProjectSurface({ project, preview, startTown, onOpenProject }: ProjectSurfaceProps) {
+  const { t } = useTranslation("technik");
   if (project === null || preview === null) {
     return (
-      <Surface entry="projekt" title="Projekt">
-        <NoProject why="Öffne ein Projekt, dann zeigt Technik hier sein Vorschaubild." onOpenProject={onOpenProject} />
+      <Surface entry="projekt" title={t("technikArea.project.title")}>
+        <NoProject why={t("technikArea.project.noProjectWhy")} onOpenProject={onOpenProject} />
       </Surface>
     );
   }
@@ -297,7 +290,7 @@ function ProjectSurface({ project, preview, startTown, onOpenProject }: ProjectS
   const header = preview.preview?.standardMap?.header;
   const town = header === undefined ? null : (startTown?.(header) ?? null);
   return (
-    <Surface entry="projekt" title="Projekt" subtitle={name}>
+    <Surface entry="projekt" title={t("technikArea.project.title")} subtitle={name}>
       <PreviewSection name={name} preview={preview} town={town} />
     </Surface>
   );
@@ -308,6 +301,7 @@ function ProjectSurface({ project, preview, startTown, onOpenProject }: ProjectS
  * (`name` on the empty screen while there is none), „Vorschaubild wählen…“, „Entfernen“ with an own picture, and the hint naming `town`.
  */
 export function PreviewSection({ name, preview, town }: { name: string; preview: ProjectPreviewState; town: string | null }) {
+  const { t } = useTranslation("technik");
   const headingId = useId();
   const dto = preview.preview;
   const choose = useRef<HTMLButtonElement>(null);
@@ -329,35 +323,36 @@ export function PreviewSection({ name, preview, town }: { name: string; preview:
   return (
     <section className={styles.card} data-section="vorschaubild" aria-labelledby={headingId}>
       <h2 id={headingId} className={styles.heading}>
-        Vorschaubild
+        {t("technikArea.preview.heading")}
       </h2>
       <div className={styles.preview}>
         <ProjectPreview name={name} png={dto?.png ?? null} />
       </div>
       <div className={styles.actions}>
         <Button ref={choose} kind="secondary" aria-disabled={preview.busy || undefined} onClick={() => change("choose")}>
-          Vorschaubild wählen…
+          {t("technikArea.preview.choose")}
         </Button>
         {dto?.source === "eigen" && (
           <Button kind="secondary" aria-disabled={preview.busy || undefined} onClick={() => change("remove")}>
-            Entfernen
+            {t("technikArea.preview.remove")}
           </Button>
         )}
       </div>
       <p className={styles.note} data-hint="">
-        Ohne eigenes Bild zeigt Start das Kartenbild {town === null ? "der Startstadt" : `von ${town}`}.
+        {town === null ? t("technikArea.preview.hintStartTown") : t("technikArea.preview.hintTown", { town })}
       </p>
     </section>
   );
 }
 
 function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, lastSteps, lastBuildFresh = false, lastPatchRom = null, onBuild, onBuildFresh, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
+  const { t } = useTranslation("technik");
   const rows = useSyncExternalStore(problems.subscribe, problems.list);
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
   if (project === null) {
     return (
-      <Surface entry="bauen" title="Prüfen und Bauen">
-        <NoProject why="Öffne ein Projekt, dann prüft und baut Technik es hier." onOpenProject={onOpenProject} />
+      <Surface entry="bauen" title={t("technikArea.build.title")}>
+        <NoProject why={t("technikArea.build.noProjectWhy")} onOpenProject={onOpenProject} />
       </Surface>
     );
   }
@@ -367,44 +362,44 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
     if (!busy) action();
   };
   return (
-    <Surface entry="bauen" title="Prüfen und Bauen" subtitle={countsText(counts)}>
+    <Surface entry="bauen" title={t("technikArea.build.title")} subtitle={countsText(counts)}>
       <div className={styles.actions}>
         <Button kind="primary" icon="build" aria-disabled={busy || undefined} onClick={whenIdle(onBuild)}>
-          Bauen
+          {t("technikArea.build.build")}
         </Button>
-        <Button kind="secondary" icon="build" aria-disabled={busy || undefined} onClick={whenIdle(onBuildFresh)} title="Löscht den Bauzustand und baut alles neu">
-          Neu bauen (ohne Cache)
+        <Button kind="secondary" icon="build" aria-disabled={busy || undefined} onClick={whenIdle(onBuildFresh)} title={t("technikArea.build.rebuildHint")}>
+          {t("technikArea.build.rebuild")}
         </Button>
-        <Button kind="secondary" icon="play" disabled={!canRun || lastRom === null} aria-disabled={busy || undefined} onClick={whenIdle(onRun)} title={canRun && lastRom === null ? "Erst bauen, dann starten" : undefined}>
-          Starten
+        <Button kind="secondary" icon="play" disabled={!canRun || lastRom === null} aria-disabled={busy || undefined} onClick={whenIdle(onRun)} title={canRun && lastRom === null ? t("technikArea.build.runHint") : undefined}>
+          {t("technikArea.build.run")}
         </Button>
-        {busy ? <span className={styles.note}>Baue ROM …</span> : !canRun && <span className={styles.note}>Im Browser-Modus wird nur gebaut</span>}
+        {busy ? <span className={styles.note}>{t("technikArea.build.building")}</span> : !canRun && <span className={styles.note}>{t("technikArea.build.browserMode")}</span>}
       </div>
       <dl className={styles.facts}>
         <div className={styles.fact}>
-          <dt>Letzter Build</dt>
-          <dd>{lastBuiltAt === null ? "Noch nicht gebaut" : ago(lastBuiltAt, now)}</dd>
+          <dt>{t("technikArea.build.lastBuild")}</dt>
+          <dd>{lastBuiltAt === null ? t("technikArea.notBuilt") : ago(lastBuiltAt, now)}</dd>
         </div>
         {lastRom !== null && (
           <div className={styles.fact}>
-            <dt>Pfad</dt>
+            <dt>{t("technikArea.build.path")}</dt>
             <dd className={styles.path} title={lastRom}>
               {lastRom}
             </dd>
           </div>
         )}
       </dl>
-      <h2 className={styles.heading}>Schritte</h2>
+      <h2 className={styles.heading}>{t("technikArea.build.stepsHeading")}</h2>
       {lastSteps !== null && lastPatchRom !== null && (
         <p className={styles.text} data-steps-source="">
           {patchBuildNote(lastPatchRom, project)}
         </p>
       )}
-      {lastSteps === null ? <p className={styles.text}>Noch kein Build in dieser Sitzung.</p> : <BuildSteps steps={lastSteps} depth={depth} fresh={lastBuildFresh} />}
-      <h2 className={styles.heading}>Probleme</h2>
+      {lastSteps === null ? <p className={styles.text}>{t("technikArea.build.noBuildYet")}</p> : <BuildSteps steps={lastSteps} depth={depth} fresh={lastBuildFresh} />}
+      <h2 className={styles.heading}>{t("technikArea.build.problemsHeading")}</h2>
       {checks !== null && <Baseline checks={checks} rows={rows} />}
       {rows.length === 0 && checks === null ? (
-        <p className={styles.text}>Keine Probleme. Beim Speichern und Bauen landen Fehler und Warnungen hier.</p>
+        <p className={styles.text}>{t("technikArea.build.noProblems")}</p>
       ) : (
         <div className={styles.table}>
           {checks !== null && <ChecksNotes checks={checks} depth={depth} />}
@@ -426,14 +421,15 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
 
 /** The empty list of Prüfen und Bauen: the first run is under way, the checks have no result, or there are no problems. */
 function EmptyList({ checks }: { checks: ChecksApi | null }) {
+  const { t } = useTranslation("technik");
   const view = useSyncExternalStore(checks?.feed.subscribe ?? noSubscribe, checks?.feed.get ?? noView);
   const pending = checksPending(view);
   const text =
     pending === "first"
-      ? "Prüft das Projekt … Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind."
+      ? t("technikArea.build.checking")
       : pending === "unchecked"
-        ? `Nicht geprüft. ${UNCHECKED_WHY}`
-        : "Keine Probleme. Die Prüfungen laufen nach jeder Änderung; beim Speichern und Bauen landen Fehler und Warnungen hier.";
+        ? t("technikArea.build.unchecked", { why: uncheckedWhy() })
+        : t("technikArea.build.noProblemsChecks");
   return <p className={`${styles.text} ${styles.inset}`}>{text}</p>;
 }
 
@@ -445,23 +441,24 @@ const noView = () => null;
  * info of the current state. Errors stay.
  */
 function Baseline({ checks, rows }: { checks: ChecksApi; rows: readonly ProblemRow[] }) {
+  const { t } = useTranslation("technik");
   const [asking, setAsking] = useState(false);
   const n = rows.filter((row) => isFinding(row) && row.severity !== "error").length;
   return (
     <div className={styles.actions}>
       <Button kind="secondary" onClick={() => setAsking(true)}>
-        Ausgangslage übernehmen…
+        {t("technikArea.baseline.button")}
       </Button>
-      <span className={styles.note}>Blendet alle Warnungen und Hinweise von jetzt aus; Fehler bleiben sichtbar.</span>
+      <span className={styles.note}>{t("technikArea.baseline.note")}</span>
       <Dialog
         open={asking}
         onOpenChange={setAsking}
-        title="Ausgangslage übernehmen?"
-        description={`${n} ${n === 1 ? "Warnung oder Hinweis wird" : "Warnungen und Hinweise werden"} ausgeblendet. Ändert sich eine Stelle, meldet sie sich wieder; unter „Wieder melden…“ holst du sie zurück.`}
+        title={t("technikArea.baseline.title")}
+        description={t("technikArea.baseline.description", { count: n })}
         actions={[
-          { label: "Abbrechen", onClick: () => setAsking(false) },
+          { label: t("shared.cancel"), onClick: () => setAsking(false) },
           {
-            label: "Übernehmen",
+            label: t("technikArea.baseline.adopt"),
             kind: "primary",
             onClick: () => {
               setAsking(false);
@@ -476,20 +473,21 @@ function Baseline({ checks, rows }: { checks: ChecksApi; rows: readonly ProblemR
 
 /** A switch per check (folded until asked for); a check that reports errors cannot be switched off. */
 function CheckSwitches({ checks }: { checks: ChecksApi }) {
+  const { t } = useTranslation("technik");
   const [open, setOpen] = useState(false);
   const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
   return (
     <div className={styles.switches}>
-      <Section title="Prüfungen ein- und ausschalten" open={open} onToggle={() => setOpen(!open)}>
-        <ul role="list" aria-label="Prüfungen ein- und ausschalten" className={styles.switchList}>
+      <Section title={t("technikArea.switches.title")} open={open} onToggle={() => setOpen(!open)}>
+        <ul role="list" aria-label={t("technikArea.switches.title")} className={styles.switchList}>
           {CHECK_CODES.map((code) => {
-            const m = CHECK_MESSAGES[code]!;
+            const m = checkMessage(code)!;
             const errors = m.severity === "error";
             return (
               <li key={code} className={styles.switchRow} data-check={code}>
                 <Switch label={m.title} checked={!view.disabled.includes(code)} disabled={errors} onChange={(on) => void checks.setEnabled(code, on)} />
                 <span className={styles.code}>{code}</span>
-                {errors && <span className={styles.note}>Fehler lassen sich nicht abschalten.</span>}
+                {errors && <span className={styles.note}>{t("technikArea.switches.errorsStay")}</span>}
               </li>
             );
           })}
@@ -500,23 +498,24 @@ function CheckSwitches({ checks }: { checks: ChecksApi }) {
 }
 
 function PatchSurface({ patch, onOpenProject }: { patch: HeaderPatch | null; onOpenProject: () => void }) {
+  const { t } = useTranslation("technik");
   const [asking, setAsking] = useState(false);
   const headingId = useId();
   if (patch === null) {
     return (
-      <Surface entry="patches" title="Patches">
-        <NoProject why="Öffne ein Projekt, dann zeigt Technik hier seine Patches." onOpenProject={onOpenProject} />
+      <Surface entry="patches" title={t("technikArea.patches.title")}>
+        <NoProject why={t("technikArea.patches.noProjectWhy")} onOpenProject={onOpenProject} />
       </Surface>
     );
   }
   const state = patch.patch === null ? null : patchState(patch.patch);
-  const plaque = state === null ? null : PATCH_PLAQUE[state];
+  const plaque = state === null ? null : { kind: PATCH_PLAQUE_KIND[state], text: t(`technikArea.patchPlaque.${state}`) };
   return (
-    <Surface entry="patches" title="Patches">
+    <Surface entry="patches" title={t("technikArea.patches.title")}>
       <section className={styles.card} aria-labelledby={headingId}>
         <div className={styles.cardHead}>
           <h2 id={headingId} className={styles.heading}>
-            Dynamische Header
+            {t("technikArea.patches.heading")}
           </h2>
           {plaque && state && (
             <span data-patch={state}>
@@ -524,39 +523,35 @@ function PatchSurface({ patch, onOpenProject }: { patch: HeaderPatch | null; onO
             </span>
           )}
         </div>
-        <p className={styles.text}>
-          Neue Orte brauchen eigene Header. Der Patch verlegt die Header in eine Datei je Header und ändert dafür Bytes im Spielcode (arm9.bin). DSPRE kennt ihn.
-        </p>
-        {patch.patch === null && patch.error === null && <p className={styles.note}>Prüfe den Patch …</p>}
-        {state === "broken" && (
-          <p className={styles.text}>Der Patch ruft im Spielcode eine falsche Funktion auf: das Spiel bleibt nach dem Intro schwarz. Die Reparatur ändert 4 Bytes in arm9.bin.</p>
-        )}
+        <p className={styles.text}>{t("technikArea.patches.text")}</p>
+        {patch.patch === null && patch.error === null && <p className={styles.note}>{t("technikArea.patches.checking")}</p>}
+        {state === "broken" && <p className={styles.text}>{t("technikArea.patches.brokenText")}</p>}
         {(state === "available" || state === "broken") && (
           <div className={styles.actions}>
             {state === "available" ? (
               <Button kind="primary" disabled={patch.busy} onClick={() => setAsking(true)}>
-                Patch anwenden
+                {t("technikArea.patches.apply")}
               </Button>
             ) : (
               <Button kind="primary" disabled={patch.busy} onClick={() => void patch.repair()}>
-                Patch reparieren
+                {t("technikArea.patches.repair")}
               </Button>
             )}
-            {patch.busy && <span className={styles.note}>{state === "available" ? "Wende an …" : "Repariere …"}</span>}
+            {patch.busy && <span className={styles.note}>{state === "available" ? t("technikArea.patches.applying") : t("technikArea.patches.repairing")}</span>}
           </div>
         )}
-        {patch.snapshot !== null && <p className={styles.text}>Sicherung des alten Ordners: {patch.snapshot}</p>}
+        {patch.snapshot !== null && <p className={styles.text}>{t("technikArea.patches.snapshot", { path: patch.snapshot })}</p>}
         {patch.error !== null && <Notice kind="error">{patch.error}</Notice>}
       </section>
       <Dialog
         open={asking}
         onOpenChange={setAsking}
-        title="Patch „Dynamische Header“ anwenden?"
-        description="Der Patch ändert Bytes im Spielcode (arm9.bin), die Sicherung arm9.bin.backup wird angelegt. Ungespeicherte Änderungen an Gebieten und Räumen bleiben ungespeichert."
+        title={t("technikArea.patches.dialogTitle")}
+        description={t("technikArea.patches.dialogDescription")}
         actions={[
-          { label: "Abbrechen", onClick: () => setAsking(false) },
+          { label: t("shared.cancel"), onClick: () => setAsking(false) },
           {
-            label: "Patch anwenden",
+            label: t("technikArea.patches.apply"),
             kind: "primary",
             onClick: () => {
               setAsking(false);
@@ -571,42 +566,36 @@ function PatchSurface({ patch, onOpenProject }: { patch: HeaderPatch | null; onO
   );
 }
 
-const LSP_BADGE: Record<LspToolState, { kind: BadgeKind; text: string }> = {
-  aus: { kind: "neutral", text: "Aus" },
-  startet: { kind: "neutral", text: "Startet" },
-  bereit: { kind: "success", text: "Bereit" },
-  fehlt: { kind: "warning", text: "Fehlt" },
-  fehler: { kind: "error", text: "Fehler" },
-};
+/** The badges of the tools by state (the colour here, the word as `technikArea.tools.lsp.<state>` and `technikArea.tools.apicula.<state>`). */
+const LSP_KIND: Record<LspToolState, BadgeKind> = { aus: "neutral", startet: "neutral", bereit: "success", fehlt: "warning", fehler: "error" };
+const APICULA_KIND: Record<ApiculaState, BadgeKind> = { unbekannt: "neutral", bereit: "success", fehlt: "warning" };
 
-const APICULA_BADGE: Record<ApiculaState, { kind: BadgeKind; text: string; note?: string }> = {
-  unbekannt: { kind: "neutral", text: "Unbekannt", note: "Zeigt sich beim ersten Kartenbild." },
-  bereit: { kind: "success", text: "Bereit" },
-  fehlt: { kind: "warning", text: "Fehlt", note: "Ohne apicula gibt es keine Kartenbilder und 3D-Modelle." },
-};
+/** What apicula's badge adds in the states that have a note. */
+const apiculaNote = (state: ApiculaState): string | undefined => (state === "bereit" ? undefined : t(`technik:technikArea.tools.apiculaNote.${state}`));
 
 function lspNote(lsp: LspTool | null): string | undefined {
-  if (lsp === null) return "Startet, sobald das Panel Script einmal gezeigt wird.";
+  if (lsp === null) return t("technik:technikArea.tools.lspNoteNotStarted");
   // Off: the script panel says why when it knows (scripts not adopted); without a reason the note stays neutral.
-  if (lsp.state === "aus") return lsp.note ?? "Nicht gestartet.";
+  if (lsp.state === "aus") return lsp.note ?? t("technik:technikArea.tools.lspOff");
   return lsp.note;
 }
 
 type ToolsProps = { lsp: LspTool | null; apicula: ApiculaState; subtitle: string; hasProject: boolean; onClearWorld: () => void };
 
 function ToolsSurface({ lsp, apicula, subtitle, hasProject, onClearWorld }: ToolsProps) {
-  const lspBadge = lsp === null ? { kind: "neutral" as const, text: "Nicht gestartet" } : LSP_BADGE[lsp.state];
-  const apiculaBadge = APICULA_BADGE[apicula];
+  const { t } = useTranslation("technik");
+  const lspBadge = lsp === null ? { kind: "neutral" as const, text: t("technikArea.tools.lspNotStartedBadge") } : { kind: LSP_KIND[lsp.state], text: t(`technikArea.tools.lsp.${lsp.state}`) };
+  const apiculaBadge = { kind: APICULA_KIND[apicula], text: t(`technikArea.tools.apicula.${apicula}`), note: apiculaNote(apicula) };
   const note = lspNote(lsp);
   return (
-    <Surface entry="werkzeuge" title="Werkzeuge" subtitle={subtitle}>
+    <Surface entry="werkzeuge" title={t("technikArea.tools.title")} subtitle={subtitle}>
       <ul className={styles.tools}>
         <li className={styles.tool} data-tool="apicula">
           <div className={styles.toolHead}>
             <span className={styles.toolName}>apicula</span>
             <Badge kind={apiculaBadge.kind}>{apiculaBadge.text}</Badge>
           </div>
-          <p className={styles.text}>Wandelt die Karten des Spiels in 3D-Modelle und Kartenbilder.</p>
+          <p className={styles.text}>{t("technikArea.tools.apiculaText")}</p>
           {apiculaBadge.note && <p className={styles.note}>{apiculaBadge.note}</p>}
         </li>
         <li className={styles.tool} data-tool="rotom-lsp" data-lsp={lsp?.state ?? "none"}>
@@ -615,23 +604,23 @@ function ToolsSurface({ lsp, apicula, subtitle, hasProject, onClearWorld }: Tool
             <Badge kind={lspBadge.kind}>{lspBadge.text}</Badge>
             {lsp?.state === "fehler" && lsp.restart && (
               <Button kind="quiet" size="s" onClick={lsp.restart}>
-                Neu starten
+                {t("technikArea.tools.restart")}
               </Button>
             )}
           </div>
-          <p className={styles.text}>Sprachdienst für Scripts: Vervollständigung und Diagnosen im Editor.</p>
+          <p className={styles.text}>{t("technikArea.tools.lspText")}</p>
           {note && <p className={styles.note}>{note}</p>}
         </li>
         <li className={styles.tool} data-tool="welt-leeren">
           <div className={styles.toolHead}>
-            <span className={styles.toolTitle}>Welt leeren</span>
+            <span className={styles.toolTitle}>{t("technikArea.tools.clearWorld")}</span>
           </div>
-          <p className={styles.text}>Macht aus der Welt eine leere Region mit Startstadt. Die Welt holst du mit ⌘Z zurück.</p>
+          <p className={styles.text}>{t("technikArea.tools.clearWorldText")}</p>
           <div className={styles.actions}>
             <Button kind="secondary" icon="world" disabled={!hasProject} onClick={onClearWorld}>
-              Welt leeren…
+              {t("technikArea.tools.clearWorldButton")}
             </Button>
-            {!hasProject && <span className={styles.note}>Erst ein Projekt öffnen</span>}
+            {!hasProject && <span className={styles.note}>{t("technikArea.tools.needProject")}</span>}
           </div>
         </li>
       </ul>

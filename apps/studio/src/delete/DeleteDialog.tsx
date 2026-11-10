@@ -1,8 +1,10 @@
 import { useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { deleteEntity, deleteTargetLabel, isCmdError, resetErrorText } from "../api";
 import type { DeleteResult, DeleteTarget, RefDto, StoryMention } from "../api";
 import { Badge, Checkbox, Dialog, ListRow, Notice, Reference, useRovingList } from "../ui/primitives";
 import type { DialogAction } from "../ui/primitives";
+import { matchesAnyLanguage } from "../i18n";
 import type { NavTarget } from "../workbench/navigation";
 import { useDeletePlan } from "./useDeletePlan";
 import styles from "./DeleteDialog.module.css";
@@ -17,30 +19,13 @@ export type DeleteDialogProps = {
   goTo?: (nav: NavTarget) => void;
 };
 
-/** What the dialog says about an original of the base ROM. */
-export const ORIGINAL_WARNING = "Original aus der Basis-ROM: der Eintrag bleibt im ROM; „Auf Original zurücksetzen“ holt ihn zurück.";
-/** What a tombstone keeps; not said while „Nummer freigeben“ is ticked (gate 3d.4 B11). */
-export const TOMBSTONE_KEEPS = "Inhalt und Member bleiben; ⌘Z holt den Eintrag zurück.";
-const FREE_LABEL = "Nummer freigeben (nicht rückgängig)";
-/** The kernel's refusal in the DSPRE layout (`delete::NOT_A_TEXT_PROJECT`). */
-export const NOT_A_TEXT_PROJECT = "Echtes Löschen gibt es im Textprojekt (Technik › Textprojekt).";
-/** What the dialog says beside it: emptying stays an ordinary edit. */
-export const CLEAR_HINT = "Leeren geht als gewöhnliche Bearbeitung: Eventdatei leeren im Inspector, Begegnungen auf 0.";
-
 /**
- * What the dialog says under the stories that mention the entity: they are documentation and never lock; once the
- * delete is saved, the text project check reports each use that names nothing any more (`story.dangling-ref`).
+ * Whether `refusal` is the kernel's refusal in the DSPRE layout (`delete.not_a_text_project`): the dialog then adds the way to empty
+ * the entity instead. The kernel words it in the language it was set to; a sentence of either catalog counts, so the hint stays when it
+ * speaks another language than the app shows.
  */
-export const MENTIONS_HINT = "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.";
-
-/** „{n} Verweise: zuerst umhängen.“ (one: „Verweis“). */
-export function referencesText(n: number): string {
-  return `${n} ${n === 1 ? "Verweis" : "Verweise"}: zuerst umhängen.`;
-}
-
-/** „Entfernt {n} Dateien: a, b“ (one: „Datei“). */
-function removesText(files: readonly string[]): string {
-  return `Entfernt ${files.length} ${files.length === 1 ? "Datei" : "Dateien"}: ${files.join(", ")}`;
+function isNotATextProject(refusal: string | null): boolean {
+  return refusal !== null && matchesAnyLanguage("delete:deleteDialog.notATextProject", refusal);
 }
 
 /**
@@ -48,10 +33,11 @@ function removesText(files: readonly string[]): string {
  * a number to free) or a failed one shows only the reason; references lock „Löschen“ and list where they come from (a click leads there);
  * an original warns that the entry stays in the ROM. Where the plan allows it, „Nummer freigeben (nicht rückgängig)“ frees the number
  * for good, else the plan's reason why not is said quietly. A failed delete keeps the dialog open with the reason (references it names
- * lock it as above). In the DSPRE layout the refusal comes with the way to empty an entity instead ({@link CLEAR_HINT}). The stories
+ * lock it as above). In the DSPRE layout the refusal comes with the way to empty an entity instead (`deleteDialog.clearHint`). The stories
  * that mention the entity stand under „Erwähnt in Geschichten“ as chips (a click opens the story), locked or not: they never lock.
  */
 export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogProps) {
+  const { t } = useTranslation("delete");
   const { plan, error: planError } = useDeletePlan(target);
   const [free, setFree] = useState(false);
   const [running, setRunning] = useState(false);
@@ -95,11 +81,11 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
   };
 
   const actions: DialogAction[] = refused
-    ? [{ label: "Schließen", onClick: onClose }]
+    ? [{ label: t("deleteDialog.close"), onClick: onClose }]
     : [
-        { label: "Abbrechen", onClick: onClose, disabled: running },
+        { label: t("deleteDialog.cancel"), onClick: onClose, disabled: running },
         {
-          label: free ? "Löschen und Nummer freigeben" : "Löschen",
+          label: free ? t("deleteDialog.deleteAndFree") : t("deleteDialog.delete"),
           kind: "primary",
           onClick: () => void remove(),
           disabled: plan === null || running || locked || (!tombstone && !free),
@@ -112,7 +98,7 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
       onOpenChange={(open) => {
         if (!open && !busy.current) onClose();
       }}
-      title={`${label} löschen`}
+      title={t("deleteDialog.title", { label })}
       data={{ "data-delete-dialog": "" }}
       actions={actions}
     >
@@ -121,36 +107,36 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
           <Notice kind="error">{planError}</Notice>
         ) : plan === null ? (
           <p role="status" className={styles.wait}>
-            Prüfe Verweise …
+            {t("deleteDialog.checking")}
           </p>
         ) : refused ? (
           <>
-            <Notice kind="error">{plan.refusal ?? `${label} ist schon gelöscht.`}</Notice>
-            {plan.refusal === NOT_A_TEXT_PROJECT && <Notice kind="info">{CLEAR_HINT}</Notice>}
+            <Notice kind="error">{plan.refusal ?? t("deleteDialog.alreadyDeleted", { label })}</Notice>
+            {isNotATextProject(plan.refusal) && <Notice kind="info">{t("deleteDialog.clearHint")}</Notice>}
           </>
         ) : locked ? (
           <>
-            <Notice kind="error">{referencesText(references.length)}</Notice>
+            <Notice kind="error">{t("deleteDialog.referencesLocked", { count: references.length })}</Notice>
             <RefList refs={references} soft={false} onFollow={goTo === undefined ? undefined : follow} />
             {plan.mentions.length > 0 && <Mentions mentions={plan.mentions} onFollow={goTo === undefined ? undefined : follow} />}
           </>
         ) : (
           <>
-            {plan.original && <Notice kind="warning">{ORIGINAL_WARNING}</Notice>}
+            {plan.original && <Notice kind="warning">{t("deleteDialog.originalWarning")}</Notice>}
             {plan.warnings.length > 0 && <RefList refs={plan.warnings} soft onFollow={goTo === undefined ? undefined : follow} />}
             {plan.mentions.length > 0 && <Mentions mentions={plan.mentions} onFollow={goTo === undefined ? undefined : follow} />}
             {plan.refusal !== null && <Notice kind="warning">{plan.refusal}</Notice>}
-            {plan.refusal === NOT_A_TEXT_PROJECT && <Notice kind="info">{CLEAR_HINT}</Notice>}
-            {plan.refusal === null && plan.deleted && <Notice kind="info">{`${label} ist schon gelöscht.`}</Notice>}
+            {isNotATextProject(plan.refusal) && <Notice kind="info">{t("deleteDialog.clearHint")}</Notice>}
+            {plan.refusal === null && plan.deleted && <Notice kind="info">{t("deleteDialog.alreadyDeleted", { label })}</Notice>}
             {/* Freed, nothing stays and ⌘Z brings nothing back: then only what goes is said. */}
-            {tombstone && !free && <Notice kind="info">{TOMBSTONE_KEEPS}</Notice>}
+            {tombstone && !free && <Notice kind="info">{t("deleteDialog.tombstoneKeeps")}</Notice>}
             {canFree !== null ? (
               <div className={styles.free} data-free-number="">
                 <div className={styles.freeHead}>
-                  <Checkbox label={FREE_LABEL} checked={free} onChange={setFree} disabled={running} />
+                  <Checkbox label={t("deleteDialog.freeNumber")} checked={free} onChange={setFree} disabled={running} />
                   <Badge kind="irreversible" />
                 </div>
-                <p className={styles.files}>{removesText(canFree.files)}</p>
+                <p className={styles.files}>{t("deleteDialog.removes", { count: canFree.files.length, files: canFree.files.join(", ") })}</p>
               </div>
             ) : (
               plan.cannot_free !== null && (
@@ -161,7 +147,7 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
             )}
             {running && (
               <p role="status" className={styles.wait}>
-                Lösche …
+                {t("deleteDialog.deleting")}
               </p>
             )}
             {error !== null && <Notice kind="error">{error}</Notice>}
@@ -174,10 +160,11 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
 
 /** The references as rows (label, source in mono), one tab stop and the arrow keys; a row leads to its source (`onFollow`, else inert). */
 function RefList({ refs, soft, onFollow }: { refs: readonly RefDto[]; soft: boolean; onFollow?: (nav: NavTarget) => void }) {
+  const { t } = useTranslation("delete");
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
   return (
-    <div ref={list} role="listbox" aria-label={soft ? "Weiche Verweise" : "Verweise"} className={styles.refs}>
+    <div ref={list} role="listbox" aria-label={soft ? t("deleteDialog.softReferencesLabel") : t("deleteDialog.referencesLabel")} className={styles.refs}>
       {refs.map((r, i) => (
         <ListRow
           key={i}
@@ -200,11 +187,12 @@ function mentionLabel(m: StoryMention): string {
 
 /** „Erwähnt in Geschichten“: one chip per story (and step), a click opens the story (`onFollow`, else inert), and that they never lock. */
 function Mentions({ mentions, onFollow }: { mentions: readonly StoryMention[]; onFollow?: (nav: NavTarget) => void }) {
+  const { t } = useTranslation("delete");
   const titleId = useId();
   return (
     <section className={styles.mentions} aria-labelledby={titleId} data-delete-mentions="">
       <h3 id={titleId} className={styles.mentionsTitle}>
-        Erwähnt in Geschichten
+        {t("deleteDialog.mentionsTitle")}
       </h3>
       <div className={styles.chips}>
         {mentions.map((m, i) => (
@@ -218,7 +206,7 @@ function Mentions({ mentions, onFollow }: { mentions: readonly StoryMention[]; o
           />
         ))}
       </div>
-      <p className={styles.quiet}>{MENTIONS_HINT}</p>
+      <p className={styles.quiet}>{t("deleteDialog.mentionsHint")}</p>
     </section>
   );
 }

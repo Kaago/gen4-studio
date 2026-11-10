@@ -33,7 +33,7 @@ g4-formats = { path = "../../../crates/g4-formats" }
 # `studio doctor` calls nitroarc through uxie to prove the shared library loads.
 uxie = "0.9"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 tiny_http = { version = "0.12", optional = true }
 clap = { version = "4", features = ["derive"] }
 # `studio mcp`: the editor's tools for coding agents over stdio (Model Context Protocol).
@@ -48,6 +48,10 @@ bytes = "1"
 getrandom = "0.3"
 # The project preview travels as base64 in JSON (`commands::preview`).
 base64 = "0.22"
+# The message catalogs (`locales/{en,de}.yml`, `t!`); the locale is shared with g4-kernel.
+rust-i18n = { workspace = true }
+# "System" in Settings › Language: the OS locale, which WKWebView's `navigator.language` does not report.
+sys-locale = { workspace = true }
 
 # `studio doctor` attaches to the console of the shell that started it (`doctor.rs`), `studio
 # mcp` keeps stray stdout out of the protocol (`mcp::stdout`); the version gix and tokio already

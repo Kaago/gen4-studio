@@ -1,5 +1,13 @@
 # Bauzustand `.g4/build/state.json`
 
+**In English:** Documents `.g4/build/state.json`, the state of Gen4 Studio's incremental build
+graph; this is about Gen4 Studio itself, not a game format. For each build step the file remembers
+what the last successful run saw, so that a step whose inputs have not changed is skipped. The file
+is never a source and may be deleted together with the whole folder `.g4/build/`: the next build
+then runs every step in full and produces the same bytes. A few sections (`texts`, `sync`, `world`)
+are more than a cache, because they record which side applies when something exists both as JSON and
+as a game file. The code is in `crates/g4-kernel/src/build/`.
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Der Build-Graph merkt sich je
 Schritt, was er beim letzten erfolgreichen Lauf gesehen hat, und lässt einen Schritt aus, dessen
 Eingaben sich seitdem nicht geändert haben. Implementierung: `crates/g4-kernel/src/build/`

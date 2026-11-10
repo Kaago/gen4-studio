@@ -1,4 +1,6 @@
 import type { DataDocDto, DataPatch, DataRowDto, LearnEntryDto, PartyFormatDto, PartyMonDto, ProblemDto, ProjectInfo, TrainerRowExtra } from "../../api";
+import i18next from "i18next";
+import { t } from "../../i18n";
 import type { SegmentedOption, SelectOption } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
 
@@ -9,11 +11,10 @@ export type TrainerDoc = Extract<DataDocDto, { kind: "trainer" }>;
 
 /** The kernel's lock reason of the placeholder of the sight script slot (`store.rs` `PLACEHOLDER_REASON`), and what the editor says. */
 export const PLACEHOLDER_REASON = "placeholder for the sight script slot";
-export const PLACEHOLDER_TEXT = "Platzhalter für das Sicht-Script";
+export const placeholderText = (): string => t("data:trainer.placeholderText");
 
 /** The longest name the game copies without an arm9 patch (8 UTF-16 units with the terminator), and the refusal of a longer one. */
 export const NAME_MAX = 7;
-export const NAME_TOO_LONG = "Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch";
 
 /** The most Pokémon a team holds. */
 export const PARTY_MAX = 6;
@@ -23,14 +24,25 @@ export const PARTY_MAX = 6;
 export type AiLevel = "simple" | "smart" | "expert" | "custom";
 
 /** The AI presets of Bauen; `eigene` is active when the value is none of them (it cannot be picked: Tüfteln sets the bits). */
-export const AI_LEVELS: readonly { value: AiLevel; label: string; ai: number | null }[] = [
-  { value: "simple", label: "einfach", ai: 0x1 },
-  { value: "smart", label: "klug", ai: 0x7 },
-  { value: "expert", label: "Experte", ai: 0xf },
-  { value: "custom", label: "eigene", ai: null },
+export const AI_LEVELS: readonly { value: AiLevel; readonly label: string; ai: number | null }[] = [
+  aiLevelEntry("simple", 0x1),
+  aiLevelEntry("smart", 0x7),
+  aiLevelEntry("expert", 0xf),
+  aiLevelEntry("custom", null),
 ];
 
-export const AI_OPTIONS: readonly SegmentedOption<AiLevel>[] = AI_LEVELS.map((l) => ({ value: l.value, label: l.label, disabled: l.ai === null }));
+/** One preset; its `label` is read when asked for (in the language shown then), never when this module loads. */
+function aiLevelEntry(value: AiLevel, ai: number | null) {
+  return {
+    value,
+    get label() {
+      return t(`data:trainer.ai.levels.${value}`);
+    },
+    ai,
+  };
+}
+
+export const aiOptions = (): SegmentedOption<AiLevel>[] => AI_LEVELS.map((l) => ({ value: l.value, label: l.label, disabled: l.ai === null }));
 
 /** The preset an AI value is, else `custom`. */
 export const aiLevel = (ai: number): AiLevel => AI_LEVELS.find((l) => l.ai === ai)?.value ?? "custom";
@@ -38,26 +50,20 @@ export const aiLevel = (ai: number): AiLevel => AI_LEVELS.find((l) => l.ai === a
 /** An AI value in words for an undo label: the preset, else "eigene 0x207". */
 export function aiText(ai: number): string {
   const level = AI_LEVELS.find((l) => l.ai === ai);
-  return level ? level.label : `eigene 0x${(ai >>> 0).toString(16)}`;
+  return level ? level.label : t("data:trainer.ai.customHex", { hex: aiHex(ai) });
 }
 
+/** The value of a custom AI as hex ("0x207"). */
+export const aiHex = (ai: number): string => `0x${(ai >>> 0).toString(16)}`;
+
 /** The AI bits DSPRE names (`AI_COUNT = 11`), in German; the other 21 of the 32 bits stay numbers and are kept. */
-export const AI_BITS: readonly string[] = [
-  "Grundlagen",
-  "Angriffe bewerten",
-  "Experte",
-  "Statuswerte aufbauen",
-  "Riskant",
-  "Extreme bevorzugen",
-  "Staffette",
-  "Doppelkampf-Taktik",
-  "KP prüfen",
-  "Wetter",
-  "Schikane",
-];
+export const AI_BITS = ["basics", "rateAttacks", "expert", "buildStats", "risky", "extremes", "batonPass", "doubles", "checkHp", "weather", "harassment"] as const;
 
 /** "Bit 0: Grundlagen"; an unnamed bit "Bit 31". */
-export const bitLabel = (bit: number): string => (AI_BITS[bit] === undefined ? `Bit ${bit}` : `Bit ${bit}: ${AI_BITS[bit]}`);
+export function bitLabel(bit: number): string {
+  const name = AI_BITS[bit];
+  return name === undefined ? t("data:trainer.ai.bit", { bit }) : t("data:trainer.ai.bitNamed", { bit, name: t(`data:trainer.ai.bits.${name}`) });
+}
 
 /** `value` (an unsigned 32-bit word) with `bit` set or cleared, every other bit kept. */
 export function withBit(value: number, bit: number, on: boolean): number {
@@ -68,33 +74,48 @@ export function withBit(value: number, bit: number, on: boolean): number {
 // ---------------------------------------------------------------------------------------------------------------------------- battle type
 
 export type BattleKind = "single" | "double";
-export const BATTLE_OPTIONS: readonly SegmentedOption<BattleKind>[] = [
-  { value: "single", label: "Einzel" },
-  { value: "double", label: "Doppel" },
+export const battleOptions = (): SegmentedOption<BattleKind>[] => [
+  { value: "single", label: t("data:trainer.battle.single") },
+  { value: "double", label: t("data:trainer.battle.double") },
 ];
 
 /** A double battle is bit 1 of `battle_type` (vanilla holds 0 and 2); the other bits stay as they are. */
 export const isDouble = (battleType: number): boolean => (battleType & 2) !== 0;
 export const withDouble = (battleType: number, on: boolean): number => withBit(battleType, 1, on);
-export const battleText = (battleType: number): string => (isDouble(battleType) ? "Doppel" : "Einzel");
+export const battleText = (battleType: number): string => (isDouble(battleType) ? t("data:trainer.battle.double") : t("data:trainer.battle.single"));
+
+/** The words of a change of the battle type for the history: "Kampfart Einzel → Doppel" (or the raw numbers). */
+export const battleChange = (from: string | number, to: string | number): string => t("data:trainer.battleChange", { from, to });
 
 // ---------------------------------------------------------------------------------------------------------------------------- party
 
 /** HeartGold: bits 0 to 3 of byte 1. */
-export const GENDER_OPTIONS: readonly SelectOption<number>[] = [
-  { value: 0, label: "Auto" },
-  { value: 1, label: "männlich" },
-  { value: 2, label: "weiblich" },
-];
+export const GENDER_OPTIONS: readonly SelectOption<number>[] = [genderOption(0, "auto"), genderOption(1, "male"), genderOption(2, "female")];
+
+/** An option whose `label` is read when asked for (in the language shown then), never when this module loads. */
+function genderOption(value: number, name: "auto" | "male" | "female"): SelectOption<number> {
+  return {
+    value,
+    get label() {
+      return t(`data:trainer.gender.${name}`);
+    },
+  };
+}
 
 /** HeartGold: bits 4 to 7 of byte 1. */
-export const ABILITY_OPTIONS: readonly SelectOption<number>[] = [
-  { value: 0, label: "Auto" },
-  { value: 1, label: "Fähigkeit 1" },
-  { value: 2, label: "Fähigkeit 2" },
-];
+export const ABILITY_OPTIONS: readonly SelectOption<number>[] = [abilityOption(0, "auto"), abilityOption(1, "first"), abilityOption(2, "second")];
 
-export const optionText = (options: readonly SelectOption<number>[], value: number): string => options.find((o) => o.value === value)?.label ?? `Wert ${value}`;
+/** An option whose `label` is read when asked for (in the language shown then), never when this module loads. */
+function abilityOption(value: number, name: "auto" | "first" | "second"): SelectOption<number> {
+  return {
+    value,
+    get label() {
+      return t(`data:trainer.ability.${name}`);
+    },
+  };
+}
+
+export const optionText = (options: readonly SelectOption<number>[], value: number): string => options.find((o) => o.value === value)?.label ?? t("data:value", { value });
 
 /** The gender of a HeartGold party Pokémon: the DTO's field, else the low nibble of byte 1. */
 export const genderOf = (mon: PartyMonDto): number => mon.gender ?? (mon.byte1 & 0x0f);
@@ -108,7 +129,9 @@ const isHgss = (family: string) => family === "Hgss";
  * HeartGold reads byte 0 as the difficulty and byte 1 as gender and ability.
  */
 export function strengthField(family: string): { label: string; bits: 8 | 16; hint: string } {
-  return isHgss(family) ? { label: "Stärke", bits: 8, hint: "IV = Wert × 31 / 255" } : { label: "Stärke (IV-Skala)", bits: 16, hint: "IV = Wert × 31 / 255; Byte 1 ist das obere Byte" };
+  return isHgss(family)
+    ? { label: t("data:trainer.strength.hgss"), bits: 8, hint: t("data:trainer.strength.hgssHint") }
+    : { label: t("data:trainer.strength.other"), bits: 16, hint: t("data:trainer.strength.otherHint") };
 }
 
 export const strengthOf = (mon: PartyMonDto, family: string): number => (isHgss(family) ? mon.iv_or_difficulty : mon.iv_or_difficulty | (mon.byte1 << 8));
@@ -173,14 +196,17 @@ export function newMon(species: number, level: number, format: PartyFormatDto, f
 export const withMon = (party: readonly PartyMonDto[], slot: number, mon: PartyMonDto): PartyMonDto[] => party.map((m, i) => (i === slot ? mon : m));
 
 /** "Wanderer Jens: Platz 1 Level 12 → 14". */
-export const slotLabel = (title: string, slot: number, rest: string): string => `${title}: Platz ${slot + 1} ${rest}`;
+export const slotLabel = (title: string, slot: number, rest: string): string => t("data:trainer.slotLabel", { title, slot: slot + 1, rest });
 
 // ---------------------------------------------------------------------------------------------------------------------------- names
+
+/** What a class without a name is called ("Klasse 3"). */
+const classFallback = (cls: number): string => t("data:trainer.classFallback", { cls });
 
 /** The class name from the class bank; a missing one, the kernel's fallback and dashes: "Klasse 130" (the backend's words). */
 export function className(classes: readonly string[], cls: number): string {
   const name = classes[cls]?.trim() ?? "";
-  if (name === "" || /^class \d+$/.test(name) || /^-+$/.test(name)) return `Klasse ${cls}`;
+  if (name === "" || /^class \d+$/.test(name) || /^-+$/.test(name)) return classFallback(cls);
   return name;
 }
 
@@ -195,20 +221,20 @@ export function classOptions(classes: readonly string[], current: number): Selec
  * name too, so the field can show it.
  */
 export function namedClassOptions(classes: readonly string[], current: number): SelectOption<number>[] {
-  return classOptions(classes, current).filter((o) => o.value === current || o.label !== `Klasse ${o.value}`);
+  return classOptions(classes, current).filter((o) => o.value === current || o.label !== classFallback(o.value));
 }
 
 /** A trainer's own name: empty for the kernel's fallback ("trainer 0005"). */
 export const ownName = (name: string, index: number): string => (name.trim() === `trainer ${id4(index)}` ? "" : name.trim());
 
 /** "Wanderer Jens", as the game says it before a battle; a trainer without a name "Trainer 0012" (the backend's undo labels do the same). */
-export const trainerTitle = (cls: string, name: string, index: number): string => (name.trim() === "" ? `Trainer ${id4(index)}` : `${cls} ${name.trim()}`);
+export const trainerTitle = (cls: string, name: string, index: number): string => (name.trim() === "" ? t("data:trainer.numbered", { id: id4(index) }) : `${cls} ${name.trim()}`);
 
 /** The title of a trainer row; a locked row has no class and is named by its name or number. */
 export function trainerRowLabel(row: DataRowDto): string {
   const own = ownName(row.name, row.index);
   const extra = row.extra as TrainerRowExtra | null;
-  if (!extra || typeof extra.class_name !== "string") return own === "" ? `Trainer ${id4(row.index)}` : own;
+  if (!extra || typeof extra.class_name !== "string") return own === "" ? t("data:trainer.numbered", { id: id4(row.index) }) : own;
   return trainerTitle(extra.class_name, own, row.index);
 }
 
@@ -216,15 +242,15 @@ export function trainerRowLabel(row: DataRowDto): string {
 export const docTitle = (doc: TrainerDoc, classes: readonly string[], index: number): string => trainerTitle(className(classes, doc.class), doc.name, index);
 
 /** Why a name cannot be written; null when it can. */
-export const nameError = (name: string): string | null => (name.length > NAME_MAX ? NAME_TOO_LONG : null);
+export const nameError = (name: string): string | null => (name.length > NAME_MAX ? t("data:trainer.nameTooLong") : null);
 
 /** "5 von 7". */
-export const nameCount = (name: string): string => `${name.length} von ${NAME_MAX}`;
+export const nameCount = (name: string): string => t("data:trainer.nameCount", { length: name.length, max: NAME_MAX });
 
 /** A species name for cards and labels; without one, the kernel's fallback or dashes: "Art 0520" (as the Pokédex's `tableName`). */
 export function speciesName(species: readonly string[], id: number): string {
   const name = species[id]?.trim() ?? "";
-  if (name === "" || /^[a-z_]+ \d+$/.test(name) || /^-+$/.test(name)) return `Art ${id4(id)}`;
+  if (name === "" || /^[a-z_]+ \d+$/.test(name) || /^-+$/.test(name)) return t("data:speciesFallback", { id: id4(id) });
   return name;
 }
 
@@ -256,12 +282,12 @@ export function nextTrainer(rows: readonly DataRowDto[], family: string): { id: 
   return next === seen ? { id: next + 1, placeholder: next } : { id: next, placeholder: null };
 }
 
-const PARTIAL_STEPS: Readonly<Record<string, string>> = {
-  "reloading a text archive its compile changed": "Textarchiv neu laden",
-  "writing the placeholder": "Platzhalter schreiben",
-  "writing the trainer": "Trainer schreiben",
-  "setting its name and text offset": "Name und Text-Offset setzen",
-  "extending the battle slots": "Kampf-Plätze erweitern",
+const PARTIAL_STEPS: Readonly<Record<string, "reloadTextArchive" | "writePlaceholder" | "writeTrainer" | "setNameAndOffset" | "extendBattleSlots">> = {
+  "reloading a text archive its compile changed": "reloadTextArchive",
+  "writing the placeholder": "writePlaceholder",
+  "writing the trainer": "writeTrainer",
+  "setting its name and text offset": "setNameAndOffset",
+  "extending the battle slots": "extendBattleSlots",
 };
 
 /**
@@ -278,39 +304,49 @@ export function partialTrainer(message: string): { text: string; written: number
   const script = /battle script file (\d+) has the slots up to trainer (\d+)/.exec(done!);
   const stuck = /battle script file (\d+) stays changed/.exec(done!);
   const parts: string[] = [];
-  if (script) parts.push(`Kampf-Script ${script[1]} hat die Plätze bis Trainer ${script[2]}`);
-  if (stuck) parts.push(`Kampf-Script ${stuck[1]} bleibt geändert`);
-  if (written.length === 1) parts.push(`Trainer ${written[0]} ist geschrieben`);
-  else if (written.length > 1) parts.push(`Trainer ${written.slice(0, -1).join(", ")} und ${written[written.length - 1]} sind geschrieben`);
-  const text = `Trainer ${id} nur zum Teil angelegt: ${parts.join(", ")}. Danach fehlgeschlagen: ${PARTIAL_STEPS[step!] ?? step} (${reason}).`;
+  if (script) parts.push(t("data:trainer.partial.scriptSlots", { file: script[1], last: script[2] }));
+  if (stuck) parts.push(t("data:trainer.partial.scriptChanged", { file: stuck[1] }));
+  if (written.length === 1) parts.push(t("data:trainer.partial.writtenOne", { id: written[0] }));
+  else if (written.length > 1) parts.push(t("data:trainer.partial.writtenMany", { list: written.slice(0, -1).join(", "), last: written[written.length - 1] }));
+  const stepKey = PARTIAL_STEPS[step!];
+  const text = t("data:trainer.partial.text", { id, parts: parts.join(", "), step: stepKey === undefined ? step : t(`data:trainer.partial.steps.${stepKey}`), reason });
   return { text, written, extended: script !== null || stuck !== null };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------- texts
 
 /** The battle texts a single trainer needs, by kind (`trainer_message_types.txt`): `label` for the field, `word` for the undo label. */
-export const TEXT_KINDS: readonly { kind: number; label: string; word: string }[] = [
-  { kind: 0, label: "Vor dem Kampf", word: "vor dem Kampf" },
-  { kind: 1, label: "Niederlage", word: "Niederlage" },
-  { kind: 2, label: "Danach", word: "danach" },
-];
+export const TEXT_KINDS: readonly { kind: number; readonly label: string; readonly word: string }[] = [textKindEntry(0, "before"), textKindEntry(1, "defeat"), textKindEntry(2, "after")];
 
-export const textKind = (kind: number): { kind: number; label: string; word: string } => TEXT_KINDS.find((k) => k.kind === kind) ?? { kind, label: `Kampftext Art ${kind}`, word: `Art ${kind}` };
+/** One kind of battle text; `label` and `word` are read when asked for (in the language shown then), never when this module loads. */
+function textKindEntry(kind: number, name: "before" | "defeat" | "after") {
+  return {
+    kind,
+    get label() {
+      return t(`data:trainer.textKinds.${name}.label`);
+    },
+    get word() {
+      return t(`data:trainer.textKinds.${name}.word`);
+    },
+  };
+}
+
+export const textKind = (kind: number): { kind: number; label: string; word: string } => TEXT_KINDS.find((k) => k.kind === kind) ?? { kind, label: t("data:trainer.textKinds.otherLabel", { kind }), word: t("data:trainer.textKinds.otherWord", { kind }) };
 
 /** The kernel's English warnings in German with a verb; another one stays as it is. */
 export const isMarkProblem = (row: Pick<ProblemDto, "message">): boolean => /the text before the battle does not end with \\r/.test(row.message);
 
 export function problemText(row: Pick<ProblemDto, "message">): string {
-  if (isMarkProblem(row)) return "Der Text vor dem Kampf sollte auf ⏎ enden, sonst schließt sein Kasten sofort";
+  if (isMarkProblem(row)) return t("data:trainer.markProblem");
   return row.message;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------- list
 
 export type GroupMode = "place" | "class";
-export const GROUP_OPTIONS: readonly SegmentedOption<GroupMode>[] = [
-  { value: "place", label: "Nach Ort" },
-  { value: "class", label: "Nach Klasse" },
+export const groupOptions = (): SegmentedOption<GroupMode>[] => [
+  { value: "place", label: t("data:trainer.group.place") },
+  { value: "class", label: t("data:trainer.group.class") },
 ];
 
 export interface RowGroup {
@@ -337,14 +373,14 @@ export function groupRows(rows: readonly DataRowDto[], mode: GroupMode, showDele
     const extra = row.extra as TrainerRowExtra | null;
     if (mode === "class") {
       if (extra && typeof extra.class_name === "string") add(`c:${extra.class_name}`, extra.class_name, row);
-      else add(NONE_KEY, "Ohne Klasse", row);
+      else add(NONE_KEY, t("data:trainer.group.noClass"), row);
       continue;
     }
     const places = extra && Array.isArray(extra.places) ? extra.places : [];
-    if (places.length === 0) add(NONE_KEY, "Ohne Ort", row);
+    if (places.length === 0) add(NONE_KEY, t("data:trainer.group.noPlace"), row);
     for (const place of places) add(`p:${place.name}`, place.name, row);
   }
-  const named = [...groups.values()].filter((g) => g.key !== NONE_KEY).sort((a, b) => a.label.localeCompare(b.label, "de"));
+  const named = [...groups.values()].filter((g) => g.key !== NONE_KEY).sort((a, b) => a.label.localeCompare(b.label, i18next.language));
   const none = groups.get(NONE_KEY);
   return none ? [...named, none] : named;
 }

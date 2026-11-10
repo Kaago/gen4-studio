@@ -22,7 +22,7 @@ use crate::stories::{Made, Progress, Step, StepKind, Story, number_of, read_stor
 use crate::text::{TextMessage, default_message_id};
 use crate::textproject::ids::{RefInput, Resolver, unknown_id_text};
 use crate::textproject::manifest::{SchemaState, refusal, schema_state};
-use crate::textproject::rename::{MAX_ID_LEN, NOT_A_TEXT_PROJECT};
+use crate::textproject::rename::{MAX_ID_LEN, not_a_text_project};
 use crate::textproject::symbols::{SymbolKind, normalize};
 
 /// The Studio version a step's [`Made`] names.
@@ -48,10 +48,8 @@ pub(crate) fn text_project(project: &Project) -> Result<(), KernelError> {
     project.editable()?;
     match schema_state(&project.root)? {
         SchemaState::Current => Ok(()),
-        SchemaState::Missing => Err(refused(NOT_A_TEXT_PROJECT)),
-        state => Err(refused(
-            refusal(state).unwrap_or_else(|| NOT_A_TEXT_PROJECT.to_owned()),
-        )),
+        SchemaState::Missing => Err(refused(not_a_text_project())),
+        state => Err(refused(refusal(state).unwrap_or_else(not_a_text_project))),
     }
 }
 
@@ -75,18 +73,18 @@ pub(crate) fn load_story(store: &mut Store, id: &str) -> Result<LoadedStory, Ker
         return Err(refused(unknown_id_text(id)));
     };
     let Some(story) = read_story(&project, number)? else {
-        return Err(refused(format!(
-            "{id} hat keine Datei {}.",
-            story_rel(number).to_string_lossy().replace('\\', "/")
+        return Err(refused(t!(
+            "recipes.story_file_missing",
+            id = id,
+            file = story_rel(number).to_string_lossy().replace('\\', "/")
         )));
     };
     let var_id = match &story.progress {
         Progress::Var(var_id) => var_id.clone(),
         Progress::Flag(_) => {
-            return Err(refused(format!(
-                "Geschichte „{}“ hält ihren Fortschritt in einem Flag; die Rezepte brauchen eine \
-                 Variable.",
-                story.name
+            return Err(refused(t!(
+                "recipes.story_progress_flag",
+                name = story.name
             )));
         }
     };
@@ -95,9 +93,10 @@ pub(crate) fn load_story(store: &mut Store, id: &str) -> Result<LoadedStory, Ker
         .ok()
         .and_then(|n| u16::try_from(n).ok())
         .ok_or_else(|| {
-            refused(format!(
-                "Die Variable {var_id} von Geschichte „{}“ nennt keine Nummer.",
-                story.name
+            refused(t!(
+                "recipes.story_var_without_number",
+                var = var_id,
+                name = story.name
             ))
         })?;
     Ok(LoadedStory {
@@ -113,14 +112,15 @@ pub(crate) fn step_of(story: &Story, value: u16) -> Option<&Step> {
     story.steps.iter().find(|s| s.value == value)
 }
 
-/// Refuses `value` when `story` has no step with it („Schritt {value} gibt es in „X“ nicht.“):
+/// Refuses `value` when `story` has no step with it („Step {value} does not exist in “X”.“):
 /// a step recipe starts from a step the story has.
 pub(crate) fn require_step(story: &Story, value: u16) -> Result<(), KernelError> {
     match step_of(story, value) {
         Some(_) => Ok(()),
-        None => Err(refused(format!(
-            "Schritt {value} gibt es in „{}“ nicht.",
-            story.name
+        None => Err(refused(t!(
+            "recipes.step_missing",
+            step = value,
+            name = story.name
         ))),
     }
 }
@@ -134,8 +134,8 @@ pub(crate) fn step_name(given: Option<&str>, default: impl FnOnce() -> String) -
         .map_or_else(default, str::to_owned)
 }
 
-/// Refuses `value` when a dialog step of `story` has it („Schritt {value} gibt es schon:
-/// „{name}“.“): a dialog step is the one that switches the story to its value. Appearing and
+/// Refuses `value` when a dialog step of `story` has it („Step {value} already exists:
+/// “{name}”.“): a dialog step is the one that switches the story to its value. Appearing and
 /// rewards (and the other kinds) may share a value with it.
 pub(crate) fn dialog_step_taken(story: &Story, value: u16) -> Result<(), KernelError> {
     match story
@@ -143,9 +143,10 @@ pub(crate) fn dialog_step_taken(story: &Story, value: u16) -> Result<(), KernelE
         .iter()
         .find(|s| s.value == value && s.kind == StepKind::Dialog)
     {
-        Some(step) => Err(refused(format!(
-            "Schritt {value} gibt es schon: „{}“.",
-            step.name
+        Some(step) => Err(refused(t!(
+            "recipes.step_exists",
+            step = value,
+            name = step.name
         ))),
         None => Ok(()),
     }
@@ -172,7 +173,7 @@ pub(crate) struct Figure {
 }
 
 /// The figure `at` names. Refused: a header that does not exist, an event file without an
-/// object with that `local_id` („Auf Header {h} gibt es keine Figur {local_id}.“). A trainer
+/// object with that `local_id` ("Header {h} has no character {local_id}."). A trainer
 /// is an object that sees (`trainer_type` ≠ 0) or runs a trainer's battle script.
 pub(crate) fn figure(store: &mut Store, at: &FigureRef) -> Result<Figure, KernelError> {
     let event_file = header_files(store, at.header)?.event_file;
@@ -182,9 +183,10 @@ pub(crate) fn figure(store: &mut Store, at: &FigureRef) -> Result<Figure, Kernel
         .enumerate()
         .find(|(_, o)| o.local_id == at.local_id)
         .ok_or_else(|| {
-            refused(format!(
-                "Auf Header {} gibt es keine Figur {}.",
-                at.header, at.local_id
+            refused(t!(
+                "recipes.figure_missing",
+                header = at.header,
+                local_id = at.local_id
             ))
         })?;
     let index = u16::try_from(index)
@@ -262,9 +264,9 @@ pub(crate) fn story_var_id(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
     unique_id("VAR", name, "", taken)
 }
 
-/// Refuses number `n` of `kind` as a recipe's new flag or variable: the save must hold it
-/// („Variable 0x8001 liegt nicht im Spielstand.“), it must lie in the general area („… liegt
-/// nicht im allgemeinen Bereich.“) and must have no own name yet ([`taken_text`]). Whether a
+/// Refuses number `n` of `kind` as a recipe's new flag or variable: the save game must hold it
+/// ("Variable 0x8001 is not in the save game."), it must lie in the general area ("… is not in
+/// the general area.") and must have no own name yet ([`taken_text`]). Whether a
 /// script uses it is the caller's to know (the reference index).
 pub(crate) fn check_pool_number(
     project: &Project,
@@ -274,13 +276,17 @@ pub(crate) fn check_pool_number(
     let family = project.family;
     let word = kind.word();
     if !in_save(family, kind, n) {
-        return Err(refused(format!(
-            "{word} 0x{n:04X} liegt nicht im Spielstand."
+        return Err(refused(t!(
+            "recipes.number_not_in_save",
+            word = word,
+            n = n : {:04X}
         )));
     }
     if area_of(family, kind, n) != Area::General {
-        return Err(refused(format!(
-            "{word} 0x{n:04X} liegt nicht im allgemeinen Bereich."
+        return Err(refused(t!(
+            "recipes.number_not_general",
+            word = word,
+            n = n : {:04X}
         )));
     }
     if let Some(own) = own_names(project, kind)?.get(&n) {
@@ -303,9 +309,11 @@ pub(crate) fn next_slot(project: &Project, file: u16) -> Result<(u16, String), K
         .map_or(1, |id| id + 1);
     match u16::try_from(next) {
         Ok(slot) if slot < FIRST_COMMON_SCRIPT => Ok((slot, source)),
-        _ => Err(refused(format!(
-            "Die Scriptdatei {file:04} hat keinen freien lokalen Slot: #{next} wäre ein \
-             gemeinsames Script (ab #{FIRST_COMMON_SCRIPT})."
+        _ => Err(refused(t!(
+            "recipes.no_free_local_slot",
+            script_file = file : {:04},
+            next = next,
+            first_common = FIRST_COMMON_SCRIPT
         ))),
     }
 }
@@ -361,9 +369,12 @@ pub(crate) fn message_number(
         .ok()
         .filter(|&n| u32::from(n) <= highest)
         .ok_or_else(|| {
-            refused(format!(
-                "Textarchiv {archive} hat schon {count} Nachrichten; {command} nimmt Nummern bis \
-                 {highest}, die neue Nachricht bekäme {count}."
+            refused(t!(
+                "recipes.archive_full",
+                archive = archive,
+                messages = count,
+                command = command,
+                highest = highest
             ))
         })
 }

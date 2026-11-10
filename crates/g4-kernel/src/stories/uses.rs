@@ -114,11 +114,11 @@ impl<'a> OnDisk<'a> {
             UseTarget::Flag(_) | UseTarget::Var(_) => false,
         };
         if missing {
-            return Some(format!("{} gibt es nicht.", entity.label()));
+            return Some(t!("stories.use_missing", label = entity.label()).into_owned());
         }
         let art = entity.art()?;
         deleted_on_disk(&self.project.root)(art, n)
-            .then(|| format!("{} ist gelöscht.", entity.label()))
+            .then(|| t!("stories.use_deleted", label = entity.label()).into_owned())
     }
 
     /// Whether the JSON of entity `n` of `art` is gone (a file that cannot be asked counts as

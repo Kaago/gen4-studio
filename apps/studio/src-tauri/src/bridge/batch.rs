@@ -15,8 +15,14 @@ use crate::state::AppState;
 /// `{"command": …, "ok": false, "error": CmdError}`. Stops at the first failing command and
 /// returns an error for it. `args` may be left out (`["dirty"]`).
 pub fn run_batch(file: &Path, roots: Roots, out: &mut impl Write) -> Result<(), String> {
-    let text = std::fs::read_to_string(file)
-        .map_err(|e| format!("Datei nicht lesbar: {}: {e}", file.display()))?;
+    let text = std::fs::read_to_string(file).map_err(|e| {
+        t!(
+            "bridge.batch_file_unreadable",
+            path = file.display(),
+            error = e
+        )
+        .into_owned()
+    })?;
     let calls = parse_calls(&text)?;
     let state = AppState::default();
     // No remembered base ROMs, but `G4_BASE_ROM_DIR` and the originals of `G4_ROMS_DIR`.
@@ -26,27 +32,33 @@ pub fn run_batch(file: &Path, roots: Roots, out: &mut impl Write) -> Result<(), 
             Ok(Reply::Json(value)) => Ok(value),
             Ok(Reply::Bytes(bytes)) => Ok(json!({ "bytes": bytes.len() })),
             Err(DispatchError::Cmd(error)) => Err(error),
-            Err(DispatchError::Unknown(unknown)) => {
-                Err(CmdError::from(format!("Unbekannter Befehl: {unknown}")))
-            }
+            Err(DispatchError::Unknown(unknown)) => Err(CmdError::from(
+                t!("bridge.unknown_command", name = unknown).into_owned(),
+            )),
         };
         let line = match &outcome {
             Ok(result) => json!({ "command": name, "ok": true, "result": result }),
             Err(error) => json!({ "command": name, "ok": false, "error": error }),
         };
-        writeln!(out, "{line}").map_err(|e| format!("Ausgabe nicht schreibbar: {e}"))?;
+        writeln!(out, "{line}")
+            .map_err(|e| t!("bridge.batch_output_unwritable", error = e).into_owned())?;
         if let Err(error) = outcome {
-            return Err(format!("{name} fehlgeschlagen: {}", error.message));
+            return Err(t!(
+                "bridge.batch_command_failed",
+                name = name,
+                error = error.message
+            )
+            .into_owned());
         }
     }
     Ok(())
 }
 
 fn parse_calls(text: &str) -> Result<Vec<(String, Value)>, String> {
-    let value: Value =
-        serde_json::from_str(text).map_err(|e| format!("Kein gültiges JSON: {e}"))?;
+    let value: Value = serde_json::from_str(text)
+        .map_err(|e| t!("bridge.batch_invalid_json", error = e).into_owned())?;
     let Value::Array(items) = value else {
-        return Err("Erwartet eine Liste [[Befehl, Argumente], …]".into());
+        return Err(t!("bridge.batch_expected_list").into_owned());
     };
     items
         .into_iter()
@@ -60,10 +72,10 @@ fn parse_calls(text: &str) -> Result<Vec<(String, Value)>, String> {
                 };
                 match parts.pop() {
                     Some(Value::String(name)) => Ok((name, args)),
-                    _ => Err(format!("Eintrag {i}: Befehlsname muss ein Text sein")),
+                    _ => Err(t!("bridge.batch_name_text", index = i).into_owned()),
                 }
             }
-            _ => Err(format!("Eintrag {i}: erwartet [Befehl, Argumente]")),
+            _ => Err(t!("bridge.batch_expected_pair", index = i).into_owned()),
         })
         .collect()
 }

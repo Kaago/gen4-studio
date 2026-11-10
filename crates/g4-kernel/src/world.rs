@@ -57,9 +57,9 @@ pub mod tileset;
 pub mod tmj;
 
 pub use adopt::{
-    ADOPT_NEEDS_APICULA, ADOPT_TEXTURE_CODE, ADOPT_TOLERANCE, AdoptForm, BakedGeometry,
-    FORM2_SIDE_NAME, Form2Report, HeightDeviation, VanillaGeometry, WorldAdoptReport,
-    WorldAdoptRequest, adopt_label, world_adopt, world_adopt_glb, world_adopt_with,
+    ADOPT_TEXTURE_CODE, ADOPT_TOLERANCE, AdoptForm, BakedGeometry, FORM2_SIDE_NAME, Form2Report,
+    HeightDeviation, VanillaGeometry, WorldAdoptReport, WorldAdoptRequest, adopt_label,
+    adopt_needs_apicula, world_adopt, world_adopt_glb, world_adopt_with,
 };
 pub use bake::{
     BakeEnv, EMPTY_CELL, FLOOR_TOLERANCE, GridBake, Verbatim, WORLD_BAKE_REV, WorldBake,
@@ -96,7 +96,7 @@ pub use edge::{
     EdgeBlock, EdgePlaces, EdgeSetJson, EdgeSetOp, Place, edge_set_label, edge_set_problems,
     missing_set, variant,
 };
-pub use edit::WORLD_NEEDS_TEXT_PROJECT;
+pub use edit::world_needs_text_project;
 pub use edit::{LayerOp, WorldLayersRequest, world_layers};
 pub use freeform::{
     APICULA_UNIT, FREEFORM_LAYER, FREEFORM_UNIT, FreeformAddRequest, FreeformReport,

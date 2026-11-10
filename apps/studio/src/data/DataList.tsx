@@ -1,5 +1,6 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataRowDto } from "../api";
 import { Badge, Button, EmptyState, ListRow, Sprite, TextField } from "../ui/primitives";
 import type { MenuEntry, RowDataAttrs } from "../ui/primitives";
@@ -22,7 +23,7 @@ export interface DataListRows {
 
 export interface DataListProps extends DataListRows {
   area: DataArea;
-  /** What the list holds ("Pokédex", "Attacken", "Gegenstände"): the list's name and its search's ("Pokédex durchsuchen"). */
+  /** What the list holds („Pokédex“, „Attacken“, „Gegenstände“): the list's name and its search's („Pokédex durchsuchen“). */
   label: string;
   /** The filters of the part (chips) between the search and the rows. */
   filters?: ReactNode;
@@ -33,6 +34,7 @@ export interface DataListProps extends DataListRows {
  * "Gesperrt" after what the part puts there, with the reason as its tooltip and in the row's name for a screen reader.
  */
 const DataRow = memo(function DataRow({ row, pos, count, label, selected, onSelect, rows }: { row: DataRowDto; pos: number; count: number; label: string; selected: boolean; onSelect: (index: number) => void; rows: DataListRows }) {
+  const { t } = useTranslation("data");
   // `data-pos`: the row's place in the shown rows, for the windowed list's keys.
   const attrs = { [rows.attr]: row.index, "data-pos": pos } as RowDataAttrs;
   const reason = row.locked === null ? null : lockReason(row.locked);
@@ -58,16 +60,17 @@ const DataRow = memo(function DataRow({ row, pos, count, label, selected, onSele
       onSelect={() => onSelect(row.index)}
       dataAttrs={attrs}
       contextMenu={rows.contextMenu?.(row)}
-      ariaLabel={reason === null ? `${label}, ${row.tech}` : `${label}, ${row.tech}, gesperrt: ${reason}`}
+      ariaLabel={reason === null ? `${label}, ${row.tech}` : `${label}, ${row.tech}, ${t("dataList.locked", { reason })}`}
     />
   );
 });
 
 /**
  * The list of a data part (the mount point of the Pokédex, moves and items lists): a search over name and number, the part's filters, the
- * filter in words with "Filter lösen", and the rows. The selection comes into view when it is made elsewhere (a link).
+ * filter in words with „Filter lösen“, and the rows. The selection comes into view when it is made elsewhere (a link).
  */
 export function DataList({ area, label, filters, attr, leading, trailing, contextMenu }: DataListProps) {
+  const { t } = useTranslation("data");
   const { selected, select, labelOf } = useDataArea(area);
   const { shown, query, setQuery, filter, clearFilter } = useDataSearch(area);
   // The callbacks of the rows; a new object only when the list's look changes, so the memoised rows keep still otherwise.
@@ -78,19 +81,19 @@ export function DataList({ area, label, filters, attr, leading, trailing, contex
   return (
     <div className={styles.column}>
       <div className={styles.top}>
-        <TextField type="search" label={`${label} durchsuchen`} placeholder="Name oder Nummer" value={query} onChange={setQuery} onCommit={setQuery} />
+        <TextField type="search" label={t("dataList.search", { label })} placeholder={t("dataList.searchPlaceholder")} value={query} onChange={setQuery} onCommit={setQuery} />
         {filters}
         {filtered !== null && (
           <p className={styles.filterLine}>
             <span>{`${filtered}: ${shown.length}`}</span>
             <Button kind="quiet" size="s" onClick={clearFilter}>
-              Filter lösen
+              {t("dataList.clearFilter")}
             </Button>
           </p>
         )}
       </div>
       {shown.length === 0 && searching ? (
-        <EmptyState what={`Nichts gefunden für „${query.trim() || filtered}“`} why="Ändere die Suche oder löse den Filter." action={filtered === null ? { label: "Filter lösen", onClick: clearFilter } : undefined} />
+        <EmptyState what={t("dataList.nothingFound", { query: query.trim() || filtered })} why={t("dataList.searchHint")} action={filtered === null ? { label: t("dataList.clearFilter"), onClick: clearFilter } : undefined} />
       ) : (
         <WindowedRows label={label} shown={shown} selected={selected} onSelect={onSelect} labelOf={labelOf} rows={rows} />
       )}

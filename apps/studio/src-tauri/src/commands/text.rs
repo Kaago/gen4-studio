@@ -62,7 +62,7 @@ pub fn get_text_archive_impl(state: &AppState, index: u16) -> Result<TextArchive
 }
 
 /// Applies `edit`; `None` when it left the archive as it was (nothing to undo then). The step
-/// is named `label` ("Dialog geändert" from the dialog editor), else after the edit ("edit
+/// is named `label` („Dialog geändert“ from the dialog editor), else after the edit ("edit
 /// text", "add message", "remove message").
 pub fn edit_text_archive_impl(
     state: &AppState,
@@ -329,7 +329,7 @@ mod tests {
         let index = create_text_archive_impl(&state).unwrap();
         assert_eq!(index, 698);
         let doc = get_text_archive_impl(&state, index).unwrap();
-        assert_eq!(doc.messages[0].text, "Neuer Text");
+        assert_eq!(doc.messages[0].text, "New text");
         assert!(dirty_impl(&state).unwrap().is_empty());
     }
 

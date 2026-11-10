@@ -50,35 +50,48 @@ pub(crate) fn lines(
             .map_err(KernelError::from),
         (_, AssetKind::Learnset) => learnset_lines(bytes),
         (_, AssetKind::Evolution) => evolution_lines(bytes),
-        _ => Ok(vec![format!("{} Byte {}", bytes.len(), short_hash(bytes))]),
+        _ => Ok(vec![
+            t!(
+                "original.preview_bytes",
+                size = bytes.len(),
+                hash = short_hash(bytes)
+            )
+            .into_owned(),
+        ]),
     };
     match lines {
         Ok(lines) => lines.join("\n"),
-        Err(e) => format!("{} Byte, nicht lesbar: {e}", bytes.len()),
+        Err(e) => t!("original.preview_unreadable", size = bytes.len(), error = e).into_owned(),
     }
 }
 
-/// The member of a texture or model, which has no preview of its own: `Größe: {n} Byte` and
-/// `xxh3: {16 hex digits}`; `Keine Datei` without one.
+/// The member of a texture or model, which has no preview of its own: `Size: {n} bytes` and
+/// `xxh3: {16 hex digits}`; `No file` without one.
 pub(crate) fn member_lines(bytes: Option<&[u8]>) -> String {
     match bytes {
-        Some(bytes) => format!("Größe: {} Byte\nxxh3: {:016x}", bytes.len(), xxh3_64(bytes)),
-        None => "Keine Datei".to_owned(),
+        Some(bytes) => t!(
+            "original.preview_member",
+            size = bytes.len(),
+            hash = xxh3_64(bytes) : {:016x}
+        )
+        .into_owned(),
+        None => t!("original.preview_no_file").into_owned(),
     }
 }
 
 /// A script file: its source as text (a level script: its JSON), else its member as
-/// `Binär, {n} Byte` with `xxh3: {16 hex digits}` (two members of one size differ there);
-/// `Keine Datei` without either.
+/// `Binary, {n} bytes` with `xxh3: {16 hex digits}` (two members of one size differ there);
+/// `No file` without either.
 pub(crate) fn script_lines(source: Option<&[u8]>, member: Option<&[u8]>) -> String {
     match (source, member) {
         (Some(source), _) => String::from_utf8_lossy(source).into_owned(),
-        (None, Some(member)) => format!(
-            "Binär, {} Byte\nxxh3: {:016x}",
-            member.len(),
-            xxh3_64(member)
-        ),
-        (None, None) => "Keine Datei".to_owned(),
+        (None, Some(member)) => t!(
+            "original.preview_binary",
+            size = member.len(),
+            hash = xxh3_64(member) : {:016x}
+        )
+        .into_owned(),
+        (None, None) => t!("original.preview_no_file").into_owned(),
     }
 }
 
@@ -106,15 +119,25 @@ fn map_lines(bytes: &[u8], family: Family) -> Result<Vec<String>, KernelError> {
         .flat_map(|c| [c.kind, c.collision])
         .collect();
     Ok(vec![
-        format!("Bewegungsrechte {}", short_hash(&cells)),
-        format!("Gebäude {}", map.buildings.len()),
-        format!("Modell {} Byte {}", map.model.len(), short_hash(&map.model)),
-        format!("BDHC {} Byte {}", map.bdhc.len(), short_hash(&map.bdhc)),
+        t!("original.preview_permissions", hash = short_hash(&cells)).into_owned(),
+        t!("original.preview_buildings", count = map.buildings.len()).into_owned(),
+        t!(
+            "original.preview_model",
+            size = map.model.len(),
+            hash = short_hash(&map.model)
+        )
+        .into_owned(),
+        t!(
+            "original.preview_bdhc",
+            size = map.bdhc.len(),
+            hash = short_hash(&map.bdhc)
+        )
+        .into_owned(),
     ])
 }
 
-/// One line per event: objects („Figur“), warps („Tür“), triggers („Auslöser“), then signs
-/// („Schild“), each with every field of uxie's event as compact JSON.
+/// One line per event: objects („Object“), warps („Door“), triggers („Trigger“), then signs
+/// („Sign“), each with every field of uxie's event as compact JSON.
 fn event_lines(bytes: &[u8]) -> Result<Vec<String>, KernelError> {
     let file = EventFile::from_binary(&mut Cursor::new(bytes))
         .map_err(|e| KernelError::Uxie(e.to_string()))?;
@@ -127,31 +150,31 @@ fn event_lines(bytes: &[u8]) -> Result<Vec<String>, KernelError> {
             "movement_range_x": e.movement_range_x, "movement_range_z": e.movement_range_z,
             "x": e.x, "z": e.z, "y": e.y,
         });
-        out.push(format!("Figur {i}: {value}"));
+        out.push(t!("original.preview_object", i = i, value = value).into_owned());
     }
     for (i, e) in file.warp_events.iter().enumerate() {
         let value = json!({
             "x": e.x, "z": e.z, "dest_header_id": e.dest_header_id,
             "dest_warp_id": e.dest_warp_id, "height": e.height,
         });
-        out.push(format!("Tür {i}: {value}"));
+        out.push(t!("original.preview_warp", i = i, value = value).into_owned());
     }
     for (i, e) in file.coord_events.iter().enumerate() {
         let value = json!({
             "script": e.script, "x": e.x, "z": e.z, "width": e.width, "length": e.length,
             "y": e.y, "value": e.value, "var": e.var,
         });
-        out.push(format!("Auslöser {i}: {value}"));
+        out.push(t!("original.preview_trigger", i = i, value = value).into_owned());
     }
     for (i, e) in file.bg_events.iter().enumerate() {
         let value = json!({
             "script": e.script, "event_type": e.event_type, "x": e.x, "z": e.z, "y": e.y,
             "player_facing_dir": e.player_facing_dir,
         });
-        out.push(format!("Schild {i}: {value}"));
+        out.push(t!("original.preview_sign", i = i, value = value).into_owned());
     }
     if out.is_empty() {
-        out.push("Keine Events".to_owned());
+        out.push(t!("original.preview_no_events").into_owned());
     }
     Ok(out)
 }
@@ -165,7 +188,7 @@ fn archive_lines(bytes: &[u8], lang: &str) -> Result<Vec<String>, KernelError> {
         .map(|(i, m)| format!("{i}: {}", m.text))
         .collect();
     if out.is_empty() {
-        out.push("Keine Nachrichten".to_owned());
+        out.push(t!("original.preview_no_messages").into_owned());
     }
     Ok(out)
 }
@@ -174,7 +197,7 @@ fn archive_lines(bytes: &[u8], lang: &str) -> Result<Vec<String>, KernelError> {
 fn message_line(bytes: &[u8], lang: &str, message: u16) -> Result<Vec<String>, KernelError> {
     let doc = TextArchiveDoc::from_json(bytes, lang)?;
     Ok(vec![doc.messages.get(usize::from(message)).map_or_else(
-        || format!("Keine Nachricht {message}"),
+        || t!("original.preview_no_message", message = message).into_owned(),
         |m| m.text.clone(),
     )])
 }
@@ -236,10 +259,17 @@ fn learnset_lines(bytes: &[u8]) -> Result<Vec<String>, KernelError> {
     let mut out: Vec<String> = learnset
         .entries
         .iter()
-        .map(|e| format!("Lv {}: Attacke {}", e.level, e.move_id))
+        .map(|e| {
+            t!(
+                "original.preview_learnset",
+                level = e.level,
+                move_id = e.move_id
+            )
+            .into_owned()
+        })
         .collect();
     if out.is_empty() {
-        out.push("Keine Attacken".to_owned());
+        out.push(t!("original.preview_no_moves").into_owned());
     }
     Ok(out)
 }
@@ -253,7 +283,7 @@ fn evolution_lines(bytes: &[u8]) -> Result<Vec<String>, KernelError> {
         .map(|e| format!("{} {} → {}", e.method, e.param, e.target))
         .collect();
     if out.is_empty() {
-        out.push("Keine Entwicklung".to_owned());
+        out.push(t!("original.preview_no_evolution").into_owned());
     }
     Ok(out)
 }
@@ -272,7 +302,7 @@ mod tests {
         let learnset = [0x01, 0x02, 0x02, 0x0A, 0xFF, 0xFF, 0x00, 0x00];
         assert_eq!(
             line_of(species, AssetKind::Learnset, &learnset),
-            "Lv 1: Attacke 1\nLv 5: Attacke 2"
+            "Lv 1: move 1\nLv 5: move 2"
         );
         let mut evolution = [0u8; 44];
         evolution[..6].copy_from_slice(&[4, 0, 16, 0, 2, 0]);
@@ -282,7 +312,7 @@ mod tests {
         );
         assert_eq!(
             line_of(species, AssetKind::Evolution, &[0; 44]),
-            "Keine Entwicklung"
+            "No evolution"
         );
         let mut personal = [0u8; 44];
         personal[0] = 45;
@@ -300,7 +330,7 @@ mod tests {
             "{text}"
         );
         // Not decodable: the size and why.
-        assert!(line_of(species, AssetKind::Personal, &[0; 3]).starts_with("3 Byte, nicht lesbar"));
+        assert!(line_of(species, AssetKind::Personal, &[0; 3]).starts_with("3 bytes, unreadable"));
     }
 
     #[test]
@@ -369,17 +399,17 @@ mod tests {
         let text = line_of(ResetTarget::Map { index: 0 }, AssetKind::Map, &map);
         let parts: Vec<&str> = text.split('\n').collect();
         assert_eq!(parts.len(), 4, "{text}");
-        assert!(parts[0].starts_with("Bewegungsrechte ") && parts[0].len() == 24);
-        assert_eq!(parts[1], "Gebäude 1");
-        assert!(parts[2].starts_with("Modell 6 Byte "), "{text}");
-        assert!(parts[3].starts_with("BDHC 3 Byte "), "{text}");
+        assert!(parts[0].starts_with("Movement permissions ") && parts[0].len() == 29);
+        assert_eq!(parts[1], "Buildings 1");
+        assert!(parts[2].starts_with("Model 6 bytes "), "{text}");
+        assert!(parts[3].starts_with("BDHC 3 bytes "), "{text}");
         assert_eq!(
             line_of(
                 ResetTarget::EventFile { index: 0 },
                 AssetKind::Event,
                 &[0; 16]
             ),
-            "Keine Events"
+            "No events"
         );
     }
 }

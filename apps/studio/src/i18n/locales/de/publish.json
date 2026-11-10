@@ -1,0 +1,57 @@
+{
+  "publishWords": {
+    "kernel": {
+      "badVersion": "Die Version darf nicht leer sein, höchstens 32 Zeichen haben und weder Leerzeichen noch / \\ : * ? \" < > | enthalten.",
+      "versionTaken": "Diese Version gibt es schon.",
+      "badFile": "Der Dateiname darf nicht leer sein und weder / \\ : * ? \" < > | noch Steuerzeichen enthalten.",
+      "noRomContent": "Kein ROM-Inhalt, nur der Patch: wer ihn anwendet, braucht dieselbe Basis-ROM."
+    },
+    "noBase": "Erst eine Basis-ROM zuordnen.",
+    "phase": {
+      "build": "Speichern und bauen …",
+      "encode": "Patch kodieren …",
+      "verify": "Selbstprüfung …",
+      "write": "Dateien schreiben …",
+      "record": "Veröffentlichung eintragen …"
+    },
+    "filesLine_one": "{{count}} Datei, {{size}}",
+    "filesLine_other": "{{count}} Dateien, {{size}}",
+    "subject": {
+      "now": "Stand {{when}}",
+      "published": "Veröffentlicht v{{version}}"
+    }
+  },
+  "publishWizard": {
+    "title": "Veröffentlichen",
+    "steps": {
+      "version": "Version",
+      "patch": "Patch",
+      "check": "Prüfen",
+      "done": "Fertig"
+    },
+    "fileColumns": {
+      "file": "Datei",
+      "size": "Größe"
+    },
+    "chooseLocationTitle": "Speicherort wählen",
+    "readingReleases": "Lese die Veröffentlichungen …",
+    "version": "Version",
+    "notes": "Änderungsnotizen",
+    "notesHint": "Was sich seit der letzten Fassung geändert hat. Steht in der Begleitdatei.",
+    "location": "Speicherort",
+    "chooseFolder": "Ordner wählen…",
+    "fileName": "Dateiname",
+    "patchNote": "Speichert, baut die ROM und schreibt den Patch gegen die Basis-ROM. Die gebaute ROM bleibt unter build/ im Projekt.",
+    "readme": "Änderungsnotizen auch als README.txt daneben",
+    "replace": "Ersetzen",
+    "selfCheckPassed": "Selbstprüfung bestanden: auf die Basis-ROM angewendet ergibt der Patch genau die gebaute ROM.",
+    "checkSummary": "Basis {{base}} → Ziel {{target}}, geprüft in {{ms}} ms",
+    "handedOn": "Was du weitergibst",
+    "handOnPatch": "Den Patch weitergeben: wer dieselbe Basis-ROM hat, wendet ihn mit Rom Patcher JS oder xdelta3 an.",
+    "commitNext": "Stand sichern legt einen Commit mit „{{subject}}“ an.",
+    "publishedTitle": "Veröffentlicht: v{{version}}",
+    "saveSnapshot": "Stand sichern…",
+    "summary": "Schreibt {{file}} und die Begleitdatei nach {{dir}}.",
+    "showInFinder": "Im Finder zeigen"
+  }
+}

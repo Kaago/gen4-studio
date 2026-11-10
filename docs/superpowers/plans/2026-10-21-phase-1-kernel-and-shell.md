@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Repository-Wurzel: `/Users/POLTEP/Projekte/lab/editor/gen4-studio`. Cargo-Workspace mit Membern `crates/g4-formats`, `crates/g4-kernel`, `apps/studio/src-tauri`.
+- Repository-Wurzel: `$HOME/Projekte/lab/editor/gen4-studio`. Cargo-Workspace mit Membern `crates/g4-formats`, `crates/g4-kernel`, `apps/studio/src-tauri`.
 - Rust stable, Edition 2024, `rust-toolchain.toml` mit `channel = "stable"`. Node 24, pnpm 11.
 - Crate-Versionen: `uxie = "0.9"`, `ds-rom = "0.8"`, `binrw = "0.15"`, `thiserror = "2"`, `serde = { version = "1", features = ["derive"] }`, `serde_json = "1"`, `serde_yaml = "0.9"`, `clap = { version = "4", features = ["derive"] }`. Dev: `tempfile = "3"`, `assert_cmd = "2"`, `predicates = "3"`.
 - npm: `create-tauri-app@4.7.5`, `@tauri-apps/api@2.12`, `@tauri-apps/cli@2.12`, `@tauri-apps/plugin-dialog@2`, `three@0.186`, `vitest@3`.
@@ -94,7 +94,7 @@ Expected: `cargo 1.9x.x (...)`
 
 - [ ] **Step 2: Repository anlegen**
 
-Run: `cd /Users/POLTEP/Projekte/lab/editor/gen4-studio && git init -b main && git add docs && git commit -m "docs: design spec, roadmap, phase 1 plan"`
+Run: `cd $HOME/Projekte/lab/editor/gen4-studio && git init -b main && git add docs && git commit -m "docs: design spec, roadmap, phase 1 plan"`
 Expected: `1 file changed` je Dokument, kein Fehler.
 
 - [ ] **Step 3: Workspace-Dateien schreiben**
@@ -1064,7 +1064,7 @@ pub fn get_map(state, index: u16) -> Result<MapDto, String>;
 
 - [ ] **Step 1: Scaffold erzeugen**
 
-Run: `cd /Users/POLTEP/Projekte/lab/editor/gen4-studio/apps && pnpm create tauri-app@4.7.5 studio --template react-ts --manager pnpm --yes && cd studio && pnpm install && pnpm add @tauri-apps/plugin-dialog three && pnpm add -D vitest @types/three`
+Run: `cd $HOME/Projekte/lab/editor/gen4-studio/apps && pnpm create tauri-app@4.7.5 studio --template react-ts --manager pnpm --yes && cd studio && pnpm install && pnpm add @tauri-apps/plugin-dialog three && pnpm add -D vitest @types/three`
 Expected: `apps/studio/src-tauri` existiert, `pnpm tauri --version` druckt `2.12.x`.
 
 - [ ] **Step 2: Workspace verbinden**

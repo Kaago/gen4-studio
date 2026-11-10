@@ -1,5 +1,13 @@
 # NCGR und NCLR (Kachelgrafik und Palette)
 
+**In English:** Documents the NCGR (tile graphics) and NCLR (palette) formats, which the games use
+for icons and battle sprites. The document gives the block layout of both files as found in the
+archives of Platinum DE, HeartGold DE and HeartGold US, checked one to one. Gen4 Studio only reads
+them and never writes them back; it decodes them to PNG for item and Pokémon icons
+(`crates/g4-kernel/src/data/icons.rs`) and for battle sprites (`battle_sprites.rs`, with metadata in
+`crates/g4-kernel/metadata/battle_sprites.yaml`). The readers are `crates/g4-formats/src/ncgr.rs`
+and `nclr.rs`. All values are little endian.
+
 Quelle: öffentliche Formatbeschreibungen (gbatek, NDS File Formats) und der Augenschein an den Archiven von
 Platin DE, HeartGold DE und HeartGold US (Dateikopf und Blöcke wie unten, 1:1 geprüft).
 Implementierung: `crates/g4-formats/src/ncgr.rs` und `nclr.rs` (nur Lesen, nichts schreibt sie zurück),

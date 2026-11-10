@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "../api";
 import type { Created, CreateProgress, DestCheck, InitReport, RomInfo } from "../api";
 import { initReportOf } from "../git/gitTesting";
-import { NOT_INSTALLED } from "../git/gitWords";
+import { notInstalledText } from "../git/gitWords";
 import { openPath } from "../platform/dialogs";
 import { pressKey } from "../ui/primitives/testUtils";
 import { NewProjectWizard } from "./NewProjectWizard";
@@ -293,7 +293,7 @@ describe("NewProjectWizard", () => {
   });
 
   it("the_result_says_only_the_templates_were_written_without_git", async () => {
-    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason: NOT_INSTALLED, head: null, files: 0 }));
+    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason: notInstalledText(), head: null, files: 0 }));
     expect(warning).toBe("Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.");
     expect(shown).not.toContain("Git eingerichtet");
   });
@@ -348,6 +348,23 @@ describe("NewProjectWizard", () => {
     expect(text()).toContain("too small for a DS ROM: 12 bytes");
     expect(text()).not.toContain("TETRIS");
     expect(button("Weiter")?.disabled).toBe(true);
+  });
+
+  it.each(["Kein Gen-4-Spiel erkannt", "No Gen 4 game recognized"])("shows_the_kernels_not_gen4_sentence_once_whatever_its_language (%s)", async (reason) => {
+    // The kernel speaks the language it was set to; the badge already says it in the language shown.
+    vi.mocked(inspectRom).mockResolvedValue(rom({ title: "TETRIS", game_code: "ATRE", family: null, language: "english", known_base: null, support: { kind: "unknown", reason } }));
+    await show();
+    await type(field("ROM-Datei"), "/roms/t.nds");
+    expect(text().split("Kein Gen-4-Spiel erkannt")).toHaveLength(2);
+    expect(text()).not.toContain("No Gen 4 game recognized");
+  });
+
+  it("shows_another_unknown_reason_beside_the_badge", async () => {
+    vi.mocked(inspectRom).mockResolvedValue(rom({ title: "TETRIS", game_code: "ATRE", family: null, language: "english", known_base: null, support: { kind: "unknown", reason: "Kein DS-Spiel" } }));
+    await show();
+    await type(field("ROM-Datei"), "/roms/t.nds");
+    expect(text()).toContain("Kein Gen-4-Spiel erkannt");
+    expect(text()).toContain("Kein DS-Spiel");
   });
 
   it("untested_language_shows_the_plaque", async () => {

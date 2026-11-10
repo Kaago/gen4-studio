@@ -33,7 +33,9 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 const WRITE_QUEUE: usize = 256;
 
 /// Shown when the binary is missing; the editor works without language services.
-pub(crate) const MISSING: &str = "rotom-lsp fehlt — Completion und Diagnosen aus";
+pub(crate) fn missing() -> String {
+    t!("lsp.missing").into_owned()
+}
 
 /// Finds the rotom-lsp executable: `G4_ROTOM_LSP`, then `rotom-lsp` next to the running binary,
 /// then (debug builds only) the repository's `tools/rotom/bin/rotom-lsp`; `.exe` is added on
@@ -299,7 +301,7 @@ impl LspProcess {
     pub fn send_or_restart(&mut self, body: &str) -> Result<(), CmdError> {
         if !self.alive() {
             if self.last_start.elapsed() < self.restart_after {
-                return Err("rotom-lsp beendet sich wiederholt".into());
+                return Err(t!("lsp.keeps_ending").into_owned().into());
             }
             self.restart()?;
         }
@@ -341,7 +343,7 @@ pub fn lsp_start_impl(
         .filter(|p| crate::sidecar::is_real_file(p))
         .ok_or_else(|| CmdError {
             code: "tool_missing",
-            message: MISSING.to_owned(),
+            message: missing(),
             asset: None,
             problems: Vec::new(),
             references: Vec::new(),
@@ -360,7 +362,7 @@ pub fn lsp_send_impl(state: &AppState, body: &str) -> Result<(), CmdError> {
     let lsp = session(&mut guard)?
         .lsp
         .as_mut()
-        .ok_or("rotom-lsp läuft nicht")?;
+        .ok_or_else(|| CmdError::from(t!("lsp.not_running").into_owned()))?;
     lsp.send_or_restart(body)
 }
 
@@ -585,7 +587,7 @@ while :; do sleep 1; done
         assert_eq!(err.code, "tool_missing");
         assert_eq!(
             err.message,
-            "rotom-lsp fehlt — Completion und Diagnosen aus"
+            "rotom-lsp is missing — completion and diagnostics are off"
         );
         // No binary found at all is the same error.
         let (sink, _rx) = channel();
@@ -712,7 +714,7 @@ while :; do sleep 1; done
         let mut lsp = LspProcess::start(&fake, &dir.0, sink).unwrap();
         wait_dead(&mut lsp);
         let err = lsp.send_or_restart("{}").unwrap_err();
-        assert_eq!(err.message, "rotom-lsp beendet sich wiederholt");
+        assert_eq!(err.message, "rotom-lsp keeps ending");
         assert_eq!(err.code, "error");
         assert_eq!(lsp.restarts(), 0);
         assert!(!lsp.alive());

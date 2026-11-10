@@ -1,5 +1,6 @@
 import type { FigureAppearsInput, FigureRef, HeaderSummary, RewardOnceInput, SceneOnEnterInput, Step, StoryDto, TalkAdvancesInput } from "../../api";
-import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
+import { notATextProject } from "../../flags/flagWords";
+import { t } from "../../i18n";
 import { headerLabel } from "../../workbench/headers";
 
 /** The four step recipes of 3d.7: each adds a step to a story with a variable as its progress. */
@@ -15,18 +16,27 @@ export const STEP_RECIPES: readonly StepRecipeId[] = ["talk_advances", "figure_a
 export type StoryRecipeRequest = { recipe: StepRecipeId; prefill?: { story?: string; figure?: FigureRef; header?: number } };
 
 /** Why a trainer is no figure for talk or a reward (the kernel refuses it the same way). */
-export const TRAINERS_TALK = "Trainer sprechen über ihre Kampftexte";
+export function trainersTalk(): string {
+  return t("stories:storyRecipeModel.trainersTalk");
+}
 
 /** Why a story with a flag as its progress offers no step recipe. */
-export const NEEDS_VAR = "Rezepte brauchen eine Variable als Fortschritt";
+export function needsVar(): string {
+  return t("stories:storyRecipeModel.needsVar");
+}
 
-/** What each recipe does, under the dialog's title. */
-export const RECIPE_DESCRIPTIONS: Readonly<Record<StepRecipeId, string>> = {
-  talk_advances: "Die Figur bekommt einen Gesprächszweig: ab dem gewählten Schritt sagt sie den Text und schaltet die Geschichte weiter.",
-  figure_appears: "Die Figur erscheint oder verschwindet ab dem gewählten Schritt; ein Flag aus dem Pool hält, ob sie da ist.",
-  scene_on_enter: "Wer den Ort beim gewählten Schritt betritt, sieht den Text; danach schaltet die Geschichte weiter.",
-  reward_once: "Die Figur gibt ab dem gewählten Schritt einmal einen Gegenstand; ein Flag aus dem Pool merkt sich, dass er gegeben ist.",
-};
+/** The catalog key (`stories:storyRecipeModel.descriptions.<key>`) of each recipe's description. */
+const DESCRIPTION_KEYS = {
+  talk_advances: "talkAdvances",
+  figure_appears: "figureAppears",
+  scene_on_enter: "sceneOnEnter",
+  reward_once: "rewardOnce",
+} as const satisfies Record<StepRecipeId, string>;
+
+/** What a recipe does, under the dialog's title. */
+export function recipeDescription(recipe: StepRecipeId): string {
+  return t(`stories:storyRecipeModel.descriptions.${DESCRIPTION_KEYS[recipe]}`);
+}
 
 /** What each recipe's dialog asks for. `stepName` null: the default name (`defaultStepName`); a reward's `text` null: „Du erhältst …!“. */
 export type StoryRecipeForm =
@@ -68,7 +78,7 @@ export function formOf(request: StoryRecipeRequest): StoryRecipeForm {
 }
 
 /** A reward's text until one is typed. */
-export const rewardText = (itemName: string): string => `Du erhältst ${itemName}!`;
+export const rewardText = (itemName: string): string => t("stories:storyRecipeModel.rewardText", { item: itemName });
 
 /** The text a reward says: the typed one, else „Du erhältst {Gegenstand}!“ (empty without an item). */
 export function rewardSays(form: Extract<StoryRecipeForm, { recipe: "reward_once" }>): string {
@@ -79,18 +89,28 @@ export function rewardSays(form: Extract<StoryRecipeForm, { recipe: "reward_once
 export function defaultStepName(form: StoryRecipeForm, names: StepNames): string {
   switch (form.recipe) {
     case "talk_advances":
-      return form.figure === null ? "Gespräch" : `Gespräch mit Figur ${form.figure.local_id}`;
+      return form.figure === null
+        ? t("stories:storyRecipeModel.defaultStepName.talk")
+        : t("stories:storyRecipeModel.defaultStepName.talkWithFigure", { id: form.figure.local_id });
     case "figure_appears": {
-      const who = form.figure === null ? "Figur" : `Figur ${form.figure.local_id}`;
-      const step = form.step === null ? "" : ` ab Schritt ${form.step}`;
-      return `${who} ${form.appears ? "erscheint" : "verschwindet"}${step}`;
+      const who =
+        form.figure === null
+          ? t("stories:storyRecipeModel.defaultStepName.figure")
+          : t("stories:storyRecipeModel.defaultStepName.figureWithId", { id: form.figure.local_id });
+      if (form.step === null) return form.appears ? t("stories:storyRecipeModel.defaultStepName.appears", { who }) : t("stories:storyRecipeModel.defaultStepName.disappears", { who });
+      return form.appears
+        ? t("stories:storyRecipeModel.defaultStepName.appearsFromStep", { who, step: form.step })
+        : t("stories:storyRecipeModel.defaultStepName.disappearsFromStep", { who, step: form.step });
     }
     case "scene_on_enter": {
       const place = names.headers.find((h) => h.id === form.header);
-      return place === undefined ? "Szene beim Betreten" : `Szene beim Betreten von ${headerLabel(place)}`;
+      return place === undefined ? t("stories:storyRecipeModel.defaultStepName.scene") : t("stories:storyRecipeModel.defaultStepName.sceneAt", { place: headerLabel(place) });
     }
     case "reward_once":
-      return form.itemName === null ? (form.figure === null ? "Belohnung" : `Belohnung von Figur ${form.figure.local_id}`) : `Belohnung: ${form.itemName}`;
+      if (form.itemName !== null) return t("stories:storyRecipeModel.defaultStepName.rewardItem", { item: form.itemName });
+      return form.figure === null
+        ? t("stories:storyRecipeModel.defaultStepName.reward")
+        : t("stories:storyRecipeModel.defaultStepName.rewardFromFigure", { id: form.figure.local_id });
   }
 }
 
@@ -137,8 +157,8 @@ export function defaultStep(steps: readonly Step[]): number | null {
 
 /** Why the step recipes of `story` are locked: no text project (stories live there), or a flag as progress; null: they run. */
 export function recipesLock(story: StoryDto, textProject: boolean): string | null {
-  if (!textProject) return NOT_A_TEXT_PROJECT;
-  return "var" in story.story.progress ? null : NEEDS_VAR;
+  if (!textProject) return notATextProject();
+  return "var" in story.story.progress ? null : needsVar();
 }
 
 /** Whether a recipe gives the figure a talk branch (a trainer speaks through its battle texts instead). */

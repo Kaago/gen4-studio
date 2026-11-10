@@ -1,0 +1,150 @@
+{
+  "words": {
+    "kind": {
+      "flag": "Flag",
+      "var": "Variable"
+    },
+    "none": "None",
+    "noneItem": "None (0)",
+    "area": {
+      "mapLocal": "Map-local",
+      "general": "General",
+      "hiddenItems": "Hidden items",
+      "trainer": "Trainer",
+      "system": "System",
+      "daily": "Daily flags",
+      "temp": "Temporary",
+      "objectGfx": "Object graphics",
+      "scriptLocal": "Script-local",
+      "outside": "Outside"
+    },
+    "access": {
+      "read": "checks",
+      "write": "sets",
+      "readWrite": "sets and checks",
+      "unknown": "unclear"
+    },
+    "usage": {
+      "unused": "unused",
+      "long": "set {{write}} · checked {{read}}",
+      "longUnclear": "set {{write}} · checked {{read}} · unclear {{unknown}}"
+    },
+    "scriptsNotIndexed": {
+      "flag": "Adopt the scripts first: without script sources the index does not know which flags scripts use.",
+      "var": "Adopt the scripts first: without script sources the index does not know which variables scripts use."
+    },
+    "poolEmpty": {
+      "flag": "No free flag in the general range.",
+      "var": "No free variable in the general range."
+    },
+    "notATextProject": "No text project: IDs only exist after “Set up as a text project…”.",
+    "namingNeedsTextProject": "{{reason}} (Technical › Text project)",
+    "outsideTheSave": "Lies outside the save game.",
+    "liveTip": {
+      "var": "Live {{value}} · change it in the detail view",
+      "flagSet": "Live: set · click clears",
+      "flagClear": "Live: 0 · click sets"
+    }
+  },
+  "flagFilter": {
+    "headerNone": "No header",
+    "headerUnnamed": "Header {{id}}"
+  },
+  "flagField": {
+    "choose": "Choose…",
+    "chooseLabel": "Choose {{label}}…"
+  },
+  "flagDetail": {
+    "busy": "Wait until saving or building is finished",
+    "readNotSet": "Read but never set: the engine or a script sets it through a variable, or it is never set.",
+    "mapReload": "Visibility flags take effect the next time the map is entered.",
+    "notTaken": "Value not accepted, try again.",
+    "chooseOne": "Choose a flag or a variable on the left.",
+    "noDescription": "No description",
+    "reading": "Reading…",
+    "rename": "Rename…",
+    "describe": "Description…",
+    "nameAsFlag": "Name as custom flag…",
+    "nameAsVar": "Name as custom variable…",
+    "live": {
+      "title": "Live",
+      "setInGame": "Set in game",
+      "valueInGame": "Value in game",
+      "set": "Set"
+    },
+    "uses": {
+      "whereSet": "Where set",
+      "whereChecked": "Where checked",
+      "unclear": "Unclear",
+      "neverSet": "Not set anywhere.",
+      "neverChecked": "Not checked anywhere."
+    }
+  },
+  "flagList": {
+    "liveOff": "Available with “Play here” in melonDS",
+    "live": "Live",
+    "listFlags": "Flags",
+    "listVars": "Variables",
+    "empty": "Nothing matches the filter and search.",
+    "rowLimitNote": "Showing the first {{limit, number}} rows; search or filter to find the rest.",
+    "places_one": "at {{count, number}} place",
+    "places_other": "at {{count, number}} places",
+    "reserved": "reserved",
+    "free": "free",
+    "foot": {
+      "counted": "{{matching, number}} of {{total, number}}",
+      "cut": "{{rendered, number}} of {{total, number}} shown",
+      "cutFiltered": "{{rendered, number}} of {{matching, number}} shown, {{total, number}} in total",
+      "summary": "{{shown}} · Script-local variables {{scriptLocal, number}} occurrences, flags from variables {{dynamic, number}} (not in the index)"
+    }
+  },
+  "flagPicker": {
+    "titleFlag": "Choose flag",
+    "titleVar": "Choose variable",
+    "placeholder": "Name or number",
+    "all": "All",
+    "loading": "Loading…",
+    "takeFreeFlag": "Take free flag",
+    "takeFreeVar": "Take free variable",
+    "showInList": "Show in list",
+    "cutNote": "Showing the first {{limit, number}} hits; search or narrow the range to find the rest."
+  },
+  "flagsSurface": {
+    "scriptsNotAdopted": "Scripts are not adopted yet: script references are missing from the index, so “free” is only a hint.",
+    "ownNamesNote": "Custom names are available in a text project: Technical › Text project › “Set up as a text project…”.",
+    "reading": "Reading…",
+    "flagsCount_one": "{{count, number}} flag · {{free, number}} free",
+    "flagsCount_other": "{{count, number}} flags · {{free, number}} free",
+    "varsCount_one": "{{count, number}} variable · {{free, number}} free",
+    "varsCount_other": "{{count, number}} variables · {{free, number}} free",
+    "kindFlags": "Flags",
+    "kindVars": "Variables",
+    "all": "All",
+    "title": "Flags and variables",
+    "intro": "Which flags and variables the game knows, and where scripts, characters, triggers, level scripts and Trainers set or check them.",
+    "noProject": "No project open.",
+    "noProjectWhy": "Open a project and its flags and variables appear here.",
+    "openProject": "Open project",
+    "kindLabel": "Kind",
+    "rangeLabel": "Range",
+    "unusedOnly": "Unused only",
+    "freeOnly": "Free only",
+    "ownOnly": "Custom name only",
+    "search": "Search name or number",
+    "notTakenFor": "{{name}}: {{reason}}"
+  },
+  "nameDialog": {
+    "titleFlag": "Name as custom flag",
+    "titleVar": "Name as custom variable",
+    "titleDescribe": "Description",
+    "hint": "A–Z, 0–9 and _.",
+    "hintWithPret": "A–Z, 0–9 and _; the pret name {{name}} stays valid.",
+    "cancel": "Cancel",
+    "name": "Assign name",
+    "save": "Save",
+    "ownName": "Custom name",
+    "description": "Description",
+    "named": "{{id}} named (one step in the history).",
+    "described": "Description saved."
+  }
+}

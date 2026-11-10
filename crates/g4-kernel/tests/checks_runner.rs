@@ -990,8 +990,8 @@ fn a_tombstoned_encounter_file_is_dangling_for_its_header() {
     assert_eq!(
         messages(&found),
         [
-            "Header 0 points at encounter file 0, which is deleted (Grabstein).",
-            "Header 1 points at encounter file 0, which is deleted (Grabstein).",
+            "Header 0 points at encounter file 0, which is deleted (tombstone).",
+            "Header 1 points at encounter file 0, which is deleted (tombstone).",
         ]
     );
     assert_eq!(found[0].subject, Subject::Header(0));
@@ -1045,7 +1045,7 @@ fn a_tombstoned_header_is_not_checked_as_a_source() {
     // Header 0 is still checked.
     assert_eq!(
         messages(&findings_of(&snap, "header.wild-dangling")),
-        ["Header 0 points at encounter file 0, which is deleted (Grabstein)."]
+        ["Header 0 points at encounter file 0, which is deleted (tombstone)."]
     );
 
     // A deleted matrix is missing for the header that names it, with the same code.
@@ -1054,7 +1054,7 @@ fn a_tombstoned_header_is_not_checked_as_a_source() {
     let found = findings_of(&snap, "header.ref-range");
     assert!(
         messages(&found)
-            .contains(&"Header 0 points at matrix 0, which is deleted (Grabstein).".to_owned()),
+            .contains(&"Header 0 points at matrix 0, which is deleted (tombstone).".to_owned()),
         "{found:?}"
     );
 }
@@ -1089,7 +1089,7 @@ fn a_tombstoned_trainer_is_missing_for_its_figure() {
     let found = findings_of(&snapshot(&project, &st, SnapshotCache::default()), code);
     assert_eq!(
         messages(&found),
-        ["Object 0 battles as trainer 1 (script 3000), which is deleted (Grabstein)."]
+        ["Object 0 battles as trainer 1 (script 3000), which is deleted (tombstone)."]
     );
     assert_eq!(found[0].subject, Subject::EventFile(0));
     assert_eq!(found[0].field.as_deref(), Some("script"));

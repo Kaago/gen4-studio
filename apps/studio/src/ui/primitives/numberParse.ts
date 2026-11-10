@@ -1,3 +1,5 @@
+import { t } from "../../i18n";
+
 export type NumberBase = "dec" | "hex";
 
 const DEC = /^-?\d+$/;
@@ -5,14 +7,14 @@ const HEX = /^-?(?:0x)?[0-9a-f]+$/i;
 
 /** Reads a whole number in the given base; null when the text is empty or not exactly such a number. */
 export function parseNumber(text: string, base: NumberBase): number | null {
-  const t = text.trim();
+  const trimmed = text.trim();
   if (base === "dec") {
-    if (!DEC.test(t)) return null;
-    return finite(Number.parseInt(t, 10));
+    if (!DEC.test(trimmed)) return null;
+    return finite(Number.parseInt(trimmed, 10));
   }
-  if (!HEX.test(t)) return null;
-  const negative = t.startsWith("-");
-  const digits = t.replace(/^-/, "").replace(/^0x/i, "");
+  if (!HEX.test(trimmed)) return null;
+  const negative = trimmed.startsWith("-");
+  const digits = trimmed.replace(/^-/, "").replace(/^0x/i, "");
   const n = Number.parseInt(digits, 16);
   return finite(negative ? -n : n);
 }
@@ -35,15 +37,15 @@ export type NumberCheck = { ok: true; value: number } | { ok: false; error: stri
  * sentence that names the way out; it is never turned into the nearest valid number.
  */
 export function checkNumber(text: string, base: NumberBase, min: number, max: number | undefined): NumberCheck {
-  if (text.trim() === "") return { ok: false, error: "Gib eine Zahl ein." };
+  if (text.trim() === "") return { ok: false, error: t("ui:numberParse.enterNumber") };
   const n = parseNumber(text, base);
   if (n === null) {
     return {
       ok: false,
-      error: base === "hex" ? "Das ist keine Hex-Zahl. Gib z. B. 0x1F ein." : "Das ist keine ganze Zahl. Gib z. B. 12 ein.",
+      error: base === "hex" ? t("ui:numberParse.notHex") : t("ui:numberParse.notInteger"),
     };
   }
-  if (max !== undefined && n > max) return { ok: false, error: `höchstens ${formatNumber(max, base)}` };
-  if (n < min) return { ok: false, error: `mindestens ${formatNumber(min, base)}` };
+  if (max !== undefined && n > max) return { ok: false, error: t("ui:numberParse.atMost", { max: formatNumber(max, base) }) };
+  if (n < min) return { ok: false, error: t("ui:numberParse.atLeast", { min: formatNumber(min, base) }) };
   return { ok: true, value: n };
 }

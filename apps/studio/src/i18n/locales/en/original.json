@@ -1,0 +1,24 @@
+{
+  "resetDialog": {
+    "title": "Reset {{label}} to original?",
+    "description": "Restores the state of the base ROM {{base}}. ⌘Z takes it back.",
+    "close": "Close",
+    "cancel": "Cancel",
+    "reset": "Reset",
+    "loading": "Loading comparison…",
+    "same": "Already matches the base ROM.",
+    "scriptDirty": "Unsaved changes to this script file will be lost.",
+    "dirty": "Unsaved changes are replaced too; ⌘Z brings them back.",
+    "writesFiles": "Written immediately; ⌘Z takes it back.",
+    "resetting": "Resetting…"
+  },
+  "headActions": {
+    "actions": "Actions"
+  },
+  "resetEntry": {
+    "label": "Reset to original…",
+    "reading": "Reading…",
+    "baseMissing": "Base ROM missing",
+    "noOriginal": "No original"
+  }
+}

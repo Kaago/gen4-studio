@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, freeFlag } from "../../api";
 import type { ProjectInfo } from "../../api";
 import { useStableCallback } from "../../app/useStable";
@@ -13,6 +14,7 @@ import styles from "./StoryRecipeDialog.module.css";
  * echo of what the field shows is no edit (a reward's default text must not turn into a typed one).
  */
 export function SaysField({ value, onChange, disabled }: { value: string; onChange: (text: string) => void; disabled?: boolean }) {
+  const { t } = useTranslation("stories");
   const shown = useRef(value);
   shown.current = value;
   const edited = useStableCallback((text: string) => {
@@ -20,11 +22,11 @@ export function SaysField({ value, onChange, disabled }: { value: string; onChan
   });
   return (
     <div className={styles.field}>
-      <span className={styles.label}>Text</span>
+      <span className={styles.label}>{t("recipeFields.text")}</span>
       <div className={styles.preview}>
-        <MessageEditor label="Text" value={value} onCommit={async () => true} onDraft={edited} disabled={disabled} />
+        <MessageEditor label={t("recipeFields.text")} value={value} onCommit={async () => true} onDraft={edited} disabled={disabled} />
       </div>
-      <p className={styles.note}>Enter: neue Zeile; Umschalt+Enter: neue Seite (▼).</p>
+      <p className={styles.note}>{t("recipeFields.hint")}</p>
       <div className={styles.preview}>
         <TextPreview text={value} />
       </div>
@@ -32,14 +34,13 @@ export function SaysField({ value, onChange, disabled }: { value: string; onChan
   );
 }
 
-/** „Noch 20 Flags frei“, „Noch 1 Flag frei“. */
-const freeFlagsText = (n: number): string => `Noch ${n} ${n === 1 ? "Flag" : "Flags"} frei`;
 
 /**
  * The flag a recipe takes from the pool (an appearance, a reward): opening asks the pool for its smallest free flag and puts it into the
  * field while the field shows none (it stays changeable), with the line „Noch {n} Flags frei“; a pool that cannot give one says why.
  */
 export function PoolFlagField({ label, value, onChange, project, revision, disabled }: { label: string; value: number; onChange: (n: number) => void; project: ProjectInfo | null; revision: number; disabled?: boolean }) {
+  const { t } = useTranslation("stories");
   const [pool, setPool] = useState<{ free: number } | { refusal: string } | null>(null);
   const take = useStableCallback(onChange);
   // The field's number now: an answer that comes after a pick does not overwrite it.
@@ -65,7 +66,7 @@ export function PoolFlagField({ label, value, onChange, project, revision, disab
       <FlagField bare kind="flag" label={label} value={value} onCommit={onChange} disabled={disabled} depth="bauen" project={project} revision={revision} field="story-flag" />
       {pool !== null && (
         <p className={styles.note} data-pool-free="">
-          {"free" in pool ? freeFlagsText(pool.free) : pool.refusal}
+          {"free" in pool ? t("recipeFields.freeFlags", { count: pool.free }) : pool.refusal}
         </p>
       )}
     </div>

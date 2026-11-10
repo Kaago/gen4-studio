@@ -29,20 +29,21 @@ pub enum Area {
 }
 
 impl Area {
-    /// The word for the user interface.
-    pub fn word(self) -> &'static str {
-        match self {
-            Area::MapLocal => "kartenlokal",
-            Area::General => "allgemein",
-            Area::HiddenItems => "versteckte Items",
-            Area::Trainer => "Trainer",
-            Area::System => "System",
-            Area::Daily => "Tagesflags",
-            Area::Temp => "temporär",
-            Area::ObjectGfx => "Objektgrafik",
-            Area::ScriptLocal => "Script-lokal",
-            Area::Outside => "außerhalb",
-        }
+    /// The word for the user interface, in the current language.
+    pub fn word(self) -> String {
+        let key = match self {
+            Area::MapLocal => "flags.area_map_local",
+            Area::General => "flags.area_general",
+            Area::HiddenItems => "flags.area_hidden_items",
+            Area::Trainer => "flags.area_trainer",
+            Area::System => "flags.area_system",
+            Area::Daily => "flags.area_daily",
+            Area::Temp => "flags.area_temp",
+            Area::ObjectGfx => "flags.area_object_gfx",
+            Area::ScriptLocal => "flags.area_script_local",
+            Area::Outside => "flags.area_outside",
+        };
+        t!(key).into_owned()
     }
 }
 
@@ -233,7 +234,7 @@ mod tests {
         // Diamond and Pearl are taken as Platinum.
         assert_eq!(area_of(Dp, Flag, 0x2DA), Area::HiddenItems);
         assert_eq!(ranges(Dp), ranges(Pt));
-        assert_eq!(Area::HiddenItems.word(), "versteckte Items");
+        assert_eq!(Area::HiddenItems.word(), "Hidden items");
     }
 
     #[test]

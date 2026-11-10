@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataRowDto } from "../../api";
 import { trainerRowLabel } from "../../data/trainer/trainerModel";
 import { Button, InspectorRow, Picker, Reference } from "../../ui/primitives";
@@ -31,6 +32,7 @@ export function TrainerField({
   onPick: (id: number) => void;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation("workbench");
   const [picking, setPicking] = useState(false);
   const trainer = trainerOfScript(script);
   const hasTrainer = trainer !== null;
@@ -46,7 +48,7 @@ export function TrainerField({
       <InspectorRow label="Trainer">
         <div className={styles.inline} data-field="trainer">
           {trainer === null ? (
-            <span className={styles.mono}>kein Trainer</span>
+            <span className={styles.mono}>{t("trainerField.none")}</span>
           ) : (
             <Reference
               area="pokemon"
@@ -56,18 +58,18 @@ export function TrainerField({
               dataAttrs={{ "data-trainer": String(trainer.id) }}
             />
           )}
-          <Button kind="quiet" size="s" aria-label="Trainer ändern…" disabled={disabled} onClick={() => setPicking(true)}>
-            Ändern…
+          <Button kind="quiet" size="s" aria-label={t("trainerField.change")} disabled={disabled} onClick={() => setPicking(true)}>
+            {t("inspectorField.change")}
           </Button>
         </div>
       </InspectorRow>
       <Picker
         open={picking}
         onOpenChange={setPicking}
-        title="Trainer wählen"
+        title={t("trainerField.choose")}
         items={items}
-        placeholder="Klasse, Name oder Nummer suchen"
-        emptyText={trainers === null ? "Lädt …" : "Kein Trainer gefunden"}
+        placeholder={t("trainerField.search")}
+        emptyText={trainers === null ? t("inspectorField.loading") : t("trainerField.notFound")}
         onPick={(item) => onPick(Number(item.id))}
       />
     </>

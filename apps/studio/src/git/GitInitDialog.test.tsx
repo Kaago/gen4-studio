@@ -8,7 +8,7 @@ import type { InitPhase, InitReport } from "../api";
 import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { pressKey } from "../ui/primitives/testUtils";
 import { GitInitDialog } from "./GitInitDialog";
-import { NOT_INSTALLED } from "./gitWords";
+import { notInstalledText } from "./gitWords";
 import type { GitInitDialogProps } from "./GitInitDialog";
 import { initReportOf, noRepo } from "./gitTesting";
 
@@ -144,7 +144,7 @@ describe("GitInitDialog", () => {
     ]);
     expect(labels()).toEqual(["Abbrechen", "Vorlagen schreiben"]);
     expect(button("Vorlagen schreiben")?.dataset.kind).toBe("primary");
-    const report = initReportOf({ committed: false, reason: NOT_INSTALLED, head: null, files: 0 });
+    const report = initReportOf({ committed: false, reason: notInstalledText(), head: null, files: 0 });
     vi.mocked(gitInit).mockResolvedValueOnce(report);
     await act(async () => button("Vorlagen schreiben")!.click());
     expect(onDone).toHaveBeenCalledWith(report);

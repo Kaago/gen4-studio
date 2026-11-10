@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const openPath = vi.fn<(opts: unknown) => Promise<string | null>>();
@@ -36,6 +37,15 @@ describe("previewMessages", () => {
       "Pfad liegt außerhalb der erlaubten Ordner: /tmp/x.png",
       "Pfad ist kein gültiger Text: /x",
       "Ungültige Argumente für project_preview_set: y",
+      "Pfad nicht lesbar: /x.png: No such file",
+      "Ordner nicht lesbar: /x: Permission denied",
+      "Keine Datei: /x",
+      "Kein Ordner: /x",
+      "Kein Dateiname: /",
+      "Originale (_DSPRE_contents) sind gesperrt: /p_DSPRE_contents/x.png",
+      "Originale sind gesperrt, nur Kopien unter /k: /o/x.png",
+      "Spielstände (_saves) sind gesperrt: /p/_saves/x.png",
+      "Nur das offene Projekt: /q/x.png",
       "Brücke nicht erreichbar",
       "Kein Tauri und keine Brücke",
     ]) {
@@ -43,6 +53,36 @@ describe("previewMessages", () => {
     }
     // The app's own failures (an Error it throws: no map at the chosen cell, a lost WebGL context) say their German sentence.
     expect(previewErrorText(new Error("An dieser Stelle liegt keine Karte."))).toBe("An dieser Stelle liegt keine Karte.");
+  });
+
+  it("in English, the bridge's and the policy's English refusals keep their text, any other error says in English what to check", async () => {
+    await i18next.changeLanguage("en");
+    try {
+      const sentence = "The preview picture could not be changed. Check that the project folder is still there and that you may write in it.";
+      expect(previewErrorText(refused("Permission denied (os error 13)"))).toBe(sentence);
+      for (const own of [
+        "Path is outside the allowed folders: /tmp/x.png",
+        "Path is not valid text: /x",
+        "Invalid arguments for project_preview_set: y",
+        "Path not readable: /x.png: No such file",
+        "Folder not readable: /x: Permission denied",
+        "Not a file: /x",
+        "Not a folder: /x",
+        "No file name: /",
+        "Originals (_DSPRE_contents) are locked: /p_DSPRE_contents/x.png",
+        "Originals are locked, only copies under /k: /o/x.png",
+        "Save games (_saves) are locked: /p/_saves/x.png",
+        "Only the open project: /q/x.png",
+        "Bridge not reachable",
+        "No Tauri and no bridge",
+      ]) {
+        expect(previewErrorText(refused(own))).toBe(own);
+      }
+      // A German refusal (from a bridge still speaking German) keeps its text too.
+      expect(previewErrorText(refused("Pfad liegt außerhalb der erlaubten Ordner: /tmp/x.png"))).toBe("Pfad liegt außerhalb der erlaubten Ordner: /tmp/x.png");
+    } finally {
+      await i18next.changeLanguage("de");
+    }
   });
 
   it("change_preview_says_a_failed_write_in_german", async () => {

@@ -2,7 +2,7 @@
 //! is [`crate::templates::plan_empty_region`]; this module checks, drafts and applies it. The
 //! border map is created first (it stays after undo); the level script file, the start script
 //! and the text archives its compile writes are recorded as file steps beside the store's
-//! edits, all one undo step [`REGION_LABEL`], so undo and redo restore every file.
+//! edits, all one undo step [`region_label`], so undo and redo restore every file.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -19,7 +19,7 @@ use crate::scripts::{
 };
 use crate::store::{ChangeId, EventFile, FileStep, HEADER_TABLE, MapHeader, Store};
 use crate::templates::{
-    BLOCKED, REGION_LABEL, RegionPlan, RegionReport, plan_empty_region, region_recipe,
+    BLOCKED, RegionPlan, RegionReport, plan_empty_region, region_label, region_recipe,
     start_script, variable_id, wrap_message,
 };
 
@@ -47,7 +47,7 @@ struct Checked {
 }
 
 /// Every check of the recipe, in this order, each before anything is written: Diamond/Pearl
-/// ([`crate::start::DP_LOCKED`]) and the refusals of the plan, a world that is already empty,
+/// ([`crate::start::dp_locked`]) and the refusals of the plan, a world that is already empty,
 /// scripts that are not adopted, unsaved changes in the store, a town script file without a
 /// rotom source, a message the text window cannot wrap.
 fn check(store: &mut Store) -> Result<Checked, KernelError> {
@@ -171,31 +171,36 @@ pub fn plan(store: &mut Store, _: &EmptyRegionInput) -> Result<Draft, KernelErro
             text: checked.message.clone(),
         }],
         notes: vec![
-            format!(
-                "Behält {town} mit {rooms} Räumen; {} Header werden geleert.",
-                plan.emptied.len()
-            ),
-            format!(
-                "{} Zellen von Weltkarte 0000 bekommen die Rand-Karte, eine Kopie von Karte \
-                 {:04} mit gesperrten Zellen.",
-                plan.border_cells, plan.town_map
-            ),
-            format!(
-                "Die Stadt verliert {} Figuren und {} Auslöser; {} Warps in geleerte Header \
-                 fallen weg.",
-                plan.removed_objects,
-                plan.removed_triggers,
-                plan.dropped_warps.len()
-            ),
-            format!(
-                "Ein Start-Script gibt Pokémon {} auf Level {}.",
-                plan.starter_species, plan.starter_level
-            ),
+            t!(
+                "recipes.note_empty_keeps",
+                town = town,
+                rooms = rooms,
+                emptied = plan.emptied.len()
+            )
+            .into_owned(),
+            t!(
+                "recipes.note_empty_border",
+                cells = plan.border_cells,
+                map = plan.town_map : {:04}
+            )
+            .into_owned(),
+            t!(
+                "recipes.note_empty_town_loses",
+                objects = plan.removed_objects,
+                triggers = plan.removed_triggers,
+                warps = plan.dropped_warps.len()
+            )
+            .into_owned(),
+            t!(
+                "recipes.note_empty_starter",
+                species = plan.starter_species,
+                level = plan.starter_level
+            )
+            .into_owned(),
         ],
-        irreversible: vec![format!(
-            "Karte {:04} wird als Rand-Karte kopiert",
-            plan.town_map
-        )],
+        irreversible: vec![
+            t!("recipes.irreversible_border_map", map = plan.town_map : {:04}).into_owned(),
+        ],
         ..Draft::default()
     })
 }
@@ -207,7 +212,7 @@ pub fn plan(store: &mut Store, _: &EmptyRegionInput) -> Result<Draft, KernelErro
 /// not take back. Then a new level script file that starts the start script while the
 /// recipe's variable is 0, and the start script appended to the town's script file and
 /// compiled (its message goes to the text archive of [`message_archive`]); the store loads the
-/// touched text archives again. Then one store transaction [`REGION_LABEL`]: the header table
+/// touched text archives again. Then one store transaction [`region_label`]: the header table
 /// (emptied headers get event file 0 and the empty level script, the town its new level
 /// script), matrix 0 (every cell outside the town gets the border map, the town's header and
 /// its altitude), the border map (every cell blocked) and the kept event files (the town
@@ -307,7 +312,8 @@ pub fn apply(
 
     // The store step.
     let start_header = plan.start_header;
-    let ((), transaction) = store.transaction(REGION_LABEL, |tx| {
+    let label = region_label();
+    let ((), transaction) = store.transaction(&label, |tx| {
         tx.edit_headers(|headers| {
             for &id in &plan.emptied {
                 set_events(header_mut(headers, id)?, Some(0), plan.empty_level_script);
@@ -368,10 +374,10 @@ pub fn apply(
     let mut change: Option<ChangeId> = transaction;
     for step in steps {
         if !step.files.is_empty() || step.rotom_entry.is_some() {
-            change = Some(store.record_file_step(REGION_LABEL, step));
+            change = Some(store.record_file_step(&label, step));
         }
     }
-    store.squash_since(mark, REGION_LABEL);
+    store.squash_since(mark, &label);
 
     let mut changed = vec![
         HEADER_TABLE,
@@ -414,7 +420,7 @@ pub fn apply(
         }],
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("create_area", "Gebiet anlegen")]),
+        next: next_steps(&["create_area"]),
     })
 }
 

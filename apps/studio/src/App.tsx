@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
+import { useTranslation } from "react-i18next";
 import Workbench from "./workbench/Workbench";
 import type { PaintModel } from "./workbench/paint/PaintContext";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
@@ -29,6 +30,8 @@ import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { SettingsArea } from "./einstellungen/SettingsArea";
+import { applyLanguage, effectiveLanguage, readLanguage, t } from "./i18n";
+import type { Language } from "./i18n";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
@@ -149,15 +152,16 @@ const AREA_LISTS: Record<DeckArea, ReactNode> = {
   gegenstaende: <ItemsListPane />,
 };
 
-/** The breadcrumbs of the data areas before they reported their own. */
-const DATA_TRAILS: Record<DataArea, Crumb[]> = { pokemon: [{ label: "Pokémon" }], gegenstaende: [{ label: "Gegenstände" }] };
+/** The breadcrumb of a data area before it reported its own: the area's name, in the language shown. */
+const dataTrail = (area: DataArea): Crumb[] => [{ label: t(area === "pokemon" ? "common:appBody.trailPokemon" : "common:appBody.trailItems") }];
+
+/** The hint on every area in `locked` while a wizard holds the frame, in the language shown (built at render, never at module scope). */
+const wizardHints = (locked: readonly AreaId[]): Partial<Record<AreaId, string>> => Object.fromEntries(locked.map((a) => [a, t("app:palette.locks.wizardOpen")]));
 
 /** While a wizard is open, the world is the only area: the others wait until it is done. */
 const WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "welt");
-const WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(WIZARD_LOCKED.map((a) => [a, "Erst den Assistenten abschließen oder abbrechen"]));
 /** While the wizard "Neues Spiel aus ROM" is open, Start is the only area. */
 const START_WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "start");
-const START_WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(START_WIZARD_LOCKED.map((a) => [a, "Erst den Assistenten abschließen oder abbrechen"]));
 
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
@@ -197,8 +201,8 @@ const fileStepWrote = (tool: string, assets: readonly AssetId[]) => (tool === "r
 /** A script opens in a group at least this high. */
 const SCRIPT_HEIGHT = 400;
 
-/** What the transport says when the dev bridge does not answer (see `platform/transport.ts`). */
-const BRIDGE_DOWN = "Brücke nicht erreichbar";
+/** What the transport says when the dev bridge does not answer (see `platform/transport.ts`), in the language shown. */
+const bridgeDown = () => t("platform:transport.bridgeDown");
 
 /** The key of the progress toast of a text project's first (full) sync. */
 const FULL_SYNC = "external-sync";
@@ -243,6 +247,19 @@ function AppBody() {
   const shell = useShell();
   const { setArea, remember, forget } = shell;
   const area = shell.state.area;
+  // The language as chosen in Einstellungen ("system" follows the OS); `applyLanguage` remembers it, switches i18next and tells the backend.
+  const [language, setLanguage] = useState<Language>(readLanguage);
+  // The language i18next shows (subscribed: this renders when it switches). It keys the workbench below: a switch remounts the areas, their
+  // models and the frame, so every text is read anew, also the ones a helper (`termLabel`, `checkMessage`, a module's `t`) resolved inside
+  // a memoised row or a dock panel that no language change reaches. What must survive lives above it: this component's state (project,
+  // session, the choices of Technik and Geschichten, the language) and the shell's (area, depth, selections, recent projects).
+  const { i18n } = useTranslation();
+  const shownLanguage = i18n.language;
+  // Set by a switch: the settings, remounted in the new language, give the focus back to the language's control (the remount took it).
+  const languageSwitched = useRef(false);
+  useEffect(() => {
+    languageSwitched.current = false;
+  }, [shownLanguage]);
   // The depth the active area shows (Erzählen only in an area with a view of its own, else Bauen): what the dock, inspector, wizards,
   // status line and hands work with. The hinge alone gets the chosen depth (its segment shows „Erzählen“ pressed in every area).
   const depth = shell.viewDepth;
@@ -280,9 +297,24 @@ function AppBody() {
   useBusEvent(bus, ["dataChanged", "textData", "eventData", "headerTable"], (event) => dataStore.onEvent(event));
   // The part and member a link asked a data area for: a new object per request, kept here like the texts' (the area may not be built yet).
   const [dataTarget, setDataTarget] = useState<DataNav | null>(null);
-  // The breadcrumbs the data areas report.
-  const [dataTrails, setDataTrails] = useState<Record<DataArea, Crumb[]>>(DATA_TRAILS);
+  // The breadcrumbs the data areas report (an area that has not reported shows its name, see `dataTrail`).
+  const [dataTrails, setDataTrails] = useState<Partial<Record<DataArea, Crumb[]>>>({});
   const onDataTrail = useCallback((target: DataArea, crumbs: Crumb[]) => setDataTrails((all) => ({ ...all, [target]: crumbs })), []);
+  // A choice in Einstellungen. One that changes the language shown remounts the workbench: the targets of the last links are forgotten in
+  // the same step, or the remounted text and data areas would follow them again (back to the old member, the old sub-area, Bauen), and the
+  // remounted settings give the focus back. A choice that keeps the language (System and German on a German system) remounts nothing.
+  const onLanguage = useCallback(
+    (l: Language) => {
+      if (effectiveLanguage(l) !== i18n.language) {
+        languageSwitched.current = true;
+        setTextTarget(null);
+        setDataTarget(null);
+      }
+      setLanguage(l);
+      void applyLanguage(l);
+    },
+    [i18n],
+  );
 
   // The problems of the project and the open scripts. The scripts hook needs the opened project, the session needs the scripts
   // (a build saves them first), hence the ref the session reads them through.
@@ -415,14 +447,14 @@ function AppBody() {
     void session.refreshDirty();
   });
   const onStoryCreated = useStableCallback((report: StoryReport, name: string) => {
-    toast.info(`Geschichte „${name}“ angelegt`);
+    toast.info(t("common:appBody.storyCreated", { name }));
     onStoryWritten(report);
     // The recipe „Neue Geschichte“ names its variable (`name_flag`): the ids and the flag lists read again, as after any naming.
     bumpIds();
   });
   // A story deleted (one undo step, ⌘Z brings it back): said in a toast like a creation; the surface has cleared the choice.
   const onStoryDeleted = useStableCallback((report: StoryReport, name: string) => {
-    toast.info(`Geschichte „${name}“ gelöscht`);
+    toast.info(t("common:appBody.storyDeleted", { name }));
     onStoryWritten(report);
   });
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
@@ -531,7 +563,7 @@ function AppBody() {
       // A read that failed reported itself: the announcement does not wipe that.
       if (made && made.header === null) session.setMessage(announce(made.announcement));
     },
-    // The wizard's bar and step are in the world's deck; the scene there stays usable, with "Auswählen".
+    // The wizard's bar and step are in the world's deck; the scene there stays usable, with „Auswählen“.
     onOpen: () => {
       // A wizard that replaces an open one (the world's „Neu anlegen“) keeps the first one's origin, as `useWizards` keeps its opener.
       if (!wizardOpen.current) wizardFrom.current = area;
@@ -670,7 +702,7 @@ function AppBody() {
   // the changed assets are read again as after ⌘Z (a failure there replaces the message). An open script file shows the reset file even over
   // typed text: the dialog said that text is lost. An agent's reset comes as an agent event, on the path above (typed text stays there).
   const onOriginalReset = useStableCallback(async (result: ResetResult, label: string) => {
-    session.setMessage({ kind: "info", text: `Auf Original zurückgesetzt: ${label}.` });
+    session.setMessage({ kind: "info", text: t("common:appBody.resetDone", { label }) });
     // Only a reset that wrote a file changed the saved project; a store kind's waits for the save (which compares again).
     if (writesFiles(result.changed)) bumpChanged();
     try {
@@ -704,7 +736,7 @@ function AppBody() {
   const playing = useRef(false);
   const playRom = useStableCallback(async (rom: string) => {
     if (inTauri()) await session.onRun(rom, true);
-    else toast.info("Im Browser-Modus wird nur gebaut");
+    else toast.info(t("common:appBody.browserOnlyBuilds"));
   });
   const onPlay = useStableCallback(async () => {
     if (!session.info || session.busy || playing.current) return;
@@ -741,7 +773,7 @@ function AppBody() {
     if (next === "paint") setShowPermissions(true);
   });
   // Erzählen has recipes instead of tools: a tool left over from Bauen would act unseen, so on the way into Erzählen it goes back to
-  // "Auswählen" (a trainer waiting to be placed keeps the figure tool, whose click is the placement). Only the way in: a tool chosen in
+  // „Auswählen“ (a trainer waiting to be placed keeps the figure tool, whose click is the placement). Only the way in: a tool chosen in
   // Erzählen (the „+“ of „In dieser Szene“) stays. The tool letters are silent there (`toolLocked`).
   const narrating = !depthAtLeast(depth, "bauen");
   const { setTool } = shell;
@@ -754,7 +786,7 @@ function AppBody() {
   // The trainer rows while a trainer waits to be placed: the status line and the undo step name it by class and name.
   const pendingTrainer = shell.pendingTrainer;
   const placingRows = useDataLists(dataStore, pendingTrainer !== null ? session.info : null)?.trainers ?? null;
-  // A click with an adding tool: the tool makes its thing on that tile and the tool goes back to "Auswählen". A figure placed for a trainer
+  // A click with an adding tool: the tool makes its thing on that tile and the tool goes back to „Auswählen“. A figure placed for a trainer
   // („In der Welt platzieren“) gets its script, sightline and sight in the same undo step; the binding ends with the click.
   const onTileClick = useStableCallback((tile: TileClick) => {
     const used = shell.tool;
@@ -772,7 +804,7 @@ function AppBody() {
     if (wizardOpen.current || session.info === null) return;
     showArea("welt");
     if (eventsBlockedRef.current) {
-      session.setMessage({ kind: "error", text: world.eventLock ? lockedText(world.eventLock.reason) : "Erst einen Ort wählen, dann den Trainer platzieren." });
+      session.setMessage({ kind: "error", text: world.eventLock ? lockedText(world.eventLock.reason) : t("common:appBody.placeTrainerNoPlace") });
       return;
     }
     dataStore.need(session.info, "trainer");
@@ -818,7 +850,7 @@ function AppBody() {
     onToolsHidden: () => {
       if (toolsToasted.current) return;
       toolsToasted.current = true;
-      toast.info("Werkzeuge wirken in der 3D-Ansicht");
+      toast.info(t("common:appBody.toolsIn3d"));
       toolsReset.current?.dispose();
       toolsReset.current = docks.welt.current?.getPanel("world")?.api.onDidVisibilityChange((e) => {
         if (!e.isVisible) return;
@@ -892,7 +924,8 @@ function AppBody() {
    */
   const commitFocus = (from: "changes" | "wizard" | "palette") => (): HTMLElement | null => {
     if (from === "changes") focusCommitAll();
-    return from === "wizard" ? document.querySelector<HTMLElement>('header button[aria-label="Veröffentlichen"]') : null;
+    // The title bar marks its button with `data-publish-button`: its label follows the language shown.
+    return from === "wizard" ? document.querySelector<HTMLElement>("header button[data-publish-button]") : null;
   };
   /**
    * The wizard is left; after a release the base status and the list of releases are read again (by Technik itself when the wizard goes
@@ -907,7 +940,7 @@ function AppBody() {
   /** „Im Finder zeigen“ of a release file; the browser mode has no file manager to open. */
   const revealRelease = useStableCallback(async (path: string) => {
     if (!inTauri()) {
-      toast.info("Nur in der App.");
+      toast.info(t("common:appBody.appOnly"));
       return;
     }
     try {
@@ -917,7 +950,7 @@ function AppBody() {
     }
   });
   /**
-   * "Öffnen" on the result of "Neues Spiel aus ROM": opens the new project (asking before unsaved edits go); the wizard closes when the
+   * „Öffnen“ on the result of "Neues Spiel aus ROM": opens the new project (asking before unsaved edits go); the wizard closes when the
    * project is open (see above). Refused or failed: the wizard stays on its result.
    */
   async function onOpenCreated(created: ProjectCreated) {
@@ -997,14 +1030,14 @@ function AppBody() {
   const onSyncOutcome = useStableCallback((outcome: SyncOutcome, root: string) => {
     // A sync of a project the backend no longer has open (another one opened, its UI not swapped yet): nothing of it is this one's.
     if (root !== session.currentRoot() || root !== session.info?.root) return;
-    const show = (group: SyncGroup) => [{ label: "Anzeigen", onClick: () => showTextProject(group) }];
+    const show = (group: SyncGroup) => [{ label: t("common:appBody.show"), onClick: () => showTextProject(group) }];
     if (outcome.adopted.length > 0) toast.info(adoptedText(outcome.adopted.length), { actions: show("taken") });
     if (outcome.applied.length > 0) toast.info(appliedText(outcome.applied.length), { actions: show("taken") });
     const known = syncKnown.current?.root === root ? syncKnown.current : null;
     // A new conflict (broken file) says so; an open message follows the count without coming back once closed, and goes when none is left.
     if (outcome.conflicts.length === 0) toast.dismissKey(CONFLICTS_TOAST);
     else if (outcome.conflicts.some((c) => !known?.conflicts.has(c.key)) || toast.shown(CONFLICTS_TOAST)) {
-      toast.warning(conflictsText(outcome.conflicts.length), { key: CONFLICTS_TOAST, actions: [{ label: "Lösen…", onClick: () => showTextProject("conflicts") }] });
+      toast.warning(conflictsText(outcome.conflicts.length), { key: CONFLICTS_TOAST, actions: [{ label: t("common:appBody.resolve"), onClick: () => showTextProject("conflicts") }] });
     }
     if (outcome.broken.length === 0) toast.dismissKey(BROKEN_TOAST);
     else if (outcome.broken.some((b) => !known?.broken.has(b.key)) || toast.shown(BROKEN_TOAST)) {
@@ -1083,7 +1116,7 @@ function AppBody() {
     // once), so no read below asks for a number that is gone.
     const gone = freed && result.freed !== null ? freedSelection(target, result.freed.count, shell.state.selected) : null;
     if (gone !== null) flushSync(() => shell.setSelected(gone, null));
-    const done = freed ? `Nummer freigegeben: ${label}` : `Gelöscht: ${label}`;
+    const done = t(freed ? "common:appBody.numberFreed" : "common:appBody.deleted", { label });
     // A side effect that failed without undoing the step (the build step's state) is said with it.
     const notes = result.notes ?? [];
     session.setMessage({ kind: "info", text: notes.length === 0 ? done : `${done}. ${notes.join(" ")}` });
@@ -1101,7 +1134,7 @@ function AppBody() {
   // „Wiederherstellen“ went in (one undo step, a store change like a tombstone: nothing is compared until the save): read again as after
   // a delete.
   const onRestored = useStableCallback(async (result: DeleteResult, label: string) => {
-    session.setMessage({ kind: "info", text: `Wiederhergestellt: ${label}` });
+    session.setMessage({ kind: "info", text: t("common:appBody.restored", { label }) });
     try {
       if (result.changed.length > 0) scene.noteHistoryMoved();
       await reloadChanged(result.changed, true);
@@ -1124,7 +1157,7 @@ function AppBody() {
   const [bridgeLost, setBridgeLost] = useState(false);
   useEffect(() => {
     const shown = session.message;
-    if (shown?.kind === "error" && shown.text === BRIDGE_DOWN) setBridgeLost(true);
+    if (shown?.kind === "error" && shown.text === bridgeDown()) setBridgeLost(true);
     else if (shown?.kind === "info") setBridgeLost(false);
   }, [session.message]);
   const bridge = inTauri() ? "none" : bridgeLost ? "missing" : "ok";
@@ -1179,7 +1212,7 @@ function AppBody() {
   });
   worldRef.current = live.world;
 
-  // An event tool that was chosen when its file got locked (or the place went away) goes back to "Auswählen": it could only fail.
+  // An event tool that was chosen when its file got locked (or the place went away) goes back to „Auswählen“: it could only fail.
   const eventsBlocked = world.eventLock !== null || data.eventFileId === null;
   eventsBlockedRef.current = eventsBlocked;
   useEffect(() => {
@@ -1211,7 +1244,8 @@ function AppBody() {
   }, [activeScript]);
 
   // The breadcrumb of the hinge: place, header, selection. Each crumb is a link (`data.goTo` keeps its identity).
-  const places = useMemo(() => buildPlaces(scene.headers, overview.matrices, overview.links), [scene.headers, overview.matrices, overview.links]);
+  // The memos below that make text are made again in a new language (`shownLanguage`): the words of places, crumbs and palette entries are read when they are built.
+  const places = useMemo(() => buildPlaces(scene.headers, overview.matrices, overview.links), [scene.headers, overview.matrices, overview.links, shownLanguage]);
   const pinnedMatrix = pins.pinned.kind === "matrixCell" ? pins.pinned.matrix : null;
   const matrixName = pinnedMatrix === null ? undefined : overview.matrices.find((m) => m.index === pinnedMatrix)?.name;
   // The map of the pinned cell, which Bauen names the cell by: null for an empty cell, undefined when the matrix is not the shown one.
@@ -1228,7 +1262,7 @@ function AppBody() {
   const pinnedEvents = useEvents(pinnedEventFile, ignoreError, eventsRevision);
   const crumbs = useMemo(
     () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, cellMap, events: pinnedEvents, goTo: data.goTo, depth, identify: live.world.identify }),
-    [places, scene.headers, scene.selected, pins.pinned, matrixName, cellMap, pinnedEvents, data.goTo, depth, live.world.identify],
+    [places, scene.headers, scene.selected, pins.pinned, matrixName, cellMap, pinnedEvents, data.goTo, depth, live.world.identify, shownLanguage],
   );
   // The breadcrumb of the texts: the archive they show, with the place whose header uses it, and the message.
   const textTrail = useMemo(() => {
@@ -1241,7 +1275,7 @@ function AppBody() {
       message,
       goTo: data.goTo,
     });
-  }, [textShown, scene.headers, places, data.goTo]);
+  }, [textShown, scene.headers, places, data.goTo, shownLanguage]);
   // The script files the palette lists: read each time it opens, only when rotom has adopted the scripts. Tagged with the project they
   // belong to, so a late answer for another one is not listed.
   const adopted = scripts.api.status?.adopted === true;
@@ -1262,7 +1296,7 @@ function AppBody() {
   const archives = useMemo(() => {
     const users = usersByArchive(scene.headers);
     return archiveRows(session.counts.TextArchive, users, archivePlaces(scene.headers, users));
-  }, [scene.headers, session.counts.TextArchive]);
+  }, [scene.headers, session.counts.TextArchive, shownLanguage]);
   // The species, moves and items the palette lists: read when it opens (the first time, or after they changed).
   useEffect(() => {
     if (paletteOpen && session.info !== null) dataStore.needAll(session.info);
@@ -1304,7 +1338,7 @@ function AppBody() {
           commitAll: git.status?.repo.kind === "own",
         },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request, git.status, publishLock],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request, git.status, publishLock, shownLanguage],
   );
   // „Als Vorschaubild“ (phase 4.0 §3.5), from the palette and from the tab menu of „3D“ and „Weltkarte“: the 3D view's picture or the chosen
   // map's picture becomes the project's own preview, said in a toast. Technik takes it at once (`previewWritten`), Start when it shows next.
@@ -1312,7 +1346,7 @@ function AppBody() {
     if (!session.info) return;
     // Without a place the 3D view is in front but has no scene (its host is not mounted): there is nothing to bring forward.
     if (!placeShown) {
-      toast.error(NO_PLACE);
+      toast.error(t(NO_PLACE));
       return;
     }
     if (!activeScene.shown()) {
@@ -1322,7 +1356,7 @@ function AppBody() {
     }
     const host = activeScene.get();
     if (host === null || !activeScene.shown()) {
-      toast.error("Erst die 3D-Ansicht zeigen");
+      toast.error(t("app:palette.locks.noScene"));
       return;
     }
     await applyScenePreview(() => setPreviewFrom3d(host));
@@ -1332,7 +1366,7 @@ function AppBody() {
     const { matrix, x, y } = pins.pinned;
     await applyScenePreview(async () => {
       const cell = mapOfCell(await getMatrix(matrix), x, y, scene.headers, scene.sceneArea);
-      if (cell === null) throw new Error("An dieser Stelle liegt keine Karte.");
+      if (cell === null) throw new Error(t("common:appBody.noMapHere"));
       return setPreviewFromMap(cell.map, cell.areaDataId);
     });
   });
@@ -1341,11 +1375,11 @@ function AppBody() {
     set: (panelId) => void (panelId === "world" ? previewFrom3d() : previewFromMap()),
     locked: (panelId) =>
       session.info === null
-        ? "Erst ein Projekt öffnen"
+        ? t("app:palette.locks.noProject")
         : panelId === "world" && !placeShown
-          ? NO_PLACE
+          ? t(NO_PLACE)
           : panelId === "worldmap" && pins.pinned.kind !== "matrixCell"
-            ? "Erst eine Karte wählen"
+            ? t("common:appBody.chooseMapFirst")
             : null,
   };
   // The start town's map picture as the standard picture, once per opened project when the computer is calm (phase 4.0 §3.4).
@@ -1436,7 +1470,7 @@ function AppBody() {
           const { matrix, x, y } = pins.pinned;
           getMatrix(matrix).then((m) => {
             const map = x < m.width ? (m.maps[y * m.width + x] ?? null) : null;
-            if (map === null) session.setMessage({ kind: "info", text: "An dieser Stelle liegt keine Karte." });
+            if (map === null) session.setMessage({ kind: "info", text: t("common:appBody.noMapHere") });
             else setImportMap(map);
           }, session.fail);
         }
@@ -1572,17 +1606,20 @@ function AppBody() {
       <SettingsArea
         theme={shell.themeSetting}
         density={shell.density}
+        language={language}
         emulatorPath={session.emulatorPath}
         onTheme={shell.setTheme}
         onDensity={shell.setDensity}
+        onLanguage={onLanguage}
+        focusLanguage={languageSwitched.current}
         onPickEmulator={() => void session.onPickEmulator()}
         agents={{ projectOpen: session.info !== null, bridge: !inTauri(), status: agents.status, onError: session.fail }}
       />
     ) : (
-      <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />
+      <EmptyState what={t("common:appBody.notYetWhat")} why={t("common:appBody.notYetWhy")} />
     );
   // The breadcrumb of each area's hinge.
-  const trails: Record<DeckArea, Crumb[]> = { welt: crumbs, texte: textTrail, pokemon: dataTrails.pokemon, gegenstaende: dataTrails.gegenstaende };
+  const trails: Record<DeckArea, Crumb[]> = { welt: crumbs, texte: textTrail, pokemon: dataTrails.pokemon ?? dataTrail("pokemon"), gegenstaende: dataTrails.gegenstaende ?? dataTrail("gegenstaende") };
   // The world's deck keeps the slots of the wizard's bar and step; they show while a wizard is open.
   const showsWizard = wizards.request !== null;
   /** The deck of an area: its dock and its hinge, which shows `trail`. */
@@ -1620,7 +1657,7 @@ function AppBody() {
   const app = (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
-        <Workbench data={data} live={live} liveMode={liveMode} paint={paintRef}>
+        <Workbench key={shownLanguage} data={data} live={live} liveMode={liveMode} paint={paintRef}>
           {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
           <TextAreaHost onShown={setTextShown}>
             <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>
@@ -1650,7 +1687,7 @@ function AppBody() {
                     onArea={setArea}
                     onHelp={onHelp}
                     locked={showsWizard ? WIZARD_LOCKED : startOpen ? START_WIZARD_LOCKED : LOCKED_AREAS}
-                    lockedHint={showsWizard ? WIZARD_HINTS : startOpen ? START_WIZARD_HINTS : LOCKED_HINTS}
+                    lockedHint={showsWizard ? wizardHints(WIZARD_LOCKED) : startOpen ? wizardHints(START_WIZARD_LOCKED) : LOCKED_HINTS}
                     density={shell.density}
                   />
                 }
@@ -1670,7 +1707,7 @@ function AppBody() {
                       ) : area === "gegenstaende" ? (
                         <ItemsStatus />
                       ) : area === "einstellungen" ? (
-                        "Änderungen gelten sofort und für alle Projekte"
+                        t("common:appBody.settingsApply")
                       ) : area === "welt" ? (
                         context
                       ) : null

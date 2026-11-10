@@ -17,7 +17,7 @@ use crate::textproject::registry::{IDS_DIR, Registry, registry_file};
 use crate::textproject::rename::{apply_file_step, events_naming};
 use crate::textproject::symbols::SymbolKind;
 
-use super::plan::PLACE_ONLY_LAST;
+use super::plan::place_only_last;
 
 /// The bytes of `root/rel`, `None` when the file is missing.
 fn read_optional(root: &Path, rel: &Path) -> Result<Option<Vec<u8>>, KernelError> {
@@ -66,9 +66,9 @@ pub(super) fn remove_own_name(
     }
     let registry = Registry::load(&project.root, kind.symbol())?;
     let Some(id) = registry.id_of(u32::from(number)).map(str::to_owned) else {
-        return Err(KernelError::Refused(format!(
-            "{label} hat keinen eigenen Namen."
-        )));
+        return Err(KernelError::Refused(
+            t!("delete.no_own_name", label = label).into_owned(),
+        ));
     };
     let mut files = vec![register_without(&project, kind.symbol(), &registry, &id)?];
     let entity = entity_rel(kind, number);
@@ -89,7 +89,7 @@ pub(super) fn remove_own_name(
     // The follow-ups are caches (the sync's record, the id files for rotom): what fails there
     // the next scan or compile puts right.
     apply_file_step(&project, &step)?;
-    let change = store.record_file_step(&format!("Gelöscht: {label}"), step);
+    let change = store.record_file_step(&t!("delete.deleted_label", label = label), step);
     Ok((change, HEADER_TABLE))
 }
 
@@ -106,9 +106,9 @@ pub(super) fn remove_place(
     let names = location_names(store)?;
     let at = usize::from(index);
     let Some(name) = names.get(at).cloned() else {
-        return Err(KernelError::Refused(PLACE_ONLY_LAST.to_owned()));
+        return Err(KernelError::Refused(place_only_last()));
     };
-    let label = format!("Ort entfernt: {name}");
+    let label = t!("delete.place_removed_label", name = name).into_owned();
     let registry = Registry::load(&project.root, SymbolKind::Place)?;
     let entry = registry.id_of(u32::from(index)).map(str::to_owned);
     let register = match &entry {

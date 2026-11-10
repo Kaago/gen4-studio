@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, formatBytes, isCmdError } from "../api";
 import type { PublishOptionsDto, PublishPhase, PublishReportDto, ReleasesDto } from "../api";
 import { openPath } from "../platform/dialogs";
@@ -8,7 +9,7 @@ import { WizardFrame } from "../workbench/wizards/WizardFrame";
 import type { WizardStep } from "../workbench/wizards/WizardFrame";
 import { DoneResult } from "../workbench/wizards/WizardResult";
 import parts from "../workbench/wizards/WizardStep.module.css";
-import { NO_ROM_CONTENT, PHASE_TEXT, fileNameFor, fileProblem, filesLine, publishedSubject, versionProblem, withXdelta } from "./publishWords";
+import { fileNameFor, fileProblem, filesLine, noRomContent, phaseText, publishedSubject, versionProblem, withXdelta } from "./publishWords";
 import styles from "./PublishWizard.module.css";
 
 export type PublishWizardProps = {
@@ -33,11 +34,6 @@ const VERSION = 0;
 const PATCH = 1;
 const CHECK = 2;
 
-const FILE_COLUMNS: readonly TableColumn[] = [
-  { key: "file", label: "Datei" },
-  { key: "size", label: "Größe", align: "end" },
-];
-
 /** The last part of a path, for the preview's file column. */
 const baseName = (path: string) => path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
 
@@ -47,6 +43,7 @@ const baseName = (path: string) => path.slice(Math.max(path.lastIndexOf("/"), pa
  * „Weiter“ on „Patch“; once it wrote the release, the steps before it are closed (another run would be another release).
  */
 export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onReveal, onCommit, onClose }: PublishWizardProps) {
+  const { t } = useTranslation("publish");
   const [step, setStep] = useState(VERSION);
   // What the user typed or chose; null: the proposal (the next version, the file name that follows it, the build folder).
   const [ownVersion, setOwnVersion] = useState<string | null>(null);
@@ -72,6 +69,10 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
   const fileError = fileProblem(file);
   const ready = defaults !== null && versionError === null && fileError === null;
   const options: PublishOptionsDto = { version, notes, dir, file, readme };
+  const fileColumns: readonly TableColumn[] = [
+    { key: "file", label: t("publishWizard.fileColumns.file") },
+    { key: "size", label: t("publishWizard.fileColumns.size"), align: "end" },
+  ];
 
   async function run(overwrite: boolean) {
     live.current = true;
@@ -99,7 +100,7 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
   }
 
   async function chooseDir() {
-    const chosen = await openPath({ directory: true, title: "Speicherort wählen" });
+    const chosen = await openPath({ directory: true, title: t("publishWizard.chooseLocationTitle") });
     if (chosen !== null) setOwnDir(chosen);
   }
 
@@ -107,7 +108,7 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
   if (defaults === null) {
     versionContent = (
       <section className={parts.column} data-publish-step="version">
-        {defaultsError !== null ? <Notice kind="error">{defaultsError}</Notice> : <p className={parts.note}>Lese die Veröffentlichungen …</p>}
+        {defaultsError !== null ? <Notice kind="error">{defaultsError}</Notice> : <p className={parts.note}>{t("publishWizard.readingReleases")}</p>}
       </section>
     );
   } else {
@@ -116,7 +117,7 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
         <section className={parts.column} data-publish-step="version">
           <div className={styles.field}>
             <TextField
-              label="Version"
+              label={t("publishWizard.version")}
               showLabel
               value={version}
               onCommit={(typed) => {
@@ -127,21 +128,21 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
             />
           </div>
           <div className={styles.notes}>
-            <TextField label="Änderungsnotizen" showLabel multiline value={notes} onCommit={setNotes} hint="Was sich seit der letzten Fassung geändert hat. Steht in der Begleitdatei." />
+            <TextField label={t("publishWizard.notes")} showLabel multiline value={notes} onCommit={setNotes} hint={t("publishWizard.notesHint")} />
           </div>
         </section>
         <section className={parts.column} data-publish-step="version">
           <div className={parts.group}>
-            <span className={parts.label}>Speicherort</span>
+            <span className={parts.label}>{t("publishWizard.location")}</span>
             <p className={styles.path} data-publish-dir="">
               {dir}
             </p>
           </div>
           <Button kind="secondary" icon="open" onClick={() => void chooseDir()}>
-            Ordner wählen…
+            {t("publishWizard.chooseFolder")}
           </Button>
           <div className={styles.field}>
-            <TextField label="Dateiname" showLabel value={file} onCommit={(typed) => setOwnFile(typed.trim())} error={fileError ?? undefined} />
+            <TextField label={t("publishWizard.fileName")} showLabel value={file} onCommit={(typed) => setOwnFile(typed.trim())} error={fileError ?? undefined} />
           </div>
         </section>
       </>
@@ -150,11 +151,11 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
 
   const patchContent = (
     <section className={parts.column} data-publish-step="patch">
-      <p className={parts.text}>Speichert, baut die ROM und schreibt den Patch gegen die Basis-ROM. Die gebaute ROM bleibt unter build/ im Projekt.</p>
-      <Checkbox label="Änderungsnotizen auch als README.txt daneben" checked={readme} onChange={setReadme} />
+      <p className={parts.text}>{t("publishWizard.patchNote")}</p>
+      <Checkbox label={t("publishWizard.readme")} checked={readme} onChange={setReadme} />
       {running && (
         <p role="status" className={styles.progress} data-publish-progress="">
-          {PHASE_TEXT[phase ?? "build"]}
+          {phaseText(phase ?? "build")}
         </p>
       )}
       {!running && refusal !== null && (
@@ -163,7 +164,7 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
           {refusal.code === "exists" && (
             // The refusal's way on takes the focus when the run ends (`data-wizard-focus`), not the checkbox above.
             <Button kind="secondary" data-publish-overwrite="" data-wizard-focus="" onClick={() => void run(true)}>
-              Ersetzen
+              {t("publishWizard.replace")}
             </Button>
           )}
         </>
@@ -177,39 +178,39 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
     checkContent = (
       <>
         <section className={parts.column} data-publish-step="check">
-          <Notice kind="success" title="Selbstprüfung bestanden: auf die Basis-ROM angewendet ergibt der Patch genau die gebaute ROM.">
-            {`Basis ${patch.base_sha1.slice(0, 8)} → Ziel ${patch.target_sha1.slice(0, 8)}, geprüft in ${patch.verify_ms} ms`}
+          <Notice kind="success" title={t("publishWizard.selfCheckPassed")}>
+            {t("publishWizard.checkSummary", { base: patch.base_sha1.slice(0, 8), target: patch.target_sha1.slice(0, 8), ms: patch.verify_ms })}
           </Notice>
         </section>
         <section className={`${parts.column} ${parts.wide}`} data-publish-step="check" data-publish-preview="">
-          <h3 className={parts.heading}>Was du weitergibst</h3>
+          <h3 className={parts.heading}>{t("publishWizard.handedOn")}</h3>
           <div className={styles.table}>
-            <Table columns={FILE_COLUMNS} ariaLabel="Was du weitergibst" rows={report.files.map((f) => ({ key: f.path, cells: { file: baseName(f.path), size: formatBytes(f.size) } }))} />
+            <Table columns={fileColumns} ariaLabel={t("publishWizard.handedOn")} rows={report.files.map((f) => ({ key: f.path, cells: { file: baseName(f.path), size: formatBytes(f.size) } }))} />
           </div>
-          <p className={parts.note}>{NO_ROM_CONTENT}</p>
+          <p className={parts.note}>{noRomContent()}</p>
         </section>
       </>
     );
   }
 
   const steps: WizardStep[] = [
-    { id: "version", title: "Version", canNext: ready, content: versionContent },
-    { id: "patch", title: "Patch", canNext: ready && !running, content: patchContent },
+    { id: "version", title: t("publishWizard.steps.version"), canNext: ready, content: versionContent },
+    { id: "patch", title: t("publishWizard.steps.patch"), canNext: ready && !running, content: patchContent },
     // Once written, the release cannot be taken back: no way back to the steps that made it, and „Schließen“ in place of „Abbrechen“.
-    { id: "check", title: "Prüfen", canNext: report !== null, closed: report !== null, content: checkContent },
+    { id: "check", title: t("publishWizard.steps.check"), canNext: report !== null, closed: report !== null, content: checkContent },
   ];
 
   let result = null;
   if (done && report !== null) {
     const shownVersion = report.release.version;
-    const next = ["Den Patch weitergeben: wer dieselbe Basis-ROM hat, wendet ihn mit Rom Patcher JS oder xdelta3 an."];
-    if (gitOwn) next.push(`Stand sichern legt einen Commit mit „${publishedSubject(shownVersion)}“ an.`);
+    const next = [t("publishWizard.handOnPatch")];
+    if (gitOwn) next.push(t("publishWizard.commitNext", { subject: publishedSubject(shownVersion) }));
     result = (
       <div className={styles.result}>
-        <DoneResult title={`Veröffentlicht: v${shownVersion}`} lines={[report.patch.patch, filesLine(report.files)]} next={next} />
+        <DoneResult title={t("publishWizard.publishedTitle", { version: shownVersion })} lines={[report.patch.patch, filesLine(report.files)]} next={next} />
         {gitOwn && (
           <Button kind="secondary" icon="git" data-publish-commit="" onClick={() => onCommit({ message: publishedSubject(shownVersion), notes: report.release.notes })}>
-            Stand sichern…
+            {t("publishWizard.saveSnapshot")}
           </Button>
         )}
       </div>
@@ -218,7 +219,7 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
 
   return (
     <WizardFrame
-      title="Veröffentlichen"
+      title={t("publishWizard.title")}
       icon="publish"
       steps={steps}
       step={step}
@@ -234,14 +235,14 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
       }}
       busy={running}
       // What it is going to write, until it wrote it.
-      summary={defaults !== null && report === null ? `Schreibt ${withXdelta(file)} und die Begleitdatei nach ${dir}.` : undefined}
+      summary={defaults !== null && report === null ? t("publishWizard.summary", { file: withXdelta(file), dir }) : undefined}
       result={result}
-      resultTitle="Fertig"
-      submitLabel="Fertig"
+      resultTitle={t("publishWizard.steps.done")}
+      submitLabel={t("publishWizard.steps.done")}
       onSubmit={() => setDone(true)}
       onCancel={() => onClose(report !== null)}
       onShow={report !== null ? () => void onReveal(report.patch.patch) : undefined}
-      showLabel="Im Finder zeigen"
+      showLabel={t("publishWizard.showInFinder")}
     />
   );
 }

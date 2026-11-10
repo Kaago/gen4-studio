@@ -1,5 +1,6 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
+import { useTranslation } from "react-i18next";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import type { RowDataAttrs } from "./ListRow";
@@ -38,6 +39,7 @@ export type ReferenceProps = {
 
 /** A chip in the color of the target's area that opens the target or its picker. */
 export function Reference({ area, label, tech, title, onOpen, usedIn, disabled, dataAttrs }: ReferenceProps) {
+  const { t } = useTranslation("ui");
   const chip = (
     <button {...dataAttrs} type="button" className={`${styles.chip} ${styles[area]}`} onClick={onOpen} disabled={disabled} title={title}>
       <Icon name={areaIcon[area]} />
@@ -47,13 +49,13 @@ export function Reference({ area, label, tech, title, onOpen, usedIn, disabled, 
   );
   if (!usedIn) return chip;
   const entries: MenuEntry[] =
-    usedIn.length > 0 ? usedIn.map((u) => ({ label: u.label, onSelect: u.onOpen })) : [{ label: "Nirgends verwendet", onSelect: () => {}, disabled: true }];
+    usedIn.length > 0 ? usedIn.map((u) => ({ label: u.label, onSelect: u.onOpen })) : [{ label: t("reference.unused"), onSelect: () => {}, disabled: true }];
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger render={<span className={styles.wrap} />}>{chip}</ContextMenu.Trigger>
       <ContextMenuPopup>
         <BaseMenu.Group>
-          <BaseMenu.GroupLabel className={menuStyles.groupLabel}>Verwendet in</BaseMenu.GroupLabel>
+          <BaseMenu.GroupLabel className={menuStyles.groupLabel}>{t("reference.usedIn")}</BaseMenu.GroupLabel>
           <MenuEntries items={entries} />
         </BaseMenu.Group>
       </ContextMenuPopup>

@@ -39,13 +39,6 @@ const MAX_PLACES: usize = 256;
 /// names 1 to 125, which HeartGold/SoulSilver keeps for the Pal Park only.
 const HGSS_SINNOH_NAMES: std::ops::RangeInclusive<u8> = 1..=125;
 
-const DP_REFUSED: &str = "Eigene Orte gibt es nur für Platin und HeartGold/SoulSilver.";
-const BANK_FULL: &str =
-    "Die Ortsnamen-Bank ist voll: mehr als 256 Orte kann das Spiel nicht ansprechen.";
-const NAME_MISSING: &str = "Der Ort braucht einen Namen.";
-const ONE_LINE: &str = "Ein Ortsname hat nur eine Zeile.";
-const NO_PLACE: &str = "„Mysteriöser Ort“ (kein Ort) lässt sich nicht umbenennen.";
-
 /// Room for new places in the location bank.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PlaceSlots {
@@ -77,7 +70,7 @@ fn refused(text: impl Into<String>) -> KernelError {
 /// place with a `u16`, and the header patches leave that game out too.
 fn refuse_dp(store: &Store) -> Result<(), KernelError> {
     match store.project().family {
-        Family::Dp => Err(refused(DP_REFUSED)),
+        Family::Dp => Err(refused(t!("places.dp_refused"))),
         Family::Pt | Family::Hgss => Ok(()),
     }
 }
@@ -88,17 +81,17 @@ fn refuse_dp(store: &Store) -> Result<(), KernelError> {
 /// pass it trimmed.
 fn check_name(store: &Store, bank: u16, name: &str) -> Result<(), KernelError> {
     if name.trim().is_empty() {
-        return Err(refused(NAME_MISSING));
+        return Err(refused(t!("places.name_missing")));
     }
     let line_code = ["\\n", "\\r", "\\f"].iter().any(|code| name.contains(code));
     if line_code || name.contains(['\n', '\r']) {
-        return Err(refused(ONE_LINE));
+        return Err(refused(t!("places.one_line")));
     }
     let file = store.project().member_path(AssetKind::TextArchive, bank);
     match text::validate(name, &file).first() {
-        Some(problem) => Err(refused(format!(
-            "Der Name enthält Zeichen, die das Spiel nicht kennt: {}",
-            problem.message
+        Some(problem) => Err(refused(t!(
+            "places.bad_characters",
+            problem = problem.message
         ))),
         None => Ok(()),
     }
@@ -108,9 +101,7 @@ fn check_name(store: &Store, bank: u16, name: &str) -> Result<(), KernelError> {
 fn check_headers(store: &mut Store, headers: &[u16]) -> Result<(), KernelError> {
     let count = store.header_table()?.len();
     match headers.iter().find(|&&id| usize::from(id) >= count) {
-        Some(id) => Err(refused(format!(
-            "Das Gebiet oder den Raum {id} gibt es nicht."
-        ))),
+        Some(id) => Err(refused(t!("places.no_header", id = id))),
         None => Ok(()),
     }
 }
@@ -121,9 +112,10 @@ fn existing_name(names: &[String], index: u8) -> Result<&str, KernelError> {
         .get(usize::from(index))
         .map(String::as_str)
         .ok_or_else(|| {
-            refused(format!(
-                "Den Ort {index} gibt es nicht: die Ortsnamen-Bank hat {} Namen.",
-                names.len()
+            refused(t!(
+                "places.no_place_index",
+                index = index,
+                count = names.len()
             ))
         })
 }
@@ -173,7 +165,7 @@ pub fn plan_new_place(store: &mut Store, name: &str) -> Result<NewPlace, KernelE
     check_name(store, bank, name.trim())?;
     let slots = place_slots(store)?;
     if slots.free > 0 {
-        let index = u8::try_from(slots.count).map_err(|_| refused(BANK_FULL))?;
+        let index = u8::try_from(slots.count).map_err(|_| refused(t!("places.bank_full")))?;
         Ok(NewPlace {
             index,
             replace: false,
@@ -184,7 +176,7 @@ pub fn plan_new_place(store: &mut Store, name: &str) -> Result<NewPlace, KernelE
             replace: true,
         })
     } else {
-        Err(refused(BANK_FULL))
+        Err(refused(t!("places.bank_full")))
     }
 }
 
@@ -242,7 +234,7 @@ pub fn create_place(
     } else {
         None
     };
-    store.transaction(&format!("Ort „{name}“ angelegt"), |tx| {
+    store.transaction(&t!("places.created_label", name = name), |tx| {
         apply_new_place(tx, bank, &plan, name)?;
         set_locations(tx, headers, plan.index)
     })?;
@@ -259,14 +251,14 @@ pub fn create_place(
 pub fn rename_place(store: &mut Store, index: u8, name: &str) -> Result<(), KernelError> {
     refuse_dp(store)?;
     if index == 0 {
-        return Err(refused(NO_PLACE));
+        return Err(refused(t!("places.no_place")));
     }
     let bank = location_bank(store.project());
     let names = location_names(store)?;
     let old = existing_name(&names, index)?.to_owned();
     let name = name.trim();
     check_name(store, bank, name)?;
-    store.transaction(&format!("Ort „{old}“ in „{name}“ umbenannt"), |tx| {
+    store.transaction(&t!("places.renamed_label", old = old, name = name), |tx| {
         tx.edit_text_archive(bank, |doc| {
             if let Some(message) = doc.messages.get_mut(usize::from(index)) {
                 message.text = name.to_owned();
@@ -284,7 +276,7 @@ pub fn assign_place(store: &mut Store, headers: &[u16], index: u8) -> Result<(),
     let names = location_names(store)?;
     let name = existing_name(&names, index)?.to_owned();
     check_headers(store, headers)?;
-    store.transaction(&format!("Ort „{name}“ zugewiesen"), |tx| {
+    store.transaction(&t!("places.assigned_label", name = name), |tx| {
         set_locations(tx, headers, index)
     })?;
     Ok(())
@@ -397,7 +389,7 @@ mod tests {
             ["Nowhere", "Twinleaf Town", "Sandgem Town", "Neuheim"]
         );
         assert_eq!((location_of(&mut st, 0), location_of(&mut st, 1)), (3, 3));
-        assert_eq!(st.history().0, ["Ort „Neuheim“ angelegt"]);
+        assert_eq!(st.history().0, ["Place “Neuheim” created"]);
         st.undo().unwrap();
         assert_eq!(location_names(&mut st).unwrap().len(), 3);
         assert_eq!(st.header_table().unwrap(), before.as_slice());
@@ -410,12 +402,12 @@ mod tests {
         let mut st = store_of(&s);
         create_place(&mut st, " Neuheim ", &[0]).unwrap();
         assert_eq!(location_names(&mut st).unwrap()[3], "Neuheim");
-        assert_eq!(st.history().0, ["Ort „Neuheim“ angelegt"]);
+        assert_eq!(st.history().0, ["Place “Neuheim” created"]);
         rename_place(&mut st, 3, "\t Neustadt  ").unwrap();
         assert_eq!(location_names(&mut st).unwrap()[3], "Neustadt");
         assert_eq!(
             st.history().0.last().unwrap(),
-            "Ort „Neuheim“ in „Neustadt“ umbenannt"
+            "Place “Neuheim” renamed to “Neustadt”"
         );
     }
 
@@ -435,7 +427,7 @@ mod tests {
         let mut st = store_of(&s);
         for name in ["", "   "] {
             let err = create_place(&mut st, name, &[0]).unwrap_err();
-            assert_eq!(refusal(err), "Der Ort braucht einen Namen.");
+            assert_eq!(refusal(err), "The place needs a name.");
         }
         assert_eq!(location_names(&mut st).unwrap().len(), 3);
         assert_eq!(st.undo_depth(), 0);
@@ -447,7 +439,7 @@ mod tests {
         let mut st = store_of(&s);
         let err = refusal(create_place(&mut st, "Preis 5€", &[0]).unwrap_err());
         assert!(
-            err.starts_with("Der Name enthält Zeichen, die das Spiel nicht kennt: "),
+            err.starts_with("The name contains characters the game does not know: "),
             "{err}"
         );
         assert!(err.contains('€'), "{err}");
@@ -464,7 +456,7 @@ mod tests {
         let err = create_place(&mut st, "Neuheim", &[0]).unwrap_err();
         assert_eq!(
             refusal(err),
-            "Die Ortsnamen-Bank ist voll: mehr als 256 Orte kann das Spiel nicht ansprechen."
+            "The place name bank is full: the game cannot name more than 256 places."
         );
         assert_eq!(location_names(&mut st).unwrap().len(), 256);
         assert_eq!(location_of(&mut st, 0), 1);
@@ -477,9 +469,9 @@ mod tests {
         let s = synthetic_project();
         let mut st = store_of(&s);
         let err = refusal(create_place(&mut st, "Neuheim", &[0, 9]).unwrap_err());
-        assert_eq!(err, "Das Gebiet oder den Raum 9 gibt es nicht.");
+        assert_eq!(err, "The area or room 9 does not exist.");
         let err = refusal(assign_place(&mut st, &[2], 1).unwrap_err());
-        assert_eq!(err, "Das Gebiet oder den Raum 2 gibt es nicht.");
+        assert_eq!(err, "The area or room 2 does not exist.");
         assert_eq!(location_names(&mut st).unwrap().len(), 3);
         assert_eq!(location_of(&mut st, 0), 1);
         assert_eq!(st.undo_depth(), 0);
@@ -490,10 +482,7 @@ mod tests {
         let s = synthetic_project();
         let mut st = store_of(&s);
         let err = refusal(rename_place(&mut st, 0, "Irgendwo").unwrap_err());
-        assert_eq!(
-            err,
-            "„Mysteriöser Ort“ (kein Ort) lässt sich nicht umbenennen."
-        );
+        assert_eq!(err, "“Mysterious Zone” (no place) cannot be renamed.");
         assert_eq!(location_names(&mut st).unwrap()[0], "Nowhere");
         assert_eq!(st.undo_depth(), 0);
     }
@@ -511,9 +500,9 @@ mod tests {
             "Neu\rheim",
         ] {
             let err = refusal(create_place(&mut st, name, &[0]).unwrap_err());
-            assert_eq!(err, "Ein Ortsname hat nur eine Zeile.", "{name:?}");
+            assert_eq!(err, "A place name has only one line.", "{name:?}");
             let err = refusal(rename_place(&mut st, 1, name).unwrap_err());
-            assert_eq!(err, "Ein Ortsname hat nur eine Zeile.", "{name:?}");
+            assert_eq!(err, "A place name has only one line.", "{name:?}");
         }
         assert_eq!(location_names(&mut st).unwrap().len(), 3);
         assert_eq!(st.undo_depth(), 0);
@@ -557,7 +546,7 @@ mod tests {
         let err = create_place(&mut st, "Neuheim", &[0]).unwrap_err();
         assert_eq!(
             refusal(err),
-            "Die Ortsnamen-Bank ist voll: mehr als 256 Orte kann das Spiel nicht ansprechen."
+            "The place name bank is full: the game cannot name more than 256 places."
         );
         assert_eq!(location_names(&mut st).unwrap(), hgss_names());
         assert_eq!(location_of(&mut st, 0), 1);
@@ -577,17 +566,17 @@ mod tests {
         assert_eq!((location_of(&mut st, 0), location_of(&mut st, 1)), (1, 1));
         assert_eq!(
             st.history().0.last().unwrap(),
-            "Ort „Twinleaf Town“ in „Zweiblattdorf“ umbenannt"
+            "Place “Twinleaf Town” renamed to “Zweiblattdorf”"
         );
         st.undo().unwrap();
         assert_eq!(location_names(&mut st).unwrap()[1], "Twinleaf Town");
         let err = refusal(rename_place(&mut st, 3, "Neuheim").unwrap_err());
         assert_eq!(
             err,
-            "Den Ort 3 gibt es nicht: die Ortsnamen-Bank hat 3 Namen."
+            "Place 3 does not exist: the place name bank has 3 names."
         );
         let err = refusal(rename_place(&mut st, 1, " ").unwrap_err());
-        assert_eq!(err, "Der Ort braucht einen Namen.");
+        assert_eq!(err, "The place needs a name.");
     }
 
     #[test]
@@ -596,18 +585,18 @@ mod tests {
         let mut st = store_of(&s);
         assign_place(&mut st, &[0, 1], 2).unwrap();
         assert_eq!((location_of(&mut st, 0), location_of(&mut st, 1)), (2, 2));
-        assert_eq!(st.history().0, ["Ort „Sandgem Town“ zugewiesen"]);
+        assert_eq!(st.history().0, ["Place “Sandgem Town” assigned"]);
         assert_eq!(location_names(&mut st).unwrap().len(), 3);
         st.undo().unwrap();
         assert_eq!((location_of(&mut st, 0), location_of(&mut st, 1)), (1, 200));
         let err = refusal(assign_place(&mut st, &[0], 3).unwrap_err());
         assert_eq!(
             err,
-            "Den Ort 3 gibt es nicht: die Ortsnamen-Bank hat 3 Namen."
+            "Place 3 does not exist: the place name bank has 3 names."
         );
         // A header past the table is refused, the others stay too.
         let err = refusal(assign_place(&mut st, &[0, 9], 2).unwrap_err());
-        assert_eq!(err, "Das Gebiet oder den Raum 9 gibt es nicht.");
+        assert_eq!(err, "The area or room 9 does not exist.");
         assert_eq!(location_of(&mut st, 0), 1);
     }
 
@@ -616,7 +605,7 @@ mod tests {
         let s = synthetic_project();
         std::fs::write(s.dir.path().join("header.yaml"), "gamecode: ADAE\n").unwrap();
         let mut st = store_of(&s);
-        let only = "Eigene Orte gibt es nur für Platin und HeartGold/SoulSilver.";
+        let only = "Places of your own exist only for Platinum and HeartGold/SoulSilver.";
         assert_eq!(
             refusal(create_place(&mut st, "Neuheim", &[0]).unwrap_err()),
             only
@@ -673,10 +662,10 @@ mod tests {
         assert_eq!(st.undo_depth(), 0);
         assert_eq!(
             refusal(plan_new_place(&mut st, " ").unwrap_err()),
-            "Der Ort braucht einen Namen."
+            "The place needs a name."
         );
         fill_bank(&mut st);
-        assert!(refusal(plan_new_place(&mut st, "Neuheim").unwrap_err()).contains("voll"));
+        assert!(refusal(plan_new_place(&mut st, "Neuheim").unwrap_err()).contains("full"));
 
         let names = hgss_names();
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
@@ -718,9 +707,9 @@ mod tests {
         let s = synthetic_project();
         let mut st = store_of(&s);
         check_place(&mut st, 2).unwrap();
-        assert!(refusal(check_place(&mut st, 3).unwrap_err()).contains("Den Ort 3 gibt es nicht"));
+        assert!(refusal(check_place(&mut st, 3).unwrap_err()).contains("Place 3 does not exist"));
         std::fs::write(s.dir.path().join("header.yaml"), "gamecode: ADAE\n").unwrap();
         let mut st = store_of(&s);
-        assert!(refusal(check_place(&mut st, 1).unwrap_err()).contains("nur für Platin"));
+        assert!(refusal(check_place(&mut st, 1).unwrap_err()).contains("only for Platinum"));
     }
 }

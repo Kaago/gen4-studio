@@ -1,5 +1,10 @@
 # Lernsets (`learnsets/NNNN`)
 
+**In English:** Documents the learnset file of a species (`learnsets/NNNN`), which lists the moves
+it learns by level. A member has variable length: a sequence of little-endian `u16` words, each
+packing a move and a level, ended by `0xFFFF` and padded. It was checked on all three vanilla
+projects (508 members each). The code is `crates/g4-formats/src/data/learnset.rs`.
+
 Quelle: DSPRE `ROMFiles/LearnsetData.cs`, pret `pokeplatinum`
 (`MAX_LEARNSET_ENTRIES`); Recherche
 `docs/research/2026-10-23-3b3/dspre-report.md` §1.4 „Learnsets“. An allen drei

@@ -33,7 +33,7 @@ Stand 25.10.2026. `src/` meint `apps/studio/src-tauri/src/`.
 
 - Wie Plan 3h.1 (Texte deutsch, Tools englisch, `rmcp` =3.7.0, Commit-Zeile `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`, nur dieser Worktree und Branch).
 - Kommandozeile: `studio mcp --project <dir> [--allow-dir <dir>]… [--read-only] [--allow-irreversible] [--emulator <path>] [--expert]`.
-- Testprojekte nur frische Kopien unter `$G4_ROMS_DIR/_testkopien/3h-<zweck>` (`cp -R` eines `…_DSPRE_contents`-Ordners, Ziel darf nicht existieren); `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; Originale nie öffnen.
+- Testprojekte nur frische Kopien unter `$G4_ROMS_DIR/_testkopien/3h-<zweck>` (`cp -R` eines `…_DSPRE_contents`-Ordners, Ziel darf nicht existieren); `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut; Originale nie öffnen.
 - Python: `uv run pytest -m "not integration" -q` in `scripts/g4emu` grün; Stil wie `scenario.py` (Typannotationen, deutsche Meldungen an den Nutzer, englische Kommentare).
 - Vor jedem Commit grün: `cargo fmt --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo clippy -p studio --all-targets -- -D warnings`, `cargo test -p studio --all-features` (bei Rust-Änderungen), `uv run pytest -m "not integration" -q` (bei Python-Änderungen).
 

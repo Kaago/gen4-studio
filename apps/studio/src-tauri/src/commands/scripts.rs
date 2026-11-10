@@ -176,7 +176,11 @@ fn refuse_dirty_text(store: &Store) -> Result<(), CmdError> {
         .into_iter()
         .find(|id| id.kind == AssetKind::TextArchive)
     {
-        Some(id) => Err(format!("Textarchiv {:04} erst speichern", id.index).into()),
+        Some(id) => Err(
+            t!("commands.scripts.save_text_archive_first", index = id.index : {:04})
+                .into_owned()
+                .into(),
+        ),
         None => Ok(()),
     }
 }
@@ -522,7 +526,7 @@ mod tests {
         for refusal in refusals {
             let err = refusal.unwrap_err();
             assert_eq!(err.code, "error");
-            assert_eq!(err.message, "Textarchiv 0433 erst speichern");
+            assert_eq!(err.message, "Save text archive 0433 first");
         }
         // Nothing was written or compiled, and the edit is still pending.
         let ScriptSourceDto::Rotom { text } = read_script_impl(&state, 0).unwrap() else {
@@ -569,7 +573,9 @@ mod tests {
             panic!("{:?}", report.problems);
         };
         assert!(
-            problem.message.starts_with("Textliteral nicht auflösbar"),
+            problem
+                .message
+                .starts_with("Text literal cannot be resolved"),
             "{problem:?}"
         );
 

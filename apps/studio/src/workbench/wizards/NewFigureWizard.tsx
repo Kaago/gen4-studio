@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, recipeApply } from "../../api";
 import type { DraftDto, HeaderSummary, MatrixSummary, NewFigureInput, NewFigureReport, ProjectInfo, RecipeOutcome } from "../../api";
 import { FlagField } from "../../flags/FlagField";
@@ -78,8 +79,10 @@ export function figurePlanInput(form: FigureForm): NewFigureInput | null {
 
 type Outcome = { kind: "done"; outcome: RecipeOutcome<NewFigureReport>; input: NewFigureInput } | { kind: "partial"; message: string };
 
-const FACING_OPTIONS = FACINGS.map((f) => ({ value: String(f.value), label: f.label }));
-const wordOf = (list: readonly { value: number; label: string }[], value: number, fallback: string) => list.find((w) => w.value === value)?.label ?? `${fallback} ${value}`;
+/** The facings as choices of the segmented field, named in the language that is shown when called. */
+const facingOptions = () => FACINGS.map((f) => ({ value: String(f.value), label: f.label }));
+/** The word of `value` in `list`, else `fallback(value)` („Bewegung 99“). */
+const wordOf = (list: readonly { value: number; label: string }[], value: number, fallback: (value: number) => string) => list.find((w) => w.value === value)?.label ?? fallback(value);
 
 /**
  * „Neue Figur“ in Erzählen: where and how the figure stands („Wo und wie“: place, tile, look, movement, facing), what it says („Dialog“:
@@ -87,6 +90,7 @@ const wordOf = (list: readonly { value: number; label: string }[], value: number
  * recipe `new_figure` (one undo step). The scene draws the planned figure while the wizard is open.
  */
 export function NewFigureWizard({ depth, headers, matrices, project, prefill, onDraft, onDone, onShow, onStep, onCancel, onError, beforeApply }: NewFigureWizardProps) {
+  const { t } = useTranslation("workbench");
   const [form, setForm] = useState<FigureForm>(() => ({ header: prefill?.header ?? null, x: prefill?.tile?.x ?? null, z: prefill?.tile?.z ?? null, look: null, movement: 0, dir: 1, text: "", flag: 0 }));
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -132,37 +136,41 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
     }
   }
 
-  const where = located ? `„${headerLabel(place)}“, Kachel x ${form.x}, z ${form.z}` : null;
+  const where = located ? t("newFigureWizard.where", { place: headerLabel(place), x: form.x, z: form.z }) : null;
   const summaryLines = [
-    where ?? "Noch kein Ort und keine Kachel.",
-    `Aussehen ${look}, ${wordOf(MOVEMENT_WORDS, form.movement, "Bewegung")}, Blick ${wordOf(FACINGS, form.dir, "Richtung")}`,
-    form.text.trim() === "" ? "Sagt noch nichts." : `Sagt: „${visibleLine(form.text)}“`,
-    form.flag === 0 ? "Immer zu sehen." : `Nicht zu sehen, solange Flag ${form.flag} gesetzt ist.`,
+    where ?? t("newFigureWizard.noPlace"),
+    t("newFigureWizard.lookLine", {
+      look,
+      movement: wordOf(MOVEMENT_WORDS, form.movement, (value) => t("eventFields.movementN", { value })),
+      facing: wordOf(FACINGS, form.dir, (value) => t("newFigureWizard.direction", { value })),
+    }),
+    form.text.trim() === "" ? t("newFigureWizard.saysNothing") : t("newFigureWizard.says", { line: visibleLine(form.text) }),
+    form.flag === 0 ? t("newFigureWizard.alwaysVisible") : t("newFigureWizard.hiddenWhile", { flag: form.flag }),
   ];
 
   const steps: WizardStep[] = [
     {
       id: "where",
-      title: "Wo und wie",
+      title: t("newFigureWizard.stepWhere"),
       canNext: located,
       content: (
         <>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Wo</h3>
+            <h3 className={parts.heading}>{t("newFigureWizard.whereHeading")}</h3>
             <PlaceField headers={headers} value={form.header} onChange={(header) => set({ header })} depth={depth} />
             <TileFields x={form.x} z={form.z} size={placeTiles(place, matrices)} onChange={(tile) => set(tile)} />
-            {fromScene && <p className={parts.note}>Kachel zuletzt in der Szene gewählt.</p>}
-            {place !== null && (form.x === null || form.z === null) && <p className={parts.note}>Noch keine Kachel: x und z eintragen oder vorher in der Szene auf die Stelle zeigen.</p>}
+            {fromScene && <p className={parts.note}>{t("newFigureWizard.fromScene")}</p>}
+            {place !== null && (form.x === null || form.z === null) && <p className={parts.note}>{t("newFigureWizard.noTile")}</p>}
           </section>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Wie</h3>
+            <h3 className={parts.heading}>{t("newFigureWizard.howHeading")}</h3>
             <FigureLookField value={look} dir={form.dir} onCommit={(graphicsId) => set({ look: graphicsId })} />
             <div className={parts.field}>
-              <SelectField label="Bewegung" showLabel value={form.movement} options={MOVEMENT_WORDS} onChange={(movement) => set({ movement })} />
+              <SelectField label={t("newFigureWizard.movement")} showLabel value={form.movement} options={MOVEMENT_WORDS} onChange={(movement) => set({ movement })} />
             </div>
             <div className={parts.group}>
-              <span className={parts.label}>Blickrichtung</span>
-              <Segmented ariaLabel="Blickrichtung" size="s" options={FACING_OPTIONS} value={String(form.dir)} onChange={(dir) => set({ dir: Number(dir) })} />
+              <span className={parts.label}>{t("newFigureWizard.facing")}</span>
+              <Segmented ariaLabel={t("newFigureWizard.facing")} size="s" options={facingOptions()} value={String(form.dir)} onChange={(dir) => set({ dir: Number(dir) })} />
             </div>
           </section>
         </>
@@ -170,30 +178,30 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
     },
     {
       id: "dialog",
-      title: "Dialog",
+      title: t("newFigureWizard.stepDialog"),
       canNext: input !== null,
       content: (
         <>
           <section className={`${parts.column} ${parts.wide}`}>
-            <h3 className={parts.heading}>Was sie sagt</h3>
+            <h3 className={parts.heading}>{t("newFigureWizard.text")}</h3>
             <div className={styles.text}>
-              <MessageEditor label="Was sie sagt" value={form.text} onCommit={async () => true} onDraft={(text) => set({ text })} />
+              <MessageEditor label={t("newFigureWizard.text")} value={form.text} onCommit={async () => true} onDraft={(text) => set({ text })} />
             </div>
-            <p className={parts.note}>Enter: neue Zeile; Umschalt+Enter: neue Seite (▼).</p>
+            <p className={parts.note}>{t("newFigureWizard.keys")}</p>
             <FlagField
               kind="flag"
-              label="Sichtbarkeits-Flag"
+              label={t("newFigureWizard.flag")}
               value={form.flag}
               onCommit={(flag) => set({ flag })}
               depth={depth}
               project={project}
               revision={0}
               field="hidden_flag"
-              hint="Solange das Flag gesetzt ist, ist die Figur nicht zu sehen; „Keins“: immer zu sehen."
+              hint={t("newFigureWizard.flagHint")}
             />
           </section>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Vorschau</h3>
+            <h3 className={parts.heading}>{t("newFigureWizard.preview")}</h3>
             <TextPreview text={form.text} />
           </section>
         </>
@@ -201,7 +209,7 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
     },
     {
       id: "summary",
-      title: "Zusammenfassung",
+      title: t("newFigureWizard.summary"),
       canNext: input !== null,
       content: (
         <section className={parts.column}>
@@ -222,7 +230,7 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
   let show: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const done = outcome;
-    result = <DoneResult title="Figur aufgestellt" {...figureResult(done.outcome, textProject)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
+    result = <DoneResult title={t("newFigureWizard.done")} {...figureResult(done.outcome, textProject)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
     if (onShow) show = () => onShow(done.outcome, done.input);
   } else if (outcome?.kind === "partial") {
     result = <PartialResult message={outcome.message} depth={depth} />;
@@ -231,7 +239,7 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
   return (
     <WizardFrame
       name="new_figure"
-      title="Neue Figur"
+      title={t("newFigureWizard.title")}
       icon="figure"
       steps={steps}
       step={step}
@@ -239,14 +247,14 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
         setRefusal(null);
         setStep(i);
       }}
-      submitLabel="Aufstellen"
+      submitLabel={t("newFigureWizard.submit")}
       onSubmit={() => void apply()}
       onCancel={() => onCancel(outcome?.kind === "partial")}
       onShow={show}
       busy={busy}
       result={result}
       error={refusal}
-      summary={where === null ? undefined : `Neue Figur in ${where}`}
+      summary={where === null ? undefined : t("newFigureWizard.summaryLine", { where })}
     />
   );
 }

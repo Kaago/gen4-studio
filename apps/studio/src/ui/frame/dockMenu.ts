@@ -1,4 +1,5 @@
 import type { IDockviewPanel } from "dockview-react";
+import { t } from "../../i18n";
 import { isSchauPanel } from "../../workbench/layout";
 
 /**
@@ -32,19 +33,19 @@ export function tabMenuItems({ panel }: { panel: IDockviewPanel }, actions: TabM
   const maximized = panel.api.isMaximized();
   const floats = panel.api.location.type === "floating";
   const maximize: TabMenuItem = maximized
-    ? { label: "Wiederherstellen", action: () => panel.api.exitMaximized() }
-    : { label: "Maximieren", action: () => panel.api.maximize(), disabled: panel.api.location.type !== "grid" };
+    ? { label: t("ui:dockMenu.restore"), action: () => panel.api.exitMaximized() }
+    : { label: t("ui:dockMenu.maximize"), action: () => panel.api.maximize(), disabled: panel.api.location.type !== "grid" };
   if (isSchauPanel(panel.id)) {
     const { setPreview, previewLocked } = actions;
     if (setPreview === undefined || !PREVIEW_VIEWS.has(panel.id)) return [maximize];
     const locked = previewLocked?.(panel.id) ?? null;
-    return [maximize, "separator", { label: "Als Vorschaubild", action: () => setPreview(panel.id), disabled: locked !== null, ...(locked === null ? {} : { hint: locked }) }];
+    return [maximize, "separator", { label: t("ui:dockMenu.asPreview"), action: () => setPreview(panel.id), disabled: locked !== null, ...(locked === null ? {} : { hint: locked }) }];
   }
   return [
     maximize,
-    { label: "Schweben lassen", action: () => actions.float(panel.id), disabled: floats },
-    ...(floats ? [{ label: "Zurück ins Dock", action: () => actions.dock(panel.id) }] : []),
+    { label: t("ui:dockMenu.float"), action: () => actions.float(panel.id), disabled: floats },
+    ...(floats ? [{ label: t("ui:dockMenu.backToDock"), action: () => actions.dock(panel.id) }] : []),
     "separator",
-    { label: "Anordnung zurücksetzen", action: () => actions.reset() },
+    { label: t("ui:dockMenu.resetArrangement"), action: () => actions.reset() },
   ];
 }

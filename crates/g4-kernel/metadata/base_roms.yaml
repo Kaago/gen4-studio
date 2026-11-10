@@ -1,14 +1,16 @@
-# ROM dumps the editor has been tried against (SHA-1 of the whole file). The label says
-# "Testprojekt", not "clean dump": nobody has compared them with the No-Intro database.
+# ROM dumps the editor has been tried against (SHA-1 of the whole file). The label is built from
+# `game` and `region` when it is shown (`start.known_base` in the catalogs: "Platinum DE (test
+# project)", "Platin DE (Testprojekt)"); it says "test project", not "clean dump": nobody has
+# compared them with the No-Intro database.
 - sha1: d40f19ac24d67c721a4ab25e1c013154443d75b4
   game_code: CPUD
-  label: "Platin DE (Testprojekt)"
-  source: "Testprojekt"
+  game: platinum
+  region: DE
 - sha1: 13b6853aa93121069df1d17446d3ecb36872aecf
   game_code: IPKD
-  label: "HeartGold DE (Testprojekt)"
-  source: "Testprojekt"
+  game: heartgold
+  region: DE
 - sha1: 4fcded0e2713dc03929845de631d0932ea2b5a37
   game_code: IPKE
-  label: "HeartGold US (Testprojekt)"
-  source: "Testprojekt"
+  game: heartgold
+  region: US

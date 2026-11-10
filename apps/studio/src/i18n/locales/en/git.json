@@ -1,0 +1,102 @@
+{
+  "shared": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "saveFirst": "Save first",
+    "allSaved": "Everything saved",
+    "lookingForGit": "Looking for Git…"
+  },
+  "gitWords": {
+    "noChange": "no changes",
+    "changesCount_one": "{{count}} change",
+    "changesCount_other": "{{count}} changes",
+    "statusText": {
+      "noCommit": "no commit yet",
+      "detached": "{{id}} (detached)"
+    },
+    "statusTooltip": {
+      "noCommit": "Git: no commit yet.",
+      "none": "Git: no changed file since the last commit “{{summary}}”. Click to open Technical › Changes.",
+      "changed_one": "Git: {{count}} changed file since the last commit “{{summary}}”. Click to show it in Technical › Changes.",
+      "changed_other": "Git: {{count}} changed files since the last commit “{{summary}}”. Click to show them in Technical › Changes."
+    },
+    "found": "Git found: {{version}}",
+    "initDone_one": "Git set up: {{count, number}}\u00a0file in the first commit “Initial state”.",
+    "initDone_other": "Git set up: {{count, number}}\u00a0files in the first commit “Initial state”.",
+    "studioIdentity": "The author is “Gen4 Studio” because Git does not know your name yet.",
+    "notInstalled": "Git is not installed. The templates are written; you set up the repository as soon as Git is there (git-scm.com/downloads).",
+    "templatesOnly": "Templates written. Git is not installed; you set up the repository as soon as Git is there.",
+    "templatesNote": {
+      "textProject": "The .gitignore of Gen4 Studio now puts the text project under version control.",
+      "dspre": "The .gitignore of Gen4 Studio now puts the DSPRE folder under version control."
+    },
+    "changedFiles": {
+      "none": "No changes since the last commit",
+      "first_one": "{{count, number}}\u00a0file for the first commit",
+      "first_other": "{{count, number}}\u00a0files for the first commit",
+      "since_one": "{{count, number}} changed file since the last commit",
+      "since_other": "{{count, number}} changed files since the last commit"
+    },
+    "commitDone": {
+      "files_one": "{{count, number}}\u00a0file",
+      "files_other": "{{count, number}}\u00a0files",
+      "text": "Snapshot saved: {{where}}“{{subject}}” ({{files}})."
+    },
+    "noGitForCommit": "Git is not installed."
+  },
+  "commitDialog": {
+    "title": "Save a snapshot?",
+    "description": "Creates a commit with all changes in the local repository (git add -A, git commit). Nothing is uploaded.",
+    "phase": {
+      "templates": "Checking templates…",
+      "add": "Adding files…",
+      "commit": "Committing…"
+    },
+    "gitNotInstalled": "Git is not installed",
+    "checkingChanges": "Checking changes…",
+    "failed": "The commit failed.",
+    "save": "Save",
+    "beforeSaving": "Before saving",
+    "subject": "Subject",
+    "note": "Note",
+    "noteHint": "Optional; goes into the commit below the subject."
+  },
+  "gitInitDialog": {
+    "title": "Set up Git?",
+    "legalNote": "Your project contains data from the game. Do not upload it publicly; to share it, there is the patch (Technical › Publish).",
+    "description": "Creates a local Git repository in this project folder: .gitignore and .gitattributes, then a first commit “Initial state”. Gen4 Studio sets up no remote and uploads nothing.",
+    "ignored": {
+      "dspre": "Ignored: ROMs, patches, build/, save games and the archives the build packs",
+      "textProject": "Ignored: ROMs, patches, build/, save games and the game files (they are made from the base ROM)"
+    },
+    "phase": {
+      "unpack": "Unpacking archives…",
+      "templates": "Writing templates…",
+      "init": "Creating the repository…",
+      "add": "Adding files… (about 10 s for DSPRE folders)",
+      "commit": "First commit…"
+    },
+    "gitMissingTemplatesOnly": "Git is not installed: only the templates are written",
+    "templateExists": "{{file}} exists: the Gen4 Studio block is added",
+    "failed": "The first commit failed.",
+    "writeTemplates": "Write templates",
+    "setUp": "Set up",
+    "beforeSetUp": "Before setting up"
+  },
+  "restoreDialog": {
+    "pickTitle": "Choose base ROM",
+    "pickFilter": "DS ROM",
+    "progress": {
+      "extract": "Extracting the base ROM…",
+      "merge": "Inserting the game files…",
+      "import": "Importing the text project…",
+      "importCount": "Importing the text project… {{done}} of {{total}}",
+      "sync": "Preparing the sync…"
+    },
+    "restored": "Text project completed in {{seconds}}\u00a0s.",
+    "title": "Complete the text project?",
+    "description": "{{message}} Gen4 Studio creates the game files from your base ROM; your files stay as they are.",
+    "complete": "Complete",
+    "chooseBase": "Choose base ROM…"
+  }
+}

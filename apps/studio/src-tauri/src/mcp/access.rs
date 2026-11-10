@@ -14,32 +14,36 @@ pub enum Kind {
     Read,
     /// Changes the project in an undoable step (or only the agent's own state).
     Write,
-    /// Changes something that undo does not bring back; the text says what.
+    /// Changes something that undo does not bring back; the payload is the catalog key
+    /// (`mcp.access.*`) of the reason, which [`Class`] resolves in the language of the server.
     Irreversible(&'static str),
-    /// Not for an agent; the text says why.
+    /// Not for an agent; the payload is the catalog key of the reason.
     Unavailable(&'static str),
     /// Decided per call by [`classify`] from the arguments.
     Depends,
 }
 
-const NEW_SCRIPT: Kind = Kind::Irreversible("Script anlegen");
-const APP_ONLY: Kind = Kind::Unavailable("Nur in der App");
+const NEW_SCRIPT: Kind = Kind::Irreversible("mcp.access.new_script");
+const APP_ONLY: Kind = Kind::Unavailable("mcp.access.app_only");
+const HEADER_PATCH_APPLY: &str = "mcp.access.header_patch_apply";
+const RUN_ROM: &str = "mcp.access.run_rom";
 
+// The reasons below are catalog keys, resolved by [`Class`] when a call is classified.
 /// Why an agent may not name a project folder: the server serves one project.
-const BOUND_PROJECT: &str = "Das Projekt ist fest (--project); ohne path aufrufen";
+const BOUND_PROJECT: &str = "mcp.access.bound_project";
 /// Why the fix `remove_hidden` cannot be undone: it moves the file past the store.
-const REMOVE_HIDDEN: &str = "Versteckte Datei nach .g4/backup verschieben";
+const REMOVE_HIDDEN: &str = "mcp.access.remove_hidden";
 
 /// Why a build or export outside `build/` cannot be undone: it may overwrite any file there.
-const OUTSIDE_BUILD: &str = "Bauen außerhalb von build/";
+const OUTSIDE_BUILD: &str = "mcp.access.outside_build";
 /// Why `publish_patch` with `overwrite` cannot be undone: it replaces the files of a release.
-const REPLACE_PATCH: &str = "Patch ersetzen";
+const REPLACE_PATCH: &str = "mcp.access.replace_patch";
 
 /// The kind of every command of the table (`dispatch::COMMANDS`), in its order.
 pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     (
         "open_project",
-        Kind::Unavailable("Das Projekt ist fest (--project)"),
+        Kind::Unavailable("mcp.access.bound_project_short"),
     ),
     ("list_headers", Kind::Read),
     ("get_header", Kind::Read),
@@ -63,13 +67,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("create_room", Kind::Depends),
     ("split_room", Kind::Write),
     ("header_patch_status", Kind::Read),
-    (
-        "apply_header_patch",
-        Kind::Irreversible("Header-Patch einspielen"),
-    ),
+    ("apply_header_patch", Kind::Irreversible(HEADER_PATCH_APPLY)),
     (
         "repair_header_patch",
-        Kind::Irreversible("Header-Patch reparieren"),
+        Kind::Irreversible("mcp.access.header_patch_repair"),
     ),
     ("get_map", Kind::Read),
     ("get_events", Kind::Read),
@@ -109,12 +110,12 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("dirty", Kind::Read),
     ("save", Kind::Write),
     ("build_rom", Kind::Depends),
-    ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
+    ("run_rom", Kind::Irreversible(RUN_ROM)),
     ("reload_asset", Kind::Write),
     ("accept_disk", Kind::Write),
     (
         "resolve_text_conflicts",
-        Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben"),
+        Kind::Irreversible("mcp.access.overwrite_text_archive"),
     ),
     ("force_quit", APP_ONLY),
     ("data_list", Kind::Read),
@@ -127,7 +128,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("refs", Kind::Read),
     ("get_item_icon", Kind::Read),
     ("get_mon_icon", Kind::Read),
-    ("create_trainer", Kind::Irreversible("Trainer anlegen")),
+    (
+        "create_trainer",
+        Kind::Irreversible("mcp.access.create_trainer"),
+    ),
     ("set_trainer_texts", Kind::Write),
     ("create_encounter_file", Kind::Write),
     ("split_encounter_file", Kind::Write),
@@ -140,7 +144,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("unignore_finding", Kind::Write),
     (
         "accept_baseline",
-        Kind::Irreversible("Ausgangslage übernehmen"),
+        Kind::Irreversible("mcp.access.accept_baseline"),
     ),
     ("set_check_enabled", Kind::Write),
     ("plan_fix", Kind::Read),
@@ -150,7 +154,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("check_project_dest", APP_ONLY),
     ("create_project", APP_ONLY),
     ("plan_empty_region", Kind::Read),
-    ("apply_empty_region", Kind::Irreversible("Welt leeren")),
+    (
+        "apply_empty_region",
+        Kind::Irreversible("mcp.access.clear_world"),
+    ),
     ("agent_status", APP_ONLY),
     ("agent_poll", APP_ONLY),
     ("agent_settings", APP_ONLY),
@@ -170,23 +177,26 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("project_preview_get", Kind::Read),
     (
         "project_preview_set",
-        Kind::Irreversible("Vorschaubild ändern"),
+        Kind::Irreversible("mcp.access.change_preview"),
     ),
     ("base_status", Kind::Read),
     ("check_base", Kind::Read),
-    ("assign_base", Kind::Irreversible("Basis-ROM zuordnen")),
+    ("assign_base", Kind::Irreversible("mcp.access.assign_base")),
     ("register_base_rom", APP_ONLY),
-    ("create_patch", Kind::Irreversible("Patch erstellen")),
+    (
+        "create_patch",
+        Kind::Irreversible("mcp.access.create_patch"),
+    ),
     ("original_status", Kind::Read),
     ("plan_reset", Kind::Read),
     ("reset_to_original", Kind::Write),
     ("changed_from_original", Kind::Read),
     ("text_check", Kind::Read),
-    ("text_export", Kind::Irreversible("Textprojekt exportieren")),
+    ("text_export", Kind::Irreversible("mcp.access.export_text")),
     ("text_project_status", Kind::Read),
     (
         "adopt_text_project",
-        Kind::Irreversible("Als Textprojekt einrichten"),
+        Kind::Irreversible("mcp.access.adopt_text_project"),
     ),
     ("revert_text_project", APP_ONLY),
     ("migrate_text_project", APP_ONLY),
@@ -195,14 +205,14 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("conflict_diff", Kind::Read),
     (
         "resolve_external_conflict",
-        Kind::Irreversible("Eine Fassung überschreiben"),
+        Kind::Irreversible("mcp.access.overwrite_version"),
     ),
     ("plan_rename_id", Kind::Read),
     ("rename_id", Kind::Write),
     ("entity_ids", Kind::Read),
     ("close_project", APP_ONLY),
     ("git_status", Kind::Read),
-    ("git_init", Kind::Irreversible("Git einrichten")),
+    ("git_init", Kind::Irreversible("mcp.access.init_git")),
     ("diff_entity", Kind::Read),
     ("unsaved_changes", Kind::Read),
     // A clone is completed before it opens: an agent has no project yet.
@@ -213,8 +223,11 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("publish_patch", Kind::Depends),
     // An agent reads the list from the answers of publish_patch; it opens no file manager.
     ("reveal_path", APP_ONLY),
-    ("git_commit_all", Kind::Irreversible("Stand sichern")),
-    // Writes the template block (as „Stand sichern“ would), then reads the status.
+    (
+        "git_commit_all",
+        Kind::Irreversible("mcp.access.commit_all"),
+    ),
+    // Writes the template block (as "Save a snapshot" would), then reads the status.
     ("git_commit_prepare", Kind::Write),
     ("recipe_list", Kind::Read),
     ("recipe_plan", Kind::Read),
@@ -238,7 +251,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     // Play mode live: an agent reads the status and sets a value in the running game (no undo
     // step); starting melonDS asks like run_rom; the rest belongs to the app's surface.
     ("live_status", Kind::Read),
-    ("live_play", Kind::Irreversible("ROM im Emulator starten")),
+    ("live_play", Kind::Irreversible(RUN_ROM)),
     ("live_connect", APP_ONLY),
     ("live_stop", APP_ONLY),
     ("live_resume", APP_ONLY),
@@ -248,7 +261,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("live_breakpoint_clear", APP_ONLY),
     ("dialogs_of_header", Kind::Read),
     ("plan_delete", Kind::Read),
-    // Irreversible with `freeNumber` („Nummer freigeben“), see [`classify`].
+    // Irreversible with `freeNumber` ("Free the number"), see [`classify`].
     ("delete_entity", Kind::Depends),
     // One undo step, like any edit.
     ("restore_entity", Kind::Write),
@@ -288,6 +301,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("world_import_tmj", Kind::Write),
     // Painting (6.4a, over `g4_call` only): adding or removing a layer is one undo step.
     ("world_layers", Kind::Write),
+    // The language is the user's (Settings) or the environment's (`G4_LANG`), not an agent's.
+    ("set_locale", APP_ONLY),
+    // The OS language for "System" in Settings › Language: the app's webview asks, no agent.
+    ("system_language", APP_ONLY),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -311,13 +328,13 @@ pub enum Class {
 
 impl From<Kind> for Class {
     /// The class of a kind that does not depend on the arguments (`Depends` counts as a
-    /// write; [`classify`] resolves it).
+    /// write; [`classify`] resolves it), its reason in the language of the server.
     fn from(kind: Kind) -> Class {
         match kind {
             Kind::Read => Class::Read,
             Kind::Write | Kind::Depends => Class::Write,
-            Kind::Irreversible(why) => Class::Irreversible(why.to_owned()),
-            Kind::Unavailable(why) => Class::Unavailable(why.to_owned()),
+            Kind::Irreversible(why) => Class::Irreversible(t!(why).into_owned()),
+            Kind::Unavailable(why) => Class::Unavailable(t!(why).into_owned()),
         }
     }
 }
@@ -340,12 +357,14 @@ impl From<Kind> for Class {
 /// (irreversible), without it is one undo step. A name the table does not have is unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
-        return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
+        return Class::Unavailable(
+            t!("mcp.access.unknown_command", command = command).into_owned(),
+        );
     };
     if matches!(command, "project_preview_get" | "project_preview_set")
         && args.get("path").is_some_and(|path| !path.is_null())
     {
-        return Class::Unavailable(BOUND_PROJECT.to_owned());
+        return Class::Unavailable(t!(BOUND_PROJECT).into_owned());
     }
     if kind != Kind::Depends {
         return kind.into();
@@ -360,18 +379,18 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
             match args.get(key) {
                 // A target that is not text is refused by the command itself.
                 Some(Value::String(target)) if !policy.is_in_build(target) => {
-                    Class::Irreversible(OUTSIDE_BUILD.to_owned())
+                    Kind::Irreversible(OUTSIDE_BUILD).into()
                 }
                 _ => Class::Write,
             }
         }
         "publish_patch" if args.get("overwrite") == Some(&Value::Bool(true)) => {
-            Class::Irreversible(REPLACE_PATCH.to_owned())
+            Kind::Irreversible(REPLACE_PATCH).into()
         }
         "publish_patch" => match args.get("dir") {
             // A place that is not text is refused by the command itself.
             Some(Value::String(dir)) if !policy.is_in_build(dir) => {
-                Class::Irreversible(OUTSIDE_BUILD.to_owned())
+                Kind::Irreversible(OUTSIDE_BUILD).into()
             }
             _ => Class::Write,
         },
@@ -384,14 +403,16 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         "create_area" | "create_room"
             if args.pointer("/spec/header/allow_patch") == Some(&Value::Bool(true)) =>
         {
-            Kind::Irreversible("Header-Patch einspielen").into()
+            Kind::Irreversible(HEADER_PATCH_APPLY).into()
         }
         // Arguments that are no call the recipe can read fail in the command, writing nothing.
         "recipe_apply" => serde_json::from_value::<RecipeCall>(args.clone())
             .ok()
             .and_then(|call| recipes::is_irreversible(&call).ok().flatten())
-            .map_or(Class::Write, |why| Kind::Irreversible(why).into()),
-        "delete_entity" if frees_number(args) => Kind::Irreversible("Nummer freigeben").into(),
+            .map_or(Class::Write, Class::Irreversible),
+        "delete_entity" if frees_number(args) => {
+            Kind::Irreversible("mcp.access.free_number").into()
+        }
         _ => Class::Write,
     }
 }
@@ -407,11 +428,11 @@ pub fn frees_number(args: &Value) -> bool {
 
 /// Whether [`classify`]'s answer `class` for `command` depends on the project, so that
 /// [`classify_in`] answers it exactly: `recipe_apply` of a visibility or a scene, which
-/// [`classify`] holds irreversible ([`recipes::LEVEL_SCRIPT_FILE`]) without knowing whether
+/// [`classify`] holds irreversible ([`recipes::level_script_file`]) without knowing whether
 /// the place needs a level script file of its own.
 pub fn needs_store(command: &str, class: &Class) -> bool {
     command == "recipe_apply"
-        && matches!(class, Class::Irreversible(why) if why == recipes::LEVEL_SCRIPT_FILE)
+        && matches!(class, Class::Irreversible(why) if *why == recipes::level_script_file())
 }
 
 /// [`classify`] with the project's store at hand: where the answer depends on the project
@@ -432,7 +453,7 @@ pub fn classify_in(command: &str, args: &Value, policy: &UserPolicy, store: &mut
     };
     match recipes::is_irreversible_in(store, &call) {
         Ok(None) => Class::Write,
-        Ok(Some(why)) => Kind::Irreversible(why).into(),
+        Ok(Some(why)) => Class::Irreversible(why),
         Err(_) => class,
     }
 }
@@ -465,14 +486,16 @@ pub fn admit(command: &str, class: &Class, access: &Access) -> Result<(), CmdErr
         Class::Unavailable(why) => Err(refusal("unavailable", why.clone())),
         Class::Write | Class::Irreversible(_) if !access.write => Err(refusal(
             "read_only",
-            format!("Nur lesen: {command} ändert das Projekt"),
+            t!("mcp.access.read_only", command = command).into_owned(),
         )),
         Class::Irreversible(why) if !access.irreversible => Err(refusal(
             "needs_confirmation",
-            format!(
-                "{command} lässt sich nicht rückgängig machen ({why}); \
-                 kopflos nur mit --allow-irreversible"
-            ),
+            t!(
+                "mcp.access.needs_confirmation",
+                command = command,
+                why = why
+            )
+            .into_owned(),
         )),
         Class::Write | Class::Irreversible(_) => Ok(()),
     }
@@ -519,43 +542,58 @@ mod tests {
             [
                 (
                     "accept_baseline",
-                    Kind::Irreversible("Ausgangslage übernehmen")
+                    Kind::Irreversible("mcp.access.accept_baseline")
                 ),
-                ("add_script", Kind::Irreversible("Script anlegen")),
+                ("add_script", Kind::Irreversible("mcp.access.new_script")),
                 (
                     "adopt_text_project",
-                    Kind::Irreversible("Als Textprojekt einrichten")
+                    Kind::Irreversible("mcp.access.adopt_text_project")
                 ),
-                ("apply_empty_region", Kind::Irreversible("Welt leeren")),
+                (
+                    "apply_empty_region",
+                    Kind::Irreversible("mcp.access.clear_world")
+                ),
                 (
                     "apply_header_patch",
-                    Kind::Irreversible("Header-Patch einspielen")
+                    Kind::Irreversible("mcp.access.header_patch_apply")
                 ),
-                ("assign_base", Kind::Irreversible("Basis-ROM zuordnen")),
-                ("create_patch", Kind::Irreversible("Patch erstellen")),
-                ("create_trainer", Kind::Irreversible("Trainer anlegen")),
-                ("git_commit_all", Kind::Irreversible("Stand sichern")),
-                ("git_init", Kind::Irreversible("Git einrichten")),
-                ("live_play", Kind::Irreversible("ROM im Emulator starten")),
-                ("new_script_file", Kind::Irreversible("Script anlegen")),
+                ("assign_base", Kind::Irreversible("mcp.access.assign_base")),
+                (
+                    "create_patch",
+                    Kind::Irreversible("mcp.access.create_patch")
+                ),
+                (
+                    "create_trainer",
+                    Kind::Irreversible("mcp.access.create_trainer")
+                ),
+                (
+                    "git_commit_all",
+                    Kind::Irreversible("mcp.access.commit_all")
+                ),
+                ("git_init", Kind::Irreversible("mcp.access.init_git")),
+                ("live_play", Kind::Irreversible("mcp.access.run_rom")),
+                (
+                    "new_script_file",
+                    Kind::Irreversible("mcp.access.new_script")
+                ),
                 (
                     "project_preview_set",
-                    Kind::Irreversible("Vorschaubild ändern")
+                    Kind::Irreversible("mcp.access.change_preview")
                 ),
                 (
                     "repair_header_patch",
-                    Kind::Irreversible("Header-Patch reparieren")
+                    Kind::Irreversible("mcp.access.header_patch_repair")
                 ),
                 (
                     "resolve_external_conflict",
-                    Kind::Irreversible("Eine Fassung überschreiben")
+                    Kind::Irreversible("mcp.access.overwrite_version")
                 ),
                 (
                     "resolve_text_conflicts",
-                    Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben")
+                    Kind::Irreversible("mcp.access.overwrite_text_archive")
                 ),
-                ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
-                ("text_export", Kind::Irreversible("Textprojekt exportieren")),
+                ("run_rom", Kind::Irreversible("mcp.access.run_rom")),
+                ("text_export", Kind::Irreversible("mcp.access.export_text")),
             ]
         );
         // The agent hub's commands: `agent_commands_are_app_only`; play mode live's:
@@ -566,27 +604,44 @@ mod tests {
         assert_eq!(
             unavailable,
             [
-                ("check_project_dest", Kind::Unavailable("Nur in der App")),
-                ("close_project", Kind::Unavailable("Nur in der App")),
-                ("create_project", Kind::Unavailable("Nur in der App")),
+                (
+                    "check_project_dest",
+                    Kind::Unavailable("mcp.access.app_only")
+                ),
+                ("close_project", Kind::Unavailable("mcp.access.app_only")),
+                ("create_project", Kind::Unavailable("mcp.access.app_only")),
                 (
                     "default_project_parent",
-                    Kind::Unavailable("Nur in der App")
+                    Kind::Unavailable("mcp.access.app_only")
                 ),
-                ("external_sync", Kind::Unavailable("Nur in der App")),
-                ("force_quit", Kind::Unavailable("Nur in der App")),
-                ("lsp_send", Kind::Unavailable("Nur in der App")),
-                ("lsp_start", Kind::Unavailable("Nur in der App")),
-                ("lsp_stop", Kind::Unavailable("Nur in der App")),
-                ("migrate_text_project", Kind::Unavailable("Nur in der App")),
+                ("external_sync", Kind::Unavailable("mcp.access.app_only")),
+                ("force_quit", Kind::Unavailable("mcp.access.app_only")),
+                ("lsp_send", Kind::Unavailable("mcp.access.app_only")),
+                ("lsp_start", Kind::Unavailable("mcp.access.app_only")),
+                ("lsp_stop", Kind::Unavailable("mcp.access.app_only")),
+                (
+                    "migrate_text_project",
+                    Kind::Unavailable("mcp.access.app_only")
+                ),
                 (
                     "open_project",
-                    Kind::Unavailable("Das Projekt ist fest (--project)")
+                    Kind::Unavailable("mcp.access.bound_project_short")
                 ),
-                ("register_base_rom", Kind::Unavailable("Nur in der App")),
-                ("restore_text_project", Kind::Unavailable("Nur in der App")),
-                ("reveal_path", Kind::Unavailable("Nur in der App")),
-                ("revert_text_project", Kind::Unavailable("Nur in der App")),
+                (
+                    "register_base_rom",
+                    Kind::Unavailable("mcp.access.app_only")
+                ),
+                (
+                    "restore_text_project",
+                    Kind::Unavailable("mcp.access.app_only")
+                ),
+                ("reveal_path", Kind::Unavailable("mcp.access.app_only")),
+                (
+                    "revert_text_project",
+                    Kind::Unavailable("mcp.access.app_only")
+                ),
+                ("set_locale", Kind::Unavailable("mcp.access.app_only")),
+                ("system_language", Kind::Unavailable("mcp.access.app_only")),
             ]
         );
         let mut depends: Vec<&str> = of(|k| *k == Kind::Depends)
@@ -653,7 +708,9 @@ mod tests {
         for command in ["project_preview_get", "project_preview_set"] {
             assert_eq!(
                 classify(command, &json!({ "path": root }), &policy),
-                Class::Unavailable(BOUND_PROJECT.to_owned()),
+                Class::Unavailable(
+                    "The project is fixed (--project); call without path".to_owned()
+                ),
                 "{command}"
             );
         }
@@ -664,7 +721,7 @@ mod tests {
         );
         assert_eq!(
             classify("project_preview_set", &json!({ "png": "" }), &policy),
-            Class::Irreversible("Vorschaubild ändern".to_owned())
+            Class::Irreversible("Change preview picture".to_owned())
         );
     }
 
@@ -694,7 +751,7 @@ mod tests {
         for name in agents {
             assert_eq!(
                 kind_of(name),
-                Some(Kind::Unavailable("Nur in der App")),
+                Some(Kind::Unavailable("mcp.access.app_only")),
                 "{name}"
             );
         }
@@ -708,7 +765,7 @@ mod tests {
         let policy = UserPolicy::new(fixture.dir.path(), &allowed, None).unwrap();
         let outside = elsewhere.path().join("out.nds");
         let outside = outside.to_str().unwrap();
-        let outside_build = Class::Irreversible("Bauen außerhalb von build/".to_owned());
+        let outside_build = Class::Irreversible("Build outside build/".to_owned());
         for (command, key) in [("build_rom", "out"), ("export_map_part", "path")] {
             assert_eq!(
                 classify(command, &json!({ key: "build/route.nds" }), &policy),
@@ -731,15 +788,15 @@ mod tests {
         assert_eq!(classify("save", &json!({}), &policy), Class::Write);
         assert_eq!(
             classify("create_trainer", &json!({}), &policy),
-            Class::Irreversible("Trainer anlegen".to_owned())
+            Class::Irreversible("Create trainer".to_owned())
         );
         assert_eq!(
             classify("open_project", &json!({}), &policy),
-            Class::Unavailable("Das Projekt ist fest (--project)".to_owned())
+            Class::Unavailable("The project is fixed (--project)".to_owned())
         );
         assert_eq!(
             classify("no_such_command", &json!({}), &policy),
-            Class::Unavailable("Unbekannter Befehl: no_such_command".to_owned())
+            Class::Unavailable("Unknown command: no_such_command".to_owned())
         );
     }
 
@@ -752,7 +809,7 @@ mod tests {
                     "new_header": { "template": 1, "internal_name": null },
                     "allow_patch": allow_patch })
         };
-        let patch = Class::Irreversible("Header-Patch einspielen".to_owned());
+        let patch = Class::Irreversible("Apply header patch".to_owned());
         assert_eq!(
             classify(
                 "create_area",
@@ -813,7 +870,12 @@ mod tests {
             } })
         };
         let classify = |args: Value| classify("recipe_apply", &args, &policy);
-        let patch = Class::Irreversible("Header-Patch einspielen".to_owned());
+        // The reason is the recipe's own (the kernel names it), passed on as it is.
+        let reason = |args: &Value| {
+            let call: RecipeCall = serde_json::from_value(args.clone()).unwrap();
+            Class::Irreversible(recipes::is_irreversible(&call).unwrap().unwrap())
+        };
+        let patch = reason(&area(true));
         assert_eq!(classify(area(true)), patch);
         assert_eq!(classify(room(true)), patch);
         for empty in [
@@ -821,11 +883,7 @@ mod tests {
             json!({ "recipe": "empty_region", "input": null }),
             json!({ "recipe": "empty_region", "input": {} }),
         ] {
-            assert_eq!(
-                classify(empty.clone()),
-                Class::Irreversible("Welt leeren".to_owned()),
-                "{empty}"
-            );
+            assert_eq!(classify(empty.clone()), reason(&empty), "{empty}");
         }
         let extend = json!({ "recipe": "extend_area", "input": {
             "matrix": 0, "x": 2, "y": 0, "source_map": 0,
@@ -841,10 +899,7 @@ mod tests {
             "texts": { "before": "Halt!\\r", "lose": "Du bist stark!", "after": "Gut." },
             "graphics_id": null,
         } });
-        assert_eq!(
-            classify(trainer),
-            Class::Irreversible("Trainer anlegen".to_owned())
-        );
+        assert_eq!(classify(trainer.clone()), reason(&trainer));
         // Arguments that are no recipe call, or input the recipe cannot read.
         for args in [
             json!({ "recipe": "create_area", "input": { "header": header(true) } }),
@@ -904,7 +959,7 @@ mod tests {
                 json!({ "story": story, "header": header, "step": 0, "text": "Willkommen" }),
             )
         };
-        let level = Class::Irreversible(recipes::LEVEL_SCRIPT_FILE.to_owned());
+        let level = Class::Irreversible(recipes::level_script_file());
 
         // Without the store.
         let bare = |args: &Value| classify("recipe_apply", args, &policy);
@@ -993,7 +1048,7 @@ mod tests {
                 &json!({ "finding": finding, "fix": "create_script" }),
                 &policy
             ),
-            Class::Irreversible("Script anlegen".to_owned())
+            Class::Irreversible("Create script".to_owned())
         );
         // Removing a hidden file moves it past the store.
         assert_eq!(
@@ -1002,7 +1057,7 @@ mod tests {
                 &json!({ "finding": finding, "fix": "remove_hidden" }),
                 &policy
             ),
-            Class::Irreversible("Versteckte Datei nach .g4/backup verschieben".to_owned())
+            Class::Irreversible("Move hidden file to .g4/backup".to_owned())
         );
         assert_eq!(
             classify(
@@ -1034,7 +1089,7 @@ mod tests {
         );
         assert_eq!(
             class,
-            Class::Irreversible("Eine Fassung eines Textarchivs überschreiben".to_owned())
+            Class::Irreversible("Overwrite one version of a text archive".to_owned())
         );
         let writer = Access {
             write: true,
@@ -1061,12 +1116,12 @@ mod tests {
         let e = refused("save", &Class::Write, read_only);
         assert_eq!(
             (e.code, e.message.as_str()),
-            ("read_only", "Nur lesen: save ändert das Projekt")
+            ("read_only", "Read only: save changes the project")
         );
         // An irreversible command writes as well; read-only says that first.
         let e = refused(
             "create_trainer",
-            &Class::Irreversible("Trainer anlegen".to_owned()),
+            &Class::Irreversible("Create trainer".to_owned()),
             Access {
                 irreversible: true,
                 ..read_only
@@ -1074,7 +1129,7 @@ mod tests {
         );
         assert_eq!(
             (e.code, e.message.as_str()),
-            ("read_only", "Nur lesen: create_trainer ändert das Projekt")
+            ("read_only", "Read only: create_trainer changes the project")
         );
         let writer = Access {
             write: true,
@@ -1089,18 +1144,18 @@ mod tests {
         };
         let e = refused(
             "lsp_start",
-            &Class::Unavailable("Nur in der App".to_owned()),
+            &Class::Unavailable("Only in the app".to_owned()),
             all,
         );
         assert_eq!(
             (e.code, e.message.as_str()),
-            ("unavailable", "Nur in der App")
+            ("unavailable", "Only in the app")
         );
     }
 
     #[test]
     fn admit_refuses_irreversible_without_confirmation() {
-        let class = Class::Irreversible("Trainer anlegen".to_owned());
+        let class = Class::Irreversible("Create trainer".to_owned());
         let writer = Access {
             write: true,
             irreversible: false,
@@ -1110,8 +1165,8 @@ mod tests {
         assert_eq!(e.code, "needs_confirmation");
         assert_eq!(
             e.message,
-            "create_trainer lässt sich nicht rückgängig machen (Trainer anlegen); \
-             kopflos nur mit --allow-irreversible"
+            "create_trainer cannot be undone (Create trainer); \
+             headless only with --allow-irreversible"
         );
         assert!(e.asset.is_none() && e.problems.is_empty());
         let confirmed = Access {
@@ -1137,11 +1192,11 @@ mod tests {
         assert_eq!(kind("rename_id"), Kind::Write);
         assert_eq!(
             kind("adopt_text_project"),
-            Kind::Irreversible("Als Textprojekt einrichten")
+            Kind::Irreversible("mcp.access.adopt_text_project")
         );
         assert_eq!(
             kind("resolve_external_conflict"),
-            Kind::Irreversible("Eine Fassung überschreiben")
+            Kind::Irreversible("mcp.access.overwrite_version")
         );
         // The automatic sync is the app's; taking back and lifting are the user's steps.
         for name in [
@@ -1169,7 +1224,7 @@ mod tests {
         for name in ["git_status", "diff_entity", "unsaved_changes"] {
             assert_eq!(kind(name), Kind::Read, "{name}");
         }
-        assert_eq!(kind("git_init"), Kind::Irreversible("Git einrichten"));
+        assert_eq!(kind("git_init"), Kind::Irreversible("mcp.access.init_git"));
         // A clone is completed before it opens.
         assert_eq!(kind("restore_text_project"), APP_ONLY);
     }
@@ -1180,7 +1235,10 @@ mod tests {
         assert_eq!(kind("releases"), Kind::Read);
         assert_eq!(kind("publish_patch"), Kind::Depends);
         assert_eq!(kind("reveal_path"), APP_ONLY);
-        assert_eq!(kind("git_commit_all"), Kind::Irreversible("Stand sichern"));
+        assert_eq!(
+            kind("git_commit_all"),
+            Kind::Irreversible("mcp.access.commit_all")
+        );
         assert_eq!(kind("git_commit_prepare"), Kind::Write);
     }
 
@@ -1196,20 +1254,20 @@ mod tests {
         assert_eq!(classify(json!({ "version": "0.1.0" })), Class::Write);
         assert_eq!(
             classify(json!({ "overwrite": true })),
-            Class::Irreversible("Patch ersetzen".to_owned())
+            Class::Irreversible("Replace patch".to_owned())
         );
         assert_eq!(
             classify(json!({ "dir": "/tmp/x" })),
-            Class::Irreversible(OUTSIDE_BUILD.to_owned())
+            Class::Irreversible("Build outside build/".to_owned())
         );
         assert_eq!(
             classify(json!({ "dir": outside })),
-            Class::Irreversible(OUTSIDE_BUILD.to_owned())
+            Class::Irreversible("Build outside build/".to_owned())
         );
         // Replacing outranks the place.
         assert_eq!(
             classify(json!({ "dir": outside, "overwrite": true })),
-            Class::Irreversible("Patch ersetzen".to_owned())
+            Class::Irreversible("Replace patch".to_owned())
         );
         for inside in ["build", "build/releases", "build/"] {
             assert_eq!(classify(json!({ "dir": inside })), Class::Write, "{inside}");
@@ -1231,7 +1289,7 @@ mod tests {
                 &json!({ "target": target, "freeNumber": true }),
                 &policy
             ),
-            Class::Irreversible("Nummer freigeben".to_owned())
+            Class::Irreversible("Free the number".to_owned())
         );
         // g4_call passes the curated tool's key as it is; the command honours it too.
         assert_eq!(
@@ -1240,7 +1298,7 @@ mod tests {
                 &json!({ "target": target, "free_number": true }),
                 &policy
             ),
-            Class::Irreversible("Nummer freigeben".to_owned())
+            Class::Irreversible("Free the number".to_owned())
         );
         // A tombstone is one undo step.
         for args in [
@@ -1279,8 +1337,8 @@ mod tests {
         assert_eq!(e.code, "needs_confirmation");
         assert_eq!(
             e.message,
-            "delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); \
-             kopflos nur mit --allow-irreversible"
+            "delete_entity cannot be undone (Free the number); \
+             headless only with --allow-irreversible"
         );
     }
 
@@ -1321,10 +1379,7 @@ mod tests {
         assert_eq!(kind("live_status"), Kind::Read);
         // A live value is no undo step, but it changes the running game.
         assert_eq!(kind("live_set"), Kind::Write);
-        assert_eq!(
-            kind("live_play"),
-            Kind::Irreversible("ROM im Emulator starten")
-        );
+        assert_eq!(kind("live_play"), Kind::Irreversible("mcp.access.run_rom"));
         for name in [
             "live_connect",
             "live_stop",

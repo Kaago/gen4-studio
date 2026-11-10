@@ -1,5 +1,6 @@
 import { useId, useRef } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { PreviewDto } from "../../api";
 import { Badge, Button, Icon, Menu, useRovingList } from "../primitives";
 import type { MenuEntry } from "../primitives";
@@ -17,11 +18,11 @@ export type StartPaneProps = {
   onForget: (path: string) => void;
   /** The preview pictures read so far, by path (see `usePreviews`); a card without an entry shows its name on the empty screen. */
   previews: ReadonlyMap<string, PreviewDto>;
-  /** "Vorschaubild wählen…" in a card's menu. */
+  /** „Vorschaubild wählen…“ in a card's menu. */
   onChoosePreview: (path: string) => void;
-  /** "Vorschaubild entfernen" in a card's menu (only with an own picture). */
+  /** „Vorschaubild entfernen“ in a card's menu (only with an own picture). */
   onRemovePreview: (path: string) => void;
-  /** "Neues Spiel aus ROM…": with it, that is the primary button and "Projekt öffnen" the secondary one. */
+  /** „Neues Spiel aus ROM…“: with it, that is the primary button and „Projekt öffnen“ the secondary one. */
   onNewGame?: () => void;
   /** A message below the actions (a refused drop). */
   notice?: ReactNode;
@@ -53,13 +54,14 @@ function ProjectCard({ project, latest, missing, preview, now, onOpen, onForget,
   onChoosePreview: () => void;
   onRemovePreview: () => void;
 }) {
+  const { t } = useTranslation("ui");
   const id = useId();
-  const forget: MenuEntry = { label: "Aus der Liste nehmen", onSelect: onForget };
+  const forget: MenuEntry = { label: t("startPane.removeFromList"), onSelect: onForget };
   const items: MenuEntry[] = missing
     ? [forget]
     : [
-        { label: "Vorschaubild wählen…", onSelect: onChoosePreview },
-        ...(preview?.source === "eigen" ? [{ label: "Vorschaubild entfernen", onSelect: onRemovePreview }] : []),
+        { label: t("startPane.choosePreview"), onSelect: onChoosePreview },
+        ...(preview?.source === "eigen" ? [{ label: t("startPane.removePreview"), onSelect: onRemovePreview }] : []),
         "separator",
         forget,
       ];
@@ -82,7 +84,7 @@ function ProjectCard({ project, latest, missing, preview, now, onOpen, onForget,
         {latest && (
           <span id={`${id}-latest`} className={styles.latest}>
             <Badge kind="info" icon="history">
-              Zuletzt
+              {t("startPane.latest")}
             </Badge>
           </span>
         )}
@@ -93,16 +95,16 @@ function ProjectCard({ project, latest, missing, preview, now, onOpen, onForget,
           <Badge kind="neutral" icon="game">
             {project.game}
           </Badge>
-          {missing ? <span className={styles.missing}>nicht gefunden</span> : <span className={styles.time}>geöffnet {ago(project.openedAt, now)}</span>}
+          {missing ? <span className={styles.missing}>{t("startPane.notFound")}</span> : <span className={styles.time}>{t("startPane.opened", { ago: ago(project.openedAt, now) })}</span>}
         </span>
       </button>
       <span className={styles.more}>
-        <Menu trigger={<Icon name="more" />} label={`Weitere Aktionen für ${project.name}`} items={items} />
+        <Menu trigger={<Icon name="more" />} label={t("startPane.moreActions", { name: project.name })} items={items} />
       </span>
       {missing && (
         <span className={styles.footer}>
           <Button kind="secondary" size="s" onClick={onForget}>
-            Aus der Liste nehmen
+            {t("startPane.removeFromList")}
           </Button>
         </span>
       )}
@@ -112,6 +114,7 @@ function ProjectCard({ project, latest, missing, preview, now, onOpen, onForget,
 
 /** The surface of the area Start: a greeting, the recently opened projects as cards, and the way to open another one. */
 export function StartPane({ recent, missing, previews, onOpen, onOpenRecent, onForget, onChoosePreview, onRemovePreview, onNewGame, notice }: StartPaneProps) {
+  const { t } = useTranslation("ui");
   const grid = useRef<HTMLUListElement>(null);
   useRovingList(grid, { orientation: "grid" });
   const now = useNow();
@@ -119,10 +122,10 @@ export function StartPane({ recent, missing, previews, onOpen, onOpenRecent, onF
   return (
     <section className={styles.pane} aria-labelledby="start-title">
       <h1 id="start-title" className={styles.title}>
-        Willkommen zurück
+        {t("startPane.welcome")}
       </h1>
       {recent.length > 0 ? (
-        <ul ref={grid} role="list" aria-label="Zuletzt geöffnete Projekte" className={styles.grid}>
+        <ul ref={grid} role="list" aria-label={t("startPane.recentLabel")} className={styles.grid}>
           {recent.map((p, i) => (
             <ProjectCard
               key={p.path}
@@ -139,26 +142,26 @@ export function StartPane({ recent, missing, previews, onOpen, onOpenRecent, onF
           ))}
         </ul>
       ) : (
-        <p className={styles.hint}>Noch kein Projekt geöffnet.</p>
+        <p className={styles.hint}>{t("startPane.noneYet")}</p>
       )}
       <div className={styles.actions} data-start-actions="">
         {onNewGame && (
           <Button kind="primary" icon="plus" onClick={onNewGame}>
-            Neues Spiel aus ROM…
+            {t("startPane.newGame")}
           </Button>
         )}
         <Button kind={onNewGame ? "secondary" : "primary"} icon="open" shortcut="⌘O" onClick={onOpen}>
-          Projekt öffnen
+          {t("startPane.openProject")}
         </Button>
       </div>
       {onNewGame && (
         <div className={styles.hints}>
-          <p className={styles.hint}>Du brauchst deine eigene ROM-Datei (.nds).</p>
-          <p className={styles.hint}>Gen4 Studio liefert keine Spieldaten; du nutzt deine eigene ROM.</p>
+          <p className={styles.hint}>{t("startPane.ownRom")}</p>
+          <p className={styles.hint}>{t("startPane.noGameData")}</p>
         </div>
       )}
       {notice}
-      <p className={styles.hint}>Projekte sind entpackte DSPRE-Ordner.</p>
+      <p className={styles.hint}>{t("startPane.dspreFolders")}</p>
     </section>
   );
 }

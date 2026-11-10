@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use super::types::{
-    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
-    ORIGINAL_KIND, Rule,
+    DeleteTarget, Rule, no_tombstone_for_binaries, no_tombstone_for_files, not_a_text_project,
+    original_kind,
 };
 use crate::data::refs::{
     Access, Ref, RefIndex, Strength, Target, encounter_file, script_id, strength,
@@ -28,10 +28,13 @@ use crate::text::TextArchiveDoc;
 use crate::textproject::rename::sources_naming;
 
 /// Why an original entity's number is not freed.
-pub const CANNOT_FREE_ORIGINAL: &str = "Original-Einträge lassen sich nicht freigeben.";
+pub fn cannot_free_original() -> String {
+    t!("delete.cannot_free_original").into_owned()
+}
 /// Why a place is not removed: it is no own place or not the last of the bank.
-pub const PLACE_ONLY_LAST: &str =
-    "Nur der letzte eigene Ort lässt sich entfernen; Orte rücken nicht nach.";
+pub fn place_only_last() -> String {
+    t!("delete.place_only_last").into_owned()
+}
 /// The field of a reference from a script source that writes an own flag or variable name.
 pub const IDENTIFIER_FIELD: &str = "identifier";
 
@@ -40,9 +43,9 @@ pub const IDENTIFIER_FIELD: &str = "identifier";
 /// other lock with the store's reason.
 pub fn locked_refusal(label: &str, reason: &str) -> String {
     if reason == PLACEHOLDER_REASON {
-        format!("{label} ist der Platzhalter des Sicht-Scripts und lässt sich nicht löschen.")
+        t!("delete.locked_placeholder", label = label).into_owned()
     } else {
-        format!("{label} ist schreibgeschützt ({reason}) und lässt sich nicht löschen.")
+        t!("delete.locked_read_only", label = label, reason = reason).into_owned()
     }
 }
 
@@ -50,9 +53,9 @@ pub fn locked_refusal(label: &str, reason: &str) -> String {
 /// living entry stays); one in the singular.
 pub fn later_entries_live(n: u16, m: usize) -> String {
     if m == 1 {
-        format!("Nummer {n} bleibt belegt, weil 1 späterer Eintrag lebt.")
+        t!("delete.later_entries_live_one", n = n).into_owned()
     } else {
-        format!("Nummer {n} bleibt belegt, weil {m} spätere Einträge leben.")
+        t!("delete.later_entries_live_other", n = n, m = m).into_owned()
     }
 }
 
@@ -76,8 +79,8 @@ pub struct DeletePlan {
     pub target: DeleteTarget,
     pub label: String,
     pub rule: Rule,
-    /// Why a tombstone is refused ([`ORIGINAL_KIND`], [`NO_TOMBSTONE_FOR_FILES`],
-    /// [`NO_TOMBSTONE_FOR_BINARIES`], [`NOT_A_TEXT_PROJECT`], [`PLACE_ONLY_LAST`], a read-only
+    /// Why a tombstone is refused ([`original_kind`], [`no_tombstone_for_files`],
+    /// [`no_tombstone_for_binaries`], [`not_a_text_project`], [`place_only_last`], a read-only
     /// entity [`locked_refusal`]); `None`: it
     /// can be set (a place: it can be removed; a flag or variable: its name can be removed).
     pub refusal: Option<String>,
@@ -97,8 +100,8 @@ pub struct DeletePlan {
     /// What „Nummer freigeben“ would remove; `None` when it cannot
     /// ([`DeletePlan::cannot_free`]).
     pub can_free: Option<FreeInfo>,
-    /// Why the number cannot be freed ([`CANNOT_FREE_ORIGINAL`], [`later_entries_live`],
-    /// [`PLACE_ONLY_LAST`], a read-only entity [`locked_refusal`]); `None` when it can or the kind has no number to free (flags and
+    /// Why the number cannot be freed ([`cannot_free_original`], [`later_entries_live`],
+    /// [`place_only_last`], a read-only entity [`locked_refusal`]); `None` when it can or the kind has no number to free (flags and
     /// variables, a place that can be removed).
     pub cannot_free: Option<String>,
 }
@@ -121,7 +124,9 @@ pub fn plan_delete(
     if let Some((_, current)) = counts
         && usize::from(number) >= current
     {
-        return Err(KernelError::Refused(format!("{label} gibt es nicht.")));
+        return Err(KernelError::Refused(
+            t!("delete.not_found", label = label).into_owned(),
+        ));
     }
     let original_entry = match target {
         DeleteTarget::Place { .. } | DeleteTarget::Flag { .. } | DeleteTarget::Var { .. } => false,
@@ -166,8 +171,8 @@ pub fn plan_delete(
     let (can_free, cannot_free) = match (target, counts) {
         _ if locked.is_some() => (None, locked),
         (DeleteTarget::Flag { .. } | DeleteTarget::Var { .. }, _) | (_, None) => (None, None),
-        (DeleteTarget::Place { .. }, _) => (None, (!place_ok).then(|| PLACE_ONLY_LAST.to_owned())),
-        _ if original_entry => (None, Some(CANNOT_FREE_ORIGINAL.to_owned())),
+        (DeleteTarget::Place { .. }, _) => (None, (!place_ok).then(place_only_last)),
+        _ if original_entry => (None, Some(cannot_free_original())),
         (_, Some((_, current))) => freeing(store, target, current)?,
     };
 
@@ -203,14 +208,13 @@ fn locked_reason(store: &mut Store, target: DeleteTarget) -> Result<Option<Strin
 }
 
 /// Refuses an edit that would point at a tombstone: [`KernelError::Refused`]
-/// `("{label} ist gelöscht.")` when the entity `target` names is deleted (a warp: its header).
+/// (`delete.is_deleted`, „{label} is deleted.“) when the entity `target` names is deleted (a warp: its header).
 /// Used by `update_event`, `set_header`, `set_matrix_cell` and `data_edit`.
 pub fn guard_reference(store: &Store, target: Target) -> Result<(), KernelError> {
     match DeleteTarget::of_target(target) {
-        Some(entity) if store.is_deleted(entity) => Err(KernelError::Refused(format!(
-            "{} ist gelöscht.",
-            entity.label()
-        ))),
+        Some(entity) if store.is_deleted(entity) => Err(KernelError::Refused(
+            t!("delete.is_deleted", label = entity.label()).into_owned(),
+        )),
         _ => Ok(()),
     }
 }
@@ -299,13 +303,13 @@ fn refusal(
     text_project: bool,
     place_ok: bool,
 ) -> Option<String> {
-    let original_kind = || ORIGINAL_KIND.replace("{Art}", target.kind_plural());
+    let original_kind = || original_kind(target);
     match target {
-        DeleteTarget::Place { .. } => (!place_ok).then(|| PLACE_ONLY_LAST.to_owned()),
+        DeleteTarget::Place { .. } => (!place_ok).then(place_only_last),
         DeleteTarget::Script { .. } | DeleteTarget::TextArchive { .. } => Some(if original {
             original_kind()
         } else {
-            NO_TOMBSTONE_FOR_FILES.to_owned()
+            no_tombstone_for_files()
         }),
         DeleteTarget::MapTexture { .. }
         | DeleteTarget::BuildingTexture { .. }
@@ -313,10 +317,10 @@ fn refusal(
         | DeleteTarget::InteriorBuildingModel { .. } => Some(if original {
             original_kind()
         } else {
-            NO_TOMBSTONE_FOR_BINARIES.to_owned()
+            no_tombstone_for_binaries()
         }),
         _ if rule == Rule::OnlyNew && original => Some(original_kind()),
-        _ if !text_project => Some(NOT_A_TEXT_PROJECT.to_owned()),
+        _ if !text_project => Some(not_a_text_project()),
         _ => None,
     }
 }
@@ -331,9 +335,9 @@ fn name_refs(
 ) -> Result<Vec<Ref>, KernelError> {
     let names = own_names(project, kind)?;
     let Some(entity) = names.get(&number) else {
-        return Err(KernelError::Refused(format!(
-            "{label} hat keinen eigenen Namen."
-        )));
+        return Err(KernelError::Refused(
+            t!("delete.no_own_name", label = label).into_owned(),
+        ));
     };
     let target = match kind {
         FlagKind::Flag => Target::Flag(number),

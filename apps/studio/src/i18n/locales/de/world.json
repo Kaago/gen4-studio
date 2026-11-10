@@ -1,0 +1,127 @@
+{
+  "shortcuts": {
+    "open": "Projekt öffnen",
+    "palette": "Befehlspalette öffnen",
+    "save": "Speichern",
+    "undo": "Rückgängig",
+    "redo": "Wiederholen",
+    "play": "Hier spielen (nur in der App)",
+    "pokedex": "Pokédex (im Bereich Pokémon)",
+    "trainer": "Trainer (im Bereich Pokémon)",
+    "encounters": "Begegnungen (im Bereich Pokémon)",
+    "moves": "Attacken (im Bereich Pokémon)"
+  },
+  "buildings": {
+    "deletePrompt": "Gebäude {{number}} von Karte {{map}} löschen?",
+    "deletePromptAt": "Gebäude {{number}} von Karte {{map}} (Modell {{model}}, x {{x}}, y {{y}}, z {{z}}) löschen?"
+  },
+  "events": {
+    "kinds": {
+      "warp": "Warp",
+      "object": "Objekt",
+      "coord": "Trigger",
+      "bg": "Hintergrund-Event"
+    },
+    "titleWarp": "Warp {{index}} → {{dest}}",
+    "titleObject": "Objekt {{index}} · ID {{id}}",
+    "titleCoord": "Trigger {{index}} · {{script}} {{value}}",
+    "titleBg": "Hintergrund-Event {{index}} · {{script}} {{value}}",
+    "detailsWarp": "Position x {{x}}, z {{z}} · Ziel-Warp {{destWarp}} · Höhe {{height}}",
+    "detailsObject": "Position x {{x}}, z {{z}}, y {{y}} · Grafik {{graphics}} · Bewegung {{movement}} · {{script}} {{value}}",
+    "detailsCoord": "Position x {{x}}, z {{z}} · Größe {{width}} × {{length}}",
+    "detailsBg": "Position x {{x}}, z {{z}}, y {{y}} · Typ {{type}}",
+    "destinationUnknown": "unbekannt ({{dest}})",
+    "locked": "schreibgeschützt: {{reason}}",
+    "warpRenumberNote": "Spätere Türen rücken nach; Warps, die auf sie zeigen, werden nachgezogen. Eine Tür, auf die ein Warp zeigt oder die ein Script per Index umsetzt, lässt sich nicht löschen.",
+    "deletePrompt": "{{what}} löschen?",
+    "deletePromptAt": "{{what}} (x {{x}}, z {{z}}) löschen?"
+  },
+  "ground": {
+    "decimalPoint": ",",
+    "noHeight": "keine Höhe",
+    "heightSteps_one": "Höhe {{steps}} Stufe",
+    "heightSteps_other": "Höhe {{steps}} Stufen",
+    "heightUnitsSteps_one": "Höhe {{units}} E ({{steps}} Stufe)",
+    "heightUnitsSteps_other": "Höhe {{units}} E ({{steps}} Stufen)"
+  },
+  "hover": {
+    "classes": {
+      "grass": "hohes Gras",
+      "water": "Wasser",
+      "ledge": "Vorsprung",
+      "ice": "Eis"
+    },
+    "walkable": "begehbar",
+    "blocked": "blockiert",
+    "map": "Karte {{map}}",
+    "tile": "Kachel x {{x}}, y {{y}}",
+    "type": "Typ {{type}}"
+  },
+  "legend": {
+    "terrain": {
+      "blocked": "Blockiert",
+      "water": "Wasser",
+      "tallGrass": "Hohes Gras",
+      "ledge": "Vorsprung",
+      "ice": "Eis",
+      "special": "Spezial",
+      "unknown": "Unbekannt"
+    },
+    "events": {
+      "figure": "Figur",
+      "door": "Tür",
+      "trigger": "Auslöser",
+      "sign": "Schild",
+      "item": "Gegenstand"
+    }
+  },
+  "load": {
+    "areaDataUnreadable": "Area-Data nicht lesbar",
+    "tilesetNotConvertible": "Tileset {{tileset}} nicht konvertierbar",
+    "mapsUntextured": "{{problems}} – Karten untexturiert"
+  },
+  "paint": {
+    "verbs": {
+      "brush": "Gemalt",
+      "rect": "Rechteck gemalt",
+      "fill": "Gefüllt",
+      "erase": "Radiert",
+      "pick": "Aufgenommen",
+      "height": "Höhe geändert",
+      "ramp": "Rampe gesetzt",
+      "terrain": "Gelände gemalt",
+      "cliff": "Klippe gesetzt"
+    },
+    "lowerVerbs": {
+      "terrain": "Gelände entfernt",
+      "cliff": "Klippe gesenkt"
+    },
+    "strokeLabel": "{{verb}}: Karte {{map}} ({{cells}})",
+    "cells_one": "{{count}} Zelle",
+    "cells_other": "{{count}} Zellen",
+    "limitNotice": "{{cells}} schon an der Grenze ({{min}} bis {{max}}).",
+    "nothingToChange": "Nichts zu ändern.",
+    "noEdgeSet": "Erst einen Kantensatz wählen (Inspector › Kantensätze)."
+  },
+  "snapshot": {
+    "noContext": "Kein 2D-Zeichenkontext für das Vorschaubild"
+  },
+  "thumbnails": {
+    "contextLost": "WebGL-Kontext verloren",
+    "contextLostForGood": "WebGL-Kontext {{limit}}-mal verloren, keine Kartenbilder mehr"
+  },
+  "scene": {
+    "eventsLocked": "Events {{locked}}",
+    "eventsNotLoaded": "Events nicht geladen: {{error}}",
+    "tileNamesNotLoaded": "Kachelnamen nicht geladen: {{error}}",
+    "mapProblem": "Karte {{id}}: {{error}}",
+    "mapModel": "Map {{id}}",
+    "buildingModel": "Gebäudemodell {{id}}",
+    "modelsProgress": "Modelle {{done}}/{{total}}",
+    "mapsNotLoaded_one": "{{count}} Karte(n) nicht geladen: {{first}}",
+    "mapsNotLoaded_other": "{{count}} Karte(n) nicht geladen: {{first}}",
+    "modelsNotLoaded_one": "{{count}} Modell(e) nicht geladen: {{first}}",
+    "modelsNotLoaded_other": "{{count}} Modell(e) nicht geladen: {{first}}",
+    "loadingMaps": "Lade Karten ..."
+  }
+}

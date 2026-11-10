@@ -5,11 +5,11 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recipePlan, storyGet } from "../../api";
 import type { ProjectInfo, StoryDto } from "../../api";
-import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
+import { notATextProject } from "../../flags/flagWords";
 import { storyDto, storyRow } from "../storiesTesting";
 import { StepRecipes } from "./StepRecipes";
 import { StoryRecipeDialog } from "./StoryRecipeDialog";
-import { NEEDS_VAR } from "./storyRecipeModel";
+import { needsVar } from "./storyRecipeModel";
 import type { StoryRecipeRequest } from "./storyRecipeModel";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), storyGet: vi.fn(), recipePlan: vi.fn(), getEvents: vi.fn() }));
@@ -84,9 +84,9 @@ describe("StepRecipes", () => {
   it("a_flag_story_and_a_dspre_folder_lock_the_recipes_with_the_reason", async () => {
     await act(async () => root.render(<Harness story={storyDto(1, { progress_number: 0x94 }, { progress: { flag: "FLAG_HAT_MEDAILLE" } })} textProject />));
     expect(recipe("talk_advances")!.disabled).toBe(true);
-    expect(reasonOf(recipe("reward_once"))).toBe(NEEDS_VAR);
+    expect(reasonOf(recipe("reward_once"))).toBe(needsVar());
     await act(async () => root.render(<Harness story={storyDto(1)} textProject={false} />));
     expect(recipe("scene_on_enter")!.disabled).toBe(true);
-    expect(reasonOf(recipe("scene_on_enter"))).toBe(NOT_A_TEXT_PROJECT);
+    expect(reasonOf(recipe("scene_on_enter"))).toBe(notATextProject());
   });
 });

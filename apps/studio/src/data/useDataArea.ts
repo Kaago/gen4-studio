@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Context } from "react";
+import { useTranslation } from "react-i18next";
 import type { AssetId, DataRowDto, HeaderSummary, ItemEntryDto, NameTablesDto, ProjectInfo } from "../api";
 import type { EditBus } from "../bus/editBus";
 import { useShell } from "../ui/frame/ShellContext";
@@ -11,7 +12,7 @@ import type { Crumb } from "../workbench/breadcrumb";
 import type { DataNav, NavTarget } from "../workbench/navigation";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { WizardRequest } from "../workbench/WorkbenchContext";
-import { NO_FILTER, SELECT_KEY, SUB_KIND, SUB_LABEL, SUB_LOCKED, SUB_SHORTCUT, areaOfSub, filterRows, isSubLocked, itemPocket, pocketLabel, rowLabel } from "./dataModel";
+import { NO_FILTER, SELECT_KEY, SUB_KIND, SUB_LOCKED, SUB_SHORTCUT, areaOfSub, filterRows, isSubLocked, itemPocket, pocketLabel, rowLabel, subLabel } from "./dataModel";
 import type { DataArea, DataSub, ListFilter, ListKind } from "./dataModel";
 import { useDataSnapshot } from "./dataStore";
 import type { DataSnapshot, DataStore } from "./dataStore";
@@ -186,15 +187,17 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
     if (active && project !== null && kind !== null) store.need(project, kind);
   }, [active, project, kind, store]);
 
+  // The names the model builds (row labels, parts, pockets) are in the language shown: they are built again when it changes.
+  const language = useTranslation("data").i18n.language;
   const hasTable = data.itemTable !== null && data.itemTable !== undefined;
   const rows = (kind === null ? undefined : data.rows[kind]) ?? NO_ROWS;
   // An encounter file is named by the places of its headers: only that list reads them (a new header table relabels nothing else).
   const placeHeaders = kind === "encounter" ? headers : NO_HEADERS;
-  const labels = useMemo(() => (kind === null ? [] : rows.map((row) => rowLabel(kind, row, hasTable, placeHeaders))), [kind, rows, hasTable, placeHeaders]);
+  const labels = useMemo(() => (kind === null ? [] : rows.map((row) => rowLabel(kind, row, hasTable, placeHeaders))), [kind, rows, hasTable, placeHeaders, language]);
   const labelByIndex = useMemo(() => new Map(rows.map((row, i) => [row.index, labels[i] ?? ""])), [rows, labels]);
   const labelOf = useCallback(
     (row: DataRowDto) => labelByIndex.get(row.index) ?? (kind === null ? row.name : rowLabel(kind, row, hasTable, placeHeaders)),
-    [labelByIndex, kind, hasTable, placeHeaders],
+    [labelByIndex, kind, hasTable, placeHeaders, language],
   );
   const shown = useMemo(() => (kind === null ? NO_ROWS : filterRows(kind, rows, labels, search.query, search.filter)), [kind, rows, labels, search]);
   const row = useMemo(() => (selected === null ? null : (rows.find((r) => r.index === selected) ?? null)), [rows, selected]);
@@ -227,11 +230,11 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       area === "gegenstaende"
         ? null
         : {
-            items: POKEMON_SUBS.map((p) => ({ id: p, label: SUB_LABEL[p], count: counts[p], shortcut: SUB_SHORTCUT[p], disabled: isSubLocked(p), hint: SUB_LOCKED[p] })),
+            items: POKEMON_SUBS.map((p) => ({ id: p, label: subLabel(p), count: counts[p], shortcut: SUB_SHORTCUT[p], disabled: isSubLocked(p), hint: SUB_LOCKED[p] })),
             value: sub,
             onChange: (id: string) => setSub(id as PokemonSub),
           },
-    [area, counts, sub, setSub],
+    [area, counts, sub, setSub, language],
   );
 
   // The breadcrumb: the area, the part (its switcher) or the selected item's pocket, and the selection.
@@ -244,7 +247,7 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
     const pocketCrumb =
       selection === null || pocket === null ? null : { label: pocketLabel(pocket), onClick: () => setSearch("items", () => ({ query: "", filter: { ...NO_FILTER, pocket } })) };
     return dataCrumbs({ area: "gegenstaende", pocket: pocketCrumb, selection, goTo });
-  }, [row, labelOf, sub, switcher, pocket, goTo, setSearch]);
+  }, [row, labelOf, sub, switcher, pocket, goTo, setSearch, language]);
   useEffect(() => onTrail?.(crumbs), [crumbs, onTrail]);
 
   const error = kind === null ? null : (data.errors[kind] ?? data.errors.names ?? (kind === "item" ? data.errors.itemTable : undefined) ?? null);

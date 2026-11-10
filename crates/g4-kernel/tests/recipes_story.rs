@@ -32,7 +32,7 @@ use std::time::Instant;
 
 use g4_formats::game::Family;
 use g4_kernel::base::BaseRom;
-use g4_kernel::data::trainer_create::ADOPT_FIRST;
+use g4_kernel::data::trainer_create::adopt_first;
 use g4_kernel::dialog::{Dialog, DialogKind, DialogSource, dialog_of};
 use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag, taken_text};
@@ -182,20 +182,20 @@ fn list_names_the_story_recipes_before_the_painted_map() {
     assert_eq!(list[12].id, RecipeId::NewPaintedMap);
     let shown: Vec<(RecipeId, &str, bool)> = list[7..12]
         .iter()
-        .map(|r| (r.id, r.title, r.irreversible))
+        .map(|r| (r.id, r.title.as_str(), r.irreversible))
         .collect();
     assert_eq!(
         shown,
         [
-            (RecipeId::NewStory, "Neue Geschichte", false),
-            (RecipeId::TalkAdvances, "Gespräch schaltet weiter", false),
+            (RecipeId::NewStory, "New story", false),
+            (RecipeId::TalkAdvances, "Conversation advances", false),
             (
                 RecipeId::FigureAppears,
-                "Figur erscheint/verschwindet ab Schritt",
+                "Character appears/disappears from step",
                 false
             ),
-            (RecipeId::SceneOnEnter, "Szene beim Betreten", false),
-            (RecipeId::RewardOnce, "Belohnung einmalig", false),
+            (RecipeId::SceneOnEnter, "Scene on entering", false),
+            (RecipeId::RewardOnce, "One-time reward", false),
         ]
     );
     assert_eq!(
@@ -219,13 +219,13 @@ fn list_names_the_story_recipes_before_the_painted_map() {
         match id {
             RecipeId::FigureAppears => {
                 assert!(refused(recipes::is_irreversible(&call)).starts_with(
-                    "Die Eingabe für „Figur erscheint/verschwindet ab Schritt“ passt nicht"
+                    "The input for “Character appears/disappears from step” does not fit"
                 ),)
             }
             RecipeId::SceneOnEnter => {
                 assert!(
                     refused(recipes::is_irreversible(&call))
-                        .starts_with("Die Eingabe für „Szene beim Betreten“ passt nicht"),
+                        .starts_with("The input for “Scene on entering” does not fit"),
                 )
             }
             _ => assert_eq!(recipes::is_irreversible(&call).unwrap(), None, "{id:?}"),
@@ -239,8 +239,8 @@ fn list_names_the_story_recipes_before_the_painted_map() {
         }),
     };
     assert_eq!(
-        recipes::is_irreversible(&visibility).unwrap(),
-        Some("Level-Script-Datei anlegen")
+        recipes::is_irreversible(&visibility).unwrap().as_deref(),
+        Some("Create level script file")
     );
     let scene = RecipeCall {
         recipe: RecipeId::SceneOnEnter,
@@ -249,20 +249,20 @@ fn list_names_the_story_recipes_before_the_painted_map() {
         }),
     };
     assert_eq!(
-        recipes::is_irreversible(&scene).unwrap(),
-        Some("Level-Script-Datei anlegen")
+        recipes::is_irreversible(&scene).unwrap().as_deref(),
+        Some("Create level script file")
     );
 }
 
 #[test]
 fn next_steps_after_3d7_free_story_join_and_say_later() {
     let steps = next_steps(&[
-        ("story_join", "Zu einer Geschichte"),
-        ("talk_advances", "Gespräch schaltet weiter"),
-        ("figure_appears", "Figur erscheint ab Schritt"),
-        ("play_here", "Hier spielen"),
-        ("adjust_terrain", "Gelände anpassen"),
-        ("nonsense", "Unsinn"),
+        "story_join",
+        "talk_advances",
+        "figure_appears",
+        "play_here",
+        "adjust_terrain",
+        "nonsense",
     ]);
     let short: BTreeMap<&str, (bool, Option<&str>)> = steps
         .iter()
@@ -271,9 +271,9 @@ fn next_steps_after_3d7_free_story_join_and_say_later() {
     assert_eq!(short["story_join"], (true, None));
     assert_eq!(short["talk_advances"], (true, None));
     assert_eq!(short["figure_appears"], (true, None));
-    assert_eq!(short["play_here"], (false, Some("Kommt mit 3d.9")));
+    assert_eq!(short["play_here"], (false, Some("Coming with 3d.9")));
     assert_eq!(short["adjust_terrain"], (true, None));
-    assert_eq!(short["nonsense"], (false, Some("Kommt später")));
+    assert_eq!(short["nonsense"], (false, Some("Coming later")));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -290,8 +290,8 @@ fn plan_of_a_new_story_writes_nothing_and_names_var_and_step() {
         draft,
         Draft {
             notes: vec![
-                "Legt Geschichte „Testfaden“ mit dem Schritt „Anfang“ an.".to_owned(),
-                "Benennt Variable 0x4030 als VAR_STORY_TESTFADEN.".to_owned(),
+                "Creates story “Testfaden” with the step “Start”.".to_owned(),
+                "Names variable 0x4030 as VAR_STORY_TESTFADEN.".to_owned(),
             ],
             ..Draft::default()
         }
@@ -357,7 +357,7 @@ fn apply_of_a_new_story_names_the_var_and_is_one_undo_step() {
         json(&store, "data/vars/16432.json"),
         serde_json::json!({
             "id": "VAR_STORY_TESTFADEN",
-            "description": "Fortschritt der Geschichte „Testfaden“",
+            "description": "Progress of the story “Testfaden”",
         })
     );
     // The story keeps its progress in it and starts with „Anfang“.
@@ -375,7 +375,7 @@ fn apply_of_a_new_story_names_the_var_and_is_one_undo_step() {
                 recipe: "new_story".to_owned(),
                 studio: env!("CARGO_PKG_VERSION").to_owned(),
             }),
-            ..step("s0", 0, StepKind::Start, "Anfang")
+            ..step("s0", 0, StepKind::Start, "Start")
         }]
     );
     assert_eq!(
@@ -387,7 +387,7 @@ fn apply_of_a_new_story_names_the_var_and_is_one_undo_step() {
     assert_eq!(store.undo_depth(), mark + 1);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Geschichte „Testfaden“ angelegt")
+        Some("Story “Testfaden” created")
     );
     let after = state(&store);
     store.undo().unwrap();
@@ -414,11 +414,11 @@ fn a_var_outside_the_pool_or_with_a_name_is_refused() {
     for (var, why) in [
         (
             0x8001,
-            "Variable 0x8001 liegt nicht im Spielstand.".to_owned(),
+            "Variable 0x8001 is not in the save game.".to_owned(),
         ),
         (
             0x4000,
-            "Variable 0x4000 liegt nicht im allgemeinen Bereich.".to_owned(),
+            "Variable 0x4000 is not in the general area.".to_owned(),
         ),
         (
             0x4031,
@@ -442,7 +442,7 @@ fn a_var_outside_the_pool_or_with_a_name_is_refused() {
             &mut store,
             &new_story_input("  ", POOL_VAR)
         )),
-        "Die Geschichte braucht einen Namen."
+        "The story needs a name."
     );
     assert_eq!(state(&store), before);
     assert_eq!(store.undo_depth(), mark);
@@ -456,7 +456,7 @@ fn a_second_story_with_the_same_name_gets_var_story_x_2() {
     let input = new_story_input("Testfaden", POOL_VAR + 1);
     assert_eq!(
         new_story::plan(&mut store, &input).unwrap().notes[1],
-        "Benennt Variable 0x4031 als VAR_STORY_TESTFADEN_2."
+        "Names variable 0x4031 as VAR_STORY_TESTFADEN_2."
     );
     let second = new_story::apply(&mut store, &input).unwrap();
     assert_eq!(second.report.var_id, "VAR_STORY_TESTFADEN_2");
@@ -511,7 +511,7 @@ fn append_step_refuses_a_duplicate_key_and_adds_new_flags_once() {
             step("s2", 2, StepKind::Dialog, "Gespräch"),
             &[],
         )),
-        "Unbekannte ID: STORY_GIBTS_NICHT."
+        "Unknown ID: STORY_GIBTS_NICHT."
     );
     assert_eq!(state(&store), before);
     assert_eq!(store.undo_depth(), mark);
@@ -624,8 +624,8 @@ fn plan_of_a_talk_writes_nothing_and_names_slot_message_and_value() {
                 text: "Hallo!".to_owned(),
             }],
             notes: vec![
-                "Figur 5 bekommt den Zweig „ab Schritt 0“ und schaltet auf 1.".to_owned(),
-                format!("Script #3 in Scriptdatei 0, Nachricht {messages} in Archiv {ARCHIVE}."),
+                "Character 5 gets the branch “from step 0” and advances to 1.".to_owned(),
+                format!("Script #3 in script file 0, message {messages} in archive {ARCHIVE}."),
             ],
             ..Draft::default()
         }
@@ -740,7 +740,7 @@ fn apply_of_a_talk_wraps_the_old_script_and_is_one_undo_step() {
                 },
                 Use::Var("VAR_STORY_TESTFADEN".to_owned()),
             ],
-            ..step("s1", 1, StepKind::Dialog, "Gespräch mit Figur 5")
+            ..step("s1", 1, StepKind::Dialog, "Talk with character 5")
         }
     );
 
@@ -748,7 +748,7 @@ fn apply_of_a_talk_wraps_the_old_script_and_is_one_undo_step() {
     assert_eq!(store.undo_depth(), mark + 1);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Gespräch von Figur 5 schaltet „Testfaden“ auf 1")
+        Some("Talk with character 5 advances “Testfaden” to 1")
     );
     let after = state(&store);
     store.undo().unwrap();
@@ -937,7 +937,7 @@ fn a_taken_value_is_refused_before_writing() {
     talk_advances::apply(&mut store, &talk(5, 0, "Erste")).unwrap();
     let before = state(&store);
     let mark = store.undo_depth();
-    let why = "Schritt 1 gibt es schon: „Gespräch mit Figur 5“.";
+    let why = "Step 1 already exists: “Talk with character 5”.";
     assert_eq!(
         refused(talk_advances::plan(&mut store, &talk(7, 0, "Zweite"))),
         why
@@ -976,32 +976,28 @@ fn a_trainer_a_common_script_and_a_missing_step_are_refused() {
     for (input, why) in [
         (
             talk(8, 0, "Kampf!"),
-            "Trainer sprechen über ihre Kampftexte (Bereich Pokémon).".to_owned(),
+            "Trainers speak through their battle texts (Pokémon area).".to_owned(),
         ),
         (
             talk(9, 0, "Gemeinsam"),
-            "Figur 9 spricht über das gemeinsame Script 2000; das Rezept braucht ein eigenes \
-             Script."
+            "Character 9 speaks through the common script 2000; the recipe needs a script of its own."
                 .to_owned(),
         ),
         (
             talk(5, 4, "Später"),
-            "Schritt 4 gibt es in „Testfaden“ nicht.".to_owned(),
+            "Step 4 does not exist in “Testfaden”.".to_owned(),
         ),
         (
             talk(12, 0, "Niemand"),
-            "Auf Header 0 gibt es keine Figur 12.".to_owned(),
+            "Header 0 has no character 12.".to_owned(),
         ),
-        (
-            talk(5, 0, "  \n"),
-            "Das Gespräch braucht einen Text.".to_owned(),
-        ),
+        (talk(5, 0, "  \n"), "The talk needs a text.".to_owned()),
         (
             TalkAdvancesInput {
                 story: "STORY_GIBTS_NICHT".to_owned(),
                 ..talk(5, 0, "x")
             },
-            "Unbekannte ID: STORY_GIBTS_NICHT.".to_owned(),
+            "Unknown ID: STORY_GIBTS_NICHT.".to_owned(),
         ),
     ] {
         assert_eq!(
@@ -1026,7 +1022,7 @@ fn a_talk_needs_adopted_scripts() {
     let mark = store.undo_depth();
     assert_eq!(
         refused(talk_advances::plan(&mut store, &talk(5, 0, "x"))),
-        ADOPT_FIRST
+        adopt_first()
     );
     assert_eq!(store.undo_depth(), mark);
 }
@@ -1090,9 +1086,9 @@ fn apply_of_a_reward_names_the_flag_wraps_the_script_and_lists_the_flag_in_the_s
                 text: "Ein Geschenk!".to_owned(),
             }],
             notes: vec![
-                format!("Figur 5 gibt ab Schritt 0 einmal Gegenstand {ITEM}."),
-                format!("Benennt Flag 0x0100 als {flag_id}."),
-                format!("Script #3 in Scriptdatei 0, Nachricht {messages} in Archiv {ARCHIVE}."),
+                format!("Character 5 gives item {ITEM} once from step 0."),
+                format!("Names flag 0x0100 as {flag_id}."),
+                format!("Script #3 in script file 0, message {messages} in archive {ARCHIVE}."),
             ],
             ..Draft::default()
         }
@@ -1135,7 +1131,7 @@ fn apply_of_a_reward_names_the_flag_wraps_the_script_and_lists_the_flag_in_the_s
         json(&store, "data/flags/0256.json"),
         serde_json::json!({
             "id": flag_id,
-            "description": "Belohnung von Figur 5 in „Testfaden“",
+            "description": "Reward from character 5 in “Testfaden”",
         })
     );
     // The object points at the hull: from step 0 on and while the flag is clear it gives the
@@ -1181,7 +1177,7 @@ fn apply_of_a_reward_names_the_flag_wraps_the_script_and_lists_the_flag_in_the_s
                 },
                 Use::Flag(flag_id.to_owned()),
             ],
-            ..step("r256", 0, StepKind::Reward, "Belohnung von Figur 5")
+            ..step("r256", 0, StepKind::Reward, "Reward from character 5")
         }
     );
     assert_eq!(story.flags, [flag_id]);
@@ -1194,7 +1190,7 @@ fn apply_of_a_reward_names_the_flag_wraps_the_script_and_lists_the_flag_in_the_s
     assert_eq!(store.undo_depth(), mark + 1);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Belohnung von Figur 5 in „Testfaden“")
+        Some("Reward from character 5 in “Testfaden”")
     );
     let after = state(&store);
     store.undo().unwrap();
@@ -1361,41 +1357,34 @@ fn a_used_flag_number_a_bad_item_and_a_trainer_are_refused() {
         ),
         (
             with(&|i| i.flag = 0x0010),
-            "Flag 0x0010 liegt nicht im allgemeinen Bereich.".to_owned(),
+            "Flag 0x0010 is not in the general area.".to_owned(),
         ),
         (
             with(&|i| i.flag = 0x0B60),
-            "Flag 0x0B60 liegt nicht im Spielstand.".to_owned(),
+            "Flag 0x0B60 is not in the save game.".to_owned(),
         ),
-        (
-            with(&|i| i.item = 0),
-            "Gegenstand 0 gibt es nicht.".to_owned(),
-        ),
+        (with(&|i| i.item = 0), "Item 0 does not exist.".to_owned()),
         (
             with(&|i| i.item = items),
-            format!("Gegenstand {items} gibt es nicht."),
+            format!("Item {items} does not exist."),
         ),
         (
             reward(8, 0, "Kampf!"),
-            "Trainer sprechen über ihre Kampftexte (Bereich Pokémon).".to_owned(),
+            "Trainers speak through their battle texts (Pokémon area).".to_owned(),
         ),
         (
             reward(9, 0, "Gemeinsam"),
-            "Figur 9 spricht über das gemeinsame Script 2000; das Rezept braucht ein eigenes \
-             Script."
+            "Character 9 speaks through the common script 2000; the recipe needs a script of its own."
                 .to_owned(),
         ),
         (
             reward(5, 3, "Später"),
-            "Schritt 3 gibt es in „Testfaden“ nicht.".to_owned(),
+            "Step 3 does not exist in “Testfaden”.".to_owned(),
         ),
-        (
-            reward(5, 0, "  \n"),
-            "Die Belohnung braucht einen Text.".to_owned(),
-        ),
+        (reward(5, 0, "  \n"), "The reward needs a text.".to_owned()),
         (
             with(&|i| i.story = "STORY_GIBTS_NICHT".to_owned()),
-            "Unbekannte ID: STORY_GIBTS_NICHT.".to_owned(),
+            "Unknown ID: STORY_GIBTS_NICHT.".to_owned(),
         ),
     ] {
         assert_eq!(
@@ -1761,10 +1750,8 @@ fn apply_of_an_appearance_sets_hidden_flag_names_the_flag_and_adds_the_block() {
         draft,
         Draft {
             notes: vec![
-                format!(
-                    "Figur 4 bekommt das Sichtbarkeits-Flag {FLAG_4} und erscheint ab Schritt 1."
-                ),
-                "Block sichtbarkeit_0_0 in Scriptdatei 0.".to_owned(),
+                format!("Character 4 gets the visibility flag {FLAG_4} and appears from step 1."),
+                "Block sichtbarkeit_0_0 in script file 0.".to_owned(),
             ],
             ..Draft::default()
         }
@@ -1775,8 +1762,8 @@ fn apply_of_an_appearance_sets_hidden_flag_names_the_flag_and_adds_the_block() {
     );
     // Without the project it may create a level script file.
     assert_eq!(
-        recipes::is_irreversible(&call).unwrap(),
-        Some(recipes::LEVEL_SCRIPT_FILE)
+        recipes::is_irreversible(&call).unwrap().as_deref(),
+        Some(recipes::level_script_file().as_str())
     );
     assert_eq!(appear_state(&store), before);
     assert_eq!(store.undo_depth(), mark);
@@ -1819,7 +1806,7 @@ fn apply_of_an_appearance_sets_hidden_flag_names_the_flag_and_adds_the_block() {
         json(&store, "data/flags/0256.json"),
         serde_json::json!({
             "id": FLAG_4,
-            "description": "Sichtbarkeit von Figur 4 in „Testfaden“",
+            "description": "Visibility of character 4 in “Testfaden”",
         })
     );
     // The block is appended; without an on_transition entry before it ends.
@@ -1862,7 +1849,7 @@ fn apply_of_an_appearance_sets_hidden_flag_names_the_flag_and_adds_the_block() {
                 "a256",
                 1,
                 StepKind::Appearance,
-                "Figur 4 erscheint ab Schritt 1"
+                "Character 4 appears from step 1"
             )
         }
     );
@@ -1876,7 +1863,7 @@ fn apply_of_an_appearance_sets_hidden_flag_names_the_flag_and_adds_the_block() {
     assert_eq!(store.undo_depth(), mark + 1);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Figur 4 erscheint ab Schritt 1 in „Testfaden“")
+        Some("Character 4 appears from step 1 in “Testfaden”")
     );
     let after = appear_state(&store);
     store.undo().unwrap();
@@ -1941,10 +1928,8 @@ fn a_second_rule_grows_the_block_and_undo_removes_it() {
     assert_eq!(
         draft.notes,
         [
-            format!(
-                "Figur 7 bekommt das Sichtbarkeits-Flag {flag_7} und verschwindet ab Schritt 1."
-            ),
-            "Block sichtbarkeit_0_0 in Scriptdatei 0.".to_owned(),
+            format!("Character 7 gets the visibility flag {flag_7} and vanishes from step 1."),
+            "Block sichtbarkeit_0_0 in script file 0.".to_owned(),
         ]
     );
     assert!(draft.irreversible.is_empty());
@@ -1996,7 +1981,7 @@ fn a_second_rule_grows_the_block_and_undo_removes_it() {
     assert_eq!(store.undo_depth(), mark + 2);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Figur 7 verschwindet ab Schritt 1 in „Testfaden“")
+        Some("Character 7 vanishes from step 1 in “Testfaden”")
     );
 
     // Undo takes back only the second rule, its flag's name and its step.
@@ -2036,13 +2021,13 @@ fn vanish_swaps_set_and_clear() {
     assert_eq!(story.steps[2].name, "Figur 4 geht");
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Figur 4 verschwindet ab Schritt 1 in „Testfaden“")
+        Some("Character 4 vanishes from step 1 in “Testfaden”")
     );
     // Without a step name: „… verschwindet ab Schritt …“.
     let (_fx, mut store) = appear_fixture();
     figure_appears::apply(&mut store, &appear(4, 0, false, POOL_FLAG)).unwrap();
     let story = read_story(store.project(), 0).unwrap().unwrap();
-    assert_eq!(story.steps[2].name, "Figur 4 verschwindet ab Schritt 0");
+    assert_eq!(story.steps[2].name, "Character 4 vanishes from step 0");
 }
 
 #[test]
@@ -2067,7 +2052,7 @@ fn a_figure_with_a_flag_and_a_common_transition_script_are_refused() {
         );
         assert_eq!(
             refuse(&mut store, &appear(4, 1, true, POOL_FLAG)),
-            "Das Übergangs-Script des Orts ist kein eigener Slot."
+            "The transition script of the place is not a slot of its own."
         );
     }
     set_level(&store, LEVEL, entries(serde_json::json!([])));
@@ -2093,16 +2078,16 @@ fn a_figure_with_a_flag_and_a_common_transition_script_are_refused() {
         .unwrap();
     assert_eq!(
         refuse(&mut store, &appear(4, 1, true, POOL_FLAG)),
-        "Figur 4 hat schon das Sichtbarkeits-Flag FLAG_GESEHEN."
+        "Character 4 already has the visibility flag FLAG_GESEHEN."
     );
     // A missing step, a missing figure, a flag with a name, a taken key.
     assert_eq!(
         refuse(&mut store, &appear(7, 4, true, POOL_FLAG)),
-        "Schritt 4 gibt es in „Testfaden“ nicht."
+        "Step 4 does not exist in “Testfaden”."
     );
     assert_eq!(
         refuse(&mut store, &appear(42, 1, true, POOL_FLAG)),
-        "Auf Header 0 gibt es keine Figur 42."
+        "Header 0 has no character 42."
     );
     assert!(refuse(&mut store, &appear(7, 1, true, POOL_FLAG_2)).contains("FLAG_GESEHEN"));
     append_step(
@@ -2136,11 +2121,13 @@ fn a_shared_level_script_is_copied_for_this_header() {
     let draft = recipes::plan(&mut store, &call).unwrap();
     assert_eq!(
         draft.irreversible,
-        [format!("Level-Script-Datei {n} wird angelegt und bleibt")]
+        [format!("Level script file {n} is created and stays")]
     );
     assert_eq!(
-        recipes::is_irreversible_in(&mut store, &call).unwrap(),
-        Some("Level-Script-Datei anlegen")
+        recipes::is_irreversible_in(&mut store, &call)
+            .unwrap()
+            .as_deref(),
+        Some("Create level script file")
     );
 
     let mark = store.undo_depth();
@@ -2257,9 +2244,7 @@ fn assert_kept_level_script<T: std::fmt::Debug>(
 ) {
     match result {
         Err(KernelError::Partial(m)) => assert!(
-            m.ends_with(&format!(
-                ". Level-Script-Datei {n} wurde angelegt und bleibt."
-            )),
+            m.ends_with(&format!(". Level script file {n} was created and stays.")),
             "{m}"
         ),
         other => panic!("{other:?}"),
@@ -2296,7 +2281,7 @@ fn a_failed_scene_names_the_level_script_file_it_created() {
     let (_fx, mut store) = talk_fixture();
     // Header 1 (level script 0) takes header 0's text archive, as in the scene tests.
     store
-        .transaction("Textarchiv", |tx| {
+        .transaction("Text archive", |tx| {
             tx.edit_header(1, |h| {
                 match h {
                     MapHeader::DP(h) => h.text_archive_id = ARCHIVE,
@@ -2336,16 +2321,14 @@ fn a_binary_level_script_is_replaced_without_its_entries_and_says_so() {
     assert_eq!(
         draft.irreversible,
         [format!(
-            "Level-Script-Datei {n} wird angelegt und bleibt; die Einträge der binären \
-             Level-Script-Datei {LEVEL} werden nicht übernommen"
+            "Level script file {n} is created and stays; the entries of the binary level script file {LEVEL} are not carried over"
         )]
     );
     let draft = scene_on_enter::plan(&mut store, &scene(0, 1, SCENE_TEXT)).unwrap();
     assert_eq!(
         draft.irreversible,
         [format!(
-            "Level-Script-Datei {n} wird angelegt und bleibt; die Einträge der binären \
-             Level-Script-Datei {LEVEL} werden nicht übernommen"
+            "Level script file {n} is created and stays; the entries of the binary level script file {LEVEL} are not carried over"
         )]
     );
 }
@@ -2462,8 +2445,7 @@ fn apply_of_a_scene_adds_a_condition_and_a_script_and_a_step() {
                 text: SCENE_TEXT.to_owned(),
             }],
             notes: vec![
-                "Beim Betreten von Header 0 mit Schritt 0 läuft die Szene und schaltet auf 1."
-                    .to_owned()
+                "On entering Header 0 at step 0 the scene plays and advances to 1.".to_owned()
             ],
             ..Draft::default()
         }
@@ -2473,8 +2455,8 @@ fn apply_of_a_scene_adds_a_condition_and_a_script_and_a_step() {
         None
     );
     assert_eq!(
-        recipes::is_irreversible(&call).unwrap(),
-        Some(recipes::LEVEL_SCRIPT_FILE)
+        recipes::is_irreversible(&call).unwrap().as_deref(),
+        Some(recipes::level_script_file().as_str())
     );
     assert_eq!(appear_state(&store), before);
     assert_eq!(store.undo_depth(), mark);
@@ -2552,14 +2534,14 @@ fn apply_of_a_scene_adds_a_condition_and_a_script_and_a_step() {
                 Use::Map(map_id(&store, 0).unwrap()),
                 Use::Var("VAR_STORY_TESTFADEN".to_owned()),
             ],
-            ..step("s1", 1, StepKind::Dialog, "Szene beim Betreten")
+            ..step("s1", 1, StepKind::Dialog, "Scene on entering")
         }
     );
     assert!(story.flags.is_empty());
     assert_eq!(store.undo_depth(), mark + 1);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Szene beim Betreten von Header 0 in „Testfaden“")
+        Some("Scene on entering Header 0 in “Testfaden”")
     );
 }
 
@@ -2581,11 +2563,13 @@ fn a_scene_on_a_shared_level_script_copies_it() {
     let draft = recipes::plan(&mut store, &call).unwrap();
     assert_eq!(
         draft.irreversible,
-        [format!("Level-Script-Datei {n} wird angelegt und bleibt")]
+        [format!("Level script file {n} is created and stays")]
     );
     assert_eq!(
-        recipes::is_irreversible_in(&mut store, &call).unwrap(),
-        Some("Level-Script-Datei anlegen")
+        recipes::is_irreversible_in(&mut store, &call)
+            .unwrap()
+            .as_deref(),
+        Some("Create level script file")
     );
 
     let mark = store.undo_depth();
@@ -2639,7 +2623,7 @@ fn a_scene_on_a_shared_level_script_copies_it() {
     let (_fx, mut store) = talk_fixture();
     assert_eq!(store.header_table().unwrap()[1].level_script_id(), 0);
     store
-        .transaction("Textarchiv", |tx| {
+        .transaction("Text archive", |tx| {
             tx.edit_header(1, |h| {
                 match h {
                     MapHeader::DP(h) => h.text_archive_id = ARCHIVE,
@@ -2654,7 +2638,7 @@ fn a_scene_on_a_shared_level_script_copies_it() {
     let draft = scene_on_enter::plan(&mut store, &scene(1, 0, SCENE_TEXT)).unwrap();
     assert_eq!(
         draft.irreversible,
-        [format!("Level-Script-Datei {n} wird angelegt und bleibt")]
+        [format!("Level script file {n} is created and stays")]
     );
     let outcome = scene_on_enter::apply(&mut store, &scene(1, 0, SCENE_TEXT)).unwrap();
     assert_eq!(
@@ -2702,7 +2686,7 @@ fn a_second_scene_for_the_same_step_and_a_taken_value_are_refused() {
     );
     assert_eq!(
         refuse(&mut store, &scene(0, 0, SCENE_TEXT)),
-        "Der Ort hat schon eine Szene für Schritt 0."
+        "The place already has a scene for step 0."
     );
     // A condition for another value or another variable is no obstacle.
     set_level(
@@ -2718,11 +2702,11 @@ fn a_second_scene_for_the_same_step_and_a_taken_value_are_refused() {
     // A missing step, an empty text, a missing header.
     assert_eq!(
         refuse(&mut store, &scene(0, 4, SCENE_TEXT)),
-        "Schritt 4 gibt es in „Testfaden“ nicht."
+        "Step 4 does not exist in “Testfaden”."
     );
     assert_eq!(
         refuse(&mut store, &scene(0, 0, "  ")),
-        "Die Szene braucht einen Text."
+        "The scene needs a text."
     );
     assert!(refuse(&mut store, &scene(9999, 0, SCENE_TEXT)).contains("9999"));
 
@@ -2730,14 +2714,14 @@ fn a_second_scene_for_the_same_step_and_a_taken_value_are_refused() {
     scene_on_enter::apply(&mut store, &scene(0, 0, SCENE_TEXT)).unwrap();
     assert_eq!(
         refuse(&mut store, &scene(0, 0, "Noch einmal")),
-        "Schritt 1 gibt es schon: „Szene beim Betreten“."
+        "Step 1 already exists: “Scene on entering”."
     );
     // A value a talk takes already.
     let (_fx, mut store) = talk_fixture();
     talk_advances::apply(&mut store, &talk(5, 0, "Hallo!")).unwrap();
     assert_eq!(
         refuse(&mut store, &scene(0, 0, SCENE_TEXT)),
-        "Schritt 1 gibt es schon: „Gespräch mit Figur 5“."
+        "Step 1 already exists: “Talk with character 5”."
     );
 }
 

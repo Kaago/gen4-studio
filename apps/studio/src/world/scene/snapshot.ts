@@ -4,6 +4,8 @@
  * as PNG would block the window and could pass the kernel's 32 MiB.
  */
 
+import { t } from "../../i18n";
+
 /** The size of the picture taken from the 3D view: 4 : 3 like the preview, twice its 256 × 192 (the kernel fits it). */
 export const SNAPSHOT_W = 512;
 export const SNAPSHOT_H = 384;
@@ -27,7 +29,7 @@ export function snapshot(source: HTMLCanvasElement, width = SNAPSHOT_W, height =
   out.width = width;
   out.height = height;
   const ctx = out.getContext("2d");
-  if (!ctx) throw new Error("Kein 2D-Zeichenkontext für das Vorschaubild");
+  if (!ctx) throw new Error(t("world:snapshot.noContext"));
   const { sx, sy, sw, sh } = coverRect(source.width, source.height, width, height);
   ctx.drawImage(source, sx, sy, sw, sh, 0, 0, width, height);
   return out.toDataURL("image/png");

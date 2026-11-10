@@ -24,7 +24,7 @@ const overlay = (id: string, content: string) => `<div class="dv-render-overlay"
 /** The frame of the shell: title, atlas, the world (shown) and the texts (hidden), each with list and deck, and the status line. */
 const FRAME = `
   <header><button>Projekt öffnen</button></header>
-  <nav aria-label="Bereiche"><button data-area="start">Start</button><button data-area="welt" aria-current="page">Welt</button></nav>
+  <nav aria-label="Bereiche" data-atlas=""><button data-area="start">Start</button><button data-area="welt" aria-current="page">Welt</button></nav>
   <div data-area="welt" data-part="list">
     <div>
       <section aria-label="Welt" id="welt-list">
@@ -36,7 +36,7 @@ const FRAME = `
     </div>
   </div>
   <main data-area="welt" data-part="deck">
-    <div role="toolbar" aria-label="Scharnier" id="hinge"><button id="crumb">Zweiblattdorf</button></div>
+    <div role="toolbar" aria-label="Scharnier" data-hinge="" id="hinge"><button id="crumb">Zweiblattdorf</button></div>
     <div id="dock-welt" data-dock="welt">
       <div class="dv-grid-view">
         ${group("1", ["world", "matrix"], 'data-dock-group-kind="schau"')}
@@ -53,7 +53,7 @@ const FRAME = `
   </main>
   <div data-area="texte" data-part="list" hidden><div><section aria-label="Texte"><button>Archiv</button></section></div></div>
   <main data-area="texte" data-part="deck" hidden>
-    <div role="toolbar" aria-label="Scharnier"><button>Texte</button></div>
+    <div role="toolbar" aria-label="Scharnier" data-hinge=""><button>Texte</button></div>
     <div id="dock-texte" data-dock="texte">${group("5", ["textView"])}${overlay("textView", "<button>Weiter</button>")}</div>
   </main>
   <footer><div data-status-line=""><span>Bereit</span><button id="density">Komfort</button></div></footer>
@@ -98,6 +98,16 @@ describe("useF6Ring", () => {
 
   it("f6Targets_lists_atlas_list_hinge_groups_status_in_order", () => {
     expect(f6Targets(document, "welt")).toEqual([$("nav"), $("#welt-list"), $("#hinge"), groupEl("1"), groupEl("2"), groupEl("3"), groupEl("4"), $("footer")]);
+  });
+
+  it("finds_the_atlas_and_the_hinge_whatever_language_their_labels_speak", () => {
+    // Atlas and hinge are found by `data-atlas` and `data-hinge`, not by their (translated) `aria-label`.
+    $("nav").setAttribute("aria-label", "Areas");
+    $("#hinge").setAttribute("aria-label", "Hinge");
+    expect(f6Targets(document, "welt").slice(0, 3)).toEqual([$("nav"), $("#welt-list"), $("#hinge")]);
+    $("#row").focus();
+    f6();
+    expect(focused()).toBe($("#crumb"));
   });
 
   it("stops_at_the_wizard_strip_before_the_status_line_while_it_shows", () => {

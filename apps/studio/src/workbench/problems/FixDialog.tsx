@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, isCmdError } from "../../api";
 import type { CheckProblemDto, FixPlanDto } from "../../api";
 import { findingLabel, findingText } from "../../checks/messages";
 import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
 import { Badge, BeforeAfter, Dialog, Notice } from "../../ui/primitives";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import type { DialogAction } from "../../ui/primitives";
 import styles from "./FixDialog.module.css";
 
@@ -24,7 +26,7 @@ const UNSAVED_ARCHIVE = /^text archive (\d+) has unsaved changes/;
 
 /** The kernel's stand-in for the time a moved file's backup folder gets (UTC, taken when it moves), in the dialog's words. */
 const BACKUP_TIME = "<time>";
-const backupPath = (to: string) => to.replace(BACKUP_TIME, "<UTC-Zeitpunkt>");
+const backupPath = (to: string) => to.replace(BACKUP_TIME, translate("workbench:fixDialog.backupTime"));
 
 /**
  * A refusal: „Befund ist nicht mehr aktuell“ for a finding whose subject changed since it was found; „Erst speichern“ with „Speichern und
@@ -36,7 +38,7 @@ function failure(e: unknown, plan: FixPlanDto | null): Phase {
   const why = errorText(e);
   const unsaved = UNSAVED_ARCHIVE.exec(why);
   if (unsaved && plan !== null) return { kind: "unsaved", archive: Number(unsaved[1]), plan };
-  return { kind: "failed", title: "Lässt sich nicht automatisch beheben", text: `Das Studio kann diesen Befund nicht beheben (${why.replace(/[.!?]$/, "")}). Behebe ihn von Hand.`, plan };
+  return { kind: "failed", title: translate("workbench:fixDialog.failedTitle"), text: translate("workbench:fixDialog.failedText", { why: why.replace(/[.!?]$/, "") }), plan };
 }
 
 /**
@@ -46,6 +48,7 @@ function failure(e: unknown, plan: FixPlanDto | null): Phase {
  * check still reports it, and says „Befund ist nicht mehr aktuell“ (and offers to check again) when its subject changed meanwhile.
  */
 export function FixDialog({ finding, checks, depth, onClose }: { finding: CheckProblemDto; checks: ChecksApi; depth: Depth; onClose: () => void }) {
+  const { t } = useTranslation("workbench");
   const fix = finding.fixes[0];
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   // Set once the dialog is left (a button, Escape, or its owner took it away): a save under way does not go on to the fix then.
@@ -95,28 +98,28 @@ export function FixDialog({ finding, checks, depth, onClose }: { finding: CheckP
     await apply(plan);
   };
 
-  const close: DialogAction = { label: "Schließen", onClick: leave };
+  const close: DialogAction = { label: t("fixDialog.close"), onClick: leave };
   const actions: DialogAction[] =
     phase.kind === "ready"
-      ? [{ label: "Abbrechen", onClick: leave }, { label: fix.label, kind: "primary", onClick: () => void apply(phase.plan) }]
+      ? [{ label: t("fixDialog.cancel"), onClick: leave }, { label: fix.label, kind: "primary", onClick: () => void apply(phase.plan) }]
       : phase.kind === "stale"
-        ? [close, { label: "Erneut prüfen", kind: "primary", onClick: () => (void checks.recheck(), leave()) }]
+        ? [close, { label: t("fixDialog.recheck"), kind: "primary", onClick: () => (void checks.recheck(), leave()) }]
         : phase.kind === "unsaved"
-          ? [close, { label: "Speichern und anlegen", kind: "primary", onClick: () => void saveAndApply(phase.plan) }]
+          ? [close, { label: t("fixDialog.saveAndCreate"), kind: "primary", onClick: () => void saveAndApply(phase.plan) }]
           : phase.kind === "loading" || phase.kind === "applying"
-            ? [{ label: "Abbrechen", onClick: leave }]
+            ? [{ label: t("fixDialog.cancel"), onClick: leave }]
             : [close];
   const plan = "plan" in phase ? phase.plan : null;
 
   return (
     <Dialog open onOpenChange={(open) => !open && leave()} title={findingLabel(finding, depth)} description={findingText(finding, depth)} actions={actions}>
       <div className={styles.body} data-fix={fix.id}>
-        {phase.kind === "loading" && <p role="status">Lade Vorschau …</p>}
+        {phase.kind === "loading" && <p role="status">{t("fixDialog.loading")}</p>}
         {plan !== null && (
           <>
             {plan.irreversible && (
               <p className={styles.irreversible}>
-                <Badge kind="irreversible" /> Wird sofort geschrieben, ⌘Z nimmt es nicht zurück.
+                <Badge kind="irreversible" /> {t("fixDialog.irreversible")}
               </p>
             )}
             {plan.changes.map((change) => (
@@ -131,20 +134,20 @@ export function FixDialog({ finding, checks, depth, onClose }: { finding: CheckP
             )}
           </>
         )}
-        {phase.kind === "applying" && <p role="status">Behebe …</p>}
+        {phase.kind === "applying" && <p role="status">{t("fixDialog.applying")}</p>}
         {phase.kind === "remaining" && (
-          <Notice kind="warning" title="Nicht behoben">
-            Die Änderung ist geschrieben, aber die Prüfung meldet den Befund noch. Sieh dir die Stelle an und behebe ihn von Hand.
+          <Notice kind="warning" title={t("fixDialog.remainingTitle")}>
+            {t("fixDialog.remainingText")}
           </Notice>
         )}
         {phase.kind === "stale" && (
-          <Notice kind="error" title="Befund ist nicht mehr aktuell">
-            Die Stelle hat sich seit der Prüfung geändert, es wurde nichts geschrieben. Prüfe erneut und behebe den Befund dann.
+          <Notice kind="error" title={t("fixDialog.staleTitle")}>
+            {t("fixDialog.staleText")}
           </Notice>
         )}
         {phase.kind === "unsaved" && (
-          <Notice kind="error" title="Erst speichern">
-            {`${TERMS.textArchive.label} ${id4(phase.archive)} hat ungespeicherte Änderungen. Das Script wird kompiliert, und das schreibt Textarchive: „Speichern und anlegen“ speichert das Projekt und legt das Script dann an.`}
+          <Notice kind="error" title={t("fixDialog.unsavedTitle")}>
+            {t("fixDialog.unsavedText", { archive: `${termLabel("textArchive")} ${id4(phase.archive)}` })}
           </Notice>
         )}
         {phase.kind === "failed" && (

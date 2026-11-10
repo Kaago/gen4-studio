@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { invoke } from "../platform/transport";
 import type { AssetId, AssetKind } from "../api";
 import type { WorldBakeReport } from "../api.world";
@@ -23,22 +24,44 @@ export type RecipeId =
   | "reward_once"
   | "new_painted_map";
 
-/** The title of each recipe (the kernel's `RecipeId::title`), in the order of `RecipeId::all()`; what `recipeList` names without asking. */
-export const RECIPE_TITLES: Readonly<Record<RecipeId, string>> = {
-  create_area: "Gebiet anlegen",
-  create_room: "Raum anlegen",
-  extend_area: "Gebiet erweitern",
-  empty_region: "Welt leeren",
-  new_figure: "Neue Figur",
-  connect_doors: "Tür verbinden",
-  new_trainer_here: "Neuer Trainer hier",
-  new_story: "Neue Geschichte",
-  talk_advances: "Gespräch schaltet weiter",
-  figure_appears: "Figur erscheint/verschwindet ab Schritt",
-  scene_on_enter: "Szene beim Betreten",
-  reward_once: "Belohnung einmalig",
-  new_painted_map: "Neue Karte malen",
-};
+/** Every recipe, in the order of `RecipeId::all()`. */
+export const RECIPE_IDS: readonly RecipeId[] = [
+  "create_area",
+  "create_room",
+  "extend_area",
+  "empty_region",
+  "new_figure",
+  "connect_doors",
+  "new_trainer_here",
+  "new_story",
+  "talk_advances",
+  "figure_appears",
+  "scene_on_enter",
+  "reward_once",
+  "new_painted_map",
+];
+
+/** The catalog key (`recipes:titles.<key>`) of each recipe's title. */
+const TITLE_KEYS = {
+  create_area: "createArea",
+  create_room: "createRoom",
+  extend_area: "extendArea",
+  empty_region: "emptyRegion",
+  new_figure: "newFigure",
+  connect_doors: "connectDoors",
+  new_trainer_here: "newTrainerHere",
+  new_story: "newStory",
+  talk_advances: "talkAdvances",
+  figure_appears: "figureAppears",
+  scene_on_enter: "sceneOnEnter",
+  reward_once: "rewardOnce",
+  new_painted_map: "newPaintedMap",
+} as const satisfies Record<RecipeId, string>;
+
+/** The title of a recipe in the app's language (the kernel's `RecipeId::title` says it in German); what `recipeList` names without asking. */
+export function recipeTitleOf(id: RecipeId): string {
+  return t(`recipes:titles.${TITLE_KEYS[id]}`);
+}
 
 /** A recipe as `recipeList` names it: `irreversible` when applying it always does something undo does not take back. */
 export interface RecipeInfo {

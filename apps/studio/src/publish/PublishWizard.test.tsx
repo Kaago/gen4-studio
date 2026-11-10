@@ -8,7 +8,7 @@ import { openPath } from "../platform/dialogs";
 import { PublishWizard } from "./PublishWizard";
 import type { PublishWizardProps } from "./PublishWizard";
 import { publishReportOf, releaseOf, releasesOf } from "./publishTesting";
-import { BAD_FILE, BAD_VERSION, NO_ROM_CONTENT, VERSION_TAKEN } from "./publishWords";
+import { badFile, badVersion, noRomContent, versionTaken } from "./publishWords";
 
 vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../platform/dialogs")>()), openPath: vi.fn() }));
 
@@ -95,13 +95,13 @@ describe("PublishWizard", () => {
   it("a_taken_or_unsafe_version_locks_weiter_with_the_reason", async () => {
     await show();
     await type(field("Version"), "0.1.0");
-    expect(fieldError("Version")).toBe(VERSION_TAKEN);
+    expect(fieldError("Version")).toBe(versionTaken());
     expect(button("Weiter")?.disabled).toBe(true);
     await type(field("Version"), "0.2 beta");
-    expect(fieldError("Version")).toBe(BAD_VERSION);
+    expect(fieldError("Version")).toBe(badVersion());
     expect(button("Weiter")?.disabled).toBe(true);
     await type(field("Version"), "1/0");
-    expect(fieldError("Version")).toBe(BAD_VERSION);
+    expect(fieldError("Version")).toBe(badVersion());
     // Enter does not move on either.
     await act(async () => void field("Dateiname").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     expect(step()).toBe("version");
@@ -110,7 +110,7 @@ describe("PublishWizard", () => {
     expect(button("Weiter")?.disabled).toBe(false);
     // A file name a file cannot have locks too.
     await type(field("Dateiname"), "a:b");
-    expect(fieldError("Dateiname")).toBe(BAD_FILE);
+    expect(fieldError("Dateiname")).toBe(badFile());
     expect(button("Weiter")?.disabled).toBe(true);
     expect(onPublish).not.toHaveBeenCalled();
   });
@@ -207,12 +207,12 @@ describe("PublishWizard", () => {
     expect(container.querySelector("[data-publish-overwrite]")).toBeNull();
 
     // A version the backend refuses (published meanwhile) goes back to „Version“ with the sentence at the field.
-    onPublish.mockReset().mockRejectedValueOnce({ code: "version_taken", message: VERSION_TAKEN, asset: null });
+    onPublish.mockReset().mockRejectedValueOnce({ code: "version_taken", message: versionTaken(), asset: null });
     await act(async () => root.render(null));
     await show();
     await publish();
     expect(step()).toBe("version");
-    expect(fieldError("Version")).toBe(VERSION_TAKEN);
+    expect(fieldError("Version")).toBe(versionTaken());
     expect(button("Weiter")?.disabled).toBe(true);
     await type(field("Version"), "0.1.2");
     expect(fieldError("Version")).toBeNull();
@@ -252,7 +252,7 @@ describe("PublishWizard", () => {
       ["Sinnoh-Remix-v0.1.1.xdelta.txt", "600 Byte"],
       ["README.txt", "122 Byte"],
     ]);
-    expect(preview.textContent).toContain(NO_ROM_CONTENT);
+    expect(preview.textContent).toContain(noRomContent());
     expect(button("Fertig")).toBeDefined();
     expect(button("Weiter")).toBeUndefined();
     // The release is written: no way back to the steps that made it, and leaving says „Schließen“ (and that it published).

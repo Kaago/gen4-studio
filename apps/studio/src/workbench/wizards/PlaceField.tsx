@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { HeaderSummary, MatrixSummary } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
@@ -16,23 +17,24 @@ const MATRIX_LAST_TILE = 255 * 32 - 1;
  * The place a recipe of Erzählen works in: its name as a chip of the world (Tüfteln adds the number), „Ort wählen…“ and the picker of
  * every place. `data-figure-place` carries the chosen header (empty without one).
  */
-export function PlaceField({ headers, value, onChange, depth, title = "Ort wählen" }: { headers: HeaderSummary[]; value: number | null; onChange: (header: number) => void; depth: Depth; title?: string }) {
+export function PlaceField({ headers, value, onChange, depth, title }: { headers: HeaderSummary[]; value: number | null; onChange: (header: number) => void; depth: Depth; title?: string }) {
+  const { t } = useTranslation("workbench");
   const [picking, setPicking] = useState(false);
   const chosen = value === null ? null : (headers.find((h) => h.id === value) ?? null);
   return (
     <div className={parts.group} data-figure-place={value ?? ""}>
-      <span className={parts.label}>Ort</span>
+      <span className={parts.label}>{t("placeField.place")}</span>
       {chosen ? (
         <div className={parts.chip}>
           <Reference area="welt" label={headerLabel(chosen)} tech={depthAtLeast(depth, "tuefteln") ? id4(chosen.id) : undefined} onOpen={() => setPicking(true)} />
         </div>
       ) : (
-        <p className={parts.note}>Noch kein Ort gewählt.</p>
+        <p className={parts.note}>{t("placeField.none")}</p>
       )}
       <Button kind="secondary" size="s" icon="search" onClick={() => setPicking(true)}>
-        Ort wählen…
+        {t("placeField.chooseButton")}
       </Button>
-      <HeaderPicker open={picking} onOpenChange={setPicking} headers={headers} onPick={onChange} title={title} />
+      <HeaderPicker open={picking} onOpenChange={setPicking} headers={headers} onPick={onChange} title={title ?? t("placeField.choose")} />
     </div>
   );
 }
@@ -45,15 +47,16 @@ export function placeTiles(header: HeaderSummary | null, matrices: readonly Matr
 
 /** „Kachel x“ and „Kachel z“: a tile of the place's matrix, absolute; empty until one is typed or came from the scene. */
 export function TileFields({ x, z, size, onChange }: { x: number | null; z: number | null; size: { x: number; z: number } | null; onChange: (tile: { x?: number; z?: number }) => void }) {
+  const { t } = useTranslation("workbench");
   const maxX = size ? size.x - 1 : MATRIX_LAST_TILE;
   const maxZ = size ? size.z - 1 : MATRIX_LAST_TILE;
   return (
     <>
       <div className={parts.field}>
-        <NumberField label="Kachel x" showLabel min={0} max={maxX} value={x} hint={`0 bis ${maxX}`} onCommit={(n) => onChange({ x: n })} />
+        <NumberField label={t("placeField.tileX")} showLabel min={0} max={maxX} value={x} hint={t("inspectorField.range", { max: maxX })} onCommit={(n) => onChange({ x: n })} />
       </div>
       <div className={parts.field}>
-        <NumberField label="Kachel z" showLabel min={0} max={maxZ} value={z} hint={`0 bis ${maxZ}`} onCommit={(n) => onChange({ z: n })} />
+        <NumberField label={t("placeField.tileZ")} showLabel min={0} max={maxZ} value={z} hint={t("inspectorField.range", { max: maxZ })} onCommit={(n) => onChange({ z: n })} />
       </div>
     </>
   );

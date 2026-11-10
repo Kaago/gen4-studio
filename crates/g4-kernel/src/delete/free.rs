@@ -21,22 +21,21 @@ use crate::text;
 use crate::textproject::Art;
 use crate::textproject::step::forget_seen;
 
-/// Why undo stops at „Nummer freigegeben“.
-pub const IRREVERSIBLE: &str = "Nummer freigeben lässt sich nicht rückgängig machen";
+/// Why undo stops at „Number freed“.
+pub fn irreversible() -> String {
+    t!("delete.irreversible").into_owned()
+}
 
 /// The note of a „Nummer freigeben“ whose build step could not forget the freed files
 /// ([`forget_seen`] failed): the number is free, but a file that comes back may be taken for a
 /// changed one.
 pub(super) fn forget_failed(e: &KernelError) -> String {
-    format!(
-        "Der Build-Schritt „textproject“ hat die freigegebenen Dateien nicht vergessen ({e}); \
-         kommt eine zurück, kann er sie für geändert halten."
-    )
+    t!("delete.forget_failed", error = e).into_owned()
 }
 
 /// Why a kind without a number of its own is not freed (flags, variables, places).
 fn nothing_to_free(label: &str) -> String {
-    format!("{label} hat keine Nummer, die sich freigeben lässt.")
+    t!("delete.nothing_to_free", label = label).into_owned()
 }
 
 /// Whether „Nummer freigeben“ of `target` would go, changing nothing: the plan
@@ -69,10 +68,7 @@ pub fn check_free(
             .is_none_or(|source| !freed.contains(&source))
     });
     if !references.is_empty() {
-        return Err(KernelError::Referenced {
-            label: plan.label,
-            references,
-        });
+        return Err(KernelError::referenced(plan.label, references));
     }
     Ok((plan, info))
 }
@@ -98,7 +94,7 @@ fn freed_targets(target: DeleteTarget, info: &FreeInfo) -> Vec<DeleteTarget> {
 /// the base's, [`free_offsets`]); the store forgets the entities (histories, its own tombstone
 /// flags), the sync forgets their files, the build step `textproject` what it saw of them and
 /// of the shrunk `trtblofs` or `mapname.bin` ([`forget_seen`]), and the barrier „Nummer
-/// freigegeben: {label}“ ([`IRREVERSIBLE`]) is recorded. The reference index drops their
+/// freigegeben: {label}“ ([`irreversible`]) is recorded. The reference index drops their
 /// sources at its next refresh.
 pub fn free_number(
     store: &mut Store,
@@ -169,7 +165,7 @@ pub fn free_number(
         .into_iter()
         .collect();
     let label = plan.label;
-    let step = format!("Nummer freigegeben: {label}");
+    let step = t!("delete.freed_label", label = &label).into_owned();
     // Trainers: the name bank and `trtblofs` hold one entry per trainer; they lose the freed
     // ones, so the next trainer created gets the number again ([`free_offsets`]).
     let names_bank = match target {
@@ -179,7 +175,7 @@ pub fn free_number(
         _ => None,
     };
     let keep = usize::from(first);
-    let shortened = store.barrier_transaction(&step, IRREVERSIBLE, |tx| {
+    let shortened = store.barrier_transaction(&step, &irreversible(), |tx| {
         if let Some(bank) = names_bank {
             tx.edit_text_archive(bank, |doc| doc.messages.truncate(keep))?;
             tx.edit_trainer_text_offsets(0, |o| {
@@ -192,11 +188,10 @@ pub fn free_number(
         Ok(((), change)) => change,
         Err(e) => {
             // The files are gone: the barrier stands in any case.
-            store.barrier_transaction(&step, IRREVERSIBLE, |_| Ok(()))?;
-            return Err(KernelError::Partial(format!(
-                "{label}: die Nummer ist freigegeben, aber Trainernamen und Kampftext-Offsets \
-                 sind nicht gekürzt ({e})"
-            )));
+            store.barrier_transaction(&step, &irreversible(), |_| Ok(()))?;
+            return Err(KernelError::Partial(
+                t!("delete.freed_partial", label = label, error = e).into_owned(),
+            ));
         }
     };
     // The index reads the sources the store reported changed (a removed one has none); a
@@ -258,10 +253,7 @@ mod tests {
     #[test]
     fn a_failed_forget_is_a_note_of_the_result() {
         let note = forget_failed(&KernelError::Refused("kaputt".to_owned()));
-        assert!(
-            note.starts_with("Der Build-Schritt „textproject“"),
-            "{note}"
-        );
+        assert!(note.starts_with("The build step “textproject”"), "{note}");
         assert!(note.contains("kaputt"), "{note}");
         let result = |notes: Vec<String>| DeleteResult {
             change: None,

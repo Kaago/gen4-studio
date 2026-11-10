@@ -23,6 +23,10 @@ use g4_kernel::project::AssetKind;
 use g4_kernel::scripts::LevelScriptDoc;
 use g4_kernel::store::MapHeader;
 
+/// The name of a field of a data kind in the language of the process (the undo labels of
+/// `data_edit` use it), for callers other than the webview, and the tests of the catalogs.
+pub use crate::commands::data::labels::field_label;
+
 /// What a command answers: JSON, or raw bytes for the GLB and icon commands.
 #[derive(Debug)]
 pub enum Reply {
@@ -251,6 +255,8 @@ pub const COMMANDS: &[&str] = &[
     "world_inspect_tmj",
     "world_import_tmj",
     "world_layers",
+    "set_locale",
+    "system_language",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -278,7 +284,7 @@ fn preview_root(policy: &dyn Policy, path: &str) -> Result<Option<std::path::Pat
     if full.exists() {
         return policy.check_project(path).map(Some);
     }
-    let outside = || CmdError::from(format!("Pfad liegt außerhalb der erlaubten Ordner: {path}"));
+    let outside = || super::policy::outside(path);
     let mut existing = full;
     loop {
         if !matches!(
@@ -338,7 +344,7 @@ pub fn check_assign_base(
 fn path_text(path: &std::path::Path) -> Result<String, CmdError> {
     path.to_str()
         .map(str::to_owned)
-        .ok_or_else(|| CmdError::from(format!("Pfad ist kein gültiger Text: {}", path.display())))
+        .ok_or_else(|| super::path_not_text(path.display()))
 }
 
 fn parse<T: DeserializeOwned>(name: &str, args: Value) -> Result<T, DispatchError> {
@@ -348,8 +354,17 @@ fn parse<T: DeserializeOwned>(name: &str, args: Value) -> Result<T, DispatchErro
     } else {
         args
     };
-    serde_json::from_value(args)
-        .map_err(|e| CmdError::from(format!("Ungültige Argumente für {name}: {e}")).into())
+    serde_json::from_value(args).map_err(|e| {
+        CmdError::from(
+            t!(
+                "commands.dispatch.invalid_arguments",
+                name = name,
+                error = e
+            )
+            .into_owned(),
+        )
+        .into()
+    })
 }
 
 fn json<T: Serialize>(result: Result<T, CmdError>) -> Result<Reply, DispatchError> {
@@ -389,7 +404,7 @@ pub fn dispatch(
             let project = policy.check_project(&a.path)?;
             let project = project
                 .to_str()
-                .ok_or_else(|| CmdError::from(format!("Pfad ist kein gültiger Text: {}", a.path)))?;
+                .ok_or_else(|| super::path_not_text(&a.path))?;
             open_project_impl(state, project)
         }),
         "list_headers" => run!(json, "list_headers", args, {}, |_a| list_headers_impl(
@@ -571,7 +586,7 @@ pub fn dispatch(
         "lsp_start" => run!(json, "lsp_start", args, {}, |_a| {
             Err::<(), _>(CmdError {
                 code: "tool_missing",
-                message: crate::lsp::MISSING.to_owned(),
+                message: crate::lsp::missing(),
                 asset: None,
                 problems: Vec::new(),
                 references: Vec::new(),
@@ -579,7 +594,7 @@ pub fn dispatch(
         }),
         "lsp_send" => run!(json, "lsp_send", args, { body: String }, |a| {
             let _ = a.body;
-            Err::<(), _>(CmdError::from("rotom-lsp läuft nicht"))
+            Err::<(), _>(CmdError::from(t!("lsp.not_running").into_owned()))
         }),
         "lsp_stop" => run!(json, "lsp_stop", args, {}, |_a| Ok::<(), CmdError>(())),
         "add_event" => run!(
@@ -624,7 +639,7 @@ pub fn dispatch(
             let out = policy.check_output(&a.out)?;
             let out = out
                 .to_str()
-                .ok_or_else(|| CmdError::from(format!("Pfad ist kein gültiger Text: {}", a.out)))?;
+                .ok_or_else(|| super::path_not_text(&a.out))?;
             build_rom_impl(state, out, a.fresh.unwrap_or(false))
         }),
         "run_rom" => run!(
@@ -633,9 +648,9 @@ pub fn dispatch(
             |a| {
                 let (emulator, rom) = policy.check_run(&a.emulator, &a.rom)?;
                 let text = |path: &std::path::Path| {
-                    path.to_str().map(str::to_owned).ok_or_else(|| {
-                        CmdError::from(format!("Pfad ist kein gültiger Text: {}", path.display()))
-                    })
+                    path.to_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| super::path_not_text(path.display()))
                 };
                 run_rom_impl(&text(&emulator)?, &text(&rom)?)
             }
@@ -903,7 +918,9 @@ pub fn dispatch(
             |a| {
                 let root = match a.path {
                     Some(p) => Some(preview_root(policy, &p)?.ok_or_else(|| {
-                        CmdError::from(format!("Kein Projektordner: {p}"))
+                        CmdError::from(
+                            t!("commands.dispatch.no_project_folder", path = p).into_owned(),
+                        )
                     })?),
                     None => None,
                 };
@@ -1177,9 +1194,9 @@ pub fn dispatch(
             |a| {
                 let (emulator, rom) = policy.check_run(&a.emulator, &a.rom)?;
                 let text = |path: &std::path::Path| {
-                    path.to_str().map(str::to_owned).ok_or_else(|| {
-                        CmdError::from(format!("Pfad ist kein gültiger Text: {}", path.display()))
-                    })
+                    path.to_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| super::path_not_text(path.display()))
                 };
                 live_play_impl(state, &text(&emulator)?, &text(&rom)?)
             }
@@ -1370,6 +1387,13 @@ pub fn dispatch(
             { req: g4_kernel::world::WorldLayersRequest },
             |a| world_layers_impl(state, a.req)
         ),
+        "set_locale" => run!(json, "set_locale", args, { lang: String }, |a| {
+            set_locale_impl(&a.lang);
+            Ok(())
+        }),
+        "system_language" => run!(json, "system_language", args, {}, |_a| Ok(
+            system_language_impl()
+        )),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1897,6 +1921,10 @@ mod tests {
                 "world_layers",
                 json!({ "req": { "map": 0, "op": { "add": { "name": "Brücke" } } } }),
             ),
+            // `en` is the default: the lib tests share the process, none may switch to German.
+            ("set_locale", json!({ "lang": "en" })),
+            // Reads the OS locale, changes nothing.
+            ("system_language", json!({})),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -1911,7 +1939,7 @@ mod tests {
                 Ok(_) => {}
                 Err(DispatchError::Unknown(n)) => panic!("{name}: the table does not know {n}"),
                 Err(DispatchError::Cmd(e)) => assert!(
-                    !e.message.starts_with("Ungültige Argumente"),
+                    !e.message.starts_with("Invalid arguments"),
                     "{name}: {}",
                     e.message
                 ),
@@ -1933,7 +1961,7 @@ mod tests {
                 other => panic!("{key}: {:?}", other.map(|_| ())),
             };
             assert_eq!(
-                message, "Flag 0x0094 hat keine Nummer, die sich freigeben lässt.",
+                message, "Flag 0x0094 has no number that can be freed.",
                 "{key}"
             );
         }
@@ -2006,11 +2034,7 @@ mod tests {
             json!({ "recipe": "empty_region" }),
         ) {
             Err(DispatchError::Cmd(e)) => {
-                assert!(
-                    !e.message.starts_with("Ungültige Argumente"),
-                    "{}",
-                    e.message
-                )
+                assert!(!e.message.starts_with("Invalid arguments"), "{}", e.message)
             }
             Ok(_) => {}
             Err(other) => panic!("{other:?}"),
@@ -2055,7 +2079,7 @@ mod tests {
         ) {
             Err(DispatchError::Cmd(e)) => assert_eq!(
                 e.message,
-                g4_kernel::textproject::rename::NOT_A_TEXT_PROJECT
+                g4_kernel::textproject::rename::not_a_text_project()
             ),
             other => panic!("{other:?}"),
         }
@@ -2077,7 +2101,7 @@ mod tests {
         let policy = UserPolicy::new(&root, &[], None).unwrap();
         let outside = |name: &str, args: Value| match dispatch(&state, &policy, name, args) {
             Err(DispatchError::Cmd(e)) => assert!(
-                e.message.starts_with("Pfad liegt außerhalb"),
+                e.message.starts_with("Path is outside the allowed folders"),
                 "{name}: {}",
                 e.message
             ),
@@ -2148,7 +2172,7 @@ mod tests {
         let args = json!({ "version": "0.1.0", "dir": elsewhere.path().to_str().unwrap() });
         match dispatch(&state, &policy, "publish_patch", args) {
             Err(DispatchError::Cmd(e)) => assert!(
-                e.message.starts_with("Pfad liegt außerhalb"),
+                e.message.starts_with("Path is outside the allowed folders"),
                 "{}",
                 e.message
             ),
@@ -2170,7 +2194,8 @@ mod tests {
             let args = json!({ "version": "0.1.0", "dir": dir.to_str().unwrap() });
             match dispatch(&state, &policy, "publish_patch", args) {
                 Err(DispatchError::Cmd(e)) => assert!(
-                    e.code == "error" && e.message.starts_with("Pfad liegt außerhalb"),
+                    e.code == "error"
+                        && e.message.starts_with("Path is outside the allowed folders"),
                     "{dir:?}: {}: {}",
                     e.code,
                     e.message
@@ -2204,7 +2229,10 @@ mod tests {
         let policy = policy_over(&fixture);
         match dispatch(&state, &policy, "create_patch", json!({})) {
             Err(DispatchError::Cmd(e)) => {
-                assert_eq!((e.code, e.message.as_str()), ("base_missing", NO_MARK))
+                assert_eq!(
+                    (e.code, e.message.as_str()),
+                    ("base_missing", no_mark().as_str())
+                )
             }
             other => panic!("{other:?}"),
         }
@@ -2293,7 +2321,7 @@ mod tests {
         });
         // Matrix 0 has no header section yet: refused as the kernel words it.
         match dispatch(&state, &policy, "create_area", json!({ "spec": spec })) {
-            Err(DispatchError::Cmd(e)) => assert!(e.message.contains("keine Weltkarte"), "{e:?}"),
+            Err(DispatchError::Cmd(e)) => assert!(e.message.contains("not a world map"), "{e:?}"),
             Err(e) => panic!("{e:?}"),
             Ok(_) => panic!("a matrix without a header section is no target"),
         }
@@ -2434,7 +2462,7 @@ mod tests {
         assert_eq!(changed, json!([{ "kind": "Personal", "index": 2 }]));
         assert_eq!(
             json_of(call(&state, &policy, "history", json!({})))["undo"],
-            json!(["Ivysaur: Angriff 4 → 85"])
+            json!(["Ivysaur: Attack 4 → 85"])
         );
         // The egg move patch deserializes; the CPUE fixture's table is locked (unverified
         // place), so it is refused as read-only with the reason.
@@ -2447,11 +2475,7 @@ mod tests {
         match egg {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "read_only");
-                assert!(
-                    e.message.contains("für CPUE nicht geprüft"),
-                    "{}",
-                    e.message
-                );
+                assert!(e.message.contains("not checked for CPUE"), "{}", e.message);
             }
             other => panic!("{other:?}"),
         }
@@ -2596,11 +2620,7 @@ mod tests {
         ] {
             match dispatch(&state, &policy, name, args) {
                 Err(DispatchError::Cmd(e)) => {
-                    assert!(
-                        e.message.starts_with("Pfad liegt außerhalb"),
-                        "{}",
-                        e.message
-                    )
+                    assert!(e.message.starts_with("Path is outside"), "{}", e.message)
                 }
                 other => panic!("{name}: {other:?}"),
             }
@@ -2639,7 +2659,7 @@ mod tests {
         ] {
             match dispatch(&state, &policy, name, args) {
                 Err(DispatchError::Cmd(e)) => assert!(
-                    e.message.starts_with("Pfad liegt außerhalb"),
+                    e.message.starts_with("Path is outside"),
                     "{name}: {}",
                     e.message
                 ),
@@ -2690,10 +2710,7 @@ mod tests {
         ) {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "error");
-                assert_eq!(
-                    e.message,
-                    "Im Browser-Modus nicht verfügbar, g4emu benutzen"
-                );
+                assert_eq!(e.message, "Not available in browser mode, use g4emu");
             }
             other => panic!("{other:?}"),
         }
@@ -2720,10 +2737,7 @@ mod tests {
         ) {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "error");
-                assert_eq!(
-                    e.message,
-                    "Im Browser-Modus nicht verfügbar, g4emu benutzen"
-                );
+                assert_eq!(e.message, "Not available in browser mode, use g4emu");
             }
             other => panic!("{other:?}"),
         }
@@ -2746,7 +2760,7 @@ mod tests {
         refused(
             "open_project",
             json!({ "path": outside }),
-            "Nur das offene Projekt: ",
+            "Only the open project: ",
         );
         call(
             &state,
@@ -2760,7 +2774,11 @@ mod tests {
             "out.nds".to_owned(),
             "build/../out.nds".to_owned(),
         ] {
-            refused("build_rom", json!({ "out": out }), "Pfad liegt außerhalb");
+            refused(
+                "build_rom",
+                json!({ "out": out }),
+                "Path is outside the allowed folders",
+            );
         }
         // Map parts: reads from the project, writes under build/.
         let stray = elsewhere.path().join("a.per");
@@ -2769,7 +2787,7 @@ mod tests {
         refused(
             "inspect_map_import",
             json!({ "map": 0, "source": { "files": [stray] } }),
-            "Pfad liegt außerhalb",
+            "Path is outside the allowed folders",
         );
         // A model or an image outside is refused like any part file.
         for name in ["a.obj", "a.png"] {
@@ -2779,13 +2797,13 @@ mod tests {
                 "inspect_map_import",
                 json!({ "map": 0, "source": { "files": [stray.to_str().unwrap()] },
                         "options": { "unit": 16, "colors": 4 } }),
-                "Pfad liegt außerhalb",
+                "Path is outside the allowed folders",
             );
         }
         refused(
             "export_map_part",
             json!({ "map": 0, "part": "permissions", "path": "out.per" }),
-            "Pfad liegt außerhalb",
+            "Path is outside the allowed folders",
         );
         call(
             &state,
@@ -2798,7 +2816,7 @@ mod tests {
         refused(
             "run_rom",
             json!({ "emulator": "", "rom": "build/out.per" }),
-            "Kein Emulator freigegeben",
+            "No emulator approved",
         );
     }
 
@@ -2866,7 +2884,10 @@ mod tests {
         match dispatch(&state, &policy, "lsp_start", json!({})) {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "tool_missing");
-                assert_eq!(e.message, "rotom-lsp fehlt — Completion und Diagnosen aus");
+                assert_eq!(
+                    e.message,
+                    "rotom-lsp is missing — completion and diagnostics are off"
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -2929,7 +2950,7 @@ mod tests {
                     assert_eq!(e.code, "error");
                     assert!(
                         e.message
-                            .starts_with(&format!("Ungültige Argumente für {name}: ")),
+                            .starts_with(&format!("Invalid arguments for {name}: ")),
                         "{}",
                         e.message
                     );
@@ -2998,7 +3019,7 @@ mod tests {
             "inspect_rom",
             json!({ "path": outside.to_str().unwrap() }),
         ) {
-            Err(DispatchError::Cmd(e)) => assert!(e.message.starts_with("Pfad liegt außerhalb")),
+            Err(DispatchError::Cmd(e)) => assert!(e.message.starts_with("Path is outside")),
             other => panic!("{other:?}"),
         }
     }
@@ -3043,11 +3064,11 @@ mod tests {
                 Err(DispatchError::Cmd(e)) => {
                     assert!(
                         e.message
-                            .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                            .starts_with("Originals (_DSPRE_contents) are locked: "),
                         "{name}: {}",
                         e.message
                     );
-                    assert!(e.message.contains("ohne die Endung"), "{}", e.message);
+                    assert!(e.message.contains("without the suffix"), "{}", e.message);
                 }
                 other => panic!("{name}: {other:?}"),
             }
@@ -3440,7 +3461,7 @@ mod tests {
         );
         assert_eq!(
             message,
-            "png und file schließen sich aus; nur eins von beiden angeben"
+            "png and file exclude each other; give only one of them"
         );
         // Text that is no base64 is no picture.
         let message = refused_with(
@@ -3496,7 +3517,7 @@ mod tests {
             "project_preview_set",
             json!({ "file": file.to_str().unwrap() }),
         );
-        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(message.starts_with("Path is outside"), "{message}");
         assert!(!fixture.dir.path().join(".g4").exists());
     }
 
@@ -3528,10 +3549,7 @@ mod tests {
                 ("project_preview_set", json!({ "path": path })),
             ] {
                 let message = refused_with(&state, &roots, name, args);
-                assert!(
-                    message.starts_with("Pfad liegt außerhalb"),
-                    "{name}: {message}"
-                );
+                assert!(message.starts_with("Path is outside"), "{name}: {message}");
             }
         }
         assert!(other.join(".g4/preview.png").is_file());
@@ -3581,7 +3599,7 @@ mod tests {
                 "project_preview_set",
                 json!({ "path": gone.to_str().unwrap(), "png": base64_of(&small_png()) }),
             );
-            assert!(message.starts_with("Kein Projektordner"), "{message}");
+            assert!(message.starts_with("Not a project folder"), "{message}");
         }
         assert!(!fixture.dir.path().join("gruppe").exists());
         assert!(!fixture.dir.path().join("nirgends").exists());
@@ -3625,7 +3643,7 @@ mod tests {
                 json!({ "map": 0, "block": [3, 4], "outDir": out_dir }),
             ) {
                 Err(DispatchError::Cmd(e)) => assert!(
-                    e.message.starts_with("Pfad liegt außerhalb"),
+                    e.message.starts_with("Path is outside the allowed folders"),
                     "{out_dir}: {}",
                     e.message
                 ),

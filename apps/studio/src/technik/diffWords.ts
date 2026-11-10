@@ -1,5 +1,6 @@
 import { tombstoneOf } from "../api";
 import type { Against, ChangedEntry, ChangeState, DeleteTarget, DiffSubject, EntityDiff, EventKind, OriginalStatus } from "../api";
+import { t } from "../i18n";
 import { whyNot } from "../original/resetEntry";
 import type { BadgeKind } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
@@ -8,26 +9,23 @@ import type { NavTarget } from "../workbench/navigation";
 export function sideWords(against: Against): { old: string; new: string } {
   switch (against) {
     case "base":
-      return { old: "Basis", new: "Projekt" };
+      return { old: t("technik:diffWords.side.base"), new: t("technik:diffWords.side.project") };
     case "head":
-      return { old: "Commit", new: "Projekt" };
+      return { old: t("technik:diffWords.side.commit"), new: t("technik:diffWords.side.project") };
     case "saved":
-      return { old: "Gespeichert", new: "Ungespeichert" };
+      return { old: t("technik:diffWords.side.saved"), new: t("technik:diffWords.side.unsaved") };
   }
 }
 
-/** A tombstone (3d.4) is „Gelöscht“ in every comparison. */
-const DELETED = { kind: "error", text: "Gelöscht" } as const;
-
-const BADGES: Record<Exclude<Against, "saved">, Record<ChangeState, { kind: BadgeKind; text: string }>> = {
-  base: { changed: { kind: "warning", text: "Geändert" }, new: { kind: "info", text: "Neu" }, missing: { kind: "error", text: "Fehlt" }, deleted: DELETED },
-  // Missing since the commit: the user deleted it.
-  head: { changed: { kind: "warning", text: "Geändert" }, new: { kind: "info", text: "Neu" }, missing: { kind: "error", text: "Gelöscht" }, deleted: DELETED },
-};
+/** The colour of a row's badge by its state (a tombstone, 3d.4, is „Gelöscht“ in every comparison). */
+const BADGE_KINDS: Record<ChangeState, BadgeKind> = { changed: "warning", new: "info", missing: "error", deleted: "error" };
 
 /** The badge of a row: its state in the words of the comparison; against the saved state every row is „Ungespeichert“. */
 export function stateBadge(against: Against, state: ChangeState): { kind: BadgeKind; text: string } {
-  return against === "saved" ? { kind: "unsaved", text: "Ungespeichert" } : BADGES[against][state];
+  if (against === "saved") return { kind: "unsaved", text: t("technik:diffWords.state.unsaved") };
+  // Missing since the commit: the user deleted it.
+  const word = against === "head" && state === "missing" ? "deleted" : state;
+  return { kind: BADGE_KINDS[state], text: t(`technik:diffWords.state.${word}`) };
 }
 
 /**
@@ -36,8 +34,8 @@ export function stateBadge(against: Against, state: ChangeState): { kind: BadgeK
  * about the base. A deleted original resets like a changed one (the reset takes the tombstone back).
  */
 export function rowResetLock(entry: ChangedEntry, status: OriginalStatus | null): string | null {
-  if (entry.state !== "changed" && entry.state !== "deleted") return "Kein Original";
-  if (entry.target === null) return "Für diese Art gibt es kein Zurücksetzen.";
+  if (entry.state !== "changed" && entry.state !== "deleted") return t("technik:diffWords.noOriginal");
+  if (entry.target === null) return t("technik:diffWords.noReset");
   return whyNot(entry.target, status);
 }
 

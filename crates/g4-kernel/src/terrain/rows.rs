@@ -7,7 +7,7 @@
 //! too (one grammar for both row formats); the steps of a ramp are bounded by
 //! [`HeightGrid::check`] here.
 //!
-//! Refusals are German sentences naming the place ([`KernelError::Refused`]); the shown text
+//! Refusals are sentences in the current language naming the place ([`KernelError::Refused`]); the shown text
 //! goes to the user as it is.
 
 use g4_formats::bdhc::{self, GridProblem, MAX_STEP, MIN_STEP, STEP_UNITS};
@@ -78,20 +78,31 @@ pub fn lex_height(token: &str) -> Option<i64> {
 /// The 32 × 32 cells of `rows`, split at whitespace; refuses another number of rows or cells.
 fn cells<'a>(field: &str, rows: &'a [String]) -> Result<Vec<Vec<&'a str>>, KernelError> {
     if rows.len() != SIDE {
-        return Err(refused(format!(
-            "{field}: {SIDE} Zeilen erwartet, {} da.",
-            rows.len()
-        )));
+        return Err(refused(
+            t!(
+                "terrain.rows_expected",
+                field = field,
+                side = SIDE,
+                count = rows.len()
+            )
+            .into_owned(),
+        ));
     }
     rows.iter()
         .enumerate()
         .map(|(y, row)| {
             let cells: Vec<&str> = row.split_whitespace().collect();
             if cells.len() != SIDE {
-                return Err(refused(format!(
-                    "{field}: Zeile {y} hat {} Zellen statt {SIDE}.",
-                    cells.len()
-                )));
+                return Err(refused(
+                    t!(
+                        "terrain.row_cells",
+                        field = field,
+                        y = y,
+                        count = cells.len(),
+                        side = SIDE
+                    )
+                    .into_owned(),
+                ));
             }
             Ok(cells)
         })
@@ -109,12 +120,15 @@ fn signed(v: i64) -> String {
 
 /// The sentence of a height outside [`MIN_STEP`]`..=`[`MAX_STEP`] (also for values beyond `i8`).
 fn height_text(x: usize, y: usize, height: i64) -> String {
-    format!(
-        "Kachel x {x}, y {y}: Höhe {} liegt außerhalb von {} bis {} Stufen.",
-        signed(height),
-        signed(i64::from(MIN_STEP)),
-        signed(i64::from(MAX_STEP)),
+    t!(
+        "terrain.height_out_of_range",
+        x = x,
+        y = y,
+        height = signed(height),
+        min = signed(i64::from(MIN_STEP)),
+        max = signed(i64::from(MAX_STEP))
     )
+    .into_owned()
 }
 
 /// Parses and checks the grid: 32 rows of 32 cells each in `heights` and `ramps`, integers and
@@ -126,9 +140,7 @@ pub fn parse_grid(rows: &GridRows) -> Result<HeightGrid, KernelError> {
     for (y, row) in heights.iter().enumerate() {
         for (x, cell) in row.iter().enumerate() {
             let height = lex_height(cell).ok_or_else(|| {
-                refused(format!(
-                    "heights: Zeile {y}, Spalte {x}: „{cell}“ ist keine ganze Zahl."
-                ))
+                refused(t!("terrain.not_an_integer", y = y, x = x, cell = cell).into_owned())
             })?;
             grid.height[y * SIDE + x] =
                 i8::try_from(height).map_err(|_| refused(height_text(x, y, height)))?;
@@ -137,9 +149,16 @@ pub fn parse_grid(rows: &GridRows) -> Result<HeightGrid, KernelError> {
     for (y, row) in ramps.iter().enumerate() {
         for (x, cell) in row.iter().enumerate() {
             grid.ramp[y * SIDE + x] = lex_ramp(cell).ok_or_else(|| {
-                refused(format!(
-                    "ramps: Zeile {y}, Spalte {x}: „{cell}“ ist keine Rampe (erlaubt: {RAMP_CODES})."
-                ))
+                refused(
+                    t!(
+                        "terrain.not_a_ramp",
+                        y = y,
+                        x = x,
+                        cell = cell,
+                        allowed = RAMP_CODES
+                    )
+                    .into_owned(),
+                )
             })?;
         }
     }
@@ -165,10 +184,16 @@ pub fn parse_kinds(rows: &[String]) -> Result<[TerrainKind; 1024], KernelError> 
                     .iter()
                     .map(|k| k.code().to_string())
                     .collect();
-                refused(format!(
-                    "kinds: Zeile {y}, Spalte {x}: „{cell}“ ist kein Gelände (erlaubt: {}).",
-                    allowed.join(" ")
-                ))
+                refused(
+                    t!(
+                        "terrain.not_a_kind",
+                        y = y,
+                        x = x,
+                        cell = cell,
+                        allowed = allowed.join(" ")
+                    )
+                    .into_owned(),
+                )
             })?;
         }
     }
@@ -194,25 +219,31 @@ pub fn format_kinds(kinds: &[TerrainKind; 1024]) -> Vec<String> {
     join_rows(kinds.iter().map(|k| k.code().to_string()))
 }
 
-/// The German sentence of a refused grid cell, naming column and row.
+/// The sentence of a refused grid cell in the current language, naming column and row.
 pub fn grid_problem_text(p: GridProblem) -> String {
     match p {
         GridProblem::HeightOutOfRange { x, y, height } => {
             height_text(usize::from(x), usize::from(y), i64::from(height))
         }
-        GridProblem::RampSteps { x, y, steps } => format!(
-            "Kachel x {x}, y {y}: Rampe mit {steps} Stufen je Kachel ({} E); erlaubt sind 1 oder \
-             2 Stufen ({} oder {} E), ab {} E verweigert das Spiel den Schritt.",
-            i32::from(steps) * STEP_UNITS,
-            STEP_UNITS,
-            2 * STEP_UNITS,
-            edge_rule().engine_limit,
-        ),
-        GridProblem::RampTop { x, y, top } => format!(
-            "Kachel x {x}, y {y}: die Rampe endet bei {} Stufen, über {}.",
-            signed(i64::from(top)),
-            MAX_STEP
-        ),
+        GridProblem::RampSteps { x, y, steps } => t!(
+            "terrain.ramp_steps",
+            x = x,
+            y = y,
+            steps = steps,
+            units = i32::from(steps) * STEP_UNITS,
+            one = STEP_UNITS,
+            two = 2 * STEP_UNITS,
+            limit = edge_rule().engine_limit
+        )
+        .into_owned(),
+        GridProblem::RampTop { x, y, top } => t!(
+            "terrain.ramp_top",
+            x = x,
+            y = y,
+            top = signed(i64::from(top)),
+            max = MAX_STEP
+        )
+        .into_owned(),
     }
 }
 
@@ -317,13 +348,13 @@ mod tests {
         short.heights.truncate(30);
         assert_eq!(
             refusal(parse_grid(&short)),
-            "heights: 32 Zeilen erwartet, 30 da."
+            "heights: 32 rows expected, 30 found."
         );
         let mut narrow = grid_rows();
         narrow.heights[4] = vec!["0"; 31].join(" ");
         assert_eq!(
             refusal(parse_grid(&narrow)),
-            "heights: Zeile 4 hat 31 Zellen statt 32."
+            "heights: row 4 has 31 cells instead of 32."
         );
         let not_a_number = GridRows {
             heights: with_cell(rows_of("0"), 7, 4, "x"),
@@ -331,19 +362,19 @@ mod tests {
         };
         assert_eq!(
             refusal(parse_grid(&not_a_number)),
-            "heights: Zeile 4, Spalte 7: „x“ ist keine ganze Zahl."
+            "heights: row 4, column 7: “x” is not a whole number."
         );
         let mut wide = grid_rows();
         wide.ramps[2] = vec!["."; 33].join(" ");
         assert_eq!(
             refusal(parse_grid(&wide)),
-            "ramps: Zeile 2 hat 33 Zellen statt 32."
+            "ramps: row 2 has 33 cells instead of 32."
         );
         let mut few_ramps = grid_rows();
         few_ramps.ramps.truncate(31);
         assert_eq!(
             refusal(parse_grid(&few_ramps)),
-            "ramps: 32 Zeilen erwartet, 31 da."
+            "ramps: 32 rows expected, 31 found."
         );
         let not_a_ramp = GridRows {
             heights: rows_of("0"),
@@ -351,7 +382,7 @@ mod tests {
         };
         assert_eq!(
             refusal(parse_grid(&not_a_ramp)),
-            "ramps: Zeile 2, Spalte 5: „q1“ ist keine Rampe (erlaubt: . n1 n2 e1 e2 s1 s2 w1 w2)."
+            "ramps: row 2, column 5: “q1” is not a ramp (allowed: . n1 n2 e1 e2 s1 s2 w1 w2)."
         );
         for bad in ["e", "e+1", "x2", "e999", ".."] {
             let rows = GridRows {
@@ -359,7 +390,7 @@ mod tests {
                 ramps: with_cell(rows_of("."), 5, 2, bad),
             };
             assert!(
-                refusal(parse_grid(&rows)).contains(&format!("„{bad}“ ist keine Rampe")),
+                refusal(parse_grid(&rows)).contains(&format!("“{bad}” is not a ramp")),
                 "{bad}"
             );
         }
@@ -369,7 +400,7 @@ mod tests {
             heights: with_cell(rows_of("0"), 4, 6, "63"),
             ramps: rows_of("."),
         };
-        let height_text = "Kachel x 4, y 6: Höhe 63 liegt außerhalb von −16 bis 62 Stufen.";
+        let height_text = "Tile x 4, y 6: height 63 is outside −16 to 62 steps.";
         assert_eq!(refusal(parse_grid(&high)), height_text);
         assert_eq!(
             grid_problem_text(GridProblem::HeightOutOfRange {
@@ -385,14 +416,14 @@ mod tests {
         };
         assert_eq!(
             refusal(parse_grid(&beyond_i8)),
-            "Kachel x 4, y 6: Höhe −300 liegt außerhalb von −16 bis 62 Stufen."
+            "Tile x 4, y 6: height −300 is outside −16 to 62 steps."
         );
         let steep = GridRows {
             heights: rows_of("0"),
             ramps: with_cell(rows_of("."), 4, 6, "e3"),
         };
-        let steep_text = "Kachel x 4, y 6: Rampe mit 3 Stufen je Kachel (24 E); erlaubt sind 1 \
-                          oder 2 Stufen (8 oder 16 E), ab 20 E verweigert das Spiel den Schritt.";
+        let steep_text = "Tile x 4, y 6: ramp with 3 steps per tile (24 U); 1 or 2 steps (8 or 16 \
+                          U) are allowed, from 20 U on the game refuses the step.";
         assert_eq!(refusal(parse_grid(&steep)), steep_text);
         assert_eq!(
             grid_problem_text(GridProblem::RampSteps {
@@ -406,7 +437,7 @@ mod tests {
             heights: with_cell(rows_of("0"), 4, 6, "62"),
             ramps: with_cell(rows_of("."), 4, 6, "n1"),
         };
-        let top_text = "Kachel x 4, y 6: die Rampe endet bei 63 Stufen, über 62.";
+        let top_text = "Tile x 4, y 6: the ramp ends at 63 steps, above 62.";
         assert_eq!(refusal(parse_grid(&top)), top_text);
         assert_eq!(
             grid_problem_text(GridProblem::RampTop {
@@ -420,19 +451,19 @@ mod tests {
         // The same sentences for `kinds`.
         assert_eq!(
             refusal(parse_kinds(&rows_of(".")[..30])),
-            "kinds: 32 Zeilen erwartet, 30 da."
+            "kinds: 32 rows expected, 30 found."
         );
         let mut wide = rows_of(".");
         wide[2] = vec!["."; 33].join(" ");
         assert_eq!(
             refusal(parse_kinds(&wide)),
-            "kinds: Zeile 2 hat 33 Zellen statt 32."
+            "kinds: row 2 has 33 cells instead of 32."
         );
         assert_eq!(
             refusal(parse_kinds(&with_cell(rows_of("."), 5, 2, "Q"))),
-            "kinds: Zeile 2, Spalte 5: „Q“ ist kein Gelände (erlaubt: # . g G ~ r i ^ > v < D)."
+            "kinds: row 2, column 5: “Q” is not a terrain (allowed: # . g G ~ r i ^ > v < D)."
         );
-        assert!(refusal(parse_kinds(&with_cell(rows_of("."), 5, 2, "gg"))).contains("„gg“"));
+        assert!(refusal(parse_kinds(&with_cell(rows_of("."), 5, 2, "gg"))).contains("“gg”"));
         assert_eq!(
             parse_kinds(&with_cell(rows_of("."), 5, 2, ">")).unwrap()[2 * 32 + 5],
             TerrainKind::Ledge(Direction::East)

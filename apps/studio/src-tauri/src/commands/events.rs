@@ -1084,7 +1084,7 @@ mod tests {
         assert_eq!(e.code, "referenced");
         assert_eq!(
             e.message,
-            "Eventdatei 0000, Tür 0 wird noch verwendet (1 Verweis)."
+            "Event file 0000, door 0 is still in use (1 reference)."
         );
         assert_eq!(e.references.len(), 1, "{:?}", e.references);
         let r = &e.references[0];
@@ -1098,7 +1098,7 @@ mod tests {
             }
         );
         assert!(
-            r.label.starts_with("Tür 1 von ") && r.label.ends_with(" springt hierher"),
+            r.label.starts_with("Door 1 of ") && r.label.ends_with(" leads here"),
             "{}",
             r.label
         );

@@ -8,6 +8,3 @@ export const NBSP = " ";
  * „Basis-“ / „ROM“. Not the no-break hyphen U+2011: the UI font (Atkinson Hyperlegible Next) has no glyph for it, the hyphen would come from another font.
  */
 export const WJ = "\u2060";
-
-/** `n` with what it counts, bound by a no-break space: `one` for 1, `many` otherwise. */
-export const count = (n: number, one: string, many: string) => `${n}${NBSP}${n === 1 ? one : many}`;

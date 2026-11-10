@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { DataDocDto, DataPatch } from "../../api";
+import { t } from "../../i18n";
 import { useDataDoc } from "../useDataDoc";
 import type { DocEdit, DocSpec } from "../useDataDoc";
 
@@ -41,7 +42,9 @@ const SPECIES: DocSpec<SpeciesDoc> = {
   kind: "species",
   parts: ["species", "learnset", "evolution"],
   accept: (doc) => (doc.kind === "species" ? doc : null),
-  wrongKind: "Die Antwort enthält keine Pokémon-Daten.",
+  get wrongKind() {
+    return t("data:pokedex.wrongKind");
+  },
 };
 
 /**

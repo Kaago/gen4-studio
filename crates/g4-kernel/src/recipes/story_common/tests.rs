@@ -90,16 +90,16 @@ fn a_dialog_step_takes_its_value_appearing_and_rewards_do_not() {
             "a7",
             1,
             StepKind::Appearance,
-            "Figur 3 erscheint ab Schritt 1",
+            "Character 3 appears from step 1",
         ),
-        step("s1", 1, StepKind::Dialog, "Gespräch mit Figur 2"),
-        step("r9", 2, StepKind::Reward, "Belohnung von Figur 2"),
+        step("s1", 1, StepKind::Dialog, "Talk with character 2"),
+        step("r9", 2, StepKind::Reward, "Reward from character 2"),
     ]);
     assert_eq!(step_of(&story, 1).map(|s| s.key.as_str()), Some("a7"));
     assert_eq!(step_of(&story, 3), None);
     match dialog_step_taken(&story, 1) {
         Err(KernelError::Refused(why)) => {
-            assert_eq!(why, "Schritt 1 gibt es schon: „Gespräch mit Figur 2“.");
+            assert_eq!(why, "Step 1 already exists: “Talk with character 2”.");
         }
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -174,11 +174,11 @@ mod with_fixture {
         assert!(check_pool_number(&project, FlagKind::Flag, 0x41).is_ok());
         assert_eq!(
             refused(check_pool_number(&project, FlagKind::Flag, 0xB60)),
-            "Flag 0x0B60 liegt nicht im Spielstand."
+            "Flag 0x0B60 is not in the save game."
         );
         assert_eq!(
             refused(check_pool_number(&project, FlagKind::Flag, 0x2DA)),
-            "Flag 0x02DA liegt nicht im allgemeinen Bereich."
+            "Flag 0x02DA is not in the general area."
         );
         name_flag(
             &mut store,
@@ -192,7 +192,7 @@ mod with_fixture {
         .unwrap();
         assert_eq!(
             refused(check_pool_number(&project, FlagKind::Flag, 0x41)),
-            "FLAG_EIGEN gibt es schon (Nummer 65)."
+            "FLAG_EIGEN already exists (number 65)."
         );
     }
 
@@ -259,7 +259,7 @@ mod with_fixture {
         assert!(figure(&mut store, &at(6)).unwrap().trainer);
         assert_eq!(
             refused(figure(&mut store, &at(9))),
-            "Auf Header 0 gibt es keine Figur 9."
+            "Header 0 has no character 9."
         );
     }
 
@@ -285,7 +285,7 @@ mod with_fixture {
         let mut store = store(&fx);
         assert_eq!(
             refused(load_story(&mut store, "STORY_TESTFADEN")),
-            "Unbekannte ID: STORY_TESTFADEN."
+            "Unknown ID: STORY_TESTFADEN."
         );
         let request = |name: &str, progress| StoryRequest {
             name: name.to_owned(),
@@ -312,8 +312,7 @@ mod with_fixture {
         .unwrap();
         assert_eq!(
             refused(load_story(&mut store, "STORY_FLAGGENFADEN")),
-            "Geschichte „Flaggenfaden“ hält ihren Fortschritt in einem Flag; die Rezepte \
-             brauchen eine Variable."
+            "Story “Flaggenfaden” keeps its progress in a flag; the recipes need a variable."
         );
     }
 }

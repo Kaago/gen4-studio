@@ -1,5 +1,12 @@
 # Overworld-Tabelle (Objekt-Sprites)
 
+**In English:** Documents the overworld table, which maps the `graphics_id` of an object event to a
+member of the sprite NARC, so that map objects get their sprites. The document says where the table
+lies in each game (offsets per game code in the overlays), how entries and terminator are laid out,
+and how 3D overworlds are handled. These are facts about the game binaries, checked on unpacked
+projects on 2026-10-22. The data is in `crates/g4-kernel/metadata/overworld_tables.yaml` and the
+code in `crates/g4-kernel/src/sprites.rs`; values are little endian.
+
 Quelle: DSPRE `RomInfo.SetOWtable` und `ReadOWTable` (Offsets je Spielcode, Eintragsformat,
 Terminator); es sind Tatsachen über die Spielbinaries, keine Übernahme von Programmcode.
 Nachgeprüft am 22.10.2026 an den entpackten Projekten (siehe unten). Die Daten stehen in

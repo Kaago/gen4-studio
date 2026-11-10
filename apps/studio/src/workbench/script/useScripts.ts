@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { addScript, adoptScripts, readScript, saveLevelScript, saveScript, scriptsStatus } from "../../api";
 import type { AdoptProgressDto, AdoptReportDto, CmdError, LevelScriptDoc, ProjectInfo, SaveScriptDto, ScriptSourceDto, ScriptsStatusDto } from "../../api";
 import type { EditBus } from "../../bus/editBus";
-import { TERMS, id4 } from "../terms";
+import { id4, termLabel } from "../terms";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
 import { ScriptDocuments, lineOffset } from "./documents";
 import type { ScriptDocument } from "./documents";
 import { toast } from "../../ui/frame/toasts";
+import { t } from "../../i18n";
 
 /** What the rest of the app sees of the open scripts: the project session saves them before a build and counts them as unsaved. */
 export interface ScriptBridge {
@@ -98,9 +99,9 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
     const parsed: unknown = JSON.parse(text);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) return parsed as LevelScriptDoc;
   } catch (e) {
-    throw refusal(`${TERMS.levelScript.label} ${id4(file)}: ungültiges JSON (${e instanceof Error ? e.message : String(e)})`);
+    throw refusal(t("workbench:useScripts.invalidJson", { name: `${termLabel("levelScript")} ${id4(file)}`, reason: e instanceof Error ? e.message : String(e) }));
   }
-  throw refusal(`${TERMS.levelScript.label} ${id4(file)}: ungültiges JSON (ein Objekt wird erwartet)`);
+  throw refusal(t("workbench:useScripts.notAnObject", { name: `${termLabel("levelScript")} ${id4(file)}` }));
 }
 
 /**
@@ -113,14 +114,12 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
  * (a reopen that rewrote them) are named in one note, so none replaces another.
  */
 export function changedOutsideText(names: readonly string[]): string {
-  return `${names.join(", ")} ${names.length === 1 ? "wurde" : "wurden"} außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`;
+  return t("workbench:useScripts.changedOutside", { count: names.length, names: names.join(", ") });
 }
 
 /** The warning when unsaved documents kept across a reopen have no file any more: the text stays in the editor. */
 export function goneText(names: readonly string[]): string {
-  const [first] = names;
-  const what = names.length === 1 && first !== undefined ? `fehlt die ${first}` : `fehlen ${names.join(", ")}`;
-  return `Nach dem Neuöffnen ${what}; ihr ungespeicherter Text bleibt im Editor.`;
+  return t("workbench:useScripts.gone", { count: names.length, names: names.join(", ") });
 }
 
 export function useScripts({ info, bus, problems, onError, onSaved, reopened }: ScriptsParams): ScriptsController {
@@ -192,7 +191,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
       if (docs.get(file) !== doc) continue;
       const dirty = lf(doc.text) !== doc.savedText;
       if (source === null || source.kind === "binary") {
-        if (dirty) names.push(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`);
+        if (dirty) names.push(`${doc.kind === "script" ? termLabel("scriptFile") : termLabel("levelScript")} ${id4(file)}`);
         // A clean document without a source has nothing to edit; one whose file did not read stays as it is.
         else if (source !== null) applyDisk(file, doc, source, false, note);
         continue;
@@ -212,7 +211,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
         const source = await readScript(file);
         // Another project was opened while the file was read.
         if (latest.current.documents !== docs) return;
-        if (source.kind === "binary") throw refusal(`${TERMS.scriptFile.label} ${id4(file)} ist binär (${source.size} Byte) und lässt sich nicht bearbeiten`);
+        if (source.kind === "binary") throw refusal(t("workbench:useScripts.binary", { name: `${termLabel("scriptFile")} ${id4(file)}`, size: source.size }));
         // rotom writes LF; the documents compare LF with LF.
         doc = docs.open(file, source.kind, lf(source.kind === "script" ? source.text : levelScriptText(source.doc)));
       }
@@ -332,7 +331,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
       const dirty = lf(doc.text) !== doc.savedText;
       // The file on disk moved (whether or not the document takes it).
       bumpSaved();
-      const name = `${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`;
+      const name = `${doc.kind === "script" ? termLabel("scriptFile") : termLabel("levelScript")} ${id4(file)}`;
       const refuse = () => (note ? note(name) : latest.current.onError(refusal(changedOutsideText([name]))));
       if (source.kind === "binary") {
         // No source any more (rotom could not decompile what was written): nothing to edit. Typed text stays unless it was given up.

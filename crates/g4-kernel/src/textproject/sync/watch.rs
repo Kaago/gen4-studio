@@ -448,12 +448,12 @@ pub(super) fn of_unit(key: &str, assets: &[AssetId]) -> Of {
     }
 }
 
-/// The German name of a unit for the user: `Pokémon 0025 · SPECIES_PIKACHU`, `Attacke 0001 ·
-/// MOVE_POUND`, `Item 0004 · ITEM_POKE_BALL` (an item member by its first item id), `Trainer
-/// 0001 · TRAINER_…`, `Header-Tabelle`, `Textarchiv 0012`, `Scriptdatei 0101`, `Datei <pfad>`
-/// for a blob, `rotom-Eigenheiten`, else the asset's label (`Karte 0003`). An id the symbols
-/// do not know (or no symbols) leaves the number alone. `first_item`: per item member its
-/// first item id.
+/// The name of a unit for the user, in the current locale: `Pokémon 0025 · SPECIES_PIKACHU`,
+/// `Move 0001 · MOVE_POUND`, `Item 0004 · ITEM_POKE_BALL` (an item member by its first item id),
+/// `Trainer 0001 · TRAINER_…`, `Header table`, `Text archive 0012`, `Script file 0101`,
+/// `File <path>` for a blob, `rotom quirks`, else the asset's label (`Map 0003`). An id the
+/// symbols do not know (or no symbols) leaves the number alone. `first_item`: per item member
+/// its first item id.
 pub(super) fn label(
     unit: &Unit,
     symbols: Option<&Symbols>,
@@ -465,24 +465,42 @@ pub(super) fn label(
     };
     let shown = |p: &Path| slash(p).to_string_lossy().into_owned();
     match &unit.of {
-        Of::Asset(id) if *id == HEADER_TABLE => "Header-Tabelle".to_owned(),
-        Of::Asset(id) if *id == EGG_MOVES => "Ei-Attacken".to_owned(),
+        Of::Asset(id) if *id == HEADER_TABLE => t!("textproject.unit_header_table").into_owned(),
+        Of::Asset(id) if *id == EGG_MOVES => t!("original.kind_egg_moves").into_owned(),
         Of::Asset(id) => match id.kind {
-            AssetKind::Personal | AssetKind::Learnset | AssetKind::Evolution => {
-                with_id("Pokémon", SymbolKind::Species, u32::from(id.index))
-            }
-            AssetKind::Move => with_id("Attacke", SymbolKind::Move, u32::from(id.index)),
-            AssetKind::Trainer => with_id("Trainer", SymbolKind::Trainer, u32::from(id.index)),
+            AssetKind::Personal | AssetKind::Learnset | AssetKind::Evolution => with_id(
+                &t!("original.kind_species"),
+                SymbolKind::Species,
+                u32::from(id.index),
+            ),
+            AssetKind::Move => with_id(
+                &t!("original.kind_move"),
+                SymbolKind::Move,
+                u32::from(id.index),
+            ),
+            AssetKind::Trainer => with_id(
+                &t!("original.kind_trainer"),
+                SymbolKind::Trainer,
+                u32::from(id.index),
+            ),
             AssetKind::Item => match first_item.get(&id.index) {
-                Some(&n) => with_id("Item", SymbolKind::Item, n),
+                Some(&n) => with_id(&t!("original.kind_item"), SymbolKind::Item, n),
                 None => asset_label(*id),
             },
             _ => asset_label(*id),
         },
-        Of::Text(n) => format!("Textarchiv {n:04}"),
-        Of::Script(n) => format!("Scriptdatei {n:04}"),
-        Of::Blob(file) => format!("Datei {}", shown(file)),
-        Of::Quirks => "rotom-Eigenheiten".to_owned(),
-        Of::Global(file) | Of::Other(file) => format!("Datei {}", shown(file)),
+        Of::Text(n) => asset_label(AssetId {
+            kind: AssetKind::TextArchive,
+            index: *n,
+        }),
+        Of::Script(n) => asset_label(AssetId {
+            kind: AssetKind::Script,
+            index: *n,
+        }),
+        Of::Blob(file) => t!("textproject.unit_file", file = shown(file)).into_owned(),
+        Of::Quirks => t!("textproject.unit_quirks").into_owned(),
+        Of::Global(file) | Of::Other(file) => {
+            t!("textproject.unit_file", file = shown(file)).into_owned()
+        }
     }
 }

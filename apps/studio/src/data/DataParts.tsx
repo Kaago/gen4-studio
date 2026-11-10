@@ -1,10 +1,12 @@
+import type { TFunction } from "i18next";
 import type { ComponentType, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { DataRowDto } from "../api";
 import { ListPane } from "../ui/frame/ListPane";
 import { useShell } from "../ui/frame/ShellContext";
 import { depthAtLeast, viewDepth } from "../ui/frame/shellState";
 import { EmptyState, PanelHead } from "../ui/primitives";
-import { AREA_LABEL, SUB_LABEL } from "./dataModel";
+import { areaLabel, subLabel } from "./dataModel";
 import type { DataArea, DataSub, ListKind } from "./dataModel";
 import { useDataArea } from "./useDataArea";
 import styles from "./DataArea.module.css";
@@ -26,40 +28,21 @@ export interface DataPart {
 }
 
 /** What the view and the hand say while nothing of a part is chosen; `first`: the view's button that chooses the first member. */
-export const NOTHING_CHOSEN: Record<DataSub, { what: string; why: string; first?: string }> = {
-  pokedex: { what: "Kein Pokémon gewählt.", why: "Wähle links eine Art; hier erscheinen Werte und Fundorte.", first: "Erste Art zeigen" },
-  moves: { what: "Keine Attacke gewählt.", why: "Wähle links eine Attacke; hier erscheinen ihre Werte und wer sie lernt.", first: "Erste Attacke zeigen" },
-  items: { what: "Kein Gegenstand gewählt.", why: "Wähle links einen Gegenstand; hier erscheinen Preis, Tasche und Beschreibung.", first: "Ersten Gegenstand zeigen" },
-  trainer: { what: "Kein Trainer gewählt.", why: "Wähle links einen Trainer; hier erscheinen sein Team und wo er in der Welt steht.", first: "Ersten Trainer zeigen" },
-  encounters: {
-    what: "Keine Begegnungsdatei gewählt.",
-    why: "Wähle links eine Datei; hier erscheint, wer an ihren Orten wartet.",
-    first: "Erste Datei zeigen",
-  },
-};
+function nothingChosen(sub: DataSub, t: TFunction<"data">): { what: string; why: string; first: string } {
+  return { what: t(`dataParts.nothing.${sub}.what`), why: t(`dataParts.nothing.${sub}.why`), first: t(`dataParts.nothing.${sub}.first`) };
+}
 
 /** What the area's lists hold, for the pane's "508 Arten" and the empty project. */
-const NOUN: Record<ListKind, [string, string]> = {
-  species: ["Art", "Arten"],
-  move: ["Attacke", "Attacken"],
-  item: ["Gegenstand", "Gegenstände"],
-  trainer: ["Trainer", "Trainer"],
-  encounter: ["Begegnungsdatei", "Begegnungsdateien"],
-};
-const count = (kind: ListKind, n: number) => `${n} ${NOUN[kind][n === 1 ? 0 : 1]}`;
-
-const NO_PROJECT: Record<DataArea, string> = {
-  pokemon: "Öffne ein Projekt, dann stehen hier seine Pokémon und Attacken.",
-  gegenstaende: "Öffne ein Projekt, dann stehen hier seine Gegenstände.",
-};
+const count = (t: TFunction<"data">, kind: ListKind, n: number) => t(`dataParts.noun.${kind}`, { count: n });
 
 /** What stands in place of a part while it cannot show (no project, the game is locked, the list is not read or not readable); null: it can. */
 function useBlocked(area: DataArea): ReactNode | null {
+  const { t } = useTranslation("data");
   const { project, locked, error, loading } = useDataArea(area);
-  if (project === null) return <EmptyState what="Kein Projekt geöffnet." why={NO_PROJECT[area]} />;
-  if (locked !== null) return <EmptyState what="Für dieses Spiel gesperrt." why={locked} />;
-  if (error !== null) return <EmptyState what="Die Liste ist nicht lesbar." why={error} />;
-  if (loading) return <p className={styles.note}>Lädt …</p>;
+  if (project === null) return <EmptyState what={t("dataParts.noProject")} why={t(`dataParts.noProjectWhy.${area}`)} />;
+  if (locked !== null) return <EmptyState what={t("dataParts.lockedForGame")} why={locked} />;
+  if (error !== null) return <EmptyState what={t("dataParts.listUnreadable")} why={error} />;
+  if (loading) return <p className={styles.note}>{t("loading")}</p>;
   return null;
 }
 
@@ -68,14 +51,15 @@ function useBlocked(area: DataArea): ReactNode | null {
  * that shows; in its place why it cannot show.
  */
 export function DataListPane({ area, parts, open, onToggle }: { area: DataArea; parts: Partial<Record<DataSub, DataPart>>; open: boolean; onToggle: () => void }) {
+  const { t } = useTranslation("data");
   const { sub, switcher, kind, rows } = useDataArea(area);
   const blocked = useBlocked(area);
   const List = parts[sub]?.List;
   const counted = parts[sub]?.count;
-  const subtitle = kind !== null && !blocked && rows.length > 0 ? (counted ? counted(rows) : count(kind, rows.length)) : undefined;
+  const subtitle = kind !== null && !blocked && rows.length > 0 ? (counted ? counted(rows) : count(t, kind, rows.length)) : undefined;
   return (
-    <ListPane title={AREA_LABEL[area]} subtitle={subtitle} switcher={switcher ?? undefined} open={open} onToggle={onToggle}>
-      {blocked ?? (List ? <List /> : <EmptyState what={SUB_LABEL[sub]} why={NOTHING_CHOSEN[sub].why} />)}
+    <ListPane title={areaLabel(area)} subtitle={subtitle} switcher={switcher ?? undefined} open={open} onToggle={onToggle}>
+      {blocked ?? (List ? <List /> : <EmptyState what={subLabel(sub)} why={nothingChosen(sub, t).why} />)}
     </ListPane>
   );
 }
@@ -86,13 +70,14 @@ export function DataListPane({ area, parts, open, onToggle }: { area: DataArea; 
  * "Keines").
  */
 export function DataPanel({ area, parts, place }: { area: DataArea; parts: Partial<Record<DataSub, DataPart>>; place: "View" | "Hand" }) {
+  const { t } = useTranslation("data");
   const { sub, row, rows, select } = useDataArea(area);
   const blocked = useBlocked(area);
   // The depth of this area, not of the one in front: a deck kept behind another area keeps its components.
   const narrating = !depthAtLeast(viewDepth(area, useShell().state.depth), "bauen");
   const part = parts[sub];
   const Part = (narrating ? (place === "View" ? part?.ViewNarrate : part?.HandNarrate) : undefined) ?? part?.[place];
-  const nothing = NOTHING_CHOSEN[sub];
+  const nothing = nothingChosen(sub, t);
   const first = rows.find((r) => r.index > 0) ?? rows[0];
   const action = place === "View" && nothing.first && first ? { label: nothing.first, onClick: () => select(first.index) } : undefined;
   return (

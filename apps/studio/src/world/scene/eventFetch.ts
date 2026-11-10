@@ -1,4 +1,5 @@
 import { errorText, getEvents } from "../../api";
+import { t } from "../../i18n";
 import { lockedText } from "../events";
 import { setMarkers } from "./content";
 import type { SceneHost } from "./SceneHost";
@@ -7,7 +8,7 @@ import type { FetchedEvents } from "./types";
 /** The note shown over the scene about the events: why they are missing, or that they are locked. */
 export function eventsNote(fetched: FetchedEvents): string | null {
   if (fetched.error) return fetched.error;
-  return fetched.events?.locked ? `Events ${lockedText(fetched.events.locked)}` : null;
+  return fetched.events?.locked ? t("world:scene.eventsLocked", { locked: lockedText(fetched.events.locked) }) : null;
 }
 
 /** Fetches the events of a header's event file; never rejects, a failure comes back as text. */
@@ -16,7 +17,7 @@ export async function fetchEvents(eventFileId: number | null): Promise<FetchedEv
   try {
     return { events: await getEvents(eventFileId), error: null };
   } catch (e) {
-    return { events: null, error: `Events nicht geladen: ${errorText(e)}` };
+    return { events: null, error: t("world:scene.eventsNotLoaded", { error: errorText(e) }) };
   }
 }
 

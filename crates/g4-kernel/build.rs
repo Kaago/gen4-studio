@@ -4,6 +4,9 @@
 
 fn main() {
     emit_lock_salts();
+    // `i18n!` embeds `locales/` at compile time, but rustc does not track the files a macro
+    // reads: without this a changed catalog would not recompile the crate.
+    println!("cargo:rerun-if-changed=locales");
     let origin = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("macos") => "@executable_path",
         Ok("linux") => "$ORIGIN",

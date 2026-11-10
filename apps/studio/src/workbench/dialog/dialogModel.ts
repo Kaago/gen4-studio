@@ -1,4 +1,5 @@
 import type { Dialog, DialogMessage, EventKind, FigureDialog, HeaderDialogs } from "../../api";
+import { t } from "../../i18n";
 import { pages } from "../text/textModel";
 
 /** The figure whose dialog the inspector shows and the dialog editor edits: an object or a sign of `eventFile`, looked up on `header`. */
@@ -12,10 +13,15 @@ export interface DialogTarget {
 }
 
 /** „Objekt 3“, „Schild 0“: what the dialog editor's title calls the figure. */
-export const dialogTitle = (kind: Extract<EventKind, "object" | "bg">, index: number) => `${kind === "bg" ? "Schild" : "Objekt"} ${index}`;
+export const dialogTitle = (kind: Extract<EventKind, "object" | "bg">, index: number) =>
+  kind === "bg" ? t("workbench:dialogModel.sign", { index }) : t("workbench:dialogModel.object", { index });
 
 /** „Geteilt mit 2 Figuren“: the badge of a message other figures show too. */
-export const sharedText = (n: number) => `Geteilt mit ${n} ${n === 1 ? "Figur" : "Figuren"}`;
+export const sharedText = (n: number) => t("workbench:dialogModel.shared", { count: n });
+
+/** „2 Nachrichten · 3 Seiten“: how many messages a dialog has and how many boxes they fill. */
+const countsText = (messages: number, pageCount: number) =>
+  t("workbench:dialogModel.counts", { messages: t("workbench:dialogModel.messages", { count: messages }), pages: t("workbench:dialogModel.pages", { count: pageCount }) });
 
 /** A message of a dialog once: its first use in reading order and the other uses of the same (archive, index). */
 export interface DistinctMessage {
@@ -51,19 +57,18 @@ export function dialogSummary(d: Dialog): string {
   const source = d.source;
   switch (source.kind) {
     case "common":
-      return `Gemeinsames Script ${source.script}: in Bauen bearbeiten.`;
+      return t("workbench:dialogModel.commonScriptNumber", { script: source.script });
     case "trainer":
-      return "Kampftexte des Trainers: im Bereich Pokémon.";
+      return t("workbench:dialogModel.trainerTexts");
     case "unreadable":
-      return `Script nicht lesbar: ${source.reason}`;
+      return t("workbench:dialogModel.unreadable", { reason: source.reason });
     case "none":
-      return "Sagt nichts";
+      return t("workbench:dialogModel.saysNothing");
     case "local": {
       const distinct = distinctMessages(d.messages).map((x) => x.message);
       const n = distinct.length;
-      if (n === 0) return "Sagt nichts";
-      const m = pageCount(distinct);
-      return `${n} ${n === 1 ? "Nachricht" : "Nachrichten"} · ${m} ${m === 1 ? "Seite" : "Seiten"}`;
+      if (n === 0) return t("workbench:dialogModel.saysNothing");
+      return countsText(n, pageCount(distinct));
     }
   }
 }
@@ -96,10 +101,10 @@ export function speaks(f: FigureDialog): boolean {
 
 /** The line of a place in the list of dialogs: „2 Figuren sprechen“, „1 Figur spricht“, „Keine Figur spricht“, „Keine Figuren“. */
 export function speakersText(figures: readonly FigureDialog[]): string {
-  if (figures.length === 0) return "Keine Figuren";
+  if (figures.length === 0) return t("workbench:dialogModel.noFigures");
   const n = figures.filter(speaks).length;
-  if (n === 0) return "Keine Figur spricht";
-  return n === 1 ? "1 Figur spricht" : `${n} Figuren sprechen`;
+  if (n === 0) return t("workbench:dialogModel.noneSpeaks");
+  return t("workbench:dialogModel.speakers", { count: n });
 }
 
 /**
@@ -110,18 +115,17 @@ export function figureSummary(f: FigureDialog): string {
   const source = f.source;
   switch (source.kind) {
     case "common":
-      return "Gemeinsames Script: in Bauen bearbeiten.";
+      return t("workbench:dialogModel.commonScript");
     case "trainer":
-      return "Kampftexte des Trainers: im Bereich Pokémon";
+      return t("workbench:dialogModel.trainerTextsShort");
     case "unreadable":
-      return `Script nicht lesbar: ${source.reason}`;
+      return t("workbench:dialogModel.unreadable", { reason: source.reason });
     case "none":
-      return "Sagt nichts";
+      return t("workbench:dialogModel.saysNothing");
     case "local": {
       const n = f.messages;
-      if (n === 0) return "Sagt nichts";
-      const m = f.pages;
-      return `${n} ${n === 1 ? "Nachricht" : "Nachrichten"} · ${m} ${m === 1 ? "Seite" : "Seiten"}`;
+      if (n === 0) return t("workbench:dialogModel.saysNothing");
+      return countsText(n, f.pages);
     }
   }
 }

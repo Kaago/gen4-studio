@@ -1,0 +1,337 @@
+{
+  "agentStatus": {
+    "connected_one": "Agent connected: {{client}}",
+    "connected_other": "{{count}} agents connected",
+    "withReadOnly": "{{who}} · Read only",
+    "readOnly": "Read only",
+    "disconnect": "Disconnect"
+  },
+  "atlas": {
+    "label": "Areas",
+    "start": "Start",
+    "world": "World",
+    "stories": "Stories",
+    "pokemon": "Pokémon",
+    "items": "Items",
+    "texts": "Texts",
+    "technical": "Technical",
+    "help": "Help",
+    "settings": "Settings"
+  },
+  "badge": {
+    "unsaved": "Unsaved",
+    "irreversible": "Irreversible",
+    "locked": "Locked",
+    "changedOnDisk": "Changed on disk",
+    "ptHgssOnly": "Platinum and HGSS only",
+    "error": "Error",
+    "live": "Live",
+    "info": "Info",
+    "success": "Done",
+    "warning": "Warning",
+    "code": "Code",
+    "neutral": "Note"
+  },
+  "battlePreview": {
+    "label": "Battle preview: {{foe}}",
+    "labelAgainst": "Battle preview: {{foe}} vs. {{own}}",
+    "described": "{{name}} Lv. {{level}}",
+    "level": "Lv. {{level}}",
+    "hp": "HP {{name}}",
+    "percent": "{{percent}} percent"
+  },
+  "beforeAfter": {
+    "label": "Before and after",
+    "before": "Before",
+    "after": "After",
+    "empty": "Empty"
+  },
+  "budget": {
+    "of": "{{used}} of {{max}}",
+    "tight": "Tight",
+    "full": "Full"
+  },
+  "changeTable": {
+    "missing": "missing"
+  },
+  "checkList": {
+    "ok": "OK",
+    "warning": "Warning",
+    "error": "Error",
+    "info": "Note"
+  },
+  "deck": {
+    "unsaved": "unsaved"
+  },
+  "dialog": {
+    "close": "Close"
+  },
+  "dock": {
+    "panelOpened": "{{title}} opened",
+    "panelClosed": "{{title}} closed",
+    "groupMaximized": "{{title}} maximized",
+    "groupRestored": "{{title}} restored",
+    "groupFloated": "{{title}} floated",
+    "groupDocked": "{{title}} docked",
+    "groupPoppedOut": "{{title}} in its own window",
+    "closeTab": "Close {{title}}",
+    "closeTabPlain": "Close"
+  },
+  "dockMenu": {
+    "restore": "Restore",
+    "maximize": "Maximize",
+    "asPreview": "As preview image",
+    "float": "Float",
+    "backToDock": "Back to dock",
+    "resetArrangement": "Reset arrangement"
+  },
+  "dsPokedexProfile": {
+    "label": "Pokédex profile {{name}}",
+    "number": "No. {{number}}",
+    "category": "Category",
+    "height": "Height",
+    "weight": "Weight",
+    "pending": "pending",
+    "textPending": "Pokédex text pending"
+  },
+  "dsScreen": {
+    "labelEmpty": "DS screen, empty",
+    "labelPage": "DS screen, page {{page}} of {{total}}",
+    "overflow": "Line runs out of the box"
+  },
+  "emulatorRow": {
+    "none": "No emulator chosen",
+    "pick": "Choose emulator"
+  },
+  "entityStateBadge": {
+    "changed": "changed",
+    "new": "new",
+    "deleted": "deleted"
+  },
+  "filterChips": {
+    "more": "{{count}} more",
+    "moreGroup": "{{label}}, more",
+    "clear": "Clear filter"
+  },
+  "floatingToolbar": {
+    "label": "Toolbar",
+    "grip": "Drag to move the bar",
+    "position": "Toolbar position",
+    "anchorLeft": "Left",
+    "anchorTop": "Top",
+    "anchorBottom": "Bottom",
+    "anchorFlat": "{{anchor}} (on top at this height)",
+    "subTools": "Sub-tools"
+  },
+  "gitStatusItem": {
+    "unreadable": "Git: not readable",
+    "label": "Git: {{text}}"
+  },
+  "helpDialog": {
+    "title": "Help",
+    "description": "The terms the studio uses to describe the world of the game."
+  },
+  "hexBlock": {
+    "byte": "Byte {{offset}}",
+    "bytes": "Bytes {{from}} to {{to}}",
+    "bit": "Bit {{bit}}",
+    "bits": "Bits {{from}} to {{to}}",
+    "captionRest_one": ", entry {{member}}, {{count}} byte",
+    "captionRest_other": ", entry {{member}}, {{count}} bytes"
+  },
+  "hinge": {
+    "label": "Hinge",
+    "crumbs": "Breadcrumb",
+    "depth": "Depth",
+    "depthTell": "Tell",
+    "depthBuild": "Build",
+    "depthTinker": "Tinker",
+    "nothingToUndo": "Nothing to undo yet",
+    "defaultStep": "Change",
+    "notChecked": "Not checked",
+    "allSound": "All good",
+    "countsNotChecked": "{{counts}}, not checked",
+    "historyName": "History",
+    "history_one": "History, {{count}} step",
+    "history_other": "History, {{count}} steps",
+    "redo": "Redo",
+    "maximizeView": "Maximize view",
+    "playing": "Playing in melonDS",
+    "resume": "Resume",
+    "reload": "Reload",
+    "stop": "Stop",
+    "building": "Building…",
+    "play": "Play here"
+  },
+  "inspectorRow": {
+    "deviates": "differs"
+  },
+  "listPane": {
+    "collapse": "Collapse list",
+    "expand": "Expand list",
+    "collapseHint": "Double-click collapses the list",
+    "expandHint": "Click expands the list"
+  },
+  "liveRow": {
+    "title": "Live play mode",
+    "noMelonDs": "No melonDS chosen",
+    "notChecked": "Not checked yet: will be read at the next “Play here”",
+    "settingsUnreadable": "melonDS {{version}} · settings not readable",
+    "summary": "melonDS {{version}} · GDB stub {{stub}} · port {{port}} · JIT {{jit}}",
+    "on": "on",
+    "off": "off",
+    "stubOff": "GDB stub is off: will be switched on at the next “Play here” if melonDS is not running",
+    "breakOnStartup": "Break on startup is on: will be switched off at the next “Play here” if melonDS is not running",
+    "jit": "JIT is on: will be switched off at the next “Play here” if melonDS is not running"
+  },
+  "numberField": {
+    "baseDec": "Dec",
+    "baseHex": "Hex",
+    "roleDescription": "Number field",
+    "baseOf": "Number base of {{label}}"
+  },
+  "numberParse": {
+    "enterNumber": "Enter a number.",
+    "notHex": "That is not a hex number. Enter something like 0x1F.",
+    "notInteger": "That is not a whole number. Enter something like 12.",
+    "atMost": "at most {{max}}",
+    "atLeast": "at least {{min}}"
+  },
+  "palette": {
+    "title": "Command palette",
+    "placeholder": "Search or type a command",
+    "empty": "Nothing found. Change the search.",
+    "groups": {
+      "commands": "Commands",
+      "pokemon": "Pokémon",
+      "trainers": "Trainers",
+      "encounters": "Encounters",
+      "moves": "Moves",
+      "items": "Items"
+    }
+  },
+  "picker": {
+    "search": "Search",
+    "searchPlaceholder": "Search…",
+    "results": "Results",
+    "filter": "Filter",
+    "empty": "Nothing found. Change the search or the filter.",
+    "keys": "↑↓ choose, ↵ run",
+    "hits_one": "{{count}} result",
+    "hits_other": "{{count}} results"
+  },
+  "pokemonCard": {
+    "empty": "Empty",
+    "emptySlot": "Slot {{slot}} empty",
+    "level": "Lv. {{level}}"
+  },
+  "pokemonTypes": {
+    "normal": "Normal",
+    "kampf": "Fighting",
+    "flug": "Flying",
+    "gift": "Poison",
+    "boden": "Ground",
+    "gestein": "Rock",
+    "kaefer": "Bug",
+    "geist": "Ghost",
+    "stahl": "Steel",
+    "fragezeichen": "???",
+    "feuer": "Fire",
+    "wasser": "Water",
+    "pflanze": "Grass",
+    "elektro": "Electric",
+    "psycho": "Psychic",
+    "eis": "Ice",
+    "drache": "Dragon",
+    "unlicht": "Dark",
+    "unknown": "Type {{id}}"
+  },
+  "recipeBar": {
+    "label": "Recipes"
+  },
+  "reference": {
+    "unused": "Not used anywhere",
+    "usedIn": "Used in"
+  },
+  "selectField": {
+    "unknown": "Value {{value}}"
+  },
+  "startPane": {
+    "welcome": "Welcome back",
+    "recentLabel": "Recently opened projects",
+    "noneYet": "No project opened yet.",
+    "newGame": "New game from ROM…",
+    "openProject": "Open project",
+    "ownRom": "You need your own ROM file (.nds).",
+    "noGameData": "Gen4 Studio ships no game data; you use your own ROM.",
+    "dspreFolders": "Projects are unpacked DSPRE folders.",
+    "latest": "Latest",
+    "notFound": "not found",
+    "opened": "opened {{ago}}",
+    "moreActions": "More actions for {{name}}",
+    "removeFromList": "Remove from list",
+    "choosePreview": "Choose preview image…",
+    "removePreview": "Remove preview image"
+  },
+  "statBar": {
+    "deviates": "differs",
+    "above": "above average",
+    "below": "below average",
+    "at": "at average"
+  },
+  "statusLine": {
+    "densityComfort": "Comfortable",
+    "densityCompact": "Compact",
+    "densityTip": "Switch density (comfortable or compact)",
+    "building": "Building…",
+    "notBuilt": "Not built yet",
+    "built": "Built {{ago}}",
+    "bridgeOk": "Browser mode (bridge)",
+    "bridgeMissing": "Bridge not reachable"
+  },
+  "storyNode": {
+    "kinds": {
+      "start": "Start",
+      "dialog": "Dialog",
+      "condition": "Condition",
+      "battle": "Battle",
+      "reward": "Reward",
+      "progress": "Progress",
+      "appearance": "Appear/disappear",
+      "value": "Value",
+      "place": "Place"
+    },
+    "notedOnly": "noted only",
+    "noValue": "no value"
+  },
+  "tabs": {
+    "unsaved": "unsaved",
+    "close": "Close {{label}}"
+  },
+  "timeAgo": {
+    "justNow": "just now",
+    "minutes_one": "{{count}} minute ago",
+    "minutes_other": "{{count}} minutes ago",
+    "hours_one": "{{count}} hour ago",
+    "hours_other": "{{count}} hours ago",
+    "days_one": "{{count}} day ago",
+    "days_other": "{{count}} days ago"
+  },
+  "titleBar": {
+    "openProject": "Open project",
+    "noProject": "No project open",
+    "unsaved_one": "{{count}} change not saved",
+    "unsaved_other": "{{count}} changes not saved",
+    "allSaved": "All saved",
+    "search": "Search or type a command",
+    "save": "Save",
+    "build": "Build",
+    "publish": "Publish",
+    "theme": "Switch theme",
+    "help": "Help"
+  },
+  "toastHost": {
+    "label": "Notifications",
+    "close": "Close"
+  }
+}

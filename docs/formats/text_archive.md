@@ -1,5 +1,13 @@
 # Textarchiv (Member und chatot-JSON)
 
+**In English:** Documents the text archive: a member `unpacked/textArchives/NNNN` of the text NARC,
+in the text encoding that Diamond/Pearl, Platinum and HeartGold/SoulSilver share, and its editable
+form `expanded/textArchives/NNNN.json`. The document covers the entry table, the messages and their
+control codes, the JSON, writing and timestamps, which version applies when both exist, splitting
+messages and the checks. All members of the three test projects (Platinum DE 724, HeartGold DE and
+US 829 each) decode, go through the JSON and encode back to identical bytes. The format knowledge
+comes from chatot 0.8.1; the code is `crates/g4-kernel/src/text.rs`.
+
 Quelle: chatot 0.8.1 (`decode.rs`, `encode.rs`, `charmap.json`; das Programm, das DSPRE für
 Text-JSON mitliefert) und der DSPRE-Report zum Textformat; es sind Tatsachen über das
 Dateiformat, keine Übernahme von Programmcode. Nachgeprüft am 22.10.2026: alle Member der

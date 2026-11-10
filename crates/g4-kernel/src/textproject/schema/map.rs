@@ -212,27 +212,37 @@ pub(crate) fn map_json(
 /// The 1024 cells of `lines`: 32 lines of 32 cells `kkcc` each.
 fn read_permissions(lines: &[String]) -> Result<Vec<Cell>, String> {
     if lines.len() != MAP_SIZE {
-        return Err(format!(
-            "{SCHEMA_CODE}: permissions: {} Zeilen statt {MAP_SIZE}.",
-            lines.len()
-        ));
+        return Err(t!(
+            "textproject.permissions_rows",
+            code = SCHEMA_CODE,
+            count = lines.len(),
+            expected = MAP_SIZE
+        )
+        .into_owned());
     }
     let mut cells = Vec::with_capacity(MAP_SIZE * MAP_SIZE);
     for (y, line) in lines.iter().enumerate() {
         let tokens: Vec<&str> = line.split_whitespace().collect();
         if tokens.len() != MAP_SIZE {
-            return Err(format!(
-                "{SCHEMA_CODE}: permissions[{y}]: {} Zellen statt {MAP_SIZE}.",
-                tokens.len()
-            ));
+            return Err(t!(
+                "textproject.permissions_cells",
+                code = SCHEMA_CODE,
+                y = y,
+                count = tokens.len(),
+                expected = MAP_SIZE
+            )
+            .into_owned());
         }
         for t in tokens {
             let pair = (t.len() == 4).then(|| unhex(t).ok()).flatten();
             let Some([kind, collision]) = pair.as_deref().map(|p| [p[0], p[1]]) else {
-                return Err(format!(
-                    "{SCHEMA_CODE}: permissions[{y}]: `{t}` ist keine Zelle `kkcc` aus vier \
-                     Hex-Ziffern (Art und Kollision)."
-                ));
+                return Err(t!(
+                    "textproject.permissions_token",
+                    code = SCHEMA_CODE,
+                    y = y,
+                    token = t
+                )
+                .into_owned());
             };
             cells.push(Cell { kind, collision });
         }
@@ -248,9 +258,12 @@ pub(crate) fn is_world_map(j: &MapJson) -> Result<bool, String> {
         (MAP_SOURCE_WORLD, Some(_)) => Ok(true),
         (MAP_SOURCE_WORLD, None) => Err(source_without_world()),
         (MAP_SOURCE_BINARY, Some(_)) => Err(world_without_source()),
-        (other, _) => Err(format!(
-            "{MAP_SOURCE_CODE}: source: Unbekannte Kartenquelle „{other}“."
-        )),
+        (other, _) => Err(t!(
+            "textproject.map_source_unknown",
+            code = MAP_SOURCE_CODE,
+            source = other
+        )
+        .into_owned()),
     }
 }
 
@@ -265,12 +278,17 @@ pub(crate) fn map_bytes(
     ctx: &ImportCtx<'_>,
 ) -> Result<Vec<u8>, String> {
     if is_world_map(j)? {
-        return Err(format!(
-            "{MAP_SOURCE_CODE}: source: eine Welt-Karte hat kein Member aus der Datei; es \
-             entsteht beim Backen."
-        ));
+        return Err(t!("textproject.world_map_no_member", code = MAP_SOURCE_CODE).into_owned());
     }
-    let required = |name: &str| format!("{SCHEMA_CODE}: {ROOT}: Schlüssel `{name}` fehlt.");
+    let required = |name: &str| {
+        t!(
+            "textproject.record_missing_key",
+            code = SCHEMA_CODE,
+            path = ROOT,
+            name = name
+        )
+        .into_owned()
+    };
     let (Some(permissions), Some(model), Some(bdhc)) = (&j.permissions, &j.model, &j.bdhc) else {
         let missing = [
             ("permissions", j.permissions.is_none()),
@@ -292,18 +310,21 @@ pub(crate) fn map_bytes(
     m.bdhc = part(bdhc, "bdhc", on_disk.as_ref().map(|m| m.bdhc.as_slice()))?;
     m.permissions = permissions;
     // Permissions and tail are checked: only the BGS block can fail here.
-    m.validate()
-        .map_err(|e| format!("{SCHEMA_CODE}: bgs: kein ganzer BGS-Block ({e})."))?;
+    m.validate().map_err(|e| {
+        t!("textproject.bgs_incomplete", code = SCHEMA_CODE, error = e).into_owned()
+    })?;
     Ok(m.write(ctx.family))
 }
 
-/// „Eine Welt-Karte trägt `permissions`, `model` und `bdhc` nicht; sie entstehen beim Backen.“
+/// „A world map carries no `permissions`, `model` and `bdhc`; they come from baking.“
 /// at key `key`, a `textproject.map-source` error.
 fn derived_key_refusal(key: &str) -> String {
-    format!(
-        "{MAP_SOURCE_CODE}: {key}: Eine Welt-Karte trägt `permissions`, `model` und `bdhc` \
-         nicht; sie entstehen beim Backen."
+    t!(
+        "textproject.world_map_derived_key",
+        code = MAP_SOURCE_CODE,
+        key = key
     )
+    .into_owned()
 }
 
 /// A world map's source: buildings, tail and BGS read like a binary map; the verbatim parts
@@ -320,10 +341,12 @@ pub(crate) fn world_source(
     let world = match (is_world_map(j)?, &j.world) {
         (true, Some(world)) => world,
         _ => {
-            return Err(format!(
-                "{MAP_SOURCE_CODE}: source: „{}“ ist keine Welt-Karte.",
-                j.source
-            ));
+            return Err(t!(
+                "textproject.source_not_world",
+                code = MAP_SOURCE_CODE,
+                source = j.source
+            )
+            .into_owned());
         }
     };
     for (key, there) in [
@@ -343,7 +366,7 @@ pub(crate) fn world_source(
         ..base.clone()
     }
     .validate()
-    .map_err(|e| format!("{SCHEMA_CODE}: bgs: kein ganzer BGS-Block ({e})."))?;
+    .map_err(|e| t!("textproject.bgs_incomplete", code = SCHEMA_CODE, error = e).into_owned())?;
     let part = |p: &Part, path: &str, name: &'static str, now: Option<&[u8]>| {
         part_in_at(p, path, ctx.dir, &map_key(index, name), now, ctx.base)
     };
@@ -395,10 +418,14 @@ fn own_parts(
             let bytes =
                 unhex(text).map_err(|e| format!("{SCHEMA_CODE}: buildings[{i}].dummy: {e}"))?;
             if bytes.len() != dummy.len() {
-                return Err(format!(
-                    "{SCHEMA_CODE}: buildings[{i}].dummy: {} Byte statt 8.",
-                    bytes.len()
-                ));
+                return Err(t!(
+                    "textproject.hex_length",
+                    code = SCHEMA_CODE,
+                    path = format!("buildings[{i}].dummy"),
+                    count = bytes.len(),
+                    len = 8
+                )
+                .into_owned());
             }
             dummy.copy_from_slice(&bytes);
         }
@@ -415,11 +442,13 @@ fn own_parts(
         None => Vec::new(),
     };
     if buildings_tail.len() >= BUILDING_LEN {
-        return Err(format!(
-            "{SCHEMA_CODE}: buildings_tail: {} Byte, ein Rest ist kürzer als ein Gebäude \
-             ({BUILDING_LEN} Byte).",
-            buildings_tail.len()
-        ));
+        return Err(t!(
+            "textproject.buildings_tail",
+            code = SCHEMA_CODE,
+            len = buildings_tail.len(),
+            building = BUILDING_LEN
+        )
+        .into_owned());
     }
     let bgs = match (&j.bgs, ctx.family) {
         (Some(p), Family::Hgss) => Some(part_in_at(
@@ -431,15 +460,12 @@ fn own_parts(
             ctx.base,
         )?),
         (None, Family::Hgss) => {
-            return Err(format!(
-                "{SCHEMA_CODE}: {ROOT}: Schlüssel `bgs` fehlt (HeartGold/SoulSilver hat den \
-                 BGS-Block)."
-            ));
+            return Err(
+                t!("textproject.bgs_missing", code = SCHEMA_CODE, root = ROOT).into_owned(),
+            );
         }
         (Some(_), Family::Pt | Family::Dp) => {
-            return Err(format!(
-                "{SCHEMA_CODE}: bgs: nur HeartGold/SoulSilver hat einen BGS-Block."
-            ));
+            return Err(t!("textproject.bgs_hgss_only", code = SCHEMA_CODE).into_owned());
         }
         (None, Family::Pt | Family::Dp) => None,
     };
@@ -765,7 +791,7 @@ mod tests {
         let err = edit(&|j| j.source = "dsl".into());
         assert_eq!(
             err,
-            "textproject.map-source: source: Unbekannte Kartenquelle „dsl“."
+            "textproject.map-source: source: Unknown map source “dsl”."
         );
         let err = edit(&|j| {
             j.permissions.as_mut().unwrap().pop();
@@ -928,8 +954,7 @@ mod tests {
             assert_eq!(
                 err,
                 format!(
-                    "textproject.map-source: {key}: Eine Welt-Karte trägt `permissions`, \
-                     `model` und `bdhc` nicht; sie entstehen beim Backen."
+                    "textproject.map-source: {key}: A world map carries no `permissions`, `model` and `bdhc`; they come from baking."
                 )
             );
             assert_eq!(code_and_path(&err), ("textproject.map-source", key));
@@ -955,7 +980,7 @@ mod tests {
             let err = import(Family::Pt, &e, 0).unwrap_err();
             assert_eq!(
                 err,
-                format!("textproject.schema: $: Schlüssel `{key}` fehlt.")
+                format!("textproject.schema: $: key `{key}` is missing.")
             );
         }
         // Serde reads a file without them; the check is the import's.
@@ -1058,13 +1083,13 @@ mod tests {
         let err = edit(&|j| j.source = MAP_SOURCE_WORLD.into());
         assert_eq!(
             err,
-            "textproject.map-source: source: „world“ braucht das Objekt `world`."
+            "textproject.map-source: source: “world” needs the object `world`."
         );
         assert_eq!(code_and_path(&err), ("textproject.map-source", "source"));
         let err = edit(&|j| j.world = Some(blank_world()));
         assert_eq!(
             err,
-            "textproject.map-source: world: nur mit source „world“."
+            "textproject.map-source: world: only with source “world”."
         );
         assert_eq!(code_and_path(&err), ("textproject.map-source", "world"));
         let err = edit(&|j| {
@@ -1073,7 +1098,7 @@ mod tests {
         });
         assert_eq!(
             err,
-            "textproject.map-source: source: Unbekannte Kartenquelle „dsl“."
+            "textproject.map-source: source: Unknown map source “dsl”."
         );
     }
 

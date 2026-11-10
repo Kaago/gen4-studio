@@ -1,7 +1,7 @@
 {
   "name": "studio",
   "private": true,
-  "version": "0.1.0-rc.2",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -35,8 +35,10 @@
     "codemirror": "6.0.2",
     "dockview": "8.6.1",
     "dockview-react": "8.6.1",
+    "i18next": "27.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-i18next": "18.0.1",
     "three": "^0.186.1"
   },
   "devDependencies": {

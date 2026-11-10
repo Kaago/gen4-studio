@@ -20,7 +20,7 @@ use g4_kernel::stories::{
 use g4_kernel::text::Problem;
 use g4_kernel::textproject::ids::{RefInput, UNKNOWN_ID_CODE, unknown_id_text};
 use g4_kernel::textproject::registry::Registry;
-use g4_kernel::textproject::rename::NOT_A_TEXT_PROJECT;
+use g4_kernel::textproject::rename::not_a_text_project;
 use g4_kernel::textproject::symbols::SymbolKind;
 use serde::Serialize;
 use serde_json::Value;
@@ -157,12 +157,16 @@ fn load_story(project: &Project, id: &str) -> Result<(u16, Story), CmdError> {
     };
     match stories::read_story(project, number)? {
         Some(story) => Ok((number, story)),
-        None => Err(CmdError::from(format!(
-            "{id} hat keine Datei {}.",
-            stories::story_rel(number)
-                .to_string_lossy()
-                .replace('\\', "/")
-        ))),
+        None => Err(CmdError::from(
+            t!(
+                "commands.stories.no_file",
+                id = id,
+                file = stories::story_rel(number)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            )
+            .into_owned(),
+        )),
     }
 }
 
@@ -218,7 +222,7 @@ pub fn list_threads_impl(state: &AppState) -> Result<ThreadListDto, CmdError> {
                     names
                         .get(h)
                         .cloned()
-                        .unwrap_or_else(|| format!("Header {h}"))
+                        .unwrap_or_else(|| t!("commands.stories.header", h = h).into_owned())
                 })
                 .collect(),
             var: t.var,
@@ -445,7 +449,7 @@ fn story_error(e: KernelError) -> CmdError {
     let KernelError::Refused(why) = e else {
         return e.into();
     };
-    let code = if why == NOT_A_TEXT_PROJECT {
+    let code = if why == not_a_text_project() {
         "not_text_project"
     } else if why.starts_with(unknown_id_text("").trim_end_matches('.')) {
         UNKNOWN_ID_CODE
@@ -521,8 +525,16 @@ fn progress_as_id(state: &AppState, mut value: Value) -> Result<Value, CmdError>
 
 /// `value` as the `T` of command `name`, the dispatch table's sentence when it does not fit.
 fn typed<T: serde::de::DeserializeOwned>(name: &str, value: Value) -> Result<T, CmdError> {
-    serde_json::from_value(value)
-        .map_err(|e| CmdError::from(format!("Ungültige Argumente für {name}: {e}")))
+    serde_json::from_value(value).map_err(|e| {
+        CmdError::from(
+            t!(
+                "commands.dispatch.invalid_arguments",
+                name = name,
+                error = e
+            )
+            .into_owned(),
+        )
+    })
 }
 
 /// [`story_create_impl`] with the request as JSON whose progress may be a number (the bridge

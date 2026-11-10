@@ -22,7 +22,7 @@ use crate::textproject::codes::SCHEMA_CODE;
 use crate::textproject::ids::{RefInput, Resolver, unknown_id_text};
 use crate::textproject::manifest::{SchemaState, refusal, schema_state};
 use crate::textproject::registry::{IDS_DIR, Registry, registry_file};
-use crate::textproject::rename::{MAX_ID_LEN, NOT_A_TEXT_PROJECT, apply_file_step};
+use crate::textproject::rename::{MAX_ID_LEN, not_a_text_project, apply_file_step};
 use crate::textproject::symbols::{SymbolKind, fallback_id, normalize, parse_fallback};
 
 use super::schema::{
@@ -30,17 +30,19 @@ use super::schema::{
 };
 
 /// Why a request that changes nothing is refused.
-pub const NOTHING_TO_CHANGE: &str = "Nichts zu ändern.";
-
-/// The sentence for a story without a name: „Die Geschichte braucht einen Namen.“
-pub fn name_empty_text() -> &'static str {
-    "Die Geschichte braucht einen Namen."
+pub fn nothing_to_change() -> String {
+    t!("stories.nothing_to_change").into_owned()
 }
 
-/// The sentence for a step key that two steps have: „Der Schlüssel „s1“ steht in zwei
-/// Schritten; jeder Schritt braucht einen eigenen.“
+/// The sentence for a story without a name: „The story needs a name.“
+pub fn name_empty_text() -> String {
+    t!("stories.name_empty").into_owned()
+}
+
+/// The sentence for a step key that two steps have: „The key “s1” is in two steps; each step
+/// needs its own.“
 pub fn duplicate_key_text(key: &str) -> String {
-    format!("Der Schlüssel „{key}“ steht in zwei Schritten; jeder Schritt braucht einen eigenen.")
+    t!("stories.duplicate_key", key = key).into_owned()
 }
 
 /// What [`create_story`] is asked to make.
@@ -89,7 +91,7 @@ pub struct StoryReport {
 /// smallest free number, register entry, JSON (canonical) and an empty layout, as one file
 /// step labelled „Geschichte „<name>“ angelegt“. Refused before anything is written
 /// ([`KernelError::Refused`]): not a current text project
-/// ([`NOT_A_TEXT_PROJECT`](crate::textproject::rename::NOT_A_TEXT_PROJECT)), an empty name
+/// ([`not_a_text_project`](crate::textproject::rename::not_a_text_project)), an empty name
 /// ([`name_empty_text`]), a progress id that resolves nowhere
 /// ([`unknown_id_text`](crate::textproject::ids::unknown_id_text)), a duplicate step key
 /// ([`duplicate_key_text`]). A value above `u16` does not deserialize.
@@ -119,7 +121,7 @@ pub fn create_story_files(
 }
 
 /// Applies `patch` to story `id` as one file step labelled „Geschichte „<name>“ geändert“;
-/// [`NOTHING_TO_CHANGE`] when nothing differs, the refusals of [`create_story`] otherwise, and
+/// [`nothing_to_change`] when nothing differs, the refusals of [`create_story`] otherwise, and
 /// an unknown id ([`unknown_id_text`](crate::textproject::ids::unknown_id_text)).
 pub fn update_story(
     store: &mut Store,
@@ -154,7 +156,7 @@ pub fn update_story_files(
 /// all three back byte-equal. No tombstone and nothing to free: nothing points at a story, so
 /// its number is free again at once. A file that is missing already (a register entry without
 /// its file) is left out of the step. Refused before anything is written: not a current text
-/// project ([`NOT_A_TEXT_PROJECT`](crate::textproject::rename::NOT_A_TEXT_PROJECT)), an id the
+/// project ([`not_a_text_project`](crate::textproject::rename::not_a_text_project)), an id the
 /// register does not have ([`unknown_id_text`](crate::textproject::ids::unknown_id_text)).
 pub fn delete_story(store: &mut Store, id: &str) -> Result<StoryReport, KernelError> {
     let started = Instant::now();
@@ -202,7 +204,7 @@ pub fn list_stories(project: &Project) -> Result<Vec<StoryEntry>, KernelError> {
                 (None, _) => Err(problem(
                     &story_rel(n),
                     SCHEMA_CODE,
-                    "Die Geschichte lässt sich nicht lesen.".to_owned(),
+                    t!("stories.unreadable").into_owned(),
                 )),
             },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(unfiled(root, id, n)),
@@ -257,8 +259,8 @@ fn refuse<T>(why: impl Into<String>) -> Result<T, KernelError> {
 fn text_project(project: &Project) -> Result<(), KernelError> {
     match schema_state(&project.root)? {
         SchemaState::Current => Ok(()),
-        SchemaState::Missing => refuse(NOT_A_TEXT_PROJECT),
-        state => refuse(refusal(state).unwrap_or_else(|| NOT_A_TEXT_PROJECT.to_owned())),
+        SchemaState::Missing => refuse(not_a_text_project()),
+        state => refuse(refusal(state).unwrap_or_else(not_a_text_project)),
     }
 }
 
@@ -305,7 +307,7 @@ fn prepare_create(project: &Project, req: &StoryRequest) -> Result<Prepared, Ker
             && !root.join(story_rel(n)).exists()
             && !root.join(layout_rel(n)).exists()
     }) else {
-        return refuse("Alle Nummern für Geschichten sind vergeben.");
+        return refuse(t!("stories.numbers_taken"));
     };
     let id = new_id(&registry, &name, number);
     let story = Story {
@@ -336,7 +338,7 @@ fn prepare_create(project: &Project, req: &StoryRequest) -> Result<Prepared, Ker
             after: Some(to_canonical(&Layout::default())),
         },
     ];
-    let label = format!("Geschichte „{name}“ angelegt");
+    let label = t!("stories.created_label", name = name).into_owned();
     Ok(Prepared::new(id, number, label, files))
 }
 
@@ -355,9 +357,10 @@ fn prepare_update(
     let rel = story_rel(number);
     let before = read_optional(root, &rel)?;
     let Some(bytes) = before.as_deref() else {
-        return refuse(format!(
-            "{id} hat keine Datei {}.",
-            rel.to_string_lossy().replace('\\', "/")
+        return refuse(t!(
+            "stories.no_file",
+            id = id,
+            file = rel.to_string_lossy().replace('\\', "/")
         ));
     };
     let old: Story =
@@ -403,9 +406,9 @@ fn prepare_update(
         }
     }
     if files.is_empty() {
-        return refuse(NOTHING_TO_CHANGE);
+        return refuse(nothing_to_change());
     }
-    let label = format!("Geschichte „{}“ geändert", story.name);
+    let label = t!("stories.changed_label", name = story.name).into_owned();
     Ok(Prepared::new(id.to_owned(), number, label, files))
 }
 
@@ -442,7 +445,7 @@ fn prepare_delete(project: &Project, id: &str) -> Result<Prepared, KernelError> 
             });
         }
     }
-    let label = format!("Geschichte „{name}“ gelöscht");
+    let label = t!("stories.deleted_label", name = name).into_owned();
     Ok(Prepared::new(id.to_owned(), number, label, files))
 }
 
@@ -510,9 +513,10 @@ pub fn append_step(
     };
     let Some(story) = super::schema::read_story(&project, number)? else {
         let rel = story_rel(number);
-        return refuse(format!(
-            "{id} hat keine Datei {}.",
-            rel.to_string_lossy().replace('\\', "/")
+        return refuse(t!(
+            "stories.no_file",
+            id = id,
+            file = rel.to_string_lossy().replace('\\', "/")
         ));
     };
     if story.steps.iter().any(|s| s.key == step.key) {

@@ -1,4 +1,5 @@
 import type { NextStep, RecipeId } from "../api";
+import { t } from "../i18n";
 import type { Tool } from "../ui/frame/shellState";
 import type { Area, IconName } from "../ui/primitives";
 import type { PaintFrame, PaintPatch } from "./paint/PaintContext";
@@ -16,50 +17,52 @@ export interface RecipeEntry {
   reason?: string;
 }
 
-/** Why a next step is locked, as the kernel's `next_steps` says it: playing comes with 3d.9, any other step without a recipe later. */
-const COMES_LATER = "Kommt später";
-const COMES_WITH_3D9 = "Kommt mit 3d.9";
+/** A recipe of the bar whose label and hint (`recipeBar.<id>.*`) are looked up each time they are read: the module loads before i18next has a language. */
+function barEntry(id: RecipeEntry["id"], icon: IconName, area: Area): RecipeEntry {
+  return {
+    id,
+    icon,
+    area,
+    get label() {
+      return t(`workbench:recipeBar.${id}.label`);
+    },
+    get hint() {
+      return t(`workbench:recipeBar.${id}.hint`);
+    },
+  };
+}
 
 /** The recipes of Erzählen: each opens its wizard (since 3d.5 none is locked). */
 export const RECIPE_BAR: readonly RecipeEntry[] = [
-  { id: "create_area", label: "Gebiet anlegen", icon: "matrix", area: "welt", hint: "Kopiert Karten zu einem neuen Gebiet mit eigenem Ort." },
-  { id: "create_room", label: "Raum anlegen", icon: "room", area: "welt", hint: "Kopiert einen Raum und verbindet ihn mit einer Tür nach draußen." },
-  { id: "new_figure", label: "Neue Figur", icon: "figure", area: "welt", hint: "Stellt eine Figur mit Aussehen und Text an eine Stelle." },
-  { id: "connect_doors", label: "Tür verbinden", icon: "door", area: "welt", hint: "Verbindet zwei Türen in beide Richtungen." },
-  { id: "new_trainer_here", label: "Neuer Trainer hier", icon: "pokemon", area: "pokemon", hint: "Stellt einen Trainer mit Team an eine Stelle." },
+  barEntry("create_area", "matrix", "welt"),
+  barEntry("create_room", "room", "welt"),
+  barEntry("new_figure", "figure", "welt"),
+  barEntry("connect_doors", "door", "welt"),
+  barEntry("new_trainer_here", "pokemon", "pokemon"),
 ];
+
+/** A next step of the table below; its label is `recipeBar.next.<id>`. */
+type StepId = "connect_doors" | "new_figure" | "adjust_terrain" | "create_area" | "edit_dialog" | "story_join" | "play_here" | "talk_advances" | "figure_appears" | "scene_on_enter";
 
 /**
  * The steps after each recipe, as the kernel's `next_steps` names them (`crates/g4-kernel/src/recipes/{area,room,extend,empty_region,
  * new_figure,connect_doors,new_trainer_here,new_story,talk_advances,figure_appears,scene_on_enter,reward_once,new_painted_map}.rs`). The wizards of 3d.5 show the kernel's own `outcome.next`; this table is for the wizards
  * that still call the old commands and for the tests that hold both together.
  */
-const NEXT: Partial<Record<RecipeId, [id: string, label: string][]>> = {
-  create_area: [
-    ["connect_doors", "Tür verbinden"],
-    ["new_figure", "Neue Figur hier"],
-  ],
-  create_room: [["new_figure", "Neue Figur hier"]],
-  extend_area: [["adjust_terrain", "Gelände anpassen"]],
-  empty_region: [["create_area", "Gebiet anlegen"]],
-  new_figure: [
-    ["edit_dialog", "Dialog bearbeiten"],
-    ["story_join", "Zu einer Geschichte"],
-  ],
-  connect_doors: [["play_here", "Hier spielen"]],
-  new_trainer_here: [["play_here", "Hier spielen"]],
-  new_story: [
-    ["talk_advances", "Gespräch schaltet weiter"],
-    ["figure_appears", "Figur erscheint ab Schritt"],
-  ],
-  talk_advances: [
-    ["figure_appears", "Figur erscheint ab Schritt"],
-    ["scene_on_enter", "Szene beim Betreten"],
-  ],
-  figure_appears: [["play_here", "Hier spielen"]],
-  scene_on_enter: [["play_here", "Hier spielen"]],
-  reward_once: [["play_here", "Hier spielen"]],
-  new_painted_map: [["adjust_terrain", "Gelände anpassen"]],
+const NEXT: Partial<Record<RecipeId, StepId[]>> = {
+  create_area: ["connect_doors", "new_figure"],
+  create_room: ["new_figure"],
+  extend_area: ["adjust_terrain"],
+  empty_region: ["create_area"],
+  new_figure: ["edit_dialog", "story_join"],
+  connect_doors: ["play_here"],
+  new_trainer_here: ["play_here"],
+  new_story: ["talk_advances", "figure_appears"],
+  talk_advances: ["figure_appears", "scene_on_enter"],
+  figure_appears: ["play_here"],
+  scene_on_enter: ["play_here"],
+  reward_once: ["play_here"],
+  new_painted_map: ["adjust_terrain"],
 };
 
 /** The recipes the kernel has (`recipes::list()`): a step to one of them runs. */
@@ -83,16 +86,16 @@ const KNOWN: readonly string[] = [
  * („Gespräch schaltet weiter“ with that figure) and „Gelände anpassen“ (painting the new map, `startPaintingWith`). */
 const ALWAYS: readonly string[] = ["edit_dialog", "story_join", "adjust_terrain"];
 
-/** Why a step the kernel does not run yet is locked (`types.rs` `next_steps`). */
+/** Why a step the kernel does not run yet is locked (`types.rs` `next_steps`): playing comes with 3d.9, any other step without a recipe later. */
 function lockReason(id: string): string {
-  return id === "play_here" ? COMES_WITH_3D9 : COMES_LATER;
+  return id === "play_here" ? t("workbench:recipeBar.comesWith3d9") : t("workbench:recipeBar.comesLater");
 }
 
 /** The next steps a wizard shows while it still calls the old command (the kernel's table). */
 export function nextStepsFor(recipe: RecipeId): NextStep[] {
-  return (NEXT[recipe] ?? []).map(([id, label]) => {
+  return (NEXT[recipe] ?? []).map((id) => {
     const available = KNOWN.includes(id) || ALWAYS.includes(id);
-    return { id, label, available, reason: available ? null : lockReason(id) };
+    return { id, label: t(`workbench:recipeBar.next.${id}`), available, reason: available ? null : lockReason(id) };
   });
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { KeyboardEvent, SyntheticEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { WorldMeta } from "../api";
 import { Dialog, Icon, Menu, Picker, TextField } from "../ui/primitives";
 import type { MenuEntry, PickerItem } from "../ui/primitives";
@@ -82,6 +83,7 @@ export function RenameDialog({
   onClose: () => void;
   onRename: (name: string) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const [text, setText] = useState(name);
   const submit = () => {
     const trimmed = text.trim();
@@ -95,8 +97,8 @@ export function RenameDialog({
       onOpenChange={(open) => !open && onClose()}
       title={title}
       actions={[
-        { label: "Abbrechen", onClick: onClose },
-        { label: "Umbenennen", kind: "primary", onClick: submit },
+        { label: t("roomActions.cancel"), onClick: onClose },
+        { label: t("roomActions.rename"), kind: "primary", onClick: submit },
       ]}
     >
       <div
@@ -107,13 +109,13 @@ export function RenameDialog({
         }}
       >
         <TextField
-          label="Name"
+          label={t("roomActions.name")}
           showLabel
           value={text}
           onChange={setText}
           onCommit={setText}
           placeholder={suggestion ?? undefined}
-          hint={suggestion !== null ? `Leer lassen für „${suggestion}“.` : "Leer lassen für den vorgeschlagenen Namen."}
+          hint={suggestion !== null ? t("roomActions.emptyFor", { suggestion }) : t("roomActions.emptyForSuggested")}
         />
       </div>
     </Dialog>
@@ -138,29 +140,30 @@ export function RoomActions({
   onRename: (target: RenameTarget, name: string) => void;
   onOwner: (room: number, areaKey: string | null) => void;
 }) {
+  const { t } = useTranslation("workbench");
   const [open, setOpen] = useState<"rename" | "owner" | null>(null);
   // Counts the openings of the rename dialog, which is keyed on it.
   const [renames, setRenames] = useState(0);
   const id = room.header.id;
   const items: MenuEntry[] = [
     {
-      label: "Umbenennen…",
+      label: t("roomActions.renameMenu"),
       onSelect: () => {
         setRenames((n) => n + 1);
         setOpen("rename");
       },
     },
-    { label: "Gehört zu Gebiet…", onSelect: () => setOpen("owner") },
-    ...(room.manual ? [{ label: "Zuordnung zurücksetzen", onSelect: () => onOwner(id, null) }] : []),
+    { label: t("roomActions.ownerMenu"), onSelect: () => setOpen("owner") },
+    ...(room.manual ? [{ label: t("roomActions.resetOwner"), onSelect: () => onOwner(id, null) }] : []),
   ];
   const choices: PickerItem[] = areas.filter((a) => a.key !== areaKey).map((a) => ({ id: a.key, label: a.name, tech: a.where }));
   return (
     <span className={styles.actions} onClick={stop} onKeyDown={stop}>
-      <Menu label={`Weitere Aktionen für ${room.name}`} trigger={<Icon name="more" />} items={items} />
+      <Menu label={t("roomActions.more", { name: room.name })} trigger={<Icon name="more" />} items={items} />
       <RenameDialog
         key={renames}
         open={open === "rename"}
-        title="Raum umbenennen"
+        title={t("roomActions.renameRoom")}
         name={room.name}
         suggestion={room.suggested}
         onClose={() => setOpen(null)}
@@ -169,11 +172,11 @@ export function RoomActions({
       <Picker
         open={open === "owner"}
         onOpenChange={(next) => !next && setOpen(null)}
-        title="Gehört zu Gebiet"
+        title={t("roomActions.owner")}
         items={choices}
         onPick={(item) => onOwner(id, String(item.id))}
-        placeholder="Gebiet suchen …"
-        emptyText="Kein Gebiet passt zur Suche."
+        placeholder={t("roomActions.searchArea")}
+        emptyText={t("roomActions.noArea")}
       />
     </span>
   );
@@ -181,6 +184,7 @@ export function RoomActions({
 
 /** The menu „Weitere Aktionen für <Name>“ at a world map: „Umbenennen…“. */
 export function WorldMapActions({ map, onRename }: { map: WorldMap; onRename: (target: RenameTarget, name: string) => void }) {
+  const { t } = useTranslation("workbench");
   const [renaming, setRenaming] = useState(false);
   const [renames, setRenames] = useState(0);
   const start = () => {
@@ -189,11 +193,11 @@ export function WorldMapActions({ map, onRename }: { map: WorldMap; onRename: (t
   };
   return (
     <span className={styles.actions} onClick={stop} onKeyDown={stop}>
-      <Menu label={`Weitere Aktionen für ${map.name}`} trigger={<Icon name="more" />} items={[{ label: "Umbenennen…", onSelect: start }]} />
+      <Menu label={t("roomActions.more", { name: map.name })} trigger={<Icon name="more" />} items={[{ label: t("roomActions.renameMenu"), onSelect: start }]} />
       <RenameDialog
         key={renames}
         open={renaming}
-        title="Weltkarte umbenennen"
+        title={t("roomActions.renameWorldMap")}
         name={map.name}
         suggestion={null}
         onClose={() => setRenaming(false)}

@@ -54,22 +54,19 @@ impl DevPolicy {
     /// lies in an original (`is_locked`).
     pub fn new(dirs: &[PathBuf]) -> Result<Roots, String> {
         if dirs.is_empty() {
-            return Err("Mindestens ein erlaubter Ordner (--allow-root) ist nötig".into());
+            return Err(t!("bridge.need_root").into_owned());
         }
         let dirs = dirs
             .iter()
             .map(|dir| {
-                let canonical = dir
-                    .canonicalize()
-                    .map_err(|e| format!("Ordner nicht lesbar: {}: {e}", dir.display()))?;
+                let canonical = dir.canonicalize().map_err(|e| {
+                    t!("bridge.folder_unreadable", path = dir.display(), error = e).into_owned()
+                })?;
                 if !canonical.is_dir() {
-                    return Err(format!("Kein Ordner: {}", dir.display()));
+                    return Err(t!("bridge.not_a_folder", path = dir.display()).into_owned());
                 }
                 if is_locked(&canonical) {
-                    return Err(format!(
-                        "Originale (_DSPRE_contents) sind gesperrt: {}",
-                        dir.display()
-                    ));
+                    return Err(t!("bridge.originals_locked", path = dir.display()).into_owned());
                 }
                 Ok(canonical)
             })
@@ -93,9 +90,9 @@ impl DevPolicy {
     /// Root containment first, then the original-project rule.
     fn check_canonical(&self, canonical: &Path, shown: &str) -> Result<(), CmdError> {
         if !self.dirs.iter().any(|root| canonical.starts_with(root)) {
-            return Err(CmdError::from(format!(
-                "Pfad liegt außerhalb der erlaubten Ordner: {shown}"
-            )));
+            return Err(CmdError::from(
+                t!("bridge.outside", path = shown).into_owned(),
+            ));
         }
         if is_locked(canonical) {
             return Err(locked(shown));
@@ -113,8 +110,16 @@ impl DevPolicy {
         let Some(build) = self.build_dir_to_make(parent, shown)? else {
             return Ok(());
         };
-        std::fs::create_dir(&build)
-            .map_err(|e| CmdError::from(format!("Ordner nicht anlegbar: {}: {e}", build.display())))
+        std::fs::create_dir(&build).map_err(|e| {
+            CmdError::from(
+                t!(
+                    "bridge.folder_not_created",
+                    path = build.display(),
+                    error = e
+                )
+                .into_owned(),
+            )
+        })
     }
 
     /// The canonical `build/` [`DevPolicy::make_build_dir`] would make for `parent`, without
@@ -143,7 +148,9 @@ impl Policy for DevPolicy {
     fn read_path(&self, path: &str) -> Result<PathBuf, CmdError> {
         let canonical = canonicalize(Path::new(path), path)?;
         if !canonical.is_file() {
-            return Err(CmdError::from(format!("Keine Datei: {path}")));
+            return Err(CmdError::from(
+                t!("bridge.not_a_file", path = path).into_owned(),
+            ));
         }
         if self
             .import_dirs
@@ -194,7 +201,7 @@ impl Policy for DevPolicy {
         let path = Path::new(out);
         let name = path
             .file_name()
-            .ok_or_else(|| CmdError::from(format!("Kein Dateiname: {out}")))?;
+            .ok_or_else(|| CmdError::from(t!("bridge.no_file_name", path = out).into_owned()))?;
         let parent = match path.parent() {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
@@ -219,9 +226,7 @@ impl Policy for DevPolicy {
 
     /// Running an emulator is not possible through the bridge.
     fn check_run(&self, _emulator: &str, _rom: &str) -> Result<(PathBuf, PathBuf), CmdError> {
-        Err(CmdError::from(
-            "Im Browser-Modus nicht verfügbar, g4emu benutzen",
-        ))
+        Err(CmdError::from(t!("bridge.no_emulator").into_owned()))
     }
 
     /// The first root: the bridge has no Documents folder.
@@ -237,7 +242,7 @@ impl Policy for DevPolicy {
         let path = Path::new(dest);
         let name = path
             .file_name()
-            .ok_or_else(|| CmdError::from(format!("Kein Dateiname: {dest}")))?;
+            .ok_or_else(|| CmdError::from(t!("bridge.no_file_name", path = dest).into_owned()))?;
         let parent = match path.parent() {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
@@ -246,10 +251,9 @@ impl Policy for DevPolicy {
         self.check_canonical(&parent, dest)?;
         let full = parent.join(name);
         if name.to_string_lossy().ends_with(LOCKED_SUFFIX) {
-            return Err(CmdError::from(format!(
-                "Originale (_DSPRE_contents) sind gesperrt: {dest}. \
-                 Im Browser-Modus ohne die Endung anlegen."
-            )));
+            return Err(CmdError::from(
+                t!("bridge.originals_locked_new", path = dest).into_owned(),
+            ));
         }
         if is_saves(&full) {
             return Err(saves(dest));
@@ -262,18 +266,17 @@ impl Policy for DevPolicy {
 }
 
 fn saves(shown: &str) -> CmdError {
-    CmdError::from(format!("Spielstände (_saves) sind gesperrt: {shown}"))
+    CmdError::from(t!("bridge.saves_locked", path = shown).into_owned())
 }
 
 fn locked(shown: &str) -> CmdError {
-    CmdError::from(format!(
-        "Originale (_DSPRE_contents) sind gesperrt: {shown}"
-    ))
+    CmdError::from(t!("bridge.originals_locked", path = shown).into_owned())
 }
 
 fn canonicalize(path: &Path, shown: &str) -> Result<PathBuf, CmdError> {
-    path.canonicalize()
-        .map_err(|e| CmdError::from(format!("Pfad nicht lesbar: {shown}: {e}")))
+    path.canonicalize().map_err(|e| {
+        CmdError::from(t!("bridge.path_unreadable", path = shown, error = e).into_owned())
+    })
 }
 
 #[cfg(test)]
@@ -332,7 +335,7 @@ mod tests {
         assert_eq!(err.code, "error");
         assert!(
             err.message
-                .starts_with("Pfad liegt außerhalb der erlaubten Ordner: "),
+                .starts_with("Path is outside the allowed folders: "),
             "{}",
             err.message
         );
@@ -348,7 +351,7 @@ mod tests {
             .unwrap_err();
         assert!(
             err.message
-                .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                .starts_with("Originals (_DSPRE_contents) are locked: "),
             "{}",
             err.message
         );
@@ -403,13 +406,13 @@ mod tests {
             let err = roots.check_project(path.to_str().unwrap()).unwrap_err();
             assert!(
                 err.message
-                    .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                    .starts_with("Originals (_DSPRE_contents) are locked: "),
                 "{}",
                 err.message
             );
             let out = path.join("out.nds");
             let err = roots.check_output(out.to_str().unwrap()).unwrap_err();
-            assert!(err.message.starts_with("Originale"), "{}", err.message);
+            assert!(err.message.starts_with("Originals"), "{}", err.message);
         }
         // An original is no root either.
         assert!(Roots::new(&[original]).is_err());
@@ -429,7 +432,7 @@ mod tests {
             .unwrap_err();
         assert!(
             err.message
-                .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                .starts_with("Originals (_DSPRE_contents) are locked: "),
             "{}",
             err.message
         );
@@ -447,8 +450,7 @@ mod tests {
             .check_project(saves.to_str().unwrap())
             .unwrap_err();
         assert!(
-            err.message
-                .starts_with("Spielstände (_saves) sind gesperrt: "),
+            err.message.starts_with("Save games (_saves) are locked: "),
             "{}",
             err.message
         );
@@ -465,7 +467,7 @@ mod tests {
             .unwrap_err();
         assert!(
             err.message
-                .starts_with("Pfad liegt außerhalb der erlaubten Ordner: "),
+                .starts_with("Path is outside the allowed folders: "),
             "{}",
             err.message
         );
@@ -481,7 +483,7 @@ mod tests {
         let roots = roots_in(&root);
         let err = roots.check_project(link.to_str().unwrap()).unwrap_err();
         assert!(
-            err.message.starts_with("Pfad liegt außerhalb"),
+            err.message.starts_with("Path is outside"),
             "{}",
             err.message
         );
@@ -489,7 +491,7 @@ mod tests {
         let out = link.join("out.nds");
         let err = roots.check_output(out.to_str().unwrap()).unwrap_err();
         assert!(
-            err.message.starts_with("Pfad liegt außerhalb"),
+            err.message.starts_with("Path is outside"),
             "{}",
             err.message
         );
@@ -559,14 +561,11 @@ mod tests {
         for (dir, refusal) in [
             (
                 original.as_path(),
-                "Originale (_DSPRE_contents) sind gesperrt: ",
+                "Originals (_DSPRE_contents) are locked: ",
             ),
-            (saves.as_path(), "Spielstände (_saves) sind gesperrt: "),
-            (other.path(), "Pfad liegt außerhalb der erlaubten Ordner: "),
-            (
-                link.as_path(),
-                "Pfad liegt außerhalb der erlaubten Ordner: ",
-            ),
+            (saves.as_path(), "Save games (_saves) are locked: "),
+            (other.path(), "Path is outside the allowed folders: "),
+            (link.as_path(), "Path is outside the allowed folders: "),
         ] {
             let out = dir.join("build").join("out.nds");
             let err = roots.check_output(out.to_str().unwrap()).unwrap_err();
@@ -584,7 +583,7 @@ mod tests {
             .check_output(out.to_str().unwrap())
             .unwrap_err();
         assert!(
-            err.message.starts_with("Pfad liegt außerhalb"),
+            err.message.starts_with("Path is outside"),
             "{}",
             err.message
         );
@@ -601,7 +600,7 @@ mod tests {
             .unwrap_err();
         assert!(
             err.message
-                .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                .starts_with("Originals (_DSPRE_contents) are locked: "),
             "{}",
             err.message
         );
@@ -617,8 +616,7 @@ mod tests {
             let err = roots.check_output(out.to_str().unwrap()).unwrap_err();
             assert_eq!(err.code, "error");
             assert!(
-                err.message
-                    .starts_with("Spielstände (_saves) sind gesperrt: "),
+                err.message.starts_with("Save games (_saves) are locked: "),
                 "{}",
                 err.message
             );
@@ -639,8 +637,7 @@ mod tests {
             let err = roots.check_project(path.to_str().unwrap()).unwrap_err();
             assert_eq!(err.code, "error");
             assert!(
-                err.message
-                    .starts_with("Spielstände (_saves) sind gesperrt: "),
+                err.message.starts_with("Save games (_saves) are locked: "),
                 "{}",
                 err.message
             );
@@ -661,7 +658,7 @@ mod tests {
         );
         // A folder is not a file.
         let err = roots.read_path(root.path().to_str().unwrap()).unwrap_err();
-        assert!(err.message.starts_with("Keine Datei"), "{}", err.message);
+        assert!(err.message.starts_with("Not a file"), "{}", err.message);
         // Outside, through a symlink, and inside an original.
         let outside = other.path().join("m.nsbmd");
         fs::write(&outside, b"BMD0").unwrap();
@@ -670,7 +667,7 @@ mod tests {
         for path in [&outside, &link] {
             let err = roots.read_path(path.to_str().unwrap()).unwrap_err();
             assert!(
-                err.message.starts_with("Pfad liegt außerhalb"),
+                err.message.starts_with("Path is outside"),
                 "{}",
                 err.message
             );
@@ -681,7 +678,7 @@ mod tests {
         let err = roots
             .read_path(locked.join("m.per").to_str().unwrap())
             .unwrap_err();
-        assert!(err.message.starts_with("Originale"), "{}", err.message);
+        assert!(err.message.starts_with("Originals"), "{}", err.message);
         // Export follows the build target rules.
         assert!(
             roots
@@ -708,7 +705,7 @@ mod tests {
             .check_output(out.to_str().unwrap())
             .unwrap_err();
         assert!(
-            err.message.starts_with("Pfad liegt außerhalb"),
+            err.message.starts_with("Path is outside"),
             "{}",
             err.message
         );
@@ -739,11 +736,15 @@ mod tests {
             .unwrap_err();
         assert!(
             err.message
-                .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                .starts_with("Originals (_DSPRE_contents) are locked: "),
             "{}",
             err.message
         );
-        assert!(err.message.contains("ohne die Endung"), "{}", err.message);
+        assert!(
+            err.message.contains("without the suffix"),
+            "{}",
+            err.message
+        );
         assert!(
             err.message.contains(dest.to_str().unwrap()),
             "{}",
@@ -761,7 +762,7 @@ mod tests {
             .check_new_project(other.path().join("neu").to_str().unwrap())
             .unwrap_err();
         assert!(
-            err.message.starts_with("Pfad liegt außerhalb"),
+            err.message.starts_with("Path is outside"),
             "{}",
             err.message
         );
@@ -770,8 +771,7 @@ mod tests {
         for dest in [saves.join("neu"), saves.clone()] {
             let err = roots.check_new_project(dest.to_str().unwrap()).unwrap_err();
             assert!(
-                err.message
-                    .starts_with("Spielstände (_saves) sind gesperrt: "),
+                err.message.starts_with("Save games (_saves) are locked: "),
                 "{}",
                 err.message
             );
@@ -780,13 +780,13 @@ mod tests {
         let err = roots
             .check_new_project(root.path().join("..").to_str().unwrap())
             .unwrap_err();
-        assert!(err.message.starts_with("Kein Dateiname"), "{}", err.message);
+        assert!(err.message.starts_with("No file name"), "{}", err.message);
         // An existing link that leads out of the root is refused.
         let link = root.path().join("link");
         symlink(other.path(), &link).unwrap();
         let err = roots.check_new_project(link.to_str().unwrap()).unwrap_err();
         assert!(
-            err.message.starts_with("Pfad liegt außerhalb"),
+            err.message.starts_with("Path is outside"),
             "{}",
             err.message
         );
@@ -800,7 +800,7 @@ mod tests {
             .check_new_project(dest.to_str().unwrap())
             .unwrap_err();
         assert!(
-            err.message.starts_with("Pfad nicht lesbar"),
+            err.message.starts_with("Path not readable"),
             "{}",
             err.message
         );

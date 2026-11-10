@@ -175,13 +175,13 @@ pub(crate) fn surplus_problem(
     Some(problem(
         &art.dir().join(format!("{from:04}.json")),
         MEMBER_WITHOUT_JSON_CODE,
-        format!(
-            "{ROOT}: die Archive haben verschieden viele Member ({}); ab {from:04} hat ein Member \
-             kein Gegenstück. Weder Export noch Import legen ein Gegenstück an: das Member in \
-             DSPRE ergänzen oder entfernen (es ist keine Entität, die sich im Studio löschen \
-             ließe).",
-            archives.join(", ")
-        ),
+        t!(
+            "textproject.archives_differ",
+            root = ROOT,
+            archives = archives.join(", "),
+            from = from : {:04}
+        )
+        .into_owned(),
     ))
 }
 

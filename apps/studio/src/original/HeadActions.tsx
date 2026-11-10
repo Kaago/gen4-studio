@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { EntityStateBadge, Icon, Menu } from "../ui/primitives";
 import type { EntityState, MenuEntry } from "../ui/primitives";
 import styles from "./HeadActions.module.css";
@@ -18,11 +19,12 @@ export function HeadActions({
   /** How the entity stands against the base ROM or as a tombstone: „geändert“, „neu“, „gelöscht“ beside the menu. */
   state?: EntityState | null;
 }) {
+  const { t } = useTranslation("original");
   if (items.length === 0 && state === null) return null;
   return (
     <span className={push ? `${styles.actions} ${styles.push}` : styles.actions}>
       {state !== null && <EntityStateBadge state={state} />}
-      {items.length > 0 && <Menu label="Aktionen" trigger={<Icon name="more" />} items={items} />}
+      {items.length > 0 && <Menu label={t("headActions.actions")} trigger={<Icon name="more" />} items={items} />}
     </span>
   );
 }

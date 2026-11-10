@@ -1,5 +1,13 @@
 # Grenzen und Ausnahmen der Prüfungen (`check_limits.yaml`)
 
+**In English:** Documents `check_limits.yaml`, the table of limits and exceptions behind the project
+checks, for example the width of a dialog line in pixels, the maximum size of a map model and of its
+BDHC, and the one warp target that is read from the save game. Every entry has a value, a meaning, a
+source (a place in the pret decompilations or a measurement on the three test projects) and a
+`verified` flag. The file is `crates/g4-kernel/metadata/check_limits.yaml`, read by
+`crates/g4-kernel/src/checks/limits.rs`. Besides the checks, the map part import and the per-map
+budget read it.
+
 Quelle der Werte: [task0-3b4.md](../research/2026-10-23-3b4/task0-3b4.md) §1–§4 (pret `pokeplatinum`
 `be36a9db3d2390a5009adc087c7aef550ce335e7`, `pokeheartgold` `6988158691eb6178cff697cda0428045ddcba5fb`, Messungen auf Platin DE,
 HeartGold DE und HeartGold US) und [checks-report.md](../research/2026-10-23-3b4/checks-report.md).

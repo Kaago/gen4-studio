@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { CheckProblemDto } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
@@ -38,14 +39,15 @@ export function findingsFor(rows: readonly ProblemRow[], model: InspectorModel):
 
 /** The section „Prüfungen“ (spec 3b.4 §8): what the checks found at the record, with „Beheben…“ and „Ausblenden“; nothing without findings. */
 export function ChecksSection({ findings, checks, depth = "bauen" }: { findings: readonly CheckProblemDto[]; checks: ChecksApi | null; depth?: Depth }) {
+  const { t } = useTranslation("workbench");
   const [open, toggle] = useSectionOpen("checks", true);
   const [fixing, setFixing] = useState<CheckProblemDto | null>(null);
   if (findings.length === 0) return null;
   return (
     <>
-      <Section title="Prüfungen" count={findings.length} open={open} onToggle={toggle}>
+      <Section title={t("checksSection.title")} count={findings.length} open={open} onToggle={toggle}>
         <div className={styles.pad}>
-          <CheckList ariaLabel="Prüfungen" rows={findings.map((f) => findingRow(f, depth, <FindingActions f={f} checks={checks} onFix={setFixing} open={false} />))} />
+          <CheckList ariaLabel={t("checksSection.title")} rows={findings.map((f) => findingRow(f, depth, <FindingActions f={f} checks={checks} onFix={setFixing} open={false} />))} />
         </div>
       </Section>
       {fixing !== null && checks !== null && <FixDialog finding={fixing} checks={checks} depth={depth} onClose={() => setFixing(null)} />}

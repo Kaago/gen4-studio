@@ -103,7 +103,7 @@ fn data_edit_personal_records_a_speaking_label() {
     let changed =
         data_edit_impl(&state, DataKind::Species, 1, personal("attack", 85), None).unwrap();
     assert_eq!(changed, [id(AssetKind::Personal, 1)]);
-    assert_eq!(last_label(&state), "Bulbasaur: Angriff 3 → 85");
+    assert_eq!(last_label(&state), "Bulbasaur: Attack 3 → 85");
     let (now, saved, _, _) = species(&state, 1);
     assert_eq!(
         (now.attack, saved.attack),
@@ -122,10 +122,10 @@ fn data_edit_personal_records_a_speaking_label() {
     .unwrap();
     assert_eq!(
         last_label(&state),
-        "Deoxys, Angriffsform: EV-Ertrag Initiative 0 → 3"
+        "Deoxys, Angriffsform: EV yield Speed 0 → 3"
     );
     data_edit_impl(&state, DataKind::Species, 4, personal("speed", 1), None).unwrap();
-    assert_eq!(last_label(&state), "Art 0004: Initiative 8 → 1");
+    assert_eq!(last_label(&state), "Species 0004: Speed 8 → 1");
     data_edit_impl(
         &state,
         DataKind::Species,
@@ -134,7 +134,7 @@ fn data_edit_personal_records_a_speaking_label() {
         None,
     )
     .unwrap();
-    assert_eq!(last_label(&state), "Bulbasaur: TM40 aus → an");
+    assert_eq!(last_label(&state), "Bulbasaur: TM40 off → on");
     // The caller's own label wins.
     data_edit_impl(
         &state,
@@ -195,7 +195,7 @@ fn copy_moves_is_one_history_step() {
         None,
     )
     .unwrap();
-    assert_eq!(last_label(&state), "Bulbasaur: Lernset 2 → 3 Attacken");
+    assert_eq!(last_label(&state), "Bulbasaur: Learnset 2 → 3 moves");
     let (_, _, before_learnset, before_tm) = species(&state, 2);
 
     let changed = data_edit_impl(
@@ -212,7 +212,10 @@ fn copy_moves_is_one_history_step() {
     );
     let history = history_impl(&state).unwrap();
     assert_eq!(history.undo.len(), 2);
-    assert_eq!(history.undo[1], "Ivysaur: TM/VM und Lernset wie Bulbasaur");
+    assert_eq!(
+        history.undo[1],
+        "Ivysaur: TM/HM and learnset like Bulbasaur"
+    );
     let (_, _, learnset, tm) = species(&state, 2);
     let (_, _, _, source_tm) = species(&state, 1);
     assert_eq!((learnset, &tm), (three, &source_tm));
@@ -293,7 +296,7 @@ fn data_get_locked_member_reports_reason_and_raw_bytes() {
         None,
     )
     .unwrap();
-    assert_eq!(last_label(&state), "Daten 0016: Preis 1600 → 250");
+    assert_eq!(last_label(&state), "Data 0016: Price 1600 → 250");
 }
 
 #[test]
@@ -358,7 +361,7 @@ fn moves_encounters_and_trainers() {
         None,
     )
     .unwrap();
-    assert_eq!(last_label(&state), "Pound: Stärke 10 → 65");
+    assert_eq!(last_label(&state), "Pound: Power 10 → 65");
     // Move 3 has no name in the bank.
     data_edit_impl(
         &state,
@@ -371,7 +374,7 @@ fn moves_encounters_and_trainers() {
         None,
     )
     .unwrap();
-    assert_eq!(last_label(&state), "Attacke 0003: Priorität 0 → -1");
+    assert_eq!(last_label(&state), "Move 0003: Priority 0 → -1");
 
     let encounters = data_list_impl(&state, DataKind::Encounter, None).unwrap();
     assert_eq!(encounters.len(), 2);
@@ -394,7 +397,7 @@ fn moves_encounters_and_trainers() {
     .unwrap();
     assert_eq!(
         last_label(&state),
-        "Begegnungen 0001: Gras Platz 1 Pokémon 1 → 3"
+        "Encounters 0001: Grass slot 1 Pokémon 1 → 3"
     );
     data_edit_impl(
         &state,
@@ -404,7 +407,7 @@ fn moves_encounters_and_trainers() {
         None,
     )
     .unwrap();
-    assert_eq!(last_label(&state), "Begegnungen 0001: Gras Rate 10 → 25");
+    assert_eq!(last_label(&state), "Encounters 0001: Grass Rate 10 → 25");
     match data_get_impl(&state, DataKind::Encounter, 1).unwrap() {
         DataDocDto::Encounter {
             methods,
@@ -572,9 +575,9 @@ fn data_get_trainer_lists_party_texts_and_events() {
         value,
     };
     data_edit_impl(&state, DataKind::Trainer, 1, field("ai", 7), None).unwrap();
-    assert_eq!(last_label(&state), "Youngster Kai: KI 0 → 7");
+    assert_eq!(last_label(&state), "Youngster Kai: AI 0 → 7");
     data_edit_impl(&state, DataKind::Trainer, 1, field("item2", 28), None).unwrap();
-    assert_eq!(last_label(&state), "Youngster Kai: Gegenstand 3 0 → 28");
+    assert_eq!(last_label(&state), "Youngster Kai: Item 3 0 → 28");
     let mut mons = party(&state, 1);
     mons[0].level = 14;
     let changed = data_edit_impl(
@@ -654,7 +657,7 @@ fn trainer_format_on_fills_default_moves_in_one_step() {
     let changed =
         data_edit_impl(&state, DataKind::Trainer, 1, format(Some(true), None), None).unwrap();
     assert_eq!(changed, [id(AssetKind::Trainer, 1)]);
-    assert_eq!(last_label(&state), "Youngster Kai: eigene Attacken an");
+    assert_eq!(last_label(&state), "Youngster Kai: own moves on");
     assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 1);
     assert_eq!(party(&state, 1)[0].moves, Some([1, 2, 0, 0]));
     match trainer(&state, 1) {
@@ -681,7 +684,7 @@ fn trainer_format_on_fills_default_moves_in_one_step() {
     .unwrap();
     assert_eq!(
         last_label(&state),
-        "Youngster Kai: eigene Attacken an, Items tragen an"
+        "Youngster Kai: own moves on, hold items on"
     );
     assert_eq!(party(&state, 1)[0].item, Some(0));
     data_edit_impl(
@@ -737,7 +740,7 @@ fn six_pokemon_moves_off_undo_and_on_follow_the_game_rule() {
     .unwrap();
     assert_eq!(
         last_label(&state),
-        "Pokémon Trainer Mia: Team 3 → 6 Pokémon"
+        "Pokémon Trainer Mia: Party 3 → 6 Pokémon"
     );
     assert_trainer_round_trips(&state, 2);
     let moves = |state: &AppState| party(state, 2).iter().map(|m| m.moves).collect::<Vec<_>>();
@@ -785,7 +788,7 @@ fn trainer_name_over_seven_chars_is_refused() {
     let err = data_edit_impl(&state, DataKind::Trainer, 1, name("Bartholo"), None).unwrap_err();
     assert_eq!(
         err.message,
-        "Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch"
+        "At most 7 characters; longer names need an arm9 patch"
     );
     assert_eq!(history_impl(&state).unwrap().undo.len(), steps);
     // Seven fit.
@@ -849,7 +852,7 @@ fn data_get_encounter_carries_shares_and_warnings() {
                     "dual_leafgreen"
                 ]
             );
-            assert_eq!(replacements[2].label, "Schwarm");
+            assert_eq!(replacements[2].label, "Swarm");
             assert_eq!(extras.form_rates, Some([0; 5]));
             // The empty swarm entry 0 replaces an occupied slot: a warning on grass slot 0.
             let swarm: Vec<_> = warnings
@@ -908,7 +911,7 @@ fn data_get_encounter_carries_shares_and_warnings() {
     .unwrap();
     assert_eq!(
         last_label(&state),
-        "Begegnungen 0000: Schwarm Platz 1 Pokémon 0 → 2"
+        "Encounters 0000: Swarm slot 1 Pokémon 0 → 2"
     );
     data_edit_impl(
         &state,
@@ -959,7 +962,7 @@ fn encounter_min_above_max_pulls_max() {
     assert_eq!(surf(&state), (20, 20));
     assert_eq!(
         last_label(&state),
-        "Begegnungen 0001: Surfen Platz 1 Mindestlevel 0 → 20"
+        "Encounters 0001: Surfing slot 1 Minimum level 0 → 20"
     );
     assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 1);
     data_edit_impl(&state, DataKind::Encounter, 1, encounter("max", 5), None).unwrap();
@@ -1003,7 +1006,7 @@ fn encounter_swap_is_one_undo_step_and_data_get_shows_it() {
     let changed =
         data_edit_impl(&state, DataKind::Encounter, 0, swap("grass", 2, 7), None).unwrap();
     assert_eq!(changed, [id(AssetKind::Encounter, 0)]);
-    assert_eq!(last_label(&state), "Begegnungen 0000: Gras Platz 3 ↔ 8");
+    assert_eq!(last_label(&state), "Encounters 0000: Grass slot 3 ↔ 8");
     assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 1);
     let after = grass(&state);
     assert_eq!((after[2], after[7]), ((3, 9, 9), (2, 4, 4)));
@@ -1059,10 +1062,7 @@ fn create_trainer_command_reports_placeholder() {
     let err = create_trainer_impl(&state, 1, "Jens").unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        (
-            "error",
-            "Erst Scripts übernehmen (Bereich Welt, Panel Script)"
-        )
+        ("error", "Adopt the scripts first (World, panel “Script”)")
     );
 
     let (_fixture, state, meta) = open_synthetic_with_battle_script();
@@ -1148,10 +1148,7 @@ fn create_trainer_command_reports_placeholder() {
     let err = undo_impl(&state).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        (
-            "error",
-            "Trainer 5 anlegen lässt sich nicht rückgängig machen"
-        )
+        ("error", "Creating trainer 5 cannot be undone")
     );
     assert_eq!(history_impl(&state).unwrap(), history);
     match trainer(&state, 5) {
@@ -1292,7 +1289,7 @@ fn refs_name_the_place_and_where_a_click_leads() {
         .iter()
         .find(|r| r.source == id(AssetKind::Evolution, 1))
         .unwrap();
-    assert_eq!(evolution.label, "Bulbasaur, Entwicklung 1 Ziel");
+    assert_eq!(evolution.label, "Bulbasaur, Evolution 1 Target");
     // The name of the source on its own: the UI never cuts it out of the label.
     assert_eq!(evolution.source_name, "Bulbasaur");
     assert_eq!(
@@ -1305,8 +1302,8 @@ fn refs_name_the_place_and_where_a_click_leads() {
         .iter()
         .find(|r| r.source == id(AssetKind::Encounter, 0))
         .unwrap();
-    assert_eq!(wild.label, "Begegnungen 0000, Gras Platz 1");
-    assert_eq!(wild.source_name, "Begegnungen 0000");
+    assert_eq!(wild.label, "Encounters 0000, Grass slot 1");
+    assert_eq!(wild.source_name, "Encounters 0000");
     assert_eq!(
         serde_json::to_value(&wild.nav).unwrap(),
         json!({ "kind": "header", "id": 0 })
@@ -1315,7 +1312,7 @@ fn refs_name_the_place_and_where_a_click_leads() {
         .iter()
         .find(|r| r.source == id(AssetKind::TrainerParty, 1))
         .unwrap();
-    assert_eq!(party.label, "Trainer 0001 Kai, Team Platz 1");
+    assert_eq!(party.label, "Trainer 0001 Kai, Party slot 1");
     assert_eq!(party.source_name, "Trainer 0001 Kai");
     assert_eq!(
         serde_json::to_value(&party.nav).unwrap(),
@@ -1336,16 +1333,16 @@ fn refs_name_the_place_and_where_a_click_leads() {
         None,
     )
     .unwrap();
-    assert_eq!(last_label(&state), "Ivysaur: Entwicklung 1 geändert");
+    assert_eq!(last_label(&state), "Ivysaur: Evolution 1 changed");
     let refs = refs_impl(&state, TargetDto::Species { index: 3 }).unwrap();
     assert!(
         refs.iter()
-            .any(|r| r.label == "Ivysaur, Entwicklung 1 Ziel")
+            .any(|r| r.label == "Ivysaur, Evolution 1 Target")
     );
 
     let learned = refs_impl(&state, TargetDto::Move { index: 2 }).unwrap();
     assert_eq!(learned.len(), 508, "every synthetic learnset knows move 2");
-    assert_eq!(learned[1].label, "Bulbasaur, Lernset Platz 2");
+    assert_eq!(learned[1].label, "Bulbasaur, Learnset slot 2");
     assert_eq!(learned[1].source_name, "Bulbasaur");
 }
 
@@ -1370,7 +1367,10 @@ fn diamond_and_pearl_are_locked() {
         data_raw_impl(&state, DataKind::Item, 1).unwrap_err(),
         data_edit_impl(&state, DataKind::Species, 1, personal("hp", 1), None).unwrap_err(),
     ] {
-        assert_eq!((err.code, err.message.as_str()), ("read_only", DP_LOCKED));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("read_only", dp_locked().as_str())
+        );
     }
 }
 
@@ -1433,7 +1433,7 @@ fn vanilla_data_commands_on_copy() {
     data_edit_impl(&state, DataKind::Species, 397, personal("attack", to), None).unwrap();
     assert_eq!(
         last_label(&state),
-        format!("{}: Angriff {} → {to}", rows[397].name, before.attack)
+        format!("{}: Attack {} → {to}", rows[397].name, before.attack)
     );
 
     let start = std::time::Instant::now();
@@ -1499,7 +1499,7 @@ fn vanilla_data_commands_on_copy() {
     let changed = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&swapped), None).unwrap();
     assert_eq!(changed, [id(AssetKind::EggMoves, 0)]);
     let label = last_label(&state);
-    assert!(label.ends_with(": Ei-Attacken getauscht"), "{label}");
+    assert!(label.ends_with(": Egg moves changed"), "{label}");
     assert_eq!(egg_moves_of(&state, 1).unwrap().moves, swapped);
     undo_impl(&state).unwrap();
     let undone = egg_moves_of(&state, 1).unwrap();
@@ -1595,7 +1595,7 @@ fn items_are_keyed_by_item_id_with_a_plausible_table() {
     let shares = (2..468).step_by(20).count();
     assert_eq!(
         last_label(&state),
-        format!("Ultra Ball: Preis 200 → 250, gilt für {shares} Gegenstände")
+        format!("Ultra Ball: Price 200 → 250, applies to {shares} items")
     );
 }
 
@@ -1988,14 +1988,14 @@ fn egg_moves_edit_records_a_speaking_label_and_undoes() {
     eight.push(2);
     let changed = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&eight), None).unwrap();
     assert_eq!(changed, [id(AssetKind::EggMoves, 0)]);
-    assert_eq!(last_label(&state), "Art 0001: Ei-Attacken 7 → 8");
+    assert_eq!(last_label(&state), "Species 0001: Egg moves 7 → 8");
     assert_eq!(egg_moves_of(&state, 1).unwrap().moves, eight);
 
     // The same number of moves in another order: a swap.
     let mut swapped = eight.clone();
     swapped.reverse();
     data_edit_impl(&state, DataKind::Species, 1, egg_patch(&swapped), None).unwrap();
-    assert_eq!(last_label(&state), "Art 0001: Ei-Attacken getauscht");
+    assert_eq!(last_label(&state), "Species 0001: Egg moves changed");
     // Nothing changed: no step.
     let before = history_impl(&state).unwrap().undo.len();
     assert!(
@@ -2051,12 +2051,12 @@ fn platinum_add_without_remove_is_refused_swap_and_trade_pass() {
     let (fixture, state) = open_platinum_egg_moves(g4_kernel::test_support::PT_EGG_MOVES_OFFSET);
     // The table fills the budget: a swap keeps the word count.
     data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[2, 1]), None).unwrap();
-    assert_eq!(last_label(&state), "Bulbasaur: Ei-Attacken getauscht");
+    assert_eq!(last_label(&state), "Bulbasaur: Egg moves changed");
     // One species gives one move up, another takes one: two steps, both pass.
     data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[2]), None).unwrap();
-    assert_eq!(last_label(&state), "Bulbasaur: Ei-Attacken 2 → 1");
+    assert_eq!(last_label(&state), "Bulbasaur: Egg moves 2 → 1");
     data_edit_impl(&state, DataKind::Species, 4, egg_patch(&[3, 1]), None).unwrap();
-    assert_eq!(last_label(&state), "Art 0004: Ei-Attacken 1 → 2");
+    assert_eq!(last_label(&state), "Species 0004: Egg moves 1 → 2");
     assert_eq!(
         egg_moves_of(&state, 4).unwrap().budget,
         Some(BudgetDto {
@@ -2070,10 +2070,7 @@ fn platinum_add_without_remove_is_refused_swap_and_trade_pass() {
         data_edit_impl(&state, DataKind::Species, 4, egg_patch(&[3, 1, 2]), None).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        (
-            "error",
-            "Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen"
-        )
+        ("error", "Egg move table full: 1 910 of 1 910 entries")
     );
     // Removing species 1 would lose the signature the next open looks for: refused too.
     let err = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[]), None).unwrap_err();
@@ -2119,12 +2116,12 @@ fn egg_moves_edit_on_a_locked_table_is_refused_with_the_reason() {
     let doc = egg_moves_of(&state, 1).unwrap();
     assert_eq!(
         doc.locked.as_deref(),
-        Some("Ei-Attacken: Lage in Overlay 5 für CPUE nicht geprüft")
+        Some("Egg moves: location in overlay 5 not checked for CPUE")
     );
     let err = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[1]), None).unwrap_err();
     assert_eq!(err.code, "read_only");
     assert!(
-        err.message.contains("für CPUE nicht geprüft"),
+        err.message.contains("not checked for CPUE"),
         "{}",
         err.message
     );

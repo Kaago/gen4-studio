@@ -1,5 +1,5 @@
-//! Resetting an entity to the base ROM ("Auf Original zurücksetzen"): the targets
-//! ([`ResetTarget`]), the base they are read from ([`Original`]), the plan with German
+//! Resetting an entity to the base ROM („Auf Original zurücksetzen“): the targets
+//! ([`ResetTarget`]), the base they are read from ([`Original`]), the plan with translated
 //! before/after lines ([`plan_reset`]) and the reset itself as one undo step ([`reset`]).
 //!
 //! Store kinds (map, event file, text archive, trainer, species, encounter) are reset with
@@ -39,13 +39,21 @@ use crate::store::{FileChange, FileStep, HEADER_TABLE, MapHeader, Store, trainer
 use crate::text::TextArchiveDoc;
 
 /// Why an entity cannot be reset: the base ROM has no such entry (a new entity).
-pub const NO_ORIGINAL: &str = "Kein Original: diesen Eintrag gibt es in der Basis-ROM nicht.";
+pub fn no_original() -> String {
+    t!("original.no_original").into_owned()
+}
 /// Why a message cannot be reset: the base archive has fewer messages.
-pub const NEW_MESSAGE: &str = "Neue Nachricht, kein Original.";
+pub fn new_message() -> String {
+    t!("original.new_message").into_owned()
+}
 /// Why a changed asset of another kind (matrix, area data, moves, ...) has no reset.
-pub const NOT_RESETTABLE: &str = "Für diese Art gibt es kein Zurücksetzen.";
+pub fn not_resettable() -> String {
+    t!("original.not_resettable").into_owned()
+}
 /// Why [`reset`] refuses `fields` for a target other than a header.
-pub const FIELDS_ONLY_FOR_HEADERS: &str = "Einzelne Felder gibt es nur bei einem Header.";
+pub fn fields_only_for_headers() -> String {
+    t!("original.fields_only_for_headers").into_owned()
+}
 
 /// The fields of `header` as serde names them inside its family variant, with their JSON values.
 /// They come in the order the struct declares them (serde_json keeps the order).
@@ -233,14 +241,16 @@ impl ResetTarget {
         }
     }
 
-    /// The German name of the entity: „Karte 0003“, „Nachricht 2 in Textarchiv 0005“,
-    /// „Header 0012“ (the words of [`asset_label`]).
+    /// The name of the entity in the current locale: „Map 0003“, „Message 2 in Text archive
+    /// 0005“, „Header 0012“ (the words of [`asset_label`]).
     pub fn label(&self) -> String {
         match *self {
-            ResetTarget::TextMessage { archive, message } => format!(
-                "Nachricht {message} in {}",
-                asset_label(asset(AssetKind::TextArchive, archive))
-            ),
+            ResetTarget::TextMessage { archive, message } => t!(
+                "original.message_in_archive",
+                message = message,
+                archive = asset_label(asset(AssetKind::TextArchive, archive))
+            )
+            .into_owned(),
             ResetTarget::Header { id } => format!("Header {id:04}"),
             _ => asset_label(self.assets()[0]),
         }
@@ -338,49 +348,51 @@ pub struct ResetResult {
     pub ms: u64,
 }
 
-/// The German name of an asset with its four-digit index, as the user sees it in messages
-/// about it ("Karte 0003", "Scriptdatei 0012"). Personal data, learnset and evolution are
-/// the Pokémon they belong to.
+/// The name of an asset with its four-digit index in the current locale, as the user sees
+/// it in messages about it („Map 0003“, „Script file 0012“). Personal data, learnset and
+/// evolution are the Pokémon they belong to.
 pub fn asset_label(id: AssetId) -> String {
     let word = match id.kind {
-        AssetKind::Map => "Karte",
-        AssetKind::Matrix => "Matrix",
-        AssetKind::AreaData => "Gebietsdaten",
-        AssetKind::Event => "Eventdatei",
-        AssetKind::TextArchive => "Textarchiv",
-        AssetKind::MapTexture => "Kartentextur",
-        AssetKind::BuildingTexture => "Gebäudetextur",
-        AssetKind::BuildingModel => "Gebäudemodell",
-        AssetKind::InteriorBuildingModel => "Innenraum-Gebäudemodell",
-        AssetKind::HeaderTable => "Header",
-        AssetKind::DynamicHeaders => "Dynamische Header",
-        AssetKind::Script => "Scriptdatei",
-        AssetKind::Encounter => "Begegnungsdatei",
-        AssetKind::Personal | AssetKind::Learnset | AssetKind::Evolution => "Pokémon",
-        AssetKind::Move => "Attacke",
-        AssetKind::Item => "Item",
-        AssetKind::TrainerProperties => "Trainer-Eigenschaften",
-        AssetKind::TrainerParty => "Trainer-Team",
-        AssetKind::TrainerTextTable => "Trainertexte",
-        AssetKind::TrainerTextOffsets => "Trainertext-Offsets",
-        AssetKind::ItemIcons => "Item-Symbole",
-        AssetKind::MonIcons => "Pokémon-Symbole",
-        AssetKind::Trainer => "Trainer",
-        AssetKind::PokemonBattleSprites => "Kampfbild",
-        AssetKind::OtherPokemonBattleSprites => "Formen-Kampfbild",
-        AssetKind::TrainerGraphics => "Trainerbild",
-        AssetKind::EggMoves => "Ei-Attacken",
-        AssetKind::WorldMap => "Welt",
+        AssetKind::Map => t!("original.kind_map"),
+        AssetKind::Matrix => t!("original.kind_matrix"),
+        AssetKind::AreaData => t!("original.kind_area_data"),
+        AssetKind::Event => t!("original.kind_event"),
+        AssetKind::TextArchive => t!("original.kind_text_archive"),
+        AssetKind::MapTexture => t!("original.kind_map_texture"),
+        AssetKind::BuildingTexture => t!("original.kind_building_texture"),
+        AssetKind::BuildingModel => t!("original.kind_building_model"),
+        AssetKind::InteriorBuildingModel => t!("original.kind_interior_building_model"),
+        AssetKind::HeaderTable => t!("original.kind_header_table"),
+        AssetKind::DynamicHeaders => t!("original.kind_dynamic_headers"),
+        AssetKind::Script => t!("original.kind_script"),
+        AssetKind::Encounter => t!("original.kind_encounter"),
+        AssetKind::Personal | AssetKind::Learnset | AssetKind::Evolution => {
+            t!("original.kind_species")
+        }
+        AssetKind::Move => t!("original.kind_move"),
+        AssetKind::Item => t!("original.kind_item"),
+        AssetKind::TrainerProperties => t!("original.kind_trainer_properties"),
+        AssetKind::TrainerParty => t!("original.kind_trainer_party"),
+        AssetKind::TrainerTextTable => t!("original.kind_trainer_text_table"),
+        AssetKind::TrainerTextOffsets => t!("original.kind_trainer_text_offsets"),
+        AssetKind::ItemIcons => t!("original.kind_item_icons"),
+        AssetKind::MonIcons => t!("original.kind_mon_icons"),
+        AssetKind::Trainer => t!("original.kind_trainer"),
+        AssetKind::PokemonBattleSprites => t!("original.kind_battle_sprite"),
+        AssetKind::OtherPokemonBattleSprites => t!("original.kind_form_battle_sprite"),
+        AssetKind::TrainerGraphics => t!("original.kind_trainer_graphics"),
+        AssetKind::EggMoves => t!("original.kind_egg_moves"),
+        AssetKind::WorldMap => t!("original.kind_world"),
     };
     format!("{word} {:04}", id.index)
 }
 
-/// The line of a tombstone in a plan: „Gelöscht → wie in der Basis-ROM“.
+/// The line of a tombstone in a plan: „Tombstone: deleted → present“.
 fn tombstone_change() -> ResetChange {
     ResetChange {
-        label: "Grabstein".to_owned(),
-        before: "gelöscht".to_owned(),
-        after: "vorhanden".to_owned(),
+        label: t!("original.tombstone_label").into_owned(),
+        before: t!("original.tombstone_before").into_owned(),
+        after: t!("original.tombstone_after").into_owned(),
     }
 }
 
@@ -398,9 +410,9 @@ fn tombstone(store: &Store, target: &ResetTarget) -> Option<DeleteTarget> {
     store.is_deleted(deleted).then_some(deleted)
 }
 
-/// The label of the undo step of a reset: „Auf Original zurückgesetzt: Karte 0003“.
+/// The label of the undo step of a reset: „Reset to original: Map 0003“.
 pub fn step_label(target: &ResetTarget) -> String {
-    format!("Auf Original zurückgesetzt: {}", target.label())
+    t!("original.step_label", target = target.label()).into_owned()
 }
 
 /// Entries of the base for `target`'s kind: a trainer the smaller of its two archives, a
@@ -441,8 +453,8 @@ pub fn base_counts(
     Ok(counts)
 }
 
-/// Why `target` cannot be reset, `None` when it can: [`NO_ORIGINAL`] for an entry at or past
-/// the count of the base, [`NEW_MESSAGE`] for a message at or past the messages of the base
+/// Why `target` cannot be reset, `None` when it can: [`no_original`] for an entry at or past
+/// the count of the base, [`new_message`] for a message at or past the messages of the base
 /// archive. Locks are not checked here.
 pub fn availability(
     target: &ResetTarget,
@@ -450,15 +462,15 @@ pub fn availability(
     project: &Project,
 ) -> Result<Option<String>, KernelError> {
     let Some(count) = base_count(original, target)? else {
-        return Ok(Some(NO_ORIGINAL.to_owned()));
+        return Ok(Some(no_original()));
     };
     if usize::from(target.index()) >= count {
-        return Ok(Some(NO_ORIGINAL.to_owned()));
+        return Ok(Some(no_original()));
     }
     if let ResetTarget::TextMessage { archive, message } = *target {
         let base = base_text(original, archive, project.language.locale_key())?;
         if usize::from(message) >= base.messages.len() {
-            return Ok(Some(NEW_MESSAGE.to_owned()));
+            return Ok(Some(new_message()));
         }
     }
     Ok(None)
@@ -477,20 +489,20 @@ fn refuse_unavailable(
 }
 
 /// A world map has no original to go back to: its map is the bake of its world
-/// ([`crate::world::edit::WORLD_HAS_NO_ORIGINAL`], „erst „Als binäre Karte übernehmen““).
+/// ([`crate::world::edit::world_has_no_original`], „erst „Als binäre Karte übernehmen““).
 fn refuse_world(store: &mut Store, target: &ResetTarget) -> Result<(), KernelError> {
     if let ResetTarget::Map { index } = *target
         // A map that does not read is the reset's own error further on.
         && store.is_world_map(index).unwrap_or(false)
     {
         return Err(KernelError::Refused(
-            crate::world::edit::WORLD_HAS_NO_ORIGINAL.to_owned(),
+            crate::world::edit::world_has_no_original(),
         ));
     }
     Ok(())
 }
 
-/// Member `index` of `kind` in the base; a missing one is [`NO_ORIGINAL`].
+/// Member `index` of `kind` in the base; a missing one is [`no_original`].
 fn base_member(
     original: &dyn Original,
     kind: AssetKind,
@@ -498,7 +510,7 @@ fn base_member(
 ) -> Result<Vec<u8>, KernelError> {
     original
         .member(kind, index)?
-        .ok_or_else(|| KernelError::Refused(NO_ORIGINAL.to_owned()))
+        .ok_or_else(|| KernelError::Refused(no_original()))
 }
 
 /// Text archive `archive` of the base, decoded.
@@ -575,14 +587,18 @@ fn original_bytes(
                 .messages
                 .into_iter()
                 .nth(usize::from(message))
-                .ok_or_else(|| KernelError::Refused(NEW_MESSAGE.to_owned()))?
+                .ok_or_else(|| KernelError::Refused(new_message()))?
                 .text;
             let mut doc = store.text_archive(archive)?.clone();
             let Some(now) = doc.messages.get_mut(usize::from(message)) else {
-                return Err(KernelError::Refused(format!(
-                    "Nachricht {message} gibt es in {} nicht.",
-                    asset_label(asset(AssetKind::TextArchive, archive))
-                )));
+                return Err(KernelError::Refused(
+                    t!(
+                        "original.message_missing",
+                        message = message,
+                        archive = asset_label(asset(AssetKind::TextArchive, archive))
+                    )
+                    .into_owned(),
+                ));
             };
             now.text = text;
             Ok(vec![(
@@ -771,7 +787,7 @@ fn current_bytes(store: &mut Store, id: AssetId) -> Result<Vec<u8>, KernelError>
         }
         AssetKind::WorldMap => {
             return Err(KernelError::Refused(
-                crate::world::edit::WORLD_HAS_NO_ORIGINAL.to_owned(),
+                crate::world::edit::world_has_no_original(),
             ));
         }
         kind => return Err(KernelError::NotEditable(kind)),
@@ -813,19 +829,19 @@ fn change_label(
                 .count();
             match longer - same {
                 0 => label,
-                1 => format!("{label}: 1 Zelle der Bewegungsrechte anders"),
-                n => format!("{label}: {n} Zellen der Bewegungsrechte anders"),
+                1 => t!("original.permissions_differ_one", label = label).into_owned(),
+                n => t!("original.permissions_differ_other", label = label, n = n).into_owned(),
             }
         }
-        AssetKind::Personal => format!("{label}: Basisdaten"),
-        AssetKind::Learnset => format!("{label}: Lernset"),
-        AssetKind::Evolution => format!("{label}: Entwicklung"),
+        AssetKind::Personal => t!("original.change_personal", label = label).into_owned(),
+        AssetKind::Learnset => t!("original.change_learnset", label = label).into_owned(),
+        AssetKind::Evolution => t!("original.change_evolution", label = label).into_owned(),
         _ => label,
     }
 }
 
 /// Header `id` of the store and of the base. Refuses an id at or past the headers of the base
-/// ([`NO_ORIGINAL`], the base table is read once) and a locked header table
+/// ([`no_original`], the base table is read once) and a locked header table
 /// ([`KernelError::ReadOnly`] with its reason).
 fn header_pair(
     store: &mut Store,
@@ -836,12 +852,14 @@ fn header_pair(
         .header_table()?
         .into_iter()
         .nth(usize::from(id))
-        .ok_or_else(|| KernelError::Refused(NO_ORIGINAL.to_owned()))?;
+        .ok_or_else(|| KernelError::Refused(no_original()))?;
     let current = store
         .header_table()?
         .get(usize::from(id))
         .cloned()
-        .ok_or_else(|| KernelError::Refused(format!("Header {id:04} gibt es im Projekt nicht.")))?;
+        .ok_or_else(|| {
+            KernelError::Refused(t!("original.header_missing", id = id : {:04}).into_owned())
+        })?;
     if let Some(reason) = store.locked(HEADER_TABLE) {
         return Err(KernelError::ReadOnly {
             asset: HEADER_TABLE,
@@ -935,9 +953,9 @@ fn reset_header(
                 .iter()
                 .find(|name| !diffs.iter().any(|d| d.field == **name))
             {
-                return Err(KernelError::Refused(format!(
-                    "Unbekanntes oder unverändertes Feld: {name}"
-                )));
+                return Err(KernelError::Refused(
+                    t!("original.unknown_field", name = name).into_owned(),
+                ));
             }
             names.iter().map(String::as_str).collect()
         }
@@ -1031,7 +1049,7 @@ pub fn plan_reset(
 /// `fields` picks the header fields to reset by their serde names ([`header_fields`]); `None`
 /// resets every differing field. A name that does not differ or does not exist is refused
 /// (`Unbekanntes oder unverändertes Feld: {name}`). For any other target `fields` must be
-/// `None`, else the reset is refused with [`FIELDS_ONLY_FOR_HEADERS`].
+/// `None`, else the reset is refused with [`fields_only_for_headers`].
 pub fn reset(
     store: &mut Store,
     original: &dyn Original,
@@ -1043,7 +1061,7 @@ pub fn reset(
         return reset_header(store, original, target, id, fields, started);
     }
     if fields.is_some() {
-        return Err(KernelError::Refused(FIELDS_ONLY_FOR_HEADERS.to_owned()));
+        return Err(KernelError::Refused(fields_only_for_headers()));
     }
     refuse_world(store, target)?;
     refuse_unavailable(target, original, store.project())?;
@@ -1248,33 +1266,33 @@ mod tests {
     #[test]
     fn labels_name_the_entity_in_german() {
         let cases = [
-            (ResetTarget::Map { index: 3 }, "Karte 0003"),
-            (ResetTarget::EventFile { index: 3 }, "Eventdatei 0003"),
-            (ResetTarget::TextArchive { index: 5 }, "Textarchiv 0005"),
+            (ResetTarget::Map { index: 3 }, "Map 0003"),
+            (ResetTarget::EventFile { index: 3 }, "Event file 0003"),
+            (ResetTarget::TextArchive { index: 5 }, "Text archive 0005"),
             (
                 ResetTarget::TextMessage {
                     archive: 5,
                     message: 2,
                 },
-                "Nachricht 2 in Textarchiv 0005",
+                "Message 2 in Text archive 0005",
             ),
             (ResetTarget::Trainer { index: 1 }, "Trainer 0001"),
             (ResetTarget::Species { index: 25 }, "Pokémon 0025"),
-            (ResetTarget::Encounter { index: 7 }, "Begegnungsdatei 0007"),
+            (ResetTarget::Encounter { index: 7 }, "Encounter file 0007"),
             (ResetTarget::Header { id: 12 }, "Header 0012"),
-            (ResetTarget::Script { file: 12 }, "Scriptdatei 0012"),
-            (ResetTarget::MapTexture { index: 1 }, "Kartentextur 0001"),
+            (ResetTarget::Script { file: 12 }, "Script file 0012"),
+            (ResetTarget::MapTexture { index: 1 }, "Map texture 0001"),
             (
                 ResetTarget::BuildingTexture { index: 2 },
-                "Gebäudetextur 0002",
+                "Building texture 0002",
             ),
             (
                 ResetTarget::BuildingModel { index: 3 },
-                "Gebäudemodell 0003",
+                "Building model 0003",
             ),
             (
                 ResetTarget::InteriorBuildingModel { index: 4 },
-                "Innenraum-Gebäudemodell 0004",
+                "Interior building model 0004",
             ),
         ];
         for (target, label) in cases {
@@ -1291,7 +1309,7 @@ mod tests {
         }
         assert_eq!(
             step_label(&ResetTarget::Map { index: 3 }),
-            "Auf Original zurückgesetzt: Karte 0003"
+            "Reset to original: Map 0003"
         );
         assert_eq!(
             ResetTarget::Species { index: 1 }.assets(),
@@ -1374,7 +1392,7 @@ mod tests {
         let plan = plan_reset(&mut f.store, &f.original, &map).unwrap();
         assert_eq!(
             plan.changes[0].label,
-            "Karte 0000: 1 Zelle der Bewegungsrechte anders"
+            "Map 0000: 1 cell of the movement permissions differs"
         );
         let species = ResetTarget::Species { index: 1 };
         edit(&mut f.store, &species);
@@ -1382,10 +1400,10 @@ mod tests {
         let labels: Vec<&str> = plan.changes.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(
             labels,
-            ["Pokémon 0001: Basisdaten", "Pokémon 0001: Lernset"]
+            ["Pokémon 0001: base data", "Pokémon 0001: learnset"]
         );
-        assert!(plan.changes[1].before.contains("Lv 2: Attacke 1"));
-        assert!(plan.changes[1].after.contains("Lv 1: Attacke 1"));
+        assert!(plan.changes[1].before.contains("Lv 2: move 1"));
+        assert!(plan.changes[1].after.contains("Lv 1: move 1"));
     }
 
     #[test]
@@ -1403,7 +1421,7 @@ mod tests {
         };
         let plan = plan_reset(&mut f.store, &f.original, &target).unwrap();
         assert_eq!(plan.changes.len(), 1);
-        assert_eq!(plan.changes[0].label, "Nachricht 1 in Textarchiv 0000");
+        assert_eq!(plan.changes[0].label, "Message 1 in Text archive 0000");
         assert_eq!(plan.changes[0].before, "Erde");
         assert_eq!(plan.changes[0].after, "Welt");
         reset(&mut f.store, &f.original, &target, None).unwrap();
@@ -1452,7 +1470,7 @@ mod tests {
         let depth = f.store.undo_depth();
         assert_eq!(
             availability(&target, &f.original, f.store.project()).unwrap(),
-            Some(NO_ORIGINAL.to_owned())
+            Some(no_original())
         );
         assert_eq!(
             availability(
@@ -1468,7 +1486,7 @@ mod tests {
             reset(&mut f.store, &f.original, &target, None).unwrap_err(),
         ] {
             assert!(
-                matches!(&err, KernelError::Refused(why) if why == NO_ORIGINAL),
+                matches!(&err, KernelError::Refused(why) if *why == no_original()),
                 "{err}"
             );
         }
@@ -1481,7 +1499,7 @@ mod tests {
                 f.store.project()
             )
             .unwrap(),
-            Some(NO_ORIGINAL.to_owned())
+            Some(no_original())
         );
     }
 
@@ -1504,11 +1522,11 @@ mod tests {
         let depth = f.store.undo_depth();
         assert_eq!(
             availability(&target, &f.original, f.store.project()).unwrap(),
-            Some(NEW_MESSAGE.to_owned())
+            Some(new_message())
         );
         let err = reset(&mut f.store, &f.original, &target, None).unwrap_err();
         assert!(
-            matches!(&err, KernelError::Refused(why) if why == NEW_MESSAGE),
+            matches!(&err, KernelError::Refused(why) if *why == new_message()),
             "{err}"
         );
         assert_eq!(f.store.undo_depth(), depth);
@@ -1600,7 +1618,7 @@ mod tests {
     /// `Größe` and `xxh3` of a file target's member, as a plan shows them.
     fn file_lines(bytes: &[u8]) -> String {
         format!(
-            "Größe: {} Byte\nxxh3: {:016x}",
+            "Size: {} bytes\nxxh3: {:016x}",
             bytes.len(),
             xxhash_rust::xxh3::xxh3_64(bytes)
         )
@@ -1765,7 +1783,7 @@ mod tests {
         let plan = plan_reset(&mut f.store, &f.original, &ResetTarget::Script { file: 0 }).unwrap();
         let binary = |b: &[u8]| {
             format!(
-                "Binär, {} Byte\nxxh3: {:016x}",
+                "Binary, {} bytes\nxxh3: {:016x}",
                 b.len(),
                 xxhash_rust::xxh3::xxh3_64(b)
             )
@@ -1903,7 +1921,7 @@ mod tests {
         assert_eq!(result.changed, [HEADER_TABLE]);
         assert_eq!(
             f.store.history().0.last(),
-            Some(&"Auf Original zurückgesetzt: Header 0001".to_owned())
+            Some(&"Reset to original: Header 0001".to_owned())
         );
         let (MapHeader::Pt(now), MapHeader::Pt(was), MapHeader::Pt(changed)) =
             (header(&mut f.store, 1), &base, &edited)
@@ -1956,7 +1974,7 @@ mod tests {
             .unwrap_err();
             assert!(
                 matches!(&err, KernelError::Refused(why)
-                    if *why == format!("Unbekanntes oder unverändertes Feld: {name}")),
+                    if *why == format!("Unknown or unchanged field: {name}")),
                 "{err}"
             );
         }
@@ -1973,7 +1991,7 @@ mod tests {
         let target = ResetTarget::Header { id: new };
         assert_eq!(
             availability(&target, &f.original, f.store.project()).unwrap(),
-            Some(NO_ORIGINAL.to_owned())
+            Some(no_original())
         );
         let depth = f.store.undo_depth();
         for err in [
@@ -1981,7 +1999,7 @@ mod tests {
             reset(&mut f.store, &f.original, &target, None).unwrap_err(),
         ] {
             assert!(
-                matches!(&err, KernelError::Refused(why) if why == NO_ORIGINAL),
+                matches!(&err, KernelError::Refused(why) if *why == no_original()),
                 "{err}"
             );
         }
@@ -1996,7 +2014,7 @@ mod tests {
         let depth = f.store.undo_depth();
         let err = reset(&mut f.store, &f.original, &target, Some(&[])).unwrap_err();
         assert!(
-            matches!(&err, KernelError::Refused(why) if why == FIELDS_ONLY_FOR_HEADERS),
+            matches!(&err, KernelError::Refused(why) if *why == fields_only_for_headers()),
             "{err}"
         );
         assert_eq!(f.store.undo_depth(), depth);

@@ -15,9 +15,13 @@ use crate::project::Project;
 const BASE_ROMS_YAML: &str = include_str!("../metadata/base_roms.yaml");
 
 /// Shown for Diamond and Pearl, which have no test project yet.
-pub const DP_LOCKED: &str = "Diamant/Perl: ohne Testprojekt nicht freigegeben";
+pub fn dp_locked() -> String {
+    t!("start.dp_locked").into_owned()
+}
 /// Shown when the game code is no Gen-4 code.
-pub const NOT_GEN4: &str = "Kein Gen-4-Spiel erkannt";
+pub fn not_gen4() -> String {
+    t!("start.not_gen4").into_owned()
+}
 
 /// An NDS header is 0x200 bytes; a file shorter than that cannot be a ROM.
 const HEADER_LEN: usize = 0x200;
@@ -52,16 +56,47 @@ pub struct RomInfo {
     pub size: u64,
     /// SHA-1 of the whole file, 40 lowercase hex digits.
     pub sha1: String,
-    /// Label of the entry in `base_roms.yaml` whose SHA-1 equals [`RomInfo::sha1`].
+    /// Label of the entry in `base_roms.yaml` whose SHA-1 equals [`RomInfo::sha1`], in the
+    /// language of the process ([`known_base_label`]).
     pub known_base: Option<String>,
     pub support: Support,
 }
 
+/// The game of an entry in `base_roms.yaml`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum KnownGame {
+    Platinum,
+    Heartgold,
+}
+
+/// An entry of `base_roms.yaml`. Its label is no field: [`BaseRom::label`] builds it in the
+/// language asked for.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BaseRom {
     sha1: String,
     game_code: String,
-    label: String,
+    game: KnownGame,
+    /// `DE`, `US`: the region as the label shows it.
+    region: String,
+}
+
+impl BaseRom {
+    /// The label in `locale`: "Platinum DE (test project)", "Platin DE (Testprojekt)".
+    fn label(&self, locale: &str) -> String {
+        let game = match self.game {
+            KnownGame::Platinum => t!("start.game.platinum", locale = locale),
+            KnownGame::Heartgold => t!("start.game.heartgold", locale = locale),
+        };
+        t!(
+            "start.known_base",
+            locale = locale,
+            game = game,
+            region = self.region
+        )
+        .into_owned()
+    }
 }
 
 /// The table of known dumps, parsed once.
@@ -75,16 +110,25 @@ fn base_roms() -> Result<&'static [BaseRom], KernelError> {
         .map_err(|e| KernelError::InvalidProject(e.clone()))
 }
 
-/// The label in `base_roms.yaml` of the dump with this SHA-1 (and this game code, when one is
-/// given).
-pub(crate) fn known_base_label(
+/// The label of the dump in `base_roms.yaml` with this SHA-1 (and this game code, when one is
+/// given), in the language of the process; built when asked, so it follows a language switch.
+pub fn known_base_label(
     sha1: &str,
     game_code: Option<&str>,
+) -> Result<Option<String>, KernelError> {
+    known_base_label_in(sha1, game_code, &rust_i18n::locale())
+}
+
+/// [`known_base_label`] in `locale` (`en`, `de`), whatever the process speaks.
+pub fn known_base_label_in(
+    sha1: &str,
+    game_code: Option<&str>,
+    locale: &str,
 ) -> Result<Option<String>, KernelError> {
     Ok(base_roms()?
         .iter()
         .find(|e| e.sha1 == sha1 && game_code.is_none_or(|code| e.game_code == code))
-        .map(|e| e.label.clone()))
+        .map(|e| e.label(locale)))
 }
 
 fn serialize_family<S: Serializer>(family: &Option<Family>, s: S) -> Result<S::Ok, S::Error> {
@@ -131,12 +175,10 @@ fn support_for(code: &str) -> Support {
     }
     match Family::from_game_code(code) {
         Some(Family::Dp) => Support::Locked {
-            reason: DP_LOCKED.into(),
+            reason: dp_locked(),
         },
         Some(Family::Pt | Family::Hgss) => Support::Untested,
-        None => Support::Unknown {
-            reason: NOT_GEN4.into(),
-        },
+        None => Support::Unknown { reason: not_gen4() },
     }
 }
 
@@ -300,12 +342,8 @@ impl MarkState {
     /// `g4k`; `None` for a missing or present mark.
     pub fn refusal(&self) -> Option<String> {
         match self {
-            MarkState::Unreadable(why) => Some(format!(
-                "Die Basismarke .g4/base.json ist nicht lesbar ({why}); entferne sie, dann ordne neu zu."
-            )),
-            MarkState::Newer(v) => Some(format!(
-                "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version {v})."
-            )),
+            MarkState::Unreadable(why) => Some(t!("start.mark_unreadable", why = why).into_owned()),
+            MarkState::Newer(v) => Some(t!("start.mark_newer", version = v).into_owned()),
             MarkState::Missing | MarkState::Present(_) => None,
         }
     }
@@ -805,7 +843,7 @@ pub enum BaseWarningKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BaseWarning {
     pub kind: BaseWarningKind,
-    /// The German sentence for the user (app, MCP and `g4k` show it as it is).
+    /// The sentence for the user in the current language (app, MCP and `g4k` show it as it is).
     pub message: String,
 }
 
@@ -921,10 +959,12 @@ pub fn check_base(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
     let info = inspect_rom(nds)?;
     let project = Project::open(root)?;
     if info.game_code != project.game_code {
-        let refused = format!(
-            "Falsches Spiel: die ROM ist {}, das Projekt {}.",
-            info.game_code, project.game_code
-        );
+        let refused = t!(
+            "start.wrong_game",
+            rom = info.game_code,
+            project = project.game_code
+        )
+        .into_owned();
         return Ok(BaseCheck {
             info,
             warnings: Vec::new(),
@@ -938,10 +978,7 @@ pub fn check_base(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
     {
         warnings.push(BaseWarning::new(
             BaseWarningKind::TitleDiffers,
-            format!(
-                "Der Titel der ROM („{}“) weicht vom Projekt ab („{title}“).",
-                info.title
-            ),
+            t!("start.title_differs", rom = info.title, project = title).into_owned(),
         ));
     }
     if let Some(version) = header.as_ref().and_then(|h| h.rom_version)
@@ -949,16 +986,18 @@ pub fn check_base(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
     {
         warnings.push(BaseWarning::new(
             BaseWarningKind::RevisionDiffers,
-            format!(
-                "Die Version der ROM ({}) weicht vom Projekt ab ({version}).",
-                info.revision
-            ),
+            t!(
+                "start.revision_differs",
+                rom = info.revision,
+                project = version
+            )
+            .into_owned(),
         ));
     }
     if info.known_base.is_none() {
         warnings.push(BaseWarning::new(
             BaseWarningKind::UnknownDump,
-            "Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.".into(),
+            t!("start.unknown_dump").into_owned(),
         ));
     }
     let arm7 = std::fs::read(root.join("arm7").join("arm7.bin")).ok();
@@ -971,8 +1010,7 @@ pub fn check_base(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
             {
                 warnings.push(BaseWarning::new(
                     BaseWarningKind::Arm7Differs,
-                    "Der ARM7-Code der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
-                        .into(),
+                    t!("start.arm7_differs").into_owned(),
                 ));
             }
             if let (Some(ours), Some(theirs)) = (banner, rom_banner_titles(&rom))
@@ -980,8 +1018,7 @@ pub fn check_base(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
             {
                 warnings.push(BaseWarning::new(
                     BaseWarningKind::BannerDiffers,
-                    "Das Banner der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
-                        .into(),
+                    t!("start.banner_differs").into_owned(),
                 ));
             }
         }
@@ -1019,9 +1056,7 @@ fn plan_assign(root: &Path, nds: &Path) -> Result<(BaseCheck, Option<BaseMark>),
             return Ok((check, Some(mark)));
         }
         if mark.origin != ORIGIN_DSPRE {
-            return Err(KernelError::Refused(
-                "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest.".into(),
-            ));
+            return Err(KernelError::Refused(t!("start.base_fixed").into_owned()));
         }
     }
     Ok((check, None))
@@ -1135,7 +1170,7 @@ mod tests {
             assert_eq!(
                 support_for(code),
                 Support::Locked {
-                    reason: DP_LOCKED.into()
+                    reason: dp_locked()
                 },
                 "{code}"
             );
@@ -1143,9 +1178,7 @@ mod tests {
         for code in ["ABCD", "\0\0\0\0"] {
             assert_eq!(
                 support_for(code),
-                Support::Unknown {
-                    reason: NOT_GEN4.into()
-                },
+                Support::Unknown { reason: not_gen4() },
                 "{code:?}"
             );
         }
@@ -1155,8 +1188,12 @@ mod tests {
     fn the_base_table_parses_and_lists_the_three_test_copies() {
         let table = base_roms().unwrap();
         for e in table {
-            assert_eq!(e.sha1.len(), 40, "{}", e.label);
-            assert!(e.sha1.chars().all(|c| c.is_ascii_hexdigit()), "{}", e.label);
+            assert_eq!(e.sha1.len(), 40, "{}", e.label("en"));
+            assert!(
+                e.sha1.chars().all(|c| c.is_ascii_hexdigit()),
+                "{}",
+                e.label("en")
+            );
         }
         for code in ["CPUD", "IPKD", "IPKE"] {
             assert!(table.iter().any(|e| e.game_code == code), "{code}");
@@ -1364,11 +1401,11 @@ mod create_tests {
                 // Committed in the staging folder, still a clean repository after the rename.
                 let status = crate::git::status(&dest).unwrap();
                 assert_eq!(status.repo, crate::git::RepoKind::Own);
-                assert_eq!(status.head.unwrap().summary, crate::git::FIRST_COMMIT);
+                assert_eq!(status.head.unwrap().summary, crate::git::first_commit());
                 assert!(status.paths.is_empty(), "{:?}", status.paths);
             } else {
                 assert!(!report.committed);
-                assert_eq!(report.reason.as_deref(), Some(crate::git::NOT_INSTALLED));
+                assert_eq!(report.reason, Some(crate::git::not_installed()));
                 assert!(!dest.join(".git").exists());
             }
         }
@@ -1473,7 +1510,7 @@ mod create_tests {
         with_game_code(&rom, "ADAD");
         let dest = tmp.path().join("neu");
         match create_fake(&rom, &dest, &mut Vec::new()) {
-            Err(KernelError::Refused(msg)) => assert_eq!(msg, DP_LOCKED),
+            Err(KernelError::Refused(msg)) => assert_eq!(msg, dp_locked()),
             other => panic!("expected Refused, got {other:?}"),
         }
         assert!(!dest.exists());
@@ -1904,7 +1941,7 @@ mod create_tests {
         let check = check_base(s.dir.path(), &rom).unwrap();
         assert_eq!(
             check.refused.as_deref(),
-            Some("Falsches Spiel: die ROM ist IPKE, das Projekt CPUE.")
+            Some("Wrong game: the ROM is IPKE, the project CPUE.")
         );
         assert_eq!(check.info.game_code, "IPKE");
         assert!(!s.dir.path().join(".g4").exists());
@@ -1922,7 +1959,7 @@ mod create_tests {
         assert_eq!(kinds, [BaseWarningKind::UnknownDump]);
         assert_eq!(
             check.warnings[0].message,
-            "Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei."
+            "Unknown or modified ROM; patches apply only to exactly this file."
         );
 
         std::fs::write(
@@ -1939,7 +1976,7 @@ mod create_tests {
         );
         assert_eq!(
             check.warnings[0].message,
-            "Der Titel der ROM („POKEMON PL“) weicht vom Projekt ab („POKEMON XX“)."
+            "The title of the ROM (“POKEMON PL”) differs from the project (“POKEMON XX”)."
         );
         assert!(!root.join(".g4").exists());
     }
@@ -1965,7 +2002,7 @@ mod create_tests {
         );
         assert_eq!(
             check.warnings[0].message,
-            "Die Version der ROM (0) weicht vom Projekt ab (1)."
+            "The version of the ROM (0) differs from the project (1)."
         );
     }
 
@@ -2033,11 +2070,11 @@ mod create_tests {
         );
         assert_eq!(
             check.warnings[1].message,
-            "Der ARM7-Code der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
+            "The ARM7 code of the ROM differs from the project; it may be the wrong ROM."
         );
         assert_eq!(
             check.warnings[2].message,
-            "Das Banner der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
+            "The banner of the ROM differs from the project; it may be the wrong ROM."
         );
 
         // An unreadable banner.yaml gives no banner warning.
@@ -2135,7 +2172,7 @@ mod create_tests {
         std::fs::write(&rom, bytes).unwrap();
         assert_eq!(
             refused(assign_base(&dest, &rom)),
-            "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest."
+            "The project was created from a ROM; its base ROM is fixed."
         );
         assert_eq!(mark_bytes(&dest), before);
     }
@@ -2150,23 +2187,23 @@ mod create_tests {
         put_mark(root, newer);
         assert_eq!(
             refused(assign_base(root, &rom)),
-            "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version 3)."
+            "The base mark comes from a newer version of Gen4 Studio (version 3)."
         );
         assert_eq!(mark_bytes(root), newer.as_bytes());
         assert_eq!(
             mark_state(root).refusal().as_deref(),
-            Some("Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version 3).")
+            Some("The base mark comes from a newer version of Gen4 Studio (version 3).")
         );
 
         put_mark(root, "{kaputt");
         let msg = refused(assign_base(root, &rom));
         assert_eq!(mark_state(root).refusal(), Some(msg.clone()));
         assert!(
-            msg.starts_with("Die Basismarke .g4/base.json ist nicht lesbar ("),
+            msg.starts_with("The base mark .g4/base.json cannot be read ("),
             "{msg}"
         );
         assert!(
-            msg.ends_with("); entferne sie, dann ordne neu zu."),
+            msg.ends_with("); remove it, then assign the base ROM again."),
             "{msg}"
         );
         assert_eq!(mark_bytes(root), b"{kaputt");
@@ -2179,7 +2216,7 @@ mod create_tests {
         with_game_code(&rom, "IPKE");
         assert_eq!(
             refused(assign_base(s.dir.path(), &rom)),
-            "Falsches Spiel: die ROM ist IPKE, das Projekt CPUE."
+            "Wrong game: the ROM is IPKE, the project CPUE."
         );
         assert!(!s.dir.path().join(".g4").exists());
     }

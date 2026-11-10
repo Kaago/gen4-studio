@@ -1,4 +1,5 @@
 import type { DataDocDto, DataPatch } from "../../api";
+import { t } from "../../i18n";
 import { useDataDoc } from "../useDataDoc";
 import type { DataDoc, DocSpec } from "../useDataDoc";
 
@@ -17,7 +18,9 @@ const ITEM: DocSpec<ItemDoc> = {
   kind: "item",
   parts: ["item"],
   accept: (doc) => (doc.kind === "item" ? doc : null),
-  wrongKind: "Die Antwort enthält keine Gegenstands-Daten.",
+  get wrongKind() {
+    return t("data:items.wrongKind");
+  },
   apply: applyItem,
   texts: (doc) => [doc.description?.archive ?? null, doc.name_archive],
 };

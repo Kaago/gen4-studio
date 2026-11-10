@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FocusEvent, ReactNode } from "react";
-import { dataRaw, errorText, fieldLabels } from "../../api";
+import { useTranslation } from "react-i18next";
+import { dataRaw, errorText, fieldLabel, fieldLabelOf } from "../../api";
 import type { FieldValueDto, ProjectInfo, RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
 import { depthAtLeast } from "../../ui/frame/shellState";
@@ -55,7 +56,7 @@ interface Editing {
 }
 
 function ItemNumber({ e, field, ...limits }: { e: Editing; field: ItemField } & Pick<NumberFieldProps, "bits" | "min" | "max" | "hint">) {
-  const label = fieldLabels.item[field];
+  const label = fieldLabel("item", field);
   return (
     <InspectorRow label={label}>
       <div data-field={field}>
@@ -66,7 +67,7 @@ function ItemNumber({ e, field, ...limits }: { e: Editing; field: ItemField } & 
 }
 
 function ItemSelect({ e, field, options }: { e: Editing; field: ItemField; options: readonly SelectOption<number>[] }) {
-  const label = fieldLabels.item[field];
+  const label = fieldLabel("item", field);
   return (
     <InspectorRow label={label}>
       <div data-field={field}>
@@ -80,8 +81,8 @@ function ItemSelect({ e, field, options }: { e: Editing; field: ItemField; optio
 function BattlePockets({ e }: { e: Editing }) {
   const battle = e.v.battle_pocket ?? 0;
   return (
-    <div className={styles.flags} data-field="battle_pocket" role="group" aria-label={fieldLabels.item.battle_pocket}>
-      <p className={styles.note}>{fieldLabels.item.battle_pocket}</p>
+    <div className={styles.flags} data-field="battle_pocket" role="group" aria-label={fieldLabel("item", "battle_pocket")}>
+      <p className={styles.note}>{fieldLabel("item", "battle_pocket")}</p>
       {BATTLE_POCKETS.map((p) => (
         <Switch key={p.bit} label={p.label} checked={(battle & p.mask) !== 0} onChange={(on) => e.setPocket(p, on)} />
       ))}
@@ -100,11 +101,12 @@ function limits(width: FieldValueDto): Pick<NumberFieldProps, "min" | "max"> {
  * flags (checkboxes among the raw party parameters), numbers within the field's width for the rest.
  */
 function FieldEditor({ e, field, raw }: { e: Editing; field: ItemField; raw: boolean }) {
+  const { t } = useTranslation("data");
   const width = e.widths.get(field);
   if (width === undefined) return null;
   switch (field) {
     case "price":
-      return <ItemNumber e={e} field={field} bits={16} hint={`Verkauf ${sellPrice(e.v.price ?? 0)} ₽`} />;
+      return <ItemNumber e={e} field={field} bits={16} hint={t("itemHand.sellHint", { price: sellPrice(e.v.price ?? 0) })} />;
     case "field_pocket":
       return <ItemSelect e={e} field={field} options={FIELD_POCKETS} />;
     case "battle_pocket":
@@ -116,21 +118,22 @@ function FieldEditor({ e, field, raw }: { e: Editing; field: ItemField; raw: boo
     case "battle_use_func":
       return <ItemSelect e={e} field={field} options={battleFunctions(e.v.battle_use_func ?? 0)} />;
     case "hold_effect":
-      return <ItemNumber e={e} field={field} {...limits(width)} hint="Nummer des Effekts beim Tragen" />;
+      return <ItemNumber e={e} field={field} {...limits(width)} hint={t("itemHand.holdEffectHint")} />;
   }
   if (ONE_BIT_FIELDS.includes(field)) {
     const on = (e.v[field] ?? 0) !== 0;
     const set = (next: boolean) => e.set(field, next ? 1 : 0);
-    return <div data-field={field}>{raw ? <Checkbox label={fieldLabels.item[field]} checked={on} onChange={set} /> : <Switch label={fieldLabels.item[field]} checked={on} onChange={set} />}</div>;
+    return <div data-field={field}>{raw ? <Checkbox label={fieldLabel("item", field)} checked={on} onChange={set} /> : <Switch label={fieldLabel("item", field)} checked={on} onChange={set} />}</div>;
   }
   return <ItemNumber e={e} field={field} {...limits(width)} />;
 }
 
 /** A group of the Rohdaten column: its title as a note, then its fields. */
 function RawGroup({ e, group }: { e: Editing; group: FieldGroup }) {
+  const { t } = useTranslation("data");
   return (
     <div className={styles.flags} role="group" aria-label={group.title}>
-      <p className={styles.note}>{group.title === "Wirkung im Team" ? "Wirkung im Team, gilt mit dem Schalter in Funktionen" : group.title}</p>
+      <p className={styles.note}>{group.id === "party" ? t("itemHand.partyNote") : group.title}</p>
       {group.fields.map((field) => (
         <FieldEditor key={field} e={e} field={field} raw />
       ))}
@@ -140,6 +143,7 @@ function RawGroup({ e, group }: { e: Editing; group: FieldGroup }) {
 
 /** The bytes of the item as the store holds them, read again with every new document (an edit, undo, redo). */
 function RawBytes({ index, doc, highlight }: { index: number; doc: ItemDoc | null; highlight: string | undefined }) {
+  const { t } = useTranslation("data");
   const [raw, setRaw] = useState<{ raw: RawDto | null; error: string | null } | null>(null);
   useEffect(() => {
     let current = true;
@@ -151,24 +155,25 @@ function RawBytes({ index, doc, highlight }: { index: number; doc: ItemDoc | nul
       current = false;
     };
   }, [index, doc]);
-  if (raw === null) return <p className={styles.note}>Lädt …</p>;
-  if (raw.raw === null) return <p className={styles.note}>{`Nicht lesbar: ${raw.error ?? ""}`}</p>;
-  return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} highlight={highlight} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => (fieldLabels.item as Record<string, string>)[name] ?? name} />;
+  if (raw === null) return <p className={styles.note}>{t("loading")}</p>;
+  if (raw.raw === null) return <p className={styles.note}>{t("notReadable", { error: raw.error ?? "" })}</p>;
+  return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} highlight={highlight} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => fieldLabelOf("item", name)} />;
 }
 
 /** The warning of an item whose data other item ids share, with those items to open. */
 function SharedWarning({ ids }: { ids: readonly number[] }) {
+  const { t } = useTranslation("data");
   const { rows, labelOf, goTo } = useDataArea("gegenstaende");
   const byId = new Map(rows.map((r) => [r.index, r]));
   return (
     <Notice kind="warning">
       {sharedWarning(ids.length)}
-      <ul className={styles.shared} aria-label="Gegenstände mit denselben Daten">
+      <ul className={styles.shared} aria-label={t("itemHand.sharedWith")}>
         {ids.map((id) => {
           const row = byId.get(id);
           return (
             <li key={id}>
-              <Reference area="gegenstaende" label={row ? labelOf(row) : `Gegenstand ${id4(id)}`} tech={id4(id)} onOpen={() => goTo({ kind: "item", id })} dataAttrs={{ "data-item": id }} />
+              <Reference area="gegenstaende" label={row ? labelOf(row) : `${t("dataModel.fallbackWord.item")} ${id4(id)}`} tech={id4(id)} onOpen={() => goTo({ kind: "item", id })} dataAttrs={{ "data-item": id }} />
             </li>
           );
         })}
@@ -184,6 +189,7 @@ function SharedWarning({ ids }: { ids: readonly number[] }) {
  * refusal of the backend shows there too; an item of the wrong length is named there and shows no fields.
  */
 export function ItemHand() {
+  const { t } = useTranslation("data");
   const { row, labelOf, selected, project } = useDataArea("gegenstaende");
   const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   const { doc, read, error, editError, update } = useItem(selected, row === null ? null : dataMemberOf(row));
@@ -192,7 +198,7 @@ export function ItemHand() {
 
   if (row === null || selected === null) return null;
   if (doc === null) {
-    return <div className={styles.handEmpty}>{error !== null ? <EmptyState what="Dieser Gegenstand ist nicht lesbar." why={error} /> : <p className={styles.note}>Lädt …</p>}</div>;
+    return <div className={styles.handEmpty}>{error !== null ? <EmptyState what={t("itemHand.unreadable")} why={error} /> : <p className={styles.note}>{t("loading")}</p>}</div>;
   }
   const name = labelOf(row);
   const index = selected;
@@ -228,10 +234,10 @@ export function ItemHand() {
   };
 
   return (
-    <div className={styles.hand} onFocus={onFocus} role="group" aria-label={`${name} bearbeiten`} data-item={index}>
+    <div className={styles.hand} onFocus={onFocus} role="group" aria-label={t("itemHand.edit", { name })} data-item={index}>
       {(editError !== null || doc.locked !== null || doc.shared_with.length > 0) && (
         <div className={styles.notices}>
-          {doc.locked !== null && <Notice kind="warning">{`${lockText(doc.locked)}. Die Felder dieses Gegenstands sind gesperrt.`}</Notice>}
+          {doc.locked !== null && <Notice kind="warning">{t("itemHand.lockedFields", { reason: lockText(doc.locked) })}</Notice>}
           {doc.locked === null && doc.shared_with.length > 0 && <SharedWarning ids={doc.shared_with} />}
           {editError !== null && <Notice kind="error">{editError}</Notice>}
         </div>
@@ -239,16 +245,16 @@ export function ItemHand() {
       <div className={styles.columns}>
         {editing !== null &&
           FIELD_GROUPS.filter((g) => !g.tinkerOnly).map((g) => (
-            <Column key={g.title} title={g.title}>
+            <Column key={g.id} title={g.title}>
               {g.fields.map((field) => (
                 <FieldEditor key={field} e={editing} field={field} raw={false} />
               ))}
             </Column>
           ))}
         {tinkering && (
-          <Column title="Rohdaten" note="Tüfteln">
+          <Column title={t("rawData")} note={t("tinker")}>
             <RawBytes index={index} doc={read} highlight={lastField} />
-            {editing !== null && FIELD_GROUPS.filter((g) => g.tinkerOnly).map((g) => <RawGroup key={g.title} e={editing} group={g} />)}
+            {editing !== null && FIELD_GROUPS.filter((g) => g.tinkerOnly).map((g) => <RawGroup key={g.id} e={editing} group={g} />)}
           </Column>
         )}
       </div>

@@ -1,5 +1,13 @@
 # Gelände (Höhenraster, Gelände-Muster, abgeleitete Kollision)
 
+**In English:** Documents terrain: how a painted map gets its heights and its collision. A map has
+two sources, the height grid (how high each tile lies) and the terrain pattern per tile (what a
+character does there); the BDHC is generated from the grid, the permissions are derived from grid
+and pattern, and hand-set values go on top. The document gives the row format that tools and agents
+use, the rules table and the per-map budgets; one world unit equals 4096 in the games' fixed-point
+numbers, a tile is 16 units and a height step 8 units. The code is `crates/g4-kernel/src/terrain.rs`
+and the modules below `terrain/`, with the rules in `crates/g4-kernel/metadata/terrain_rules.yaml`.
+
 Quelle: [Gutachten B](../research/2026-11-05-phase-6/gutachten-b-bdhc-engine.md) §2.4 und §2.7
 (Messung auf Platin DE, HeartGold DE und US), Verhaltenswerte aus pret/pokeplatinum
 `include/constants/field/map_tile_behaviors.h` und pret/pokeheartgold

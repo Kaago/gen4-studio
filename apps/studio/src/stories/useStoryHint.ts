@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { FlagKind, ProjectInfo, StoryRowDto } from "../api";
 import { useFlagList } from "../flags/useFlagList";
 import { flagIdOf } from "./storyWords";
@@ -21,6 +22,7 @@ function storyOf(rows: readonly StoryRowDto[], kind: FlagKind, id: string): Stor
  * undefined while that is not known yet (no project, the lists still read). The flag list is the one the field reads (`source` events).
  */
 export function useStoryHint(kind: FlagKind, number: number, deps: { project: ProjectInfo | null; revision: number; value?: number }): string | null | undefined {
+  const { t } = useTranslation("stories");
   const { project, revision, value } = deps;
   const { list } = useFlagList(kind, { project: number === 0 ? null : project, revision, source: "events" });
   const id = number === 0 || list === null ? null : flagIdOf(kind, number, list.entries.find((e) => e.number === number));
@@ -33,5 +35,5 @@ export function useStoryHint(kind: FlagKind, number: number, deps: { project: Pr
   if (row === undefined) return null;
   const steps = story?.story.id === row.id ? (story.story.steps ?? []) : [];
   const step = kind === "flag" ? steps.find((s) => s.uses?.some((u) => "flag" in u && u.flag === id)) : value === undefined ? undefined : steps.find((s) => s.value === value);
-  return step === undefined ? `Geschichte „${row.name}“` : `Geschichte „${row.name}“: ${step.name}`;
+  return step === undefined ? t("storyHint.story", { name: row.name }) : t("storyHint.storyStep", { name: row.name, step: step.name });
 }

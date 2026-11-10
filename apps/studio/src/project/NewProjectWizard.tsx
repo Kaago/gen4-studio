@@ -1,11 +1,13 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText } from "../api";
+import { matchesAnyLanguage, t } from "../i18n";
 import type { Created, CreatePhase, CreateProgress, DestCheck, RomInfo, Template } from "../api";
 import { openPath } from "../platform/dialogs";
 import { Badge, Button, CheckList, Checkbox, DSScreen, Icon, Notice, Switch, TextField } from "../ui/primitives";
 import type { CheckRow } from "../ui/primitives";
-import { NOT_INSTALLED, TEMPLATES_ONLY_TEXT, initDoneText } from "../git/gitWords";
+import { initDoneText, isNotInstalled, templatesOnlyText } from "../git/gitWords";
 import { DoneResult } from "../workbench/wizards/WizardResult";
 import { WizardFrame } from "../workbench/wizards/WizardFrame";
 import type { WizardStep } from "../workbench/wizards/WizardFrame";
@@ -27,7 +29,7 @@ type Props = {
   /** A note on the step "ROM", e.g. why a dropped file brought no path. */
   initialNotice?: string;
   onCancel: () => void;
-  /** "Öffnen" on the result. */
+  /** „Öffnen“ on the result. */
   onOpen: (created: Created) => void;
   onChoice?: (choice: WizardChoice) => void;
 };
@@ -35,41 +37,37 @@ type Props = {
 /** How long the destination check waits for the typing to stop. */
 const CHECK_DELAY_MS = 200;
 
-/** How the summary and the start's view name a template. */
-export const TEMPLATE_NAMES: Record<Template, string> = { original: "Original", data_only: "Nur Daten", empty_region: "Leere Region" };
+/** The catalog key of each template (`project:templates`). */
+const TEMPLATE_KEY = { original: "original", data_only: "dataOnly", empty_region: "emptyRegion" } as const satisfies Record<Template, string>;
 
-type Card = { id: Template; title: string; text: string };
-const CARDS: Card[] = [
-  { id: "original", title: TEMPLATE_NAMES.original, text: "Das Spiel, wie es ist." },
-  {
-    id: "empty_region",
-    title: "Leere Region mit Startstadt",
-    text: "Nur die Startstadt mit Spielerhaus bleibt, der Rest ist eine leere Region. Ein Start-Script gibt dir deinen ersten Partner.",
-  },
-  { id: "data_only", title: TEMPLATE_NAMES.data_only, text: "Für Balancing: Werte, Lernsets, Trainer. Startet im Bereich Pokémon." },
-];
+/** How the summary and the start's view name a template, in the language shown. */
+export const templateName = (template: Template): string => t(`project:templates.${TEMPLATE_KEY[template]}`);
 
-const UNTESTED = "Für diese Sprache gibt es kein Testprojekt. Entpacken geht, Editoren und Vorlagen sind nicht geprüft.";
-const OWN_ROM = "Gen4 Studio liefert keine Spieldaten; du nutzt deine eigene ROM. Die ROM bleibt unverändert.";
+/** The template cards, in their order; title and text are read at render (`project:wizard.cards`). */
+const CARDS: readonly Template[] = ["original", "empty_region", "data_only"];
 
 type PhaseState = "open" | "running" | "done" | "failed";
-type PhaseRow = { id: CreatePhase; label: string; state: PhaseState; done: number; total: number };
+type PhaseRow = { id: CreatePhase; state: PhaseState; done: number; total: number };
 
-const PHASES: { id: CreatePhase; label: string }[] = [
-  { id: "read", label: "Lesen" },
-  { id: "extract", label: "Entpacken" },
-  { id: "template", label: "Vorlage anwenden" },
-  { id: "check", label: "Prüfen" },
-  { id: "text_project", label: "Textprojekt einrichten" },
-  { id: "git", label: "Git einrichten" },
-];
+/** The phases of a creation in their order, by the key of their label (`project:wizard.phases`). */
+const PHASES = [
+  ["read", "read"],
+  ["extract", "extract"],
+  ["template", "template"],
+  ["check", "check"],
+  ["text_project", "textProject"],
+  ["git", "git"],
+] as const satisfies readonly (readonly [CreatePhase, string])[];
+
+/** The label of a phase in the language shown. */
+const phaseLabel = (id: CreatePhase): string => {
+  const key = PHASES.find(([phase]) => phase === id)?.[1];
+  return key === undefined ? id : t(`project:wizard.phases.${key}`);
+};
 
 /** The phases of a creation; setting it up as text project and for Git only when asked for. */
 const freshPhases = (textProject: boolean, git: boolean): PhaseRow[] =>
-  PHASES.filter((p) => (textProject || p.id !== "text_project") && (git || p.id !== "git")).map((p) => ({ ...p, state: "open", done: 0, total: 0 }));
-
-const TEXT_PROJECT_HINT = "Eine lesbare Datei je Eintrag, bereit für Git; das Anlegen dauert etwas länger.";
-const GIT_HINT = "Legt ein lokales Repository mit erstem Commit an; nichts wird hochgeladen.";
+  PHASES.filter(([id]) => (textProject || id !== "text_project") && (git || id !== "git")).map(([id]) => ({ id, state: "open", done: 0, total: 0 }));
 
 /**
  * One progress event: the phases before it are done; the phase itself runs, or is done when the event says so (the dev
@@ -97,13 +95,13 @@ const CHECK_STATE: Record<PhaseState, CheckRow["state"]> = { open: "info", runni
 function phaseNote(r: PhaseRow): string {
   switch (r.state) {
     case "open":
-      return "wartet";
+      return t("project:wizard.phaseNote.open");
     case "running":
-      return r.total > 1 ? `läuft ${r.done}/${r.total}` : "läuft";
+      return r.total > 1 ? t("project:wizard.phaseNote.runningCount", { done: r.done, total: r.total }) : t("project:wizard.phaseNote.running");
     case "done":
-      return "fertig";
+      return t("project:wizard.phaseNote.done");
     case "failed":
-      return "abgebrochen";
+      return t("project:wizard.phaseNote.failed");
   }
 }
 
@@ -111,22 +109,27 @@ const releasable = (info: RomInfo | null) => info?.support.kind === "verified" |
 
 /** The plaque of a ROM's release. */
 function SupportBadge({ support }: { support: RomInfo["support"] }) {
+  const { t } = useTranslation("project");
   switch (support.kind) {
     case "verified":
-      return <Badge kind="success">Freigegeben</Badge>;
+      return <Badge kind="success">{t("wizard.support.verified")}</Badge>;
     case "untested":
-      return <Badge kind="warning">Nicht geprüft</Badge>;
+      return <Badge kind="warning">{t("wizard.support.untested")}</Badge>;
     case "locked":
-      return <Badge kind="locked">Gesperrt</Badge>;
+      return <Badge kind="locked">{t("wizard.support.locked")}</Badge>;
     case "unknown":
-      return <Badge kind="error">Kein Gen-4-Spiel erkannt</Badge>;
+      return <Badge kind="error">{t("wizard.support.unknown")}</Badge>;
   }
 }
 
 /** What the header says: the title on a DS screen, like the label of a cartridge, the facts beside it. */
 function RomCard({ info }: { info: RomInfo }) {
+  const { t } = useTranslation("project");
   const { support } = info;
-  const why = support.kind === "untested" ? UNTESTED : support.kind === "locked" || (support.kind === "unknown" && support.reason !== "Kein Gen-4-Spiel erkannt") ? support.reason : null;
+  // The badge says „Kein Gen-4-Spiel erkannt“ already: a reason that only repeats it is not shown again. The kernel's sentence
+  // (`g4_kernel::start::not_gen4`) is the badge's in its language, whichever the backend speaks (pinned in crates/g4-kernel/tests/i18n.rs).
+  const repeatsBadge = support.kind === "unknown" && matchesAnyLanguage("project:wizard.support.unknown", support.reason);
+  const why = support.kind === "untested" ? t("wizard.untested") : support.kind === "locked" || (support.kind === "unknown" && !repeatsBadge) ? support.reason : null;
   return (
     <>
       <div className={styles.rom}>
@@ -135,26 +138,26 @@ function RomCard({ info }: { info: RomInfo }) {
         </div>
         <dl className={styles.facts}>
           <div>
-            <dt>Spiel</dt>
+            <dt>{t("wizard.facts.game")}</dt>
             <dd>{gameName(info)}</dd>
           </div>
           <div>
-            <dt>Sprache</dt>
+            <dt>{t("wizard.facts.language")}</dt>
             <dd>{languageName(info.language)}</dd>
           </div>
           <div>
-            <dt>Spielcode</dt>
+            <dt>{t("wizard.facts.gameCode")}</dt>
             <dd className={styles.code}>{info.game_code}</dd>
           </div>
           <div>
-            <dt>Freigabe</dt>
+            <dt>{t("wizard.facts.support")}</dt>
             <dd>
               <SupportBadge support={support} />
             </dd>
           </div>
           <div>
-            <dt>Basis</dt>
-            <dd>{info.known_base ? `Bekannte Basis-ROM: ${info.known_base}` : "Unbekannte Fassung: vielleicht schon verändert."}</dd>
+            <dt>{t("wizard.facts.base")}</dt>
+            <dd>{info.known_base ? t("wizard.facts.knownBase", { base: info.known_base }) : t("wizard.facts.unknownBase")}</dd>
           </div>
         </dl>
       </div>
@@ -165,35 +168,37 @@ function RomCard({ info }: { info: RomInfo }) {
 
 /** The template cards: a radio group, the arrows move the choice and wrap. */
 function TemplateCards({ value, untested, onChange }: { value: Template; untested: boolean; onChange: (t: Template) => void }) {
+  const { t } = useTranslation("project");
   const headingId = useId();
   const group = useRef<HTMLDivElement>(null);
   function onKey(e: KeyboardEvent<HTMLDivElement>) {
     const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
     if (step === 0) return;
     e.preventDefault();
-    const at = CARDS.findIndex((c) => c.id === value);
-    const next = CARDS[(at + step + CARDS.length) % CARDS.length].id;
+    const at = CARDS.indexOf(value);
+    const next = CARDS[(at + step + CARDS.length) % CARDS.length];
     onChange(next);
     group.current?.querySelector<HTMLElement>(`[data-template="${next}"]`)?.focus();
   }
   return (
     <>
       <h3 id={headingId} className={parts.heading}>
-        Womit startet das Projekt?
+        {t("wizard.templateHeading")}
       </h3>
       <div ref={group} role="radiogroup" aria-labelledby={headingId} className={styles.cards} onKeyDown={onKey}>
-        {CARDS.map((card) => {
-          const chosen = card.id === value;
+        {CARDS.map((id) => {
+          const chosen = id === value;
+          const card = { title: t(`wizard.cards.${TEMPLATE_KEY[id]}.title`), text: t(`wizard.cards.${TEMPLATE_KEY[id]}.text`) };
           return (
             <button
-              key={card.id}
+              key={id}
               type="button"
               role="radio"
               aria-checked={chosen}
               tabIndex={chosen ? 0 : -1}
-              data-template={card.id}
+              data-template={id}
               className={styles.card}
-              onClick={() => onChange(card.id)}
+              onClick={() => onChange(id)}
             >
               <span className={styles.cardHead}>
                 <span className={styles.mark} aria-hidden="true">
@@ -204,7 +209,7 @@ function TemplateCards({ value, untested, onChange }: { value: Template; unteste
               <span className={styles.cardText}>{card.text}</span>
               {untested && (
                 <span className={styles.badges}>
-                  <Badge kind="warning">Nicht geprüft</Badge>
+                  <Badge kind="warning">{t("wizard.support.untested")}</Badge>
                 </span>
               )}
             </button>
@@ -219,6 +224,7 @@ type Checked = { dest: string; result: DestCheck | null; problem: string | null 
 
 /** "Neues Spiel aus ROM": a ROM, a template, a name and a folder, then the ROM is unpacked into a new project. */
 export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, onChoice }: Props) {
+  const { t } = useTranslation("project");
   const { inspectRom, defaultProjectParent, checkProjectDest, createProject } = useContext(StartServiceContext);
   const [step, setStep] = useState(0);
   const [romPath, setRomPath] = useState(initialRom ?? "");
@@ -317,12 +323,12 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   }, [rom, template, name, dest, textProject, git]);
 
   async function pickRom() {
-    const path = await openPath({ directory: false, title: "ROM-Datei wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] });
+    const path = await openPath({ directory: false, title: t("wizard.pickRom"), filters: [{ name: "DS-ROM", extensions: ["nds"] }] });
     if (path) void readRom(path, false);
   }
 
   async function pickFolder() {
-    const path = await openPath({ directory: true, title: "Ordner wählen" });
+    const path = await openPath({ directory: true, title: t("wizard.pickFolder") });
     if (!path) return;
     setParentError(null);
     setParent(path);
@@ -350,43 +356,43 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   const game = rom ? `${gameName(rom)} (${languageName(rom.language)})` : "";
   const ready = releasable(rom) && dest !== null && destOk;
   // The empty region needs rotom's sources: creating the project adopts the scripts first.
-  const adopts = template === "empty_region" ? " Scripts werden übernommen." : "";
-  const asText = `${textProject ? ", als Textprojekt" : ""}${git ? ", mit Git" : ""}`;
-  const sentence = ready ? `Legt „${name.trim()}“ aus ${game} mit der Vorlage ${TEMPLATE_NAMES[template]} an${asText}, in ${dest}.${adopts} Die ROM bleibt unverändert.` : undefined;
+  const adopts = template === "empty_region" ? t("wizard.summary.adopts") : "";
+  const asText = `${textProject ? t("wizard.summary.asTextProject") : ""}${git ? t("wizard.summary.withGit") : ""}`;
+  const sentence = ready ? t("wizard.summary.sentence", { name: name.trim(), game, template: templateName(template), options: asText, dest, adopts }) : undefined;
 
   // Something already lies at the project's own path: a question of the name. Anything else (space, a refusal) is the folder's.
   const taken = current?.result?.state === "not_empty" || current?.result?.state === "not_a_directory";
   const nameError = problem ?? (taken ? (current?.problem ?? undefined) : undefined);
   let folderError: string | undefined;
   if (parentError !== null) folderError = parentError;
-  else if (parent.trim() === "") folderError = "Wähle einen Ordner für das Projekt.";
+  else if (parent.trim() === "") folderError = t("wizard.noFolder");
   else if (current?.problem && !taken) folderError = current.problem;
 
   let destNote: string;
   if (dest === null) destNote = "";
-  else if (current === null) destNote = "Prüfe den Ordner …";
+  else if (current === null) destNote = t("wizard.checkingFolder");
   else if (current.result && current.problem === null) {
     const { free_bytes: freeBytes, needed_bytes: needed } = current.result;
-    destNote = freeBytes === null ? `Gebraucht etwa ${megabytes(needed)}.` : `Platz: ${megabytes(freeBytes)} frei, gebraucht etwa ${megabytes(needed)}.`;
+    destNote = freeBytes === null ? t("wizard.needed", { needed: megabytes(needed) }) : t("wizard.space", { free: megabytes(freeBytes), needed: megabytes(needed) });
   } else destNote = "";
 
   const steps: WizardStep[] = [
     {
       id: "rom",
-      title: "ROM",
+      title: t("wizard.steps.rom"),
       canNext: !reading && releasable(rom),
       content: (
         <>
           <section className={parts.column}>
             {initialNotice && <Notice kind="info">{initialNotice}</Notice>}
             <div className={styles.pathField}>
-              <TextField label="ROM-Datei" showLabel value={romPath} onCommit={(path) => void readRom(path, false)} placeholder="Pfad zur .nds-Datei" error={romError ?? undefined} />
+              <TextField label={t("wizard.romFile")} showLabel value={romPath} onCommit={(path) => void readRom(path, false)} placeholder={t("wizard.romPlaceholder")} error={romError ?? undefined} />
             </div>
             <Button kind="secondary" icon="open" onClick={() => void pickRom()}>
-              Datei wählen…
+              {t("wizard.chooseFile")}
             </Button>
-            {reading && <p className={parts.note}>Lese die ROM …</p>}
-            <p className={parts.note}>{OWN_ROM}</p>
+            {reading && <p className={parts.note}>{t("wizard.readingRom")}</p>}
+            <p className={parts.note}>{t("wizard.ownRom")}</p>
           </section>
           {rom && (
             <section className={`${parts.column} ${parts.wide}`}>
@@ -398,14 +404,14 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
     },
     {
       id: "template",
-      title: "Vorlage",
+      title: t("wizard.steps.template"),
       canNext: true,
       content: (
         <section className={`${parts.column} ${parts.wide}`}>
           <TemplateCards value={template} untested={rom?.support.kind === "untested"} onChange={setTemplate} />
           <div className={parts.group}>
             <Checkbox
-              label="Als Textprojekt einrichten"
+              label={t("wizard.textProject")}
               checked={textProject}
               onChange={(on) => {
                 setTextProject(on);
@@ -413,32 +419,32 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
                 setPhases(freshPhases(on, git));
               }}
             />
-            <p className={parts.note}>{TEXT_PROJECT_HINT}</p>
+            <p className={parts.note}>{t("wizard.textProjectHint")}</p>
           </div>
           <div className={parts.group}>
             <Checkbox
-              label="Git einrichten (nur lokal)"
+              label={t("wizard.git")}
               checked={git}
               onChange={(on) => {
                 setGit(on);
                 setPhases(freshPhases(textProject, on));
               }}
             />
-            <p className={parts.note}>{GIT_HINT}</p>
+            <p className={parts.note}>{t("wizard.gitHint")}</p>
           </div>
         </section>
       ),
     },
     {
       id: "dest",
-      title: "Name und Ziel",
+      title: t("wizard.steps.dest"),
       canNext: problem === null && destOk,
       content: (
         <>
           <section className={parts.column}>
             <div className={styles.pathField}>
               <TextField
-                label="Name"
+                label={t("wizard.name")}
                 showLabel
                 value={name}
                 onCommit={(typed) => {
@@ -449,19 +455,19 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
               />
             </div>
             <div className={styles.pathField}>
-              <TextField label="Ordner" showLabel value={parent} onCommit={(typed) => {
+              <TextField label={t("wizard.folder")} showLabel value={parent} onCommit={(typed) => {
                   setParentError(null);
                   setParent(typed.trim());
                 }} error={folderError} />
             </div>
             <Button kind="secondary" icon="open" onClick={() => void pickFolder()}>
-              Ordner wählen…
+              {t("wizard.chooseFolder")}
             </Button>
           </section>
           <section className={`${parts.column} ${parts.wide}`}>
-            <Switch label="Endung _DSPRE_contents (für DSPRE)" checked={dspre} onChange={setDspre} />
+            <Switch label={t("wizard.dspreSuffix")} checked={dspre} onChange={setDspre} />
             <div className={parts.group}>
-              <span className={parts.label}>Neues Projekt</span>
+              <span className={parts.label}>{t("wizard.newProject")}</span>
               <p className={styles.path}>{dest ?? "–"}</p>
             </div>
             {destNote && <p className={parts.note}>{destNote}</p>}
@@ -471,40 +477,40 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
     },
     {
       id: "summary",
-      title: "Zusammenfassung",
+      title: t("wizard.steps.summary"),
       canNext: ready,
       content: (
         <>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Das neue Projekt</h3>
+            <h3 className={parts.heading}>{t("wizard.summaryHeading")}</h3>
             <dl className={styles.facts}>
               <div>
-                <dt>ROM</dt>
+                <dt>{t("wizard.facts.rom")}</dt>
                 <dd className={styles.code}>{romPath}</dd>
               </div>
               <div>
-                <dt>Spiel</dt>
+                <dt>{t("wizard.facts.game")}</dt>
                 <dd>{game}</dd>
               </div>
               <div>
-                <dt>Vorlage</dt>
-                <dd>{`${TEMPLATE_NAMES[template]}${asText}`}</dd>
+                <dt>{t("wizard.facts.template")}</dt>
+                <dd>{`${templateName(template)}${asText}`}</dd>
               </div>
               <div>
-                <dt>Ordner</dt>
+                <dt>{t("wizard.facts.folder")}</dt>
                 <dd className={styles.code}>{dest ?? "–"}</dd>
               </div>
             </dl>
           </section>
           <section className={parts.column}>
-            <h3 className={parts.heading}>Ablauf</h3>
+            <h3 className={parts.heading}>{t("wizard.progress")}</h3>
             <div className={styles.progress}>
               <CheckList
-                ariaLabel="Ablauf"
+                ariaLabel={t("wizard.progress")}
                 rows={phases.map((r) => ({
                   id: r.id,
                   state: CHECK_STATE[r.state],
-                  text: r.label,
+                  text: phaseLabel(r.id),
                   trailing: <span className={styles.phaseNote}>{phaseNote(r)}</span>,
                   dataAttrs: { "data-phase": r.state },
                 }))}
@@ -519,13 +525,13 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   // „Git einrichten“ when it was asked for: the first commit in the success text, otherwise why there is none (only the templates without
   // `git`, Git's reason for a failed commit) as a warning; the project is there either way.
   const gitReport = created?.git ?? null;
-  const gitWarning = gitReport === null || gitReport.committed || gitReport.reason === null ? null : gitReport.reason === NOT_INSTALLED ? TEMPLATES_ONLY_TEXT : gitReport.reason;
+  const gitWarning = gitReport === null || gitReport.committed || gitReport.reason === null ? null : isNotInstalled(gitReport.reason) ? templatesOnlyText() : gitReport.reason;
   const result = created ? (
     <div className={styles.result}>
       <DoneResult
-        title="Projekt angelegt"
-        lines={[created.root, `Basis-ROM SHA-1 ${created.sha1.slice(0, 8)}…`, ...(gitReport?.committed ? [initDoneText(gitReport)] : [])]}
-        next={[created.template === "data_only" ? "Öffnen startet im Bereich Pokémon." : "Öffnen lädt das Projekt."]}
+        title={t("wizard.done.title")}
+        lines={[created.root, t("wizard.done.sha1", { sha1: created.sha1.slice(0, 8) }), ...(gitReport?.committed ? [initDoneText(gitReport)] : [])]}
+        next={[created.template === "data_only" ? t("wizard.done.nextDataOnly") : t("wizard.done.next")]}
       />
       {gitWarning !== null && <Notice kind="warning">{gitWarning}</Notice>}
     </div>
@@ -533,7 +539,7 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
 
   return (
     <WizardFrame
-      title="Neues Spiel aus ROM"
+      title={t("wizard.title")}
       icon="open"
       steps={steps}
       step={step}
@@ -545,11 +551,11 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
       error={error}
       summary={step === steps.length - 1 ? sentence : undefined}
       result={result}
-      submitLabel="Anlegen"
+      submitLabel={t("wizard.submit")}
       onSubmit={() => void create()}
       onCancel={onCancel}
       onShow={created ? () => onOpen(created) : undefined}
-      showLabel="Öffnen"
+      showLabel={t("wizard.open")}
     />
   );
 }

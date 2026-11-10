@@ -1,0 +1,235 @@
+{
+  "storyWords": {
+    "valuesNone": "No values",
+    "values_one": "{{count}} value: {{shown}}",
+    "values_other": "{{count}} values: {{shown}}",
+    "placesCount_one": "{{count}} place",
+    "placesCount_other": "{{count}} places",
+    "storiesCount_zero": "No stories",
+    "storiesCount_one": "{{count, number}} story",
+    "storiesCount_other": "{{count, number}} stories",
+    "freeVars_zero": "No free variables",
+    "freeVars_one": "{{count, number}} free variable",
+    "freeVars_other": "{{count, number}} free variables",
+    "use": {
+      "text": "Text",
+      "condition": "Condition",
+      "object": "Object"
+    }
+  },
+  "geschichtenArea": {
+    "title": "Stories",
+    "threads": "Threads",
+    "stories": "Stories",
+    "flags": "Flags and variables",
+    "noProject": "No project",
+    "notReadable": "Not readable",
+    "reading": "Reading…"
+  },
+  "threadsSurface": {
+    "title": "Threads",
+    "intro": "Variables the game tells a story with: three values or more, set or checked at two places or more.",
+    "noProject": "No project open.",
+    "noProjectWhy": "Open a project and its threads appear here.",
+    "openProject": "Open project",
+    "reading": "Reading…",
+    "noThreads": "No threads.",
+    "noThreadsWhy": "No variable has three values at two places.",
+    "notAdopted": "No threads: the scripts are not adopted.",
+    "notAdoptedWhy": "Without script sources the index cannot see which values scripts set and check.",
+    "adoptScripts": "Adopt scripts…",
+    "chooseOne": "Choose a thread: its graph appears below, the places that set a value on the left, the places that check it on the right.",
+    "table": "Threads",
+    "columns": {
+      "thread": "Thread",
+      "values": "Values",
+      "places": "Places",
+      "story": "Story"
+    },
+    "count_zero": "No threads",
+    "count_one": "{{count, number}} thread",
+    "count_other": "{{count, number}} threads",
+    "graphHeading": "Graph: {{name}}",
+    "graphReading": "Reading graph…",
+    "graphLoading": "Loading graph…"
+  },
+  "storiesSurface": {
+    "title": "Stories",
+    "intro": "Stories tell what happens in the game with a variable or a flag, step by step.",
+    "newStory": "New story…",
+    "noProject": "No project open.",
+    "noProjectWhy": "Open a project and its stories appear here.",
+    "openProject": "Open project",
+    "reading": "Reading…",
+    "noTextProject": "No text project.",
+    "noTextProjectWhy": "Stories live as files in the text project; the DSPRE layout has none. Technical › Text project sets it up.",
+    "setUpTextProject": "Set up as a text project…",
+    "noStories": "No stories yet.",
+    "noStoriesWhy": "“New story…” creates one: a name and the variable or flag that holds its progress.",
+    "table": "Stories",
+    "columns": {
+      "name": "Name",
+      "progress": "Progress",
+      "steps": "Steps"
+    },
+    "chooseOne": "Choose a story: its notes, its steps and its graph appear below.",
+    "storyReading": "Reading story…"
+  },
+  "storyDetail": {
+    "noValues": "No values in the game yet",
+    "noSteps": "No steps yet. “Create step” creates them through recipes.",
+    "storyLabel": "Story {{name}}",
+    "name": "Name",
+    "progress": "Progress",
+    "deleteStory": "Delete story…",
+    "notes": "Notes",
+    "saving": "Saving…",
+    "steps": "Steps",
+    "graph": "Graph",
+    "graphReading": "Reading graph…",
+    "graphLoading": "Loading graph…",
+    "columns": {
+      "value": "Value",
+      "kind": "Kind",
+      "name": "Name",
+      "uses": "References"
+    },
+    "madeBy": "Created by “{{recipe}}” (Studio {{studio}})",
+    "deleteDialog": {
+      "title": "Delete story “{{name}}”?",
+      "text": "The story's file, its layout and its registry entry go. Undo with ⌘Z.",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "deleting": "Deleting…"
+    }
+  },
+  "newStoryDialog": {
+    "title": "New story",
+    "description": "A story keeps its progress in a variable or a flag; its steps are created by the recipes.",
+    "cancel": "Cancel",
+    "create": "Create story",
+    "name": "Name",
+    "progress": "Progress",
+    "progressKind": "Kind of progress",
+    "stillFree": "{{free}} left",
+    "notes": "Notes",
+    "creating": "Creating…"
+  },
+  "storyHint": {
+    "story": "Story “{{name}}”",
+    "storyStep": "Story “{{name}}”: {{step}}"
+  },
+  "threadGraph": {
+    "open": "Open",
+    "selectNode": "Enter or Space selects a node.",
+    "selectEdge": "Enter or Space selects an edge.",
+    "handle": "Connector",
+    "movable": "Enter or Space selects a node; the arrow keys move the selected one, Shift moves it further.",
+    "moved": "Node moved {{direction}}, now at x {{x}}, y {{y}}",
+    "direction": {
+      "up": "up",
+      "down": "down",
+      "left": "left",
+      "right": "right"
+    }
+  },
+  "graphModel": {
+    "value": "Value {{value}}",
+    "trigger": "Trigger {{slot}}",
+    "object": "Object {{slot}}",
+    "condition": "Condition {{number}}",
+    "line": "Line {{line}} · {{field}}",
+    "edgeSets": "{{place}} sets value {{value}}: {{where}}",
+    "edgeChecks": "{{place}} checks value {{value}}: {{where}}"
+  },
+  "storyRecipeModel": {
+    "trainersTalk": "Trainers speak through their battle texts",
+    "needsVar": "Recipes need a variable as progress",
+    "descriptions": {
+      "talkAdvances": "The character gets a conversation branch: from the chosen step on it says the text and moves the story on.",
+      "figureAppears": "The character appears or disappears from the chosen step on; a flag from the pool holds whether it is there.",
+      "sceneOnEnter": "Whoever enters the place at the chosen step sees the text; after that the story moves on.",
+      "rewardOnce": "From the chosen step on the character gives an item once; a flag from the pool remembers that it was given."
+    },
+    "rewardText": "You receive {{item}}!",
+    "defaultStepName": {
+      "talk": "Conversation",
+      "talkWithFigure": "Conversation with character {{id}}",
+      "figure": "Character",
+      "figureWithId": "Character {{id}}",
+      "appears": "{{who}} appears",
+      "appearsFromStep": "{{who}} appears from step {{step}}",
+      "disappears": "{{who}} disappears",
+      "disappearsFromStep": "{{who}} disappears from step {{step}}",
+      "scene": "Scene on entering",
+      "sceneAt": "Scene on entering {{place}}",
+      "reward": "Reward",
+      "rewardFromFigure": "Reward from character {{id}}",
+      "rewardItem": "Reward: {{item}}"
+    }
+  },
+  "stepRecipes": {
+    "label": "Create step"
+  },
+  "stepField": {
+    "reading": "Reading the steps…",
+    "noStep": "The story has no step yet.",
+    "fromStep": "From step",
+    "step": "Step"
+  },
+  "recipeFields": {
+    "text": "Text",
+    "hint": "Enter: new line; Shift+Enter: new page (▼).",
+    "freeFlags_one": "{{count}} free flag left",
+    "freeFlags_other": "{{count}} free flags left"
+  },
+  "figureField": {
+    "figureLabel": "Character {{id}} · Appearance {{look}}",
+    "figureShort": "Character {{id}}",
+    "noFigureChosen": "None chosen",
+    "noPlaceChosen": "None chosen",
+    "trainer": "Trainer",
+    "place": "Place",
+    "figure": "Character",
+    "choose": "Choose…",
+    "choosePlaceLabel": "Choose place…",
+    "chooseFigureLabel": "Choose character…",
+    "choosePlaceTitle": "Choose place",
+    "chooseFigureTitle": "Choose character",
+    "searchFigure": "Search character or number",
+    "noFigureHere": "No character at this place.",
+    "placeHasNone": "The place has no characters."
+  },
+  "figureAppearsForm": {
+    "appears": "appears",
+    "disappears": "disappears",
+    "theFigure": "The character",
+    "way": "Appears or disappears",
+    "visibilityFlag": "Visibility flag"
+  },
+  "rewardOnceForm": {
+    "item": "Item",
+    "noItemChosen": "None chosen",
+    "rewardFlag": "Reward flag"
+  },
+  "sceneOnEnterForm": {
+    "place": "Place",
+    "noPlaceChosen": "None chosen",
+    "choose": "Choose…",
+    "choosePlaceLabel": "Choose place…",
+    "choosePlaceTitle": "Choose place"
+  },
+  "storyRecipeDialog": {
+    "cancel": "Cancel",
+    "create": "Create",
+    "story": "Story",
+    "storiesReading": "Reading the stories…",
+    "noVarStory": "No story with a variable as progress yet.",
+    "newStory": "New story…",
+    "stepName": "Step name",
+    "creating": "Creating…",
+    "whatItDoes": "What the recipe does",
+    "chooseFirst": "Once everything is chosen, what the recipe creates appears here.",
+    "planning": "Planning…"
+  }
+}

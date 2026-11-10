@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { HeaderSummary, SubjectKind } from "../api";
+import { t } from "../i18n";
 import { Icon } from "../ui/primitives";
 import { isFinding } from "../workbench/problems/problems";
 import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
@@ -48,12 +49,14 @@ const NO_ROWS: readonly ProblemRow[] = [];
 const noRows = () => NO_ROWS;
 const noSubscribe = () => () => {};
 
-const LABEL: Record<MarkSeverity, string> = { error: "Fehler gefunden", warning: "Warnung gefunden" };
+/** The name of a mark in the language shown, read at render (`checks:_words.mark`). */
+const labelOf = (severity: MarkSeverity): string => (severity === "error" ? t("checks:_words.mark.error") : t("checks:_words.mark.warning"));
 
 /** The mark at the end of a list row whose subject a check found an error or warning at: a symbol with its name, never colour alone. */
 export function FindingMark({ severity }: { severity: MarkSeverity }) {
+  const label = labelOf(severity);
   return (
-    <span className={`${styles.mark} ${styles[severity]}`} role="img" aria-label={LABEL[severity]} title={`${LABEL[severity]}, siehe Probleme`} data-finding-mark={severity}>
+    <span className={`${styles.mark} ${styles[severity]}`} role="img" aria-label={label} title={t("checks:_words.mark.title", { label })} data-finding-mark={severity}>
       <Icon name={severity} weight="fill" />
     </span>
   );

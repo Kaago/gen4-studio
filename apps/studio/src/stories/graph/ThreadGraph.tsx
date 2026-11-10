@@ -2,8 +2,10 @@ import "@xyflow/react/dist/base.css";
 import { applyNodeChanges, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 import type { AriaLabelConfig, Edge, Node, NodeChange, NodeProps } from "@xyflow/react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { NavTargetDto } from "../../api.data";
 import type { Layout, ThreadGraphDto } from "../../api.stories";
+import { t as translate } from "../../i18n";
 import { Button, StoryNode, storyKindWord } from "../../ui/primitives";
 import { STORY_NODE_TYPE, toFlow } from "./graphModel";
 import type { StoryNodeData } from "./graphModel";
@@ -33,26 +35,35 @@ type StoryFlowNode = Node<StoryNodeData>;
  */
 export const FIT_MIN_ZOOM = 0.6;
 
-/** React Flow's own words for screen readers, in German; nothing removes a node, only a story's graph moves them (drag or arrow keys). */
-const ariaLabels: Partial<AriaLabelConfig> = {
-  "node.a11yDescription.default": "Enter oder Leertaste wählt einen Knoten.",
-  "node.a11yDescription.keyboardDisabled": "Enter oder Leertaste wählt einen Knoten.",
-  "edge.a11yDescription.default": "Enter oder Leertaste wählt eine Kante.",
-  "handle.ariaLabel": "Anschluss",
-};
+/** The directions React Flow announces a move in (the catalog words them: `threadGraph.direction.<key>`). */
+const DIRECTIONS = ["up", "down", "left", "right"] as const;
 
-const DIRECTIONS: Readonly<Record<string, string>> = { up: "oben", down: "unten", left: "links", right: "rechts" };
+/** React Flow's own words for screen readers, in the language of the app; nothing removes a node, only a story's graph moves them (drag or arrow keys). */
+function ariaLabels(): Partial<AriaLabelConfig> {
+  return {
+    "node.a11yDescription.default": translate("stories:threadGraph.selectNode"),
+    "node.a11yDescription.keyboardDisabled": translate("stories:threadGraph.selectNode"),
+    "edge.a11yDescription.default": translate("stories:threadGraph.selectEdge"),
+    "handle.ariaLabel": translate("stories:threadGraph.handle"),
+  };
+}
 
-/** What a node says to a screen reader in a story's graph: its nodes move, by drag or by the arrow keys on the selected one. */
-const MOVABLE = "Enter oder Leertaste wählt einen Knoten; die Pfeiltasten verschieben den gewählten, mit Umschalt weiter.";
-
-/** A story's graph (React Flow shows `keyboardDisabled` while the keys work, so both say it); each key's move is announced. */
-const movableLabels: Partial<AriaLabelConfig> = {
-  ...ariaLabels,
-  "node.a11yDescription.default": MOVABLE,
-  "node.a11yDescription.keyboardDisabled": MOVABLE,
-  "node.a11yDescription.ariaLiveMessage": ({ direction, x, y }) => `Knoten nach ${DIRECTIONS[direction] ?? direction} verschoben, jetzt bei x ${x}, y ${y}`,
-};
+/**
+ * A story's graph: what a node says to a screen reader (its nodes move, by drag or by the arrow keys on the selected one). React Flow
+ * shows `keyboardDisabled` while the keys work, so both say it; each key's move is announced.
+ */
+function movableLabels(): Partial<AriaLabelConfig> {
+  const movable = translate("stories:threadGraph.movable");
+  return {
+    ...ariaLabels(),
+    "node.a11yDescription.default": movable,
+    "node.a11yDescription.keyboardDisabled": movable,
+    "node.a11yDescription.ariaLiveMessage": ({ direction, x, y }) => {
+      const known = DIRECTIONS.find((d) => d === direction);
+      return translate("stories:threadGraph.moved", { direction: known === undefined ? direction : translate(`stories:threadGraph.direction.${known}`), x, y });
+    },
+  };
+}
 
 /** `nodes` with `selected` as the only selected one; a node whose selection stays is the same object (it keeps its measured size). */
 function withSelection(nodes: StoryFlowNode[], selected: string | null): StoryFlowNode[] {
@@ -63,6 +74,7 @@ const OpenPlace = createContext<(nav: NavTargetDto) => void>(() => {});
 
 /** A node of the graph: the `StoryNode` between its two anchors (in left, out right), „Öffnen“ in the head of a selected place. */
 function StoryFlowNodeView({ id, data, selected }: NodeProps<StoryFlowNode>) {
+  const { t } = useTranslation("stories");
   const open = useContext(OpenPlace);
   return (
     <div className={styles.flowNode}>
@@ -78,7 +90,7 @@ function StoryFlowNodeView({ id, data, selected }: NodeProps<StoryFlowNode>) {
           selected && data.nav !== null ? (
             <span data-open-place="" className="nodrag nopan">
               <Button kind="secondary" size="s" icon="link" onClick={() => open(data.nav!)}>
-                Öffnen
+                {t("threadGraph.open")}
               </Button>
             </span>
           ) : undefined
@@ -100,7 +112,9 @@ const nodeTypes = { [STORY_NODE_TYPE]: StoryFlowNodeView };
  * Flow and dagre stay in this chunk.
  */
 export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, onLayout }: ThreadGraphProps) {
-  const flow = useMemo(() => toFlow(graph), [graph]);
+  // `t` changes with the language: the labels made from the catalog (edges, nodes, screen reader words) are made again then.
+  const { t } = useTranslation("stories");
+  const flow = useMemo(() => toFlow(graph), [graph, t]);
   const placed = useMemo(
     () =>
       (layoutGraph(flow.nodes, flow.edges, graph.layout) as StoryFlowNode[]).map((node) => ({
@@ -109,6 +123,8 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, on
       })),
     [flow, graph.layout],
   );
+  const movable = onLayout !== undefined;
+  const labels = useMemo(() => (movable ? movableLabels() : ariaLabels()), [movable, t]);
   // React Flow keeps the measured size on the node objects it is given: they live in state and take every change it reports (sizes
   // included), so a selection replaces only the nodes whose selection changes and no node has to be measured (and hidden) again.
   const [nodes, setNodes] = useState(() => withSelection(placed, selected));
@@ -189,7 +205,7 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, on
           maxZoom={2}
           fitView
           fitViewOptions={{ padding: 0.12, minZoom: FIT_MIN_ZOOM, maxZoom: 1 }}
-          ariaLabelConfig={onLayout ? movableLabels : ariaLabels}
+          ariaLabelConfig={labels}
         />
       </OpenPlace.Provider>
     </div>

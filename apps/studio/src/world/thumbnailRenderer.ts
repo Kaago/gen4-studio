@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { t } from "../i18n";
 import { MAP_SIZE, MODEL_UNITS_PER_TILE } from "./layout";
 import { disposeTree, drawDoubleSided, parseGlb } from "./sceneUtil";
 import { TransientRenderError } from "./thumbnails";
@@ -35,7 +36,7 @@ export function createTopDownRenderer(width = 64, height = width): ThumbnailRend
     drawDoubleSided(model);
     try {
       if (!gl) {
-        if (contexts >= MAX_CONTEXTS) throw new Error(`WebGL-Kontext ${MAX_CONTEXTS}-mal verloren, keine Kartenbilder mehr`);
+        if (contexts >= MAX_CONTEXTS) throw new Error(t("world:thumbnails.contextLostForGood", { limit: MAX_CONTEXTS }));
         contexts++;
         gl = new THREE.WebGLRenderer({
           canvas: document.createElement("canvas"),
@@ -59,7 +60,7 @@ export function createTopDownRenderer(width = 64, height = width): ThumbnailRend
       if (gl.getContext().isContextLost()) {
         gl.dispose();
         gl = null;
-        throw new TransientRenderError("WebGL-Kontext verloren");
+        throw new TransientRenderError(t("world:thumbnails.contextLost"));
       }
       return gl.domElement.toDataURL("image/png");
     } finally {

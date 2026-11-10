@@ -3,7 +3,8 @@ import type { MutableRefObject } from "react";
 import type { AdoptReport, AssetId, HeaderSummary, MigrateReport, ProjectInfo, RenameResult, RevertReport, TextProjectStatus } from "../api";
 import type { NameReport } from "../api";
 import { invalidateFlagLists } from "../flags/useFlagList";
-import { AGENT_SETTING_UP } from "../technik/TextProjectSurface";
+import { t } from "../i18n";
+import { agentSettingUpText } from "../technik/TextProjectSurface";
 import type { TextProjectView } from "../technik/TextProjectSurface";
 import { adoptedText } from "../textproject/AdoptDialog";
 import { liftedText } from "../textproject/MigrateDialog";
@@ -18,12 +19,6 @@ import { useStableCallback } from "./useStable";
 
 /** The key of the open hint: one at a time, gone when the project closes, another opens or the folder is set up. */
 export const HINT_TOAST = "text-project-hint";
-
-/** Why „Einrichten…“ opens nothing while a build runs. */
-export const AFTER_BUILD = "Erst wenn der Build fertig ist.";
-
-/** Why „Einrichten…“ opens nothing while the folder's state as a text project is read. */
-export const STILL_READING = "Das Projekt wird noch gelesen.";
 
 interface TextProjectDialogsParams {
   session: ProjectSession;
@@ -84,17 +79,19 @@ export function useTextProjectDialogs({
     if (session.info === null || !canOpen()) return;
     if (which === "adopt") {
       if (projectText === null) {
-        toast.info(STILL_READING);
+        // Why „Einrichten…“ opens nothing while the folder's state as a text project is read.
+        toast.info(t("app:textProjectDialogs.stillReading"));
         return;
       }
       if (projectText.state !== "dspre") return;
     }
     if (agentSetUp) {
-      toast.info(AGENT_SETTING_UP);
+      toast.info(agentSettingUpText());
       return;
     }
     if (session.busy) {
-      toast.info(AFTER_BUILD);
+      // Why „Einrichten…“ opens nothing while a build runs.
+      toast.info(t("app:textProjectDialogs.afterBuild"));
       return;
     }
     setDialog(which);
@@ -127,7 +124,7 @@ export function useTextProjectDialogs({
   });
   const onReverted = useStableCallback((report: RevertReport) => afterSwap(revertedText(report)));
   const onLifted = useStableCallback(async (report: MigrateReport) => {
-    const said = `${liftedText(report)}${report.snapshot === null ? "" : ` Sicherung: ${report.snapshot}`}`;
+    const said = report.snapshot === null ? liftedText(report) : t("app:textProjectDialogs.liftedWithSnapshot", { lifted: liftedText(report), snapshot: report.snapshot });
     const root = session.info?.root;
     // The files were lifted already (another Gen4 Studio did it): nothing changed and the backend kept the session it opened as older,
     // which still refuses every edit. Opening the folder anew reads the lifted files.
@@ -193,14 +190,14 @@ export function useTextProjectDialogs({
   function showHint(forget: string, status: TextProjectStatus) {
     const { text, setUp } = hintOf(status);
     const first = setUp
-      ? { label: "Einrichten…", onClick: () => open("adopt") }
+      ? { label: t("app:textProjectDialogs.setUp"), onClick: () => open("adopt") }
       : {
-          label: "Basis-ROM zuordnen…",
+          label: t("app:textProjectDialogs.assignBase"),
           onClick: () => {
             if (canOpen()) showPublish();
           },
         };
-    toast.lastingInfo(text, { key: HINT_TOAST, actions: [first, { label: "Nicht mehr fragen", onClick: () => dismissHint(forget) }] });
+    toast.lastingInfo(text, { key: HINT_TOAST, actions: [first, { label: t("app:textProjectDialogs.dontAskAgain"), onClick: () => dismissHint(forget) }] });
   }
 
   return { textProject, dialog, closeDialog: () => setDialog(null), onAdopted, onReverted, onLifted, onCancelLift, onRenamed, idCache, onFlagNamed };

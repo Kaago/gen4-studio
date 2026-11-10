@@ -1,4 +1,4 @@
-//! Project checks ("Prüfen und Beheben"): findings about references, limits and texts that
+//! Project checks ("check and fix"): findings about references, limits and texts that
 //! would break the game, each with a code, a severity, a subject and optional fixes.
 //!
 //! This module holds the shared types, the limits metadata ([`limits`]) and the registry of

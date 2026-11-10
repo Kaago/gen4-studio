@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button, Icon, Tooltip } from "../primitives";
 import type { Density } from "../tokens/theme";
 import { ago, useNow } from "./timeAgo";
@@ -17,22 +18,24 @@ export type StatusLineProps = {
   agent?: ReactNode;
 };
 
-const densityLabel: Record<Density, string> = { komfort: "Komfort", kompakt: "Kompakt" };
+/** The catalog key of each density's name (`statusLine.<name>` in `ui`). */
+const DENSITY_NAMES = { komfort: "densityComfort", kompakt: "densityCompact" } as const satisfies Record<Density, string>;
 
 function BuildState({ builtAt, building }: StatusLineProps["build"]) {
+  const { t } = useTranslation("ui");
   // Read again every half minute: the age is only as exact as "vor 4 Minuten".
   const now = useNow();
   if (building) {
     return (
       <span className={styles.build}>
-        <Icon name="build" /> Baut …
+        <Icon name="build" /> {t("statusLine.building")}
       </span>
     );
   }
-  if (builtAt === null) return <span className={styles.build}>Noch nicht gebaut</span>;
+  if (builtAt === null) return <span className={styles.build}>{t("statusLine.notBuilt")}</span>;
   return (
     <span className={styles.build}>
-      <Icon name="check" /> Gebaut {ago(builtAt, now)}
+      <Icon name="check" /> {t("statusLine.built", { ago: ago(builtAt, now) })}
     </span>
   );
 }
@@ -42,6 +45,7 @@ function BuildState({ builtAt, building }: StatusLineProps["build"]) {
  * density and the bridge. `data-status-line` makes its footer the last stop of the F6 round (`useF6Ring`).
  */
 export function StatusLine({ left, middle, right, bridge, density, onToggleDensity, build, agent }: StatusLineProps) {
+  const { t } = useTranslation("ui");
   return (
     <div className={styles.line} data-status-line="">
       <div className={styles.left}>{left}</div>
@@ -50,13 +54,13 @@ export function StatusLine({ left, middle, right, bridge, density, onToggleDensi
         {right}
         {agent}
         <BuildState {...build} />
-        <Tooltip content="Dichte wechseln (Komfort oder Kompakt)">
+        <Tooltip content={t("statusLine.densityTip")}>
           <Button kind="quiet" size="s" onClick={onToggleDensity}>
-            {densityLabel[density]}
+            {t(`statusLine.${DENSITY_NAMES[density]}`)}
           </Button>
         </Tooltip>
-        {bridge === "ok" && <span>Browser-Modus (Brücke)</span>}
-        {bridge === "missing" && <span className={styles.missing}>Brücke nicht erreichbar</span>}
+        {bridge === "ok" && <span>{t("statusLine.bridgeOk")}</span>}
+        {bridge === "missing" && <span className={styles.missing}>{t("statusLine.bridgeMissing")}</span>}
       </div>
     </div>
   );

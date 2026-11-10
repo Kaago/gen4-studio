@@ -554,7 +554,7 @@ fn in_one_step(store: &mut Store, code: &str, edits: &[Edit]) -> Result<Vec<Asse
         }
     }
     let generation = store.change_generation();
-    store.transaction(&format!("Behoben: {code}"), |tx| {
+    store.transaction(&t!("checks.fixed_label", code = code), |tx| {
         for edit in edits {
             match edit {
                 Edit::Wrap {
@@ -935,7 +935,7 @@ mod tests {
         assert!(found(&project, &store, code).is_empty());
         let (undo, _) = store.history();
         assert_eq!(undo.len(), undo_before.len() + 1);
-        assert_eq!(undo.last().unwrap(), &format!("Behoben: {code}"));
+        assert_eq!(undo.last().unwrap(), &format!("Fixed: {code}"));
 
         // One step: one undo brings the finding back as it was.
         assert_eq!(store.undo().unwrap(), changed);
@@ -1088,7 +1088,7 @@ mod tests {
         assert_eq!((cell.kind, cell.collision), (0x00, 0x80));
         assert_eq!(
             store.history().0.last().unwrap(),
-            "Behoben: map.step-unblocked"
+            "Fixed: map.step-unblocked"
         );
         disappears_and_comes_back(
             step_unblocked(),

@@ -681,10 +681,10 @@ impl AgentHub {
             .iter_mut()
             .find(|q| q.id == question && q.answer.is_none())
         else {
-            return Err("Die Rückfrage ist nicht mehr offen".to_owned());
+            return Err(t!("mcp.hub.question_closed").into_owned());
         };
         if !open.answers().contains(&answer) {
-            return Err(format!("Unbekannte Antwort: {answer}"));
+            return Err(t!("mcp.hub.unknown_answer", answer = answer).into_owned());
         }
         open.answer = Some(answer.to_owned());
         let client = open.client.clone();
@@ -1085,7 +1085,7 @@ mod tests {
             let fail = Arc::clone(&fail);
             hub.set_server_control(Arc::new(move |on| {
                 if fail.load(std::sync::atomic::Ordering::SeqCst) {
-                    Err("Port belegt".to_owned())
+                    Err("Port in use".to_owned())
                 } else {
                     Ok(on.then_some(4711))
                 }
@@ -1098,7 +1098,7 @@ mod tests {
         hub.set_enabled(false).unwrap();
         assert_eq!(hub.status().port, None);
         fail.store(true, std::sync::atomic::Ordering::SeqCst);
-        assert_eq!(hub.set_enabled(true), Err("Port belegt".to_owned()));
+        assert_eq!(hub.set_enabled(true), Err("Port in use".to_owned()));
         assert!(!hub.status().enabled);
         assert!(!AgentSettings::load(dir.path()).enabled);
     }
@@ -1371,7 +1371,7 @@ mod tests {
             let fail = Arc::clone(&fail);
             hub.set_server_control(Arc::new(move |on| {
                 if on && fail.load(std::sync::atomic::Ordering::SeqCst) {
-                    Err("Port belegt".to_owned())
+                    Err("Port in use".to_owned())
                 } else {
                     Ok(on.then_some(4711))
                 }
@@ -1379,10 +1379,10 @@ mod tests {
         }
         assert_eq!(hub.status().server_error, None);
         assert!(hub.set_enabled(true).is_err());
-        assert_eq!(hub.status().server_error.as_deref(), Some("Port belegt"));
+        assert_eq!(hub.status().server_error.as_deref(), Some("Port in use"));
         assert_eq!(
             serde_json::to_value(hub.status()).unwrap()["server_error"],
-            "Port belegt"
+            "Port in use"
         );
         fail.store(false, std::sync::atomic::Ordering::SeqCst);
         hub.set_enabled(true).unwrap();
@@ -1391,7 +1391,7 @@ mod tests {
         fail.store(true, std::sync::atomic::Ordering::SeqCst);
         assert!(hub.set_enabled(true).is_err());
         assert!(hub.status().enabled);
-        assert_eq!(hub.status().server_error.as_deref(), Some("Port belegt"));
+        assert_eq!(hub.status().server_error.as_deref(), Some("Port in use"));
         hub.set_enabled(false).unwrap();
         assert_eq!(hub.status().server_error, None);
     }
@@ -1400,7 +1400,7 @@ mod tests {
     fn display_name_prefers_title() {
         assert_eq!(client_display_name("claude-code", None), "Claude Code");
         assert_eq!(client_display_name("claude-code", Some("")), "Claude Code");
-        assert_eq!(client_display_name("x", Some("Mein Agent")), "Mein Agent");
+        assert_eq!(client_display_name("x", Some("My Agent")), "My Agent");
         assert_eq!(client_display_name("agent-gate", None), "agent-gate");
         assert_eq!(client_display_name(" ", None), "Agent");
         assert!(setup_line().starts_with("claude mcp add gen4-studio -- \""));

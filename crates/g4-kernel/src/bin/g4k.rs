@@ -26,6 +26,11 @@ use g4_kernel::project::{ArchiveMap, AssetKind, Project};
 use g4_kernel::start::{Template, create_project, inspect_rom};
 use g4_kernel::store::Store;
 use g4_kernel::text::Problem;
+use rust_i18n::t;
+
+// `t!` forwards to `crate::_rust_i18n_t!`, which `i18n!` generates: g4k loads the kernel's
+// catalogs; the locale is process-wide, `init_from_env` picks it first thing in `main`.
+rust_i18n::i18n!("locales", fallback = "en");
 
 #[derive(Parser)]
 #[command(name = "g4k", about = "Gen-4 world editor kernel CLI")]
@@ -211,7 +216,7 @@ enum Command {
     /// (no save layout for the game code), `rejected` (the stub answered an error) and `io`.
     #[command(subcommand)]
     Live(LiveCommand),
-    /// Delete an entity (Löschen, 3d.4): plan it without writing, delete it as one undo step
+    /// Delete an entity (3d.4): plan it without writing, delete it as one undo step
     /// and save, or take its tombstone back and save.
     #[command(subcommand)]
     Delete(DeleteCommand),
@@ -338,6 +343,7 @@ impl From<KernelError> for Failure {
 }
 
 fn main() -> ExitCode {
+    g4_kernel::i18n::init_from_env();
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(Failure::Kernel(e)) => {
@@ -1440,10 +1446,9 @@ fn required_mark(root: &Path) -> Result<g4_kernel::start::BaseMark, Failure> {
 
     match g4_kernel::start::mark_state(root) {
         MarkState::Present(mark) => Ok(mark),
-        MarkState::Missing => Err(Failure::Message(format!(
-            "{} Ordne sie mit `g4k base assign <Projekt> <nds>` zu.",
-            g4_kernel::patch::NO_MARK
-        ))),
+        MarkState::Missing => Err(Failure::Message(
+            t!("g4k.assign_hint", no_mark = g4_kernel::patch::no_mark()).into_owned(),
+        )),
         state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
             Err(Failure::Message(state.refusal().unwrap_or_default()))
         }
@@ -1549,7 +1554,7 @@ enum TextCommand {
     /// totals; when the `.gitignore` holds the block of Gen4 Studio, the templates written anew
     /// as `g4k git templates` prints them (or `warning: …`). On a text project it writes
     /// nothing and records the sync anew (a repair);
-    /// Gen4 Studio refuses that („Das Projekt ist schon ein Textprojekt.“).
+    /// Gen4 Studio refuses that ("The project is already a text project.").
     Adopt {
         project: PathBuf,
         /// The base ROM; another SHA-1 than the mark's is refused.
@@ -1863,11 +1868,11 @@ fn text_adopt(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Fa
 /// phase.
 fn text_restore(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
     use g4_kernel::textproject::restore::{
-        HAS_GAME_FILES, RestorePhase, needs_restore, restore_from_base,
+        RestorePhase, has_game_files, needs_restore, restore_from_base,
     };
 
     if !needs_restore(root) {
-        return Err(Failure::Message(HAS_GAME_FILES.to_owned()));
+        return Err(Failure::Message(has_game_files()));
     }
     let mark = required_mark(root)?;
     let base = required_base(root, &mark, base_rom)?;
@@ -1915,9 +1920,9 @@ fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
             "studio" => Keep::Studio,
             "dspre" => Keep::Dspre,
             other => {
-                return Err(Failure::Message(format!(
-                    "--keep {other}: studio oder dspre"
-                )));
+                return Err(Failure::Message(
+                    t!("g4k.keep_choice", other = other).into_owned(),
+                ));
             }
         };
         sync::resolve_files(&project, key, keep)?;
@@ -2205,10 +2210,11 @@ enum GitCommand {
     Templates { project: PathBuf },
     /// Set the project up as a local Git repository: unpack every archive (DSPRE layout),
     /// write the templates (printed like `git templates`), then `git init`, `git add -A` and
-    /// the first commit "Ausgangsstand", never a remote. Prints `committed Ausgangsstand
-    /// files=<n> branch=<b>`, else `not committed: <reason>` (a repository already holds the
-    /// project, Git is not installed) or `not committed` with `--templates-only`. Exit 1 when
-    /// a Git subcommand failed (the repository and the templates stay).
+    /// the first commit "Initial state" (in the language of the process), never a remote.
+    /// Prints `committed Initial state files=<n> branch=<b>`, else `not committed: <reason>`
+    /// (a repository already holds the project, Git is not installed) or `not committed` with
+    /// `--templates-only`. Exit 1 when a Git subcommand failed (the repository and the
+    /// templates stay).
     Init {
         project: PathBuf,
         /// Write the templates only, no repository.
@@ -2223,18 +2229,18 @@ enum GitCommand {
     /// places) or `git not found`.
     Status {
         project: PathBuf,
-        /// List the changed entities (as „Technik › Änderungen“ against the last commit).
+        /// List the changed entities (as "Technical › Changes" against the last commit).
         #[arg(long)]
         entries: bool,
     },
-    /// "Stand sichern": refresh the templates, then `git add -A` and one commit of everything
+    /// "Save a snapshot": refresh the templates, then `git add -A` and one commit of everything
     /// that changed, in the project's own repository, never a remote. Prints `committed
     /// <short> "<subject>" files=<n>`, else `not committed: <reason>` with exit 1 when a Git
     /// subcommand failed. Refused with its sentence and exit 1: no repository, an enclosing
     /// one, no change since the last commit, no `git`.
     CommitAll {
         project: PathBuf,
-        /// The subject (its first line); without one "Stand <YYYY-MM-DD> <HH:MM> UTC".
+        /// The subject (its first line); without one "Snapshot <YYYY-MM-DD> <HH:MM> UTC".
         #[arg(long)]
         message: Option<String>,
         /// Notes, the commit's body.
@@ -2264,7 +2270,7 @@ fn git(command: GitCommand) -> Result<(), Failure> {
                 let status = g4_kernel::git::status(&project)?;
                 println!(
                     "committed {} files={} branch={}",
-                    g4_kernel::git::FIRST_COMMIT,
+                    g4_kernel::git::first_commit(),
                     report.files,
                     status.branch.as_deref().unwrap_or("detached")
                 );
@@ -2275,9 +2281,9 @@ fn git(command: GitCommand) -> Result<(), Failure> {
                 Some(reason) => println!("not committed: {reason}"),
             }
             // A Git subcommand failed: neither an existing repository nor a missing Git.
-            let expected = [g4_kernel::git::IN_REPO, g4_kernel::git::NOT_INSTALLED];
+            let expected = [g4_kernel::git::in_repo(), g4_kernel::git::not_installed()];
             match &report.reason {
-                Some(reason) if !expected.contains(&reason.as_str()) => {
+                Some(reason) if !expected.contains(reason) => {
                     Err(Failure::Message("git init failed".into()))
                 }
                 _ => Ok(()),
@@ -2643,9 +2649,9 @@ fn recipe(command: RecipeCommand) -> Result<(), Failure> {
             if let Some(why) = recipes::is_irreversible_in(&mut store, &call)?
                 && !allow_irreversible
             {
-                return Err(Failure::Message(format!(
-                    "{why} lässt sich nicht rückgängig machen; mit --allow-irreversible"
-                )));
+                return Err(Failure::Message(
+                    t!("g4k.recipe_irreversible", why = why).into_owned(),
+                ));
             }
             let outcome = recipes::apply(&mut store, &call)?;
             let saved = store.save()?;
@@ -2747,7 +2753,9 @@ fn story(command: StoryCommand) -> Result<(), Failure> {
                 );
             };
             let Some(story) = stories::read_story(&project, number)? else {
-                return Err(Failure::Message(format!("{id} hat keine Datei.")));
+                return Err(Failure::Message(
+                    t!("g4k.story_no_file", id = id).into_owned(),
+                ));
             };
             let layout = stories::read_layout(&project, number)?.unwrap_or_default();
             print_json(&serde_json::json!({
@@ -2827,10 +2835,13 @@ fn story(command: StoryCommand) -> Result<(), Failure> {
                     .as_deref()
                     .map_or_else(String::new, |id| format!(" story={id}"));
                 println!(
-                    "{:#06X} {name} {} Werte · {} Orte{story}",
+                    "{:#06X} {name} {}{story}",
                     t.var,
-                    t.values.len(),
-                    t.places
+                    t!(
+                        "g4k.thread_counts",
+                        values = t.values.len(),
+                        places = t.places
+                    )
                 );
             }
             Ok(())
@@ -2840,7 +2851,8 @@ fn story(command: StoryCommand) -> Result<(), Failure> {
             let n = Resolver::for_project(&project)?
                 .parse(SymbolKind::Var, &var)
                 .map_err(Failure::Message)?;
-            let n = u16::try_from(n).map_err(|_| Failure::Message(format!("{var}: zu groß")))?;
+            let n = u16::try_from(n)
+                .map_err(|_| Failure::Message(t!("g4k.too_big", var = var).into_owned()))?;
             let mut store = Store::new(project);
             print_json(&stories::thread_graph(
                 &mut store,
@@ -3137,10 +3149,7 @@ fn live_wait(
             let _ = session.detach();
             return Err(live_error(
                 "timeout",
-                format!(
-                    "Keine Änderung innerhalb von {} Sekunden",
-                    timeout.as_secs_f64()
-                ),
+                t!("g4k.live_timeout", secs = timeout.as_secs_f64()).into_owned(),
             ));
         }
         std::thread::sleep(LIVE_POLL);
@@ -3172,8 +3181,8 @@ enum DeleteCommand {
         project: PathBuf,
         kind: String,
         index: u16,
-        /// Free the number („Nummer freigeben“): a new entity at the end leaves the project
-        /// for good. Needs `--allow-irreversible`.
+        /// Free the number (as "Free the number" in the app): a new entity at the end leaves
+        /// the project for good. Needs `--allow-irreversible`.
         #[arg(long)]
         free_number: bool,
         /// Free a number although undo does not bring it back.
@@ -3212,7 +3221,7 @@ fn delete_base(
 ) -> Result<Box<dyn g4_kernel::original::Original>, Failure> {
     if !target.needs_base() {
         return Ok(Box::new(g4_kernel::original::MissingBase(
-            "Ein eigener Name braucht keine Basis-ROM.".to_owned(),
+            t!("g4k.own_name_no_base").into_owned(),
         )));
     }
     let mark = required_mark(root)?;
@@ -3246,11 +3255,7 @@ fn delete(command: DeleteCommand) -> Result<(), Failure> {
         } => {
             let target = delete_target(&kind, index)?;
             if free_number && !allow_irreversible {
-                return Err(Failure::Message(
-                    "delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); \
-                     kopflos nur mit --allow-irreversible"
-                        .to_owned(),
-                ));
+                return Err(Failure::Message(t!("g4k.free_irreversible").into_owned()));
             }
             let base = delete_base(&project, target, base_rom.as_deref())?;
             let mut store = Store::new(Arc::new(Project::open(&project)?));

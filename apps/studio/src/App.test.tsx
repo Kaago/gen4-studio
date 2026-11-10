@@ -7,7 +7,7 @@ import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
 import { adoptTextProject, assignBase, checkBase, closeProject, externalSync, migrateTextProject, revertTextProject, textProjectStatus } from "./api";
 import { check, found } from "./technik/baseTesting";
-import { BUILD_CONFLICTS } from "./technik/syncWords";
+import { buildConflictsText } from "./technik/syncWords";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import { gitCommitAll, gitCommitPrepare, gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
@@ -3095,7 +3095,7 @@ describe("App wiring", () => {
       await flush();
       expect(savePath).not.toHaveBeenCalled();
       expect(buildRom).not.toHaveBeenCalled();
-      expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…")).map((t) => [t.kind, t.text])).toEqual([["error", BUILD_CONFLICTS]]);
+      expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…")).map((t) => [t.kind, t.text])).toEqual([["error", buildConflictsText()]]);
       // Resolved: the next „Bauen“ asks for the path and builds.
       vi.mocked(externalSync).mockResolvedValue(outcome());
       vi.mocked(savePath).mockResolvedValue("/out.nds");
@@ -4185,6 +4185,10 @@ describe("App wiring", () => {
       vi.mocked(gitCommitAll).mockResolvedValueOnce(commitReportOf({ subject: "Veröffentlicht v0.1.0" }));
       await act(async () => [...commitDialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Sichern")!.click());
       expect(gitCommitAll).toHaveBeenCalledExactlyOnceWith({ message: "Veröffentlicht v0.1.0", notes: "Neue Route 201." }, expect.any(Function));
+      await flush();
+      // The dialog closes onto the title bar's „Veröffentlichen“, found by its data attribute (its label follows the language shown).
+      expect(commitDialog()).toBeNull();
+      expect(document.activeElement).toBe(container.querySelector('header button[data-publish-button][aria-label="Veröffentlichen"]'));
     });
 
     it("after_a_first_commit_from_aenderungen_focus_goes_to_stand_sichern_not_the_body", async () => {

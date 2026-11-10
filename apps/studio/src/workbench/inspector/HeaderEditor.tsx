@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, MapHeader, MatrixSummary, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
 import type { Created } from "../../app/useWizards";
@@ -11,11 +12,12 @@ import { useEntityIds } from "../../textproject/useEntityIds";
 import { Badge, Button, InspectorRow, Section, Tooltip } from "../../ui/primitives";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { t as translate } from "../../i18n";
 import type { HeaderIdentity } from "../headerIdentity";
 import type { NavTarget } from "../navigation";
 import { RenameDialog } from "../RoomActions";
 import type { RenameTarget } from "../RoomActions";
-import { TERMS, id4, termFor } from "../terms";
+import { id4, termFor, termLabel } from "../terms";
 import { useEvents } from "../useEvents";
 import type { WizardRequest } from "../WorkbenchContext";
 import { roomOf } from "../worldModel";
@@ -36,8 +38,8 @@ import { RenamePlaceDialog } from "../places/RenamePlaceDialog";
 import { LevelScriptSection } from "./LevelScriptSection";
 import { MusicField, soundOf, useSoundNames } from "./MusicField";
 import { SplitRoomDialog } from "./SplitRoomDialog";
-import { SHARED_HINT, sharedText } from "../sharedRooms";
-import { ADOPT_HINT } from "./scriptNav";
+import { sharedHint, sharedText } from "../sharedRooms";
+import { adoptHint } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 
 /** What the header editor needs from App besides the header id. */
@@ -90,8 +92,8 @@ const SCRIPT_FIELDS: Record<string, "script" | "levelScript"> = { script_file_id
 function doorsText(dests: readonly number[], headers: readonly HeaderSummary[]): string | null {
   if (dests.length === 0) return null;
   const lost = dests.filter((dest) => !headers.some((h) => h.id === dest)).length;
-  const doors = `${dests.length} ${dests.length === 1 ? "Tür" : "Türen"}`;
-  return lost === 0 ? doors : `${doors}, ${lost} ohne Ziel`;
+  const doors = translate("workbench:headerEditor.doors", { count: dests.length });
+  return lost === 0 ? doors : translate("workbench:headerEditor.doorsLost", { doors, lost });
 }
 
 /**
@@ -99,16 +101,17 @@ function doorsText(dests: readonly number[], headers: readonly HeaderSummary[]):
  * the scene, opens its „Türen“ and focuses them (the scene's tools and „+“ add a door, the event editor sets its target).
  */
 function DoorsLine({ header, headers, revision, goTo, onError }: { header: HeaderSummary; headers: readonly HeaderSummary[]; revision: number; goTo: (target: NavTarget) => void; onError: (e: unknown) => void }) {
+  const { t } = useTranslation("workbench");
   const events = useEvents(header.event_file_id, onError, revision);
   const text = events === null ? null : doorsText(events.warps.map((w) => w.dest_header_id), headers);
   return (
     <p className={styles.actions} data-doors="">
       {events === null ? (
-        <span className={styles.note}>Lade Türen …</span>
+        <span className={styles.note}>{t("headerEditor.loadingDoors")}</span>
       ) : text === null ? (
-        <span className={styles.note}>Keine Türen</span>
+        <span className={styles.note}>{t("headerEditor.noDoors")}</span>
       ) : (
-        <Button kind="quiet" size="s" icon="door" title="Zeigt die Türen in „In dieser Szene“" onClick={() => goTo({ kind: "sceneGroup", group: "warp", header: header.id })}>
+        <Button kind="quiet" size="s" icon="door" title={t("headerEditor.showDoors")} onClick={() => goTo({ kind: "sceneGroup", group: "warp", header: header.id })}>
           {text}
         </Button>
       )}
@@ -121,12 +124,13 @@ function DoorsLine({ header, headers, revision, goTo, onError }: { header: Heade
  * its name stands alone).
  */
 function NameRow({ name, room, onRename }: { name: string; room: Room | undefined; onRename?: (target: RenameTarget, name: string) => void }) {
+  const { t } = useTranslation("workbench");
   const [open, setOpen] = useState(false);
   // Counts the openings: the dialog is keyed on it, so its field starts with the current name each time.
   const [opens, setOpens] = useState(0);
   return (
     <>
-      <InspectorRow label="Name">
+      <InspectorRow label={t("headerEditor.name")}>
         <div className={styles.inline} data-name-row="">
           <span>{name}</span>
           {room && onRename && (
@@ -138,7 +142,7 @@ function NameRow({ name, room, onRename }: { name: string; room: Room | undefine
                 setOpen(true);
               }}
             >
-              Umbenennen…
+              {t("headerEditor.rename")}
             </Button>
           )}
         </div>
@@ -147,7 +151,7 @@ function NameRow({ name, room, onRename }: { name: string; room: Room | undefine
         <RenameDialog
           key={opens}
           open={open}
-          title="Raum umbenennen"
+          title={t("headerEditor.renameRoom")}
           name={room.name}
           suggestion={room.suggested}
           onClose={() => setOpen(false)}
@@ -164,6 +168,7 @@ function NameRow({ name, room, onRename }: { name: string; room: Room | undefine
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
+  const { t } = useTranslation("workbench");
   const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, world, matrices, onRoomSplit, onRename, onError } = context;
   const reset = useReset();
   const remove = useDelete();
@@ -211,7 +216,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   const createFile = async (key: string, kind: "script" | "levelScript") => {
     try {
       const n = await newScriptFile(kind);
-      const label = kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label;
+      const label = kind === "script" ? termLabel("scriptFile") : termLabel("levelScript");
       // Only a number that is in the header is worth opening (a refused write was reported; the new file stays unused).
       if (!(await session.current?.commit(key, label, n))) return;
       await onCountsChanged();
@@ -310,11 +315,11 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
             <Button
               kind="quiet"
               size="s"
-              aria-label={script === "script" ? `Neue ${TERMS.scriptFile.label} anlegen` : `Neues ${TERMS.levelScript.label} anlegen`}
+              aria-label={script === "script" ? t("headerEditor.newScriptFile") : t("headerEditor.newLevelScript")}
               disabled={!scriptsAdopted}
               onClick={() => void createFile(spec.key, script)}
             >
-              Neu
+              {t("headerEditor.new")}
             </Button>
           )
         }
@@ -333,12 +338,12 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         actions={[
           ...(summary
             ? [
-                { label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
+                { label: t("headerEditor.connectRoom"), onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
                 // No place (index 0) has no name to change; Diamond and Pearl have no place commands.
-                { label: "Ort umbenennen…", disabled: summary.location_index === 0 || header === null || headerFamily(header) === "DP", onSelect: () => setRenaming(true) },
+                { label: t("headerEditor.renamePlace"), disabled: summary.location_index === 0 || header === null || headerFamily(header) === "DP", onSelect: () => setRenaming(true) },
                 // The header as a tombstone (an original one the dialog refuses with the reason).
-                { label: "Löschen…", onSelect: () => remove.open({ kind: "header", id }) },
-                ...(canSplit ? [{ label: "Für diesen Raum abspalten…", onSelect: () => setSplitting(true) }] : []),
+                { label: t("headerEditor.delete"), onSelect: () => remove.open({ kind: "header", id }) },
+                ...(canSplit ? [{ label: t("headerEditor.splitRoom"), onSelect: () => setSplitting(true) }] : []),
                 "separator" as const,
               ]
             : []),
@@ -348,7 +353,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         ]}
         badges={
           sharedRoom && (
-            <Tooltip content={SHARED_HINT}>
+            <Tooltip content={sharedHint()}>
               <span className={styles.shared} tabIndex={0} data-shared="">
                 <Badge kind="info" icon="shared">
                   {sharedText(sharedRoom.shared)}
@@ -361,7 +366,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
       />
       <div className={styles.body}>
         {header === null ? (
-          <p className={styles.note}>Lade {termFor("header", depth)} …</p>
+          <p className={styles.note}>{depthAtLeast(depth, "tuefteln") ? t("headerEditor.loadingHeader") : t("headerEditor.loadingPlace")}</p>
         ) : (
           <div key={refused}>
             {headerSections(headerFamily(header), depth).map((section) => (
@@ -370,7 +375,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
                 {section.specs.map((spec) => fieldRow(spec, header))}
                 {section.id === "texts" && !scriptsAdopted && (
                   <p role="note" className={styles.note}>
-                    {ADOPT_HINT}
+                    {adoptHint()}
                   </p>
                 )}
               </Section>
@@ -406,7 +411,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
           // One filled cell is one map; with more cells the number of distinct maps is not known (the text names none).
           maps={roomMatrix?.filled === 1 ? 1 : null}
           onClose={() => setSplitting(false)}
-          onSplit={(report) => onRoomSplit({ matrix: report.matrix, header: id, announcement: `Raum „${room.name}“ abgespalten` })}
+          onSplit={(report) => onRoomSplit({ matrix: report.matrix, header: id, announcement: t("headerEditor.splitDone", { name: room.name }) })}
           onError={onError}
         />
       )}

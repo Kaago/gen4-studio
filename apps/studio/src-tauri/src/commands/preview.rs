@@ -104,7 +104,7 @@ pub fn project_preview_set_impl(
     let bytes =
         match (png, file) {
             (Some(_), Some(_)) => {
-                return Err("png und file schließen sich aus; nur eins von beiden angeben".into());
+                return Err(t!("commands.preview.png_and_file").into_owned().into());
             }
             (Some(text), None) => {
                 let text = text.trim();

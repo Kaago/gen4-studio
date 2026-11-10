@@ -544,8 +544,9 @@ impl Base<'_> {
 
 /// How the export's refusal starts when the text project holds changes the members lack; the
 /// app answers it with code `unsynced`.
-pub const UNSYNCED_EXPORT: &str =
-    "Im Textprojekt sind Änderungen, die noch nicht in den Membern sind";
+pub fn unsynced_export_prefix() -> String {
+    t!("textproject.unsynced_export").into_owned()
+}
 
 /// `path` as the messages write it.
 fn shown(path: &Path) -> String {
@@ -677,11 +678,12 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
                     judged.unit_problems.push(problem(
                         &unit.json(),
                         UNSYNCED_CODE,
-                        format!(
-                            "{} weicht von {json} und von der Basis ab; g4k text import (JSON \
-                             gilt) oder g4k text export (Member gilt).",
-                            shown(member)
-                        ),
+                        t!(
+                            "textproject.member_differs",
+                            member = shown(member),
+                            json = json
+                        )
+                        .into_owned(),
                     ));
                 }
             }
@@ -733,10 +735,12 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
                 judged.unit_problems.push(problem(
                     &unit.json(),
                     CONFLICT_CODE,
-                    format!(
-                        "{json} und {} sind beide geändert; nichts geschrieben.",
-                        shown(member)
-                    ),
+                    t!(
+                        "textproject.both_changed",
+                        json = json,
+                        member = shown(member)
+                    )
+                    .into_owned(),
                 ));
                 judged.conflicts.push((i, member.clone()));
             }
@@ -747,11 +751,12 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
                     ..problem(
                         &unit.json(),
                         MEMBER_NEWER_CODE,
-                        format!(
-                            "{} ist neuer als {json}; g4k text export übernimmt ihn, g4k text \
-                             import verwirft ihn.",
-                            shown(&member)
-                        ),
+                        t!(
+                            "textproject.member_newer",
+                            member = shown(&member),
+                            json = json
+                        )
+                        .into_owned(),
                     )
                 });
                 judged.kept.extend(unit.members.iter().cloned());
@@ -1239,21 +1244,21 @@ pub(crate) fn export_refusal(p: &Project) -> Result<Option<String>, KernelError>
         .filter(|json| !conflicting.contains(json))
         .cloned()
         .collect();
-    files.extend(
-        sides
-            .conflicts
-            .iter()
-            .map(|(json, member)| format!("{json} (auch {member} geändert)")),
-    );
+    files.extend(sides.conflicts.iter().map(|(json, member)| {
+        t!("textproject.also_changed", file = json, other = member).into_owned()
+    }));
     if files.is_empty() {
         return Ok(None);
     }
     files.sort();
-    Ok(Some(format!(
-        "{UNSYNCED_EXPORT} ({}); der Export würde sie verwerfen: erst bauen (g4k build) oder g4k \
-         text import, dann exportieren.",
-        listed(&files)
-    )))
+    Ok(Some(
+        t!(
+            "textproject.unsynced_export_refusal",
+            prefix = unsynced_export_prefix(),
+            files = listed(&files)
+        )
+        .into_owned(),
+    ))
 }
 
 /// The import's refusal when it would overwrite member-side work: members newer than their
@@ -1270,21 +1275,16 @@ pub(crate) fn import_refusal(p: &Project) -> Result<Option<String>, KernelError>
         .filter(|member| !conflicting.contains(member))
         .cloned()
         .collect();
-    files.extend(
-        sides
-            .conflicts
-            .iter()
-            .map(|(json, member)| format!("{member} (auch {json} geändert)")),
-    );
+    files.extend(sides.conflicts.iter().map(|(json, member)| {
+        t!("textproject.also_changed", file = member, other = json).into_owned()
+    }));
     if files.is_empty() {
         return Ok(None);
     }
     files.sort();
-    Ok(Some(format!(
-        "Member sind neuer als ihre JSON ({}); der Import würde sie überschreiben: erst \
-         exportieren (g4k text export), dann importieren.",
-        listed(&files)
-    )))
+    Ok(Some(
+        t!("textproject.members_newer_import", files = listed(&files)).into_owned(),
+    ))
 }
 
 /// The members without JSON of `plan` judged by the step's rules instead of the import's
@@ -1317,12 +1317,12 @@ fn judge_orphans(
             *slot = problem(
                 &orphan.file,
                 UNSYNCED_CODE,
-                format!(
-                    "{} hat keine {json} und fehlt in der Basis; g4k text export legt sie an \
-                     (Member gilt), g4k text import lehnt das Member ab (der Import löscht nur \
-                     Member am Ende, die seit der Aufzeichnung unverändert sind).",
-                    shown(&member)
-                ),
+                t!(
+                    "textproject.orphan_not_in_base",
+                    member = shown(&member),
+                    json = json
+                )
+                .into_owned(),
             );
         } else if let Some(member) = orphan.members.iter().find(|m| touched.contains(*m)) {
             *slot = Problem {
@@ -1330,12 +1330,12 @@ fn judge_orphans(
                 ..problem(
                     &orphan.file,
                     MEMBER_NEWER_CODE,
-                    format!(
-                        "{} hat noch keine {json}; g4k text export legt sie an, g4k text \
-                         import lehnt das Member ab (der Import löscht nur Member am Ende, die \
-                         seit der Aufzeichnung unverändert sind).",
-                        shown(member)
-                    ),
+                    t!(
+                        "textproject.orphan_newer",
+                        member = shown(member),
+                        json = json
+                    )
+                    .into_owned(),
                 )
             };
             kept.extend(orphan.members.iter().cloned());

@@ -1,5 +1,13 @@
 # xdelta-Patch `build/<Name>.xdelta`
 
+**In English:** Documents the xdelta patch `build/<name>.xdelta` that the export "Create patch…"
+writes (Technical › Publish, `g4k patch create`, the MCP tool `create_patch`): a VCDIFF patch that
+turns the project's base ROM into the built ROM, together with a sidecar file; this is about Gen4
+Studio itself. A section covers publishing: numbered releases `<project>-v<version>.xdelta` with
+change notes, an optional `README.txt` and the list in `.g4/releases.json`. The code is
+`crates/g4-kernel/src/patch.rs` with `patch/release.rs` and `patch/publish.rs`; the encoder is the
+crate `crates/g4-xdelta` (xdelta3 3.0.12, Apache-2.0).
+
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Der Export „Patch erstellen…“
 (Technik › Veröffentlichen, `g4k patch create`, MCP `create_patch`) schreibt einen VCDIFF-Patch, der
 die Basis-ROM des Projekts in die gebaute ROM überführt, und daneben eine Begleitdatei.
@@ -50,10 +58,12 @@ mit leeren Kompressionsfeldern:
 ```
 
 Zum Beispiel
-`Mein Hack-CPUD.nds//Platin DE (Testprojekt) [d40f19ac24d67c721a4ab25e1c013154443d75b4].nds/`.
-`<Basislabel>` ist `base::base_label` der Marke (Name aus `base_roms.yaml`, sonst
-`<Titel> (<Spielcode>)`), bereinigt wie `<Projekt>` (leer wird `Basis-ROM`); so steht kein `/` darin,
-das die Felder trennt. `xdelta3 printhdr <Patch>` zeigt den Header, Rom Patcher JS überspringt ihn.
+`Mein Hack-CPUD.nds//Platinum DE (test project) [d40f19ac24d67c721a4ab25e1c013154443d75b4].nds/`.
+`<Basislabel>` ist `base::base_label_in` der Marke auf Englisch (Name aus `base_roms.yaml`, sonst
+`<Titel> (<Spielcode>)`), gleich in jeder Sprache des Prozesses (`PatchMeta::header_label`; die
+Begleitdatei nennt die Basis in der Sprache des Prozesses), bereinigt wie `<Projekt>` (leer wird
+`Basis-ROM`); so steht kein `/` darin, das die Felder trennt. `xdelta3 printhdr <Patch>` zeigt den
+Header, Rom Patcher JS überspringt ihn.
 VCDIFF selbst hat kein Feld für eine Prüfsumme der Quelle; der Header und die Begleitdatei nennen sie.
 
 ## Begleitdatei `<Name>.xdelta.txt`

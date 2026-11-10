@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { Page } from "../../workbench/text/textModel";
 import { DSScreen } from "./DSScreen";
 import { Sprite } from "./Sprite";
@@ -25,13 +26,13 @@ export type DSPokedexProfileProps = {
 };
 
 const NO_PAGES: Page[] = [];
-const PENDING = "folgt";
 
 function Field({ label, value }: { label: string; value: string | undefined }) {
+  const { t } = useTranslation("ui");
   return (
     <div className={styles.line}>
       <span>{label}</span>
-      <span>{value || PENDING}</span>
+      <span>{value || t("dsPokedexProfile.pending")}</span>
     </div>
   );
 }
@@ -41,6 +42,7 @@ function Field({ label, value }: { label: string; value: string | undefined }) {
  * the Pokédex text in the box below. Drawn into the background of an empty `DSScreen` (same frame, scale and game font).
  */
 export function DSPokedexProfile({ number, name, types, spriteUrl, category, height, weight, text, scale, decorative = false }: DSPokedexProfileProps) {
+  const { t } = useTranslation("ui");
   return (
     <DSScreen
       variant="empty"
@@ -48,7 +50,7 @@ export function DSPokedexProfile({ number, name, types, spriteUrl, category, hei
       page={0}
       scale={scale}
       decorative={decorative}
-      label={`Pokédex-Profil ${name}`}
+      label={t("dsPokedexProfile.label", { name })}
       background={
         <div className={styles.profile} data-ds-profile="">
           <div className={styles.pedestal} />
@@ -57,7 +59,7 @@ export function DSPokedexProfile({ number, name, types, spriteUrl, category, hei
             <Sprite url={spriteUrl} label={name} size={80} area="pokemon" decorative />
           </div>
           <div className={styles.panel}>
-            <div className={styles.line}>{`Nr. ${String(Math.max(0, Math.trunc(number))).padStart(3, "0")}`}</div>
+            <div className={styles.line}>{t("dsPokedexProfile.number", { number: String(Math.max(0, Math.trunc(number))).padStart(3, "0") })}</div>
             <div className={`${styles.line} ${styles.name}`} title={name}>
               {name}
             </div>
@@ -69,11 +71,11 @@ export function DSPokedexProfile({ number, name, types, spriteUrl, category, hei
                 ))}
               </div>
             </div>
-            <Field label="Kategorie" value={category} />
-            <Field label="Größe" value={height} />
-            <Field label="Gewicht" value={weight} />
+            <Field label={t("dsPokedexProfile.category")} value={category} />
+            <Field label={t("dsPokedexProfile.height")} value={height} />
+            <Field label={t("dsPokedexProfile.weight")} value={weight} />
           </div>
-          <div className={styles.textbox}>{text || "Pokédex-Text folgt"}</div>
+          <div className={styles.textbox}>{text || t("dsPokedexProfile.textPending")}</div>
         </div>
       }
     />

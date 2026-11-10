@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { errorText, machineTable } from "../../api";
 import { Button, Notice, ToggleGrid } from "../../ui/primitives";
 import type { ToggleCell } from "../../ui/primitives";
@@ -41,6 +42,7 @@ function useMachines(): Machines {
  * übernehmen …", which copies the machines and the learnset of another species in one undo step.
  */
 export function MachinesTab({ e }: { e: Editing }) {
+  const { t } = useTranslation("data");
   const { rows, labelOf } = useDataArea("pokemon");
   const { moves: machines, error } = useMachines();
   const [copying, setCopying] = useState(false);
@@ -55,28 +57,28 @@ export function MachinesTab({ e }: { e: Editing }) {
         const move = machines?.[n];
         return { id: String(n), label: machineLabel(n), name: move === undefined ? undefined : moveName(e.names.moves, move), checked: tm[n] ?? false, disabled: e.locked.personal };
       }),
-    [machines, tm, e.names.moves, e.locked.personal],
+    [machines, tm, e.names.moves, e.locked.personal, t],
   );
   const toggle = (id: string, checked: boolean) => {
     const n = Number(id);
-    void e.edit({ Tm: { n, on: checked } }, `${e.name}: ${machineLabel(n)} ${checked ? "aus → an" : "an → aus"}`);
+    void e.edit({ Tm: { n, on: checked } }, t(checked ? "machinesTab.toggleOn" : "machinesTab.toggleOff", { name: e.name, machine: machineLabel(n) }));
   };
   const copyFrom = (from: number) => {
     const row = rows.find((r) => r.index === from);
-    const source = row ? labelOf(row) : `Art ${id4(from)}`;
-    void e.edit({ CopyMoves: { from } }, `${e.name}: TM/VM und Lernset wie ${source}`);
+    const source = row ? labelOf(row) : t("speciesFallback", { id: id4(from) });
+    void e.edit({ CopyMoves: { from } }, t("machinesTab.copyLabel", { name: e.name, source }));
   };
   return (
     <div className={styles.tableTab}>
       <div className={styles.actions}>
-        <span className={styles.count}>{`${on} von ${MACHINE_COUNT}`}</span>
+        <span className={styles.count}>{t("machinesTab.count", { on, total: MACHINE_COUNT })}</span>
         <Button kind="quiet" size="s" data-copy-moves="" disabled={e.locked.personal || e.locked.learnset} onClick={() => setCopying(true)}>
-          Von anderer Art übernehmen …
+          {t("machinesTab.copyButton")}
         </Button>
       </div>
-      {error !== null && <Notice kind="error">{`Die Attacken der TM und VM sind nicht lesbar: ${error}`}</Notice>}
-      <ToggleGrid ariaLabel="TM und VM" cells={cells} columns={10} onToggle={toggle} />
-      <ChoicePicker open={copying} onOpenChange={setCopying} title="Von anderer Art übernehmen" items={species} onPick={copyFrom} footer={`Ersetzt TM/VM und Lernset von ${e.name}`} />
+      {error !== null && <Notice kind="error">{t("machinesTab.unreadable", { error })}</Notice>}
+      <ToggleGrid ariaLabel={t("machinesTab.gridLabel")} cells={cells} columns={10} onToggle={toggle} />
+      <ChoicePicker open={copying} onOpenChange={setCopying} title={t("machinesTab.copyTitle")} items={species} onPick={copyFrom} footer={t("machinesTab.copyFooter", { name: e.name })} />
     </div>
   );
 }

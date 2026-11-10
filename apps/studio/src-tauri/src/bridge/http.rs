@@ -40,12 +40,22 @@ const MAX_BODY: u64 = 64 * 1024 * 1024;
 const MCP_THREADS: usize = 2;
 /// How long stopping waits for MCP work still running.
 const MCP_SHUTDOWN: Duration = Duration::from_secs(1);
-/// `/mcp` while "Lokale Agenten zulassen" is off.
-const AGENTS_OFF: &str = "Lokale Agenten sind aus (Einstellungen › Agenten)";
+/// `/mcp` while "Allow local agents" is off (a catalog key).
+const AGENTS_OFF: &str = "bridge.agents_off";
 /// `/mcp` calls running at once, each on a thread of its own (a call can wait 120 s for
 /// the user, so it must not hold one of the workers the UI needs to answer).
 const MCP_CALLS: usize = 16;
-const TOO_MANY_CALLS: &str = "Zu viele gleichzeitige Agenten-Aufrufe";
+/// `/mcp` with all [`MCP_CALLS`] busy (a catalog key).
+const TOO_MANY_CALLS: &str = "bridge.too_many_calls";
+
+/// The token of the bridge from `G4_BRIDGE_TOKEN`; an error (in the language of the process)
+/// when it is missing or empty.
+pub fn token_from_env() -> Result<String, String> {
+    std::env::var("G4_BRIDGE_TOKEN")
+        .ok()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| t!("bridge.token_missing").into_owned())
+}
 
 pub struct ServeConfig {
     /// Port on `127.0.0.1`; 0 picks a free one (see `BridgeServer::addr`).
@@ -89,8 +99,14 @@ impl BridgeServer {
     pub fn start(config: ServeConfig) -> Result<BridgeServer, String> {
         let state = Arc::new(AppState::default());
         if let Some(dir) = &config.app_data {
-            std::fs::create_dir_all(dir)
-                .map_err(|e| format!("App-Datenordner {} nicht anlegbar: {e}", dir.display()))?;
+            std::fs::create_dir_all(dir).map_err(|e| {
+                t!(
+                    "bridge.app_data_not_created",
+                    path = dir.display(),
+                    error = e
+                )
+                .into_owned()
+            })?;
             state.agents.configure(Some(dir.clone()));
         }
         // Without an app data folder too: `G4_BASE_ROM_DIR` and the originals of `G4_ROMS_DIR`.
@@ -105,7 +121,7 @@ impl BridgeServer {
             .thread_name("bridge-mcp")
             .enable_all()
             .build()
-            .map_err(|e| format!("Keine Laufzeit für MCP: {e}"))?;
+            .map_err(|e| t!("bridge.no_runtime", error = e).into_owned())?;
         let mcp = {
             let _enter = rt.enter();
             mcp_http::service(Arc::new(Arc::clone(&state)) as Arc<dyn StateSource>)
@@ -114,12 +130,13 @@ impl BridgeServer {
         state
             .agents
             .set_session_closer(mcp.session_closer(rt.handle().clone()));
-        let server = Server::http(("127.0.0.1", config.port))
-            .map_err(|e| format!("Port {} nicht verfügbar: {e}", config.port))?;
+        let server = Server::http(("127.0.0.1", config.port)).map_err(|e| {
+            t!("bridge.port_unavailable", port = config.port, error = e).into_owned()
+        })?;
         let addr = server
             .server_addr()
             .to_ip()
-            .ok_or("Server hat keine IP-Adresse")?;
+            .ok_or_else(|| t!("bridge.no_ip").into_owned())?;
         let server = Arc::new(server);
         let stopping = Arc::new(AtomicBool::new(false));
         let shared = Arc::new(Shared {
@@ -263,7 +280,7 @@ impl Drop for McpSlot {
 /// `recv` at once and `/invoke` (the UI answering a question) stays free.
 fn spawn_mcp(shared: &Arc<Shared>, request: Request, forwarded: hyper::Request<Full<Bytes>>) {
     let Some(slot) = McpSlot::take(shared) else {
-        let _ = request.respond(refused(503, TOO_MANY_CALLS));
+        let _ = request.respond(refused(503, &t!(TOO_MANY_CALLS)));
         return;
     };
     // Should the thread not start, the request is dropped with it and its connection closes.
@@ -308,7 +325,7 @@ fn prepare_mcp(
     request: &mut Request,
 ) -> Result<hyper::Request<Full<Bytes>>, Answer> {
     let Ok(method) = Method::from_bytes(request.method().as_str().as_bytes()) else {
-        return Err(refused(405, "Methode nicht erlaubt"));
+        return Err(refused(405, &t!("mcp.http.method_refused")));
     };
     let url = request.url().to_owned();
     let path = url.split('?').next().unwrap_or("");
@@ -320,23 +337,25 @@ fn prepare_mcp(
         checked.insert(AUTHORIZATION, bearer);
     }
     match precheck(&method, path, &checked, shared.port, &shared.token) {
-        Guard::Refuse(status @ (401 | 403), message) => return Err(refused(status, message)),
-        _ if !shared.state.agents.settings().enabled => return Err(refused(503, AGENTS_OFF)),
-        Guard::Refuse(status, message) => return Err(refused(status, message)),
+        Guard::Refuse(status @ (401 | 403), message) => return Err(refused(status, &message)),
+        _ if !shared.state.agents.settings().enabled => {
+            return Err(refused(503, &t!(AGENTS_OFF)));
+        }
+        Guard::Refuse(status, message) => return Err(refused(status, &message)),
         Guard::Ok => {}
     }
     let mut raw = Vec::new();
     if let Err(e) = request.as_reader().take(MAX_BODY + 1).read_to_end(&mut raw) {
-        return Err(refused(400, &format!("Körper nicht lesbar: {e}")));
+        return Err(refused(400, &t!("mcp.http.body_unreadable", error = e)));
     }
     if raw.len() as u64 > MAX_BODY {
-        return Err(refused(413, "Körper zu groß"));
+        return Err(refused(413, &t!("mcp.http.body_too_large")));
     }
     let mut forwarded = hyper::Request::new(Full::new(Bytes::from(raw)));
     *forwarded.method_mut() = method;
     match url.parse() {
         Ok(uri) => *forwarded.uri_mut() = uri,
-        Err(_) => return Err(refused(400, "Pfad nicht lesbar")),
+        Err(_) => return Err(refused(400, &t!("bridge.path_unreadable_short"))),
     }
     *forwarded.headers_mut() = headers;
     Ok(forwarded)
@@ -356,7 +375,7 @@ fn run_mcp(shared: &Shared, forwarded: hyper::Request<Full<Bytes>>) -> Answer {
         })
     }));
     let Ok((parts, bytes)) = outcome else {
-        return refused(500, "MCP ist abgestürzt");
+        return refused(500, &t!("bridge.mcp_crashed"));
     };
     let mut response = Response::from_data(bytes.to_vec()).with_status_code(parts.status.as_u16());
     for (name, value) in &parts.headers {
@@ -375,11 +394,11 @@ fn answer(shared: &Shared, request: &mut Request) -> Parts {
     let port = shared.port;
     let host = header(request, "Host").unwrap_or("").to_ascii_lowercase();
     if host != format!("127.0.0.1:{port}") && host != format!("localhost:{port}") {
-        return failure(403, "Host nicht erlaubt");
+        return failure(403, &t!("mcp.http.host_refused"));
     }
     match header(request, TOKEN_HEADER) {
         Some(token) if same_secret(token, &shared.token) => {}
-        _ => return failure(401, "Token fehlt oder ist falsch"),
+        _ => return failure(401, &t!("mcp.http.token_refused")),
     }
     let method = request.method().as_str().to_owned();
     let url = request.url().to_owned();
@@ -389,29 +408,29 @@ fn answer(shared: &Shared, request: &mut Request) -> Parts {
         return (200, "application/json", json_bytes(&body));
     }
     let Some(name) = path.strip_prefix("/invoke/").filter(|_| method == "POST") else {
-        return failure(404, "Nicht gefunden");
+        return failure(404, &t!("mcp.http.not_found"));
     };
     if !header(request, "Content-Type").is_some_and(is_json) {
-        return failure(415, "Content-Type muss application/json sein");
+        return failure(415, &t!("bridge.content_type"));
     }
     if let Some(origin) = header(request, "Origin")
         && origin != shared.origin
     {
-        return failure(403, "Origin nicht erlaubt");
+        return failure(403, &t!("mcp.http.origin_refused"));
     }
     let mut raw = Vec::new();
     if let Err(e) = request.as_reader().take(MAX_BODY + 1).read_to_end(&mut raw) {
-        return failure(400, &format!("Körper nicht lesbar: {e}"));
+        return failure(400, &t!("mcp.http.body_unreadable", error = e));
     }
     if raw.len() as u64 > MAX_BODY {
-        return failure(413, "Körper zu groß");
+        return failure(413, &t!("mcp.http.body_too_large"));
     }
     let args: Value = if raw.iter().all(u8::is_ascii_whitespace) {
         json!({})
     } else {
         match serde_json::from_slice(&raw) {
             Ok(value) => value,
-            Err(e) => return failure(400, &format!("Körper ist kein JSON: {e}")),
+            Err(e) => return failure(400, &t!("bridge.body_not_json", error = e)),
         }
     };
     let name = name.to_owned();
@@ -426,10 +445,10 @@ fn answer(shared: &Shared, request: &mut Request) -> Parts {
     match outcome {
         Ok(Ok(reply)) => response_parts(reply),
         Ok(Err(DispatchError::Unknown(name))) => {
-            failure(404, &format!("Unbekannter Befehl: {name}"))
+            failure(404, &t!("bridge.unknown_command", name = name))
         }
         Ok(Err(DispatchError::Cmd(error))) => (400, "application/json", json_bytes(&error)),
-        Err(_) => failure(500, "Befehl ist abgestürzt"),
+        Err(_) => failure(500, &t!("bridge.command_crashed")),
     }
 }
 
@@ -747,7 +766,7 @@ mod tests {
         );
     }
 
-    const MCP_OFF: &str = "Lokale Agenten sind aus (Einstellungen › Agenten)";
+    const MCP_OFF: &str = "Local agents are off (Settings › Agents)";
 
     fn mcp_headers(server: &BridgeServer, session: Option<&str>) -> Vec<(&'static str, String)> {
         let mut headers = vec![
@@ -849,7 +868,7 @@ mod tests {
                 let headers = with(mcp_headers(&server, None), "Origin", origin);
                 let reply = send(&server, "POST", "/mcp", &headers, &initialize_body());
                 assert_eq!(reply.status, 403, "{origin}");
-                assert_eq!(reply.json()["message"], "Origin nicht erlaubt");
+                assert_eq!(reply.json()["message"], "Origin not allowed");
                 // Before the token.
                 let headers = without(headers, TOKEN_HEADER);
                 assert_eq!(send(&server, "POST", "/mcp", &headers, "{}").status, 403);
@@ -1008,7 +1027,11 @@ mod tests {
             app_data: Some(data.clone()),
         })
         .unwrap();
-        assert_eq!(server.shared.state.base_roms.settings(), remembered);
+        // Read from the folder; the label of the known Platinum DE dump is built anew
+        // (`BaseRomSettings::load`).
+        let mut expected = remembered.clone();
+        expected.roms[0].label = Some("Platinum DE (test project)".into());
+        assert_eq!(server.shared.state.base_roms.settings(), expected);
         server.stop();
     }
 
@@ -1232,7 +1255,7 @@ mod tests {
                 &json!({ "jsonrpc": "2.0", "id": 8, "method": "ping" }).to_string(),
             );
             assert_eq!(reply.status, 503);
-            assert_eq!(reply.json()["message"], TOO_MANY_CALLS);
+            assert_eq!(reply.json()["message"], "Too many simultaneous agent calls");
             let answer = json!({ "question": question, "answer": "read" }).to_string();
             assert_eq!(post(&server, "/invoke/agent_answer", &answer).status, 200);
         });

@@ -1,4 +1,5 @@
 import type { DataDocDto, DataPatch } from "../../api";
+import { t } from "../../i18n";
 import { useDataDoc } from "../useDataDoc";
 import type { DataDoc, DocSpec } from "../useDataDoc";
 
@@ -17,7 +18,9 @@ const MOVE: DocSpec<MoveDoc> = {
   kind: "move",
   parts: ["move"],
   accept: (doc) => (doc.kind === "move" ? doc : null),
-  wrongKind: "Die Antwort enthält keine Attacken-Daten.",
+  get wrongKind() {
+    return t("data:moves.wrongKind");
+  },
   apply: applyMove,
   texts: (doc) => [doc.description?.archive ?? null, doc.name_archive],
 };

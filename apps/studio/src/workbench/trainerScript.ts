@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { DataRowDto, EventPatch } from "../api";
 import { TRAINER_SCRIPTS, ownName, trainerRowLabel } from "../data/trainer/trainerModel";
 import { id4 } from "./terms";
@@ -68,5 +69,5 @@ export function scriptTrainerLabel(rows: readonly DataRowDto[] | null, script: n
 export function placedLabel(rows: readonly DataRowDto[] | null, id: number): string {
   const row = rows?.find((r) => r.index === id);
   const own = row ? ownName(row.name, id) : "";
-  return `Trainer ${own === "" ? id4(id) : own} platziert`;
+  return t("workbench:trainerScript.placed", { name: own === "" ? id4(id) : own });
 }

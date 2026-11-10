@@ -70,11 +70,19 @@ impl ProjectKey {
     /// The key of the project folder `root`: symlinks resolved, base id from
     /// `.g4/base.json` (none for a folder without it, e.g. a DSPRE folder).
     pub fn of(root: &Path) -> Result<ProjectKey, String> {
-        let canonical = std::fs::canonicalize(root)
-            .map_err(|e| format!("Projektordner nicht lesbar: {}: {e}", root.display()))?;
+        let canonical = std::fs::canonicalize(root).map_err(|e| {
+            t!(
+                "mcp.settings.project_folder_unreadable",
+                path = root.display(),
+                error = e
+            )
+            .into_owned()
+        })?;
         let path = canonical
             .to_str()
-            .ok_or_else(|| format!("Pfad ist kein gültiger Text: {}", canonical.display()))?
+            .ok_or_else(|| {
+                t!("mcp.settings.path_not_text", path = canonical.display()).into_owned()
+            })?
             .to_owned();
         let base_id =
             read_base_mark(&canonical).map(|mark| format!("{}/{}", mark.sha1, mark.created));
@@ -94,8 +102,14 @@ impl AgentSettings {
     /// Writes the settings to `dir` (created if missing): readable only by the user (0600),
     /// atomically over a temporary file in the same folder.
     pub fn save(&self, dir: &Path) -> Result<(), String> {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("Ordner nicht anlegbar: {}: {e}", dir.display()))?;
+        std::fs::create_dir_all(dir).map_err(|e| {
+            t!(
+                "mcp.settings.folder_not_created",
+                path = dir.display(),
+                error = e
+            )
+            .into_owned()
+        })?;
         let mut text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         text.push('\n');
         write_private(&dir.join(SETTINGS_FILE), text.as_bytes())
@@ -157,14 +171,21 @@ impl AgentSettings {
 pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let name = path
         .file_name()
-        .ok_or_else(|| format!("Kein Dateiname: {}", path.display()))?;
+        .ok_or_else(|| t!("mcp.settings.no_file_name", path = path.display()).into_owned())?;
     let mut temp_name = std::ffi::OsString::from(".");
     temp_name.push(name);
     temp_name.push(format!(".{}.tmp", std::process::id()));
     let temp = path.with_file_name(temp_name);
     let written = write_new_private(&temp, bytes)
         .and_then(|()| std::fs::rename(&temp, path))
-        .map_err(|e| format!("Datei nicht schreibbar: {}: {e}", path.display()));
+        .map_err(|e| {
+            t!(
+                "mcp.settings.file_unwritable",
+                path = path.display(),
+                error = e
+            )
+            .into_owned()
+        });
     if written.is_err() {
         let _ = std::fs::remove_file(&temp);
     }
@@ -400,6 +421,6 @@ mod tests {
             ProjectKey::of(&project).unwrap().base_id.as_deref(),
             Some("abc/2026-10-25T14:50:00Z")
         );
-        assert!(ProjectKey::of(&dir.path().join("fehlt")).is_err());
+        assert!(ProjectKey::of(&dir.path().join("missing")).is_err());
     }
 }

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import i18next from "i18next";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -187,6 +188,18 @@ describe("Field", () => {
       act(() => options()[0]!.click());
       expect(onCommit.mock.calls).toEqual([[matrix, 7]]);
       expect(document.querySelector("[role=dialog]")).toBeNull();
+    });
+
+    it("names_the_picker_with_the_label_inside_the_sentence_in_english", async () => {
+      await i18next.changeLanguage("en");
+      try {
+        show({ spec: { ...matrix, label: "Event file" }, value: 2, max: 9 });
+        act(() => button("Change event file…")!.click());
+        expect(document.querySelector("[role=dialog]")?.textContent).toContain("Choose event file");
+        expect(document.querySelector("[role=dialog]")?.textContent).not.toContain("Choose Event file");
+      } finally {
+        await i18next.changeLanguage("de");
+      }
     });
 
     it("cannot_change_a_disabled_pick", () => {

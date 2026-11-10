@@ -7,7 +7,7 @@
 //! table they are keyed by data member and have no names.
 //!
 //! Diamond and Pearl are locked: every `data_*` command answers `read_only` with
-//! [`DP_LOCKED`].
+//! [`dp_locked`].
 
 mod create;
 mod display;
@@ -41,6 +41,8 @@ use g4_kernel::data::names::{Bank, NameTables, bank_index, sound_names};
 use g4_kernel::error::KernelError;
 use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project};
+// Why the data editors are locked for Diamond and Pearl: the kernel's sentence for the family.
+use g4_kernel::start::dp_locked;
 use g4_kernel::store::{MapHeader, Store};
 use g4_kernel::textproject::Art;
 use serde_json::json;
@@ -49,9 +51,6 @@ use tauri::{Manager, State};
 use super::{lock, session};
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
-
-/// Why the data editors are locked for Diamond and Pearl.
-pub const DP_LOCKED: &str = "Diamant/Perl: ohne Testprojekt nicht freigegeben";
 
 fn asset(kind: AssetKind, index: u16) -> AssetId {
     AssetId { kind, index }
@@ -66,7 +65,7 @@ fn unlocked_family(project: &Project) -> Result<(), CmdError> {
     if project.family == Family::Dp {
         return Err(CmdError {
             code: "read_only",
-            message: DP_LOCKED.to_owned(),
+            message: dp_locked(),
             asset: None,
             problems: Vec::new(),
             references: Vec::new(),
@@ -297,13 +296,18 @@ fn place_names(session: &mut Session) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// "Header 0012": the fallback name of a header without a place name.
+pub(crate) fn header_name(header: u16) -> String {
+    t!("commands.data.header_name", id = header : {:04}).into_owned()
+}
+
 /// Header `header` with its name from `names` ([`place_names`]), else "Header NNNN".
 fn place(names: &[String], header: u16) -> PlaceDto {
     let name = names
         .get(usize::from(header))
         .filter(|n| !n.trim().is_empty())
         .cloned()
-        .unwrap_or_else(|| format!("Header {header:04}"));
+        .unwrap_or_else(|| header_name(header));
     PlaceDto { header, name }
 }
 

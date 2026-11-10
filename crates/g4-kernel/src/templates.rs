@@ -18,7 +18,7 @@ use crate::error::{KernelError, guard_panic, io_at};
 use crate::places;
 use crate::project::{AssetId, Project};
 use crate::scripts;
-use crate::start::DP_LOCKED;
+use crate::start::dp_locked;
 use crate::store::{ChangeId, Store};
 use crate::textproject::ids::{RefInput, Resolver};
 use crate::textproject::symbols::SymbolKind;
@@ -30,7 +30,9 @@ const START_PT: &str = include_str!("../metadata/templates/start_pt.rotom");
 const START_HGSS: &str = include_str!("../metadata/templates/start_hgss.rotom");
 
 /// The label of the store step [`apply_empty_region`] records.
-pub const REGION_LABEL: &str = "Vorlage: Leere Region mit Startstadt";
+pub fn region_label() -> String {
+    t!("templates.region_label").into_owned()
+}
 
 /// Collision byte of a blocked cell; a map whose cells all carry it (with kind 0) is a border
 /// map of the empty region.
@@ -137,7 +139,7 @@ pub(crate) fn variable_id(family: Family, name: &str) -> Option<u16> {
         .map(|v| v.id)
 }
 
-/// The empty-region recipe of `family`. Diamond and Pearl are refused with [`DP_LOCKED`]; a
+/// The empty-region recipe of `family`. Diamond and Pearl are refused with [`dp_locked`]; a
 /// `done_var` the command database does not know is a metadata error.
 pub fn region_recipe(family: Family) -> Result<RegionRecipe, KernelError> {
     recipe_of(templates()?, family)
@@ -148,7 +150,7 @@ pub fn region_recipe(family: Family) -> Result<RegionRecipe, KernelError> {
 fn recipe_of(yaml: &TemplatesYaml, family: Family) -> Result<RegionRecipe, KernelError> {
     let yaml = &yaml.empty_region;
     let game = match family {
-        Family::Dp => return Err(KernelError::Refused(DP_LOCKED.into())),
+        Family::Dp => return Err(KernelError::Refused(dp_locked())),
         Family::Pt => &yaml.pt,
         Family::Hgss => &yaml.hgss,
     };
@@ -231,7 +233,7 @@ pub struct RegionPlan {
 }
 
 /// Plans the empty region on the store's world; reads, never edits (maps, matrix 0, event
-/// files and the header table may be loaded). Refused: Diamond/Pearl ([`DP_LOCKED`]), a
+/// files and the header table may be loaded). Refused: Diamond/Pearl ([`dp_locked`]), a
 /// start town that is no header of matrix 0 or has no cell there, and a project without an
 /// empty level script (a script member of exactly four zero bytes).
 ///
@@ -455,7 +457,7 @@ pub struct RegionReport {
 }
 
 /// The start script of `family` as script `#n`, filled from `recipe` with `message` as its
-/// text literal (a `"` in it is escaped). Diamond and Pearl are refused with [`DP_LOCKED`].
+/// text literal (a `"` in it is escaped). Diamond and Pearl are refused with [`dp_locked`].
 pub fn start_script(
     recipe: &RegionRecipe,
     family: Family,
@@ -463,7 +465,7 @@ pub fn start_script(
     message: &str,
 ) -> Result<String, KernelError> {
     let template = match family {
-        Family::Dp => return Err(KernelError::Refused(DP_LOCKED.into())),
+        Family::Dp => return Err(KernelError::Refused(dp_locked())),
         Family::Pt => START_PT,
         Family::Hgss => START_HGSS,
     };

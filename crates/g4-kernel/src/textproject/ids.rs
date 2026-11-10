@@ -49,7 +49,7 @@ pub const UNKNOWN_ID_CODE: &str = "unknown_id";
 
 /// The sentence for an id nothing knows: `Unbekannte ID: {id}.`
 pub fn unknown_id_text(id: &str) -> String {
-    format!("Unbekannte ID: {id}.")
+    t!("textproject.unknown_id", id = id).into_owned()
 }
 
 /// The kinds with a register; outside a text project they resolve by number and fallback
@@ -189,7 +189,7 @@ impl Resolver {
             return Err(unknown_id_text(text));
         }
         if self.symbols.is_none() && REGISTER_KINDS.contains(&kind) {
-            return Err(format!("Unbekannte ID: {text} (kein Textprojekt)."));
+            return Err(t!("textproject.unknown_id_no_text_project", id = text).into_owned());
         }
         Err(unknown_id_text(text))
     }
@@ -342,13 +342,13 @@ mod tests {
         assert_eq!(r.parse(SymbolKind::Map, "T02"), Ok(1));
         assert_eq!(
             r.parse(SymbolKind::Map, "MAP_HOME"),
-            Err("Unbekannte ID: MAP_HOME.".to_owned())
+            Err("Unknown ID: MAP_HOME.".to_owned())
         );
         // `number` reads ids, never a bare internal name.
         assert_eq!(r.number(SymbolKind::Map, &id("MAP_T01")), Ok(0));
         assert_eq!(
             r.number(SymbolKind::Map, &id("T01")),
-            Err("Unbekannte ID: T01.".to_owned())
+            Err("Unknown ID: T01.".to_owned())
         );
         // Fixed resolvers know no internal names.
         assert!(Resolver::fixed().parse(SymbolKind::Map, "MAP_T01").is_err());
@@ -382,7 +382,7 @@ mod tests {
         assert_eq!(r.parse(SymbolKind::Map, "MAP_T01"), Ok(0));
         assert_eq!(
             r.parse(SymbolKind::Map, "T02"),
-            Err("Unbekannte ID: T02.".to_owned())
+            Err("Unknown ID: T02.".to_owned())
         );
         assert!(r.is_current(&fx.project()));
     }
@@ -398,13 +398,13 @@ mod tests {
         ] {
             assert_eq!(
                 r.parse(kind, text),
-                Err(format!("Unbekannte ID: {text} (kein Textprojekt)."))
+                Err(format!("Unknown ID: {text} (no text project)."))
             );
         }
         let err = Resolver::fixed()
             .number(SymbolKind::Trainer, &id("TRAINER_YOUNGSTER_KAI"))
             .unwrap_err();
-        assert!(err.contains("kein Textprojekt"), "{err}");
+        assert!(err.contains("no text project"), "{err}");
 
         let exported = TextFixture::exported();
         let r = Resolver::for_project(&exported.project()).unwrap();
@@ -423,7 +423,7 @@ mod tests {
         // In a text project an id the register lacks is plainly unknown.
         assert_eq!(
             r.parse(SymbolKind::Trainer, "TRAINER_NOBODY"),
-            Err("Unbekannte ID: TRAINER_NOBODY.".to_owned())
+            Err("Unknown ID: TRAINER_NOBODY.".to_owned())
         );
     }
 
@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(UNKNOWN_ID_CODE, "unknown_id");
         assert_eq!(
             unknown_id_text("SPECIES_PIKACHUU"),
-            "Unbekannte ID: SPECIES_PIKACHUU."
+            "Unknown ID: SPECIES_PIKACHUU."
         );
         let r = Resolver::fixed();
         for (kind, text) in [
@@ -453,7 +453,7 @@ mod tests {
         }
         assert_eq!(
             r.number(SymbolKind::Species, &id("SPECIES_PIKACHUU")),
-            Err("Unbekannte ID: SPECIES_PIKACHUU.".to_owned())
+            Err("Unknown ID: SPECIES_PIKACHUU.".to_owned())
         );
     }
 
@@ -600,7 +600,7 @@ mod tests {
         );
         assert_eq!(
             dspre.parse(SymbolKind::Flag, "FLAG_HAT_MEDAILLE"),
-            Err("Unbekannte ID: FLAG_HAT_MEDAILLE (kein Textprojekt).".to_owned())
+            Err("Unknown ID: FLAG_HAT_MEDAILLE (no text project).".to_owned())
         );
         // Without a project neither.
         let fixed = Resolver::fixed();

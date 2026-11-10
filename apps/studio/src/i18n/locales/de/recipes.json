@@ -1,0 +1,17 @@
+{
+  "titles": {
+    "createArea": "Gebiet anlegen",
+    "createRoom": "Raum anlegen",
+    "extendArea": "Gebiet erweitern",
+    "emptyRegion": "Welt leeren",
+    "newFigure": "Neue Figur",
+    "connectDoors": "Tür verbinden",
+    "newTrainerHere": "Neuer Trainer hier",
+    "newStory": "Neue Geschichte",
+    "talkAdvances": "Gespräch schaltet weiter",
+    "figureAppears": "Figur erscheint/verschwindet ab Schritt",
+    "sceneOnEnter": "Szene beim Betreten",
+    "rewardOnce": "Belohnung einmalig",
+    "newPaintedMap": "Neue Karte malen"
+  }
+}

@@ -121,8 +121,8 @@ impl<'de> Deserialize<'de> for Pairs {
 fn header(ids: &Resolver, text: &str, field: &str) -> Result<u16, String> {
     let n = ids
         .number(SymbolKind::Map, &RefInput::Id(text.to_owned()))
-        .map_err(|_| format!("unbekannte ID {text} in {field}"))?;
-    u16::try_from(n).map_err(|_| format!("{n} in {field} ist keine Header-Nummer"))
+        .map_err(|_| t!("world_meta.unknown_id", id = text, field = field).into_owned())?;
+    u16::try_from(n).map_err(|_| t!("world_meta.not_a_header", n = n, field = field).into_owned())
 }
 
 /// Whether an owner names a header (a number or a map id), not an area key.
@@ -141,7 +141,7 @@ fn by_header(
     for (key, text) in pairs.0 {
         let n = header(ids, &key, field)?;
         if record.insert(n, value(text)?).is_some() {
-            return Err(format!("Header {n} steht zweimal in {field}"));
+            return Err(t!("world_meta.header_twice", n = n, field = field).into_owned());
         }
     }
     Ok(record)
@@ -422,23 +422,23 @@ mod id_tests {
         for (text, why) in [
             (
                 r#"{"roomNames": {"MAP_X": "A"}}"#,
-                "unbekannte ID MAP_X in roomNames",
+                "unknown ID MAP_X in roomNames",
             ),
             (
                 r#"{"roomOwner": {"MAP_X": "w0:3"}}"#,
-                "unbekannte ID MAP_X in roomOwner",
+                "unknown ID MAP_X in roomOwner",
             ),
             (
                 r#"{"roomOwner": {"0": "MAP_X"}}"#,
-                "unbekannte ID MAP_X in roomOwner",
+                "unknown ID MAP_X in roomOwner",
             ),
             (
                 r#"{"roomNames": {"70000": "A"}}"#,
-                "70000 in roomNames ist keine Header-Nummer",
+                "70000 in roomNames is not a header number",
             ),
             (
                 r#"{"roomNames": {"0": "A", "MAP_T01": "B"}}"#,
-                "Header 0 steht zweimal in roomNames",
+                "Header 0 appears twice in roomNames",
             ),
         ] {
             fx.write(WORLD_FILE, text.as_bytes());
@@ -455,7 +455,7 @@ mod id_tests {
         dspre.write(WORLD_FILE, br#"{"roomNames": {"MAP_HOME": "A"}}"#);
         assert_eq!(
             load(dspre.root(), &ids(&dspre)).1.as_deref(),
-            Some("unbekannte ID MAP_HOME in roomNames")
+            Some("unknown ID MAP_HOME in roomNames")
         );
     }
 }

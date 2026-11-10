@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dialogOf } from "../../api";
 import type { Dialog, DialogSource } from "../../api";
 import type { DialogTarget } from "../dialog/dialogModel";
-import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
+import { notATextProject } from "../../flags/flagWords";
 import { textProjectSpy, withTextProject } from "../../textproject/textProjectTesting";
 import { DialogSection } from "./DialogSection";
 
@@ -129,7 +129,7 @@ describe("DialogSection", () => {
     // A DSPRE folder: the recipe could never go in, so the button is there but locked, and says why.
     const anlegen = button("Dialog anlegen…")!;
     expect(anlegen.disabled).toBe(true);
-    expect(document.getElementById(anlegen.getAttribute("aria-describedby") ?? "")?.textContent).toBe(NOT_A_TEXT_PROJECT);
+    expect(document.getElementById(anlegen.getAttribute("aria-describedby") ?? "")?.textContent).toBe(notATextProject());
     await act(async () => anlegen.click());
     expect(onStoryRecipe).not.toHaveBeenCalled();
   });

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { planReset, resetErrorText, resetToOriginal, targetLabel } from "../api";
 import type { HeaderFamily, ResetPlan, ResetResult, ResetTarget } from "../api";
 import { BeforeAfter, Checkbox, Dialog, Notice } from "../ui/primitives";
@@ -36,6 +37,7 @@ function fieldLabel(family: HeaderFamily | null, field: string): string {
  * and can try again.
  */
 export function ResetDialog({ target, baseLabel, family, scriptDirty = false, dirty = false, finalFocus, onClose, onReset }: ResetDialogProps) {
+  const { t } = useTranslation("original");
   const [plan, setPlan] = useState<ResetPlan | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(() => new Set());
@@ -87,13 +89,13 @@ export function ResetDialog({ target, baseLabel, family, scriptDirty = false, di
       return next;
     });
 
-  const closeOnly: DialogAction[] = [{ label: "Schließen", onClick: onClose }];
+  const closeOnly: DialogAction[] = [{ label: t("resetDialog.close"), onClick: onClose }];
   const actions: DialogAction[] =
     planError !== null || plan?.same
       ? closeOnly
       : [
-          { label: "Abbrechen", onClick: onClose, disabled: running },
-          { label: "Zurücksetzen", kind: "primary", onClick: () => void reset(), disabled: plan === null || running || (header && chosen.length === 0) },
+          { label: t("resetDialog.cancel"), onClick: onClose, disabled: running },
+          { label: t("resetDialog.reset"), kind: "primary", onClick: () => void reset(), disabled: plan === null || running || (header && chosen.length === 0) },
         ];
 
   return (
@@ -102,8 +104,8 @@ export function ResetDialog({ target, baseLabel, family, scriptDirty = false, di
       onOpenChange={(open) => {
         if (!open && !busy.current) onClose();
       }}
-      title={`${label} auf Original zurücksetzen?`}
-      description={baseLabel === null ? undefined : `Stellt den Stand der Basis-ROM ${baseLabel} wieder her. ⌘Z nimmt es zurück.`}
+      title={t("resetDialog.title", { label })}
+      description={baseLabel === null ? undefined : t("resetDialog.description", { base: baseLabel })}
       data={{ "data-reset-dialog": "" }}
       finalFocus={finalFocus}
       actions={actions}
@@ -113,15 +115,15 @@ export function ResetDialog({ target, baseLabel, family, scriptDirty = false, di
           <Notice kind="error">{planError}</Notice>
         ) : plan === null ? (
           <p role="status" className={styles.wait}>
-            Lade Vergleich …
+            {t("resetDialog.loading")}
           </p>
         ) : plan.same ? (
-          <Notice kind="info">Schon im Stand der Basis-ROM.</Notice>
+          <Notice kind="info">{t("resetDialog.same")}</Notice>
         ) : (
           <>
-            {scriptDirty && <Notice kind="warning">Ungespeicherte Änderungen an dieser Scriptdatei gehen verloren.</Notice>}
-            {dirty && <Notice kind="info">Auch ungespeicherte Änderungen werden ersetzt; ⌘Z stellt sie wieder her.</Notice>}
-            {plan.writes_files && <Notice kind="info">Wird sofort geschrieben; ⌘Z nimmt es zurück.</Notice>}
+            {scriptDirty && <Notice kind="warning">{t("resetDialog.scriptDirty")}</Notice>}
+            {dirty && <Notice kind="info">{t("resetDialog.dirty")}</Notice>}
+            {plan.writes_files && <Notice kind="info">{t("resetDialog.writesFiles")}</Notice>}
             {!isHeader &&
               plan.changes.map((change, i) => (
                 <div key={`${i}-${change.label}`} className={styles.change} data-change="">
@@ -144,7 +146,7 @@ export function ResetDialog({ target, baseLabel, family, scriptDirty = false, di
             )}
             {running && (
               <p role="status" className={styles.wait}>
-                Setze zurück …
+                {t("resetDialog.resetting")}
               </p>
             )}
             {error !== null && <Notice kind="error">{error}</Notice>}

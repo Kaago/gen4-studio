@@ -13,7 +13,7 @@ use g4_kernel::base::{
     BaseSource, KnownRom, Located, Search, base_label, env_base_dir, locate, mtime_ms,
 };
 use g4_kernel::error::KernelError;
-use g4_kernel::start::{BaseMark, RomInfo, rfc3339_utc};
+use g4_kernel::start::{BaseMark, RomInfo, known_base_label, rfc3339_utc};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::policy::{is_original, originals_dir};
@@ -35,7 +35,9 @@ pub struct BaseRomEntry {
     /// Modification time in milliseconds since the Unix epoch, when last seen.
     pub mtime_ms: u64,
     pub game_code: String,
-    /// The label shown for the ROM (`base_roms.yaml`, else `<title> (<game_code>)`).
+    /// The label shown for the ROM (`base_roms.yaml`, else `<title> (<game_code>)`). A known
+    /// dump's label is built anew when the file is read and when the ROM is found again, so a
+    /// label an older version stored (German, "Platin DE (Testprojekt)") does not stay.
     pub label: Option<String>,
     /// RFC 3339, UTC: when the SHA-1 of the file was last computed.
     pub verified: String,
@@ -59,19 +61,34 @@ impl Default for BaseRomSettings {
 }
 
 impl BaseRomSettings {
-    /// The settings in `dir`; a missing or unreadable file gives the defaults.
+    /// The settings in `dir`; a missing or unreadable file gives the defaults. The label of a
+    /// known dump is replaced by the one of now ([`known_base_label`]).
     pub fn load(dir: &Path) -> BaseRomSettings {
-        std::fs::read_to_string(dir.join(BASE_ROMS_FILE))
+        let mut settings: BaseRomSettings = std::fs::read_to_string(dir.join(BASE_ROMS_FILE))
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        for entry in &mut settings.roms {
+            if let Ok(Some(label)) =
+                known_base_label(&entry.sha1.to_ascii_lowercase(), Some(&entry.game_code))
+            {
+                entry.label = Some(label);
+            }
+        }
+        settings
     }
 
     /// Writes the settings to `dir` (created if missing), 0600 and atomically
     /// ([`write_private`]).
     pub fn save(&self, dir: &Path) -> Result<(), String> {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("Ordner nicht anlegbar: {}: {e}", dir.display()))?;
+        std::fs::create_dir_all(dir).map_err(|e| {
+            t!(
+                "base_roms.folder_not_created",
+                path = dir.display(),
+                error = e
+            )
+            .into_owned()
+        })?;
         let mut text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         text.push('\n');
         write_private(&dir.join(BASE_ROMS_FILE), text.as_bytes())
@@ -123,7 +140,7 @@ impl Inner {
         if let Some(dir) = &self.dir
             && let Err(e) = self.settings.save(dir)
         {
-            eprintln!("{BASE_ROMS_FILE} nicht gespeichert: {e}");
+            eprintln!("{BASE_ROMS_FILE} could not be saved: {e}");
         }
     }
 }
@@ -185,14 +202,15 @@ impl BaseRoms {
     /// and mtime now, and saves. An original under `G4_ROMS_DIR` is not remembered (the search
     /// skips it anyway). Errors: the file cannot be read, or its path is no valid text.
     pub fn register(&self, path: &Path, info: &RomInfo) -> Result<(), String> {
-        let canonical = path
-            .canonicalize()
-            .map_err(|e| format!("ROM nicht lesbar: {}: {e}", path.display()))?;
+        let canonical = path.canonicalize().map_err(|e| {
+            t!("base_roms.rom_unreadable", path = path.display(), error = e).into_owned()
+        })?;
         if self.is_skipped(&canonical) {
             return Ok(());
         }
-        let meta = std::fs::metadata(&canonical)
-            .map_err(|e| format!("ROM nicht lesbar: {}: {e}", path.display()))?;
+        let meta = std::fs::metadata(&canonical).map_err(|e| {
+            t!("base_roms.rom_unreadable", path = path.display(), error = e).into_owned()
+        })?;
         let entry = BaseRomEntry {
             sha1: info.sha1.to_ascii_lowercase(),
             path: path_text(&canonical)?,
@@ -277,12 +295,9 @@ impl BaseRoms {
                     let Some(path) = path.to_str().map(str::to_owned) else {
                         return Ok(found);
                     };
-                    let label = inner
-                        .settings
-                        .find(&mark.sha1)
-                        .filter(|_| hit.source == BaseSource::Known)
-                        .and_then(|e| e.label.clone())
-                        .unwrap_or_else(|| base_label(mark));
+                    // Built anew, never the remembered one: a known dump's label follows the
+                    // catalog (an old stored label heals), any other is `<title> (<game_code>)`.
+                    let label = base_label(mark);
                     inner.settings.upsert(BaseRomEntry {
                         sha1: mark.sha1.to_ascii_lowercase(),
                         path,
@@ -340,7 +355,7 @@ enum Change<'a> {
 fn path_text(path: &Path) -> Result<String, String> {
     path.to_str()
         .map(str::to_owned)
-        .ok_or_else(|| format!("Pfad ist kein gültiger Text: {}", path.display()))
+        .ok_or_else(|| t!("base_roms.path_not_text", path = path.display()).into_owned())
 }
 
 /// The time now as RFC 3339, UTC.
@@ -606,6 +621,61 @@ mod tests {
         let (base, app) = base_roms(tmp.path(), vec![old.clone()]);
         assert_eq!(base.locate(tmp.path(), &mark(&sha)).unwrap(), None);
         assert_eq!(BaseRomSettings::load(&app).roms, [old]);
+    }
+
+    #[test]
+    fn a_known_dumps_stored_label_is_built_anew_on_load() {
+        // `base-roms.json` of an older version: the German label of the Platinum DE dump, and
+        // the label of a ROM `base_roms.yaml` does not know.
+        let tmp = tempfile::tempdir().unwrap();
+        let platinum = BaseRomEntry {
+            game_code: "CPUD".into(),
+            label: Some("Platin DE (Testprojekt)".into()),
+            ..entry("d40f19ac24d67c721a4ab25e1c013154443d75b4", "/roms/pt.nds")
+        };
+        let other = BaseRomEntry {
+            label: Some("Eigenes Label".into()),
+            ..entry(&"ab".repeat(20), "/roms/x.nds")
+        };
+        let (base, app) = base_roms(tmp.path(), vec![platinum.clone(), other.clone()]);
+        let loaded = BaseRomSettings::load(&app);
+        assert_eq!(
+            loaded.roms,
+            [
+                BaseRomEntry {
+                    label: Some("Platinum DE (test project)".into()),
+                    ..platinum
+                },
+                other,
+            ]
+        );
+        // The app holds the healed label as well; the next save writes it.
+        assert_eq!(base.settings(), loaded);
+    }
+
+    #[test]
+    fn locate_names_a_rehashed_entry_anew() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rom = tmp.path().join("basis.nds");
+        let sha = write_rom(&rom, 1);
+        let old = BaseRomEntry {
+            label: Some("Altes Label".into()),
+            ..remembered(&sha, &rom)
+        };
+        let (base, app) = base_roms(tmp.path(), vec![old]);
+        write_rom(&rom, 1);
+        touch(&rom);
+        let found = base.locate(tmp.path(), &mark(&sha)).unwrap().unwrap();
+        assert_eq!(found.source, BaseSource::Known);
+        assert!(found.hashed);
+        assert_eq!(
+            BaseRomSettings::load(&app)
+                .find(&sha)
+                .unwrap()
+                .label
+                .as_deref(),
+            Some("POKEMON PL (CPUE)")
+        );
     }
 
     #[test]

@@ -1,0 +1,293 @@
+{
+  "warp.dest-header": {
+    "title": "Door leads nowhere",
+    "text": "The door leads to Header {1:id}, which does not exist (the project has {2} headers). Choose a destination or delete the door.",
+    "building": {
+      "text": "The door leads to Place {1:id}, which does not exist (the project has {2} places). Choose a destination or delete the door."
+    }
+  },
+  "warp.dest-warp": {
+    "title": "Target warp missing",
+    "text": "The door leads to Warp {2} in Header {1:id}, but its event file {3:id} has only {4} warps. Choose another target warp or add one there.",
+    "building": {
+      "text": "The door leads to Warp {2} of Place {1:id}, but its event file {3:id} has only {4} warps. Choose another target warp or add one there."
+    }
+  },
+  "warp.off-map": {
+    "title": "Door outside the map",
+    "text": "The door is at x {1}, z {2}, outside the maps of Header {3:id}. Move it onto a map or delete it.",
+    "building": {
+      "text": "The door is at x {1}, z {2}, outside the maps of Place {3:id}. Move it onto a map or delete it."
+    }
+  },
+  "warp.never-fires": {
+    "title": "Door never triggers",
+    "text": "The door at x {1}, z {2} is not on a door or stairs tile, and no warp leads to it. Put it on a door tile or hide the hint."
+  },
+  "event.trainer-missing": {
+    "title": "Trainer missing",
+    "text": "Script {1} starts a battle against Trainer {2}, who does not exist (the project has {3} trainers). Choose a trainer or another script."
+  },
+  "event.off-map": {
+    "title": "Event outside the map",
+    "text": "The event is at x {2}, z {3}, outside the maps of Header {4:id}. Move it onto a map or delete it.",
+    "building": {
+      "text": "The event is at x {2}, z {3}, outside the maps of Place {4:id}. Move it onto a map or delete it."
+    }
+  },
+  "event.trainer-blind": {
+    "title": "Trainer cannot see",
+    "text": "The character fights as Trainer {2} but has trainer type 0: it never spots the player and only fights when spoken to. Set the trainer type or hide the warning."
+  },
+  "event.trigger-empty": {
+    "title": "Trigger without script",
+    "text": "The trigger at x {1}, z {2} has Script 0 and does nothing. Choose a script or delete the trigger."
+  },
+  "event.same-spot": {
+    "title": "Two characters on one tile",
+    "text": "Object {1} is at x {2}, z {3}, the same spot as Object {0}, and neither has a hide flag. Move one character or give one a flag."
+  },
+  "header.ref-range": {
+    "title": "Header points nowhere",
+    "text": "Header {0:id} gives {2} as its {1:field}, but there are only {3}. Choose a valid value in the header.",
+    "building": {
+      "title": "Place points nowhere",
+      "text": "Place {0:id} gives {2} as its {1:field}, but there are only {3}. Choose a valid value for the place."
+    }
+  },
+  "header.wild-dangling": {
+    "title": "Encounters missing",
+    "text": "Header {0:id} names encounter file {1:id}, but there are only {2}. Choose an encounter file in the header, or “None”.",
+    "building": {
+      "text": "Place {0:id} names encounter file {1:id}, but there are only {2}. Choose an encounter file for the place, or “None”."
+    }
+  },
+  "header.text-split": {
+    "title": "Script file with several text archives",
+    "text": "Headers {2} share script file {0:id} but use the text archives {1}; their message numbers fit only one. Give the headers the same text archive or their own script files.",
+    "building": {
+      "text": "Places {2} share script file {0:id} but use the text archives {1}; their message numbers fit only one. Give the places the same text archive or their own script files."
+    }
+  },
+  "matrix.map-range": {
+    "title": "Cell names a missing map",
+    "text": "The cell names Map {3:id}, but there are only {4}. Choose an existing map or clear the cell."
+  },
+  "matrix.header-range": {
+    "title": "Cell names a missing header",
+    "text": "The cell names Header {3:id}, but there are only {4}. Choose an existing header.",
+    "building": {
+      "title": "Cell names a missing place",
+      "text": "The cell names Place {3:id}, but there are only {4}. Choose an existing place."
+    }
+  },
+  "matrix.header-elsewhere": {
+    "title": "Header of another matrix",
+    "text": "The cell names Header {3:id}, which uses Matrix {4}; its events do not appear here. Choose a header of this matrix or change the header’s matrix.",
+    "building": {
+      "title": "Area of another world map",
+      "text": "The cell names Area {3:id}, which uses World map {4}; its events do not appear here. Choose an area of this world map or change the area’s world map."
+    }
+  },
+  "map.model-invalid": {
+    "title": "Map model invalid",
+    "text": "The model of Map {0:id} is invalid ({1}). Import a valid model."
+  },
+  "map.bdhc-size": {
+    "title": "Terrain invalid",
+    "text": "The terrain (BDHC) of Map {0:id} is invalid ({1}). Import a valid terrain."
+  },
+  "map.building-range": {
+    "title": "Building without model",
+    "text": "A building of Map {0:id} uses model {2}, but there are only {3}. Choose an existing model or delete the building."
+  },
+  "map.altitude-walkable": {
+    "title": "Height on a walkable cell",
+    "text": "Cell {1}, {2} of World map {0:id} is at height {3} and carries Header {4:id}; the game draws the model higher than the ground, so the character walks beneath it. Set the cell’s height to 0.",
+    "building": {
+      "text": "Cell {1}, {2} of World map {0:id} is at height {3} and carries Place {4:id}; the game draws the model higher than the ground, so the character walks beneath it. Set the cell’s height to 0."
+    }
+  },
+  "map.step-unblocked": {
+    "title": "Step without barrier",
+    "text": "Between tile {1}, {2} and {3}, {4} of Map {0:id} there is a step of {5} units that the game lets the player walk onto. Block the upper cell or place stairs."
+  },
+  "map.buildings-over-limit": {
+    "title": "Too many buildings",
+    "text": "Map {0:id} has {1} buildings; the game loads at most {2}, and the rest are missing in the game. Delete buildings or spread them over neighboring maps."
+  },
+  "area.tileset-range": {
+    "title": "Textures missing",
+    "text": "Area data {0:id} gives {2} as its {1:field}, but there are only {3}. Choose an existing texture pack."
+  },
+  "place.name-too-long": {
+    "title": "Place name too long",
+    "text": "The place name “{1}” is {2} characters long; the game shows at most 16. Shorten it in the inspector of an area (Rename place)."
+  },
+  "place.index-out-of-bank": {
+    "title": "Place missing from the place name bank",
+    "text": "Header {0:id} points to place name {1}, but the bank has only {2} names. Choose an existing place in the inspector.",
+    "building": {
+      "text": "Area {0:id} points to a place that does not exist. Choose an existing place in the inspector."
+    }
+  },
+  "trainer.no-party": {
+    "title": "Trainer without team",
+    "text": "Trainer {0:id} has no Pokémon: the battle runs against an invisible Pokémon at level 0. Give them a team."
+  },
+  "trainer.empty-species": {
+    "title": "Team slot without Pokémon",
+    "text": "A slot in the team has no Pokémon. Choose a Pokémon or remove the slot."
+  },
+  "trainer.id-range": {
+    "title": "Trainer names something unknown",
+    "text": "The {2:field} is {3}, but there are only {4}. Choose an existing value."
+  },
+  "trainer.no-moves": {
+    "title": "Pokémon without moves",
+    "text": "The team has custom moves, but this Pokémon has none and cannot attack. Give it moves or switch off the custom moves."
+  },
+  "trainer.double-one": {
+    "title": "Double battle with one Pokémon",
+    "text": "Trainer {0:id} fights a double battle but has only {1} Pokémon. Give them a second Pokémon or choose a single battle."
+  },
+  "encounter.empty-slot": {
+    "title": "Empty slot gives a glitch Pokémon",
+    "text": "The slot is empty but in use: a glitch Pokémon appears there. Choose a Pokémon for the slot."
+  },
+  "encounter.level-zero": {
+    "title": "Pokémon at level 0",
+    "text": "Species {2:id} appears at level 0. Give the slot a level of 1 or higher."
+  },
+  "encounter.level-high": {
+    "title": "Level above 100",
+    "text": "The slot has level {2}, which is more than 100. Choose a level up to 100."
+  },
+  "encounter.min-max": {
+    "title": "Minimum level above maximum level",
+    "text": "The minimum level {2} is above the maximum level {3}; the game swaps them. Swap the two yourself or hide the hint."
+  },
+  "encounter.rate-byte": {
+    "title": "Rate above 255",
+    "text": "The rate {1} is larger than 255, and the game reads only {2}. Choose a rate up to 255."
+  },
+  "build.hidden-file": {
+    "title": "Hidden file in the ROM folder",
+    "text": "The hidden file {0} lies under files/ and would end up in the ROM when building; the build stops because of it. “Remove” moves it to .g4/backup."
+  },
+  "build.member-gap": {
+    "title": "Gap in the archive folder",
+    "text": "In the folder unpacked/{0}, {1} does not fit the sequence 0000, 0001, …; the build stops because of it. Add the missing file or remove the foreign one."
+  },
+  "build.unpacked-not-packed": {
+    "title": "Folder is not packed",
+    "text": "In the folder unpacked/{0}, {1} files have changed, but Studio does not pack it; the change is missing from the built ROM. Repack the archive in DSPRE or revert the change.",
+    "one": "In the folder unpacked/{0}, 1 file has changed, but Studio does not pack it; the change is missing from the built ROM. Repack the archive in DSPRE or revert the change."
+  },
+  "build.base-missing": {
+    "title": "Base ROM unknown",
+    "text": "The project does not know its base ROM. “Publish” and “Reset to original” need it. Assign it in Technical under “Publish”."
+  },
+  "asset.unreadable": {
+    "title": "File cannot be read",
+    "text": "{asset} cannot be read ({2}). Restore the file; until then Studio checks without it."
+  },
+  "event.script-missing": {
+    "title": "Script missing",
+    "text": "The event calls Script {2}, but script file {3:id} has scripts only up to {4}. Create the script or choose an existing one."
+  },
+  "header.level-target": {
+    "title": "Level script calls a missing script",
+    "text": "Level script {1:id} starts Script {2}, but script file {3:id} has scripts only up to {4}. Create the script or change the level script."
+  },
+  "header.script-kind": {
+    "title": "Wrong script type",
+    "text": "Header {0:id} names file {2:id} as its {1:field}, but that file is of the other type. Choose a file of the right type.",
+    "building": {
+      "text": "Place {0:id} names file {2:id} as its {1:field}, but that file is of the other type. Choose a file of the right type."
+    }
+  },
+  "script.message-missing": {
+    "title": "Message missing",
+    "text": "The script uses message {2}, but text archive {3:id} has only {4} messages. Create the message or choose an existing one."
+  },
+  "script.unreadable": {
+    "title": "Script file cannot be read",
+    "text": "Script file {0:id} cannot be read ({1}), and the build would fail because of it. Repair the file or restore it."
+  },
+  "text.too-wide": {
+    "title": "Line too wide",
+    "text": "The line is {3} px wide, but the text window only {4} px. Wrap it or shorten the text."
+  },
+  "text.three-lines": {
+    "title": "Too many lines",
+    "text": "Page {2} has {3} lines, but the text window shows only {4}. Split the page with a page break or shorten the text."
+  },
+  "text.encode": {
+    "title": "Text cannot be encoded",
+    "text": "The message contains a character the game does not know ({2}); the build stops because of it. Replace the character."
+  },
+  "text.json-broken": {
+    "title": "Text archive cannot be read",
+    "text": "Text archive {0:id} cannot be read ({1}). Repair the JSON file or restore it."
+  },
+  "_words": {
+    "areas": {
+      "welt": "World",
+      "scripts": "Scripts",
+      "texte": "Texts",
+      "pokemon": "Pokémon",
+      "projekt": "Project"
+    },
+    "fields": {
+      "matrixId": "Matrix",
+      "eventFileId": "Event file",
+      "scriptFileId": "Script file",
+      "levelScriptId": "Level script",
+      "textArchiveId": "Text archive",
+      "areaDataId": "Area data",
+      "wildPokemon": "Encounters",
+      "mapTileset": "Map textures",
+      "buildingsTileset": "Building textures",
+      "class": "Class",
+      "items": "Item",
+      "species": "Pokémon",
+      "item": "Item",
+      "moves": "Move"
+    },
+    "building": {
+      "matrixId": "World map",
+      "matrix": "World map",
+      "headerTable": "Place table",
+      "dynamicHeaders": "Place files",
+      "header": "Place"
+    },
+    "wholeArchive": "The archive {{word}}",
+    "locked": "{{name}} is locked ({{why}}): Gen4 Studio would not write it back byte for byte. Restore the file, then it can be changed.",
+    "progress": {
+      "cheap": "World and data",
+      "load": "Files",
+      "scripts": "Scripts",
+      "texts": "Texts"
+    },
+    "checking": "Checking…",
+    "checkingPass": "Checking… {{what}} {{done}}/{{total}}",
+    "skipped": {
+      "ignoreFile": "{{file}} is unreadable ({{why}}): nothing is hidden or switched off, and Gen4 Studio does not write the file. Repair or delete it, then both work again.",
+      "notAdopted": "{{title}}: not checked, the scripts are not adopted. Adopt them under Script, then Gen4 Studio checks them.",
+      "commonBuilding_one": "{{title}}: {{count}} common script without a place not checked.",
+      "commonBuilding_other": "{{title}}: {{count}} common scripts without a place not checked.",
+      "commonTech_one": "{{title}}: {{count}} common script without a header not checked.",
+      "commonTech_other": "{{title}}: {{count}} common scripts without a header not checked.",
+      "levelScript": "Level script",
+      "scriptFile": "Script file",
+      "oneFile": "{{title}}: {{kind}} {{id}} not checked ({{why}}). Fix the error in the file, then Gen4 Studio checks it.",
+      "other": "{{title}}: not checked ({{why}}). Look under “{{unreadable}}” for what is missing, then check again."
+    },
+    "mark": {
+      "error": "Error found",
+      "warning": "Warning found",
+      "title": "{{label}}, see Problems"
+    }
+  }
+}

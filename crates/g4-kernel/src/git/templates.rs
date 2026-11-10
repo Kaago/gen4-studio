@@ -32,8 +32,9 @@ pub const BLOCK_END: &str = "# <<< Gen4 Studio <<<";
 
 /// The refusal for a block whose start has no end; the file name stands before it
 /// (`.gitignore: …`).
-pub const BROKEN_BLOCK: &str =
-    "Der Block von Gen4 Studio ist unvollständig (Anfang ohne Ende); bitte von Hand reparieren.";
+pub fn broken_block() -> String {
+    t!("git.broken_block").into_owned()
+}
 
 /// Which `.gitignore` template a project gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -129,7 +130,7 @@ pub fn gitattributes_block() -> String {
 /// same); else every block is taken out (a pasted second one too; the user's lines before,
 /// between and after them stay byte for byte and in order) and the block appended like to a
 /// file without one ([`TemplateAction::Updated`]). A start without an end, or a start inside an
-/// open block, is `Err` with [`BROKEN_BLOCK`].
+/// open block, is `Err` with [`broken_block`].
 pub fn merge_block(
     existing: Option<&str>,
     block: &str,
@@ -143,10 +144,10 @@ pub fn merge_block(
     let mut at = 0;
     while let Some(start) = find_line(text, at, BLOCK_START) {
         let inside = line_end(text, start);
-        let end = find_line(text, inside, BLOCK_END).ok_or_else(|| BROKEN_BLOCK.to_owned())?;
+        let end = find_line(text, inside, BLOCK_END).ok_or_else(broken_block)?;
         // A start inside an open block is broken too.
         if find_line(text, inside, BLOCK_START).is_some_and(|next| next < end) {
-            return Err(BROKEN_BLOCK.to_owned());
+            return Err(broken_block());
         }
         let end = line_end(text, end);
         rest.push_str(&text[at..start]);
@@ -194,7 +195,7 @@ fn append(text: &str, block: &str) -> String {
 /// Writes the block of the project's layout into `.gitignore` and the `.gitattributes` block
 /// into `.gitattributes` ([`merge_block`]), each atomically. Both files are merged before
 /// either is written: a broken block in one ([`KernelError::Refused`] with the file name before
-/// [`BROKEN_BLOCK`]) leaves both as they are. An unchanged file is not written.
+/// [`broken_block`]) leaves both as they are. An unchanged file is not written.
 pub fn write_templates(project: &Project) -> Result<TemplateReport, KernelError> {
     let (ignore, ignored_archives) = gitignore(project)?;
     let mut merged = Vec::new();
@@ -203,15 +204,14 @@ pub fn write_templates(project: &Project) -> Result<TemplateReport, KernelError>
         (GITATTRIBUTES_FILE, gitattributes_block()),
     ] {
         let path = project.root.join(name);
-        let existing = match std::fs::read(&path) {
-            Ok(bytes) => Some(String::from_utf8(bytes).map_err(|_| {
-                KernelError::Refused(format!(
-                    "{name}: Die Datei ist kein UTF-8-Text; bitte von Hand prüfen."
-                ))
-            })?),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
-            Err(err) => return Err(io_at(&path)(err)),
-        };
+        let existing =
+            match std::fs::read(&path) {
+                Ok(bytes) => Some(String::from_utf8(bytes).map_err(|_| {
+                    KernelError::Refused(t!("git.not_utf8", name = name).into_owned())
+                })?),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+                Err(err) => return Err(io_at(&path)(err)),
+            };
         let (text, action) = merge_block(existing.as_deref(), &block)
             .map_err(|message| KernelError::Refused(format!("{name}: {message}")))?;
         merged.push((name, path, text, action));
@@ -445,10 +445,7 @@ mod tests {
 
         // A start without an end.
         let broken = format!("notes/\n{BLOCK_START}\n*.nds\n");
-        assert_eq!(
-            merge_block(Some(&broken), &ours),
-            Err(BROKEN_BLOCK.to_owned())
-        );
+        assert_eq!(merge_block(Some(&broken), &ours), Err(broken_block()));
     }
 
     #[test]
@@ -505,7 +502,7 @@ mod tests {
         let KernelError::Refused(message) = err else {
             panic!("not a refusal: {err:?}");
         };
-        assert_eq!(message, format!(".gitignore: {BROKEN_BLOCK}"));
+        assert_eq!(message, format!(".gitignore: {}", broken_block()));
         assert_eq!(read(root, ".gitignore"), broken);
         assert!(!root.join(".gitattributes").exists());
 
@@ -516,7 +513,7 @@ mod tests {
         let KernelError::Refused(message) = err else {
             panic!("not a refusal: {err:?}");
         };
-        assert_eq!(message, format!(".gitattributes: {BROKEN_BLOCK}"));
+        assert_eq!(message, format!(".gitattributes: {}", broken_block()));
         assert_eq!(read(root, ".gitignore"), "notes/\n");
         assert_eq!(read(root, ".gitattributes"), broken);
 
@@ -551,16 +548,10 @@ mod tests {
     fn a_start_inside_an_open_block_is_broken() {
         let ours = block("*.nds\n");
         let nested = format!("{BLOCK_START}\nmine/\n{BLOCK_START}\n*.nds\n{BLOCK_END}\n");
-        assert_eq!(
-            merge_block(Some(&nested), &ours),
-            Err(BROKEN_BLOCK.to_owned())
-        );
+        assert_eq!(merge_block(Some(&nested), &ours), Err(broken_block()));
         // A complete block, then a start without an end.
         let open = format!("{ours}x/\n{BLOCK_START}\n");
-        assert_eq!(
-            merge_block(Some(&open), &ours),
-            Err(BROKEN_BLOCK.to_owned())
-        );
+        assert_eq!(merge_block(Some(&open), &ours), Err(broken_block()));
     }
 
     #[test]

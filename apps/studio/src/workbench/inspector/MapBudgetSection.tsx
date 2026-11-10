@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
+import i18next from "i18next";
+import { useTranslation } from "react-i18next";
 import { getMapBudget } from "../../api";
 import type { BudgetItemDto, MapBudgetDto } from "../../api";
 import type { WorldBakeReport } from "../../api.world";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { t } from "../../i18n";
 import { Budget, Section } from "../../ui/primitives";
 import { useSectionOpen } from "./foldState";
 import styles from "./MapBudgetSection.module.css";
 
-const number = (n: number) => n.toLocaleString("de-DE");
+/** A number with the thousands separator of the language that is shown („12.345“, "12,345"). */
+const number = (n: number) => n.toLocaleString(i18next.language);
 /** A limit in hex for Tüfteln („0xF000“). */
 const hex = (n: number) => `0x${n.toString(16).toUpperCase()}`;
 
@@ -28,9 +32,9 @@ function ByteRow({ id, label, item, tinker, text, note }: { id: string; label: s
 function refusedText(bake: WorldBakeReport | null | undefined): string | null {
   if (!bake || bake.ok) return null;
   const first = bake.messages.find((m) => m.level === "error") ?? bake.messages[0];
-  if (!first) return "Nicht gebacken. Das Spiel bekommt das letzte Modell.";
+  if (!first) return t("workbench:mapBudgetSection.notBaked");
   const message = first.message.trim();
-  return `Nicht gebacken: ${/[.!?]$/.test(message) ? message : `${message}.`} Das Spiel bekommt das letzte Modell.`;
+  return t("workbench:mapBudgetSection.notBakedBecause", { message: /[.!?]$/.test(message) ? message : `${message}.` });
 }
 
 /**
@@ -53,6 +57,8 @@ export function MapBudgetSection({
   /** The last bake of a world map (`world_get.bake`); undefined or null says nothing. */
   bake?: WorldBakeReport | null;
 }) {
+  // Renders the section again when the language changes; the words are read at render time.
+  useTranslation("workbench");
   const [open, toggle] = useSectionOpen("matrixCell:budget", true);
   // The budget and the map it belongs to: another map shows „Wird gelesen …“ until its own answer is there.
   const [shown, setShown] = useState<{ map: number; budget: MapBudgetDto | null } | null>(null);
@@ -78,34 +84,34 @@ export function MapBudgetSection({
   const refused = refusedText(bake);
   return (
     <div data-map-budget="">
-      <Section title="Budget" open={open} onToggle={toggle}>
-        <p className={styles.intro}>Grenzen des Spiels; Speichern geht immer.</p>
-        {budget === undefined && <p className={styles.intro}>Wird gelesen …</p>}
+      <Section title={t("workbench:mapBudgetSection.title")} open={open} onToggle={toggle}>
+        <p className={styles.intro}>{t("workbench:mapBudgetSection.intro")}</p>
+        {budget === undefined && <p className={styles.intro}>{t("workbench:mapBudgetSection.reading")}</p>}
         {budget && (
           <div className={styles.rows}>
-            <ByteRow id="model" label="Modell" item={budget.model} tinker={tinker} />
+            <ByteRow id="model" label={t("workbench:mapBudgetSection.model")} item={budget.model} tinker={tinker} />
             {refused && (
               <p className={styles.refused} data-budget-refused="">
                 {refused}
               </p>
             )}
-            <ByteRow id="bdhc" label="Terrain (BDHC)" item={budget.bdhc} tinker={tinker} />
+            <ByteRow id="bdhc" label={t("workbench:mapBudgetSection.terrain")} item={budget.bdhc} tinker={tinker} />
             <div data-budget="buildings">
-              <Budget label="Gebäude" used={budget.buildings.used} max={budget.buildings.max} state={budget.buildings.state} />
+              <Budget label={t("workbench:mapBudgetSection.buildings")} used={budget.buildings.used} max={budget.buildings.max} state={budget.buildings.state} />
             </div>
             {textures ? (
               <ByteRow
                 id="vram"
-                label="Texturen des Gebiets"
+                label={t("workbench:mapBudgetSection.textures")}
                 item={textures.vram}
                 tinker={tinker}
-                text={`VRAM ${number(textures.vram.used)} von ${number(textures.vram.max)} B · ${number(textures.textures)} ${textures.textures === 1 ? "Textur" : "Texturen"}`}
-                note={`Vanilla höchstens ${number(textures.vanilla_max)} B`}
+                text={t("workbench:mapBudgetSection.vram", { used: number(textures.vram.used), max: number(textures.vram.max), textures: number(textures.textures), count: textures.textures })}
+                note={t("workbench:mapBudgetSection.vanillaMax", { max: number(textures.vanilla_max) })}
               />
             ) : (
               budget.textures_missing && (
                 <div data-budget="vram" className={styles.missing}>
-                  <span className={styles.label}>Texturen des Gebiets</span>
+                  <span className={styles.label}>{t("workbench:mapBudgetSection.textures")}</span>
                   <span>{budget.textures_missing}</span>
                 </div>
               )

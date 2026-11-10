@@ -16,21 +16,21 @@ use std::time::Instant;
 
 use g4_kernel::base::{BaseRom, base_label};
 use g4_kernel::diff::{
-    self, Against, DiffSources, DiffSubject, EntityDiffReport, NO_BASE_FOR_FILES, NO_COMMIT,
-    NO_REPO, NOT_A_FILE, OUTSIDE_PROJECT, SCRIPTS_HAVE_NO_UNSAVED,
+    self, Against, DiffSources, DiffSubject, EntityDiffReport, no_base_for_files, no_commit,
+    no_repo, not_a_file, outside_project, scripts_have_no_unsaved,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::git::templates::{Layout, layout_of};
 use g4_kernel::git::{
-    self, CommitOptions, CommitProgress, CommitReport, ENCLOSING_REPO, GIT_NEEDED, GitCli, GitRepo,
-    HeadInfo, InitOptions, InitProgress, InitReport, NO_REPO_TO_COMMIT, NOTHING_TO_COMMIT,
-    RepoKind, find_git,
+    self, CommitOptions, CommitProgress, CommitReport, GitCli, GitRepo, HeadInfo, InitOptions,
+    InitProgress, InitReport, RepoKind, enclosing_repo, find_git, git_needed, no_repo_to_commit,
+    nothing_to_commit,
 };
 use g4_kernel::original::ChangedEntry;
 use g4_kernel::project::Project;
 use g4_kernel::start::{MarkState, mark_state};
 use g4_kernel::textproject::restore::{
-    self, HAS_GAME_FILES, RESTORE_NEEDED, RestoreProgress, RestoreReport, needs_restore,
+    self, RestoreProgress, RestoreReport, has_game_files, needs_restore,
 };
 use serde::Serialize;
 use tauri::Manager;
@@ -41,10 +41,14 @@ use crate::errors::CmdError;
 use crate::state::AppState;
 
 /// The refusal of `git_init` with unsaved changes, before anything is asked or written.
-pub const INIT_UNSAVED: &str = "Erst speichern: der erste Commit nimmt den gespeicherten Stand.";
+pub fn init_unsaved() -> String {
+    t!("commands.git.init_unsaved").into_owned()
+}
 
-/// Why the store refuses writes while „Git einrichten“ runs (code `busy`).
-pub const SETTING_UP_GIT: &str = "Git wird gerade eingerichtet.";
+/// Why the store refuses writes while „Set up Git“ („Git einrichten“) runs (code `busy`).
+pub fn setting_up_git() -> String {
+    t!("commands.git.setting_up_git").into_owned()
+}
 
 /// The files of „Git einrichten“ at the project root, as `GitStatusDto::templates` names them.
 const TEMPLATE_FILES: [&str; 2] = [".gitignore", ".gitattributes"];
@@ -145,7 +149,7 @@ fn plain_path(path: PathBuf) -> PathBuf {
 
 /// The refusals of „Git einrichten“ that come before the question (over MCP in the app it
 /// runs before „Git einrichten“ is asked, so such a refusal comes back unasked): unsaved
-/// changes (`unsaved`, [`INIT_UNSAVED`]; the first commit takes the saved state) and a project
+/// changes (`unsaved`, [`init_unsaved`]; the first commit takes the saved state) and a project
 /// being set up as text project (`busy`). Writes nothing.
 pub(crate) fn check_git_init(state: &AppState) -> Result<Arc<Project>, CmdError> {
     let mut guard = super::lock(state)?;
@@ -156,7 +160,7 @@ pub(crate) fn check_git_init(state: &AppState) -> Result<Arc<Project>, CmdError>
 fn checked_for_init(session: &crate::state::Session) -> Result<Arc<Project>, CmdError> {
     session.writable()?;
     if !session.store.dirty().is_empty() {
-        return Err(CmdError::refused("unsaved", INIT_UNSAVED));
+        return Err(CmdError::refused("unsaved", init_unsaved()));
     }
     Ok(Arc::clone(&session.project))
 }
@@ -174,7 +178,7 @@ pub fn git_init_impl(
 /// [`check_git_init`] says, else `git::git_init` (archives unpacked in the DSPRE layout, the
 /// templates, then `git init` and the first commit „Ausgangsstand“, never a remote) without
 /// the session lock, so the status and the other reads go on meanwhile; the store refuses
-/// every write meanwhile ([`SETTING_UP_GIT`], `busy`), so the commit sees the saved state. A
+/// every write meanwhile ([`setting_up_git`], `busy`), so the commit sees the saved state. A
 /// failed commit is no error (`committed: false` with Git's reason); a broken template block
 /// is. The checks learn afterwards that files were written past the store, and the `git` CLI
 /// is probed again on the next status.
@@ -191,8 +195,8 @@ pub(crate) fn git_init_with(
     Ok(result?)
 }
 
-/// The store of the session of `project` refuses writes ([`SETTING_UP_GIT`], or for „Stand
-/// sichern“ [`SAVING_STATE`]) from [`InitBusy::begin`] / [`InitBusy::begin_with`] until this is
+/// The store of the session of `project` refuses writes ([`setting_up_git`], or for „Save
+/// state“ („Stand sichern“) [`saving_state`]) from [`InitBusy::begin`] / [`InitBusy::begin_with`] until this is
 /// dropped.
 struct InitBusy<'a> {
     state: &'a AppState,
@@ -202,7 +206,7 @@ struct InitBusy<'a> {
 impl<'a> InitBusy<'a> {
     /// Under the session lock: the refusals of [`check_git_init`], then the store is busy.
     fn begin(state: &'a AppState) -> Result<InitBusy<'a>, CmdError> {
-        Self::begin_with(state, checked_for_init, SETTING_UP_GIT)
+        Self::begin_with(state, checked_for_init, setting_up_git)
     }
 
     /// Under the session lock: the refusals of `check`, then the store refuses writes with
@@ -210,12 +214,12 @@ impl<'a> InitBusy<'a> {
     fn begin_with(
         state: &'a AppState,
         check: fn(&crate::state::Session) -> Result<Arc<Project>, CmdError>,
-        why: &str,
+        why: fn() -> String,
     ) -> Result<InitBusy<'a>, CmdError> {
         let mut guard = super::lock(state)?;
         let session = super::session(&mut guard)?;
         let project = check(session)?;
-        session.store.set_busy(Some(why.to_owned()));
+        session.store.set_busy(Some(why()));
         Ok(InitBusy { state, project })
     }
 }
@@ -236,22 +240,22 @@ impl Drop for InitBusy<'_> {
     }
 }
 
-/// The kernel's diff refusals with a code of their own: `no_repo` ([`NO_REPO`]), `no_commit`
-/// ([`NO_COMMIT`]) and `not_diffable` (a file against the base, a script against the saved
-/// state, a path or folder outside the project, no regular file: [`NO_BASE_FOR_FILES`],
-/// [`SCRIPTS_HAVE_NO_UNSAVED`], [`OUTSIDE_PROJECT`], [`NOT_A_FILE`]).
+/// The kernel's diff refusals with a code of their own: `no_repo` ([`no_repo`]), `no_commit`
+/// ([`no_commit`]) and `not_diffable` (a file against the base, a script against the saved
+/// state, a path or folder outside the project, no regular file: [`no_base_for_files`],
+/// [`scripts_have_no_unsaved`], [`outside_project`], [`not_a_file`]).
 fn diff_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(why) if why == NO_REPO => CmdError::refused("no_repo", why),
-        KernelError::Refused(why) if why == NO_COMMIT => CmdError::refused("no_commit", why),
+        KernelError::Refused(why) if why == no_repo() => CmdError::refused("no_repo", why),
+        KernelError::Refused(why) if why == no_commit() => CmdError::refused("no_commit", why),
         KernelError::Refused(why)
             if [
-                NO_BASE_FOR_FILES,
-                SCRIPTS_HAVE_NO_UNSAVED,
-                OUTSIDE_PROJECT,
-                NOT_A_FILE,
+                no_base_for_files(),
+                scripts_have_no_unsaved(),
+                outside_project(),
+                not_a_file(),
             ]
-            .contains(&why.as_str()) =>
+            .contains(&why) =>
         {
             CmdError::refused("not_diffable", why)
         }
@@ -289,7 +293,7 @@ pub fn diff_entity_impl(
         Against::Head => {
             let project = super::open_project_arc(state)?;
             let Some(repo) = GitRepo::discover(&project.root)? else {
-                return Err(CmdError::refused("no_repo", NO_REPO));
+                return Err(CmdError::refused("no_repo", no_repo()));
             };
             let sources = DiffSources {
                 repo: Some(&repo),
@@ -304,7 +308,7 @@ pub fn diff_entity_impl(
                 subject,
                 DiffSubject::File { .. } | DiffSubject::Story { .. }
             ) {
-                return Err(CmdError::refused("not_diffable", NO_BASE_FOR_FILES));
+                return Err(CmdError::refused("not_diffable", no_base_for_files()));
             }
             let (mark, hit) = found_base(state, &project.root)?;
             let base = BaseRom::open_unchecked(&hit.path, &mark.sha1)?;
@@ -338,8 +342,16 @@ pub(crate) fn diff_subject(
     if let Some(path) = path {
         value.insert("path".to_owned(), path.into());
     }
-    serde_json::from_value(value.into())
-        .map_err(|e| CmdError::from(format!("Ungültige Argumente für diff_entity: {e}")))
+    serde_json::from_value(value.into()).map_err(|e| {
+        CmdError::from(
+            t!(
+                "commands.dispatch.invalid_arguments",
+                name = "diff_entity",
+                error = e
+            )
+            .into_owned(),
+        )
+    })
 }
 
 /// The store's unsaved edits as entities (`diff::unsaved_entries`, the header table per
@@ -351,15 +363,20 @@ pub fn unsaved_changes_impl(state: &AppState) -> Result<Vec<ChangedEntry>, CmdEr
 }
 
 /// The `restore_needed` refusal for the folder at `root` when it is a text project without
-/// its game files (`restore::needs_restore`, a fresh Git clone): [`RESTORE_NEEDED`], with
-/// „ Basis-ROM: {label}.“ when the base mark reads.
+/// its game files (`restore::needs_restore`, a fresh Git clone): [`restore::restore_needed`], with
+/// „ Base ROM: {label}.“ („ Basis-ROM: {label}.“ in German) when the base mark reads.
 pub(crate) fn restore_needed(root: &Path) -> Option<CmdError> {
     if !needs_restore(root) {
         return None;
     }
     let message = match mark_state(root) {
-        MarkState::Present(mark) => format!("{RESTORE_NEEDED} Basis-ROM: {}.", base_label(&mark)),
-        _ => RESTORE_NEEDED.to_owned(),
+        MarkState::Present(mark) => t!(
+            "commands.git.restore_needed_with_base",
+            message = restore::restore_needed(),
+            label = base_label(&mark)
+        )
+        .into_owned(),
+        _ => restore::restore_needed(),
     };
     Some(CmdError::refused("restore_needed", message))
 }
@@ -368,7 +385,7 @@ pub(crate) fn restore_needed(root: &Path) -> Option<CmdError> {
 /// and opens it: the base ROM is `nds` (checked against the base mark's SHA-1, then
 /// remembered) or the one the search finds (`base_missing` with the reason otherwise); then
 /// `restore::restore_from_base` and `open_project`. A folder that has its game files is
-/// refused ([`HAS_GAME_FILES`]) before anything is searched.
+/// refused ([`has_game_files`]) before anything is searched.
 pub fn restore_text_project_impl(
     state: &AppState,
     root: String,
@@ -377,7 +394,7 @@ pub fn restore_text_project_impl(
 ) -> Result<RestoreReport, CmdError> {
     let path = Path::new(&root);
     if !needs_restore(path) {
-        return Err(HAS_GAME_FILES.into());
+        return Err(has_game_files().into());
     }
     if let Some(nds) = &nds {
         register_base_rom_at(state, path, Path::new(nds))?;
@@ -390,40 +407,46 @@ pub fn restore_text_project_impl(
 }
 
 /// The refusal of `git_commit_all` with unsaved changes, before anything is asked or written.
-pub const COMMIT_UNSAVED: &str = "Erst speichern: der Commit nimmt den gespeicherten Stand.";
+pub fn commit_unsaved() -> String {
+    t!("commands.git.commit_unsaved").into_owned()
+}
 
-/// Why the store refuses writes while „Stand sichern“ runs (code `busy`).
-pub const SAVING_STATE: &str = "Der Stand wird gerade gesichert.";
+/// Why the store refuses writes while „Save state“ („Stand sichern“) runs (code `busy`).
+pub fn saving_state() -> String {
+    t!("commands.git.saving_state").into_owned()
+}
 
 /// [`check_git_commit_all`] on `session`, under the lock: `busy`, then `unsaved`.
 fn checked_for_commit(session: &crate::state::Session) -> Result<Arc<Project>, CmdError> {
     session.writable()?;
     if !session.store.dirty().is_empty() {
-        return Err(CmdError::refused("unsaved", COMMIT_UNSAVED));
+        return Err(CmdError::refused("unsaved", commit_unsaved()));
     }
     Ok(Arc::clone(&session.project))
 }
 
 /// The kernel's refusals of „Stand sichern“ with a code of their own: `no_repo`
-/// ([`NO_REPO_TO_COMMIT`]), `enclosing_repo` ([`ENCLOSING_REPO`]), `nothing_to_commit`
-/// ([`NOTHING_TO_COMMIT`]) and `no_git` ([`GIT_NEEDED`]); any other error as it is.
+/// ([`no_repo_to_commit`]), `enclosing_repo` ([`enclosing_repo`]), `nothing_to_commit`
+/// ([`nothing_to_commit`]) and `no_git` ([`git_needed`]); any other error as it is.
 fn commit_error(e: KernelError) -> CmdError {
     let KernelError::Refused(why) = &e else {
         return e.into();
     };
-    let code = match why.as_str() {
-        NO_REPO_TO_COMMIT => "no_repo",
-        ENCLOSING_REPO => "enclosing_repo",
-        NOTHING_TO_COMMIT => "nothing_to_commit",
-        GIT_NEEDED => "no_git",
-        _ => return e.into(),
+    let codes = [
+        (no_repo_to_commit(), "no_repo"),
+        (enclosing_repo(), "enclosing_repo"),
+        (nothing_to_commit(), "nothing_to_commit"),
+        (git_needed(), "no_git"),
+    ];
+    let Some(&(_, code)) = codes.iter().find(|(text, _)| text == why) else {
+        return e.into();
     };
     CmdError::refused(code, why.clone())
 }
 
 /// The refusals of „Stand sichern“ that come before the question (over MCP in the app it runs
 /// before „Stand sichern“ is asked, so such a refusal comes back unasked): a session that
-/// refuses writes (`busy`), unsaved changes (`unsaved`, [`COMMIT_UNSAVED`]), then
+/// refuses writes (`busy`), unsaved changes (`unsaved`, [`commit_unsaved`]), then
 /// `git::check_commit_all` with the `git` CLI the status found (`no_repo`, `enclosing_repo`,
 /// `no_git`, `nothing_to_commit`). In the project's own repository that check writes the
 /// templates first, so an outdated Gen4 Studio block is refreshed (a change it then counts).
@@ -464,7 +487,7 @@ pub fn git_commit_all_impl(
 /// „Stand sichern“ on the open project with `cli` (`None`: no `git` installed): refused with
 /// `busy` or `unsaved` as [`check_git_commit_all`] says, then `git::commit_all` (templates,
 /// `git add -A`, the commit with subject and notes, never a remote) without the session
-/// lock; the store refuses every write meanwhile ([`SAVING_STATE`], `busy`), so the commit
+/// lock; the store refuses every write meanwhile ([`saving_state`], `busy`), so the commit
 /// takes the saved state. The kernel's refusals have their codes ([`commit_error`]); a failed
 /// subcommand is no error (`committed: false` with Git's reason). The checks learn
 /// afterwards that templates may have been written past the store.
@@ -474,7 +497,7 @@ pub(crate) fn git_commit_all_with(
     opts: CommitOptions,
     progress: &mut dyn FnMut(CommitProgress),
 ) -> Result<CommitReport, CmdError> {
-    let busy = InitBusy::begin_with(state, checked_for_commit, SAVING_STATE)?;
+    let busy = InitBusy::begin_with(state, checked_for_commit, saving_state)?;
     let result = git::commit_all(&busy.project, cli, &opts, progress);
     drop(busy);
     result.map_err(commit_error)
@@ -595,16 +618,16 @@ mod tests {
     };
     use g4_kernel::base::{base_label, missing_text};
     use g4_kernel::diff::{
-        DiffState, EntityDiff, NO_BASE_FOR_FILES, NO_COMMIT, NO_REPO, SCRIPTS_HAVE_NO_UNSAVED,
+        DiffState, EntityDiff, no_base_for_files, no_commit, no_repo, scripts_have_no_unsaved,
     };
     use g4_kernel::git::templates::write_templates;
-    use g4_kernel::git::{FIRST_COMMIT, NOT_INSTALLED};
+    use g4_kernel::git::{first_commit, not_installed};
     use g4_kernel::original::ChangeState;
     use g4_kernel::project::{AssetKind, Project};
     use g4_kernel::start::read_base_mark;
     use g4_kernel::test_support::{GitFixture, TextFixture, copy_dir, synthetic_rom};
     use g4_kernel::textproject::base_layer::BASE_LAYER_DIR;
-    use g4_kernel::textproject::restore::{RESTORE_NEEDED, RestorePhase, needs_restore};
+    use g4_kernel::textproject::restore::{RestorePhase, needs_restore, restore_needed};
     use g4_kernel::textproject::symbols::SymbolKind;
     use serde_json::{Value, json};
 
@@ -758,7 +781,7 @@ mod tests {
         for (save_code, save_message, edit_code) in during {
             assert_eq!(
                 (save_code, save_message.as_str(), edit_code),
-                ("busy", SETTING_UP_GIT, "busy")
+                ("busy", setting_up_git().as_str(), "busy")
             );
         }
         // Released afterwards, also after a refusal.
@@ -798,13 +821,19 @@ mod tests {
         let (fixture, state) = open_synthetic();
         set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap();
         let err = check_git_init(&state).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("unsaved", INIT_UNSAVED));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("unsaved", init_unsaved().as_str())
+        );
         let mut phases = Vec::new();
         let err = git_init_with(&state, None, InitOptions::default(), &mut |p| {
             phases.push(p)
         })
         .unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("unsaved", INIT_UNSAVED));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("unsaved", init_unsaved().as_str())
+        );
         assert!(phases.is_empty(), "{phases:?}");
         assert!(!fixture.dir.path().join(".gitignore").exists());
         // No project open: an error.
@@ -817,7 +846,7 @@ mod tests {
         let root = fixture.dir.path();
         let report = git_init_with(&state, None, InitOptions::default(), &mut |_| {}).unwrap();
         assert!(!report.committed);
-        assert_eq!(report.reason.as_deref(), Some(NOT_INSTALLED));
+        assert_eq!(report.reason, Some(not_installed()));
         assert!(root.join(".gitignore").is_file());
         assert!(root.join(".gitattributes").is_file());
         assert!(!root.join(".git").exists());
@@ -859,24 +888,30 @@ mod tests {
 
         let status = git_status_impl(&state).unwrap();
         assert_eq!(status.repo, RepoKind::Own);
-        assert_eq!(status.head.unwrap().summary, FIRST_COMMIT);
+        assert_eq!(status.head.unwrap().summary, first_commit());
         assert_eq!(status.changes, 0, "{:?}", status.entries);
         assert!(status.branch.is_some());
         // The repository holds the project now: a second run only writes the templates.
         let again = git_init_with(&state, Some(&cli), InitOptions::default(), &mut |_| {}).unwrap();
         assert!(!again.committed);
-        assert_eq!(again.reason.as_deref(), Some(g4_kernel::git::IN_REPO));
+        assert_eq!(again.reason, Some(g4_kernel::git::in_repo()));
     }
 
     #[test]
     fn diff_against_head_without_a_repo_is_no_repo() {
         let (fixture, state) = open_synthetic();
         let err = diff_entity_impl(&state, TRAINER_1, Against::Head).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("no_repo", NO_REPO));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_repo", no_repo().as_str())
+        );
         // A repository without a commit: no_commit.
         GitFixture::init(fixture.dir.path());
         let err = diff_entity_impl(&state, TRAINER_1, Against::Head).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("no_commit", NO_COMMIT));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_commit", no_commit().as_str())
+        );
     }
 
     #[test]
@@ -915,7 +950,7 @@ mod tests {
         let err = diff_entity_impl(&state, TRAINER_1, Against::Base).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("base_missing", crate::commands::NO_MARK)
+            ("base_missing", crate::commands::no_mark().as_str())
         );
         // A file has no base side, found or not.
         let file = DiffSubject::File {
@@ -924,7 +959,7 @@ mod tests {
         let err = diff_entity_impl(&state, file, Against::Base).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("not_diffable", NO_BASE_FOR_FILES)
+            ("not_diffable", no_base_for_files().as_str())
         );
     }
 
@@ -937,7 +972,7 @@ mod tests {
         assert_eq!(report.state, DiffState::Changed, "{report:?}");
         assert_eq!(
             (report.old_label.as_str(), report.new_label.as_str()),
-            ("Gespeichert", "Ungespeichert")
+            ("Saved", "Unsaved")
         );
         let EntityDiff::Fields { changes, .. } = &report.diff else {
             panic!("{report:?}");
@@ -957,7 +992,7 @@ mod tests {
             diff_entity_impl(&state, DiffSubject::Script { index: 0 }, Against::Saved).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("not_diffable", SCRIPTS_HAVE_NO_UNSAVED)
+            ("not_diffable", scripts_have_no_unsaved().as_str())
         );
         // No project open: errors.
         assert!(unsaved_changes_impl(&AppState::default()).is_err());
@@ -986,8 +1021,7 @@ mod tests {
         for (kind, index) in [("trainer", None), ("nichts", Some(1))] {
             let err = diff_subject(kind.into(), index, None, None).unwrap_err();
             assert!(
-                err.message
-                    .starts_with("Ungültige Argumente für diff_entity"),
+                err.message.starts_with("Invalid arguments for diff_entity"),
                 "{}",
                 err.message
             );
@@ -1063,7 +1097,7 @@ mod tests {
         assert_eq!(err.code, "restore_needed");
         assert_eq!(
             err.message,
-            format!("{RESTORE_NEEDED} Basis-ROM: {}.", base_label(&mark))
+            format!("{} Base ROM: {}.", restore_needed(), base_label(&mark))
         );
         assert!(crate::commands::open_project_arc(&state).is_err());
         // Without a mark the sentence stands alone.
@@ -1071,7 +1105,7 @@ mod tests {
         let err = open_project_impl(&state, clone.to_str().unwrap()).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("restore_needed", RESTORE_NEEDED)
+            ("restore_needed", restore_needed().as_str())
         );
     }
 
@@ -1120,7 +1154,10 @@ mod tests {
         assert!(crate::commands::base::found_base(&state, &clone).is_ok());
         // Complete now: a second run is refused.
         let err = restore_text_project_impl(&state, text(&clone), None, &mut |_| {}).unwrap_err();
-        assert_eq!(err.message, g4_kernel::textproject::restore::HAS_GAME_FILES);
+        assert_eq!(
+            err.message,
+            g4_kernel::textproject::restore::has_game_files()
+        );
     }
 
     #[test]
@@ -1131,7 +1168,7 @@ mod tests {
         let err = check_git_commit_all(&state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("unsaved", COMMIT_UNSAVED)
+            ("unsaved", commit_unsaved().as_str())
         );
         let mut phases = Vec::new();
         let err = git_commit_all_with(&state, None, CommitOptions::default(), &mut |p| {
@@ -1140,7 +1177,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("unsaved", COMMIT_UNSAVED)
+            ("unsaved", commit_unsaved().as_str())
         );
         assert!(phases.is_empty(), "{phases:?}");
         assert!(!fixture.dir.path().join(".gitignore").exists());
@@ -1156,13 +1193,13 @@ mod tests {
         let err = check_git_commit_all(&state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+            ("no_repo", g4_kernel::git::no_repo_to_commit().as_str())
         );
         let err =
             git_commit_all_with(&state, None, CommitOptions::default(), &mut |_| {}).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+            ("no_repo", g4_kernel::git::no_repo_to_commit().as_str())
         );
         assert!(!fixture.dir.path().join(".gitignore").exists());
         // With a repository but without git: no_git, before anything is written.
@@ -1171,7 +1208,7 @@ mod tests {
             git_commit_all_with(&state, None, CommitOptions::default(), &mut |_| {}).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_git", g4_kernel::git::GIT_NEEDED)
+            ("no_git", g4_kernel::git::git_needed().as_str())
         );
         assert!(!fixture.dir.path().join(".gitignore").exists());
         // The store is writable again.
@@ -1194,7 +1231,10 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("nothing_to_commit", g4_kernel::git::NOTHING_TO_COMMIT)
+            (
+                "nothing_to_commit",
+                g4_kernel::git::nothing_to_commit().as_str()
+            )
         );
 
         ai_7(&state);
@@ -1215,7 +1255,7 @@ mod tests {
         assert!(report.files >= 1, "{report:?}");
         assert!(!during.is_empty());
         for (_, code, message) in &during {
-            assert_eq!((*code, message.as_str()), ("busy", SAVING_STATE));
+            assert_eq!((*code, message.as_str()), ("busy", saving_state().as_str()));
         }
         let status = git_status_impl(&state).unwrap();
         assert_eq!(status.changes, 0, "{:?}", status.entries);
@@ -1232,14 +1272,14 @@ mod tests {
         let err = git_commit_prepare_impl(&state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+            ("no_repo", g4_kernel::git::no_repo_to_commit().as_str())
         );
         GitFixture::init(fixture.dir.path());
         set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap();
         let err = git_commit_prepare_impl(&state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("unsaved", COMMIT_UNSAVED)
+            ("unsaved", commit_unsaved().as_str())
         );
         assert!(!fixture.dir.path().join(".gitignore").exists());
         // No project open: an error.

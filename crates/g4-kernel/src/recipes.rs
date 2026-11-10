@@ -59,7 +59,7 @@ use crate::store::Store;
 #[derive(Debug, Clone, Serialize)]
 pub struct RecipeInfo {
     pub id: RecipeId,
-    pub title: &'static str,
+    pub title: String,
     /// Applying it always does something undo does not take back, whatever the input
     /// (`empty_region`, `new_trainer_here`, `new_painted_map`); for the others [`is_irreversible`] decides from
     /// the input.
@@ -84,10 +84,14 @@ pub fn list() -> Vec<RecipeInfo> {
 /// The input of `call` as its recipe reads it; input of another shape is refused.
 fn input<T: DeserializeOwned>(call: &RecipeCall) -> Result<T, KernelError> {
     serde_json::from_value(call.input.clone()).map_err(|e| {
-        KernelError::Refused(format!(
-            "Die Eingabe für „{}“ passt nicht: {e}",
-            call.recipe.title()
-        ))
+        KernelError::Refused(
+            t!(
+                "recipes.input_mismatch",
+                recipe = call.recipe.title(),
+                error = e
+            )
+            .into_owned(),
+        )
     })
 }
 
@@ -98,21 +102,21 @@ fn input<T: DeserializeOwned>(call: &RecipeCall) -> Result<T, KernelError> {
 /// (its member is copied before the undo step), else `None` (a new figure is one undo step,
 /// so is a door pair). Input the recipe cannot read is refused.
 ///
-/// A visibility or a scene answers [`LEVEL_SCRIPT_FILE`] whatever the project: they create a
+/// A visibility or a scene answers [`level_script_file`] whatever the project: they create a
 /// level script file only when the place shares its file with another header or has none,
 /// and without the store this function cannot tell, so it answers conservatively (the MCP
 /// access check, which has no store, asks for confirmation every time). With the store at
 /// hand, [`is_irreversible_in`] answers exactly; `g4k recipe apply` uses it.
-pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, KernelError> {
-    const PATCH: &str = "Header-Patch einspielen";
+pub fn is_irreversible(call: &RecipeCall) -> Result<Option<String>, KernelError> {
+    let patch = || t!("recipes.irreversible_patch").into_owned();
     Ok(match call.recipe {
         RecipeId::CreateArea => {
             let spec: area::AreaSpec = input(call)?;
-            spec.header.filter(|h| h.allow_patch).map(|_| PATCH)
+            spec.header.filter(|h| h.allow_patch).map(|_| patch())
         }
         RecipeId::CreateRoom => {
             let spec: room::RoomSpec = input(call)?;
-            spec.header.allow_patch.then_some(PATCH)
+            spec.header.allow_patch.then(patch)
         }
         RecipeId::ExtendArea => {
             input::<extend::ExtendSpec>(call)?;
@@ -129,7 +133,7 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
         }
         RecipeId::NewTrainerHere => {
             input::<new_trainer_here::NewTrainerHereInput>(call)?;
-            Some("Trainer anlegen")
+            Some(t!("recipes.irreversible_trainer").into_owned())
         }
         RecipeId::NewStory => {
             input::<new_story::NewStoryInput>(call)?;
@@ -141,34 +145,36 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
         // undo; whether they do, only the project tells ([`is_irreversible_in`]).
         RecipeId::FigureAppears => {
             input::<figure_appears::FigureAppearsInput>(call)?;
-            Some(LEVEL_SCRIPT_FILE)
+            Some(level_script_file())
         }
         RecipeId::SceneOnEnter => {
             input::<scene_on_enter::SceneOnEnterInput>(call)?;
-            Some(LEVEL_SCRIPT_FILE)
+            Some(level_script_file())
         }
         // The new map is created before the undo step.
         RecipeId::NewPaintedMap => {
             input::<new_painted_map::NewPaintedMapInput>(call)?;
-            Some("Karte anlegen")
+            Some(t!("recipes.irreversible_map").into_owned())
         }
     })
 }
 
 /// What [`is_irreversible`] answers for a recipe that may create a level script file.
-pub const LEVEL_SCRIPT_FILE: &str = "Level-Script-Datei anlegen";
+pub fn level_script_file() -> String {
+    t!("recipes.irreversible_level_script").into_owned()
+}
 
 /// [`is_irreversible`] with the project at hand: „Figur erscheint/verschwindet ab Schritt“ and
-/// „Szene beim Betreten“ answer [`LEVEL_SCRIPT_FILE`] only when their plan creates a level
+/// „Szene beim Betreten“ answer [`level_script_file`] only when their plan creates a level
 /// script file (one another header shares is copied, a missing one created); a refusal of the
 /// plan is the answer then. The other recipes as [`is_irreversible`].
 pub fn is_irreversible_in(
     store: &mut Store,
     call: &RecipeCall,
-) -> Result<Option<&'static str>, KernelError> {
+) -> Result<Option<String>, KernelError> {
     match call.recipe {
         RecipeId::FigureAppears | RecipeId::SceneOnEnter => {
-            Ok((!plan(store, call)?.irreversible.is_empty()).then_some(LEVEL_SCRIPT_FILE))
+            Ok((!plan(store, call)?.irreversible.is_empty()).then(level_script_file))
         }
         _ => is_irreversible(call),
     }
@@ -222,14 +228,20 @@ mod tests {
             .into_iter()
             .find(|r| r.id == RecipeId::NewPaintedMap)
             .expect("new_painted_map is listed");
-        assert_eq!((info.title, info.irreversible), ("Neue Karte malen", true));
+        assert_eq!(
+            (info.title.as_str(), info.irreversible),
+            ("Paint new map", true)
+        );
         assert_eq!(RecipeId::all().last(), Some(&RecipeId::NewPaintedMap));
         let call: RecipeCall = serde_json::from_value(serde_json::json!({
             "recipe": "new_painted_map",
             "input": {"x": 1, "y": 0, "name": "Waldweg"},
         }))
         .unwrap();
-        assert_eq!(is_irreversible(&call).unwrap(), Some("Karte anlegen"));
+        assert_eq!(
+            is_irreversible(&call).unwrap().as_deref(),
+            Some("Create map")
+        );
         let other: RecipeCall = serde_json::from_value(serde_json::json!({
             "recipe": "new_painted_map",
             "input": {"x": 1, "y": 0, "name": "Waldweg", "colour": 3},

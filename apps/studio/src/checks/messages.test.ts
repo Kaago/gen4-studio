@@ -1,17 +1,23 @@
-import { describe, expect, it } from "vitest";
+import i18next from "i18next";
+import { afterEach, describe, expect, it } from "vitest";
 import { finding } from "./checksTesting";
-import { AREA_LABELS, CHECK_CODES, CHECK_MESSAGES, areaOf, checkTitle, findingLabel, findingText, groupOf, progressText, skippedText } from "./messages";
+import { AREA_LABELS, CHECK_CODES, CHECK_MESSAGES, areaOf, checkMessage, checkTitle, findingLabel, findingText, groupOf, progressText, skippedText } from "./messages";
 
 /** The sentences of a text: a statement, then the way out (at least two). */
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.trim() !== "");
 
 describe("check messages", () => {
+  // The suite runs in German (`vitest.setup.ts`); a test that switches the language does not leave it there.
+  afterEach(async () => {
+    await i18next.changeLanguage("de");
+  });
+
   // The Rust test `commands::checks::messages_ts` holds this list against the kernel's catalogue (codes, order, group, severity).
   it("has_a_title_and_a_sentence_with_a_way_out_for_every_code", () => {
     expect(CHECK_CODES.length).toBe(48);
     const args = ["0", "1", "2", "3", "4", "5"];
     for (const code of CHECK_CODES) {
-      const m = CHECK_MESSAGES[code]!;
+      const m = checkMessage(code)!;
       expect(m.title, code).not.toBe("");
       const text = findingText(finding(code, m.severity, { args }), "tuefteln");
       expect(text, code).not.toMatch(/[{}]/);
@@ -148,6 +154,56 @@ describe("check messages", () => {
     expect(findingText(finding("asset.unreadable", "error", { key: "locked:map", args: ["map", "7", "19 bytes"] }), "tuefteln")).toBe(
       "Karte 0007 ist gesperrt (19 bytes): das Studio würde sie nicht Byte für Byte zurückschreiben. Stelle die Datei wieder her, dann lässt sie sich ändern.",
     );
+  });
+
+  it("renders an English sentence after changeLanguage(\"en\")", async () => {
+    await i18next.changeLanguage("en");
+    // The kernel's arguments: warp 2 leads to header 414 of 600.
+    const f = finding("warp.dest-header", "error", { args: ["2", "414", "600"] });
+    const text = findingText(f, "tuefteln");
+    expect(text).toContain("Header 0414");
+    expect(text).toContain("600 headers");
+    expect(text).toBe("The door leads to Header 0414, which does not exist (the project has 600 headers). Choose a destination or delete the door.");
+    expect(checkTitle("warp.dest-header", "tuefteln")).toBe("Door leads nowhere");
+    // Bauen speaks of places in English as well.
+    expect(findingText(f, "bauen")).toBe("The door leads to Place 0414, which does not exist (the project has 600 places). Choose a destination or delete the door.");
+    // The language is the app's, not the module's: back in German the same finding reads German again.
+    await i18next.changeLanguage("de");
+    expect(findingText(f, "tuefteln")).toContain("Die Tür führt zu Header 0414");
+  });
+
+  it("has_an_english_title_and_a_sentence_with_a_way_out_for_every_code", async () => {
+    await i18next.changeLanguage("en");
+    const args = ["0", "1", "2", "3", "4", "5"];
+    for (const code of CHECK_CODES) {
+      const m = checkMessage(code)!;
+      expect(m.title, code).not.toBe("");
+      for (const depth of ["tuefteln", "bauen"] as const) {
+        const text = findingText(finding(code, m.severity, { args }), depth);
+        expect(text, code).not.toMatch(/[{}]/);
+        expect(text, code).not.toMatch(/[äöüß]/);
+        expect(sentences(text).length, `${code}: ${text}`).toBeGreaterThanOrEqual(2);
+        expect(text.endsWith("."), code).toBe(true);
+      }
+      // Bauen speaks of places and world maps in English too.
+      expect(`${checkTitle(code, "bauen")} ${findingText(finding(code, m.severity, { args: ["1", "matrix_id", "2", "3", "4", "5"] }), "bauen")}`, code).not.toMatch(/\b(header|matrix|raster)s?\b/i);
+    }
+  });
+
+  it("says_one_file_in_the_singular_in_english", async () => {
+    await i18next.changeLanguage("en");
+    const changed = (n: string) => findingText(finding("build.unpacked-not-packed", "warning", { args: ["zFoo", n] }), "tuefteln");
+    expect(changed("1")).toMatch(/^In the folder unpacked\/zFoo, 1 file has changed, /);
+    expect(changed("3")).toMatch(/^In the folder unpacked\/zFoo, 3 files have changed, /);
+  });
+
+  it("reads_the_texts_from_the_catalog_at_call_time", () => {
+    // `group` and `severity` are the table's, the words are the catalog's: the language decides, the table does not.
+    expect(CHECK_MESSAGES["header.ref-range"]).toEqual({ group: "cheap", severity: "error" });
+    expect(checkMessage("header.ref-range")).toMatchObject({ group: "cheap", severity: "error", title: "Header verweist ins Leere", building: { title: "Ort verweist ins Leere" } });
+    expect(checkMessage("build.unpacked-not-packed")?.one).toMatch(/^Im Ordner unpacked\/\{0\} hat sich 1 Datei geändert/);
+    expect(checkMessage("warp.never-fires")?.building).toBeUndefined();
+    expect(checkMessage("warp.someday")).toBeNull();
   });
 
   it("keeps_the_kernel_sentence_for_a_code_it_does_not_know", () => {

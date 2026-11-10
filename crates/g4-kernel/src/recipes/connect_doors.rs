@@ -170,7 +170,7 @@ fn check_end(
     end: &DoorEnd,
     door_tiles: bool,
 ) -> Result<End, KernelError> {
-    let either = || refused(format!("Tür {name} braucht eine Tür oder eine Kachel"));
+    let either = || refused(t!("recipes.door_needs_warp_or_tile", name = name));
     if end.warp.is_some() == end.tile.is_some() {
         return Err(either());
     }
@@ -189,9 +189,13 @@ fn check_end(
             .get(usize::from(k))
             .cloned()
         else {
-            return Err(refused(format!(
-                "Tür {name}: Header {} hat keine Tür {k} (Eventdatei {event_file:04} hat {count})",
-                end.header
+            return Err(refused(t!(
+                "recipes.door_warp_missing",
+                name = name,
+                header = end.header,
+                warp = k,
+                event_file = event_file : {:04},
+                count = count
             )));
         };
         return Ok(End {
@@ -210,8 +214,11 @@ fn check_end(
     let Tile { x, z } = end.tile.ok_or_else(either)?;
     let (matrix, map) = outside_map(store, end.header, x, z)?;
     if let Some(k) = warp_at(store, event_file, x, z)? {
-        return Err(refused(format!(
-            "auf {x}, {z} liegt schon Tür {k}; wähle sie als Tür"
+        return Err(refused(t!(
+            "recipes.door_tile_taken",
+            x = x,
+            z = z,
+            warp = k
         )));
     }
     let family = store.project().family;
@@ -250,12 +257,10 @@ fn check(store: &mut Store, input: &ConnectDoorsInput) -> Result<Checked, Kernel
             _ => false,
         };
     if same {
-        return Err(refused("Tür A und Tür B sind dieselbe Tür"));
+        return Err(refused(t!("recipes.doors_same")));
     }
     if !input.back && b.created {
-        return Err(refused(
-            "Ohne Rückweg muss Tür B eine vorhandene Tür sein: eine neue Tür B führte nirgendwohin.",
-        ));
+        return Err(refused(t!("recipes.door_b_needs_way_back")));
     }
     // Two new doors of one file: B comes right after A.
     if a.created && b.created && a.event_file == b.event_file {
@@ -291,14 +296,21 @@ pub fn plan(store: &mut Store, input: &ConnectDoorsInput) -> Result<Draft, Kerne
         vec![(a, b)]
     };
     let mut draft = Draft::default();
-    draft.notes.push(format!(
-        "Tür A: {} Tür {} → Tür B: {} Tür {}{}",
-        a.place,
-        a.warp,
-        b.place,
-        b.warp,
-        if input.back { ", und zurück." } else { "." }
-    ));
+    let key = if input.back {
+        "recipes.note_doors_both_ways"
+    } else {
+        "recipes.note_doors_one_way"
+    };
+    draft.notes.push(
+        t!(
+            key,
+            place_a = a.place,
+            warp_a = a.warp,
+            place_b = b.place,
+            warp_b = b.warp
+        )
+        .into_owned(),
+    );
     for (end, to) in ends {
         draft.events.push(DraftEvent {
             kind: DraftEventKind::Warp,
@@ -312,14 +324,26 @@ pub fn plan(store: &mut Store, input: &ConnectDoorsInput) -> Result<Draft, Kerne
             }),
         });
         match end.was {
-            None => draft.notes.push(format!(
-                "Neue Tür {} bei x {}, z {} von {}.",
-                end.warp, end.x, end.z, end.place
-            )),
-            Some((h, w)) if (h, w) != (to.header, to.warp) => draft.notes.push(format!(
-                "Tür {} von {} führte bisher zu Header {h}, Tür {w}.",
-                end.warp, end.place
-            )),
+            None => draft.notes.push(
+                t!(
+                    "recipes.note_new_door",
+                    warp = end.warp,
+                    x = end.x,
+                    z = end.z,
+                    place = end.place
+                )
+                .into_owned(),
+            ),
+            Some((h, w)) if (h, w) != (to.header, to.warp) => draft.notes.push(
+                t!(
+                    "recipes.note_door_led_to",
+                    warp = end.warp,
+                    place = end.place,
+                    header = h,
+                    target = w
+                )
+                .into_owned(),
+            ),
             Some(_) => {}
         }
     }
@@ -330,16 +354,21 @@ pub fn plan(store: &mut Store, input: &ConnectDoorsInput) -> Result<Draft, Kerne
                 x: end.x,
                 z: end.z,
             });
-            draft.notes.push(format!(
-                "Die Kachel bei x {}, z {} von {} wird zur Tür.",
-                end.x, end.z, end.place
-            ));
+            draft.notes.push(
+                t!(
+                    "recipes.note_door_tile",
+                    x = end.x,
+                    z = end.z,
+                    place = end.place
+                )
+                .into_owned(),
+            );
         }
     }
     Ok(draft)
 }
 
-/// Connects the two doors as one undo step `Tür „A“ ↔ „B“ verbunden`: one store transaction
+/// Connects the two doors as one undo step `Door “A” ↔ “B” connected`: one store transaction
 /// with one `edit_event` per event file (a new door appended, an existing one pointed at the
 /// other end; without `back` only A) and the door tiles. Everything is a part of the store, so
 /// undo is byte-equal also after a save in between.
@@ -349,10 +378,12 @@ pub fn apply(
 ) -> Result<Outcome<ConnectDoorsReport>, KernelError> {
     let checked = check(store, input)?;
     let generation = store.change_generation();
-    let label = format!(
-        "Tür „{}“ ↔ „{}“ verbunden",
-        checked.a.place, checked.b.place
-    );
+    let label = t!(
+        "recipes.doors_connected",
+        place_a = checked.a.place,
+        place_b = checked.b.place
+    )
+    .into_owned();
     let edits = writes(&checked, input.back);
     let Checked { a, b } = &checked;
     let ((door_a, door_b), change) = store.transaction(&label, |tx| {
@@ -380,6 +411,6 @@ pub fn apply(
         created: Vec::new(),
         change,
         changed: store.changes_since(generation).1,
-        next: next_steps(&[("play_here", "Hier spielen")]),
+        next: next_steps(&["play_here"]),
     })
 }

@@ -1,7 +1,8 @@
 import type { HeaderSummary } from "../../api";
+import { t } from "../../i18n";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
-import { UNNAMED_PLACE } from "../places";
+import { unnamedPlace } from "../places";
 import { id4 } from "../terms";
 
 /** How many place names a look lists before „…“. */
@@ -34,7 +35,7 @@ export function lookItems(headers: readonly HeaderSummary[], template: HeaderSum
     .map(([areaDataId, names]) => ({
       areaDataId,
       names,
-      label: names.length === 0 ? UNNAMED_PLACE : `${names.slice(0, NAMES_SHOWN).join(", ")}${names.length > NAMES_SHOWN ? " …" : ""}`,
+      label: names.length === 0 ? unnamedPlace() : `${names.slice(0, NAMES_SHOWN).join(", ")}${names.length > NAMES_SHOWN ? " …" : ""}`,
     }));
 }
 
@@ -44,6 +45,6 @@ export function lookItems(headers: readonly HeaderSummary[], template: HeaderSum
  */
 export function lookText(looks: readonly Look[], areaDataId: number, depth: Depth): string {
   const look = looks.find((l) => l.areaDataId === areaDataId);
-  if (look === undefined) return !depthAtLeast(depth, "tuefteln") ? "Aussehen der Vorlage" : `Aussehen ${id4(areaDataId)}`;
-  return look.names.length > 0 ? `Aussehen wie ${look.names[0]}` : `Aussehen: ${UNNAMED_PLACE}`;
+  if (look === undefined) return !depthAtLeast(depth, "tuefteln") ? t("workbench:looks.template") : t("workbench:looks.number", { id: id4(areaDataId) });
+  return look.names.length > 0 ? t("workbench:looks.like", { name: look.names[0] }) : t("workbench:looks.unnamed", { name: unnamedPlace() });
 }

@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { FunctionComponent, KeyboardEvent, MutableRefObject, PointerEvent, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewGroupPanel, DockviewReadyEvent, DockviewTheme, GetTabContextMenuItemsParams, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
+import { useTranslation } from "react-i18next";
 import { AREA_PANELS, DEFAULT_ARRANGEMENT, dropLayout, isSaneLayout, layoutKey, loadArrangement, loadLayout, saveArrangement, saveLayout } from "../../workbench/layout";
 import type { Arrangement, DeckArea } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
@@ -81,6 +82,7 @@ const dockviewItems = (items: TabMenuItem[]): (TabMenuItem | { element: HTMLElem
  * group in the grid can be maximized). The tab "Script" carries the cobalt dot while a script is unsaved; its title stays "Script".
  */
 function PanelTab(props: IDockviewPanelHeaderProps) {
+  const { t } = useTranslation("ui");
   const unsavedScripts = useSyncExternalStore(scriptDirtyStore.subscribe, scriptDirtyStore.get);
   const onDoubleClick = () => {
     if (props.api.isMaximized()) props.api.exitMaximized();
@@ -90,7 +92,7 @@ function PanelTab(props: IDockviewPanelHeaderProps) {
   return (
     <span className={styles.tab} data-dock-tab={props.api.id} onDoubleClick={onDoubleClick}>
       <DockviewDefaultTab {...props} hideClose />
-      {props.api.id === "script" && unsavedScripts > 0 && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
+      {props.api.id === "script" && unsavedScripts > 0 && <span className={styles.dot} role="img" aria-label={t("deck.unsaved")} />}
     </span>
   );
 }
@@ -125,6 +127,17 @@ function markGroup(group: DockviewGroupPanel) {
   group.element.setAttribute("data-dock-group", group.id);
   if (isSchauGroup(group)) group.element.setAttribute("data-dock-group-kind", "schau");
   else group.element.removeAttribute("data-dock-group-kind");
+}
+
+/**
+ * Gives every panel of the dock the tab title of its spec in the language shown. A restored layout carries the titles of the language it
+ * was stored in, and a switch of language does not reach the panels already added (dockview keeps the title it was given).
+ */
+function retitle(api: DockviewApi, area: DeckArea) {
+  for (const spec of AREA_PANELS[area]) {
+    const panel = api.getPanel(spec.id);
+    if (panel && panel.title !== spec.title) panel.api.setTitle(spec.title);
+  }
 }
 
 /** Builds `arrangement` of `depth` in the dock and remembers it as the arrangement and layout of the area (its sub-area `sub`). */
@@ -162,6 +175,7 @@ function initLayout(api: DockviewApi, area: DeckArea, depth: Depth, sub: string 
   if (saved && isSaneLayout(saved, AREA_PANELS[area])) {
     try {
       api.fromJSON(saved as SerializedDockview);
+      retitle(api, area);
       syncDepthPanels(api, area, depth);
       restoreLimits(api, area, loadArrangement(area, sub));
       return;
@@ -203,6 +217,12 @@ const DeckDock = memo(function DeckDock({
     const api = apiRef.current;
     if (api) syncDepthPanels(api, area, depth);
   }, [apiRef, area, depth]);
+  // A switch of language retitles the tabs (the dock is not built anew).
+  const { i18n } = useTranslation();
+  useEffect(() => {
+    const api = apiRef.current;
+    if (api) retitle(api, area);
+  }, [apiRef, area, i18n.language]);
   // Another sub-area: the layout of the one shown so far is stored first (with its floating groups, before dockview announces its last
   // change), then the new one's is restored in the same dock. A dock that is not ready restores the new one when it gets ready.
   useEffect(() => {

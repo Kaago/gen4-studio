@@ -24,7 +24,7 @@ use g4_formats::map::MapFile;
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 
 use crate::delete::{
-    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
+    DeleteTarget, no_tombstone_for_binaries, no_tombstone_for_files, not_a_text_project,
 };
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
@@ -876,7 +876,7 @@ impl Tx<'_> {
 
     /// Edits the world of map `map` ([`AssetKind::WorldMap`]; `None`: the map has none). `edit`
     /// may set, change or remove it; an error from `edit` fails the transaction. Outside a text
-    /// project the world is refused ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]).
+    /// project the world is refused ([`crate::world::world_needs_text_project`]).
     ///
     /// A world that is there afterwards is baked into the map at once, as a second part of the
     /// same step: [`bake_world`] over the map as the transaction holds it, with the verbatim
@@ -1093,19 +1093,19 @@ impl Tx<'_> {
     /// Stages the tombstone of `target` (an art with envelope only); equal to the current flag
     /// records nothing. The flag changes no member bytes: [`Store::save`] writes the envelope
     /// into the entity's JSON. Refused ([`KernelError::Refused`]) outside a text project of
-    /// the current schema ([`NOT_A_TEXT_PROJECT`]), for script files and text archives
-    /// ([`NO_TOMBSTONE_FOR_FILES`]), for textures and models ([`NO_TOMBSTONE_FOR_BINARIES`])
+    /// the current schema ([`not_a_text_project`]), for script files and text archives
+    /// ([`no_tombstone_for_files`]), for textures and models ([`no_tombstone_for_binaries`])
     /// and for the other kinds without an envelope (places, flags, variables); an entity
     /// that does not exist fails as loading it does.
     pub fn set_deleted(&mut self, target: DeleteTarget, deleted: bool) -> Result<(), KernelError> {
         if *self.store.project.source_mode() != SourceMode::TextProject {
-            return Err(KernelError::Refused(NOT_A_TEXT_PROJECT.to_owned()));
+            return Err(KernelError::Refused(not_a_text_project()));
         }
         if matches!(
             target,
             DeleteTarget::Script { .. } | DeleteTarget::TextArchive { .. }
         ) {
-            return Err(KernelError::Refused(NO_TOMBSTONE_FOR_FILES.to_owned()));
+            return Err(KernelError::Refused(no_tombstone_for_files()));
         }
         if matches!(
             target,
@@ -1114,13 +1114,12 @@ impl Tx<'_> {
                 | DeleteTarget::BuildingModel { .. }
                 | DeleteTarget::InteriorBuildingModel { .. }
         ) {
-            return Err(KernelError::Refused(NO_TOMBSTONE_FOR_BINARIES.to_owned()));
+            return Err(KernelError::Refused(no_tombstone_for_binaries()));
         }
         if !target.has_envelope() {
-            return Err(KernelError::Refused(format!(
-                "{} hat keinen Grabstein.",
-                target.label()
-            )));
+            return Err(KernelError::Refused(
+                t!("store.no_tombstone", label = target.label()).into_owned(),
+            ));
         }
         // The entity must exist; loaded, its bytes are at hand for the save. A read-only one
         // is never written, so it gets no envelope either.
@@ -1135,9 +1134,9 @@ impl Tx<'_> {
         if let DeleteTarget::Header { id } = target {
             let count = self.store.header_table()?.len();
             if usize::from(id) >= count {
-                return Err(KernelError::InvalidProject(format!(
-                    "Header {id} gibt es nicht (nur {count})."
-                )));
+                return Err(KernelError::InvalidProject(
+                    t!("store.no_header", id = id, count = count).into_owned(),
+                ));
             }
         }
         let now = self.store.is_deleted(target);
@@ -1517,10 +1516,10 @@ impl Store {
                 .export_bytes(&project, &writes, &|_| None)?;
         let rel = crate::world::record::map_json_rel(map);
         let bytes = files.get(&rel).ok_or_else(|| {
-            KernelError::InvalidProject(format!("{} wurde nicht exportiert.", rel.display()))
+            KernelError::InvalidProject(t!("store.not_exported", path = rel.display()).into_owned())
         })?;
         crate::world::keep::world_field(bytes)?.ok_or_else(|| {
-            KernelError::InvalidProject(format!("{} trägt keine Welt.", rel.display()))
+            KernelError::InvalidProject(t!("store.no_world", path = rel.display()).into_owned())
         })
     }
 
@@ -1818,7 +1817,7 @@ impl Store {
         if id.kind == AssetKind::WorldMap && *self.project.source_mode() != SourceMode::TextProject
         {
             return Err(KernelError::Refused(
-                crate::world::WORLD_NEEDS_TEXT_PROJECT.to_owned(),
+                crate::world::world_needs_text_project(),
             ));
         }
         self.ensure_unpacked(id.kind)?;
@@ -1854,7 +1853,7 @@ impl Store {
             }
             // No member: a world is read from its map's unit in a text project only.
             (Location::Derived { .. }, None) => Err(KernelError::Refused(
-                crate::world::WORLD_NEEDS_TEXT_PROJECT.to_owned(),
+                crate::world::world_needs_text_project(),
             )),
             (Location::Entity { unit, .. }, None) => {
                 let json = unit
@@ -1944,7 +1943,7 @@ impl Store {
 
     /// The world of map `map` (`None`: a map without world), read from the map's JSON in a text
     /// project on first use. Outside a text project it is refused
-    /// ([`crate::world::WORLD_NEEDS_TEXT_PROJECT`]); a `world` that does not read is the
+    /// ([`crate::world::world_needs_text_project`]); a `world` that does not read is the
     /// [`KernelError::Compile`] of the JSON (file, line, path).
     pub fn world(&mut self, map: u16) -> Result<Option<&WorldJson>, KernelError> {
         let id = world_id(map);
@@ -2932,8 +2931,9 @@ impl Store {
         self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref())
     }
 
-    /// Appends a text archive with key 0 and one message, "Neuer Text", as the last member of
-    /// the archive, writes its member and its JSON at once and loads it. Returns its index.
+    /// Appends a text archive with key 0 and one message, "New text" (`store.new_text_message`
+    /// in the language of the process: it is editable content), as the last member of the
+    /// archive, writes its member and its JSON at once and loads it. Returns its index.
     /// Not undoable.
     pub fn create_text_archive(&mut self) -> Result<u16, KernelError> {
         let doc = TextArchiveDoc {
@@ -2941,7 +2941,7 @@ impl Store {
             lang: self.lang().to_owned(),
             messages: vec![TextMessage {
                 id: text::default_message_id(0),
-                text: "Neuer Text".to_owned(),
+                text: t!("store.new_text_message").into_owned(),
                 other: Default::default(),
             }],
         };
@@ -3312,7 +3312,7 @@ impl Store {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => {
                     return Err(KernelError::Partial(format!(
-                        "„Nummer freigeben“ removed {} of {} files, then {}: {e}",
+                        "“Free the number” removed {} of {} files, then {}: {e}",
                         removed.len(),
                         files.len(),
                         path.display()
@@ -4415,30 +4415,20 @@ impl Side {
     /// moved to this side.
     fn changed_outside(self, label: String) -> String {
         match self {
-            Side::Before => format!(
-                "{label} wurde seit dem Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt \
-                 den Schritt nicht zurück, er fällt aus dem Verlauf."
-            ),
-            Side::After => format!(
-                "{label} wurde seit dem Rückgängigmachen außerhalb des Studios geändert; ⌘⇧Z \
-                 stellt den Schritt nicht wieder her, er fällt aus dem Verlauf."
-            ),
+            Side::Before => t!("store.changed_outside_undo", label = label),
+            Side::After => t!("store.changed_outside_redo", label = label),
         }
+        .into_owned()
     }
 
     /// Why a recipe's file step whose file `label` changed since it was written (by hand, by
     /// the script editor, by another tool) is dropped instead of moved to this side.
     fn changed_since_recipe(self, label: String) -> String {
         match self {
-            Side::Before => format!(
-                "{label} wurde nach dem Rezept geändert; ⌘Z nimmt den Schritt nicht zurück, er \
-                 fällt aus dem Verlauf."
-            ),
-            Side::After => format!(
-                "{label} wurde seit dem Rückgängigmachen des Rezepts geändert; ⌘⇧Z stellt den \
-                 Schritt nicht wieder her, er fällt aus dem Verlauf."
-            ),
+            Side::Before => t!("store.changed_since_recipe_undo", label = label),
+            Side::After => t!("store.changed_since_recipe_redo", label = label),
         }
+        .into_owned()
     }
 
     /// Why a recipe's step whose compile state file `file` (relative to the root) says
@@ -4446,31 +4436,20 @@ impl Side {
     /// database) is dropped instead of moved to this side.
     fn compile_state_changed(self, file: &str) -> String {
         match self {
-            Side::Before => format!(
-                "Der Übersetzungsstand der Scripts ({file}) hat sich seit dem Rezept geändert; \
-                 ⌘Z nimmt den Schritt nicht zurück, er fällt aus dem Verlauf."
-            ),
-            Side::After => format!(
-                "Der Übersetzungsstand der Scripts ({file}) hat sich seit dem Rückgängigmachen \
-                 des Rezepts geändert; ⌘⇧Z stellt den Schritt nicht wieder her, er fällt aus \
-                 dem Verlauf."
-            ),
+            Side::Before => t!("store.compile_state_undo", file = file),
+            Side::After => t!("store.compile_state_redo", file = file),
         }
+        .into_owned()
     }
 
     /// Why an id rename whose file `file` (relative to the root) changed since it was written
     /// is dropped instead of moved to this side.
     fn changed_since_rename(self, file: &str) -> String {
         match self {
-            Side::Before => format!(
-                "{file} wurde seit dem Umbenennen geändert; ⌘Z schreibt nichts, der Schritt \
-                 fällt aus dem Verlauf."
-            ),
-            Side::After => format!(
-                "{file} wurde seit dem Rückgängigmachen des Umbenennens geändert; ⌘⇧Z schreibt \
-                 nichts, der Schritt fällt aus dem Verlauf."
-            ),
+            Side::Before => t!("store.changed_since_rename_undo", file = file),
+            Side::After => t!("store.changed_since_rename_redo", file = file),
         }
+        .into_owned()
     }
 
     fn other(self) -> Side {
@@ -5536,7 +5515,7 @@ mod tests {
             let doc = st.text_archive(698).unwrap();
             assert_eq!(doc.key, 0);
             let texts: Vec<_> = doc.messages.iter().map(|m| m.text.as_str()).collect();
-            assert_eq!(texts, ["Neuer Text"]);
+            assert_eq!(texts, ["New text"]);
             assert!(st.dirty().is_empty());
         }
 
@@ -5799,9 +5778,9 @@ mod tests {
             std::fs::write(&path, b"von DSPRE").unwrap();
             let err = st.undo().unwrap_err();
             assert!(
-                matches!(&err, KernelError::Refused(r) if r == "Scriptdatei 0000 wurde seit dem \
-                    Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt den Schritt nicht \
-                    zurück, er fällt aus dem Verlauf."),
+                matches!(&err, KernelError::Refused(r) if r == "Script file 0000 was changed \
+                    outside the Studio since it was reset; ⌘Z does not take the step back, it \
+                    drops out of the history."),
                 "{err}"
             );
             assert_eq!(std::fs::read(&path).unwrap(), b"von DSPRE");
@@ -5821,9 +5800,9 @@ mod tests {
             std::fs::write(&path, b"von DSPRE").unwrap();
             let err = st.redo().unwrap_err();
             assert!(
-                matches!(&err, KernelError::Refused(r) if r == "Scriptdatei 0000 wurde seit dem \
-                    Rückgängigmachen außerhalb des Studios geändert; ⌘⇧Z stellt den Schritt nicht \
-                    wieder her, er fällt aus dem Verlauf."),
+                matches!(&err, KernelError::Refused(r) if r == "Script file 0000 was changed \
+                    outside the Studio since the undo; ⌘⇧Z does not restore the step, it drops \
+                    out of the history."),
                 "{err}"
             );
             assert_eq!(std::fs::read(&path).unwrap(), b"von DSPRE");
@@ -5937,13 +5916,13 @@ mod tests {
 
         #[test]
         fn asset_label_names_the_kind_in_german_with_four_digits() {
-            assert_eq!(crate::original::asset_label(MAP), "Karte 0000");
+            assert_eq!(crate::original::asset_label(MAP), "Map 0000");
             assert_eq!(
                 crate::original::asset_label(AssetId {
                     kind: AssetKind::InteriorBuildingModel,
                     index: 12,
                 }),
-                "Innenraum-Gebäudemodell 0012"
+                "Interior building model 0012"
             );
             assert_eq!(
                 crate::original::asset_label(AssetId {

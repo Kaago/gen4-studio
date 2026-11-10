@@ -192,7 +192,7 @@ fn simulated_dspre_change_is_adopted_one_sided() {
     let one_ms = started.elapsed().as_millis();
     assert_eq!(found.units.len(), 1, "{:?}", found.units);
     assert_eq!(found.units[0].side, UnitSide::Dspre);
-    assert_eq!(found.units[0].label, "Attacke 0001 · MOVE_POUND");
+    assert_eq!(found.units[0].label, "Move 0001 · MOVE_POUND");
     assert_eq!(applied.written, [PathBuf::from("data/moves/0001.json")]);
     let json: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root.join("data/moves/0001.json")).unwrap()).unwrap();
@@ -207,6 +207,7 @@ fn simulated_dspre_change_is_adopted_one_sided() {
     build::build(&Project::open(&root).unwrap(), &out).unwrap();
     assert_cmd::Command::cargo_bin("g4k")
         .unwrap()
+        .env("G4_LANG", "en")
         .arg("check-data")
         .arg(&out)
         .args(["--expect", &format!("move:1:power={}", bytes[3])])

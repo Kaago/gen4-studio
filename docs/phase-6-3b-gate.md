@@ -43,11 +43,11 @@ Namen in der Oberfläche (für die Prüfung):
 
 Durchgeführt 2026-11-06 bis 2026-11-07 (Befehle: [docs/agent-gate.md](agent-gate.md), „Phase 6.3b“):
 
-1. **Kopien** unter `/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), die Ziele existierten vorher nicht, die Originale nur gelesen:
+1. **Kopien** unter `$HOME/Projekte/lab/editor/Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`), die Ziele existierten vorher nicht, die Originale nur gelesen:
    - `6-3b-pt_DSPRE_contents`, `6-3b-hgde_DSPRE_contents`, `6-3b-hgus_DSPRE_contents` je mit `6-3b-<spiel>.nds` daneben: gated Tests (Task 9; geschrieben wird nur auf `vanilla_copy()`).
    - `6-3b-szen-pt`, `-pt2`, `-pt3` und `6-3b-szen-hg`, `-hg2` (je `_DSPRE_contents` mit `.nds`): Szenarien (Task 11); maßgeblich sind die letzten Läufe auf `6-3b-szen-pt3` und `6-3b-szen-hg2`. In ihnen liegt die gebaute ROM `out.nds` für melonDS und DSPRE.
    - `6-3b-web_DSPRE_contents` (Platin DE) mit `6-3b-web.nds`: Browser-Teil (Task 10), eingerichtet mit `call.sh open_project`, `assign_base`, `adopt_text_project` (65 s).
-2. **Worktree:** `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
+2. **Worktree:** `G4_ROMS_DIR=$HOME/Projekte/lab/editor/Roms` absolut; `tools` als Symlink auf den Haupt-Checkout (nie einchecken), `G4_APICULA=<Haupt-Checkout>/tools/apicula/bin/apicula`; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
 3. **Test-Umgebung** für (3) auf **1520/1521**: `G4_VITE_PORT=1520 G4_BRIDGE_PORT=1521 bash scripts/agent/studio-web.sh` (Log `target/agent/6-3b/web.log`); andere Ports nicht angefasst (1500/1501 gehörte 6.5a).
 4. **Ausgaben** im Worktree (nicht im Repo): Logs `target/agent/6-3b/*.log`, Bilder und Notiz unter `target/agent/gate-2026-11-07/6-3b/` (Browser `blick-*.png`, `browser.md`; Szenarien `pt-gemalt/`, `hg-gemalt/`). Den Ordner vor `git worktree remove` sichern.
 5. **Last:** `uptime` vor jedem langen Lauf, in den Logs und den Tabellen unten notiert (1-Minuten-Last zwischen 2,9 und 8,4 bei den gated Läufen). Die Maschine teilten sich zeitweise mehrere Worktrees (6.5a); ein Test, der unter Last reißt, wird allein wiederholt, die Grenze nie gelockert.

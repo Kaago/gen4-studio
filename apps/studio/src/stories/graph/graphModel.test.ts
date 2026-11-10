@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadGraphDto } from "../../api.stories";
-import { edgeLabel, toFlow } from "./graphModel";
+import { edgeAria, edgeLabel, toFlow } from "./graphModel";
 import { sampleThreadGraph } from "./sampleGraph";
 
 const nodeOf = (graph: ThreadGraphDto, id: string) => toFlow(graph).nodes.find((n) => n.id === id)!;
@@ -45,6 +45,19 @@ describe("graphModel", () => {
     const noted: ThreadGraphDto = { ...sampleThreadGraph, edges: [{ ...objectEdge, from: "v:3", to: "p:script:0101", field: "SetVar", slot: 1 }] };
     expect(toFlow(noted).edges[0].className).toContain("noted");
     expect(edges.every((e) => !(e.className ?? "").includes("noted"))).toBe(true);
+  });
+
+  it("edges_say_who_sets_or_checks_the_value_for_a_screen_reader", () => {
+    const { edges } = toFlow(sampleThreadGraph);
+    const aria = (from: string, to: string) => edges.find((e) => e.source === from && e.target === to)?.ariaLabel;
+    // Not React Flow's „Edge from p:script:0101 to v:1“: the place by its header, the value, and where.
+    expect(aria("p:script:0101", "v:1")).toBe("Zweiblattdorf setzt Wert 1: Zeile 12 · SetVar");
+    expect(aria("v:1", "p:event:0394")).toBe("Route 201 prüft Wert 1: Auslöser 0");
+    // A place without a header is named by its source.
+    expect(aria("v:2", "p:script:0005")).toBe("Level-Script 0005 prüft Wert 2: Bedingung 1");
+    expect(edges.every((e) => typeof e.ariaLabel === "string" && !/[pv]:/.test(e.ariaLabel))).toBe(true);
+    const objectEdge = { from: "v:1", to: "p:event:0394", value: 1, access: "read" as const, field: "script", slot: 3 };
+    expect(edgeAria(objectEdge, sampleThreadGraph, "Objekt 3")).toBe("Route 201 prüft Wert 1: Objekt 3");
   });
 
   it("a_loose_place_has_no_edges", () => {

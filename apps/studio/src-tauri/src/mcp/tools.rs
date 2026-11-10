@@ -125,21 +125,33 @@ impl fmt::Display for ToolError {
 
 impl std::error::Error for ToolError {}
 
+// The refusals of the app's access check, as catalog keys (`mcp.tools.*`): the text is looked
+// up where the call is refused, in the language of the server at that moment.
 /// In the app: no project is open.
-const NO_PROJECT: &str = "In Gen4 Studio ist kein Projekt offen";
+const NO_PROJECT: &str = "mcp.tools.no_project";
 /// In the app: the user did not let this client use the project (or did not answer).
-const NOT_PERMITTED: &str =
-    "Gen4 Studio hat diesem Agenten den Zugriff auf dieses Projekt nicht freigegeben";
-/// In the app: the project's grant is `read`.
-const READ_GRANT: &str = "Nur lesen: Gen4 Studio lässt Agenten dieses Projekt nur lesen";
-/// In the app: the switch "Nur lesen" is on.
-const READ_SWITCH: &str = "Nur lesen: in Gen4 Studio ist „Nur lesen“ eingeschaltet";
-/// In the app: "Lokale Agenten zulassen" is off.
-const SWITCHED_OFF: &str = "Lokale Agenten sind aus (Einstellungen › Agenten)";
+const NOT_PERMITTED: &str = "mcp.tools.not_permitted";
+/// In the app: the project's grant is `read` ("Read only: Gen4 Studio lets agents only read
+/// this project").
+const READ_GRANT: &str = "mcp.tools.read_grant";
+/// In the app: the switch "Read only" is on.
+const READ_SWITCH: &str = "mcp.tools.read_switch";
+/// In the app: "Allow local agents" is off.
+const SWITCHED_OFF: &str = "mcp.tools.switched_off";
 /// In the app: `open_project` is the user's.
-const USER_OPENS: &str = "Nur in der App: Projekte öffnet der Nutzer";
+const USER_OPENS: &str = "mcp.tools.user_opens";
 /// In the app: the project was closed or replaced while a call was on its way.
-const PROJECT_SWITCHED: &str = "In Gen4 Studio ist inzwischen ein anderes Projekt offen";
+const PROJECT_SWITCHED: &str = "mcp.tools.project_switched";
+
+/// "Unknown tool: <name>" in the language of the server.
+fn unknown_tool(name: &str) -> String {
+    t!("mcp.tools.unknown_tool", tool = name).into_owned()
+}
+
+/// "Unknown command: <name>" in the language of the server.
+fn unknown_command(name: &str) -> String {
+    t!("mcp.access.unknown_command", command = name).into_owned()
+}
 
 /// A resource, or a template of resources (`{name}` stands for a number).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,9 +184,11 @@ static RESOURCES: [ResourceDef; 4] = [
     ResourceDef {
         uri: "g4://glossary",
         name: "glossary",
-        description: "The words of the app's German interface (Weltkarte, Gebiet, Raum, Ort, \
-                      Raster, Header, Eventdatei, Warp ...) with their technical names and \
-                      the tools and fields an agent uses for them. Needs no project.",
+        description: "The words of the app's interface in the language of the server (English: \
+                      World map, Area, Room, Place, Matrix, Header, Event file, Warp ...; German: \
+                      Weltkarte, Gebiet, Raum, Ort, Raster, Header, Eventdatei, Warp ...) with \
+                      their technical names and the tools and fields an agent uses for them. \
+                      Needs no project.",
         mime: MARKDOWN,
     },
     ResourceDef {
@@ -223,15 +237,16 @@ enum ResourceUri {
 
 impl ResourceUri {
     fn parse(uri: &str) -> Result<ResourceUri, ToolError> {
-        let unknown = || ToolError::Unknown(format!("Unbekannte Ressource: {uri}"));
+        let unknown =
+            || ToolError::Unknown(t!("mcp.tools.unknown_resource", uri = uri).into_owned());
         if uri == "g4://project" {
             Ok(ResourceUri::Project)
         } else if uri == "g4://checks" {
             Ok(ResourceUri::Checks)
         } else if uri == "g4://glossary" {
-            Ok(ResourceUri::Doc(docs::GLOSSARY))
+            Ok(ResourceUri::Doc(docs::glossary()))
         } else if uri == "g4://docs/mcp" {
-            Ok(ResourceUri::Doc(docs::MCP_GUIDE))
+            Ok(ResourceUri::Doc(docs::mcp_guide()))
         } else if let Some(name) = uri.strip_prefix("g4://docs/formats/") {
             docs::format(name).map(ResourceUri::Doc).ok_or_else(unknown)
         } else if let Some(archive) = uri.strip_prefix("g4://text/") {
@@ -354,7 +369,8 @@ fn not_in_batch(command: &str, args: &Value) -> bool {
 /// Runs call `index` of a batch (the call's own `run`; tests wrap it).
 type Runner<'r> = dyn FnMut(&Call<'_>, usize, Prepared) -> Result<Value, ToolError> + 'r;
 
-const NO_NESTED_BATCH: &str = "g4_batch kann sich nicht selbst enthalten";
+/// "g4_batch cannot contain itself", a catalog key.
+const NO_NESTED_BATCH: &str = "mcp.tools.no_nested_batch";
 
 /// A call whose arguments are checked, ready to run.
 enum Prepared {
@@ -431,7 +447,7 @@ impl Toolbox {
         let root = policy.project();
         let path = root
             .to_str()
-            .ok_or_else(|| format!("Pfad ist kein gültiger Text: {}", root.display()))?;
+            .ok_or_else(|| t!("mcp.tools.path_not_text", path = root.display()).into_owned())?;
         let info = open_project_impl(&state, path).map_err(|e| e.message)?;
         // A text project of an older schema opens in the app to be lifted; headless nothing
         // could edit it, so the server does not start (as for a newer one or a broken
@@ -535,7 +551,7 @@ impl Toolbox {
     pub fn call(&self, tool: &str, args: Value, client: &str) -> Result<Value, ToolError> {
         let def = self
             .tool(tool)
-            .ok_or_else(|| ToolError::Unknown(format!("Unbekanntes Tool: {tool}")))?;
+            .ok_or_else(|| ToolError::Unknown(unknown_tool(tool)))?;
         match &self.host {
             Host::Own { .. } => {
                 let _turn = self.turn();
@@ -544,7 +560,7 @@ impl Toolbox {
             Host::Shared { source, wait } => {
                 // Refused before anything is asked.
                 if opens_project(def, &args) {
-                    return Err(ToolError::refused("unavailable", USER_OPENS));
+                    return Err(ToolError::refused("unavailable", t!(USER_OPENS)));
                 }
                 let state = source.state();
                 let open = OpenProject::of(state)?;
@@ -623,7 +639,7 @@ impl OpenProject {
             .lock_session()
             .as_ref()
             .map(|s| Arc::clone(&s.project))
-            .ok_or_else(|| ToolError::refused("no_project", NO_PROJECT))?;
+            .ok_or_else(|| ToolError::refused("no_project", t!(NO_PROJECT)))?;
         let policy = UserPolicy::new(&project.root, &[], None).map_err(ToolError::error)?;
         Ok(OpenProject { project, policy })
     }
@@ -639,7 +655,7 @@ impl OpenProject {
     ) -> Result<Call<'a>, ToolError> {
         let hub = &state.agents;
         if !hub.enabled() {
-            return Err(ToolError::refused("not_permitted", SWITCHED_OFF));
+            return Err(ToolError::refused("not_permitted", t!(SWITCHED_OFF)));
         }
         let key = ProjectKey::of(self.policy.project()).map_err(ToolError::error)?;
         let name = self
@@ -649,7 +665,7 @@ impl OpenProject {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.project.root.display().to_string());
         let read_only = match hub.permission(client, &key, &name, wait) {
-            GrantLevel::None => return Err(ToolError::refused("not_permitted", NOT_PERMITTED)),
+            GrantLevel::None => return Err(ToolError::refused("not_permitted", t!(NOT_PERMITTED))),
             GrantLevel::Read => Some(READ_GRANT),
             GrantLevel::Write if hub.read_only() => Some(READ_SWITCH),
             GrantLevel::Write => None,
@@ -684,6 +700,7 @@ struct Shared<'a> {
     project: &'a Arc<Project>,
     key: ProjectKey,
     wait: Duration,
+    /// The catalog key of the refusal ([`READ_GRANT`] or [`READ_SWITCH`]).
     read_only: Option<&'static str>,
 }
 
@@ -802,11 +819,7 @@ impl<'a> Call<'a> {
         match self.with_session(|s| recipes::is_irreversible_in(&mut s.store, &call))? {
             Ok(Some(why)) => Err(ToolError::refused(
                 "needs_confirmation",
-                format!(
-                    "{command} lässt sich nicht rückgängig machen ({why}): der Ort braucht \
-                     inzwischen eine eigene Level-Script-Datei; noch einmal aufrufen, dann \
-                     fragt Gen4 Studio"
-                ),
+                t!("mcp.tools.needs_level_script", command = command, why = why),
             )),
             Ok(None) | Err(_) => Ok(()),
         }
@@ -818,20 +831,20 @@ impl<'a> Call<'a> {
     fn still_writable(&self, shared: &Shared<'_>) -> Result<(), ToolError> {
         let hub = shared.hub;
         if !hub.enabled() {
-            return Err(ToolError::refused("not_permitted", SWITCHED_OFF));
+            return Err(ToolError::refused("not_permitted", t!(SWITCHED_OFF)));
         }
         if hub.is_disconnected(self.client) {
-            return Err(ToolError::refused("not_permitted", NOT_PERMITTED));
+            return Err(ToolError::refused("not_permitted", t!(NOT_PERMITTED)));
         }
         match hub.settings().grant_for(&shared.key) {
             Some(GrantLevel::Write) => {}
-            Some(GrantLevel::Read) => return Err(ToolError::refused("read_only", READ_GRANT)),
+            Some(GrantLevel::Read) => return Err(ToolError::refused("read_only", t!(READ_GRANT))),
             Some(GrantLevel::None) | None => {
-                return Err(ToolError::refused("not_permitted", NOT_PERMITTED));
+                return Err(ToolError::refused("not_permitted", t!(NOT_PERMITTED)));
             }
         }
         if hub.read_only() {
-            return Err(ToolError::refused("read_only", READ_SWITCH));
+            return Err(ToolError::refused("read_only", t!(READ_SWITCH)));
         }
         Ok(())
     }
@@ -930,9 +943,7 @@ impl<'a> Call<'a> {
             },
             Route::Call => {
                 let Some(command) = args.get("command").and_then(Value::as_str) else {
-                    return Err(ToolError::error(
-                        "g4_call braucht command, den Namen eines Befehls",
-                    ));
+                    return Err(ToolError::error(t!("mcp.tools.call_needs_command")));
                 };
                 let inner = match args.get("args") {
                     None | Some(Value::Null) => json!({}),
@@ -946,7 +957,7 @@ impl<'a> Call<'a> {
             Route::ProjectInfo => Prepared::ProjectInfo,
             Route::Commands => Prepared::Commands,
             Route::Batch => {
-                return Err(ToolError::error(NO_NESTED_BATCH));
+                return Err(ToolError::error(t!(NO_NESTED_BATCH)));
             }
         })
     }
@@ -1011,13 +1022,13 @@ impl<'a> Call<'a> {
             });
         }
         if command == "open_project" {
-            return Err(ToolError::refused("unavailable", USER_OPENS));
+            return Err(ToolError::refused("unavailable", t!(USER_OPENS)));
         }
         if let Class::Unavailable(_) = class {
             admit(command, &class, &self.access)?;
         }
         if let Some(why) = shared.read_only {
-            return Err(ToolError::refused("read_only", why));
+            return Err(ToolError::refused("read_only", t!(why)));
         }
         let confirm = match class {
             Class::Irreversible(why) => Some(why),
@@ -1047,7 +1058,7 @@ impl<'a> Call<'a> {
                     check_assign_base(self.state, self.policy, args).map_err(|e| match e {
                         DispatchError::Cmd(e) => ToolError::from(e),
                         DispatchError::Unknown(name) => {
-                            ToolError::refused("unavailable", format!("Unbekannter Befehl: {name}"))
+                            ToolError::refused("unavailable", unknown_command(&name))
                         }
                     })?;
                 let file = nds.file_name().unwrap_or(nds.as_os_str()).to_string_lossy();
@@ -1074,10 +1085,7 @@ impl<'a> Call<'a> {
             ("publish_patch", Some(_)) => {
                 let opts = serde_json::from_value::<crate::commands::PublishArgs>(args.clone())
                     .map_err(|e| {
-                        ToolError::refused(
-                            "bad_args",
-                            format!("Ungültige Argumente für publish_patch: {e}"),
-                        )
+                        ToolError::refused("bad_args", t!("mcp.tools.bad_publish_args", error = e))
                     })?
                     .options();
                 // The policy first: a place it does not allow is refused before it is looked at.
@@ -1090,7 +1098,7 @@ impl<'a> Call<'a> {
                 crate::commands::check_git_commit_all(self.state)?;
                 Ok(why.to_owned())
             }
-            // „Nummer freigeben: Trainer 0002“, after the plan: a refusal comes back unasked.
+            // "Free the number: Trainer 0002", after the plan: a refusal comes back unasked.
             // A target that is none is refused by the command.
             ("delete_entity", shared) => {
                 let target = args.get("target").and_then(|target| {
@@ -1119,10 +1127,7 @@ impl<'a> Call<'a> {
         } else {
             Err(ToolError::refused(
                 "needs_confirmation",
-                format!(
-                    "{command} lässt sich nicht rückgängig machen ({why}); in Gen4 Studio \
-                     abgelehnt"
-                ),
+                t!("mcp.tools.declined", command = command, why = why),
             ))
         }
     }
@@ -1134,10 +1139,9 @@ impl<'a> Call<'a> {
                     Ok(Reply::Json(value)) => Ok(value),
                     Ok(Reply::Bytes(bytes)) => Ok(json!({ "bytes": bytes.len() })),
                     Err(DispatchError::Cmd(e)) => Err(e.into()),
-                    Err(DispatchError::Unknown(name)) => Err(ToolError::refused(
-                        "unavailable",
-                        format!("Unbekannter Befehl: {name}"),
-                    )),
+                    Err(DispatchError::Unknown(name)) => {
+                        Err(ToolError::refused("unavailable", unknown_command(&name)))
+                    }
                 }
             }
             Prepared::ProjectInfo => self.project_info(),
@@ -1189,14 +1193,14 @@ impl<'a> Call<'a> {
         let mut guard = self.state.lock_session();
         let Some(session) = guard.as_mut() else {
             return Err(match self.shared {
-                Some(_) => ToolError::refused("no_project", NO_PROJECT),
+                Some(_) => ToolError::refused("no_project", t!(NO_PROJECT)),
                 None => ToolError::error("no project open"),
             });
         };
         if let Some(shared) = &self.shared
             && !Arc::ptr_eq(&session.project, shared.project)
         {
-            return Err(ToolError::error(PROJECT_SWITCHED));
+            return Err(ToolError::error(t!(PROJECT_SWITCHED)));
         }
         Ok(f(session))
     }
@@ -1240,15 +1244,13 @@ impl<'a> Call<'a> {
         let calls = match args.get("calls") {
             Some(Value::Array(calls)) if !calls.is_empty() => calls,
             _ => {
-                return Err(ToolError::error(
-                    "g4_batch braucht calls, eine Liste mit mindestens einem Aufruf",
-                ));
+                return Err(ToolError::error(t!("mcp.tools.batch_needs_calls")));
             }
         };
         let label = match args.get("label") {
             None | Some(Value::Null) => None,
             Some(Value::String(label)) => Some(label.clone()),
-            Some(_) => return Err(ToolError::error("label von g4_batch muss ein Text sein")),
+            Some(_) => return Err(ToolError::error(t!("mcp.tools.batch_label_text"))),
         };
         let mut ready = Vec::with_capacity(calls.len());
         let mut changes = 0;
@@ -1319,36 +1321,36 @@ impl<'a> Call<'a> {
         call: &Value,
     ) -> Result<(Prepared, Admitted), ToolError> {
         let Some(fields) = call.as_object() else {
-            return Err(ToolError::error(
-                "Ein Aufruf in g4_batch ist ein Objekt {tool, arguments}",
-            ));
+            return Err(ToolError::error(t!("mcp.tools.batch_call_object")));
         };
         if let Some(key) = fields
             .keys()
             .find(|key| !matches!(key.as_str(), "tool" | "arguments"))
         {
-            return Err(ToolError::error(format!(
-                "Unbekanntes Argument für g4_batch: {key}"
+            return Err(ToolError::error(t!(
+                "mcp.tools.batch_unknown_argument",
+                key = key
             )));
         }
         if tool.is_empty() {
-            return Err(ToolError::error("Aufruf ohne tool"));
+            return Err(ToolError::error(t!("mcp.tools.batch_call_without_tool")));
         }
         if tool == "g4_batch" {
-            return Err(ToolError::error(NO_NESTED_BATCH));
+            return Err(ToolError::error(t!(NO_NESTED_BATCH)));
         }
         let def = self
             .tool(tool)
-            .ok_or_else(|| ToolError::error(format!("Unbekanntes Tool: {tool}")))?;
+            .ok_or_else(|| ToolError::error(unknown_tool(tool)))?;
         let args = fields.get("arguments").cloned().unwrap_or(Value::Null);
         let prepared = self.prepare(def, args)?;
         if let Prepared::Command { command, args } = &prepared {
             if command == "g4_batch" {
-                return Err(ToolError::error(NO_NESTED_BATCH));
+                return Err(ToolError::error(t!(NO_NESTED_BATCH)));
             }
             if not_in_batch(command, args) {
-                return Err(ToolError::error(format!(
-                    "{command} geht nicht in g4_batch"
+                return Err(ToolError::error(t!(
+                    "mcp.tools.not_in_batch",
+                    command = command
                 )));
             }
         }
@@ -1403,23 +1405,27 @@ impl<'a> Call<'a> {
             "error": failure,
             "rolled_back": rolled_back,
         });
-        let mut text = format!("Aufruf {index} ({tool}) fehlgeschlagen: {message}");
+        let mut text = t!(
+            "mcp.tools.batch_call_failed",
+            index = index,
+            tool = tool,
+            message = message
+        )
+        .into_owned();
         if kept > 0 {
             details["kept"] = json!(kept);
             text.push_str(&if kept == 1 {
-                "; 1 Schritt des Batchs ließ sich nicht zurücknehmen".to_owned()
+                t!("mcp.tools.batch_kept_one")
             } else {
-                format!("; {kept} Schritte des Batchs ließen sich nicht zurücknehmen")
+                t!("mcp.tools.batch_kept_other", kept = kept)
             });
         }
         if forgotten {
             details["history_forgotten"] = json!(true);
-            text.push_str(
-                "; der Verlauf wurde während des Batchs gekürzt, nicht alles ist zurückgenommen",
-            );
+            text.push_str(&t!("mcp.tools.batch_history_cut"));
         }
         if let Some(broken) = broken {
-            text.push_str(&format!("; Zurücknehmen fehlgeschlagen: {broken}"));
+            text.push_str(&t!("mcp.tools.batch_rollback_failed", error = broken));
             details["rollback_error"] = json!(broken);
         }
         ToolError::Failed {
@@ -1550,9 +1556,9 @@ fn check_keys(def: &ToolDef, args: &Value) -> Result<(), ToolError> {
         Value::Null => return Ok(()),
         Value::Object(keys) => keys,
         _ => {
-            return Err(ToolError::error(format!(
-                "Argumente für {} müssen ein Objekt sein",
-                def.name
+            return Err(ToolError::error(t!(
+                "mcp.tools.args_not_object",
+                tool = def.name
             )));
         }
     };
@@ -1562,60 +1568,75 @@ fn check_keys(def: &ToolDef, args: &Value) -> Result<(), ToolError> {
         .keys()
         .find(|key| !properties.is_some_and(|p| p.contains_key(*key)))
     {
-        Some(key) => Err(ToolError::error(format!(
-            "Unbekanntes Argument für {}: {key}",
-            def.name
+        Some(key) => Err(ToolError::error(t!(
+            "mcp.tools.unknown_argument",
+            tool = def.name,
+            key = key
         ))),
         None => Ok(()),
     }
 }
 
-/// The question before `assign_base` assigns `file` with `check`: „Basis-ROM zuordnen:
-/// <file> (<label>, SHA-1 <8 digits>)“, the label from `base_roms.yaml`, else „unbekannte oder
-/// veränderte ROM <title> (<game code>)“, and what differs from the project.
+/// The question before `assign_base` assigns `file` with `check`: "Assign base ROM:
+/// <file> (<label>, SHA-1 <8 digits>)", the label from `base_roms.yaml`, else "unknown or
+/// modified ROM <title> (<game code>)", and what differs from the project.
 fn assign_question(file: &str, check: &BaseCheck) -> String {
     let info = &check.info;
     let label = match &info.known_base {
         Some(label) => label.clone(),
-        None => format!(
-            "unbekannte oder veränderte ROM {} ({})",
-            info.title, info.game_code
-        ),
+        None => t!(
+            "mcp.tools.unknown_rom",
+            title = info.title,
+            code = info.game_code
+        )
+        .into_owned(),
     };
     let sha1 = info.sha1.get(..8).unwrap_or(&info.sha1);
-    let differs: Vec<&str> = check
+    let differs: Vec<std::borrow::Cow<'static, str>> = check
         .warnings
         .iter()
         .filter_map(|w| match w.kind {
-            BaseWarningKind::TitleDiffers => Some("Titel"),
-            BaseWarningKind::RevisionDiffers => Some("Version"),
-            BaseWarningKind::Arm7Differs => Some("ARM7-Code"),
-            BaseWarningKind::BannerDiffers => Some("Banner"),
+            BaseWarningKind::TitleDiffers => Some(t!("mcp.tools.differs_title")),
+            BaseWarningKind::RevisionDiffers => Some(t!("mcp.tools.differs_version")),
+            BaseWarningKind::Arm7Differs => Some(t!("mcp.tools.differs_arm7")),
+            BaseWarningKind::BannerDiffers => Some(t!("mcp.tools.differs_banner")),
             BaseWarningKind::UnknownDump => None,
         })
         .collect();
     let differs = match differs.as_slice() {
         [] => String::new(),
-        [one] => format!("; {one} weicht vom Projekt ab"),
-        [first @ .., last] => format!("; {} und {last} weichen vom Projekt ab", first.join(", ")),
+        [one] => t!("mcp.tools.differs_one", one = one).into_owned(),
+        [first @ .., last] => t!(
+            "mcp.tools.differs_many",
+            first = first.join(", "),
+            last = last
+        )
+        .into_owned(),
     };
-    format!("Basis-ROM zuordnen: {file} ({label}, SHA-1 {sha1}{differs})")
+    t!(
+        "mcp.tools.assign_question",
+        file = file,
+        label = label,
+        sha1 = sha1,
+        differs = differs
+    )
+    .into_owned()
 }
 
 /// The question before `resolve_external_conflict`: the unit and which version stays.
 fn conflict_question(why: &str, args: &Value) -> String {
     let key = args.get("key").and_then(Value::as_str).unwrap_or_default();
     let rule = match args.get("keep").and_then(Value::as_str) {
-        Some("studio") => "die Studio-Fassung gilt, DSPRE wird überschrieben",
-        Some("dspre") => "die andere Fassung gilt, die Studio-Fassung wird überschrieben",
+        Some("studio") => t!("mcp.tools.conflict_keep_studio"),
+        Some("dspre") => t!("mcp.tools.conflict_keep_dspre"),
         _ => return why.to_owned(),
     };
     format!("{why}: {key} ({rule})")
 }
 
 /// The question before `resolve_text_conflicts` overwrites a version of each archive in
-/// `args`: „<why>: Textarchiv 0012 (die Spieldatei gilt, die JSON wird überschrieben)“, several
-/// joined with „; “. The version that applies is the one `keep` names: the JSON is the
+/// `args`: "<why>: Text archive 0012 (the game file applies, the JSON is overwritten)", several
+/// joined with "; ". The version that applies is the one `keep` names: the JSON is the
 /// editor's text, the member the game file. Args that cannot be read leave the generic `why`
 /// (the command refuses them itself).
 fn resolve_question(why: &str, args: &Value) -> String {
@@ -1631,10 +1652,15 @@ fn resolve_question(why: &str, args: &Value) -> String {
         .iter()
         .map(|choice| {
             let rule = match choice.keep {
-                TextKeep::Json => "der Text (JSON) gilt, die Spieldatei wird überschrieben",
-                TextKeep::Member => "die Spieldatei gilt, die JSON wird überschrieben",
+                TextKeep::Json => t!("mcp.tools.resolve_keep_json"),
+                TextKeep::Member => t!("mcp.tools.resolve_keep_member"),
             };
-            format!("Textarchiv {:04} ({rule})", choice.archive)
+            t!(
+                "mcp.tools.resolve_archive",
+                archive = format!("{:04}", choice.archive),
+                rule = rule
+            )
+            .into_owned()
         })
         .collect();
     format!("{why}: {}", named.join("; "))
@@ -1648,17 +1674,23 @@ fn refused_at(index: usize, tool: &str, error: ToolError) -> ToolError {
     details.insert("tool".to_owned(), json!(tool));
     ToolError::Failed {
         code,
-        message: format!("Aufruf {index} ({tool}): {message}"),
+        message: t!(
+            "mcp.tools.batch_refused_at",
+            index = index,
+            tool = tool,
+            message = message
+        )
+        .into_owned(),
         details: Value::Object(details),
     }
 }
 
-/// The label of a batch without one: "Agent: N Änderungen", counting the calls that change
-/// the project.
+/// The label of a batch without one: "Agent: N changes" (the catalog's `default_label_*`),
+/// counting the calls that change the project.
 fn default_label(changes: usize) -> String {
     match changes {
-        1 => "Agent: 1 Änderung".to_owned(),
-        n => format!("Agent: {n} Änderungen"),
+        1 => t!("mcp.tools.default_label_one").into_owned(),
+        n => t!("mcp.tools.default_label_other", n = n).into_owned(),
     }
 }
 
@@ -1856,11 +1888,11 @@ mod tests {
         let (code, message, _) =
             failed(toolbox.call("get_header", json!({ "id": 0, "foo": 1 }), AGENT));
         assert_eq!(code, "error");
-        assert_eq!(message, "Unbekanntes Argument für get_header: foo");
+        assert_eq!(message, "Unknown argument for get_header: foo");
         // The dispatch key is not a tool argument either.
         let (_, message, _) =
             failed(toolbox.call("get_events", json!({ "eventFileId": 1 }), AGENT));
-        assert_eq!(message, "Unbekanntes Argument für get_events: eventFileId");
+        assert_eq!(message, "Unknown argument for get_events: eventFileId");
         let (code, _, _) = failed(toolbox.call("get_header", json!([0]), AGENT));
         assert_eq!(code, "error");
     }
@@ -1891,7 +1923,7 @@ mod tests {
             "g4_batch",
             json!({ "calls": [edit("move", 1, json!({ "Move": { "field": "power", "value": 65 } }))] }), AGENT,
         ));
-        assert!(message.contains("Unbekanntes Tool: data_edit"), "{message}");
+        assert!(message.contains("Unknown tool: data_edit"), "{message}");
         assert_eq!(details["index"], 0);
 
         let (_fixture, expert) = open_toolbox(Access {
@@ -1901,7 +1933,7 @@ mod tests {
         let (code, message, _) =
             failed(expert.call("g4_call", json!({ "command": "save" }), AGENT));
         assert_eq!(code, "read_only");
-        assert_eq!(message, "Nur lesen: save ändert das Projekt");
+        assert_eq!(message, "Read only: save changes the project");
         // A reading command runs.
         assert!(
             expert
@@ -1978,11 +2010,11 @@ mod tests {
             AGENT,
         ));
         assert_eq!(code, "unavailable");
-        assert_eq!(message, "Das Projekt ist fest (--project)");
+        assert_eq!(message, "The project is fixed (--project)");
         let (code, message, _) =
             failed(toolbox.call("g4_call", json!({ "command": "nope" }), AGENT));
         assert_eq!(code, "unavailable");
-        assert_eq!(message, "Unbekannter Befehl: nope");
+        assert_eq!(message, "Unknown command: nope");
         let (code, _, _) =
             failed(toolbox.call("g4_call", json!({ "command": "force_quit" }), AGENT));
         assert_eq!(code, "unavailable");
@@ -1997,7 +2029,7 @@ mod tests {
             AGENT,
         ));
         assert_eq!(code, "needs_confirmation");
-        assert!(message.starts_with("create_trainer lässt sich nicht rückgängig machen"));
+        assert!(message.starts_with("create_trainer cannot be undone"));
         assert_eq!(
             history(&toolbox),
             json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
@@ -2030,10 +2062,7 @@ mod tests {
             AGENT,
         ));
         assert_eq!(code, "error");
-        assert_eq!(
-            message,
-            "Unbekanntes Argument für project_preview_set: path"
-        );
+        assert_eq!(message, "Unknown argument for project_preview_set: path");
         // ... and a path through g4_call is refused too, even the project's own.
         for command in ["project_preview_get", "project_preview_set"] {
             let (code, message, _) = failed(toolbox.call(
@@ -2052,7 +2081,10 @@ mod tests {
             json!({ "file": outside.to_str().unwrap() }),
             AGENT,
         ));
-        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(
+            message.starts_with("Path is outside the allowed folders"),
+            "{message}"
+        );
         assert!(!fixture.dir.path().join(".g4/preview.png").exists());
         // Without a path: the bound project's preview, a file relative to its folder.
         std::fs::write(
@@ -2081,7 +2113,7 @@ mod tests {
         ));
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.starts_with("project_preview_set lässt sich nicht rückgängig machen"),
+            message.starts_with("project_preview_set cannot be undone"),
             "{message}"
         );
         assert!(!fixture.dir.path().join(".g4").exists());
@@ -2116,7 +2148,7 @@ mod tests {
             .unwrap();
         let info = toolbox.call("project_info", Value::Null, AGENT).unwrap();
         assert_eq!(info["dirty"].as_array().unwrap().len(), 2);
-        assert_eq!(info["history"]["undo"], json!(["Agent: 3 Änderungen"]));
+        assert_eq!(info["history"]["undo"], json!(["Agent: 3 changes"]));
     }
 
     #[test]
@@ -2127,13 +2159,13 @@ mod tests {
             .call("g4_batch", json!({ "calls": three_edits() }), AGENT)
             .unwrap();
         assert_eq!(answer["results"].as_array().unwrap().len(), 3);
-        assert_eq!(answer["label"], "Agent: 3 Änderungen");
+        assert_eq!(answer["label"], "Agent: 3 changes");
         assert_ne!(data(&toolbox, "species", 1), species);
         assert_ne!(data(&toolbox, "move", 1), moves);
         assert_eq!(
             history(&toolbox),
             json!({
-                "undo": ["Agent: 3 Änderungen"],
+                "undo": ["Agent: 3 changes"],
                 "redo": [],
                 "undo_agents": ["Claude Code"],
                 "redo_agents": []
@@ -2145,7 +2177,7 @@ mod tests {
         assert_eq!(data(&toolbox, "move", 1), moves);
         assert_eq!(
             history(&toolbox),
-            json!({ "undo": [], "redo": ["Agent: 3 Änderungen"], "undo_agents": [], "redo_agents": ["Claude Code"] })
+            json!({ "undo": [], "redo": ["Agent: 3 changes"], "undo_agents": [], "redo_agents": ["Claude Code"] })
         );
     }
 
@@ -2169,7 +2201,7 @@ mod tests {
             failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
         assert_eq!(code, "batch_failed");
         assert!(
-            message.starts_with("Aufruf 2 (get_header) fehlgeschlagen: "),
+            message.starts_with("Call 2 (get_header) failed: "),
             "{message}"
         );
         assert_eq!(details["index"], 2);
@@ -2195,7 +2227,7 @@ mod tests {
             failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.starts_with("Aufruf 1 (create_trainer): create_trainer lässt sich nicht"),
+            message.starts_with("Call 1 (create_trainer): create_trainer cannot be undone"),
             "{message}"
         );
         assert_eq!(details["index"], 1);
@@ -2213,7 +2245,7 @@ mod tests {
             failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
         assert_eq!(code, "error");
         assert!(
-            message.ends_with("Unbekanntes Argument für get_header: foo"),
+            message.ends_with("Unknown argument for get_header: foo"),
             "{message}"
         );
         assert_eq!(details["index"], 3);
@@ -2240,7 +2272,7 @@ mod tests {
         ] {
             let message = refused(call);
             assert!(
-                message.ends_with("g4_batch kann sich nicht selbst enthalten"),
+                message.ends_with("g4_batch cannot contain itself"),
                 "{message}"
             );
         }
@@ -2257,7 +2289,7 @@ mod tests {
         ] {
             let message = refused(json!({ "tool": tool }));
             assert!(
-                message.ends_with(&format!("{tool} geht nicht in g4_batch")),
+                message.ends_with(&format!("{tool} does not work in g4_batch")),
                 "{message}"
             );
         }
@@ -2286,7 +2318,7 @@ mod tests {
             let message = refused(json!({ "tool": "g4_call",
                 "arguments": { "command": command, "args": { "kind": "Map", "index": 0 } } }));
             assert!(
-                message.ends_with(&format!("{command} geht nicht in g4_batch")),
+                message.ends_with(&format!("{command} does not work in g4_batch")),
                 "{message}"
             );
         }
@@ -2316,7 +2348,7 @@ mod tests {
                 assert_eq!(code, "error", "{message}");
                 assert_eq!(details["index"], 3);
                 assert!(
-                    message.ends_with(&format!("{tool} geht nicht in g4_batch")),
+                    message.ends_with(&format!("{tool} does not work in g4_batch")),
                     "{message}"
                 );
             }
@@ -2363,7 +2395,7 @@ mod tests {
         assert_eq!(code, "error", "{message}");
         assert_eq!(details["index"], 3);
         assert!(
-            message.ends_with("reset_to_original geht nicht in g4_batch"),
+            message.ends_with("reset_to_original does not work in g4_batch"),
             "{message}"
         );
         assert_eq!(data(&toolbox, "species", 1), species);
@@ -2400,7 +2432,7 @@ mod tests {
                 assert_eq!(code, "error", "{message}");
                 assert_eq!(details["index"], 3);
                 assert!(
-                    message.ends_with(&format!("{command} geht nicht in g4_batch")),
+                    message.ends_with(&format!("{command} does not work in g4_batch")),
                     "{message}"
                 );
             }
@@ -2442,7 +2474,7 @@ mod tests {
             assert_eq!(code, "error", "{message}");
             assert_eq!(details["index"], 3);
             assert!(
-                message.ends_with("apply_fix geht nicht in g4_batch"),
+                message.ends_with("apply_fix does not work in g4_batch"),
                 "{message}"
             );
         }
@@ -2475,7 +2507,7 @@ mod tests {
             let (code, message, _) = failed(toolbox.call("g4_batch", args.clone(), AGENT));
             assert_eq!(code, "error", "{args}");
             assert_eq!(
-                message, "g4_batch braucht calls, eine Liste mit mindestens einem Aufruf",
+                message, "g4_batch needs calls, a list with at least one call",
                 "{args}"
             );
         }
@@ -2504,10 +2536,10 @@ mod tests {
                                    { "tool": "get_header", "arguments": { "id": 0 } }] }), AGENT,
             )
             .unwrap();
-        assert_eq!(answer["label"], "Agent: 1 Änderung");
+        assert_eq!(answer["label"], "Agent: 1 change");
         assert_eq!(
             history(&toolbox)["undo"],
-            json!(["Route 201 umbauen", "Agent: 1 Änderung"])
+            json!(["Route 201 umbauen", "Agent: 1 change"])
         );
         // A batch of reads records nothing, and also works read-only.
         let (_fixture, reader) = open_toolbox(READ);
@@ -2613,7 +2645,7 @@ mod tests {
         let (_fixture, toolbox) = open_toolbox(READ);
         let (mime, text) = toolbox.read_resource("g4://glossary", AGENT).unwrap();
         assert_eq!(mime, "text/markdown");
-        for word in ["Gebiet", "Raum", "Ort", "Raster", "Weltkarte", "Eventdatei"] {
+        for word in ["Area", "Room", "Place", "Matrix", "World map", "Event file"] {
             assert!(text.contains(word), "{word}");
         }
         // The tools an agent uses are named, too.
@@ -2633,7 +2665,7 @@ mod tests {
         assert!(text.starts_with('#'), "{text}");
         let (mime, text) = toolbox.read_resource("g4://docs/mcp", AGENT).unwrap();
         assert_eq!(mime, "text/markdown");
-        assert!(text.starts_with("# Gen4 Studio"), "{text}");
+        assert!(text.contains("\n# Gen4 Studio"), "{text}");
         for uri in [
             "g4://docs/formats/nope",
             "g4://docs/formats/",
@@ -2659,7 +2691,8 @@ mod tests {
         for uri in ["g4://glossary", "g4://docs/mcp", "g4://docs/formats/map"] {
             let (mime, text) = toolbox.read_resource(uri, AGENT).unwrap();
             assert_eq!(mime, "text/markdown", "{uri}");
-            assert!(text.starts_with('#'), "{uri}");
+            // (the guide has a line with the other language before its heading)
+            assert!(text.lines().any(|line| line.starts_with("# ")), "{uri}");
         }
         assert_eq!(state.agents.status().question, None);
         // With a project open but no grant: still not asked.
@@ -2684,8 +2717,11 @@ mod tests {
                     panic!("{e:?}")
                 };
                 assert!(!["read_only", "needs_confirmation"].contains(&code.as_str()));
-                assert!(!message.contains("Ungültige Argumente"), "{message}");
-                assert!(!message.contains("außerhalb"), "{message}");
+                assert!(!message.contains("Invalid arguments"), "{message}");
+                assert!(
+                    !message.contains("outside the allowed folders"),
+                    "{message}"
+                );
                 assert!(fixture.dir.path().join("build").is_dir());
             }
         }
@@ -2741,7 +2777,7 @@ mod tests {
         assert_eq!(answer["history_forgotten"], true);
         assert_ne!(data(&toolbox, "move", 2), moves);
         // Only the step of call 2 is left to merge.
-        assert_eq!(history(&toolbox)["undo"], json!(["Agent: 2 Änderungen"]));
+        assert_eq!(history(&toolbox)["undo"], json!(["Agent: 2 changes"]));
 
         let (_fixture, toolbox) = open_toolbox(WRITE);
         let calls = json!({ "calls": [
@@ -2757,7 +2793,7 @@ mod tests {
         assert_eq!(code, "batch_failed");
         assert_eq!(details["history_forgotten"], true);
         assert!(
-            message.contains("nicht alles ist zurückgenommen"),
+            message.contains("not everything is rolled back"),
             "{message}"
         );
         // A batch that forgets nothing does not say so.
@@ -2787,7 +2823,7 @@ mod tests {
                 json!({ "calls": three_edits() }),
                 &mut |toolbox, index, prepared| {
                     if index == 2 {
-                        panic!("Befehl bricht ab");
+                        panic!("command breaks off");
                     }
                     toolbox.run(prepared)
                 },
@@ -2801,7 +2837,7 @@ mod tests {
         let answer = toolbox
             .call("g4_batch", json!({ "calls": three_edits() }), AGENT)
             .unwrap();
-        assert_eq!(answer["label"], "Agent: 3 Änderungen");
+        assert_eq!(answer["label"], "Agent: 3 changes");
     }
 
     #[test]
@@ -2834,12 +2870,12 @@ mod tests {
         assert_eq!(details["kept"], 1);
         assert!(details.get("history_forgotten").is_none());
         assert!(
-            message.contains("1 Schritt des Batchs ließ sich nicht zurücknehmen"),
+            message.contains("1 step of the batch could not be rolled back"),
             "{message}"
         );
         // The edit after the barrier is rolled back, the barrier step stays.
         assert_eq!(data(&toolbox, "move", 1), moves);
-        assert_eq!(history(&toolbox)["undo"], json!(["Trainer 3 angelegt"]));
+        assert_eq!(history(&toolbox)["undo"], json!(["Trainer 3 created"]));
     }
 
     #[test]
@@ -2855,8 +2891,8 @@ mod tests {
                 details: json!({ "asset": null, "problems": [] }),
             }
         );
-        let unknown = ToolError::Unknown("Unbekanntes Tool: x".into());
-        assert_eq!(unknown.to_string(), "Unbekanntes Tool: x");
+        let unknown = ToolError::Unknown("Unknown tool: x".into());
+        assert_eq!(unknown.to_string(), "Unknown tool: x");
     }
 
     // The toolbox over the user's session.
@@ -3000,7 +3036,7 @@ mod tests {
         assert_eq!(code, "read_only");
         assert_eq!(
             message,
-            "Nur lesen: Gen4 Studio lässt Agenten dieses Projekt nur lesen"
+            "Read only: Gen4 Studio lets agents only read this project"
         );
         let calls = json!({ "calls": [{ "tool": "data_edit", "arguments": power(65) }] });
         let (code, _, details) = failed(toolbox.call("g4_batch", calls, AGENT));
@@ -3025,7 +3061,7 @@ mod tests {
         assert_eq!(code, "read_only");
         assert_eq!(
             message,
-            "Nur lesen: in Gen4 Studio ist „Nur lesen“ eingeschaltet"
+            "Read only: \"Read only\" is switched on in Gen4 Studio"
         );
         // Undo by the agent is a write too.
         let (code, _, _) = failed(toolbox.call("undo", json!({}), AGENT));
@@ -3046,7 +3082,7 @@ mod tests {
         assert!(names(&toolbox).contains(&"get_header"));
         let (code, message, _) = failed(toolbox.call("get_header", json!({ "id": 0 }), AGENT));
         assert_eq!(code, "no_project");
-        assert_eq!(message, "In Gen4 Studio ist kein Projekt offen");
+        assert_eq!(message, "No project is open in Gen4 Studio");
         match toolbox.read_resource("g4://project", AGENT) {
             Err(ToolError::Failed { code, .. }) => assert_eq!(code, "no_project"),
             other => panic!("{other:?}"),
@@ -3063,7 +3099,7 @@ mod tests {
         assert_eq!(code, "not_permitted");
         assert_eq!(
             message,
-            "Gen4 Studio hat diesem Agenten den Zugriff auf dieses Projekt nicht freigegeben"
+            "Gen4 Studio has not granted this agent access to this project"
         );
         let question = user.join().unwrap();
         assert_eq!(question.kind, "connect");
@@ -3191,10 +3227,7 @@ mod tests {
                 }),
             );
         assert_eq!(code, "error");
-        assert_eq!(
-            message,
-            "In Gen4 Studio ist inzwischen ein anderes Projekt offen"
-        );
+        assert_eq!(message, "Another project is now open in Gen4 Studio");
         assert_eq!(changes(&state).len(), 3);
         assert!(history_impl(&state).unwrap().undo.is_empty());
     }
@@ -3220,7 +3253,7 @@ mod tests {
         })
         .collect();
         std::thread::sleep(Duration::from_millis(100));
-        // Meanwhile the user switches "Nur lesen" on.
+        // Meanwhile the user switches "Read only" on.
         state.agents.set_read_only(true);
         drop(turn);
         for call in queued {
@@ -3228,7 +3261,7 @@ mod tests {
             assert_eq!(code, "read_only");
             assert_eq!(
                 message,
-                "Nur lesen: in Gen4 Studio ist „Nur lesen“ eingeschaltet"
+                "Read only: \"Read only\" is switched on in Gen4 Studio"
             );
         }
         assert!(history_impl(&state).unwrap().undo.is_empty());
@@ -3273,7 +3306,7 @@ mod tests {
         assert_eq!(code, "not_permitted");
         assert_eq!(
             message,
-            "Gen4 Studio hat diesem Agenten den Zugriff auf dieses Projekt nicht freigegeben"
+            "Gen4 Studio has not granted this agent access to this project"
         );
         reading.join().unwrap().unwrap();
         assert!(history_impl(&state).unwrap().undo.is_empty());
@@ -3289,7 +3322,7 @@ mod tests {
         let open = json!({ "command": "open_project", "args": { "path": path } });
         let (code, message, _) = failed(toolbox.call("g4_call", open.clone(), AGENT));
         assert_eq!(code, "unavailable");
-        assert_eq!(message, "Nur in der App: Projekte öffnet der Nutzer");
+        assert_eq!(message, "Only in the app: the user opens projects");
         let batch = json!({ "calls": [{ "tool": "g4_call", "arguments": open }] });
         let (code, _, _) = failed(toolbox.call("g4_batch", batch, AGENT));
         assert_eq!(code, "unavailable");
@@ -3325,7 +3358,7 @@ mod tests {
             [(
                 AGENT.to_owned(),
                 "g4_batch".to_owned(),
-                Some("Agent: 3 Änderungen".to_owned()),
+                Some("Agent: 3 changes".to_owned()),
                 json!([{ "kind": "Personal", "index": 1 }, move_1()]),
             )]
         );
@@ -3342,7 +3375,7 @@ mod tests {
         let question = user.join().unwrap();
         assert_eq!(question.kind, "confirm");
         assert_eq!(question.client, AGENT);
-        assert_eq!(question.what.as_deref(), Some("Header-Patch einspielen"));
+        assert_eq!(question.what.as_deref(), Some("Apply header patch"));
         assert!(header_patch_status_impl(&state).unwrap().applied);
 
         // Refused: nothing runs.
@@ -3354,8 +3387,7 @@ mod tests {
         assert_eq!(code, "needs_confirmation");
         assert_eq!(
             message,
-            "apply_header_patch lässt sich nicht rückgängig machen (Header-Patch einspielen); in \
-             Gen4 Studio abgelehnt"
+            "apply_header_patch cannot be undone (Apply header patch); declined in Gen4 Studio"
         );
         assert!(!header_patch_status_impl(&state).unwrap().applied);
 
@@ -3372,13 +3404,12 @@ mod tests {
         let question = user.join().unwrap();
         assert_eq!(
             question.what.as_deref(),
-            Some("Trainer anlegen, Welt leeren")
+            Some("Create trainer, Clear world")
         );
         assert_eq!(code, "needs_confirmation");
         assert_eq!(
             message,
-            "g4_batch lässt sich nicht rückgängig machen (Trainer anlegen, Welt leeren); in \
-             Gen4 Studio abgelehnt"
+            "g4_batch cannot be undone (Create trainer, Clear world); declined in Gen4 Studio"
         );
         assert!(history_impl(&state).unwrap().undo.is_empty());
         assert_eq!(state.agents.status().question, None);
@@ -3439,14 +3470,20 @@ mod tests {
             let (code, message, _) =
                 failed(d.toolbox.call("assign_base", json!({ "nds": nds }), AGENT));
             assert_eq!(code, "error", "{message}");
-            assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+            assert!(
+                message.starts_with("Path is outside the allowed folders"),
+                "{message}"
+            );
             assert_eq!(d.state.agents.status().question, None);
         }
         // Through g4_call as well.
         d.state.agents.set_expert(true).unwrap();
         let args = json!({ "command": "assign_base", "args": { "nds": copy.to_str().unwrap() } });
         let (_, message, _) = failed(d.toolbox.call("g4_call", args, AGENT));
-        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(
+            message.starts_with("Path is outside the allowed folders"),
+            "{message}"
+        );
         assert_eq!(d.state.agents.status().question, None);
         assert!(!d.root.join(".g4").exists());
     }
@@ -3461,7 +3498,7 @@ mod tests {
         assign_refused_unasked(
             &d,
             "andere.nds",
-            "Falsches Spiel: die ROM ist IPKE, das Projekt CPUE.",
+            "Wrong game: the ROM is IPKE, the project CPUE.",
         );
         assert!(!d.root.join(".g4").exists());
 
@@ -3474,7 +3511,7 @@ mod tests {
             AGENT,
         ));
         assert!(
-            message.starts_with("Die Basismarke .g4/base.json ist nicht lesbar ("),
+            message.starts_with("The base mark .g4/base.json cannot be read ("),
             "{message}"
         );
         assert_eq!(d.state.agents.status().question, None);
@@ -3505,7 +3542,7 @@ mod tests {
         assign_refused_unasked(
             &d,
             "../X.nds",
-            "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest.",
+            "The project was created from a ROM; its base ROM is fixed.",
         );
     }
 
@@ -3523,7 +3560,7 @@ mod tests {
         assert_eq!(code, "needs_confirmation");
         let what = question.what.unwrap();
         assert_eq!(what, assign_question("X.nds", &check));
-        assert!(what.starts_with("Basis-ROM zuordnen: X.nds ("), "{what}");
+        assert!(what.starts_with("Assign base ROM: X.nds ("), "{what}");
         assert!(what.contains(&check.info.sha1[..8]), "{what}");
         assert!(!what.contains(d.tmp.path().to_str().unwrap()), "{what}");
         assert!(!d.root.join(".g4").exists());
@@ -3558,7 +3595,7 @@ mod tests {
                 revision: 0,
                 size: 128,
                 sha1: format!("d40f19ac{}", "0".repeat(32)),
-                known_base: Some("Platin DE (Testprojekt)".into()),
+                known_base: Some("Platinum DE (test project)".into()),
                 support: Support::Verified,
             },
             warnings: Vec::new(),
@@ -3566,13 +3603,13 @@ mod tests {
         };
         assert_eq!(
             assign_question("p.nds", &check),
-            "Basis-ROM zuordnen: p.nds (Platin DE (Testprojekt), SHA-1 d40f19ac)"
+            "Assign base ROM: p.nds (Platinum DE (test project), SHA-1 d40f19ac)"
         );
         check.warnings = vec![warning(BaseWarningKind::TitleDiffers)];
         assert_eq!(
             assign_question("p.nds", &check),
-            "Basis-ROM zuordnen: p.nds (Platin DE (Testprojekt), SHA-1 d40f19ac; Titel weicht \
-             vom Projekt ab)"
+            "Assign base ROM: p.nds (Platinum DE (test project), SHA-1 d40f19ac; title differs \
+             from the project)"
         );
         check.info.known_base = None;
         check.warnings = vec![
@@ -3583,8 +3620,8 @@ mod tests {
         ];
         assert_eq!(
             assign_question("p.nds", &check),
-            "Basis-ROM zuordnen: p.nds (unbekannte oder veränderte ROM POKEMON PL (CPUD), \
-             SHA-1 d40f19ac; Version, ARM7-Code und Banner weichen vom Projekt ab)"
+            "Assign base ROM: p.nds (unknown or modified ROM POKEMON PL (CPUD), \
+             SHA-1 d40f19ac; version, ARM7 code and banner differ from the project)"
         );
     }
 
@@ -3599,7 +3636,7 @@ mod tests {
         assert_eq!(
             user.join().unwrap().what,
             Some(format!(
-                "Patch erstellen: build/{}.xdelta",
+                "Create patch: build/{}.xdelta",
                 g4_kernel::patch::patch_name(&project)
             ))
         );
@@ -3607,14 +3644,14 @@ mod tests {
 
     #[test]
     fn resolve_question_names_each_archive_and_the_version_that_applies() {
-        let why = "Eine Fassung eines Textarchivs überschreiben";
+        let why = "Overwrite one version of a text archive";
         assert_eq!(
             resolve_question(
                 why,
                 &json!({ "choices": [{ "archive": 12, "keep": "member" }] })
             ),
-            "Eine Fassung eines Textarchivs überschreiben: Textarchiv 0012 (die Spieldatei \
-             gilt, die JSON wird überschrieben)"
+            "Overwrite one version of a text archive: Text archive 0012 (the game file \
+             applies, the JSON is overwritten)"
         );
         assert_eq!(
             resolve_question(
@@ -3624,9 +3661,9 @@ mod tests {
                     { "archive": 411, "keep": "member" },
                 ] })
             ),
-            "Eine Fassung eines Textarchivs überschreiben: Textarchiv 0003 (der Text (JSON) \
-             gilt, die Spieldatei wird überschrieben); Textarchiv 0411 (die Spieldatei gilt, \
-             die JSON wird überschrieben)"
+            "Overwrite one version of a text archive: Text archive 0003 (the text (JSON) \
+             applies, the game file is overwritten); Text archive 0411 (the game file \
+             applies, the JSON is overwritten)"
         );
         // Unreadable args leave the generic question; the command refuses them itself.
         for args in [
@@ -3650,11 +3687,11 @@ mod tests {
             json!({ "choices": [{ "archive": 12, "keep": "member" }] }),
             AGENT,
         ));
-        let what = "Eine Fassung eines Textarchivs überschreiben: Textarchiv 0012 (die \
-                    Spieldatei gilt, die JSON wird überschrieben)";
+        let what = "Overwrite one version of a text archive: Text archive 0012 (the game \
+                    file applies, the JSON is overwritten)";
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.starts_with("resolve_text_conflicts lässt sich nicht rückgängig machen (Eine"),
+            message.starts_with("resolve_text_conflicts cannot be undone (Overwrite"),
             "{message}"
         );
         assert!(message.contains(what), "{message}");
@@ -3677,13 +3714,16 @@ mod tests {
         let (code, message, _) =
             failed(toolbox.call("assign_base", json!({ "nds": "../../weg.nds" }), AGENT));
         assert_eq!(code, "needs_confirmation");
-        assert!(message.starts_with("assign_base lässt sich nicht rückgängig machen"));
+        assert!(message.starts_with("assign_base cannot be undone"));
 
         // With it: the command's own refusals, and the sibling is assigned without a question.
         let toolbox = open(ALL).unwrap();
         let (_, message, _) =
             failed(toolbox.call("assign_base", json!({ "nds": "../../weg.nds" }), AGENT));
-        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(
+            message.starts_with("Path is outside the allowed folders"),
+            "{message}"
+        );
         let status = toolbox
             .call("assign_base", json!({ "nds": "../X.nds" }), AGENT)
             .unwrap();
@@ -3729,7 +3769,7 @@ mod tests {
             AGENT,
         ));
         assert_eq!(code, "unavailable");
-        assert_eq!(message, "Nur in der App: Projekte öffnet der Nutzer");
+        assert_eq!(message, "Only in the app: the user opens projects");
     }
 
     /// The policy of the shared app's project, to run commands as the UI does.
@@ -3816,12 +3856,12 @@ mod tests {
         drop(turn);
         let (code, message, _) = failed(queued.join().unwrap());
         assert_eq!(code, "not_permitted");
-        assert_eq!(message, "Lokale Agenten sind aus (Einstellungen › Agenten)");
+        assert_eq!(message, "Local agents are off (Settings › Agents)");
         assert!(history_impl(&state).unwrap().undo.is_empty());
         // A new call is refused at once, without a question, despite the saved grant.
         let (code, message, _) = failed(toolbox.call("get_header", json!({ "id": 0 }), AGENT));
         assert_eq!(code, "not_permitted");
-        assert_eq!(message, "Lokale Agenten sind aus (Einstellungen › Agenten)");
+        assert_eq!(message, "Local agents are off (Settings › Agents)");
         assert_eq!(state.agents.status().question, None);
         assert!(changes(&state).is_empty());
     }
@@ -3880,7 +3920,7 @@ mod tests {
             assert_eq!(code, "error", "{message}");
             assert_eq!(details["index"], 3);
             assert!(
-                message.ends_with("text_export geht nicht in g4_batch"),
+                message.ends_with("text_export does not work in g4_batch"),
                 "{message}"
             );
         }
@@ -3894,9 +3934,7 @@ mod tests {
         let (code, message, _) = failed(toolbox.call("text_export", json!({}), AGENT));
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.starts_with(
-                "text_export lässt sich nicht rückgängig machen (Textprojekt exportieren)"
-            ),
+            message.starts_with("text_export cannot be undone (Export text project)"),
             "{message}"
         );
         assert!(!fixture.dir.path().join("g4-project.json").exists());
@@ -3921,7 +3959,7 @@ mod tests {
         unasked("base_missing");
         crate::commands::assign_base_impl(&d.state, d.nds.to_str().unwrap()).unwrap();
         let message = unasked("not_adopted");
-        assert_eq!(message, g4_kernel::textproject::NOT_ADOPTED);
+        assert_eq!(message, g4_kernel::textproject::not_adopted());
         d.toolbox
             .call(
                 "set_matrix_cell",
@@ -3930,7 +3968,7 @@ mod tests {
             )
             .unwrap();
         let message = unasked("unsaved");
-        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
+        assert_eq!(message, "Save first: 1 unsaved change.");
         assert!(!d.root.join("g4-project.json").exists());
     }
 
@@ -3954,7 +3992,7 @@ mod tests {
         toolbox.call("text_export", json!({}), AGENT).unwrap();
         assert_eq!(
             user.join().unwrap().what.as_deref(),
-            Some("Textprojekt exportieren")
+            Some("Export text project")
         );
 
         let json_file = fx.root().join("data/moves/0001.json");
@@ -3969,9 +4007,9 @@ mod tests {
         assert_eq!(
             message,
             format!(
-                "{} (data/moves/0001.json); der Export würde sie verwerfen: erst bauen (g4k \
-                 build) oder g4k text import, dann exportieren.",
-                g4_kernel::textproject::UNSYNCED_EXPORT
+                "{} (data/moves/0001.json); the export would discard them: build first (g4k \
+                 build) or g4k text import, then export.",
+                g4_kernel::textproject::unsynced_export_prefix()
             )
         );
         assert_eq!(state.agents.status().question, None);
@@ -3999,7 +4037,7 @@ mod tests {
             assert_eq!(code, "error", "{message}");
             assert_eq!(details["index"], 3);
             assert!(
-                message.ends_with("rename_id geht nicht in g4_batch"),
+                message.ends_with("rename_id does not work in g4_batch"),
                 "{message}"
             );
         }
@@ -4118,7 +4156,7 @@ mod tests {
             failed(by_id.call("data_edit", edit(json!("SPECIES_NOPE")), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("unknown_id", "Unbekannte ID: SPECIES_NOPE.")
+            ("unknown_id", "Unknown ID: SPECIES_NOPE.")
         );
         assert_eq!(history(&by_id), before);
     }
@@ -4141,18 +4179,18 @@ mod tests {
             )
             .unwrap();
         let message = unasked("unsaved");
-        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
+        assert_eq!(message, "Save first: 1 unsaved change.");
         d.toolbox.call("save", json!({}), AGENT).unwrap();
         unasked("base_missing");
         assert!(!d.root.join("g4-project.json").exists());
         // The question names the conflict's unit and the version that stays.
         assert_eq!(
             conflict_question(
-                "Eine Fassung überschreiben",
+                "Overwrite one version",
                 &json!({ "key": "data/moves/0001.json", "keep": "studio" })
             ),
-            "Eine Fassung überschreiben: data/moves/0001.json (die Studio-Fassung gilt, DSPRE \
-             wird überschrieben)"
+            "Overwrite one version: data/moves/0001.json (the Studio version applies, DSPRE \
+             is overwritten)"
         );
     }
 
@@ -4244,7 +4282,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             user.join().unwrap().what.as_deref(),
-            Some("Als Textprojekt einrichten")
+            Some("Set up as a text project")
         );
         let events = serde_json::to_value(state.agents.poll(0).events).unwrap();
         let reopened: Vec<&Value> = events
@@ -4293,7 +4331,10 @@ mod tests {
         let (code, message, _) = failed(toolbox.call("adopt_text_project", json!({}), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("error", crate::commands::ALREADY_TEXT_PROJECT)
+            (
+                "error",
+                crate::commands::already_text_project_message().as_str()
+            )
         );
         assert_eq!(state.agents.status().question, None);
         assert!(state.agents.poll(seq).events.is_empty());
@@ -4406,7 +4447,7 @@ mod tests {
             assert_eq!(code, "error", "{message}");
             assert_eq!(details["index"], 3);
             assert!(
-                message.ends_with("git_init geht nicht in g4_batch"),
+                message.ends_with("git_init does not work in g4_batch"),
                 "{message}"
             );
         }
@@ -4440,7 +4481,7 @@ mod tests {
             assert_eq!(code, "error", "{message}");
             assert_eq!(details["index"], 3);
             assert!(
-                message.ends_with("recipe_apply geht nicht in g4_batch"),
+                message.ends_with("recipe_apply does not work in g4_batch"),
                 "{message}"
             );
         }
@@ -4507,7 +4548,7 @@ mod tests {
         let (code, message, _) = failed(toolbox.call("recipe_apply", scene(1), AGENT));
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.contains(g4_kernel::recipes::LEVEL_SCRIPT_FILE),
+            message.contains(&g4_kernel::recipes::level_script_file()),
             "{message}"
         );
         assert_eq!(history(&toolbox)["undo"].as_array().unwrap().len(), undo);
@@ -4585,14 +4626,14 @@ mod tests {
         );
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.contains(g4_kernel::recipes::LEVEL_SCRIPT_FILE),
+            message.contains(&g4_kernel::recipes::level_script_file()),
             "{message}"
         );
         // A call the user confirmed goes on; so does a command that does not depend on the
         // project.
         let confirmed = Admitted {
             changes: true,
-            confirm: Some(g4_kernel::recipes::LEVEL_SCRIPT_FILE.to_owned()),
+            confirm: Some(g4_kernel::recipes::level_script_file()),
         };
         assert!(call.recheck("recipe_apply", &args, &confirmed).is_ok());
         assert!(call.recheck("save", &json!({}), &admitted).is_ok());
@@ -4623,7 +4664,7 @@ mod tests {
             assert_eq!(code, "error", "{message}");
             assert_eq!(details["index"], 3);
             assert!(
-                message.ends_with("split_message geht nicht in g4_batch"),
+                message.ends_with("split_message does not work in g4_batch"),
                 "{message}"
             );
         }
@@ -4640,7 +4681,7 @@ mod tests {
         let (code, message, _) = failed(toolbox.call("git_init", json!({}), AGENT));
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message.starts_with("git_init lässt sich nicht rückgängig machen (Git einrichten)"),
+            message.starts_with("git_init cannot be undone (Set up Git)"),
             "{message}"
         );
         assert!(!fixture.dir.path().join(".gitignore").exists());
@@ -4655,7 +4696,7 @@ mod tests {
         ));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("no_repo", g4_kernel::diff::NO_REPO)
+            ("no_repo", g4_kernel::diff::no_repo().as_str())
         );
         let diff = toolbox
             .call(
@@ -4686,7 +4727,7 @@ mod tests {
             let (code, message, _) = failed(toolbox.call("diff_entity", args.clone(), AGENT));
             assert_eq!(
                 (code.as_str(), message.as_str()),
-                ("not_diffable", g4_kernel::diff::OUTSIDE_PROJECT),
+                ("not_diffable", g4_kernel::diff::outside_project().as_str()),
                 "{args}"
             );
         }
@@ -4716,7 +4757,7 @@ mod tests {
         let (code, message, _) = failed(d.toolbox.call("git_init", json!({}), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("unsaved", crate::commands::INIT_UNSAVED)
+            ("unsaved", crate::commands::init_unsaved().as_str())
         );
         assert_eq!(d.state.agents.status().question, None);
         assert!(!d.root.join(".gitignore").exists());
@@ -4725,7 +4766,7 @@ mod tests {
         let user = answer_next(&d.state, "deny");
         let (code, _, _) = failed(d.toolbox.call("git_init", json!({}), AGENT));
         let question = user.join().unwrap();
-        assert_eq!(question.what.as_deref(), Some("Git einrichten"));
+        assert_eq!(question.what.as_deref(), Some("Set up Git"));
         assert_eq!(code, "needs_confirmation");
         assert!(!d.root.join(".gitignore").exists());
         assert!(!d.root.join(".git").exists());
@@ -4749,7 +4790,7 @@ mod tests {
                 assert_eq!(code, "error", "{message}");
                 assert_eq!(details["index"], 3);
                 assert!(
-                    message.ends_with(&format!("{tool} geht nicht in g4_batch")),
+                    message.ends_with(&format!("{tool} does not work in g4_batch")),
                     "{message}"
                 );
             }
@@ -4763,7 +4804,7 @@ mod tests {
         assert_eq!(code, "error", "{message}");
         assert_eq!(details["index"], 3);
         assert!(
-            message.ends_with("git_commit_prepare geht nicht in g4_batch"),
+            message.ends_with("git_commit_prepare does not work in g4_batch"),
             "{message}"
         );
         // Nothing ran.
@@ -4784,7 +4825,7 @@ mod tests {
         let (code, message, _) = call(json!({ "version": "0.1.0" }));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("base_missing", patch::NO_MARK)
+            ("base_missing", patch::no_mark().as_str())
         );
         assert_eq!(d.state.agents.status().question, None);
         // Also with overwrite: refused before the question.
@@ -4821,7 +4862,7 @@ mod tests {
         assert_eq!(code, "needs_confirmation");
         assert_eq!(
             question.what,
-            Some(format!("Patch ersetzen: {}", file.display()))
+            Some(format!("Replace patch: {}", file.display()))
         );
         assert_eq!(std::fs::read(&file).unwrap(), b"alt");
         assert!(!root.join(patch::RELEASES_FILE).exists());
@@ -4841,16 +4882,19 @@ mod tests {
         let places = [
             file.clone(),
             existing.clone(),
-            elsewhere.path().join("fehlt"),
+            elsewhere.path().join("missing"),
         ];
         let outside = |code: &str, message: &str, place: &Path| {
             assert_eq!(code, "error", "{message}");
             assert!(
-                message.starts_with("Pfad liegt außerhalb der erlaubten Ordner: "),
+                message.starts_with("Path is outside the allowed folders: "),
                 "{place:?}: {message}"
             );
-            assert!(!message.contains("kein Ordner"), "{message}");
-            assert!(!message.contains("liegt schon"), "{message}");
+            assert!(
+                !message.contains(&g4_kernel::patch::not_a_folder()),
+                "{message}"
+            );
+            assert!(!message.contains(&g4_kernel::patch::exists()), "{message}");
         };
 
         // In the app, with and without a base ROM, with and without overwrite.
@@ -4892,8 +4936,7 @@ mod tests {
         let (code, message, _) = failed(toolbox.call("git_commit_all", json!({}), AGENT));
         assert_eq!(code, "needs_confirmation");
         assert!(
-            message
-                .starts_with("git_commit_all lässt sich nicht rückgängig machen (Stand sichern)"),
+            message.starts_with("git_commit_all cannot be undone (Save a snapshot)"),
             "{message}"
         );
         assert!(!fixture.dir.path().join(".gitignore").exists());
@@ -4909,14 +4952,14 @@ mod tests {
         let (code, message, _) = failed(d.toolbox.call("git_commit_all", json!({}), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("unsaved", crate::commands::COMMIT_UNSAVED)
+            ("unsaved", crate::commands::commit_unsaved().as_str())
         );
         assert_eq!(d.state.agents.status().question, None);
         d.toolbox.call("save", json!({}), AGENT).unwrap();
         let (code, message, _) = failed(d.toolbox.call("git_commit_all", json!({}), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+            ("no_repo", g4_kernel::git::no_repo_to_commit().as_str())
         );
         assert_eq!(d.state.agents.status().question, None);
 
@@ -4933,7 +4976,7 @@ mod tests {
             AGENT,
         ));
         let question = user.join().unwrap();
-        assert_eq!(question.what.as_deref(), Some("Stand sichern"));
+        assert_eq!(question.what.as_deref(), Some("Save a snapshot"));
         assert_eq!(code, "needs_confirmation");
         assert!(!d.root.join(".git/refs/heads/main").exists(), "no commit");
     }
@@ -5020,7 +5063,7 @@ mod tests {
             references[0]["label"]
                 .as_str()
                 .unwrap()
-                .ends_with(" springt hierher"),
+                .ends_with(" leads here"),
             "{details}"
         );
     }
@@ -5063,7 +5106,7 @@ mod tests {
             assert_eq!(code, "error", "{call}: {message}");
             assert_eq!(details["index"], 3);
             assert!(
-                message.ends_with("delete_entity geht nicht in g4_batch"),
+                message.ends_with("delete_entity does not work in g4_batch"),
                 "{message}"
             );
         }
@@ -5127,7 +5170,7 @@ mod tests {
             assert_eq!(question.kind, "confirm");
             assert_eq!(
                 question.what.as_deref(),
-                Some(format!("Nummer freigeben: {label}").as_str()),
+                Some(format!("Free the number: {label}").as_str()),
                 "{tool}"
             );
             assert_eq!(code, "needs_confirmation", "{tool}: {message}");
@@ -5151,7 +5194,7 @@ mod tests {
             unasked(trainers),
             (
                 "error".to_owned(),
-                format!("Trainer {trainers:04} gibt es nicht.")
+                format!("Trainer {trainers:04} does not exist.")
             )
         );
         assert_eq!(
@@ -5203,7 +5246,7 @@ mod tests {
         assert_eq!(history(&toolbox)["undo"], json!([]));
 
         // Without the failing call the tombstone stays, as the batch's one step.
-        let calls = json!({ "calls": [calls["calls"][0].clone()], "label": "Agent: löschen" });
+        let calls = json!({ "calls": [calls["calls"][0].clone()], "label": "Agent: delete" });
         toolbox
             .own_call(AGENT)
             .batch_with(batch_tool(), calls, &mut |toolbox, _, _| {
@@ -5213,7 +5256,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(deleted(&toolbox), true);
-        assert_eq!(history(&toolbox)["undo"], json!(["Agent: löschen"]));
+        assert_eq!(history(&toolbox)["undo"], json!(["Agent: delete"]));
     }
 
     #[test]
@@ -5228,13 +5271,13 @@ mod tests {
         let (code, message, _) =
             failed(toolbox.call("set_map_terrain", args(rows("0", 31)), AGENT));
         assert_eq!(code, "error");
-        assert_eq!(message, "heights: 32 Zeilen erwartet, 31 da.");
+        assert_eq!(message, "heights: 32 rows expected, 31 found.");
         let mut high = rows("0", 32);
         high[6] = format!("0 0 0 0 63{}", " 0".repeat(27));
         let (_, message, _) = failed(toolbox.call("set_map_terrain", args(high), AGENT));
         assert_eq!(
             message,
-            "Kachel x 4, y 6: Höhe 63 liegt außerhalb von \u{2212}16 bis 62 Stufen."
+            "Tile x 4, y 6: height 63 is outside \u{2212}16 to 62 steps."
         );
         assert_eq!(history(&toolbox)["undo"], json!([]));
 

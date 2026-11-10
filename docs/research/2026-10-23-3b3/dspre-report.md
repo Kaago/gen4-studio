@@ -5,7 +5,7 @@ Stand: 23.10.2026.
 ## Quellen
 
 **DSPRE**
-- `main` liegt lokal unter `/Users/POLTEP/Projekte/lab/editor/DSPRE`: Commit e751187, Release 2.3.4, Ordner `DS_Map/`.
+- `main` liegt lokal unter `$HOME/Projekte/lab/editor/DSPRE`: Commit e751187, Release 2.3.4, Ordner `DS_Map/`.
 - `feature/avalonia` ist Commit 0a550272 vom 21.10.2026, gelesen per `git show origin/feature/avalonia:…`.
 
 **pret-Decomps**
@@ -16,7 +16,7 @@ Stand: 23.10.2026.
 
 **Testprojekte (nur gelesen)**
 - Platin DE (`CPUD`), HeartGold US (`IPKE`) und HeartGold DE (`IPKD`).
-- Ordner `/Users/POLTEP/Projekte/lab/editor/Roms/*_DSPRE_contents/unpacked/*`.
+- Ordner `$HOME/Projekte/lab/editor/Roms/*_DSPRE_contents/unpacked/*`.
 - Byte-Layouts und Zählwerte habe ich mit einem Skript an echten Membern geprüft (`…/research-3b3/chk.py`, `chk2.py`).
 
 **Zwei Sonnet-Subagenten**
@@ -753,7 +753,7 @@ Optional:
 
 ## Anhang: Datei- und Code-Fundstellen
 
-**DSPRE `main` (`/Users/POLTEP/Projekte/lab/editor/DSPRE/DS_Map/`)**
+**DSPRE `main` (`$HOME/Projekte/lab/editor/DSPRE/DS_Map/`)**
 - `ROMFiles/EncounterFile.cs`, `ROMFiles/TrainerFile.cs`, `ROMFiles/PokemonPersonalData.cs`, `ROMFiles/MoveData.cs`, `ROMFiles/ItemData.cs`, `ROMFiles/EvolutionFile.cs`, `ROMFiles/LearnsetData.cs`
 - `Editors/WildEditorDPPt.cs`, `Editors/WildEditorHGSS.cs`, `Editors/TrainerEditor/TrainerEditor.cs`, `Editors/PersonalDataEditor.cs`, `Editors/PokemonEditor.cs`, `Editors/LearnsetEditor.cs`, `Editors/EggMoveEditor.cs`, `Editors/MoveDataEditor.cs`, `Editors/ItemEditor.cs`
 - `RomInfo.cs`: Pfade Z. 2310–2515, Textarchive Z. 1369–1832, Item-Tabelle Z. 859

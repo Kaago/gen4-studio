@@ -63,10 +63,12 @@ impl LevelScriptPlan {
 
 /// The refusal for a header whose level script id names a rotom script.
 fn not_a_level_script_text(file: u16, header: u16) -> String {
-    format!(
-        "Die Level-Script-Datei {file:04} von Header {header} ist ein Script; in Bauen eine \
-         Level-Script-Datei zuweisen."
+    t!(
+        "recipes.level_script_is_script",
+        file = file : {:04},
+        header = header
     )
+    .into_owned()
 }
 
 /// The level script of header `header` as a recipe changes it: its own file in place; a new
@@ -121,22 +123,24 @@ pub(crate) fn plan_level_script(
 /// The sentence of the dialog (`Draft::irreversible`) for level script file `file` a recipe
 /// creates: it stays after undo.
 pub(crate) fn created_text(file: u16) -> String {
-    format!("Level-Script-Datei {file} wird angelegt und bleibt")
+    t!("recipes.level_script_created", file = file).into_owned()
 }
 
 /// The sentence of the dialog for level script file `file` a recipe creates in place of the
 /// header's binary level script file `old`: it stays after undo, and the entries of `old` are
 /// not in it (rotom cannot read them), so the place loses them while it uses the new file.
 pub(crate) fn binary_created_text(file: u16, old: u16) -> String {
-    format!(
-        "{}; die Einträge der binären Level-Script-Datei {old} werden nicht übernommen",
-        created_text(file)
+    t!(
+        "recipes.level_script_binary_dropped",
+        created = created_text(file),
+        old = old
     )
+    .into_owned()
 }
 
 /// The error `e` of a recipe that failed after it created level script file `file`, which
-/// stays: a [`KernelError::Partial`] whose text appends „Level-Script-Datei {file} wurde
-/// angelegt und bleibt.“ (the problems of a compile error are named before). `file` `None`
+/// stays: a [`KernelError::Partial`] whose text appends „Level script file {file} was created
+/// and stays.“ (the problems of a compile error are named before). `file` `None`
 /// (nothing created) answers `e` as it is.
 pub(crate) fn kept_level_script(e: KernelError, file: Option<u16>) -> KernelError {
     let Some(file) = file else {
@@ -161,9 +165,7 @@ pub(crate) fn kept_level_script(e: KernelError, file: Option<u16>) -> KernelErro
         }
         _ => e.to_string(),
     };
-    KernelError::Partial(format!(
-        "{what}. Level-Script-Datei {file} wurde angelegt und bleibt."
-    ))
+    KernelError::Partial(t!("recipes.level_script_kept", what = what, file = file).into_owned())
 }
 
 /// The file of `plan`: created when the plan says so, as a new level script file with the

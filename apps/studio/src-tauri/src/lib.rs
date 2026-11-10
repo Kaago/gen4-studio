@@ -1,3 +1,9 @@
+#[macro_use]
+extern crate rust_i18n;
+
+// The messages of the Tauri side: `locales/{en,de}.yml`, English is the fallback.
+i18n!("locales", fallback = "en");
+
 /// The remembered base ROMs of the app (`base-roms.json`).
 pub mod base_roms;
 #[cfg(feature = "dev-bridge")]
@@ -23,8 +29,10 @@ use commands::bake_test;
 use commands::close_project;
 use commands::git_commit_prepare;
 use commands::resolve_text_conflicts;
+use commands::set_locale;
 use commands::split_room;
 use commands::story_delete;
+use commands::system_language;
 use commands::{
     accept_baseline, accept_disk, add_building, add_event, add_script, adopt_scripts, apply_fix,
     apply_header_patch, build_rom, checks_status, create_area, create_encounter_file,
@@ -308,7 +316,9 @@ pub fn run() {
             world_export_tmj,
             world_inspect_tmj,
             world_import_tmj,
-            world_layers
+            world_layers,
+            set_locale,
+            system_language
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -363,7 +373,7 @@ fn setup_agents(app: &tauri::AppHandle) {
     if hub.settings().enabled
         && let Err(e) = hub.set_enabled(true)
     {
-        eprintln!("MCP-Server nicht gestartet: {e}");
+        eprintln!("{}", t!("mcp.server.not_started", error = e));
     }
 }
 

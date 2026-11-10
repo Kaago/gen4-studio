@@ -8,9 +8,9 @@ Andere Agenten arbeiten gleichzeitig im selben Dokument auf anderen Seiten oder 
 
 - **Bausteine:** `design-system/openpencil/jsx-lib-app.js`. Lies die Datei einmal ganz. Sie bildet den Rahmen der App ab (Titelleiste, Atlas, Liste, Deck, Scharnier, Hand, Statusleiste) und die Primitives (Taste, Feld, Zahlfeld, Segmente, Reiter, Inspector-Zeile, Abschnitt, Panelkopf, Listenzeile, Referenz, Plakette, Typ, Wertebalken, Pokémon-Karte, Meldung, DS-Bildschirm usw.) mit den Maßen aus dem Code.
 - **Quellen für Maße:** die CSS-Module in `apps/studio/src/ui/{primitives,frame}/*.module.css` und die Bereiche in `apps/studio/src/{workbench,data,technik,einstellungen}/`. Lies sie, wenn ein Baustein fehlt.
-- **Rendern ohne Riesen-Aufrufe:** Schreibe je Screen eine Datei `<name>.body.js` in deinen Arbeitsordner. Sie enthält nur den Screen-Code und endet mit `return Window({...});`; die Bibliothek steht davor im selben Gültigkeitsbereich.
-  - Bauen: `bash /Users/POLTEP/Projekte/lab/editor/gen4-studio/design-system/openpencil/build-screen.sh <name>` (im Arbeitsordner; für das dunkle Thema `--dunkel` anhängen).
-  - Rendern: `node /Users/POLTEP/Projekte/lab/editor/gen4-studio/design-system/scripts/op.mjs render '{"document_id":"tab-1","page_id":"<SEITE>","x":<X>,"y":<Y>}' --jsx <name>.jsx`. Die Antwort nennt die Frame-ID.
+- **Rendern ohne Riesen-Aufrufe:** Alle Befehle unten laufen aus der Repo-Wurzel. Schreibe je Screen eine Datei `<name>.body.js` in deinen Arbeitsordner; `<name>` ist ihr Pfad ohne Endung von der Repo-Wurzel aus (z. B. `target/op/<screen>`). Sie enthält nur den Screen-Code und endet mit `return Window({...});`; die Bibliothek steht davor im selben Gültigkeitsbereich.
+  - Bauen: `bash design-system/openpencil/build-screen.sh <name>` (für das dunkle Thema `--dunkel` anhängen).
+  - Rendern: `node design-system/scripts/op.mjs render '{"document_id":"tab-1","page_id":"<SEITE>","x":<X>,"y":<Y>}' --jsx <name>.jsx`. Die Antwort nennt die Frame-ID.
   - Ansehen: `node …/op.mjs export_image '{"document_id":"tab-1","page_id":"<SEITE>","ids":["<ID>"],"maxEdge":1440}' --png <name>.png`, dann die PNG mit dem Read-Werkzeug ansehen und **mit dem Screenshot vergleichen**.
   - Korrigieren: Body ändern, neu bauen, `render` mit `"replace_id":"<ID>"` statt x/y. Höchstens drei Korrekturläufe je Screen.
   - Jedes andere MCP-Werkzeug geht genauso (`get_page_tree`, `delete_node`, `node_bounds` …).

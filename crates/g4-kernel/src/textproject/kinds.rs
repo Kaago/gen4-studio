@@ -162,10 +162,13 @@ fn newer_problem(project: &Project, folder: &str, known: u32, version: u64) -> P
         ..problem(
             Path::new(MANIFEST_FILE),
             SCHEMA_CODE,
-            format!(
-                "`schemas.{folder}` ist Version {version}, diese Fassung kennt {known}; \
-                 data/{folder}/ bleibt, wie es ist."
-            ),
+            t!(
+                "textproject.schema_version_unknown",
+                folder = folder,
+                version = version,
+                known = known
+            )
+            .into_owned(),
         )
     }
 }
@@ -196,9 +199,7 @@ fn check_kind(
             problems.push(problem(
                 &rel,
                 SCHEMA_CODE,
-                "Der Dateiname ist keine Nummer (`NNNN.json`); die Datei gehört zu keinem \
-                 eigenen Namen."
-                    .to_owned(),
+                t!("textproject.entity_file_name").into_owned(),
             ));
             continue;
         };
@@ -223,7 +224,7 @@ fn check_kind(
         let own = registry.id_of(u32::from(n16));
         if own != Some(entity.id.as_str()) {
             let owner = own.map_or_else(
-                || "das Register nennt keine".to_owned(),
+                || t!("textproject.register_names_none").into_owned(),
                 |id| format!("`{id}`"),
             );
             let (line, col) = key_position(&bytes, "id", 0);
@@ -233,10 +234,13 @@ fn check_kind(
                 ..problem(
                     &rel,
                     ID_MISMATCH_CODE,
-                    format!(
-                        "id: `{}` ist nicht die ID von Nummer {n16} ({owner}).",
-                        entity.id
-                    ),
+                    t!(
+                        "textproject.id_not_of_number",
+                        id = entity.id,
+                        n = n16,
+                        owner = owner
+                    )
+                    .into_owned(),
                 )
             });
         }
@@ -263,10 +267,13 @@ fn check_kind(
             Some(n16) if !files.contains(&n) => problems.push(at(
                 Severity::Warning,
                 ID_DANGLING_CODE,
-                format!(
-                    "`{id}` (Nummer {n}) hat keine Datei {}; jeder eigene Name hat eine.",
-                    slashed(&crate::flags::entity_rel(flag, n16))
-                ),
+                t!(
+                    "textproject.id_without_file",
+                    id = id,
+                    n = n,
+                    file = slashed(&crate::flags::entity_rel(flag, n16))
+                )
+                .into_owned(),
             )),
             Some(_) => {}
         }
@@ -536,17 +543,16 @@ mod tests {
         };
         assert_eq!(
             text("data/ids/flags.json"),
-            "textproject.id-dangling: `FLAG_Z` (Nummer 300) hat keine Datei \
-             data/flags/0300.json; jeder eigene Name hat eine."
+            "textproject.id-dangling: `FLAG_Z` (number 300) has no file data/flags/0300.json; every own name has one."
         );
         assert_eq!(
             text("data/flags/0148.json"),
-            "textproject.id-mismatch: id: `FLAG_Y` ist nicht die ID von Nummer 148 (`FLAG_X`)."
+            "textproject.id-mismatch: id: `FLAG_Y` is not the ID of number 148 (`FLAG_X`)."
         );
         assert_eq!(
             text("data/flags/4095.json"),
-            "textproject.schema: Nummer 0x0FFF liegt außerhalb des Spielstands (Flags 0x0001 \
-             bis 0x0B5F)."
+            "textproject.schema: Number 0x0FFF is outside the save game (flags 0x0001 to \
+             0x0B5F)."
         );
 
         // A newer version of a kind: one warning at its key, its files are not read.
@@ -558,8 +564,7 @@ mod tests {
         assert_eq!(problems[0].file, Path::new("g4-project.json"));
         assert_eq!(
             problems[0].message,
-            "textproject.schema: `schemas.flags` ist Version 2, diese Fassung kennt 1; \
-             data/flags/ bleibt, wie es ist."
+            "textproject.schema: `schemas.flags` is version 2, this version of the Studio knows 1; data/flags/ stays as it is."
         );
     }
 
@@ -630,17 +635,16 @@ mod tests {
         };
         assert_eq!(
             text("data/ids/stories.json"),
-            "textproject.id-dangling: `STORY_GONE` (Nummer 2) hat keine Datei \
-             data/stories/0002.json; jede Geschichte hat eine."
+            "textproject.id-dangling: `STORY_GONE` (number 2) has no file \
+             data/stories/0002.json; every story has one."
         );
         assert_eq!(
             text("data/stories/0000.json"),
-            "story.dangling-ref: progress.var: Unbekannte ID: VAR_NOPE."
+            "story.dangling-ref: progress.var: Unknown ID: VAR_NOPE."
         );
         assert_eq!(
             text("data/stories/0001.json"),
-            "textproject.id-mismatch: id: `STORY_B` ist nicht die ID der Geschichte 1 (das \
-             Register nennt keine)."
+            "textproject.id-mismatch: id: `STORY_B` is not the ID of story 1 (none registered)."
         );
     }
 
@@ -747,9 +751,8 @@ mod tests {
         assert_eq!(
             texts,
             [
-                "textproject.schema: package: Paket 0007 passt nicht zum Dateinamen 0006.json.",
-                "textproject.schema: tiles[0].wall: Kachel 0x0009 gibt es im Tileset 0007 nicht \
-                 (6 Kacheln)."
+                "textproject.schema: package: Package 0007 does not match the file name 0006.json.",
+                "textproject.schema: tiles[0].wall: Tile 0x0009 does not exist in tileset 0007 (6 tiles)."
             ]
         );
         let notes = problems
@@ -758,8 +761,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             notes.message,
-            "textproject.schema: Der Dateiname ist keine Paketnummer (`NNNN.json`); die Datei \
-             gehört zu keinem Kartentextur-Paket."
+            "textproject.schema: The file name is not a package number (`NNNN.json`); the file belongs to no map texture package."
         );
 
         // A newer version of the kind: one warning at its key, its files are not read.
@@ -770,8 +772,7 @@ mod tests {
         assert_eq!(problems[0].severity, Severity::Warning);
         assert_eq!(
             problems[0].message,
-            "textproject.schema: `schemas.tilesets` ist Version 2, diese Fassung kennt 1; \
-             data/tilesets/ bleibt, wie es ist."
+            "textproject.schema: `schemas.tilesets` is version 2, this version of the Studio knows 1; data/tilesets/ stays as it is."
         );
     }
 }

@@ -1,0 +1,1975 @@
+{
+  "addEvent": {
+    "add": "Hinzufügen",
+    "addTitle": "Legt das Event auf der Kachel an, über der die Maus zuletzt war",
+    "kind": "Art des neuen Events"
+  },
+  "adoptBox": {
+    "adopt": "Übernehmen",
+    "intro": "Das Studio legt <code>rotom.toml</code> und <code>.rotom/</code> im Projekt an und dekompiliert alle {{files}} Scriptdateien nach <code>expanded/scripts/</code>. DSPRE benutzt danach dieselben Quellen und schaltet seinen alten Scripteditor ab.",
+    "next": "Weiter",
+    "progress": "Fortschritt der Übernahme",
+    "report": "{{decompiled}} Scriptdateien dekompiliert, {{skipped}} leere übersprungen.",
+    "reportFailed": "{{decompiled}} Scriptdateien dekompiliert, {{skipped}} leere übersprungen, {{failed}} fehlgeschlagen.",
+    "staysBinary": "Diese Dateien bleiben binär:",
+    "title": "Scripts übernehmen"
+  },
+  "areaEditor": {
+    "loading": "Lade Area-Data …",
+    "noteBuild": "Das Karten-Tileset bestimmt die Texturen aller Karten, deren Ort diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.",
+    "noteTell": "Erzählen wählt das Aussehen am Ort; Tilesets und Licht stellst du in Bauen ein.",
+    "noteTinker": "Das Karten-Tileset bestimmt die Texturen aller Karten, deren Header diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.",
+    "resetBuildingTexture": "Gebäudetextur auf Original zurücksetzen…",
+    "resetMapTexture": "Kartentextur auf Original zurücksetzen…"
+  },
+  "areaFields": {
+    "areaType": "Gebietstyp",
+    "buildingsTileset": "Gebäude-Tileset",
+    "dynamicTexture": "Dynamische Textur",
+    "inside": "Innen (0)",
+    "lightType": "Lichttyp",
+    "mapTileset": "Karten-Tileset",
+    "outside": "Außen (1)"
+  },
+  "areaGrid": {
+    "altitude": "Höhe {{altitude}}",
+    "create": "Karte bei x {{x}}, y {{y}} anlegen",
+    "createNotUndoable": "Karte bei x {{x}}, y {{y}} anlegen (nicht rückgängig)",
+    "draft": "Geplant: Karte bei x {{x}}, y {{y}}",
+    "label": "{{matrix}} {{index}}, {{rows}} Zeilen, {{columns}} Spalten",
+    "number": "Nummer {{id}}",
+    "pictureFailed": "Bild fehlgeschlagen: {{reason}}"
+  },
+  "breadcrumb": {
+    "archive": "Archiv {{archive}}",
+    "archiveAt": "Archiv {{archive}}, {{place}}",
+    "building": "Gebäude {{n}}",
+    "cell": "Zelle {{x}}, {{y}}",
+    "emptyCell": "Leere Zelle",
+    "eventWord": {
+      "bg": "Hintergrund-Event",
+      "coord": "Trigger",
+      "object": "Objekt",
+      "warp": "Warp"
+    },
+    "items": "Gegenstände",
+    "noPlace": "Kein Ort gewählt",
+    "noProject": "Kein Projekt",
+    "pokemon": "Pokémon",
+    "texts": "Texte"
+  },
+  "buildingEditor": {
+    "add": "Neues Gebäude",
+    "dragNote": "Ziehen in der 3D-Ansicht verschiebt das Gebäude in Halb-Kachel-Schritten. Neue Gebäude entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Gebäude nach Rückfrage.",
+    "gone": "Gebäude {{n}} existiert in Karte {{map}} nicht (mehr)",
+    "loadPreview": "Vorschau laden",
+    "model": "Modell",
+    "modelFailed": "Modell nicht geladen, die 3D-Ansicht zeigt eine Box: {{error}}",
+    "modelLoaded": "Modell geladen ({{kb}} KB)",
+    "modelLoading": "Lade Modell …",
+    "modelNumber": "Modellnummer",
+    "modelRange": "außen 0 bis {{max}}",
+    "notANumber": "Das ist keine Zahl. Gib z. B. 1.5 ein.",
+    "resetModel": "Gebäudemodell auf Original zurücksetzen…",
+    "rotation": "Rotation",
+    "rotationReadOnly": "Nur lesbar: Das Spiel ignoriert die Rotation von Karten-Gebäuden; sie bleibt unverändert erhalten.",
+    "title": "Gebäude {{n}}",
+    "titleOf": "Gebäude {{n}} von {{count}}"
+  },
+  "buildingFields": {
+    "sx": "Skalierung x",
+    "sy": "Skalierung y",
+    "sz": "Skalierung z",
+    "x": "x (Kacheln)",
+    "y": "y (Höhe, Kacheln)",
+    "z": "z (Kacheln)"
+  },
+  "checksSection": {
+    "title": "Prüfungen"
+  },
+  "connectDoorsWizard": {
+    "back": "Rückweg anlegen (Tür B führt zu Tür A)",
+    "chooseDoor": "Tür wählen…",
+    "chooseDoorName": "Tür {{name}} wählen",
+    "connection": "Verbindung",
+    "done": "Türen verbunden",
+    "door": "Tür",
+    "doorName": "Tür {{name}}",
+    "doorTiles": "Eine neue Tür bekommt eine Türkachel, wo noch keine ist.",
+    "endDoor": "Tür {{warp}} in {{place}}",
+    "endLine": "Tür {{name}}: {{end}}",
+    "endTile": "neue Tür auf Kachel x {{x}}, z {{z}} in {{place}}",
+    "existingDoor": "Vorhandene Tür",
+    "newTile": "Neue Kachel",
+    "noDoor": "Noch keine Tür gewählt.",
+    "noDoors": "Dieser Ort hat keine Türen.",
+    "noDoorsTakeTile": "Dieser Ort hat keine Türen: „Neue Kachel“ wählen.",
+    "noDoorTiles": "Keine Türkacheln.",
+    "oneWay": "Nur Tür A führt zu Tür B; Tür B bleibt, wohin sie führt.",
+    "oneWayNew": "Ohne Rückweg muss Tür B eine vorhandene Tür sein: eine neue Tür bräuchte ein Ziel, und das wäre der Rückweg.",
+    "same": "Tür A und Tür B sind dieselbe Tür.",
+    "setDoorTiles": "Türkacheln setzen (eine neue Tür wird begehbar)",
+    "submit": "Verbinden",
+    "summary": "Zusammenfassung",
+    "summaryLine": "Tür A: {{a}} ↔ Tür B: {{b}}",
+    "takeDoor": "Tür {{index}} nehmen",
+    "tileTaken": "Auf x {{x}}, z {{z}} liegt schon Tür {{index}}; wähle sie als Tür.",
+    "title": "Tür verbinden"
+  },
+  "dialogCards": {
+    "edit": "Dialog bearbeiten…",
+    "figures": "Figuren",
+    "label": "Figuren des Orts",
+    "loading": "Lade …",
+    "noFigures": {
+      "what": "Keine Figuren an diesem Ort",
+      "why": "Hier steht keine Figur und kein Schild, das etwas sagt."
+    },
+    "noPlace": {
+      "what": "Wähle links einen Ort.",
+      "why": "Die Schau zeigt dann seine Figuren mit dem, was sie sagen."
+    },
+    "noProject": {
+      "what": "Kein Projekt geöffnet.",
+      "why": "Öffne ein Projekt, dann zeigt die Schau die Figuren seiner Orte."
+    },
+    "openTrainer": "Trainer öffnen"
+  },
+  "dialogEditor": {
+    "close": "Schließen",
+    "message": "Nachricht {{index}}",
+    "nextPage": "Nächste Seite",
+    "noMessage": "Das Script dieser Figur zeigt keine Nachricht.",
+    "page": "Seite {{page}} von {{total}}",
+    "previousPage": "Vorige Seite",
+    "reading": "Lese …",
+    "title": "Dialog von {{title}}"
+  },
+  "dialogList": {
+    "filter": "Orte filtern",
+    "noMatch": "Kein Ort passt zum Filter.",
+    "noProject": {
+      "what": "Kein Projekt geöffnet.",
+      "why": "Öffne ein Projekt, dann stehen hier seine Orte mit ihren Figuren."
+    },
+    "reading": "Lese …",
+    "title": "Dialoge",
+    "unreadable": "Nicht lesbar"
+  },
+  "dialogMessages": {
+    "also": "{{head}} · auch {{uses}}",
+    "editLabel": "Dialog geändert",
+    "else": "sonst",
+    "head": "Nachricht {{index}} · Archiv {{archive}}",
+    "if": "wenn {{branch}}",
+    "line": "Zeile {{line}}",
+    "lineInBranch": "Zeile {{line}} ({{branch}})",
+    "messages": "Nachrichten",
+    "missing": "Archiv {{archive}} hat keine Nachricht {{index}}.",
+    "missingNarrating": "Diese Nachricht fehlt im Text des Orts.",
+    "position": "Nachricht {{n}} von {{total}}",
+    "split": "Für diese Figur abspalten",
+    "splitDone": "Nachricht {{index}} ist jetzt nur diese Figur.",
+    "splitDoneNarrating": "Die Nachricht gilt jetzt nur für diese Figur."
+  },
+  "dialogModel": {
+    "commonScript": "Gemeinsames Script: in Bauen bearbeiten.",
+    "commonScriptNumber": "Gemeinsames Script {{script}}: in Bauen bearbeiten.",
+    "counts": "{{messages}} · {{pages}}",
+    "messages_one": "{{count}} Nachricht",
+    "messages_other": "{{count}} Nachrichten",
+    "noFigures": "Keine Figuren",
+    "noneSpeaks": "Keine Figur spricht",
+    "object": "Objekt {{index}}",
+    "pages_one": "{{count}} Seite",
+    "pages_other": "{{count}} Seiten",
+    "saysNothing": "Sagt nichts",
+    "shared_one": "Geteilt mit {{count}} Figur",
+    "shared_other": "Geteilt mit {{count}} Figuren",
+    "sign": "Schild {{index}}",
+    "speakers_one": "{{count}} Figur spricht",
+    "speakers_other": "{{count}} Figuren sprechen",
+    "trainerTexts": "Kampftexte des Trainers: im Bereich Pokémon.",
+    "trainerTextsShort": "Kampftexte des Trainers: im Bereich Pokémon",
+    "unreadable": "Script nicht lesbar: {{reason}}"
+  },
+  "dialogSection": {
+    "create": "Dialog anlegen…",
+    "dialog": "Dialog",
+    "edit": "Dialog bearbeiten…",
+    "reading": "Lese …",
+    "text": "Text",
+    "unreadable": "Dialog nicht lesbar."
+  },
+  "draftNotes": {
+    "failed": "Vorschau nicht möglich: {{error}}",
+    "irreversible": "Nicht rückgängig: {{list}}"
+  },
+  "edgeSetEditor": {
+    "active": "Aktiv",
+    "add": "Neuer Kantensatz",
+    "blocked": "Blockiert an der Klippe",
+    "choosePlace": "Einen Platz wählen, dann eine Kachel in der Palette: sie kommt mit ihrer Drehung (Z, X) in den Platz.",
+    "count": "{{places}} von 13 Plätzen · Diagonalen {{diagonals}} von 2",
+    "lowerCell": "Untere Zelle",
+    "nameMissing": "Ein Kantensatz braucht einen Namen.",
+    "nameTaken": "Einen Kantensatz „{{name}}“ gibt es schon.",
+    "newName": "Name des neuen Kantensatzes",
+    "none": "Noch kein Kantensatz. Ein neuer nimmt die gewählte Palettenkachel als Außenfläche.",
+    "noTile": "keine Kachel",
+    "noVariant": "Noch keine Kachel: ein Klick in der Palette hängt eine an.",
+    "outside": "Außen",
+    "proposedName": "Satz {{n}}",
+    "remove": "Entfernen",
+    "removeSet": "Satz entfernen",
+    "removeTile": "{{tile}} entfernen",
+    "rise": "Stufen der Klippe",
+    "riseHint": "1 bis 8, je Stufe 8 E",
+    "saveNote": "Kantensätze stehen in data/tilesets/{{package}}.json; erst dann lassen sie sich anlegen und ändern.",
+    "saveTileset": "Tileset im Projekt anlegen",
+    "stillRunning": "Die vorige Änderung am Kantensatz läuft noch.",
+    "tile": "Kachel {{digits}}",
+    "tiles_one": "{{count}} Kachel",
+    "tiles_other": "{{count}} Kacheln",
+    "title": "Kantensätze",
+    "upperCell": "Obere Zelle",
+    "useActiveTile": "Aktive Kachel übernehmen",
+    "wall": "Wand",
+    "wallHint": "Für jede Kachel des Satzes, auch Außen; Kachelnummer, leer = keine"
+  },
+  "edgeSets": {
+    "place": {
+      "center": "Mitte",
+      "diagNesw": "Diagonale NO–SW",
+      "diagNwse": "Diagonale NW–SO",
+      "e": "Kante O",
+      "innerNe": "Ecke innen NO",
+      "innerNw": "Ecke innen NW",
+      "innerSe": "Ecke innen SO",
+      "innerSw": "Ecke innen SW",
+      "n": "Kante N",
+      "outerNe": "Ecke außen NO",
+      "outerNw": "Ecke außen NW",
+      "outerSe": "Ecke außen SO",
+      "outerSw": "Ecke außen SW",
+      "s": "Kante S",
+      "w": "Kante W"
+    }
+  },
+  "encounterFileField": {
+    "none": "Keine",
+    "notFound": "Keine Begegnungsdatei gefunden",
+    "search": "Ort oder Nummer suchen",
+    "unused": "von keinem Ort verwendet"
+  },
+  "eventBreakpoint": {
+    "figuresAndTriggers": "Haltepunkte gibt es an Figuren und Auslösern",
+    "noFlag": "Die Figur hat kein Sichtbarkeits-Flag",
+    "noVar": "Der Auslöser hat keine Variable"
+  },
+  "eventEditor": {
+    "breakpoint": "Haltepunkt",
+    "changeTarget": "Ziel ändern…",
+    "changeTargetHeader": "Zielheader ändern…",
+    "chooseTarget": "Ziel wählen",
+    "chooseTargetHeader": "Zielheader wählen",
+    "delete": "Löschen",
+    "deleteKey": "Entf",
+    "dragNote": "Ziehen in der 3D-Ansicht verschiebt das Event um ganze Kacheln, Esc bricht das Ziehen ab. Neue Events entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Event nach Rückfrage.",
+    "haltOnFlag": "Anhalten, wenn sich das Flag ändert",
+    "haltOnVariable": "Anhalten, wenn sich die Variable ändert",
+    "heightReadOnly": "Nur lesbar: Die Höhe lässt sich hier nicht ändern; sie bleibt unverändert erhalten.",
+    "hintHiddenFlag": "Die Figur ist da, solange das Flag 0 ist.",
+    "hintValue": "Der Auslöser feuert, wenn die Variable diesen Wert hat.",
+    "leadsNowhere": "Die Tür führt ins Leere. Wähle ein Ziel oder lösche die Tür.",
+    "locked": "Eventdatei gesperrt",
+    "newScript": "Neues Script",
+    "newScriptTitleBuild": "Legt ein neues Script in der Scriptdatei des Ortes an und trägt die Nummer ein",
+    "newScriptTitleTinker": "Legt ein neues Script in der Scriptdatei des Headers an und trägt die Nummer ein",
+    "noOwnerBuild": "Kein Ort nutzt Eventdatei {{file}}",
+    "noOwnerTinker": "Kein Header nutzt Eventdatei {{file}}",
+    "noStory": "Keine Geschichte führt die Variable dieses Auslösers.",
+    "openScript": "Öffnen",
+    "openScriptTitle": "Öffnet das Script in der Scriptdatei",
+    "resetEventFile": "Eventdatei auf Original zurücksetzen…",
+    "target": "Ziel",
+    "trainerTitle": "Objekt {{index}} · {{trainer}}"
+  },
+  "eventFields": {
+    "destWarp": "Ziel-Warp",
+    "dir": "Blickrichtung",
+    "door": "Tür",
+    "eventType": "Typ",
+    "facing": {
+      "down": "Unten",
+      "left": "Links",
+      "right": "Rechts",
+      "up": "Oben"
+    },
+    "gone": "{{kind}} {{index}} existiert in Event-Datei {{file}} nicht (mehr)",
+    "graphics": "Grafik",
+    "height": "Höhe",
+    "hiddenFlag": "Sichtbarkeits-Flag",
+    "length": "Länge",
+    "localId": "Lokale ID",
+    "look": "Aussehen",
+    "movement": {
+      "berryPlant": "Beerenpflanze",
+      "facesDown": "Blickt nach unten",
+      "facesLeft": "Blickt nach links",
+      "facesRight": "Blickt nach rechts",
+      "facesUp": "Blickt nach oben",
+      "followsThePlayer": "Folgt dem Spieler",
+      "hiddenInGrass": "Versteckt im Gras",
+      "hiddenInSnow": "Versteckt im Schnee",
+      "hiddenUnderground": "Versteckt unter der Erde",
+      "looksAround": "Schaut sich um",
+      "looksDownAndLeft": "Schaut nach unten und links",
+      "looksDownAndRight": "Schaut nach unten und rechts",
+      "looksRightAndLeft": "Schaut nach rechts und links",
+      "looksRightLeftAndDown": "Schaut nach rechts, links und unten",
+      "looksRightLeftAndUp": "Schaut nach rechts, links und oben",
+      "looksUpAndDown": "Schaut nach oben und unten",
+      "looksUpAndLeft": "Schaut nach oben und links",
+      "looksUpAndRight": "Schaut nach oben und rechts",
+      "looksUpDownAndLeft": "Schaut nach oben, unten und links",
+      "looksUpRightAndDown": "Schaut nach oben, rechts und unten",
+      "pacesUpAndDown": "Läuft auf und ab",
+      "spinsClockwise": "Dreht sich im Uhrzeigersinn",
+      "spinsCounterclockwise": "Dreht sich gegen den Uhrzeigersinn",
+      "standsStill": "Steht still",
+      "walksAround": "Geht umher",
+      "walksClockwiseLoop": "Läuft eine Runde im Uhrzeigersinn",
+      "walksLeftAndRight": "Geht hin und her",
+      "walksUpAndDown": "Geht auf und ab"
+    },
+    "movementN": "Bewegung {{value}}",
+    "movementType": "Bewegung",
+    "sight": "Sichtweite",
+    "sightline": {
+      "off": "Aus",
+      "seesYou": "Trainer sieht dich"
+    },
+    "trainerType": "Sichtlinie",
+    "value": "Wert",
+    "var": "Variable",
+    "width": "Breite",
+    "x": "x (Kachel)",
+    "z": "z (Kachel)"
+  },
+  "eventKinds": {
+    "bg": {
+      "plural": "Schilder",
+      "singular": "Schild"
+    },
+    "coord": {
+      "plural": "Auslöser",
+      "singular": "Auslöser"
+    },
+    "object": {
+      "plural": "Figuren",
+      "singular": "Figur"
+    },
+    "trainerTitle": "Objekt {{index}} · {{trainer}}",
+    "warp": {
+      "plural": "Türen",
+      "singular": "Tür"
+    }
+  },
+  "exportPartDialog": {
+    "choosePath": "Pfad wählen…",
+    "close": "Schließen",
+    "defaultStem": "karte_{{id}}",
+    "export": "Exportieren",
+    "exported": "{{part}} exportiert nach {{path}}",
+    "noFolder": "Den Ordner {{folder}} gibt es nicht. Lege ihn an oder wähle einen anderen Pfad.",
+    "part": "Teil",
+    "path": "Pfad",
+    "pathPlaceholder": "/Pfad/{{file}}",
+    "tilesFolder": "Kachelbilder kommen in den Ordner {{folder}} daneben.",
+    "title": "Teil von Karte {{map}} exportieren"
+  },
+  "extendAreaDialog": {
+    "areaNumber": "Nummer des Gebiets",
+    "belongs": "Die neue Karte gehört zu „{{name}}“.",
+    "cancel": "Abbrechen",
+    "create": "Karte anlegen",
+    "description": "Anlegen lässt sich nicht rückgängig machen.",
+    "headerCell": "Header-Zelle",
+    "neighbor": "Kopie von Karte {{map}} (Nachbarzelle)",
+    "noBuildings": "ohne Gebäude",
+    "paintInstead": "Stattdessen neu malen",
+    "pick": "Karte wählen",
+    "range": "0 bis {{max}}",
+    "size": {
+      "gridGrows": "Das Raster wird auf {{width}} × {{height}} vergrößert.",
+      "gridStays": "Das Raster bleibt {{width}} × {{height}} groß.",
+      "mapGrows": "Die Karte wird größer: {{width}} × {{height}}.",
+      "mapStays": "Die Größe bleibt {{width}} × {{height}}."
+    },
+    "source": "Quelle der Kopie",
+    "title": "Karte bei x {{x}}, y {{y}} anlegen?"
+  },
+  "figureLookField": {
+    "change": "Aussehen ändern…",
+    "choose": "Aussehen wählen",
+    "look": "Aussehen",
+    "lookNumber": "Aussehen {{n}}"
+  },
+  "fixDialog": {
+    "applying": "Behebe …",
+    "backupTime": "<UTC-Zeitpunkt>",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "failedText": "Das Studio kann diesen Befund nicht beheben ({{why}}). Behebe ihn von Hand.",
+    "failedTitle": "Lässt sich nicht automatisch beheben",
+    "irreversible": "Wird sofort geschrieben, ⌘Z nimmt es nicht zurück.",
+    "loading": "Lade Vorschau …",
+    "recheck": "Erneut prüfen",
+    "remainingText": "Die Änderung ist geschrieben, aber die Prüfung meldet den Befund noch. Sieh dir die Stelle an und behebe ihn von Hand.",
+    "remainingTitle": "Nicht behoben",
+    "saveAndCreate": "Speichern und anlegen",
+    "staleText": "Die Stelle hat sich seit der Prüfung geändert, es wurde nichts geschrieben. Prüfe erneut und behebe den Befund dann.",
+    "staleTitle": "Befund ist nicht mehr aktuell",
+    "unsavedText": "{{archive}} hat ungespeicherte Änderungen. Das Script wird kompiliert, und das schreibt Textarchive: „Speichern und anlegen“ speichert das Projekt und legt das Script dann an.",
+    "unsavedTitle": "Erst speichern"
+  },
+  "headerChoice": {
+    "applyPatch": "Patch anwenden",
+    "applying": "Wende an …",
+    "areaDataHint": "0 bis {{max}}; leer lassen behält die des Headers.",
+    "checkingPatch": "Prüfe, ob neue Header möglich sind …",
+    "choose": "Header wählen",
+    "chooseButton": "Header wählen…",
+    "chosen": "Gewählt",
+    "copy": "Kopie",
+    "copyOf": "Kopie von Header {{id}}",
+    "copyOfFile": "Kopie von {{id}}",
+    "copyOfNamed": "Kopie von Header {{id}} „{{name}}“",
+    "data": "Daten des Headers",
+    "existing": "Vorhandenen Header umstellen",
+    "internalName": "Interner Name",
+    "internalNameHint": "Wird Header {{id}}; höchstens {{max}} Zeichen: A bis Z, 0 bis 9 und _.",
+    "keep": "Behalten",
+    "keepShares": "Behalten teilt die Eventdatei mit Header {{id}}.",
+    "kind": "Art des Headers",
+    "new": "Neuer Header",
+    "newEmpty": "Neu, leer",
+    "noCopySource": "Die Quelle hat keine Eventdatei zum Kopieren.",
+    "noneChosen": "Kein Header gewählt: nur das Raster wird angelegt.",
+    "patchBroken": "ROM-Patch „Dynamische Header“ fehlerhaft",
+    "patchBrokenText": "Der Patch ruft im Spielcode eine falsche Funktion auf: das Spiel bleibt nach dem Intro schwarz. So haben ihn DSPRE und ältere Studio-Versionen für Platin (deutsch, französisch, italienisch, spanisch) geschrieben. Die Reparatur ändert 4 Bytes in arm9.bin; die Header bleiben, wie sie sind.",
+    "patchNeeded": "ROM-Patch „Dynamische Header“ nötig",
+    "patchNeededText": "Der Patch ändert Bytes im Spielcode (arm9.bin). Die Header liegen danach in einer Datei je Header. Das lässt sich nicht zurücknehmen; die Sicherung arm9.bin.backup wird angelegt. DSPRE kennt den Patch und zeigt ihn als angewendet.",
+    "repairing": "Repariere …",
+    "repairPatch": "Patch reparieren",
+    "special": "Sonder-Header: {{special}}. Nicht frei, auch wenn kein Warp hierher führt; einen anderen oder „Neuer Header“ wählen.",
+    "switchNone": "Keinen Header umstellen",
+    "unsupported": "Neue Header gibt es nur für Platin und HeartGold/SoulSilver.",
+    "unused": "wirkt unbenutzt: nichts führt hierher",
+    "usage": "Warps hierher: {{n}}",
+    "usageSpecial": "Warps hierher: {{n}}, Sonder-Header, nicht frei",
+    "usageUnused": "Warps hierher: 0, wirkt unbenutzt"
+  },
+  "headerEditor": {
+    "connectRoom": "Raum hier anbinden…",
+    "delete": "Löschen…",
+    "doors_one": "{{count}} Tür",
+    "doors_other": "{{count}} Türen",
+    "doorsLost": "{{doors}}, {{lost}} ohne Ziel",
+    "loadingDoors": "Lade Türen …",
+    "loadingHeader": "Lade Header …",
+    "loadingPlace": "Lade Ort …",
+    "name": "Name",
+    "new": "Neu",
+    "newLevelScript": "Neues Level-Script anlegen",
+    "newScriptFile": "Neue Scriptdatei anlegen",
+    "noDoors": "Keine Türen",
+    "rename": "Umbenennen…",
+    "renamePlace": "Ort umbenennen…",
+    "renameRoom": "Raum umbenennen",
+    "showDoors": "Zeigt die Türen in „In dieser Szene“",
+    "splitDone": "Raum „{{name}}“ abgespalten",
+    "splitRoom": "Für diesen Raum abspalten…"
+  },
+  "headerFields": {
+    "areaIcon": "Gebietssymbol",
+    "battleBackground": "Kampfhintergrund",
+    "camera": "Kamera",
+    "encounters": "Begegnungen",
+    "followMode": "Folgemodus",
+    "musicDay": "Musik Tag",
+    "musicNight": "Musik Nacht",
+    "placeName": "Ortsname",
+    "placeSpecifier": "Ortskennung",
+    "placeType": "Ortstyp",
+    "weather": "Wetter",
+    "worldMapX": "Weltkarte X",
+    "worldMapY": "Weltkarte Y"
+  },
+  "headerList": {
+    "searchHeaders": "Header suchen",
+    "searchPlaceholder": "Ort, Raum oder Kürzel suchen",
+    "searchPlaces": "Orte suchen",
+    "title": "{{name}} · Nummer {{id}} · {{code}}"
+  },
+  "headerPicker": {
+    "search": "Ort, Kürzel oder Nummer suchen",
+    "title": "Zielheader wählen"
+  },
+  "headerSections": {
+    "look": "Aussehen",
+    "maps": "Karten",
+    "mapsAndGrid": "Karten und Raster",
+    "musicDay": "Musik (Tag)",
+    "musicNight": "Musik (Nacht)",
+    "place": "Ort",
+    "textsAndScripts": "Texte und Scripts"
+  },
+  "importParts": {
+    "part": {
+      "modelInvalid": "Die Datei ist kein gültiges NSBMD-Modell ({0}). Wähle ein Kartenmodell im NSBMD-Format.",
+      "modelBlocks": "Die Datei hat {0:num} Modellblöcke (MDL0), das Spiel braucht genau einen. Exportiere das Modell mit genau einem Modellblock.",
+      "modelCount": "Der Modellblock enthält {0:num} Modelle, das Spiel braucht genau eines. Exportiere nur das Kartenmodell.",
+      "modelTooBig": "Das Modell ist {0:num} Byte groß, erlaubt sind {1:num}. Wähle ein kleineres Modell.",
+      "modelUnaligned": "Das Modell ist {0:num} Byte groß, keine durch 4 teilbare Länge. Exportiere es neu, wenn die Karte im Spiel falsch aussieht.",
+      "modelTextureRemoved": "Der eingebettete Texturblock ({0:num} Byte) wird entfernt; die Karte nutzt die Texturen ihres Gebiets.",
+      "modelBdhcUnchanged": "BDHC bleibt unverändert, Laufhöhen prüfen.",
+      "modelTexturesMissing": "{0:num} Texturnamen fehlen im Gebiets-Paket {1} ({2}). Sieh dir die Karte nach dem Import in der Szene an.",
+      "modelTexturesUnreadable": "Texturnamen nicht geprüft: die Materialien des Modells sind nicht lesbar. Sieh dir die Karte nach dem Import in der Szene an.",
+      "modelTexturesNoHeader": "Texturnamen nicht geprüft: kein Header zeigt diese Karte. Sieh dir die Karte nach dem Import in der Szene an.",
+      "modelTexturesUnchecked": "Texturnamen nicht geprüft ({0}). Sieh dir die Karte nach dem Import in der Szene an.",
+      "permissionsSize": "Die Kollision ist {0:num} Byte groß, erwartet sind genau {1:num}. Wähle eine vollständige .per-Datei.",
+      "buildingsSize": "Die Gebäude sind {0:num} Byte groß, kein Vielfaches von {1:num}. Wähle eine vollständige .bld-Datei.",
+      "buildingsUnreadable": "Die Gebäude sind nicht lesbar. Wähle eine andere .bld-Datei.",
+      "bdhcMagic": "Die Datei beginnt nicht mit „BDHC“ und ist kein Terrain. Wähle eine .bdhc-Datei.",
+      "bdhcShort": "Das Terrain ist {0:num} Byte groß, kürzer als sein Kopf mit {1:num} Byte. Wähle eine vollständige .bdhc-Datei.",
+      "bdhcTooBig": "Die Terraindaten sind {0:num} Byte groß, erlaubt sind {1:num}. Wähle ein Terrain mit weniger Flächen.",
+      "bdhcCounters": "Das Terrain ist {0:num} Byte groß, seine Zähler beschreiben {1:num}. Wähle eine unbeschädigte .bdhc-Datei.",
+      "bgsFamily": "Hintergrundklang gibt es nur in HeartGold und SoulSilver. Lass diesen Teil weg.",
+      "bgsShort": "Der Hintergrundklang ist {0:num} Byte groß, kürzer als 4. Wähle eine vollständige .bgs-Datei.",
+      "bgsSignature": "Der Hintergrundklang hat die Kennung {0} statt {1}. Wähle eine .bgs-Datei aus HeartGold oder SoulSilver.",
+      "bgsLength": "Der Hintergrundklang ist {0:num} Byte groß, nennt aber {1:num}. Wähle eine unbeschädigte .bgs-Datei.",
+      "wholeUnreadable": "Die Datei ist keine Kartendatei von Platin oder HeartGold/SoulSilver ({1}). Wähle eine Kartendatei (.bin) eines dieser Spiele.",
+      "wholeInvalid": "Die Kartendatei ist ungültig ({0}). Wähle eine unbeschädigte Kartendatei.",
+      "wholeBgsDropped": "Der Hintergrundklang ({0:num} Byte) fällt weg, Platin hat keinen. Übernimm die Karte ohne ihn oder wähle eine andere.",
+      "wholeForeign": "Kartendatei von {0:family}: ihre Gebäude bleiben weg, außer du schaltest „Gebäude übernehmen“ ein.",
+      "wholeBlankBgs": "Ein leerer Hintergrundklang-Block wird angelegt.",
+      "wholeBuildingsTail": "{0:num} Byte nach den Gebäuden bleiben erhalten.",
+      "partDuplicate": "Für diesen Teil sind mehrere Dateien gewählt. Wähle je Teil nur eine Datei.",
+      "bdhcStructure": "Das Terrain ist beschädigt ({0}). Wähle eine unbeschädigte .bdhc-Datei.",
+      "modelSourceUnreadable": "Die Datei ist kein lesbares {0}-Modell ({1}). Exportiere das Modell neu als OBJ oder glTF.",
+      "modelFileMissing": "Die Datei {0}, auf die das Modell verweist, fehlt. Lege sie neben das Modell oder exportiere es neu.",
+      "modelFileOutside": "Das Modell verweist auf {0} außerhalb seines Ordners. Lege Material und Texturen in den Ordner des Modells.",
+      "modelNoGeometry": "Das Modell enthält keine Flächen. Wähle ein Modell mit Flächen oder eine größere Einheit.",
+      "modelMaterialUntextured": "Das Material „{0}“ hat keine Textur, und das Gebiets-Paket hat keine Textur dieses Namens. Gib dem Material eine PNG-Textur.",
+      "modelUvMissing": "Flächen mit dem Material „{0}“ haben keine Texturkoordinaten. Exportiere das Modell mit UV.",
+      "modelOutOfRange": "Eine Ecke liegt bei ({0}, {1}, {2}), außerhalb von {3} bis {4} Einheiten. Verkleinere das Modell oder wähle eine kleinere Einheit.",
+      "modelUvRange": "Die Textur {0} läuft auf einer Fläche über {2:num} Texel in {1}; das Spiel trägt höchstens 2.047. Teile die Fläche oder wiederhole die Textur seltener.",
+      "modelTextureCount": "Das Modell nutzt {0:num} Texturen, ein Kartenmodell trägt höchstens {1:num}. Fasse Materialien zusammen.",
+      "modelConverted": "{0}-Modell umgewandelt: {1:num} Flächen, {2:num} Vierecke, {3:num} Dreiecke, {4:num} Streifen.",
+      "modelFacesDropped": "{0:num} Flächen fallen weg: nach dem Runden auf ganze Einheiten haben sie keine Fläche mehr.",
+      "modelPartsIgnored": "Nicht übernommen: {0:ignored}.",
+      "partNoArea": "Kein Header zeigt die Karte {0}; ohne Gebiet gibt es kein Texturpaket und kein Licht. Setze die Karte zuerst in eine Matrix mit Header.",
+      "textureSide": "Die Textur {0} ist {1} × {2} Pixel groß; jede Seite muss eine Zweierpotenz von 8 bis 1.024 sein. Skaliere das Bild.",
+      "textureName": "„{0}“ taugt nicht als Texturname (höchstens 16 Zeichen, ASCII ohne Leerzeichen). Benenne die Datei um.",
+      "textureTaken": "Der Name {1} ist im Gebiets-Paket schon vergeben. Benenne die Datei um; Ersetzen gibt es nicht.",
+      "texturePackFull": "Das Gebiets-Paket ist voll ({0}: {1:num}, höchstens {2:num}). Nimm weniger oder kleinere Texturen.",
+      "textureUnreadable": "Das Bild {0} lässt sich nicht lesen ({1}). Wähle ein PNG.",
+      "textureNew": "Neue Textur {0}: {1} × {2}, {3} Farben, mittlerer Farbfehler {4:dec}.",
+      "textureReused": "Die Textur {0} steht schon im Gebiets-Paket und wird benutzt, nicht neu angehängt.",
+      "textureVramHigh": "Gebiet {0}: die Texturen belegen {1:num} B VRAM, mehr als das größte Vanilla-Gebiet ({2:num} B). Prüfe die Karte im Spiel."
+    },
+    "world": {
+      "worldSideFile": "Das Beifile {0} fehlt oder lässt sich nicht lesen. Füge das Modell neu hinzu.",
+      "worldAdoptTexture": "Ein Material der Karte bindet keine Textur ihres Gebiets-Pakets; Form 2 geht für diese Karte nicht, Form 1 schon.",
+      "tmjBuildingsIgnored": "Die Gebäude der Tiled-Datei weichen von denen der Karte ab und werden nicht übernommen; Gebäude bearbeitest du im Studio."
+    },
+    "cells_one": "{{n}} Zelle",
+    "cells_other": "{{n}} Zellen",
+    "changed": "{{layers}}, {{cells}} geändert",
+    "empty": "Leer, wird nicht übernommen",
+    "family": {
+      "dp": "Diamant/Perl",
+      "hgss": "HeartGold/SoulSilver",
+      "pt": "Platin"
+    },
+    "ignored": {
+      "animations": "Animationen",
+      "cameras": "Kameras",
+      "lights": "Lichter",
+      "lines": "Linien",
+      "points": "Punkte",
+      "skins": "Skelette",
+      "textureOptions": "Texturoptionen",
+      "vertexColours": "Eckenfarben"
+    },
+    "layers_one": "{{n}} Ebene",
+    "layers_other": "{{n}} Ebenen",
+    "modelLine": "{{format}} · {{quads}} Vierecke · {{triangles}} Dreiecke · {{strips}} Streifen",
+    "moreErrors": "… und {{n}} weitere",
+    "noChange": "Keine Änderung.",
+    "partName": {
+      "bdhc": "BDHC (Laufhöhen)",
+      "bgs": "Hintergrundklang",
+      "buildings": "Gebäude",
+      "model": "Modell",
+      "permissions": "Kollision",
+      "textures": "Texturen",
+      "whole": "Ganze Karte"
+    },
+    "parts_one": "{{count}} Teil",
+    "parts_other": "{{count}} Teile",
+    "textureInPack": "{{name}} · {{size}} · im Paket",
+    "textureNew": "{{name}} · {{size}} · {{colors}} Farben · neu",
+    "vramLine": "VRAM des Gebiets {{used}} B · Vanilla höchstens {{max}} B",
+    "wholeModelInvalid": "Das Modell in der Kartendatei ist ungültig ({{why}}). Wähle eine andere Kartendatei.",
+    "wholeTerrainDamaged": "Das Terrain in der Kartendatei ist beschädigt ({{why}}). Wähle eine andere Kartendatei."
+  },
+  "importPartsDialog": {
+    "applied": "{{parts}} übernommen",
+    "apply": "{{parts}} übernehmen",
+    "cancel": "Abbrechen",
+    "checking": "Wird geprüft …",
+    "checkingMap": "Prüft die Karte …",
+    "checkingParts": "Teile werden geprüft…",
+    "chooseFiles": "Dateien wählen…",
+    "chooseFilesTitle": "Teile oder Modelle wählen",
+    "chooseMap": "Karte wählen…",
+    "chooseSourceMap": "Quellkarte wählen",
+    "close": "Schließen",
+    "colors": "Farben je Textur",
+    "convert": "Umwandeln",
+    "fileTypes": "Kartenteile und Modelle",
+    "findings": "Befunde an Karte {{map}}",
+    "freeform": "Freiform (glTF)",
+    "keepBuildings": "Gebäude übernehmen",
+    "modeFiles": "Datei",
+    "modeMap": "Karte im Projekt",
+    "model": "Modell",
+    "noFindings": "Keine neuen Befunde an dieser Karte.",
+    "noParts": "Die Quelle enthält keine Teile.",
+    "nothingChanged": "Nichts geändert: die Teile waren schon so.",
+    "number": "Nummer",
+    "parts": "Teile",
+    "partSize": "{{part}} · {{size}} Bytes",
+    "paths": "Pfade, eine je Zeile",
+    "pathsPlaceholder": "/Pfad/zur/karte.nsbmd",
+    "position": "Lage",
+    "positionHint": "Welteinheiten; 16 = eine Kachel; 0, 0, 0 = Kartenmitte",
+    "show": "Zeigen",
+    "source": "Quelle",
+    "sourceMap": "Quellkarte",
+    "title": "Teile in Karte {{map}} importieren",
+    "unchecked": "Die Prüfungen haben kein Ergebnis geliefert. Starte sie unter Probleme mit „Erneut prüfen“.",
+    "unit": "Einheit",
+    "unitError": "Zwischen 0,0625 und 256.",
+    "unitHint": "Welteinheiten je Modelleinheit; 16 = eine Kachel",
+    "worldOnlyBakes": "Bei Welt-Karten entstehen Modell, Terrain und Permissions beim Backen."
+  },
+  "inspectorField": {
+    "change": "Ändern…",
+    "changeLabel": "{{label}} ändern…",
+    "chooseLabel": "{{label}} wählen",
+    "loading": "Lädt …",
+    "range": "0 bis {{max}}",
+    "searchNumber": "Nummer suchen"
+  },
+  "inspectorHead": {
+    "actions": "Aktionen",
+    "building": "Gebäude",
+    "door": "Tür",
+    "figure": "Figur",
+    "look": "Aussehen",
+    "sign": "Schild",
+    "trigger": "Auslöser"
+  },
+  "inspectorPanel": {
+    "empty": {
+      "what": "Nichts ausgewählt.",
+      "why": "Wähle links einen Ort oder klicke in der Schau einen Marker an."
+    }
+  },
+  "keyWords": {
+    "click": "Klick",
+    "drag": "Ziehen",
+    "esc": "Esc",
+    "rightClick": "Rechtsklick",
+    "shiftClick": "⇧Klick",
+    "shiftDrag": "⇧Ziehen"
+  },
+  "layerList": {
+    "active": "Aktiv",
+    "add": "Ebene hinzufügen",
+    "ground": "Boden",
+    "hide": "Verbergen",
+    "newName": "Name der neuen Ebene",
+    "overlay": "Überlagerung",
+    "proposedName": "Ebene {{n}}",
+    "remove": "Entfernen",
+    "show": "Zeigen",
+    "title": "Ebenen"
+  },
+  "layout": {
+    "panels": {
+      "inspector": "Inspector",
+      "itemEdit": "Bearbeiten",
+      "itemView": "Übersicht",
+      "pokemonEdit": "Bearbeiten",
+      "pokemonView": "Übersicht",
+      "textView": "Vorschau",
+      "world": "3D"
+    }
+  },
+  "legend": {
+    "events": "Ereignisse",
+    "terrain": "Gelände",
+    "title": "Legende"
+  },
+  "levelScript": {
+    "hintConditionsWithoutTrigger": "Variablen-Bedingungen brauchen einen Eintrag „{{trigger}}“",
+    "hintDuplicateVarTrigger": "Nur der erste Eintrag „{{trigger}}“ zählt",
+    "hintNoMessages": "Script ohne Nachricht und ohne Warten auf Eingaben, sonst bleibt die Karte schwarz.",
+    "hintNoMessagesDetail": "Dieser Auslöser läuft beim Aufbau der Karte in einem Zug, das Spiel zeigt dazwischen kein Bild. Ein Script, das eine Nachricht zeigt (Message) oder auf eine Taste wartet (WaitButton), kommt dort nicht weiter: die Karte bleibt schwarz und die Figur hängt. Eine Nachricht beim Betreten braucht eine Variablen-Bedingung, deren Script die Variable selbst umstellt.",
+    "hintZeroVar": "Variable 0 beendet die Tabelle — bitte eine Variable angeben",
+    "trigger": {
+      "onLoad": "Beim Laden (on_load)",
+      "onResume": "Beim Fortsetzen (on_resume)",
+      "onTransition": "Beim Betreten (on_transition)",
+      "onVarCondition": "Variablen-Bedingungen (on_var_condition)"
+    }
+  },
+  "levelScriptSection": {
+    "addCondition": "Bedingung hinzufügen",
+    "addEntry": "Eintrag hinzufügen",
+    "conditionScriptN": "Script der Bedingung {{n}}",
+    "create": "Anlegen",
+    "headerEntries": "Kopfeinträge",
+    "loading": "Lade …",
+    "newConditionScript": "Script der neuen Bedingung",
+    "newScript": "Neues Script",
+    "newTrigger": "Neuer Auslöser",
+    "newValue": "Neuer Wert",
+    "newVariable": "Neue Variable",
+    "noHeaderEntries": "Keine Kopfeinträge.",
+    "none": "Kein Level-Script — ",
+    "notALevelScript": "Datei {{file}} ist kein Level-Script",
+    "notSaved": "Nicht gespeichert, bis das Level-Script gültig ist.",
+    "noVarConditions": "Keine Variablen-Bedingungen.",
+    "open": "Öffnen",
+    "openAsJson": "Als JSON öffnen",
+    "openAsJsonTitle": "Zeigt Level-Script {{file}} im Panel „Script“ als JSON",
+    "remove": "Entfernen",
+    "seeBelow": "siehe unten",
+    "trigger": "Auslöser",
+    "triggerN": "Auslöser {{n}}",
+    "value": "Wert",
+    "valueN": "Wert {{n}}",
+    "variable": "Variable",
+    "variableN": "Variable {{n}}",
+    "varConditions": "Variablen-Bedingungen"
+  },
+  "lookField": {
+    "label": "Aussehen"
+  },
+  "lookPicker": {
+    "search": "Ort suchen",
+    "title": "Aussehen wählen"
+  },
+  "looks": {
+    "like": "Aussehen wie {{name}}",
+    "number": "Aussehen {{id}}",
+    "template": "Aussehen der Vorlage",
+    "unnamed": "Aussehen: {{name}}"
+  },
+  "mapBudgetSection": {
+    "buildings": "Gebäude",
+    "intro": "Grenzen des Spiels; Speichern geht immer.",
+    "model": "Modell",
+    "notBaked": "Nicht gebacken. Das Spiel bekommt das letzte Modell.",
+    "notBakedBecause": "Nicht gebacken: {{message}} Das Spiel bekommt das letzte Modell.",
+    "reading": "Wird gelesen …",
+    "terrain": "Terrain (BDHC)",
+    "textures": "Texturen des Gebiets",
+    "title": "Budget",
+    "vanillaMax": "Vanilla höchstens {{max}} B",
+    "vram_one": "VRAM {{used}} von {{max}} B · {{textures}} Textur",
+    "vram_other": "VRAM {{used}} von {{max}} B · {{textures}} Texturen"
+  },
+  "matrixCellEditor": {
+    "and": "und",
+    "belongsTo": "Gehört zu",
+    "cell": "Zelle {{x}}, {{y}}",
+    "changeBelongsTo": "Gehört zu ändern…",
+    "delete": "Löschen…",
+    "duplicate": "Duplizieren",
+    "duplicateNote": "„Duplizieren“ (Menü „Aktionen“) trägt eine Kopie der Karte in diese Zelle ein und lässt sich nicht rückgängig machen: Die Kopie ist sofort als neue Karte am Ende des Archivs vorhanden.",
+    "empty": "leer",
+    "emptyCell": "Leere Zelle",
+    "exportParts": "Teile exportieren…",
+    "height": "Höhe",
+    "importParts": "Teile importieren…",
+    "mapRange": "0 bis {{max}}, leer = keine Karte",
+    "noArea": "Kein Gebiet passt zur Suche.",
+    "noHeaderSection": "Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar).",
+    "number": "Nummer {{id}}",
+    "outsideGrid": "Die Zelle liegt außerhalb des Rasters ({{width}} × {{height}}).",
+    "outsideMaps": "Die Zelle liegt außerhalb der Karten ({{width}} × {{height}}).",
+    "paintAdoptNote": "Boden malen: Karte als Quelle übernehmen",
+    "roomPlan": "Raumplan",
+    "searchArea": "Gebiet suchen …",
+    "section": "{{name}}, Abschnitt {{n}}"
+  },
+  "matrixPanel": {
+    "altitudes": "Höhen",
+    "dropAltitudes": "Der Abschnitt enthält Werte ungleich 0. Beim Entfernen gehen die Höhenwerte verloren. Fortfahren?",
+    "dropHeaders": "Der Abschnitt enthält Werte ungleich 0. Beim Entfernen gehen die Header-Werte verloren. Fortfahren?",
+    "headers": "Header",
+    "height": "Höhe",
+    "lostCells_one": "{{count}} belegte Zelle(n) liegen außerhalb von {{width}} × {{height}} und gehen verloren. Fortfahren?",
+    "lostCells_other": "{{count}} belegte Zelle(n) liegen außerhalb von {{width}} × {{height}} und gehen verloren. Fortfahren?",
+    "name": "Name der Matrix",
+    "new": "Neue Matrix",
+    "newName": "neu",
+    "noPlace": {
+      "what": "Noch kein Ort gewählt.",
+      "why": "Wähle links einen Ort, dann zeigt das Raster seine Karten."
+    },
+    "noProject": {
+      "what": "Kein Projekt geöffnet.",
+      "why": "Öffne ein Projekt, dann zeigt das Raster seine Karten."
+    },
+    "note": "Neue Matrix und Kartenkopie werden sofort angelegt; Anlegen lässt sich nicht rückgängig machen. Höhen lassen sich bearbeiten; eine Stufe hebt die Zelle in der 3D-Ansicht um eine halbe Kachel.",
+    "sizeHint": "1 bis 255",
+    "unassigned": "Diese Matrix gehört noch zu keinem Header. Im Header-Editor einem Header als Matrix zuweisen, dann zeigt die Schau sie.",
+    "width": "Breite"
+  },
+  "messageEditor": {
+    "codes": "Codes der Nachricht",
+    "label": "Text der Nachricht",
+    "warning": "Zeile {{line}}: {{message}}",
+    "warnings": "Warnungen"
+  },
+  "moreAreas": {
+    "empty": {
+      "what": "Keine weiteren Gebiete.",
+      "why": "Jedes Gebiet liegt auf einer Weltkarte."
+    }
+  },
+  "musicField": {
+    "choose": "Wählen…",
+    "chooseLabel": "{{label}} wählen…",
+    "notFound": "Kein Stück gefunden",
+    "piece": "Stück {{value}}",
+    "search": "Stück, Ort oder Nummer suchen"
+  },
+  "newAreaWizard": {
+    "byNumber": "Dazu per Nummer",
+    "chosen_one": "{{count}} Karte gewählt.",
+    "chosen_other": "{{count}} Karten gewählt.",
+    "clickMaps": "Karten anklicken; Umschalt-Klick wählt das Rechteck bis zur letzten Zelle.",
+    "done": "Gebiet angelegt",
+    "gridLabel": "{{what}}, {{rows}} Zeilen, {{columns}} Spalten",
+    "loading": "Lade …",
+    "mapsByNumber": "Karten per Nummer",
+    "mapsExample": "z. B. 12, 13",
+    "name": "Name des neuen Gebiets",
+    "newArea": "Das neue Gebiet",
+    "noPreview": "Die Vorschau entfällt bei so vielen Zellen.",
+    "noRaster": "Kein Raster vorhanden.",
+    "noWorldMap": "Keine Weltkarte vorhanden.",
+    "onWorldMap": "Auf der Weltkarte {{name}} (nahtlos begehbar)",
+    "ownMap": "Eigene Karte (über Türen verbunden)",
+    "position": "Lage",
+    "preview": "Vorschau",
+    "previewOfArea": "Vorschau des neuen Gebiets",
+    "rejected": "Nicht übernommen (keine Karte von 0 bis {{max}}): {{list}}",
+    "sourceHeadingBuild": "Karten aus einer Weltkarte oder einem Gebiet",
+    "sourceHeadingTinker": "Karten aus einem Raster",
+    "sourceMaps": "Karten der Quelle",
+    "sourceRaster": "Raster der Quelle",
+    "stepLayout": "Anordnung",
+    "stepPlace": "Ort",
+    "stepSource": "Quelle",
+    "submit": "Anlegen",
+    "summary": "Zusammenfassung",
+    "title": "Gebiet anlegen",
+    "whereLies": "Wo liegt das Gebiet?",
+    "withHeaders": "Header-Abschnitt anlegen",
+    "withoutBuildings": "ohne Gebäude"
+  },
+  "newFigureWizard": {
+    "alwaysVisible": "Immer zu sehen.",
+    "direction": "Richtung {{value}}",
+    "done": "Figur aufgestellt",
+    "facing": "Blickrichtung",
+    "flag": "Sichtbarkeits-Flag",
+    "flagHint": "Solange das Flag gesetzt ist, ist die Figur nicht zu sehen; „Keins“: immer zu sehen.",
+    "fromScene": "Kachel zuletzt in der Szene gewählt.",
+    "hiddenWhile": "Nicht zu sehen, solange Flag {{flag}} gesetzt ist.",
+    "howHeading": "Wie",
+    "keys": "Enter: neue Zeile; Umschalt+Enter: neue Seite (▼).",
+    "lookLine": "Aussehen {{look}}, {{movement}}, Blick {{facing}}",
+    "movement": "Bewegung",
+    "noPlace": "Noch kein Ort und keine Kachel.",
+    "noTile": "Noch keine Kachel: x und z eintragen oder vorher in der Szene auf die Stelle zeigen.",
+    "preview": "Vorschau",
+    "says": "Sagt: „{{line}}“",
+    "saysNothing": "Sagt noch nichts.",
+    "stepDialog": "Dialog",
+    "stepWhere": "Wo und wie",
+    "submit": "Aufstellen",
+    "summary": "Zusammenfassung",
+    "summaryLine": "Neue Figur in {{where}}",
+    "text": "Was sie sagt",
+    "title": "Neue Figur",
+    "where": "„{{place}}“, Kachel x {{x}}, z {{z}}",
+    "whereHeading": "Wo"
+  },
+  "newPaintedMapDialog": {
+    "cancel": "Abbrechen",
+    "ground": "Boden",
+    "height": "Höhe",
+    "heightHint": "Stufen, −16 bis 62",
+    "name": "Name",
+    "paint": "Karte malen",
+    "required": "Pflicht",
+    "title": "Neue Karte malen"
+  },
+  "newPlaceDialog": {
+    "cancel": "Abbrechen",
+    "create": "Ort anlegen",
+    "created": "Ort „{{name}}“ angelegt",
+    "name": "Name des Orts",
+    "takeAlong": "Mitnehmen",
+    "title": "Neuer Ort"
+  },
+  "newRoomWizard": {
+    "blocked": "Der Eingang lässt sich jetzt nicht anlegen: {{why}}",
+    "chooseOutsideArea": "Gebiet am Eingang wählen",
+    "chooseOutsideAreaButton": "Gebiet am Eingang wählen…",
+    "chooseOutsideHeader": "Header außen wählen",
+    "chooseOutsideHeaderButton": "Header außen wählen…",
+    "chooseRoom": "Raum zum Kopieren wählen",
+    "chosen": "Gewählt",
+    "clamped": "Dieser Warp liegt außerhalb der ersten Karte der Vorlage und wurde auf Kachel x {{x}}, z {{z}} begrenzt: prüfen.",
+    "connectLater": "später verbinden (keinen Eingang anlegen)",
+    "done": "Raum angelegt",
+    "doorInside": "Tür innen, Rückweg",
+    "doorOutside": "Tür außen",
+    "doorTiles": "Kacheln, auf denen ein Warp nicht auslöst, zur Tür machen (Verhalten 0x69, Kollision 0x80)",
+    "fromScene": "Kachel zuletzt in der Szene gewählt (über der die Maus zuletzt war).",
+    "fromTemplate": "aus der Vorlage übernommen (ihr erster Warp, Kachel x {{x}}, z {{z}}).",
+    "insideRange": "Kachel 0 bis {{max}} im neuen Raum.",
+    "insideText": "Innen: {{text}}",
+    "insideTileX": "Innen: Kachel x",
+    "insideTileZ": "Innen: Kachel z",
+    "loadingPreview": "Lade Vorschau …",
+    "lockedOutside": "Eventdatei {{id}} (Außen) ist {{locked}}",
+    "lockedRoom": "Eventdatei {{id}} des Raums ist {{locked}}",
+    "lockedTemplate": "Die Vorlage Eventdatei {{id}} ist {{locked}}",
+    "more": "{{n}} weitere, Suche eingrenzen",
+    "name": "Name des neuen Raums",
+    "newRoom": "Der neue Raum",
+    "noMapBuild": "Dieser Raum hat keine Karte zum Kopieren.",
+    "noMapTinker": "Das Raster dieses Raums hat keine Karte zum Kopieren.",
+    "noOutsideArea": "Kein Gebiet am Eingang gewählt.",
+    "noOutsideHeader": "Kein Header außen gewählt.",
+    "noPreview": "Keine Vorschau.",
+    "noRoom": "Kein Raum gefunden",
+    "noTemplate": "Noch keine Vorlage gewählt.",
+    "noTileBuild": "Noch keine Kachel: die Maus war zuletzt nicht über dem Gebiet am Eingang; x und z eintragen.",
+    "noTileTinker": "Noch keine Kachel: die Maus war zuletzt nicht über diesem Raster; x und z eintragen.",
+    "noWarp": "Standardwert: die Vorlage hat keinen Warp.",
+    "outsideHeader": "Header außen",
+    "outsideText": "Außen: {{text}}",
+    "outsideTileX": "Außen: Kachel x",
+    "outsideTileZ": "Außen: Kachel z",
+    "reused": "Die kopierte Eventdatei hat hier schon Warp {{index}} (Ziel Header {{target}}): er wird zum Rückweg, es kommt kein zweiter dazu.",
+    "searchPlaceholder": "Ort oder Kürzel suchen",
+    "searchTemplate": "Vorlage suchen",
+    "stepEntrance": "Eingang",
+    "stepPlace": "Ort",
+    "stepTemplate": "Vorlage",
+    "submit": "Anlegen",
+    "summary": "Zusammenfassung",
+    "templateHeader": "Header {{id}} „{{name}}“",
+    "templatePreview": "Vorschau der Vorlage",
+    "templates": "Vorlagen",
+    "tileOutsideBuild": "Kachel außen, beim Gebiet am Eingang.",
+    "tileOutsideTinker": "Kachel im Raster des Headers außen.",
+    "tilesOutsideBuild": "Kachel außen: {{x}} × {{z}} Kacheln (x 0 bis {{maxX}}, z 0 bis {{maxZ}}).",
+    "tilesOutsideTinker": "Kachel im Raster {{matrix}}: {{x}} × {{z}} Kacheln (x 0 bis {{maxX}}, z 0 bis {{maxZ}}).",
+    "title": "Raum anlegen",
+    "withoutBuildings": "ohne Gebäude"
+  },
+  "newTrainerHereWizard": {
+    "addMon": "Pokémon hinzufügen",
+    "after": "Nach dem Kampf",
+    "barrier": "Trainer anlegen lässt sich nicht rückgängig machen; Team, Texte und Figur nimmt ein Schritt zurück.",
+    "before": "Vor dem Kampf",
+    "beforeHint": "Der Text vor dem Kampf endet auf ▼ (Umschalt+Enter), sonst schließt seine Box sofort.",
+    "chooseSpecies": "Art wählen",
+    "chooseSpeciesButton": "Art wählen…",
+    "class": "Klasse",
+    "done": "Trainer aufgestellt",
+    "facing": "Blickrichtung",
+    "how": "Wie",
+    "level": "Level",
+    "lose": "Verloren",
+    "name": "Name",
+    "nameHint": "{{used}} (höchstens {{max}})",
+    "needsSpecies": "Jede Zeile braucht eine Art.",
+    "noPlace": "Noch kein Ort und keine Kachel.",
+    "noSpecies": "Keine Art gefunden.",
+    "preview": "Vorschau",
+    "remove": "Entfernen",
+    "removeMon": "Pokémon {{n}} entfernen",
+    "saysNothing": "Sagt vor dem Kampf nichts.",
+    "saysSomething": "Sagt vor dem Kampf etwas und kämpft, sobald er dich sieht.",
+    "searchSpecies": "Art oder Nummer suchen",
+    "sight": "Sichtweite",
+    "sightHint": "{{min}} bis {{max}} Kacheln",
+    "stepTeam": "Team",
+    "stepTexts": "Texte",
+    "stepTrainer": "Trainer",
+    "stepWhere": "Wo",
+    "submit": "Aufstellen",
+    "summary": "Zusammenfassung",
+    "summaryLine": "Neuer Trainer {{who}}",
+    "teamHeading": "Team (1 bis {{max}})",
+    "title": "Neuer Trainer hier",
+    "where": "„{{place}}“, Kachel x {{x}}, z {{z}}, Blick {{facing}}, Sichtweite {{sight}}",
+    "who": "Wer",
+    "whoWith": "{{who}} mit {{team}}"
+  },
+  "paintTools": {
+    "brush": {
+      "hint": "Ziehen malt die gewählte Kachel auf die Zellen unter dem Zeiger.",
+      "label": "Pinsel"
+    },
+    "cliff": {
+      "hint": "Ziehen hebt die Zellen um die Stufen mit dem Rand des aktiven Kantensatzes oben, Umschalt-Ziehen senkt sie.",
+      "label": "Klippenpinsel"
+    },
+    "dir": {
+      "e": "Osten",
+      "n": "Norden",
+      "s": "Süden",
+      "w": "Westen"
+    },
+    "does": {
+      "acrossSeveral": "über mehrere",
+      "erases": "radiert",
+      "fillsArea": "füllt die Fläche",
+      "fillsRect": "füllt ein Rechteck",
+      "flips": "spiegelt",
+      "lowers": "senkt",
+      "paints": "malt",
+      "picks": "nimmt auf",
+      "picksTile": "nimmt die Kachel auf",
+      "raises": "hebt",
+      "removes": "entfernt",
+      "setsRamp": "setzt Rampe",
+      "steps": "Stufen",
+      "takesAway": "nimmt es weg",
+      "turns": "dreht"
+    },
+    "erase": {
+      "hint": "Ziehen leert die Zellen der aktiven Ebene.",
+      "label": "Radierer"
+    },
+    "fill": {
+      "hint": "Klick füllt die zusammenhängende Fläche gleicher Kacheln mit der gewählten Kachel.",
+      "label": "Füllen"
+    },
+    "height": {
+      "hint": "Klick hebt die Zelle um eine Stufe, Umschalt-Klick senkt sie.",
+      "label": "Höhe"
+    },
+    "pick": {
+      "hint": "Klick nimmt die Kachel der Zelle als gewählte Kachel auf.",
+      "label": "Pipette"
+    },
+    "ramp": {
+      "hint": "Klick setzt eine Rampe in die gewählte Richtung, Umschalt-Klick entfernt sie.",
+      "label": "Rampe"
+    },
+    "rect": {
+      "hint": "Ziehen spannt ein Rechteck auf und füllt es mit der gewählten Kachel.",
+      "label": "Rechteck"
+    },
+    "status": {
+      "cliff": "hebt um {{steps}} mit dem Rand „{{set}}“",
+      "cliffNoSet": "hebt um {{steps}} (erst einen Kantensatz wählen)",
+      "ramp": "setzt Rampe nach {{dir}}, {{steps}}",
+      "terrain": "malt „{{set}}“",
+      "terrainNoSet": "malt (erst einen Kantensatz wählen)"
+    },
+    "steps_one": "{{count}} Stufe",
+    "steps_other": "{{count}} Stufen",
+    "terrain": {
+      "hint": "Ziehen malt die Fläche des aktiven Kantensatzes mit Kanten und Ecken, Umschalt-Ziehen nimmt sie weg.",
+      "label": "Terrain-Pinsel"
+    }
+  },
+  "patchConsent": {
+    "broken": "Die Anpassung des Spielcodes für neue Orte ist fehlerhaft. Reparieren in Technik › Patches.",
+    "checking": "Prüfe den Spielcode …",
+    "consent": "Einmalig für dieses Projekt: Spielcode für neue Orte anpassen (DSPRE-kompatibel, Sicherung arm9.bin.backup)",
+    "unsupported": "Neue Gebiete und Räume legt Bauen nur für Platin und HeartGold/SoulSilver an. In Tüfteln lässt sich ein vorhandenes Gebiet umstellen."
+  },
+  "pickGrid": {
+    "noMap": "Keine Karte bei x {{x}}, y {{y}}"
+  },
+  "placeChoices": {
+    "dpPlaces": "Eigene Orte gibt es nur für Platin und HeartGold/SoulSilver.",
+    "nameTooLong": "Länger als {{limit}} Zeichen: im Spiel kann der Name abgeschnitten werden.",
+    "noPlace": "Kein Ort (Mysteriöser Ort)",
+    "reuse": "Alle freien Plätze sind belegt. Der neue Ort übernimmt den Platz von „{{name}}“, einem Sinnoh-Namen, den kein Gebiet nutzt. Pokémon, die über den Pal-Park kommen und dort gefangen wurden, zeigen dann den neuen Namen als Fundort.",
+    "unused": "unbenutzt",
+    "users_one": "{{count}} Gebiet oder Raum",
+    "users_other": "{{count}} Gebiete und Räume"
+  },
+  "placeField": {
+    "choose": "Ort wählen",
+    "chooseButton": "Ort wählen…",
+    "none": "Noch kein Ort gewählt.",
+    "place": "Ort",
+    "tileX": "Kachel x",
+    "tileZ": "Kachel z"
+  },
+  "placeNames": {
+    "unnamed": "Ohne Ortsnamen"
+  },
+  "placeOnWorldMap": {
+    "blocked": "Der Block muss auf freie Zellen oder Landschaft fallen.",
+    "gridLabel": "{{map}}, {{rows}} Zeilen, {{columns}} Spalten",
+    "hint": "Die Zelle anklicken, an der die linke obere Karte des neuen Gebiets liegen soll.",
+    "loading": "Lade …"
+  },
+  "placePicker": {
+    "choose": "Ort wählen",
+    "loading": "Lade Orte …",
+    "message": "Nachricht {{index}}",
+    "messageInArchive": "Nachricht {{index}} · Archiv {{archive}}",
+    "newPlace": "Neuer Ort…",
+    "noPlace": "Kein Ort",
+    "place": "Ort",
+    "placeName": "Ortsname",
+    "search": "Ort oder Nummer suchen"
+  },
+  "placeStep": {
+    "choose": "Ort wählen",
+    "existing": "Vorhandener Ort",
+    "loading": "Lade Orte …",
+    "look": "Aussehen",
+    "new": "Neuer Ort",
+    "newName": "Name des neuen Orts",
+    "noPlace": "Kein Ort",
+    "place": "Ort",
+    "search": "Ort suchen",
+    "unreadable": "Orte nicht lesbar."
+  },
+  "problemsModel": {
+    "errors_one": "{{count}} Fehler",
+    "errors_other": "{{count}} Fehler",
+    "infos_one": "{{count}} Hinweis",
+    "infos_other": "{{count}} Hinweise",
+    "noBuildState_one": "{{count}} Textarchiv ohne Bauzustand: die JSON-Fassung gilt.",
+    "noBuildState_other": "{{count}} Textarchive ohne Bauzustand: die JSON-Fassung gilt.",
+    "warnings_one": "{{count}} Warnung",
+    "warnings_other": "{{count}} Warnungen"
+  },
+  "problemsPanel": {
+    "buildState": "Bauzustand",
+    "checkingProject": "Prüft das Projekt …",
+    "checkingProjectWhy": "Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind.",
+    "encounterFile": "Begegnungen {{id}}",
+    "file": "Datei",
+    "fix": "Beheben…",
+    "ignore": "Ausblenden",
+    "ignored": "Ausgeblendet",
+    "ignoredCount": "{{count}} ausgeblendet",
+    "message": "Meldung",
+    "noProblems": "Keine Probleme.",
+    "noProblemsWhy": "Beim Speichern eines Scripts oder Texts landen Fehler hier.",
+    "notChecked": "Nicht geprüft",
+    "notCheckedSentence": "Nicht geprüft.",
+    "open": "Öffnen",
+    "position": "Zeile:Spalte",
+    "recheck": "Erneut prüfen",
+    "reportAgain": "Wieder melden",
+    "reportAgainMenu": "Wieder melden…",
+    "severity": {
+      "error": "Fehler",
+      "info": "Hinweis",
+      "warning": "Warnung"
+    },
+    "severityHead": "Schwere",
+    "source": {
+      "build": "Bauen",
+      "check": "Prüfung",
+      "compile": "Compile",
+      "encounter": "Begegnungen",
+      "live": "live",
+      "text": "Text",
+      "trainer": "Trainer"
+    },
+    "sourceHead": "Quelle",
+    "trainer": "Trainer {{id}}",
+    "uncheckedWhy": "Die Prüfungen haben für dieses Projekt noch kein Ergebnis. Starte sie mit „Erneut prüfen“."
+  },
+  "rawRowSection": {
+    "header": "Header",
+    "height": "Höhe",
+    "map": "Karte",
+    "title": "Rohdaten, Zeile {{y}}"
+  },
+  "recipeBar": {
+    "comesLater": "Kommt später",
+    "comesWith3d9": "Kommt mit 3d.9",
+    "connect_doors": {
+      "hint": "Verbindet zwei Türen in beide Richtungen.",
+      "label": "Tür verbinden"
+    },
+    "create_area": {
+      "hint": "Kopiert Karten zu einem neuen Gebiet mit eigenem Ort.",
+      "label": "Gebiet anlegen"
+    },
+    "create_room": {
+      "hint": "Kopiert einen Raum und verbindet ihn mit einer Tür nach draußen.",
+      "label": "Raum anlegen"
+    },
+    "new_figure": {
+      "hint": "Stellt eine Figur mit Aussehen und Text an eine Stelle.",
+      "label": "Neue Figur"
+    },
+    "new_trainer_here": {
+      "hint": "Stellt einen Trainer mit Team an eine Stelle.",
+      "label": "Neuer Trainer hier"
+    },
+    "next": {
+      "adjust_terrain": "Gelände anpassen",
+      "connect_doors": "Tür verbinden",
+      "create_area": "Gebiet anlegen",
+      "edit_dialog": "Dialog bearbeiten",
+      "figure_appears": "Figur erscheint ab Schritt",
+      "new_figure": "Neue Figur hier",
+      "play_here": "Hier spielen",
+      "scene_on_enter": "Szene beim Betreten",
+      "story_join": "Zu einer Geschichte",
+      "talk_advances": "Gespräch schaltet weiter"
+    }
+  },
+  "referenceFor": {
+    "none": "keins",
+    "target": "Ziel",
+    "targetHeader": "Zielheader",
+    "unknown": "unbekannt"
+  },
+  "renamePlaceDialog": {
+    "cancel": "Abbrechen",
+    "name": "Name des Orts",
+    "reach_one": "Trifft {{count}} Gebiet oder Raum mit diesem Ort und den Fundort gefangener Pokémon.",
+    "reach_other": "Trifft alle {{count}} Gebiete und Räume mit diesem Ort und den Fundort gefangener Pokémon.",
+    "rename": "Umbenennen",
+    "title": "Ort umbenennen"
+  },
+  "resetMenu": {
+    "buildingModel": "Gebäudemodell auf Original zurücksetzen…",
+    "eventFile": "Eventdatei auf Original zurücksetzen…",
+    "header": "Header auf Original zurücksetzen…",
+    "scriptFile": "Scriptdatei auf Original zurücksetzen…"
+  },
+  "roomActions": {
+    "cancel": "Abbrechen",
+    "emptyFor": "Leer lassen für „{{suggestion}}“.",
+    "emptyForSuggested": "Leer lassen für den vorgeschlagenen Namen.",
+    "more": "Weitere Aktionen für {{name}}",
+    "name": "Name",
+    "noArea": "Kein Gebiet passt zur Suche.",
+    "owner": "Gehört zu Gebiet",
+    "ownerMenu": "Gehört zu Gebiet…",
+    "rename": "Umbenennen",
+    "renameMenu": "Umbenennen…",
+    "renameRoom": "Raum umbenennen",
+    "renameWorldMap": "Weltkarte umbenennen",
+    "resetOwner": "Zuordnung zurücksetzen",
+    "searchArea": "Gebiet suchen …"
+  },
+  "roomNames": {
+    "floor": ", {{n}}. Stock",
+    "gym": "Arena",
+    "gymRoom": "Arena, Raum {{n}}",
+    "house": "Haus {{n}}{{floor}}",
+    "level": "Ebene {{n}}",
+    "pokeMart": "Pokémarkt{{floor}}",
+    "pokemonCenter": "Pokémon-Center{{floor}}",
+    "room": "Raum {{n}}"
+  },
+  "sceneBar": {
+    "events": "Ereignisse",
+    "heights": "Höhen",
+    "label": "Ebenen der Schau",
+    "terrain": "Gelände",
+    "topDown": "Draufsicht"
+  },
+  "sceneHierarchy": {
+    "add": "Hinzufügen",
+    "back": "Zurück",
+    "connectRoom": "Raum hier anbinden…",
+    "empty": {
+      "what": "Noch keine Szene gezeigt.",
+      "why": "Wähle oben ein Gebiet oder einen Raum, dann steht hier, was die Szene enthält."
+    },
+    "followHint": "Doppelklick oder Enter folgt der Tür zum Ziel",
+    "forward": "Vor",
+    "loading": "Lade …",
+    "locked": "Eventdatei gesperrt",
+    "newPlace": "Neuer Ort…",
+    "noMatch": "Nichts in dieser Szene passt zur Suche.",
+    "nothing": "Hier ist noch nichts. Mit „+“ oder den Werkzeugen setzt du eine Figur, eine Tür, einen Auslöser, ein Schild oder ein Gebäude.",
+    "search": {
+      "label": "In dieser Szene suchen",
+      "placeholder": "Name oder Nummer suchen"
+    },
+    "title": "In dieser Szene"
+  },
+  "sceneModel": {
+    "building": "Gebäude {{n}} · Modell {{model}}",
+    "cell": "Zelle {{x}}, {{y}}",
+    "unknownDest": "→ unbekanntes Ziel {{id}}"
+  },
+  "scriptNav": {
+    "adoptHint": "Erst Scripts übernehmen (Panel „Script“)",
+    "ambiguous": "{{script}} {{n}} liegt in mehreren Dateien: {{files}}",
+    "unknown": "{{script}} {{n}} ist nicht auffindbar"
+  },
+  "scriptPanel": {
+    "addScript": "Script anfügen",
+    "addScriptHint": "Hängt ein leeres Script an die Datei an",
+    "checking": "Scripts werden geprüft …",
+    "closeTab": "{{name}} schließen",
+    "discard": "Änderungen an {{name}} verwerfen?",
+    "empty": {
+      "what": "Kein Script geöffnet.",
+      "why": "Eine Scriptdatei öffnet sich über den Ort, ein Event oder ein Problem.",
+      "whyTinker": "Eine Scriptdatei öffnet sich über den Header, ein Event oder ein Problem."
+    },
+    "lsp": {
+      "notAdopted": "Läuft, sobald die Scripts des Projekts übernommen sind.",
+      "notRunning": "rotom-lsp läuft nicht",
+      "running": "rotom-lsp läuft",
+      "starting": "Sprachdienst startet …"
+    },
+    "lspShort": {
+      "missing": "rotom-lsp fehlt",
+      "running": "rotom-lsp läuft",
+      "starting": "rotom-lsp startet",
+      "stopped": "rotom-lsp gestoppt"
+    },
+    "noProject": "Kein Projekt geöffnet.",
+    "noScriptDetail": "Kein Script geöffnet",
+    "openScripts": "Offene Scripts",
+    "outline": {
+      "empty": "Keine Scripts in der Datei",
+      "loading": "Gliederung wird geladen …",
+      "needsLsp": "Braucht rotom-lsp",
+      "symbol": "{{name}}, Z. {{line}}",
+      "title": "Gliederung",
+      "unavailable": "Gliederung nicht verfügbar"
+    },
+    "restart": "Neu starten",
+    "save": "Speichern"
+  },
+  "scriptTab": {
+    "loading": "Editor wird geladen …"
+  },
+  "sharedRooms": {
+    "hint": "Diese Karten gehören auch anderen Räumen. Was du hier änderst, ändert sie alle.",
+    "shared_one": "Geteilt mit {{count}} Raum",
+    "shared_other": "Geteilt mit {{count}} Räumen"
+  },
+  "shownMark": {
+    "label": "{{matrix}} wird angezeigt"
+  },
+  "splitRoomDialog": {
+    "cancel": "Abbrechen",
+    "split": "Abspalten",
+    "text_one": "Der Raum „{{name}}“ bekommt eine eigene Kopie seiner Karte. Danach ändern Änderungen an ihm keinen anderen Raum mehr. Die Kopie lässt sich nicht zurücknehmen.",
+    "text_other": "Der Raum „{{name}}“ bekommt eigene Kopien seiner {{count}} Karten. Danach ändern Änderungen an ihm keinen anderen Raum mehr. Die Kopien lassen sich nicht zurücknehmen.",
+    "textUnknown": "Der Raum „{{name}}“ bekommt eigene Kopien seiner Karten. Danach ändern Änderungen an ihm keinen anderen Raum mehr. Die Kopien lassen sich nicht zurücknehmen.",
+    "title": "Raum abspalten?"
+  },
+  "technical": {
+    "cellLine": "{{term}} {{id}}, Zelle {{x}}, {{y}}",
+    "headerLine": "{{term}} {{id}}, Eintrag der Header-Tabelle",
+    "indexLine": "{{term}} {{id}}, Index {{index}}"
+  },
+  "technicalSection": {
+    "asset": "Asset",
+    "dec": "Dez",
+    "field": "Feld",
+    "file": "Datei",
+    "hex": "Hex",
+    "title": "Technisch"
+  },
+  "terms": {
+    "number": "Nummer {{id}}"
+  },
+  "textArea": {
+    "hints": "↵ neue Zeile, ⇧↵ neue Seite",
+    "noFigureSays": "Keine Figur spricht diese Nachricht – in Bauen geöffnet",
+    "noPlaceUses": "Kein Ort nutzt dieses Archiv – in Bauen geöffnet",
+    "status": {
+      "archive": "Archiv {{archive}}",
+      "tooLong": "{{long}} zu lang"
+    }
+  },
+  "textHand": {
+    "addMessage": "Nachricht anlegen",
+    "columns": {
+      "archive": "Archiv",
+      "longestLine": "Längste Zeile",
+      "number": "Nr.",
+      "text": "Text"
+    },
+    "dialog": {
+      "edit": "Dialog bearbeiten…",
+      "noFigure": {
+        "what": "Wähle eine Figur.",
+        "why": "Dann stehen hier ihre Nachrichten; ein Doppelklick auf die Karte öffnet den Dialog-Editor."
+      },
+      "noMessage": "Das Script dieser Figur zeigt keine Nachricht.",
+      "noProjectWhy": "Öffne ein Projekt, dann stehen hier die Nachrichten seiner Figuren.",
+      "openTrainer": "Trainer öffnen"
+    },
+    "editor": {
+      "archive": "Archiv {{archive}}",
+      "label": "Nachricht bearbeiten",
+      "noHeader": "keinem Header",
+      "noPlace": "keinem Ort",
+      "removeLast": "Letzte Nachricht entfernen",
+      "usedIn": "Verwendet in"
+    },
+    "emptyArchive": {
+      "what": "Dieses Archiv hat keine Nachricht.",
+      "why": "Lege eine an, dann kannst du sie hier schreiben."
+    },
+    "hitsLabel": "Treffer in allen Archiven",
+    "lineWidth": "{{width}} von {{limit}}",
+    "loading": "Lade …",
+    "messagesLabel": "Nachrichten von Archiv {{archive}}",
+    "noArchive": {
+      "what": "Wähle links ein Archiv.",
+      "why": "Dann stehen hier seine Nachrichten; die Suche oben sucht in allen Archiven."
+    },
+    "noProject": {
+      "what": "Kein Projekt geöffnet.",
+      "why": "Öffne ein Projekt, dann stehen hier die Nachrichten seiner Textarchive."
+    },
+    "nothingFound": {
+      "what": "Nichts gefunden für „{{query}}“",
+      "why": "Prüfe die Schreibweise oder suche in allen Archiven."
+    },
+    "refs": {
+      "label": "Nachricht verwendet in",
+      "line": "Zeile {{line}}",
+      "none": "keinem Script"
+    },
+    "reset": {
+      "archive": "Ganzes Textarchiv auf Original zurücksetzen…",
+      "message": "Nachricht auf Original zurücksetzen…",
+      "noMessage": "Keine Nachricht gewählt"
+    },
+    "scope": {
+      "all": "Alle",
+      "archive": "Dieses Archiv"
+    },
+    "search": {
+      "inAll": "In allen Archiven suchen",
+      "inArchive": "In diesem Archiv suchen",
+      "label": "Texte suchen",
+      "scope": "Suchbereich"
+    },
+    "searching": "Suche …"
+  },
+  "textList": {
+    "archiveCount_one": "{{count}} Archiv",
+    "archiveCount_other": "{{count}} Archive",
+    "checkedArchives_one": "{{count}} geprüften Archiv",
+    "checkedArchives_other": "{{count}} geprüften Archiven",
+    "create": "Textarchiv anlegen",
+    "filter": {
+      "label": "Textarchive filtern",
+      "placeholder": "Ort oder Archivnummer"
+    },
+    "gameWide": "Spielweit",
+    "noMatch": "Kein Archiv passt zum Filter.",
+    "noProject": {
+      "what": "Kein Projekt geöffnet.",
+      "why": "Öffne ein Projekt, dann stehen hier seine Textarchive."
+    },
+    "overlongSum": "{{texts}}, in {{archives}}",
+    "overlong_one": "{{count}} Text zu lang",
+    "overlong_other": "{{count}} Texte zu lang"
+  },
+  "textPreview": {
+    "nextPage": "Nächste Seite",
+    "page": "Seite {{page}} von {{total}}",
+    "previousPage": "Vorige Seite"
+  },
+  "textView": {
+    "archive": "Archiv {{archive}}",
+    "archiveAt": "Archiv {{archive}}, {{place}}",
+    "back": "Zurück",
+    "facts": "Seite {{page}} von {{pages}}, {{width}} × {{height}}, {{scale}}-fach",
+    "label": "Vorschau",
+    "lineWidth": "{{width}} von {{limit}}",
+    "loading": {
+      "what": "Lade …",
+      "why": "Das Archiv wird gelesen."
+    },
+    "nextPage": "Weiterblättern",
+    "noArchive": {
+      "what": "Wähle links ein Archiv.",
+      "why": "Die Vorschau zeigt dann seine Nachrichten auf dem DS-Bildschirm."
+    },
+    "noMessage": {
+      "what": "Dieses Archiv hat keine Nachricht.",
+      "why": "Lege unten eine Nachricht an, dann zeigt die Vorschau sie."
+    },
+    "noProject": {
+      "what": "Kein Projekt geöffnet.",
+      "why": "Öffne ein Projekt, dann zeigt die Vorschau seine Texte."
+    },
+    "page": "Seite {{page}}",
+    "pageCount_one": "{{count}} Seite",
+    "pageCount_other": "{{count}} Seiten",
+    "pages": "Seiten",
+    "unreadable": {
+      "what": "Dieses Archiv ist nicht lesbar.",
+      "why": "Die Nachrichten unten nennen den Grund."
+    }
+  },
+  "tileEditor": {
+    "blocked": "Blockiert",
+    "none": "keine",
+    "noTile": "Das Tileset hat keine Kachel {{digits}}.",
+    "origin": {
+      "unclear": "Nicht eindeutig, Vorgabe Boden",
+      "user": "Von dir gesetzt",
+      "vanilla": "Aus den Vanilla-Karten abgeleitet"
+    },
+    "role": {
+      "grass": "Gras",
+      "ground": "Boden",
+      "piece": "Teilmodell",
+      "ramp": "Rampe",
+      "wall": "Wand",
+      "water": "Wasser"
+    },
+    "roleLabel": "Rolle",
+    "saveNote": "Die Vorgaben stehen dann in data/tilesets/{{package}}.json und gelten für alle Welt-Karten dieses Pakets.",
+    "stepSound": "Schrittgeräusch",
+    "terrain": "Gelände",
+    "title": "Kachel {{digits}}",
+    "wall": "Wand",
+    "wallHint": "Kachelnummer, leer = keine",
+    "wallRange": "Eine Kachel von 0000 bis {{last}}."
+  },
+  "tilePalette": {
+    "kindAndCollision": "kind {{kind}}, Kollision {{collision}}",
+    "target": "Ein Klick hängt die Kachel (mit Drehung) an den Platz „{{target}}“.",
+    "texels": "{{width}} × {{height}} Texel",
+    "title": "Palette"
+  },
+  "tools": {
+    "building": {
+      "does1": "setzt ein Gebäude",
+      "does2": "bricht ab",
+      "hint": "Klick auf eine Kachel setzt dort ein Gebäude und wählt wieder Auswählen.",
+      "label": "Gebäude"
+    },
+    "door": {
+      "does1": "legt eine Tür an",
+      "does2": "bricht ab",
+      "hint": "Klick auf eine Kachel legt dort eine Tür an (einen Warp) und wählt wieder Auswählen.",
+      "label": "Tür"
+    },
+    "figure": {
+      "does1": "stellt eine Figur hin",
+      "does2": "bricht ab",
+      "hint": "Klick auf eine Kachel stellt dort eine Figur hin und wählt wieder Auswählen.",
+      "label": "Figur"
+    },
+    "noPlace": "Erst einen Ort wählen.",
+    "paint": {
+      "does1": "setzt Kollision",
+      "does2": "löscht",
+      "hint": "Klick setzt die Kollision der Kachel, Umschalt-Klick löscht sie.",
+      "label": "Gelände malen"
+    },
+    "select": {
+      "does1": "wählt",
+      "does2": "verschiebt",
+      "hint": "Wählt Marker, Gebäude und Karten in der Szene. Ziehen verschiebt das Gewählte. Malt nie.",
+      "label": "Auswählen"
+    },
+    "sign": {
+      "does1": "stellt ein Schild auf",
+      "does2": "bricht ab",
+      "hint": "Klick auf eine Kachel stellt dort ein Schild auf (ein Hintergrund-Event) und wählt wieder Auswählen.",
+      "label": "Schild"
+    },
+    "trigger": {
+      "does1": "legt einen Auslöser an",
+      "does2": "bricht ab",
+      "hint": "Klick auf eine Kachel legt dort einen Auslöser an (einen Trigger) und wählt wieder Auswählen.",
+      "label": "Auslöser"
+    },
+    "worldPaintHint": "Malt Kacheln, Höhen und Rampen auf die gewählte Welt-Karte."
+  },
+  "trainerField": {
+    "change": "Trainer ändern…",
+    "choose": "Trainer wählen",
+    "none": "kein Trainer",
+    "notFound": "Kein Trainer gefunden",
+    "search": "Klasse, Name oder Nummer suchen"
+  },
+  "trainerPreview": {
+    "battle": "Kampfvorschau",
+    "label": "Vorschau des Trainers",
+    "noName": "Ohne Namen",
+    "preview": "Vorschau",
+    "slot": "Platz {{n}}: {{name}}, Level {{level}}",
+    "slotEmpty": "Platz {{n}}: leer",
+    "team": "Team"
+  },
+  "trainerScript": {
+    "placed": "Trainer {{name}} platziert"
+  },
+  "useLsp": {
+    "notResponding": "rotom-lsp antwortet nicht"
+  },
+  "useScripts": {
+    "binary": "{{name}} ist binär ({{size}} Byte) und lässt sich nicht bearbeiten",
+    "changedOutside_one": "{{names}} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern",
+    "changedOutside_other": "{{names}} wurden außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern",
+    "gone_one": "Nach dem Neuöffnen fehlt die {{names}}; ihr ungespeicherter Text bleibt im Editor.",
+    "gone_other": "Nach dem Neuöffnen fehlen {{names}}; ihr ungespeicherter Text bleibt im Editor.",
+    "invalidJson": "{{name}}: ungültiges JSON ({{reason}})",
+    "notAnObject": "{{name}}: ungültiges JSON (ein Objekt wird erwartet)"
+  },
+  "useWorldModel": {
+    "broken": "{{file}} ist beschädigt: {{why}}. Repariere oder lösche die Datei."
+  },
+  "warpField": {
+    "changeDoor": "Tür ändern…",
+    "chooseDoor": "Tür wählen",
+    "connect": "Tür verbinden…",
+    "counterpart": "Gegenstück",
+    "door": "Tür",
+    "doorAt": "Tür {{index}} · x {{x}}, z {{z}}",
+    "doorNumber": "Tür {{value}}",
+    "leadsBack": "Tür {{index}} in {{place}} · führt zurück",
+    "leadsNotBack": "Tür {{index}} in {{place}} · führt nicht zurück",
+    "searchDoor": "Tür suchen",
+    "targetDeleted": "Das Ziel ist gelöscht.",
+    "targetHasNoDoor": "Ziel hat keine Tür {{value}}",
+    "targetHasNoDoors": "Das Ziel hat keine Türen.",
+    "targetMissingDoor": "Das Ziel hat keine Tür {{value}}. Wähle eine seiner Türen."
+  },
+  "warpTile": {
+    "doesNotFire": "{{what}}: ein {{warp}} löst hier im Spiel nicht aus ({{why}}).",
+    "doorNeedsCollision": "eine Tür löst nur mit Kollision 0x80 aus",
+    "fires": "{{what}}: ein {{warp}} löst hier aus.",
+    "noWarpTile": "keine Tür- oder Warp-Kachel",
+    "what": "Verhalten {{kind}}, Kollision {{collision}}",
+    "whatNamed": "Verhalten {{kind}} {{name}}, Kollision {{collision}}"
+  },
+  "wizardBar": {
+    "back": "Zurück",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "next": "Weiter",
+    "steps": "Schritte"
+  },
+  "wizardFrame": {
+    "close": "Schließen",
+    "play": "Hier spielen",
+    "show": "Zeigen"
+  },
+  "wizardResult": {
+    "interrupted": "Anlegen unterbrochen",
+    "kept": "Was schon angelegt ist, bleibt bestehen und lässt sich nicht rückgängig machen.",
+    "next": "Als Nächstes",
+    "notAvailable": "Noch nicht verfügbar",
+    "restBuild": "Den Rest in der Welt von Hand fertigstellen.",
+    "restTinker": "Den Rest im Raster-Tab und im Header-Editor von Hand fertigstellen."
+  },
+  "wizardSpecs": {
+    "and": "und",
+    "areaCreated_one": "Gebiet „{{name}}“ angelegt: {{count}} Karte.",
+    "areaCreated_other": "Gebiet „{{name}}“ angelegt: {{count}} Karten.",
+    "areaCreatedIn": "Gebiet „{{name}}“ ({{width}} × {{height}}) in Raster {{matrix}} angelegt.",
+    "areaSummaryBuild": "Legt das Gebiet „{{name}}“ mit {{width}} × {{height}} Karten an.",
+    "areaSummaryTarget": "Legt das Gebiet „{{name}}“ ({{width}} × {{height}}) ohne neues Raster an.",
+    "assignExisting": "Stellt Header {{id}}{{name}} auf {{raster}} um{{area}}, Eventdatei: {{file}}.",
+    "assignNew": "Der Assistent legt Header {{id}}{{name}} neu an (Kopie von {{template}}) und stellt ihn auf {{raster}} um{{area}}, Eventdatei: {{file}}.",
+    "backupBuild": "Die alten Dateien sind unter .g4/backup gesichert.",
+    "backupTinker": "Sicherung des alten Ordners: {{path}}",
+    "battlePreview": "Kampfvorschau: {{trainer}} gegen {{species}} Lv. {{level}}",
+    "building": {
+      "area": {
+        "create": "Gebiet anlegen",
+        "member": "das Gebiet",
+        "members": "die Gebiete",
+        "setUp": "Gebiet einrichten"
+      },
+      "arrangement": "die Anordnung",
+      "arrangements": "die Anordnungen",
+      "changeArrangement": "Anordnung ändern",
+      "createArrangement": "Anordnung anlegen",
+      "room": {
+        "create": "Raum anlegen",
+        "member": "der Raum",
+        "members": "die Räume",
+        "setUp": "Raum einrichten"
+      }
+    },
+    "cellOfOtherArea": "Kachel x {{x}}, z {{z}} liegt in Zelle ({{cx}}, {{cy}}) eines anderen Gebiets: dort nimmt das Spiel die Warps des Gebiets am Eingang nicht.",
+    "cellOfOtherHeader": "Kachel x {{x}}, z {{z}} liegt in Zelle ({{cx}}, {{cy}}) von Header {{owner}}, nicht von {{outside}}: dort nimmt das Spiel die Warps von {{outside}} nicht.",
+    "cellWithoutMap": "Kachel x {{x}}, z {{z}} liegt in Zelle ({{cx}}, {{cy}}) ohne Karte.",
+    "checkMaps": "Karten prüfen: Raster-Tab",
+    "chooseHeader": "Header wählen.",
+    "chooseMap": "Mindestens eine Karte wählen.",
+    "chooseOutsideArea": "Gebiet am Eingang wählen.",
+    "chooseOutsideHeader": "Außen-Header wählen.",
+    "choosePlace": "Ort wählen.",
+    "chooseTemplate": "Vorlage wählen.",
+    "connectEntrance": "Eingang verbinden: {{setDoor}}",
+    "connects": "Verbindet {{from}} (Kachel x {{x}}, z {{z}}) mit dem neuen Raum.",
+    "connectWorld": "Mit der Welt verbinden: {{setDoor}}",
+    "connectWorldTinker": "Mit der Welt verbinden: {{setDoor}} (Ziel im Event-Editor wählen)",
+    "copied": "{{maps}} kopiert.",
+    "copies": "Kopiert {{maps}}, {{buildings}}.",
+    "copyToCell": "Karte {{map}} → Zelle ({{x}}, {{y}})",
+    "created": "Angelegt: {{list}}.",
+    "createdMember": "{{what}} {{id}} angelegt (bleibt nach Rückgängig)",
+    "doesNotFire": "Achtung: auf der Kachel {{sides}} löst ein Warp im Spiel nicht aus (keine Tür- oder Warp-Kachel).",
+    "doorBack": "Tür B führt zurück zu Tür A.",
+    "doorEnd": "Tür {{name}}: Warp {{warp}} in Eventdatei {{file}}",
+    "doorEndNew": "Tür {{name}}: Warp {{warp}} in Eventdatei {{file}} (neu)",
+    "doorEndTile": "Tür {{name}}: Türkachel gesetzt auf Karte {{map}}, Kachel x {{x}}, z {{z}}",
+    "doorStays": "Tür B bleibt, wohin sie führte.",
+    "doorTileSet": "Tür-Kachel gesetzt: Karte {{map}}, Kachel x {{x}}, z {{z}} innerhalb der Karte.",
+    "enterOutsideTile": "Kachel der Tür außen eintragen (x und z).",
+    "entrance": "Eingang: Warp {{outside}} {{where}}, Rückweg: Warp {{inside}} im neuen Raum.",
+    "entranceReused": "Eingang: Warp {{outside}} {{where}}, Rückweg: Warp {{inside}} (der kopierte Warp auf der Kachel, umgestellt) im neuen Raum.",
+    "eventFile": {
+      "copy": "Kopie von {{id}}",
+      "keep": "behalten",
+      "keepShared": "behalten (geteilt mit Header {{id}})",
+      "new": "neu, leer"
+    },
+    "furnish": "Innenraum einrichten: Figuren, Auslöser und Schilder mit den Werkzeugen oder „+“ in „In dieser Szene“",
+    "furnishTinker": "Innenraum einrichten: Karte im Raster-Tab bearbeiten",
+    "headerNow": "{{header}} zeigt jetzt auf Raster {{matrix}}{{file}}.",
+    "insideOffMap": "Kachel liegt außerhalb der Karte (0 bis {{max}}).",
+    "inUse_one": "Achtung: Header {{id}} wird benutzt ({{count}} Warp führt hierher); er verliert sein bisheriges Raster {{matrix}}.",
+    "inUse_other": "Achtung: Header {{id}} wird benutzt ({{count}} Warps führen hierher); er verliert sein bisheriges Raster {{matrix}}.",
+    "lookAtArea": "Ansehen: „Zeigen“ öffnet das neue Gebiet",
+    "makesDoor": "Macht die Kachel {{sides}} zur Tür (Verhalten 0x69, Kollision 0x80), sonst löst der Warp im Spiel nicht aus.",
+    "nameEmpty": "Name darf nicht leer sein.",
+    "newArea": "Neues Gebiet",
+    "newEvents": "Eine neue, leere Liste der Figuren und Türen.",
+    "newHeaderName": "Neuer Header {{id}}{{name}} (Kopie von {{template}})",
+    "newPlace": "Neuer Ort „{{name}}“.",
+    "newRaster": "das neue Raster",
+    "newRoom": "Neuer Raum",
+    "noEntranceBuild": "Legt keinen Eingang an{{why}}: später mit {{setDoor}} setzen.",
+    "noEntranceTinker": "Legt keinen Eingang an{{why}}: {{warp}} später im Header-Editor unter „{{warps}}“ setzen.",
+    "noHeader": "Stellt keinen Header um.",
+    "notUndoable": "Anlegen lässt sich nicht rückgängig machen.",
+    "objectIn": "Objekt {{object}} in Eventdatei {{file}}",
+    "objectInScript": "Objekt {{object}} in Eventdatei {{file}}, Kampf-Script {{script}}",
+    "offOutsideArea": "Kachel x {{x}}, z {{z}} liegt außerhalb des Gebiets am Eingang (x 0 bis {{maxX}}, z 0 bis {{maxZ}}).",
+    "offRaster": "Kachel x {{x}}, z {{z}} liegt außerhalb des Rasters (x 0 bis {{maxX}}, z 0 bis {{maxZ}}).",
+    "outsideArea": "Gebiet am Eingang",
+    "outsideIsRoom": "Das Gebiet am Eingang darf nicht der neue Raum sein.",
+    "outsideIsRoomHeader": "Der Außen-Header darf nicht der Header des neuen Raums sein.",
+    "overviewFailed": "Übersicht nicht verfügbar",
+    "overviewLoading": "Lade Übersicht …",
+    "patchedBuild": "Spielcode für neue Orte angepasst (bleibt).",
+    "patchedTinker": "Patch „Dynamische Header“ angewendet (bleibt).",
+    "pickTarget": "Die Zelle wählen, an der das Gebiet auf der Weltkarte liegen soll.",
+    "place": "Ort: {{name}}.",
+    "placeNameEmpty": "Name des neuen Orts darf nicht leer sein.",
+    "quoted": "„{{name}}“",
+    "raster": "Raster {{id}}",
+    "rasterCreated": "Raster {{matrix}} „{{name}}“ ({{width}} × {{height}}) angelegt.",
+    "rasterSummary": "Legt Raster „{{name}}“ ({{width}} × {{height}}) an.",
+    "rasterSummaryWithHeaders": "Legt Raster „{{name}}“ ({{width}} × {{height}}) mit Header-Abschnitt an.",
+    "replacesLandscape_one": "; ersetzt {{count}} Landschaftskarte",
+    "replacesLandscape_other": "; ersetzt {{count}} Landschaftskarten",
+    "reused": "Der kopierte Warp {{index}} auf dieser Kachel wird zum Rückweg; es kommt kein zweiter dazu.",
+    "reusedTarget": "Der kopierte Warp {{index}} auf dieser Kachel (bisher Ziel Header {{target}}) wird zum Rückweg; es kommt kein zweiter dazu.",
+    "roomCreatedBuild": "Raum „{{name}}“ angelegt: Karte {{map}}.",
+    "roomCreatedTinker": "Raum „{{name}}“ angelegt: Raster {{matrix}}, Karte {{map}}.",
+    "roomSummaryBuild": "Legt den Raum „{{name}}“ mit einer Kopie der Karte {{map}} an, {{buildings}}.",
+    "roomSummaryTinker": "Legt Raster „{{name}}“ mit einer Kopie von Karte {{map}} an, {{buildings}}.",
+    "scriptMessage": "Script #{{slot}}, Nachricht {{message}} in Archiv {{archive}}",
+    "seamless": "Nahtlos begehbar: vom Nachbargebiet aus hinüberlaufen.",
+    "seamlessIn": "Nahtlos begehbar: vom Nachbargebiet in Raster {{matrix}} aus hinüberlaufen.",
+    "setDoor": "Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“",
+    "sides": {
+      "both": "außen und innen",
+      "inside": "innen",
+      "outside": "außen"
+    },
+    "special": {
+      "default": "Vorgabe-Header aller Zellen ohne eigenen",
+      "underground": "Untergrund: das Spiel startet dort den Untergrund, ein Raum bleibt schwarz",
+      "union": "Union-Raum, nur per Skript erreichbar"
+    },
+    "specialLine": "Achtung: Header {{id}} ist ein Sonder-Header ({{why}}).",
+    "step": {
+      "doorTile": "Tür-Kachel setzen",
+      "eventFile": "Eventdatei anlegen",
+      "headerCreation": "Header anlegen",
+      "headerEdit": "Header umstellen",
+      "mapCopy": "Karte kopieren",
+      "matrixCreation": "Raster anlegen",
+      "matrixEdit": "Raster ändern",
+      "warpEdit": "Warp setzen"
+    },
+    "takenInside": "Auf Kachel x {{x}}, z {{z}} innen liegt schon Warp {{index}} der Eventdatei {{file}}, die der Raum behält: eine andere Kachel oder „Kopie von …“ wählen.",
+    "takenOutside": "Auf Kachel x {{x}}, z {{z}} außen liegt schon Warp {{index}}: eine andere Kachel wählen.",
+    "takenOutsideTarget": "Auf Kachel x {{x}}, z {{z}} außen liegt schon Warp {{index}} (Ziel Header {{target}}): eine andere Kachel wählen.",
+    "targetBuild": "Liegt auf der Weltkarte {{name}} bei x {{x}}, y {{y}} (nahtlos begehbar){{replaced}}.",
+    "targetTinker_one": "Ziel: Raster {{matrix}}, Zelle {{x}}, {{y}}; {{count}} Landschaftszelle wird ersetzt.",
+    "targetTinker_other": "Ziel: Raster {{matrix}}, Zelle {{x}}, {{y}}; {{count}} Landschaftszellen werden ersetzt.",
+    "textProblem": "Text: {{message}}",
+    "theOutsideArea": "das Gebiet am Eingang",
+    "thenFailed": "Danach fehlgeschlagen: {{step}} ({{reason}}).",
+    "tooLarge": "Höchstens {{max}} Spalten/Zeilen.",
+    "tryDoor": "Ausprobieren: speichern, bauen und durch die Tür gehen",
+    "tryFigure": "Ausprobieren: speichern, bauen und die Figur ansprechen",
+    "tryRoom": "Ausprobieren: speichern, bauen und im Emulator hinein- und zurücklaufen",
+    "tryTrainer": "Ausprobieren: speichern, bauen und dem Trainer in den Blick laufen",
+    "wayBack": "Der Rückweg liegt im neuen Raum auf Kachel x {{x}}, z {{z}}.",
+    "whereHeader": "in Header {{id}}",
+    "whereOutside": "außen",
+    "withBuildings": "mit Gebäuden",
+    "withoutBuildings": "ohne Gebäude"
+  },
+  "worldExplorer": {
+    "choose": "Ort oder Raum wählen",
+    "collapse": "Orte einklappen",
+    "create": {
+      "area": "Gebiet anlegen…",
+      "label": "Neu anlegen",
+      "room": "Raum anlegen…"
+    },
+    "expand": "Orte ausklappen",
+    "mode": {
+      "label": "Ansicht",
+      "list": "Liste",
+      "tree": "Baum"
+    },
+    "pickPlaceholder": "Gebiet, Raum oder Nummer suchen",
+    "sort": {
+      "label": "Sortierung",
+      "list": {
+        "code": "Kürzel",
+        "id": "Nummer",
+        "name": "Name"
+      },
+      "tree": {
+        "game": "Spielreihenfolge",
+        "name": "Name A–Z",
+        "recent": "Zuletzt gewählt"
+      }
+    }
+  },
+  "worldList": {
+    "splitter": {
+      "label": "Höhe der Orte",
+      "title": "Ziehen ändert die Höhe der Orte, Doppelklick halbiert"
+    },
+    "title": "Welt"
+  },
+  "worldMap": {
+    "noExit": "kein Ausgang",
+    "noPairedWarp": "Ziel-Warp fehlt",
+    "notOnWorldMap": "Ziel liegt nicht auf der Weltkarte",
+    "outsideRegion": "Ziel außerhalb der Region"
+  },
+  "worldMapPanel": {
+    "gridLabel": "{{name}}, {{rows}} Zeilen, {{columns}} Spalten",
+    "loadingPlan": "Lade Raumplan …",
+    "loadingRegion": "Lade Region …",
+    "noEntrance": "ohne Eingang",
+    "noEntranceWhy": "ohne Eingang: {{reason}}",
+    "noRegion": "Keine Region gefunden (keine Weltkarte mit Gebieten).",
+    "noRegionTinker": "Keine Region gefunden (kein Raster mit Header-Abschnitt).",
+    "progress": "Kartenbilder {{done}}/{{total}}"
+  },
+  "worldMapView": {
+    "and": " und ",
+    "plan": "Raumplan"
+  },
+  "worldPanel": {
+    "empty": {
+      "showFirst": "Ersten Ort zeigen",
+      "what": "Noch kein Ort gewählt.",
+      "why": "Wähle links einen Ort, dann zeigt die Schau seine Karten."
+    }
+  },
+  "worldSourceSection": {
+    "adopt": "Karte als Quelle übernehmen",
+    "adopted": "Übernommen.",
+    "adoptedDeviations_one": "Übernommen. {{n}} Kachel weicht von der Höhe ab.",
+    "adoptedDeviations_other": "Übernommen. {{n}} Kacheln weichen von der Höhe ab.",
+    "adoptedGltf": "Übernommen als glTF: {{polygons}} Vanilla-Polygone, {{faces}} gebackene Flächen.",
+    "adoptGltf": "Als glTF übernehmen (Form 2)",
+    "baked": "Gebacken · Modell {{model}} B · Terrain {{terrain}} B",
+    "bakeRefused": "Das Backen wurde abgelehnt.",
+    "binaryMap": "Binäre Karte aus dem ROM oder aus DSPRE.",
+    "needsTextProject": "Boden malen gibt es im Textprojekt (Technik › Textprojekt).",
+    "reading": "Wird gelesen …",
+    "title": "Quelle",
+    "toBinary": "Als binäre Karte übernehmen",
+    "worldMap": "Welt-Karte"
+  },
+  "worldTree": {
+    "groups": {
+      "more": "Weitere Gebiete",
+      "other": "Sonstiges",
+      "unconnected": "Nicht verbunden"
+    },
+    "loading": "Lade …",
+    "loadingOverview": "Lade Übersicht …",
+    "manual": "{{name}} (von Hand zugeordnet)",
+    "noMatch": "Kein Ort passt zur Suche.",
+    "overviewUnavailable": "Übersicht nicht verfügbar",
+    "scripts": {
+      "adoptFirst": "Erst Scripts übernehmen (Panel „Script“)",
+      "binary": "binär",
+      "line": "Zeile {{line}}",
+      "noHeader": "ohne Header",
+      "noHits": "Keine Treffer.",
+      "noPlace": "ohne Ort",
+      "search": "Scripts durchsuchen",
+      "searchPlaceholder": "Nummer oder Text suchen",
+      "searching": "Suche …",
+      "size": "{{size}} Byte"
+    },
+    "search": "Welt durchsuchen",
+    "searchPlaceholder": "Gebiet, Raum oder Kürzel suchen",
+    "section": "Abschnitt {{n}}",
+    "shared": "geteilt"
+  }
+}
