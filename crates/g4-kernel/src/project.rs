@@ -670,9 +670,9 @@ impl Project {
             SourceMode::Newer { schema } => SchemaState::Newer(*schema),
             SourceMode::Broken { reason } => return Err(KernelError::Refused(reason.clone())),
         };
-        Err(KernelError::Refused(refusal(state).unwrap_or_else(|| {
-            "Das Textprojekt hat eine andere Schema-Version; es lässt sich nur lesen.".to_owned()
-        })))
+        Err(KernelError::Refused(
+            refusal(state).unwrap_or_else(|| t!("project.other_schema").into_owned()),
+        ))
     }
 
     /// The listings and the item table [`Project::asset_location`] finds units with.

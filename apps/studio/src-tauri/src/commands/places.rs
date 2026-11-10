@@ -98,7 +98,7 @@ mod tests {
         rename_place_impl(&state, 1, "Zweiblattdorf").unwrap();
         assert_eq!(location_names(&state), ["Zweiblattdorf", "Zweiblattdorf"]);
         let err = create_place_impl(&state, "", &[0]).unwrap_err();
-        assert_eq!(err.message, "Der Ort braucht einen Namen.");
+        assert_eq!(err.message, "The place needs a name.");
     }
 
     #[test]

@@ -33,7 +33,7 @@ use crate::tiles;
 // --- shared helpers ---
 
 /// The end of the sentence about a reference to a deleted entity.
-pub(crate) const DELETED: &str = ", which is deleted (Grabstein).";
+pub(crate) const DELETED: &str = ", which is deleted (tombstone).";
 
 /// The header table, or the reason a check needing it is skipped.
 fn headers(src: &dyn Source) -> Result<&[MapHeader], Skipped> {
@@ -1845,20 +1845,20 @@ mod tests {
         assert_eq!(keys(&found), [(Subject::EventFile(0), "warp:0")]);
         assert_eq!(
             found[0].message,
-            "Warp 0 leads to header 1, which is deleted (Grabstein)."
+            "Warp 0 leads to header 1, which is deleted (tombstone)."
         );
         assert_eq!(args(&found[0]), ["0", "1", "2", "0"]);
         let found = f.run(&MatrixMapRange);
         assert_eq!(keys(&found), [(Subject::Matrix(0), "cell:1,0")]);
         assert_eq!(
             found[0].message,
-            "Cell (1, 0) of matrix 0 shows map 1, which is deleted (Grabstein)."
+            "Cell (1, 0) of matrix 0 shows map 1, which is deleted (tombstone)."
         );
         let found = f.run(&MatrixHeaderRange);
         assert_eq!(keys(&found), [(Subject::Matrix(0), "cell:1,0")]);
         assert_eq!(
             found[0].message,
-            "Cell (1, 0) of matrix 0 belongs to header 1, which is deleted (Grabstein)."
+            "Cell (1, 0) of matrix 0 belongs to header 1, which is deleted (tombstone)."
         );
 
         // A deleted matrix is no source.

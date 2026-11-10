@@ -51,19 +51,36 @@ pub const FIELD_CAP: usize = 200;
 pub const LINE_CAP: usize = 400;
 /// Lines of context around a changed line.
 pub const LINE_CONTEXT: usize = 3;
-pub const NO_REPO: &str = "Dieses Projekt liegt in keinem Git-Repository.";
-pub const NO_COMMIT: &str = "Noch kein Commit: es gibt nichts zu vergleichen.";
-pub const NO_BASE_FOR_FILES: &str =
-    "Für einzelne Dateien gibt es keinen Vergleich mit der Basis-ROM.";
-pub const SAVED_NEEDS_THE_APP: &str = "Den ungespeicherten Stand kennt nur die App.";
-pub const SCRIPTS_HAVE_NO_UNSAVED: &str =
-    "Scripts speichert der Editor sofort; „Gegen gespeichert“ gibt es für sie nicht.";
+/// The refusal of a comparison with `HEAD` outside a Git repository.
+pub fn no_repo() -> String {
+    t!("diff.no_repo").into_owned()
+}
+/// The refusal of a comparison with `HEAD` before the first commit.
+pub fn no_commit() -> String {
+    t!("diff.no_commit").into_owned()
+}
+/// The refusal of a project file against the base ROM.
+pub fn no_base_for_files() -> String {
+    t!("diff.no_base_for_files").into_owned()
+}
+/// The refusal of a comparison with the saved state without the app's store.
+pub fn saved_needs_the_app() -> String {
+    t!("diff.saved_needs_the_app").into_owned()
+}
+/// The refusal of a script against the saved state.
+pub fn scripts_have_no_unsaved() -> String {
+    t!("diff.scripts_have_no_unsaved").into_owned()
+}
 /// The refusal of a `file` path or a `member` folder that does not name a place inside the
 /// project (see [`DiffSubject::check`]).
-pub const OUTSIDE_PROJECT: &str = "Verglichen wird nur, was im Projektordner liegt: ein relativer Pfad ohne „..“, nicht in .git, ein Ordner unter unpacked/ als ein einzelner Name.";
+pub fn outside_project() -> String {
+    t!("diff.outside_project").into_owned()
+}
 /// The refusal of a project file that is no regular file inside the project (a folder, a
 /// device or pipe, a link leading out of the project): it is not read.
-pub const NOT_A_FILE: &str = "Verglichen werden nur gewöhnliche Dateien im Projektordner; dies ist ein Ordner, eine Gerätedatei oder ein Verweis aus dem Projekt hinaus.";
+pub fn not_a_file() -> String {
+    t!("diff.not_a_file").into_owned()
+}
 
 /// What the entity is compared against (the old side).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,7 +238,7 @@ pub struct EntityDiffReport {
 }
 
 /// Where the old sides come from: the base ROM (`None`: none is found; then `base_label` is
-/// the reason the app gives, [`crate::patch::NO_MARK`] without one) with its name for the
+/// the reason the app gives, [`crate::patch::no_mark`] without one) with its name for the
 /// label, and the repository holding the project.
 pub struct DiffSources<'a> {
     pub original: Option<&'a dyn Original>,
@@ -233,8 +250,8 @@ pub struct DiffSources<'a> {
 /// that side cannot exist: a file or a story against the base, a script against the saved
 /// state, the saved state without the app's store, `HEAD` without a repository or a commit, the
 /// base without a base ROM. A `file` or `member` that names no place inside the project is refused
-/// first ([`OUTSIDE_PROJECT`], [`DiffSubject::check`]), a project file that is no regular file
-/// inside the project when it is read ([`NOT_A_FILE`]). Reads only: nothing is written,
+/// first ([`outside_project`], [`DiffSubject::check`]), a project file that is no regular file
+/// inside the project when it is read ([`not_a_file`]). Reads only: nothing is written,
 /// christened or recorded.
 pub fn diff_entity(
     project: &Project,
@@ -253,44 +270,49 @@ pub fn diff_entity(
                 subject,
                 DiffSubject::File { .. } | DiffSubject::Story { .. }
             ) {
-                return Err(KernelError::Refused(NO_BASE_FOR_FILES.to_owned()));
+                return Err(KernelError::Refused(no_base_for_files()));
             }
             let Some(original) = sources.original else {
                 let why = sources
                     .base_label
                     .clone()
-                    .unwrap_or_else(|| crate::patch::NO_MARK.to_owned());
+                    .unwrap_or_else(crate::patch::no_mark);
                 return Err(KernelError::Refused(why));
             };
             let label = match &sources.base_label {
-                Some(name) => format!("Basis-ROM {name}"),
-                None => "Basis-ROM".to_owned(),
+                Some(name) => t!("diff.base_label_named", name = name).into_owned(),
+                None => t!("diff.base_label").into_owned(),
             };
             let old = sides.base(original)?;
-            (label, SAVED_LABEL.to_owned(), old, sides.disk()?)
+            (label, saved_label(), old, sides.disk()?)
         }
         Against::Head => {
             let Some(repo) = sources.repo else {
-                return Err(KernelError::Refused(NO_REPO.to_owned()));
+                return Err(KernelError::Refused(no_repo()));
             };
             let Some(head) = repo.head()? else {
-                return Err(KernelError::Refused(NO_COMMIT.to_owned()));
+                return Err(KernelError::Refused(no_commit()));
             };
-            let label = format!("Commit {} „{}“", head.short, head.summary);
+            let label = t!(
+                "diff.commit_label",
+                short = head.short,
+                summary = head.summary
+            )
+            .into_owned();
             let old = sides.head(repo)?;
-            (label, SAVED_LABEL.to_owned(), old, sides.disk()?)
+            (label, saved_label(), old, sides.disk()?)
         }
         Against::Saved => {
             if matches!(subject, DiffSubject::Script { .. }) {
-                return Err(KernelError::Refused(SCRIPTS_HAVE_NO_UNSAVED.to_owned()));
+                return Err(KernelError::Refused(scripts_have_no_unsaved()));
             }
             let Some(store) = store else {
-                return Err(KernelError::Refused(SAVED_NEEDS_THE_APP.to_owned()));
+                return Err(KernelError::Refused(saved_needs_the_app()));
             };
             let (old, new) = sides.store(store)?;
             (
-                "Gespeichert".to_owned(),
-                "Ungespeichert".to_owned(),
+                t!("diff.saved").into_owned(),
+                t!("diff.unsaved").into_owned(),
                 old,
                 new,
             )
@@ -323,7 +345,9 @@ pub fn diff_entity(
 }
 
 /// The new side's label against the base and `HEAD`: the files as saved.
-const SAVED_LABEL: &str = "Projekt (gespeichert)";
+fn saved_label() -> String {
+    t!("diff.project_saved").into_owned()
+}
 
 /// The state and the shape of the diff of `old` and `new`: by the kind of the sides (JSON as
 /// fields, a map's JSON as a map, messages, texts as lines, anything else as binary), by the

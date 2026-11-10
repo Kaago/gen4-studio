@@ -569,7 +569,9 @@ mod tests {
             panic!("{:?}", report.problems);
         };
         assert!(
-            problem.message.starts_with("Textliteral nicht auflösbar"),
+            problem
+                .message
+                .starts_with("Text literal cannot be resolved"),
             "{problem:?}"
         );
 

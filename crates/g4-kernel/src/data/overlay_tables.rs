@@ -69,9 +69,15 @@ pub fn table_overlay(table: &str) -> Option<u16> {
     tables().get(table).map(|t| t.overlay)
 }
 
-/// Why a table is not read: „Ei-Attacken: Lage in Overlay 5 für CPUE nicht geprüft“.
+/// Why a table is not read: „Egg moves: location in overlay 5 not checked for CPUE“.
 pub fn unverified_reason(game_code: &str, table_label: &str, overlay: u16) -> String {
-    format!("{table_label}: Lage in Overlay {overlay} für {game_code} nicht geprüft")
+    t!(
+        "data.unverified",
+        table = table_label,
+        overlay = overlay,
+        game = game_code
+    )
+    .into_owned()
 }
 
 #[cfg(test)]
@@ -98,8 +104,8 @@ mod tests {
         assert_eq!(table_overlay("egg_moves"), Some(5));
         assert_eq!(table_overlay("tutors"), None);
         assert_eq!(
-            unverified_reason("CPUE", "Ei-Attacken", 5),
-            "Ei-Attacken: Lage in Overlay 5 für CPUE nicht geprüft"
+            unverified_reason("CPUE", "Egg moves", 5),
+            "Egg moves: location in overlay 5 not checked for CPUE"
         );
     }
 }

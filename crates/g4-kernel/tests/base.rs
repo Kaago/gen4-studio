@@ -388,7 +388,7 @@ fn publish_after_a_map_edit_writes_a_small_patch_that_applies() {
 
     let notes = std::fs::read_to_string(&report.patch.notes).unwrap();
     assert!(notes.contains("\nVersion: 0.1.0\n"), "{notes}");
-    assert!(notes.contains("Änderungen:\nKarte 3 geändert\n"), "{notes}");
+    assert!(notes.contains("Changes:\nKarte 3 geändert\n"), "{notes}");
     let releases = read_releases(&copy).unwrap();
     assert_eq!(releases.releases.len(), 1);
     assert_eq!(releases.releases[0].size, report.patch.size);

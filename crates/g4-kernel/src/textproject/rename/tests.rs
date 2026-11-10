@@ -323,8 +323,8 @@ fn undo_of_a_rename_after_an_outside_edit_writes_nothing() {
     match st.undo() {
         Err(KernelError::Refused(r)) => assert_eq!(
             r,
-            "data/trainers/0001.json wurde seit dem Umbenennen geändert; ⌘Z schreibt nichts, \
-             der Schritt fällt aus dem Verlauf."
+            "data/trainers/0001.json was changed since the rename; ⌘Z writes nothing, the step \
+             drops out of the history."
         ),
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -566,8 +566,8 @@ fn redo_of_a_rename_after_an_outside_edit_writes_nothing() {
     match st.redo() {
         Err(KernelError::Refused(r)) => assert_eq!(
             r,
-            "data/headers/0001.json wurde seit dem Rückgängigmachen des Umbenennens geändert; ⌘⇧Z \
-             schreibt nichts, der Schritt fällt aus dem Verlauf."
+            "data/headers/0001.json was changed since the rename was undone; ⌘⇧Z writes nothing, \
+             the step drops out of the history."
         ),
         other => panic!("expected a refusal, got {other:?}"),
     }

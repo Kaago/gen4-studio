@@ -279,19 +279,16 @@ mod tests {
             collision: 0x80,
         });
         for (input, text) in [
-            (short, "heights: 32 Zeilen erwartet, 31 da."),
+            (short, "heights: 32 rows expected, 31 found."),
             (
                 steep,
-                "Kachel x 4, y 6: Rampe mit 3 Stufen je Kachel (24 E); erlaubt sind 1 oder 2 \
-                 Stufen (8 oder 16 E), ab 20 E verweigert das Spiel den Schritt.",
+                "Tile x 4, y 6: ramp with 3 steps per tile (24 U); 1 or 2 steps (8 or 16 U) are \
+                 allowed, from 20 U on the game refuses the step.",
             ),
-            (
-                high,
-                "Kachel x 4, y 6: Höhe 63 liegt außerhalb von −16 bis 62 Stufen.",
-            ),
+            (high, "Tile x 4, y 6: height 63 is outside −16 to 62 steps."),
             (
                 outside,
-                "overrides: Kachel x 32, y 0 liegt außerhalb der Karte (0 bis 31).",
+                "overrides: tile x 32, y 0 is outside the map (0 to 31).",
             ),
         ] {
             assert_eq!(refusal(set_map_terrain(&mut st, 0, &input)), text);

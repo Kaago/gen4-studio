@@ -82,16 +82,23 @@ pub enum Rule {
     RemoveFile,
 }
 
-/// Why an original of an [`Rule::OnlyNew`] kind is not deleted; `{Art}` is
-/// [`DeleteTarget::kind_plural`] („Original-Scriptdateien …“).
-pub const ORIGINAL_KIND: &str = "Original-{Art} lassen sich nicht löschen: der Spielcode verweist unsichtbar darauf (ARM9, Overlays).";
+/// Why an original of an [`Rule::OnlyNew`] kind is not deleted, with the
+/// [`DeleteTarget::kind_plural`] of `target` („Original script files …“).
+pub fn original_kind(target: DeleteTarget) -> String {
+    t!("delete.original_kind", kinds = target.kind_plural()).into_owned()
+}
 /// Why a script file or text archive gets no tombstone.
-pub const NO_TOMBSTONE_FOR_FILES: &str = "Scriptdateien und Textarchive haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen.";
+pub fn no_tombstone_for_files() -> String {
+    t!("delete.no_tombstone_for_files").into_owned()
+}
 /// Why a texture or model gets no tombstone (binary arts, no JSON).
-pub const NO_TOMBSTONE_FOR_BINARIES: &str = "Texturen und Modelle haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen.";
+pub fn no_tombstone_for_binaries() -> String {
+    t!("delete.no_tombstone_for_binaries").into_owned()
+}
 /// Why the DSPRE layout has no tombstones.
-pub const NOT_A_TEXT_PROJECT: &str =
-    "Echtes Löschen gibt es im Textprojekt (Technik › Textprojekt).";
+pub fn not_a_text_project() -> String {
+    t!("delete.not_a_text_project").into_owned()
+}
 
 /// The arts whose entity JSON carries a tombstone: every art of a target with JSON. The
 /// binary arts (textures, models) have no JSON, so no envelope.
@@ -137,12 +144,12 @@ impl DeleteTarget {
         !matches!(self, DeleteTarget::Flag { .. } | DeleteTarget::Var { .. })
     }
 
-    /// The German name of the entity: „Trainer 0928“, „Header 0593“, „Scriptdatei 1124“,
-    /// „Ort 125“, „Flag 0x0094“ (the words of [`asset_label`]).
+    /// The name of the entity in the current language: „Trainer 0928“, „Header 0593“,
+    /// „Script file 1124“, „Place 125“, „Flag 0x0094“ (the words of [`asset_label`]).
     pub fn label(self) -> String {
         match self {
             DeleteTarget::Header { id } => format!("Header {id:04}"),
-            DeleteTarget::Place { index } => format!("Ort {index}"),
+            DeleteTarget::Place { index } => t!("delete.place_label", index = index).into_owned(),
             DeleteTarget::Flag { number } => format!("Flag 0x{number:04X}"),
             DeleteTarget::Var { number } => format!("Variable 0x{number:04X}"),
             _ => self
@@ -228,50 +235,52 @@ impl DeleteTarget {
         })
     }
 
-    /// The word of the target's kind for the sentences, singular („Trainer“,
-    /// „Begegnungsdatei“, „Scriptdatei“, …).
-    pub fn kind_word(self) -> &'static str {
-        match self {
-            DeleteTarget::Trainer { .. } => "Trainer",
-            DeleteTarget::Encounter { .. } => "Begegnungsdatei",
-            DeleteTarget::EventFile { .. } => "Eventdatei",
-            DeleteTarget::Matrix { .. } => "Matrix",
-            DeleteTarget::Map { .. } => "Karte",
-            DeleteTarget::Header { .. } => "Header",
-            DeleteTarget::Script { .. } => "Scriptdatei",
-            DeleteTarget::TextArchive { .. } => "Textarchiv",
-            DeleteTarget::AreaData { .. } => "Gebietsdaten",
-            DeleteTarget::MapTexture { .. } => "Kartentextur",
-            DeleteTarget::BuildingTexture { .. } => "Gebäudetextur",
-            DeleteTarget::BuildingModel { .. } => "Gebäudemodell",
-            DeleteTarget::InteriorBuildingModel { .. } => "Innenraum-Gebäudemodell",
-            DeleteTarget::Place { .. } => "Ort",
-            DeleteTarget::Flag { .. } => "Flag",
-            DeleteTarget::Var { .. } => "Variable",
-        }
+    /// The word of the target's kind for the sentences, singular („Trainer“, „Encounter
+    /// file“, „Script file“, …).
+    pub fn kind_word(self) -> String {
+        let key = match self {
+            DeleteTarget::Trainer { .. } => "delete.kind_trainer",
+            DeleteTarget::Encounter { .. } => "delete.kind_encounter",
+            DeleteTarget::EventFile { .. } => "delete.kind_event_file",
+            DeleteTarget::Matrix { .. } => "delete.kind_matrix",
+            DeleteTarget::Map { .. } => "delete.kind_map",
+            DeleteTarget::Header { .. } => "delete.kind_header",
+            DeleteTarget::Script { .. } => "delete.kind_script",
+            DeleteTarget::TextArchive { .. } => "delete.kind_text_archive",
+            DeleteTarget::AreaData { .. } => "delete.kind_area_data",
+            DeleteTarget::MapTexture { .. } => "delete.kind_map_texture",
+            DeleteTarget::BuildingTexture { .. } => "delete.kind_building_texture",
+            DeleteTarget::BuildingModel { .. } => "delete.kind_building_model",
+            DeleteTarget::InteriorBuildingModel { .. } => "delete.kind_interior_building_model",
+            DeleteTarget::Place { .. } => "delete.kind_place",
+            DeleteTarget::Flag { .. } => "delete.kind_flag",
+            DeleteTarget::Var { .. } => "delete.kind_var",
+        };
+        t!(key).into_owned()
     }
 
-    /// [`DeleteTarget::kind_word`] in the plural, `{Art}` of [`ORIGINAL_KIND`]
-    /// („Scriptdateien“).
-    pub fn kind_plural(self) -> &'static str {
-        match self {
-            DeleteTarget::Trainer { .. } => "Trainer",
-            DeleteTarget::Encounter { .. } => "Begegnungsdateien",
-            DeleteTarget::EventFile { .. } => "Eventdateien",
-            DeleteTarget::Matrix { .. } => "Matrizen",
-            DeleteTarget::Map { .. } => "Karten",
-            DeleteTarget::Header { .. } => "Header",
-            DeleteTarget::Script { .. } => "Scriptdateien",
-            DeleteTarget::TextArchive { .. } => "Textarchive",
-            DeleteTarget::AreaData { .. } => "Gebietsdaten",
-            DeleteTarget::MapTexture { .. } => "Kartentexturen",
-            DeleteTarget::BuildingTexture { .. } => "Gebäudetexturen",
-            DeleteTarget::BuildingModel { .. } => "Gebäudemodelle",
-            DeleteTarget::InteriorBuildingModel { .. } => "Innenraum-Gebäudemodelle",
-            DeleteTarget::Place { .. } => "Orte",
-            DeleteTarget::Flag { .. } => "Flags",
-            DeleteTarget::Var { .. } => "Variablen",
-        }
+    /// [`DeleteTarget::kind_word`] in the plural, as it stands inside [`original_kind`]
+    /// („script files“).
+    pub fn kind_plural(self) -> String {
+        let key = match self {
+            DeleteTarget::Trainer { .. } => "delete.plural_trainer",
+            DeleteTarget::Encounter { .. } => "delete.plural_encounter",
+            DeleteTarget::EventFile { .. } => "delete.plural_event_file",
+            DeleteTarget::Matrix { .. } => "delete.plural_matrix",
+            DeleteTarget::Map { .. } => "delete.plural_map",
+            DeleteTarget::Header { .. } => "delete.plural_header",
+            DeleteTarget::Script { .. } => "delete.plural_script",
+            DeleteTarget::TextArchive { .. } => "delete.plural_text_archive",
+            DeleteTarget::AreaData { .. } => "delete.plural_area_data",
+            DeleteTarget::MapTexture { .. } => "delete.plural_map_texture",
+            DeleteTarget::BuildingTexture { .. } => "delete.plural_building_texture",
+            DeleteTarget::BuildingModel { .. } => "delete.plural_building_model",
+            DeleteTarget::InteriorBuildingModel { .. } => "delete.plural_interior_building_model",
+            DeleteTarget::Place { .. } => "delete.plural_place",
+            DeleteTarget::Flag { .. } => "delete.plural_flag",
+            DeleteTarget::Var { .. } => "delete.plural_var",
+        };
+        t!(key).into_owned()
     }
 
     /// The target's number: its index, header id, script file or flag/variable number.

@@ -12,10 +12,10 @@ pub mod repo;
 pub mod templates;
 
 pub use cli::{
-    COMMIT_ALL_FAILED, CommitOptions, CommitPhase, CommitProgress, CommitReport, ENCLOSING_REPO,
-    FIRST_COMMIT, GIT_NEEDED, GitCli, IN_REPO, InitOptions, InitPhase, InitProgress, InitReport,
-    NO_REPO_TO_COMMIT, NOT_INSTALLED, NOTHING_TO_COMMIT, STUDIO_EMAIL, STUDIO_NAME,
-    check_commit_all, commit_all, default_subject, find_git, git_init, subject_of,
+    CommitOptions, CommitPhase, CommitProgress, CommitReport, GitCli, InitOptions, InitPhase,
+    InitProgress, InitReport, STUDIO_EMAIL, STUDIO_NAME, check_commit_all, commit_all,
+    commit_all_failed, default_subject, enclosing_repo, find_git, first_commit, git_init,
+    git_needed, in_repo, no_repo_to_commit, not_installed, nothing_to_commit, subject_of,
 };
 pub use repo::{GitRepo, GitStatus, HeadInfo, PathState, RepoKind, StatusPath, status};
 pub use templates::{Layout, TemplateAction, TemplateFile, TemplateReport, write_templates};

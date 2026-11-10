@@ -162,7 +162,7 @@ const MEMBER_KINDS: [AssetKind; 6] = [
     AssetKind::Trainer,
 ];
 
-/// Progress labels: the UI words them ("Prüft … Texte 312/724").
+/// Progress labels: the UI words them ("Checking… texts 312/724").
 pub const PROGRESS_LOAD: &str = "load";
 pub const PROGRESS_TEXTS: &str = "texts";
 pub const PROGRESS_SCRIPTS: &str = "scripts";

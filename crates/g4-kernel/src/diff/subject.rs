@@ -13,9 +13,13 @@ use crate::project::{AssetId, AssetKind, Project};
 use crate::textproject::source::{entity_of_data_file, item_member_of, item_members};
 
 /// The group of a project file.
-const FILES_GROUP: &str = "Projektdateien";
+fn files_group() -> String {
+    t!("diff.group_files").into_owned()
+}
 /// The group of a story (`data/stories/NNNN.json`).
-const STORIES_GROUP: &str = "Geschichten";
+fn stories_group() -> String {
+    t!("diff.group_stories").into_owned()
+}
 
 /// One entity. `index` is the entity's number: a header's id, a script file, an item's item
 /// id (as in the app's item list and `data/items/`; the member follows from the item table).
@@ -49,14 +53,17 @@ pub enum DiffSubject {
 }
 
 impl DiffSubject {
-    /// The German name: the words of [`crate::original::asset_label`] („Trainer 0001“,
-    /// „Pokémon 0025“), „Header 0003“, „{folder} {NNNN}“ for a member, the path of a file.
+    /// The name in the current language: the words of [`crate::original::asset_label`]
+    /// („Trainer 0001“, „Pokémon 0025“), „Header 0003“, „{folder} {NNNN}“ for a member, the
+    /// path of a file, „Story 0002“.
     pub fn label(&self) -> String {
         match self {
             DiffSubject::Header { index } => format!("Header {index:04}"),
             DiffSubject::Member { folder, index } => format!("{folder} {index:04}"),
             DiffSubject::File { path } => path.clone(),
-            DiffSubject::Story { index } => format!("Geschichte {index:04}"),
+            DiffSubject::Story { index } => {
+                t!("diff.story_label", index = index : {:04}).into_owned()
+            }
             _ => self.asset().map(asset_label).unwrap_or_default(),
         }
     }
@@ -160,20 +167,20 @@ impl DiffSubject {
     }
 
     /// The group of the list: the groups of 4.1b's list of changes, the folder's name for a
-    /// member, „Projektdateien“ for a file, „Geschichten“ for a story.
+    /// member, „Project files“ for a file, „Stories“ for a story.
     pub fn group(&self) -> String {
         match self {
             DiffSubject::Header { .. } => group_name(HEADER_GROUP),
             DiffSubject::Member { folder, .. } => folder.clone(),
-            DiffSubject::File { .. } => FILES_GROUP.to_owned(),
-            DiffSubject::Story { .. } => STORIES_GROUP.to_owned(),
+            DiffSubject::File { .. } => files_group(),
+            DiffSubject::Story { .. } => stories_group(),
             _ => {
                 let kind = match self.asset().map(|id| id.kind) {
                     Some(AssetKind::Trainer) => AssetKind::TrainerProperties,
                     Some(kind) => kind,
-                    None => return FILES_GROUP.to_owned(),
+                    None => return files_group(),
                 };
-                group_of(kind).map_or_else(|| FILES_GROUP.to_owned(), group_name)
+                group_of(kind).map_or_else(files_group, group_name)
             }
         }
     }
@@ -251,7 +258,7 @@ impl DiffSubject {
 
     /// `Ok` when the subject names a place inside the project: a `file` path relative, made of
     /// names only (no root, drive, `.` or `..`) and none of them `.git` (in any case), a
-    /// `member` folder one such name; else refused with [`super::OUTSIDE_PROJECT`]. Every
+    /// `member` folder one such name; else refused with [`super::outside_project`]. Every
     /// other kind names its files itself.
     pub fn check(&self) -> Result<(), KernelError> {
         let inside = match self {
@@ -262,7 +269,7 @@ impl DiffSubject {
         if inside {
             Ok(())
         } else {
-            Err(KernelError::Refused(super::OUTSIDE_PROJECT.to_owned()))
+            Err(KernelError::Refused(super::outside_project()))
         }
     }
 
@@ -428,7 +435,7 @@ mod tests {
                 path: "g4-world.json".into()
             }
             .group(),
-            "Projektdateien"
+            "Project files"
         );
     }
 

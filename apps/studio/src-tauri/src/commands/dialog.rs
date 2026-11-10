@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(history.undo.len(), undo + 1);
         assert_eq!(
             history.undo.last().map(String::as_str),
-            Some("Dialog von Figur 3 abgespalten")
+            Some("Dialog of character 3 split off")
         );
         let indices = |state: &AppState, figure: u16| -> Vec<u16> {
             dialog_of_impl(state, 0, 0, DialogKind::Object, figure)
@@ -353,7 +353,7 @@ mod tests {
         let refused = split_message_impl(&state, 0, 0, 3, ARCHIVE, 4).unwrap_err();
         assert_eq!(
             refused.message,
-            "Objekt 3 zeigt Nachricht 4 aus Textarchiv 433 nicht."
+            "Object 3 does not show message 4 of text archive 433."
         );
         assert_eq!(history_impl(&state).unwrap().undo.len(), undo);
     }

@@ -223,6 +223,6 @@ mod tests {
             &mut |_| {},
         )
         .unwrap_err();
-        assert_eq!(err.message, start::DP_LOCKED);
+        assert_eq!(err.message, start::dp_locked());
     }
 }

@@ -231,7 +231,7 @@ mod tests {
             budget["textures_missing"]
                 .as_str()
                 .unwrap()
-                .starts_with("Texturpaket 0 nicht lesbar: "),
+                .starts_with("Texture pack 0 unreadable: "),
             "{budget}"
         );
 
@@ -242,7 +242,7 @@ mod tests {
         let before = get_map_impl(&state, 0).unwrap().permissions;
         match dispatch(&state, &policy, "set_map_terrain", short) {
             Err(crate::commands::dispatch::DispatchError::Cmd(e)) => {
-                assert_eq!(e.message, "kinds: 32 Zeilen erwartet, 31 da.")
+                assert_eq!(e.message, "kinds: 32 rows expected, 31 found.")
             }
             other => panic!("{other:?}"),
         }

@@ -19,8 +19,8 @@ use crate::stories::uses::StoryUse;
 
 /// What [`delete`], [`restore`] and [`super::free_number`] did: the step on the undo stack
 /// (`None` when nothing was recorded), the assets that changed, what „Nummer freigeben“
-/// removed, how long it took, what went wrong on the side without undoing it (`notes`, German
-/// sentences), and the stories that mention the deleted entity (`mentions`, the plan's list:
+/// removed, how long it took, what went wrong on the side without undoing it (`notes`, sentences
+/// in the current language), and the stories that mention the deleted entity (`mentions`, the plan's list:
 /// their uses are open now). `notes` and `mentions` are left out of the JSON when empty.
 #[derive(Debug, Clone, Serialize)]
 pub struct DeleteResult {
@@ -40,7 +40,7 @@ pub(super) fn ms_since(started: Instant) -> u64 {
 
 /// Why an entity is not deleted twice.
 pub(super) fn already_deleted(label: &str) -> String {
-    format!("{label} ist schon gelöscht.")
+    t!("delete.already_deleted", label = label).into_owned()
 }
 
 /// Deletes `target`: plans it first ([`plan_delete`]) and refuses like the plan, with its
@@ -62,10 +62,7 @@ pub fn delete(
         return Err(KernelError::Refused(why));
     }
     if !plan.references.is_empty() {
-        return Err(KernelError::Referenced {
-            label: plan.label,
-            references: plan.references,
-        });
+        return Err(KernelError::referenced(plan.label, plan.references));
     }
     let label = plan.label;
     let mentions = plan.mentions;
@@ -83,9 +80,10 @@ pub fn delete(
             if plan.deleted {
                 return Err(KernelError::Refused(already_deleted(&label)));
             }
-            let ((), change) = store.transaction(&format!("Gelöscht: {label}"), |tx| {
-                tx.set_deleted(target, true)
-            })?;
+            let ((), change) = store
+                .transaction(&t!("delete.deleted_label", label = label), |tx| {
+                    tx.set_deleted(target, true)
+                })?;
             (change, target.assets())
         }
     };
@@ -106,9 +104,11 @@ pub fn restore(store: &mut Store, target: DeleteTarget) -> Result<DeleteResult, 
     let started = Instant::now();
     let label = target.label();
     if !store.is_deleted(target) {
-        return Err(KernelError::Refused(format!("{label} ist nicht gelöscht.")));
+        return Err(KernelError::Refused(
+            t!("delete.not_deleted", label = label).into_owned(),
+        ));
     }
-    let ((), change) = store.transaction(&format!("Wiederhergestellt: {label}"), |tx| {
+    let ((), change) = store.transaction(&t!("delete.restored_label", label = label), |tx| {
         tx.set_deleted(target, false)
     })?;
     Ok(DeleteResult {

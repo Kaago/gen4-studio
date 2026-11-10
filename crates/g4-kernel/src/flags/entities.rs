@@ -29,14 +29,19 @@ use crate::textproject::rename::{not_a_text_project, apply_file_step, format_tex
 use crate::textproject::symbols::parse_fallback;
 
 /// Why a number that already has an own name cannot get another one.
-pub const HAS_OWN_NAME: &str =
-    "Die Nummer hat schon einen eigenen Namen; ändern über „Umbenennen…“.";
+pub fn has_own_name() -> String {
+    t!("flags.has_own_name").into_owned()
+}
 
 /// Why a request that changes nothing is refused.
-pub const NOTHING_TO_CHANGE: &str = "Nichts zu ändern.";
+pub fn nothing_to_change() -> String {
+    t!("flags.nothing_to_change").into_owned()
+}
 
 /// Why a number without an own name needs an id.
-pub const ID_REQUIRED: &str = "Die Nummer hat noch keinen eigenen Namen; dafür braucht es eine ID.";
+pub fn id_required() -> String {
+    t!("flags.id_required").into_owned()
+}
 
 /// The entity file of an own name: its id and, when not empty, its description.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,30 +146,35 @@ pub enum TakenBy {
     Rotom(i32),
 }
 
-/// The sentence for an id that is taken: „FLAG_X gibt es schon (Nummer 148).“, „FLAG_X ist die
-/// Ersatz-ID der Nummer 148.“, „FLAG_X ist der pret-Name der Nummer 148.“, „FLAG_X kennt rotom
-/// schon als Nummer 148.“
+/// The sentence for an id that is taken: „FLAG_X already exists (number 148).“, „FLAG_X is the
+/// fallback ID of number 148.“, „FLAG_X is the pret name of number 148.“, „FLAG_X is already
+/// known to rotom as number 148.“ The number stands last (the app finds the sentence by the
+/// text before it).
 pub fn taken_text(id: &str, by: TakenBy) -> String {
     match by {
-        TakenBy::Register(n) => format!("{id} gibt es schon (Nummer {n})."),
-        TakenBy::Fallback(n) => format!("{id} ist die Ersatz-ID der Nummer {n}."),
-        TakenBy::Pret(n) => format!("{id} ist der pret-Name der Nummer {n}."),
-        TakenBy::Rotom(n) => format!("{id} kennt rotom schon als Nummer {n}."),
+        TakenBy::Register(n) => t!("flags.taken_register", id = id, n = n),
+        TakenBy::Fallback(n) => t!("flags.taken_fallback", id = id, n = n),
+        TakenBy::Pret(n) => t!("flags.taken_pret", id = id, n = n),
+        TakenBy::Rotom(n) => t!("flags.taken_rotom", id = id, n = n),
     }
+    .into_owned()
 }
 
-/// The sentence for a number the save block does not hold: „Nummer 0x0FFF liegt außerhalb des
-/// Spielstands (Flags 0x0001 bis 0x0B5F).“
+/// The sentence for a number the save block does not hold: „Number 0x0FFF is outside the save
+/// game (flags 0x0001 to 0x0B5F).“
 pub fn not_in_save_text(kind: FlagKind, n: u16, family: Family) -> String {
     let r = ranges(family);
-    let (words, first, end) = match kind {
-        FlagKind::Flag => ("Flags", 1, r.flags_end),
-        FlagKind::Var => ("Variablen", 0x4000, r.vars_end),
+    let (key, first, end) = match kind {
+        FlagKind::Flag => ("flags.not_in_save_flag", 1, r.flags_end),
+        FlagKind::Var => ("flags.not_in_save_var", 0x4000, r.vars_end),
     };
-    format!(
-        "Nummer 0x{n:04X} liegt außerhalb des Spielstands ({words} 0x{first:04X} bis 0x{:04X}).",
-        end.saturating_sub(1)
+    t!(
+        key,
+        n = n : {:04X},
+        first = first : {:04X},
+        last = end.saturating_sub(1) : {:04X}
     )
+    .into_owned()
 }
 
 /// Names a number or sets its description as one step on the undo stack (see the module
@@ -173,8 +183,8 @@ pub fn not_in_save_text(kind: FlagKind, n: u16, family: Family) -> String {
 /// [`KernelError::Refused`] with its sentence: not a current text project
 /// ([`not_a_text_project`]), the number outside the save ([`not_in_save_text`]), an id without
 /// the kind's prefix or with other characters ([`format_text`]), an id taken ([`taken_text`]),
-/// a number with another own name ([`HAS_OWN_NAME`]), no id for a number without an own name
-/// ([`ID_REQUIRED`]), nothing to do ([`NOTHING_TO_CHANGE`]).
+/// a number with another own name ([`has_own_name`]), no id for a number without an own name
+/// ([`id_required`]), nothing to do ([`nothing_to_change`]).
 pub fn name_flag(store: &mut Store, req: &NameRequest) -> Result<NameReport, KernelError> {
     let started = Instant::now();
     let project = store.project_arc();
@@ -274,12 +284,12 @@ fn prepare(project: &Project, req: &NameRequest) -> Result<Named, KernelError> {
                 return refuse(taken_text(id, by));
             }
             if own.is_some() {
-                return refuse(HAS_OWN_NAME.to_owned());
+                return refuse(has_own_name());
             }
             id.to_owned()
         }
         (None, Some(own)) => own.to_owned(),
-        (None, None) => return refuse(ID_REQUIRED.to_owned()),
+        (None, None) => return refuse(id_required()),
     };
     let created = own.is_none();
     let root = &project.root;
@@ -317,12 +327,12 @@ fn prepare(project: &Project, req: &NameRequest) -> Result<Named, KernelError> {
         });
     }
     if files.is_empty() {
-        return refuse(NOTHING_TO_CHANGE.to_owned());
+        return refuse(nothing_to_change());
     }
     let label = if created {
-        format!("{} benannt: {id} (0x{n:04X})", kind.word())
+        t!("flags.named_label", kind = kind.word(), id = id, n = n : {:04X}).into_owned()
     } else {
-        format!("Beschreibung geändert: {id}")
+        t!("flags.description_changed_label", id = id).into_owned()
     };
     Ok(Named {
         kind,

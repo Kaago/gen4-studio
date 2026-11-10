@@ -126,7 +126,7 @@ mod tests {
         let answer = world_meta_get_impl(&state).unwrap();
         assert_eq!(
             answer.broken.as_deref(),
-            Some("unbekannte ID MAP_X in roomNames")
+            Some("unknown ID MAP_X in roomNames")
         );
         assert!(world_meta_set_impl(&state, named(1, "Laden")).is_err());
         assert_eq!(

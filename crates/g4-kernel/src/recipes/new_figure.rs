@@ -21,7 +21,7 @@ use super::types::{
     Draft, DraftEvent, DraftEventKind, DraftMessage, Outcome, check_header_id, check_writable, id,
     next_steps, refused,
 };
-use crate::data::trainer_create::ADOPT_FIRST;
+use crate::data::trainer_create::adopt_first;
 use crate::dialog::highest_message;
 use crate::error::KernelError;
 use crate::flags::{FlagKind, in_save, not_in_save_text};
@@ -155,7 +155,7 @@ struct Checked {
 }
 
 /// Every check before the first write, in this order: the header, adopted scripts
-/// ([`ADOPT_FIRST`]), a text, a flag the save holds, a rotom source as the header's script file,
+/// ([`adopt_first`]), a text, a flag the save holds, a rotom source as the header's script file,
 /// a writable event file and text archive, a tile of the header's matrix no object of the file
 /// stands on, a local slot below the common scripts, a script name the file does not use, a
 /// message number the message command takes.
@@ -163,7 +163,7 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
     check_header_id(store, input.header)?;
     let family = store.project().family;
     if !scripts::is_adopted(store.project()) {
-        return Err(refused(ADOPT_FIRST));
+        return Err(refused(adopt_first()));
     }
     if input.text.trim().is_empty() {
         return Err(refused(t!("recipes.figure_needs_text")));

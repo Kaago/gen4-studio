@@ -32,7 +32,7 @@ use std::time::Instant;
 
 use g4_formats::game::Family;
 use g4_kernel::base::BaseRom;
-use g4_kernel::data::trainer_create::ADOPT_FIRST;
+use g4_kernel::data::trainer_create::adopt_first;
 use g4_kernel::dialog::{Dialog, DialogKind, DialogSource, dialog_of};
 use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag, taken_text};
@@ -439,7 +439,7 @@ fn a_var_outside_the_pool_or_with_a_name_is_refused() {
             &mut store,
             &new_story_input("  ", POOL_VAR)
         )),
-        "Die Geschichte braucht einen Namen."
+        "The story needs a name."
     );
     assert_eq!(state(&store), before);
     assert_eq!(store.undo_depth(), mark);
@@ -1019,7 +1019,7 @@ fn a_talk_needs_adopted_scripts() {
     let mark = store.undo_depth();
     assert_eq!(
         refused(talk_advances::plan(&mut store, &talk(5, 0, "x"))),
-        ADOPT_FIRST
+        adopt_first()
     );
     assert_eq!(store.undo_depth(), mark);
 }

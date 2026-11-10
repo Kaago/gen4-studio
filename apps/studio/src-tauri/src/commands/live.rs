@@ -750,7 +750,7 @@ mod tests {
         assert_eq!(
             state.live.status().reason,
             Some(format!(
-                "Der GDB-Stub auf Port {} schließt jede Verbindung sofort: melonDS neu starten",
+                "The GDB stub on port {} closes every connection at once: restart melonDS",
                 stub.port
             ))
         );
@@ -768,7 +768,7 @@ mod tests {
         });
         assert_eq!(
             state.live.status().reason.as_deref(),
-            Some("Für CPUE ist die Lage des Spielstands nicht bekannt")
+            Some("The location of the save game is not known for CPUE")
         );
         assert!(stub.log_lines().is_empty(), "never connected");
     }
@@ -784,7 +784,7 @@ mod tests {
         });
         assert_eq!(
             state.live.status().reason.as_deref(),
-            Some("melonDS spielt IPKE, das Projekt ist CPUD")
+            Some("melonDS plays IPKE, the project is CPUD")
         );
         assert!(!stub.log_lines().iter().any(|l| l.starts_with('M')));
     }

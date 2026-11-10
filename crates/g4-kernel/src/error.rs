@@ -87,17 +87,40 @@ pub enum KernelError {
     #[error("Git: {0}")]
     Git(String),
     /// An entity cannot be deleted while other entities point at it (the reference lock of
-    /// 3d.4, [`crate::delete::plan_delete`]); `references` lists them. Nothing was changed.
-    #[error("{label} wird noch verwendet ({}).", references_count(.references.len()))]
-    Referenced { label: String, references: Vec<Ref> },
+    /// 3d.4, [`crate::delete::plan_delete`]); `references` lists them, `message` says so in the
+    /// language of the moment it was made ([`KernelError::referenced`]). Nothing was changed.
+    #[error("{message}")]
+    Referenced {
+        label: String,
+        references: Vec<Ref>,
+        message: String,
+    },
 }
 
-/// „1 Verweis“, „{n} Verweise“.
+impl KernelError {
+    /// [`KernelError::Referenced`] for `label` with its message: „Trainer 0001 is still in use
+    /// (2 references).“
+    pub fn referenced(label: String, references: Vec<Ref>) -> KernelError {
+        let message = t!(
+            "error.referenced",
+            label = label,
+            count = references_count(references.len())
+        )
+        .into_owned();
+        KernelError::Referenced {
+            label,
+            references,
+            message,
+        }
+    }
+}
+
+/// „1 reference“, „{n} references“.
 fn references_count(n: usize) -> String {
     if n == 1 {
-        "1 Verweis".to_owned()
+        t!("error.references_one").into_owned()
     } else {
-        format!("{n} Verweise")
+        t!("error.references_other", n = n).into_owned()
     }
 }
 
@@ -128,8 +151,8 @@ pub fn guard_panic<T>(tool: &str, call: impl FnOnce() -> T) -> Result<T, KernelE
             .downcast_ref::<&str>()
             .map(|s| (*s).to_owned())
             .or_else(|| payload.downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "unbekannter Fehler".to_owned());
-        KernelError::Crashed(format!("{tool} ist abgestürzt: {message}"))
+            .unwrap_or_else(|| t!("error.unknown_panic").into_owned());
+        KernelError::Crashed(t!("error.crashed", tool = tool, message = message).into_owned())
     })
 }
 
@@ -195,14 +218,11 @@ mod tests {
     }
 
     #[test]
-    fn guard_panic_maps_a_panic_to_a_german_error_with_its_message() {
+    fn guard_panic_maps_a_panic_to_an_error_with_its_message() {
         assert_eq!(guard_panic("rotom", || 7).unwrap(), 7);
         let err = guard_panic("rotom", || -> u8 { panic!("index out of bounds") }).unwrap_err();
-        assert_eq!(err.to_string(), "rotom ist abgestürzt: index out of bounds");
+        assert_eq!(err.to_string(), "rotom crashed: index out of bounds");
         let owned = guard_panic("chatot", || -> u8 { panic!("{}", String::from("kaputt")) });
-        assert_eq!(
-            owned.unwrap_err().to_string(),
-            "chatot ist abgestürzt: kaputt"
-        );
+        assert_eq!(owned.unwrap_err().to_string(), "chatot crashed: kaputt");
     }
 }

@@ -605,7 +605,7 @@ fn import_needs_the_base_only_for_changed_base_parts() {
     assert_eq!(problems[0].file, Path::new("data/maps/0002.json"));
     assert!(problems[0].message.contains("model.base_sha1"));
     assert!(
-        problems[0].message.contains("Basis-ROM nicht gefunden"),
+        problems[0].message.contains("Base ROM not found"),
         "{}",
         problems[0].message
     );
@@ -778,7 +778,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
             force: false,
         },
     ));
-    assert!(text.starts_with("Das ist eine andere ROM"), "{text}");
+    assert!(text.starts_with("This is another ROM"), "{text}");
 
     // An older schema version.
     let old = Fx::new();

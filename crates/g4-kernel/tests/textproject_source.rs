@@ -207,6 +207,7 @@ fn simulated_dspre_change_is_adopted_one_sided() {
     build::build(&Project::open(&root).unwrap(), &out).unwrap();
     assert_cmd::Command::cargo_bin("g4k")
         .unwrap()
+        .env("G4_LANG", "en")
         .arg("check-data")
         .arg(&out)
         .args(["--expect", &format!("move:1:power={}", bytes[3])])

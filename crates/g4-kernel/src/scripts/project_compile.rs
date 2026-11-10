@@ -422,7 +422,7 @@ pub(super) fn compile_project(
         config.source_roots(root).into_iter().next(),
         config.binary_roots(root).into_iter().next(),
     ) else {
-        return Err(rotom_error("compile", "source_roots/binary_roots fehlen"));
+        return Err(rotom_error("compile", t!("scripts.roots_missing")));
     };
     let mut inputs = Vec::new();
     sources(&source_root, &mut inputs)?;
@@ -453,11 +453,11 @@ pub(super) fn compile_project(
         if let Some(other) = outputs.insert(output, input) {
             return Err(rotom_error(
                 "compile",
-                format!(
-                    "{} und {} schreiben beide {}",
-                    other.display(),
-                    input.display(),
-                    output.display()
+                t!(
+                    "scripts.both_write",
+                    first = other.display(),
+                    second = input.display(),
+                    output = output.display()
                 ),
             ));
         }
@@ -465,7 +465,7 @@ pub(super) fn compile_project(
 
     let db_path = config
         .database_file(root)
-        .ok_or_else(|| rotom_error("compile", "keine Befehlsdatenbank in rotom.toml"))?;
+        .ok_or_else(|| rotom_error("compile", t!("scripts.no_command_db")))?;
     let db_hash = xxh3_64(&std::fs::read(&db_path).map_err(io_at(&db_path))?);
     let context = guard_panic("rotom", || load_context(project, config, &db_path))??;
     let constants = context.project_constants();

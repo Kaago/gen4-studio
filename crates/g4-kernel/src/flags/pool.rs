@@ -18,13 +18,19 @@ use crate::error::KernelError;
 use crate::project::Project;
 
 /// Why "take a free flag" has nothing to give.
-pub const POOL_EMPTY: &str = "Kein freies Flag im allgemeinen Bereich.";
+pub fn pool_empty() -> String {
+    t!("flags.pool_empty").into_owned()
+}
 
 /// Why "take a free variable" has nothing to give.
-pub const POOL_EMPTY_VAR: &str = "Keine freie Variable im allgemeinen Bereich.";
+pub fn pool_empty_var() -> String {
+    t!("flags.pool_empty_var").into_owned()
+}
 
 /// The word for a variable the empty-region recipe reserves.
-pub const RESERVED_BY_EMPTY_REGION: &str = "Vorlage „Leere Region“";
+pub fn reserved_by_empty_region() -> String {
+    t!("flags.reserved_by_empty_region").into_owned()
+}
 
 /// The pool of one kind: the general range, its free numbers (ascending), how many numbers the
 /// general area has (`total`) and which of them a recipe reserves.
@@ -85,7 +91,7 @@ pub fn pool(
     })
 }
 
-/// The smallest free flag ([`pool`]); `None` when the pool is empty ([`POOL_EMPTY`]).
+/// The smallest free flag ([`pool`]); `None` when the pool is empty ([`pool_empty`]).
 pub fn free_flag(
     project: &Project,
     usage: &BTreeMap<u16, Usage>,
@@ -93,7 +99,7 @@ pub fn free_flag(
     Ok(pool(project, usage, FlagKind::Flag)?.free.first().copied())
 }
 
-/// The smallest free variable ([`pool`]); `None` when the pool is empty ([`POOL_EMPTY_VAR`]).
+/// The smallest free variable ([`pool`]); `None` when the pool is empty ([`pool_empty_var`]).
 pub fn free_var(
     project: &Project,
     usage: &BTreeMap<u16, Usage>,
@@ -104,20 +110,20 @@ pub fn free_var(
 /// The variables the recipes of `metadata/templates.yaml` reserve for `family` (`done_var`),
 /// with the recipe's word; none for Diamond and Pearl (no recipe) or a `done_var` the command
 /// database does not name.
-pub fn reserved(family: Family) -> Vec<(u16, &'static str)> {
+pub fn reserved(family: Family) -> Vec<(u16, String)> {
     crate::templates::region_recipe(family)
         .ok()
         .and_then(|recipe| crate::templates::variable_id(family, &recipe.done_var))
-        .map(|n| (n, RESERVED_BY_EMPTY_REGION))
+        .map(|n| (n, reserved_by_empty_region()))
         .into_iter()
         .collect()
 }
 
-/// Why the pool of `kind` has nothing to give: [`POOL_EMPTY`] or [`POOL_EMPTY_VAR`].
-pub fn pool_empty_text(kind: FlagKind) -> &'static str {
+/// Why the pool of `kind` has nothing to give: [`pool_empty`] or [`pool_empty_var`].
+pub fn pool_empty_text(kind: FlagKind) -> String {
     match kind {
-        FlagKind::Flag => POOL_EMPTY,
-        FlagKind::Var => POOL_EMPTY_VAR,
+        FlagKind::Flag => pool_empty(),
+        FlagKind::Var => pool_empty_var(),
     }
 }
 
@@ -249,9 +255,9 @@ mod tests {
         let p = fx.project();
         assert_eq!(
             reserved(Family::Pt),
-            [(0x406C, "Vorlage „Leere Region“")]
+            [(0x406C, "Template “Empty region”".to_owned())]
         );
-        assert_eq!(reserved(Family::Hgss), [(0x4031, "Vorlage „Leere Region“")]);
+        assert_eq!(reserved(Family::Hgss), [(0x4031, "Template “Empty region”".to_owned())]);
         assert!(reserved(Family::Dp).is_empty());
         // Everything below 0x406C is used, so the done variable would be the smallest.
         let usage = used_below(FlagKind::Var, 0x406C);
@@ -300,11 +306,11 @@ mod tests {
             };
             assert_eq!(free.unwrap(), None);
         }
-        assert_eq!(pool_empty_text(FlagKind::Flag), POOL_EMPTY);
-        assert_eq!(POOL_EMPTY, "Kein freies Flag im allgemeinen Bereich.");
+        assert_eq!(pool_empty_text(FlagKind::Flag), pool_empty());
+        assert_eq!(pool_empty(), "No free flag in the general area.");
         assert_eq!(
             pool_empty_text(FlagKind::Var),
-            "Keine freie Variable im allgemeinen Bereich."
+            "No free variable in the general area."
         );
     }
 }

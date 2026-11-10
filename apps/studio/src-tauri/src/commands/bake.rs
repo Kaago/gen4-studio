@@ -105,7 +105,7 @@ pub(crate) mod tests {
         assert!(pack_file.is_file());
         assert_eq!(
             history_impl(&state).unwrap().undo,
-            ["Testfläche gebacken: Karte 0000"]
+            ["Test surface baked: Map 0000"]
         );
         // `block` is the tile (x, z) as the command layer sends it.
         let at = bake_test_impl(&state, 0, Some([3, 4]), None).unwrap();

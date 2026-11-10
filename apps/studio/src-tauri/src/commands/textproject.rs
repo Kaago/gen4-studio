@@ -112,7 +112,7 @@ pub async fn text_export(app: tauri::AppHandle) -> Result<ExportReport, CmdError
 mod tests {
     use super::*;
     use crate::commands::{
-        NO_MARK, assign_base_impl, dirty_impl, open_project_impl, open_synthetic, save_impl,
+        assign_base_impl, dirty_impl, no_mark, open_project_impl, open_synthetic, save_impl,
         set_matrix_cell_impl,
     };
     use g4_kernel::base::missing_text;
@@ -241,7 +241,10 @@ mod tests {
     fn text_export_without_a_base_answers_base_missing() {
         let d = dspre();
         let err = text_export_impl(&d.state).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
         wrote_nothing(&d.root);
 
         // Assigned, then moved away: the reason names the missing ROM.
@@ -262,7 +265,7 @@ mod tests {
         assert_eq!(err.code, "base_missing");
         assert!(
             err.message
-                .starts_with("Die Basismarke .g4/base.json ist nicht lesbar ("),
+                .starts_with("The base mark .g4/base.json cannot be read ("),
             "{}",
             err.message
         );

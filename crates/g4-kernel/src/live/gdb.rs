@@ -48,7 +48,8 @@ const SPARE_ACKS: &[u8] = b"+++";
 /// stop reply, an `OK` and a `W00` at most) before it gives up with [`LiveError::NoReply`].
 const MAX_SKIPPED_REPLIES: usize = 8;
 
-/// Errors of the live connection; the German texts are shown in the studio as they are.
+/// Errors of the live connection; the texts (in the language of the moment they are shown) are
+/// shown in the studio as they are.
 #[derive(Debug, thiserror::Error)]
 pub enum LiveError {
     #[error("cannot connect to {addr}: {source}")]
@@ -56,21 +57,21 @@ pub enum LiveError {
         addr: String,
         source: std::io::Error,
     },
-    #[error("melonDS antwortet nicht")]
+    #[error("{}", t!("live.no_reply"))]
     NoReply,
-    #[error("melonDS hat die Verbindung geschlossen")]
+    #[error("{}", t!("live.closed"))]
     Closed,
     /// The stub accepted and closed the connection during the handshake: melonDS 1.1 does that
     /// to every client once its receive buffer starts with a stray byte.
-    #[error("Der GDB-Stub auf Port {port} schließt jede Verbindung sofort: melonDS neu starten")]
+    #[error("{}", t!("live.hangup", port = port))]
     Hangup { port: u16 },
     #[error("stub answered {reply} to {packet}")]
     Rejected { packet: String, reply: String },
-    #[error("melonDS spielt {found}, das Projekt ist {expected}")]
+    #[error("{}", t!("live.wrong_game", found = found, expected = expected))]
     WrongGame { found: String, expected: String },
-    #[error("Nummer liegt außerhalb des Spielstands")]
+    #[error("{}", t!("live.outside_save"))]
     OutsideSave { kind: FlagKind, number: u16 },
-    #[error("noch kein Spielstand geladen")]
+    #[error("{}", t!("live.no_save"))]
     NoSave,
     #[error("{0}")]
     Io(#[from] std::io::Error),
@@ -641,7 +642,7 @@ mod tests {
         assert!(matches!(result, Err(LiveError::Closed)), "{result:?}");
         assert_eq!(
             result.unwrap_err().to_string(),
-            "melonDS hat die Verbindung geschlossen"
+            "melonDS closed the connection"
         );
     }
 
@@ -818,8 +819,8 @@ mod tests {
                     assert_eq!(
                         e.to_string(),
                         format!(
-                            "Der GDB-Stub auf Port {} schließt jede Verbindung sofort: \
-                             melonDS neu starten",
+                            "The GDB stub on port {} closes every connection at once: \
+                             restart melonDS",
                             stub.port
                         )
                     );

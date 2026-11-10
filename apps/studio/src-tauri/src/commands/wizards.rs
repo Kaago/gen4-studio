@@ -1117,13 +1117,10 @@ mod tests {
         let (_f, state) = open_synthetic();
         let before = counts(&state);
         for (place, refusal) in [
-            (
-                PlaceChoice::New("  ".into()),
-                "Der Ort braucht einen Namen.",
-            ),
+            (PlaceChoice::New("  ".into()), "The place needs a name."),
             (
                 PlaceChoice::Existing(9),
-                "Den Ort 9 gibt es nicht: die Ortsnamen-Bank hat 3 Namen.",
+                "Place 9 does not exist: the place name bank has 3 names.",
             ),
         ] {
             let spec = area_with_new_header(Some(place), true);
@@ -1178,7 +1175,7 @@ mod tests {
         let err = create_room_impl(&state, spec).unwrap_err();
         assert_eq!(err.code, "error");
         assert!(
-            err.message.contains("Den Ort 9 gibt es nicht"),
+            err.message.contains("Place 9 does not exist"),
             "{}",
             err.message
         );

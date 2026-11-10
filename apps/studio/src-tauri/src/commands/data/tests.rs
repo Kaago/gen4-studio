@@ -1059,10 +1059,7 @@ fn create_trainer_command_reports_placeholder() {
     let err = create_trainer_impl(&state, 1, "Jens").unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        (
-            "error",
-            "Erst Scripts übernehmen (Bereich Welt, Panel Script)"
-        )
+        ("error", "Adopt the scripts first (World, panel “Script”)")
     );
 
     let (_fixture, state, meta) = open_synthetic_with_battle_script();
@@ -1148,10 +1145,7 @@ fn create_trainer_command_reports_placeholder() {
     let err = undo_impl(&state).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        (
-            "error",
-            "Trainer 5 anlegen lässt sich nicht rückgängig machen"
-        )
+        ("error", "Creating trainer 5 cannot be undone")
     );
     assert_eq!(history_impl(&state).unwrap(), history);
     match trainer(&state, 5) {
@@ -2070,10 +2064,7 @@ fn platinum_add_without_remove_is_refused_swap_and_trade_pass() {
         data_edit_impl(&state, DataKind::Species, 4, egg_patch(&[3, 1, 2]), None).unwrap_err();
     assert_eq!(
         (err.code, err.message.as_str()),
-        (
-            "error",
-            "Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen"
-        )
+        ("error", "Egg move table full: 1 910 of 1 910 entries")
     );
     // Removing species 1 would lose the signature the next open looks for: refused too.
     let err = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[]), None).unwrap_err();
@@ -2119,12 +2110,12 @@ fn egg_moves_edit_on_a_locked_table_is_refused_with_the_reason() {
     let doc = egg_moves_of(&state, 1).unwrap();
     assert_eq!(
         doc.locked.as_deref(),
-        Some("Ei-Attacken: Lage in Overlay 5 für CPUE nicht geprüft")
+        Some("Egg moves: location in overlay 5 not checked for CPUE")
     );
     let err = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[1]), None).unwrap_err();
     assert_eq!(err.code, "read_only");
     assert!(
-        err.message.contains("für CPUE nicht geprüft"),
+        err.message.contains("not checked for CPUE"),
         "{}",
         err.message
     );

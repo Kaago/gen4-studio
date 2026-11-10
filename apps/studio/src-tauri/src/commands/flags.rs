@@ -155,7 +155,7 @@ fn count(n: usize) -> u32 {
 }
 
 /// The numbers of `kind` a recipe reserves, with the recipe's word (only variables).
-fn reservations(family: Family, kind: FlagKind) -> BTreeMap<u16, &'static str> {
+fn reservations(family: Family, kind: FlagKind) -> BTreeMap<u16, String> {
     match kind {
         FlagKind::Flag => BTreeMap::new(),
         FlagKind::Var => flags::reserved(family).into_iter().collect(),
@@ -377,7 +377,7 @@ pub fn list_flags_impl(state: &AppState, kind: FlagKind) -> Result<FlagListDto, 
                 in_save: flags::in_save(family, kind, n),
                 usage: usage.get(&n).copied().unwrap_or_default(),
                 free: free_set.contains(&n),
-                reserved: reserved.get(&n).map(|word| (*word).to_owned()),
+                reserved: reserved.get(&n).cloned(),
                 places: places.get(&n).copied().unwrap_or(0),
             }
         })
@@ -574,7 +574,7 @@ mod tests {
         EventKind, EventPatch, add_event_impl, adopt_scripts_impl, history_impl, open_project_impl,
         open_synthetic, redo_impl, save_level_script_impl, save_script_impl, undo_impl,
     };
-    use g4_kernel::flags::{POOL_EMPTY, area_of, names};
+    use g4_kernel::flags::{area_of, names, pool_empty};
     use g4_kernel::scripts::LevelScriptDoc;
     use g4_kernel::test_support::TextFixture;
     use g4_kernel::textproject::rename::not_a_text_project;
@@ -703,7 +703,7 @@ mod tests {
         let list = list_flags_impl(&state, FlagKind::Var).unwrap();
         assert_eq!(list.kind, FlagKind::Var);
         let done = entry(&list, 0x406C);
-        assert_eq!(done.reserved.as_deref(), Some("Vorlage „Leere Region“"));
+        assert_eq!(done.reserved.as_deref(), Some("Template “Empty region”"));
         assert!(!done.free);
         // VAR_RESULT is local to a script, never free.
         let result = entry(&list, 0x800C);
@@ -849,7 +849,10 @@ mod tests {
             }
         };
         assert_eq!(taken, total);
-        assert_eq!((err.code, err.message.as_str()), ("pool_empty", POOL_EMPTY));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("pool_empty", pool_empty().as_str())
+        );
         // The variables have their own pool.
         assert!(free_flag_impl(&state, FlagKind::Var).is_ok());
     }
@@ -925,7 +928,7 @@ mod tests {
         assert!(report.change.is_some());
         assert_eq!(
             history_impl(&state).unwrap().undo,
-            ["Flag benannt: FLAG_HAT_MEDAILLE (0x0094)"]
+            ["Flag named: FLAG_HAT_MEDAILLE (0x0094)"]
         );
         assert!(fx.root().join("data/flags/0148.json").is_file());
         let list = list_flags_impl(&state, FlagKind::Flag).unwrap();

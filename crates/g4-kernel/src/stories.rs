@@ -24,9 +24,9 @@ pub mod threads;
 pub mod uses;
 
 pub use entities::{
-    NOTHING_TO_CHANGE, StoryEntry, StoryPatch, StoryReport, StoryRequest, create_story,
-    create_story_files, delete_story, delete_story_files, duplicate_key_text, list_stories,
-    name_empty_text, update_story, update_story_files,
+    StoryEntry, StoryPatch, StoryReport, StoryRequest, create_story, create_story_files,
+    delete_story, delete_story_files, duplicate_key_text, list_stories, name_empty_text,
+    nothing_to_change, update_story, update_story_files,
 };
 pub use schema::{
     DANGLING_REF_CODE, Layout, Made, Position, Progress, STORIES_DIR, Step, StepKind, Story, Use,

@@ -63,16 +63,22 @@ impl Releases {
     }
 }
 
-/// The refusal for a list that does not read; followed by `: <path>: <reason>` or ` (Fassung
-/// 2 ist neuer als diese App)`.
-pub const RELEASES_BROKEN: &str = "Die Liste der Veröffentlichungen ist nicht lesbar";
+/// The refusal for a list that does not read; followed by `: <path>: <reason>` or ` (version
+/// 2 is newer than this app)`.
+pub fn releases_broken() -> String {
+    t!("patch.releases_broken").into_owned()
+}
 /// [`check_version`]: a release with this version is in the list.
-pub const VERSION_TAKEN: &str = "Diese Version gibt es schon.";
+pub fn version_taken() -> String {
+    t!("patch.version_taken").into_owned()
+}
 /// [`check_version`]: the version is empty, too long or has characters a file name cannot.
-pub const BAD_VERSION: &str = "Die Version darf nicht leer sein, höchstens 32 Zeichen haben und weder Leerzeichen noch / \\ : * ? \" < > | enthalten.";
+pub fn bad_version() -> String {
+    t!("patch.bad_version").into_owned()
+}
 
 /// `.g4/releases.json`; a missing file is the empty list, a broken or newer one
-/// `Refused(RELEASES_BROKEN …)`.
+/// `Refused(releases_broken() …)`.
 pub fn read_releases(root: &Path) -> Result<Releases, KernelError> {
     let path = root.join(RELEASES_FILE);
     let text = match std::fs::read_to_string(&path) {
@@ -87,7 +93,9 @@ pub fn read_releases(root: &Path) -> Result<Releases, KernelError> {
         && version > u64::from(RELEASES_VERSION)
     {
         return Err(KernelError::Refused(format!(
-            "{RELEASES_BROKEN} (Fassung {version} ist neuer als diese App)"
+            "{} {}",
+            releases_broken(),
+            t!("patch.releases_newer", version = version)
         )));
     }
     let releases: Releases =
@@ -95,14 +103,18 @@ pub fn read_releases(root: &Path) -> Result<Releases, KernelError> {
     if releases.version != RELEASES_VERSION {
         return Err(broken(
             &path,
-            &format!("unbekannte Fassung {}", releases.version),
+            &t!("patch.releases_unknown_version", version = releases.version),
         ));
     }
     Ok(releases)
 }
 
 fn broken(path: &Path, reason: &str) -> KernelError {
-    KernelError::Refused(format!("{RELEASES_BROKEN}: {}: {reason}", path.display()))
+    KernelError::Refused(format!(
+        "{}: {}: {reason}",
+        releases_broken(),
+        path.display()
+    ))
 }
 
 /// Appends `release` and writes the file atomically (2 spaces, fields in the order of
@@ -150,9 +162,9 @@ fn leading_numbers(version: &str) -> Option<[u64; 3]> {
     Some(numbers)
 }
 
-/// `Err(BAD_VERSION)` for a version that is empty, longer than [`VERSION_MAX`] characters or
+/// `Err(bad_version())` for a version that is empty, longer than [`VERSION_MAX`] characters or
 /// holds white space, a control character or one of `/ \ : * ? " < > |` (it ends up in the
-/// patch's file name); `Err(VERSION_TAKEN)` for one the list has; else `Ok(())`.
+/// patch's file name); `Err(version_taken())` for one the list has; else `Ok(())`.
 pub fn check_version(version: &str, releases: &Releases) -> Result<(), String> {
     let unsafe_char = |c: char| {
         c.is_whitespace()
@@ -161,10 +173,10 @@ pub fn check_version(version: &str, releases: &Releases) -> Result<(), String> {
     };
     if version.is_empty() || version.chars().count() > VERSION_MAX || version.contains(unsafe_char)
     {
-        return Err(BAD_VERSION.to_owned());
+        return Err(bad_version());
     }
     if releases.has_version(version) {
-        return Err(VERSION_TAKEN.to_owned());
+        return Err(version_taken());
     }
     Ok(())
 }
@@ -302,16 +314,9 @@ mod tests {
             "a\u{a0}b",
             long.as_str(),
         ] {
-            assert_eq!(
-                check_version(bad, &releases),
-                Err(BAD_VERSION.to_owned()),
-                "{bad:?}"
-            );
+            assert_eq!(check_version(bad, &releases), Err(bad_version()), "{bad:?}");
         }
-        assert_eq!(
-            check_version("0.1.0", &releases),
-            Err(VERSION_TAKEN.to_owned())
-        );
+        assert_eq!(check_version("0.1.0", &releases), Err(version_taken()));
         assert_eq!(check_version("0.1.1", &releases), Ok(()));
         assert_eq!(check_version(&"1".repeat(VERSION_MAX), &releases), Ok(()));
         assert_eq!(check_version("2.0.0-beta+1_é", &releases), Ok(()));
@@ -328,15 +333,15 @@ mod tests {
 
         let newer = "{\"version\": 2, \"releases\": [], \"future\": true}";
         let cases = [
-            (newer, "Fassung 2 ist neuer"),
-            ("{\"version\": 2, \"releases\": []}", "Fassung 2 ist neuer"),
+            (newer, "version 2 is newer"),
+            ("{\"version\": 2, \"releases\": []}", "version 2 is newer"),
             ("{", RELEASES_FILE),
             ("{\"version\": 1}", RELEASES_FILE),
             (
                 "{\"version\": 1, \"releases\": [], \"x\": 1}",
                 RELEASES_FILE,
             ),
-            ("{\"version\": 0, \"releases\": []}", "unbekannte Fassung 0"),
+            ("{\"version\": 0, \"releases\": []}", "unknown version 0"),
         ];
         for (text, expected) in cases {
             std::fs::write(&path, text).unwrap();
@@ -344,7 +349,7 @@ mod tests {
             let KernelError::Refused(message) = &err else {
                 panic!("{err:?}");
             };
-            assert!(message.starts_with(RELEASES_BROKEN), "{message}");
+            assert!(message.starts_with(&releases_broken()), "{message}");
             assert!(message.contains(expected), "{text}: {message}");
             if expected == RELEASES_FILE {
                 assert!(message.contains(&path.display().to_string()), "{message}");

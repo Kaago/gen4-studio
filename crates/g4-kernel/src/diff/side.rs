@@ -51,7 +51,7 @@ use crate::textproject::tombstone::DELETED_KEY;
 use crate::world::doc::WorldJson;
 
 use super::json::normalize_parts;
-use super::{DiffSubject, NO_BASE_FOR_FILES, SCRIPTS_HAVE_NO_UNSAVED};
+use super::{DiffSubject, no_base_for_files, scripts_have_no_unsaved};
 
 /// One side of a diff, as the DTO it is compared in.
 #[derive(Debug, Clone, PartialEq)]
@@ -198,8 +198,8 @@ impl<'a> Sides<'a> {
                 let member = narc.and_then(|narc| narc.members.into_iter().nth(usize::from(index)));
                 Ok(bytes_or(member, Side::Absent))
             }
-            Kind::File(_) => Err(KernelError::Refused(NO_BASE_FOR_FILES.to_owned())),
-            Kind::JsonFile(_) => Err(KernelError::Refused(NO_BASE_FOR_FILES.to_owned())),
+            Kind::File(_) => Err(KernelError::Refused(no_base_for_files())),
+            Kind::JsonFile(_) => Err(KernelError::Refused(no_base_for_files())),
         }
     }
 
@@ -413,7 +413,7 @@ impl<'a> Sides<'a> {
                     self.messages(Some(current), None)?,
                 ))
             }
-            Kind::Script(_) => Err(KernelError::Refused(SCRIPTS_HAVE_NO_UNSAVED.to_owned())),
+            Kind::Script(_) => Err(KernelError::Refused(scripts_have_no_unsaved())),
             Kind::Binary(..) | Kind::Member(..) | Kind::File(_) => both_disk(),
             Kind::JsonFile(_) => both_disk(),
         }
@@ -464,9 +464,9 @@ impl<'a> Sides<'a> {
             }),
             DiffSubject::Item { index } => {
                 let member = item_member_of(self.project, u32::from(index)).ok_or_else(|| {
-                    KernelError::Refused(format!(
-                        "Item {index:04} steht in keiner Item-Tabelle dieses Projekts."
-                    ))
+                    KernelError::Refused(
+                        t!("diff.item_not_in_table", index = index : {:04}).into_owned(),
+                    )
                 })?;
                 Ok(Kind::Entity {
                     assets: vec![AssetId {
@@ -500,7 +500,9 @@ impl<'a> Sides<'a> {
     /// The text project's file of entity `index` of `kind` (see [`entity_file`]).
     fn entity_file(&self, kind: AssetKind, index: u16) -> Result<PathBuf, KernelError> {
         entity_file(kind, index).ok_or_else(|| {
-            KernelError::InvalidProject(format!("{kind:?} hat keine Datei im Textprojekt."))
+            KernelError::InvalidProject(
+                t!("diff.no_entity_file", kind = format!("{kind:?}")).into_owned(),
+            )
         })
     }
 
@@ -862,12 +864,12 @@ fn json_file_side(rel: &Path, bytes: Option<Vec<u8>>) -> Side {
 
 /// The bytes at `path`; `None` when there is no file.
 /// The bytes of the file at `path` (links followed); `None` when there is none. Anything but
-/// a regular file (a folder, a device, a pipe) is refused with [`super::NOT_A_FILE`] and never
+/// a regular file (a folder, a device, a pipe) is refused with [`super::not_a_file`] and never
 /// opened: reading `/dev/zero` or a FIFO would not return.
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
     match std::fs::metadata(path) {
         Ok(meta) if meta.is_file() => {}
-        Ok(_) => return Err(KernelError::Refused(super::NOT_A_FILE.to_owned())),
+        Ok(_) => return Err(KernelError::Refused(super::not_a_file())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(io_at(path)(e)),
     }
@@ -879,7 +881,7 @@ fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
 }
 
 /// Reads project files by their path relative to the root, never outside it: a file whose
-/// real path (links resolved) leaves the root's is refused with [`super::NOT_A_FILE`], so a
+/// real path (links resolved) leaves the root's is refused with [`super::not_a_file`], so a
 /// link in the project, or a side file a JSON names with `..`, reads nothing elsewhere.
 struct Inside<'a> {
     root: &'a Path,
@@ -904,7 +906,7 @@ impl<'a> Inside<'a> {
         };
         match &self.real {
             Some(root) if real.starts_with(root) => read_optional(&real),
-            _ => Err(KernelError::Refused(super::NOT_A_FILE.to_owned())),
+            _ => Err(KernelError::Refused(super::not_a_file())),
         }
     }
 }

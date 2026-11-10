@@ -142,11 +142,11 @@ fn a_trainer_diffs_by_field_against_head_in_the_dspre_layout() {
         report.old_label
     );
     assert!(
-        report.old_label.ends_with("„Ausgangsstand“"),
+        report.old_label.ends_with("“Ausgangsstand”"),
         "{}",
         report.old_label
     );
-    assert_eq!(report.new_label, "Projekt (gespeichert)");
+    assert_eq!(report.new_label, "Project (saved)");
     assert_eq!(report.label, "Trainer 0001");
     assert!(
         !fx.root().join("data").exists(),
@@ -168,7 +168,7 @@ fn the_same_trainer_diffs_against_the_base() {
         (Some("5"), Some("6"))
     );
     assert_eq!(report.reset, Some(ResetTarget::Trainer { index: 1 }));
-    assert_eq!(report.old_label, "Basis-ROM Platin (US)");
+    assert_eq!(report.old_label, "Base ROM Platin (US)");
     // Trainer 0 is untouched.
     let same = fx.diff(&DiffSubject::Trainer { index: 0 }, Against::Base);
     assert_eq!(same.state, DiffState::Same);
@@ -307,7 +307,7 @@ fn saved_diffs_the_unsaved_value_against_the_saved_one() {
     assert_eq!(report.state, DiffState::Changed);
     assert_eq!(
         (report.old_label.as_str(), report.new_label.as_str()),
-        ("Gespeichert", "Ungespeichert")
+        ("Saved", "Unsaved")
     );
     let changes = fields(&report);
     assert_eq!(changes.len(), 1, "{changes:?}");
@@ -463,17 +463,17 @@ fn no_repo_and_no_commit_are_refused_with_their_sentence() {
     let fx = Dspre::new();
     assert_eq!(
         refusal(try_diff(fx.root(), None, &TRAINER_1, Against::Head)),
-        NO_REPO
+        no_repo()
     );
     GitFixture::init(fx.root());
     assert_eq!(
         refusal(try_diff(fx.root(), None, &TRAINER_1, Against::Head)),
-        NO_COMMIT
+        no_commit()
     );
     // Without a base ROM the app's reason, else the missing mark.
     assert_eq!(
         refusal(try_diff(fx.root(), None, &TRAINER_1, Against::Base)),
-        crate::patch::NO_MARK
+        crate::patch::no_mark()
     );
 }
 
@@ -490,7 +490,7 @@ fn a_file_has_no_base_diff() {
             &file,
             Against::Base
         )),
-        NO_BASE_FOR_FILES
+        no_base_for_files()
     );
     fx.commit();
     std::fs::write(
@@ -511,7 +511,7 @@ fn saved_without_a_store_is_refused() {
     let fx = Dspre::new();
     assert_eq!(
         refusal(try_diff(fx.root(), None, &TRAINER_1, Against::Saved)),
-        SAVED_NEEDS_THE_APP
+        saved_needs_the_app()
     );
     assert_eq!(
         refusal(try_diff(
@@ -520,7 +520,7 @@ fn saved_without_a_store_is_refused() {
             &DiffSubject::Script { index: 0 },
             Against::Saved
         )),
-        SCRIPTS_HAVE_NO_UNSAVED
+        scripts_have_no_unsaved()
     );
 }
 
@@ -786,7 +786,7 @@ fn an_arm9_change_lists_the_headers_that_differ() {
         rows(&entries),
         [
             (ChangeState::Changed, "Headers", "Header 0001"),
-            (ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
+            (ChangeState::Changed, "Project files", "arm9/arm9.bin"),
         ]
     );
     assert_eq!(
@@ -830,8 +830,8 @@ fn project_files_go_last_under_projektdateien() {
         rows(&entries),
         [
             (ChangeState::Changed, "Headers", "Header 0000"),
-            (ChangeState::Changed, "Projektdateien", "header.yaml"),
-            (ChangeState::New, "Projektdateien", "notizen.txt"),
+            (ChangeState::Changed, "Project files", "header.yaml"),
+            (ChangeState::New, "Project files", "notizen.txt"),
         ]
     );
     assert_eq!(entries[2].target, None);
@@ -861,11 +861,11 @@ fn the_dynamic_headers_patch_applied_after_the_commit_lists_no_header() {
     let headers = project.read_headers().unwrap();
     crate::dynamic_headers::apply(&project, &headers).unwrap();
     // `apply` keeps the unpatched `arm9.bin` beside it.
-    let backup = row(ChangeState::New, "Projektdateien", "arm9/arm9.bin.backup");
+    let backup = row(ChangeState::New, "Project files", "arm9/arm9.bin.backup");
     assert_eq!(
         project_rows(fx.root()),
         [
-            row(ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
+            row(ChangeState::Changed, "Project files", "arm9/arm9.bin"),
             backup.clone(),
         ]
     );
@@ -881,7 +881,7 @@ fn the_dynamic_headers_patch_applied_after_the_commit_lists_no_header() {
         project_rows(fx.root()),
         [
             row(ChangeState::Changed, "Headers", "Header 0001"),
-            row(ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
+            row(ChangeState::Changed, "Project files", "arm9/arm9.bin"),
             backup,
         ]
     );
@@ -932,10 +932,10 @@ fn a_header_file_changed_without_a_header_differing_is_listed_as_the_file() {
     assert_eq!(
         project_rows(fx.root()),
         [
-            row(ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
+            row(ChangeState::Changed, "Project files", "arm9/arm9.bin"),
             row(
                 ChangeState::Changed,
-                "Projektdateien",
+                "Project files",
                 "files/fielddata/maptable/mapname.bin"
             ),
         ]
@@ -974,7 +974,7 @@ fn a_new_source_equal_to_heads_member_is_a_file_row_not_a_new_entity() {
     };
     assert_eq!(
         project_rows(fx.root()),
-        [row(ChangeState::New, "Projektdateien", &source)]
+        [row(ChangeState::New, "Project files", &source)]
     );
     assert!(entries.iter().all(|e| e.subject != text), "{entries:?}");
     assert!(entries.iter().any(|e| e.subject == file), "{entries:?}");
@@ -1008,7 +1008,7 @@ fn a_new_script_source_equal_to_heads_member_is_a_file_row() {
     );
     assert_eq!(
         project_rows(fx.root()),
-        [row(ChangeState::New, "Projektdateien", rel)]
+        [row(ChangeState::New, "Project files", rel)]
     );
 }
 
@@ -1047,7 +1047,7 @@ fn a_path_or_folder_outside_the_project_is_refused_before_anything_is_read() {
     for subject in &subjects {
         for against in [Against::Head, Against::Saved, Against::Base] {
             let why = refusal(try_diff(fx.root(), Some(&fx.original), subject, against));
-            assert_eq!(why, OUTSIDE_PROJECT, "{subject:?} {against:?}");
+            assert_eq!(why, outside_project(), "{subject:?} {against:?}");
         }
     }
 }
@@ -1063,7 +1063,7 @@ fn a_file_that_is_not_a_regular_file_inside_the_project_is_refused_not_read() {
     std::fs::create_dir_all(fx.root().join("notizen")).unwrap();
     assert_eq!(
         refusal(try_diff(fx.root(), None, &file("notizen"), Against::Head)),
-        NOT_A_FILE
+        not_a_file()
     );
     #[cfg(unix)]
     {
@@ -1074,7 +1074,7 @@ fn a_file_that_is_not_a_regular_file_inside_the_project_is_refused_not_read() {
         assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
         assert_eq!(
             refusal(try_diff(fx.root(), None, &file("rohr"), Against::Head)),
-            NOT_A_FILE
+            not_a_file()
         );
         // A link that leads out of the project.
         let outside = tempfile::tempdir().unwrap();
@@ -1091,7 +1091,7 @@ fn a_file_that_is_not_a_regular_file_inside_the_project_is_refused_not_read() {
                 &file("verweis.json"),
                 Against::Head
             )),
-            NOT_A_FILE
+            not_a_file()
         );
         // A link that stays inside reads as the file it points to.
         std::os::unix::fs::symlink(fx.root().join("header.yaml"), fx.root().join("kopf.yaml"))
@@ -1122,7 +1122,7 @@ fn unreadable_headers_list_their_paths_as_files() {
             row(ChangeState::Changed, "Trainers", "Trainer 0001"),
             row(
                 ChangeState::Missing,
-                "Projektdateien",
+                "Project files",
                 &format!("{folder}/0001")
             ),
         ]
@@ -1219,9 +1219,9 @@ fn a_story_diffs_as_fields_against_head() {
     .unwrap();
     let report = diff_text(&fx, &STORY_0, Against::Head);
     assert_eq!(report.state, DiffState::Changed);
-    assert_eq!(report.label, "Geschichte 0000");
+    assert_eq!(report.label, "Story 0000");
     assert!(report.old_label.starts_with("Commit "), "{report:?}");
-    assert_eq!(report.new_label, "Projekt (gespeichert)");
+    assert_eq!(report.new_label, "Project (saved)");
     assert_eq!(report.reset, None);
     let mut changes = fields(&report).to_vec();
     changes.sort_by(|a, b| a.path.cmp(&b.path));
@@ -1251,10 +1251,10 @@ fn a_story_diffs_as_fields_against_head() {
     assert_eq!(
         rows,
         [
-            (ChangeState::Changed, "Geschichten", "Geschichte 0000"),
+            (ChangeState::Changed, "Stories", "Story 0000"),
             (
                 ChangeState::Changed,
-                "Projektdateien",
+                "Project files",
                 "data/stories/0000.layout.json"
             ),
         ]
@@ -1315,7 +1315,7 @@ fn a_new_story_is_new_against_head_and_refused_against_base() {
     // A story has no base side: refused before a base ROM is asked for.
     assert_eq!(
         refusal(try_diff(fx.root(), None, &STORY_0, Against::Base)),
-        NO_BASE_FOR_FILES
+        no_base_for_files()
     );
 }
 
@@ -1352,8 +1352,8 @@ fn story_label_and_group() {
         serde_json::to_value(&story).unwrap(),
         serde_json::json!({"kind": "story", "index": 7})
     );
-    assert_eq!(story.label(), "Geschichte 0007");
-    assert_eq!(story.group(), "Geschichten");
+    assert_eq!(story.label(), "Story 0007");
+    assert_eq!(story.group(), "Stories");
     assert_eq!(story.index(), Some(7));
     assert_eq!(story.reset_target(), None);
     assert!(story.check().is_ok());

@@ -393,14 +393,16 @@ fn place_id(source: AssetId) -> String {
     format!("p:{kind}:{:04}", source.index)
 }
 
-/// The name of a source in the graph: „Scriptdatei 0101“, „Eventdatei 0394“, „Level-Script
+/// The name of a source in the graph: „Script file 0101“, „Event file 0394“, „Level script
 /// 0005“ (a script file whose reference is a condition, `field` [`LEVEL_SCRIPT_FIELD`]).
 pub fn place_label(source: AssetId, field: &str) -> String {
     let index = source.index;
     match source.kind {
-        AssetKind::Script if field == LEVEL_SCRIPT_FIELD => format!("Level-Script {index:04}"),
-        AssetKind::Script => format!("Scriptdatei {index:04}"),
-        AssetKind::Event => format!("Eventdatei {index:04}"),
+        AssetKind::Script if field == LEVEL_SCRIPT_FIELD => {
+            t!("stories.place_level_script", index = index : {:04}).into_owned()
+        }
+        AssetKind::Script => t!("stories.place_script", index = index : {:04}).into_owned(),
+        AssetKind::Event => t!("stories.place_event", index = index : {:04}).into_owned(),
         other => format!("{} {index:04}", other.label()),
     }
 }

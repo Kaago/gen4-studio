@@ -15,8 +15,8 @@ use std::time::Instant;
 use g4_kernel::base::{BaseRom, Located};
 use g4_kernel::error::KernelError;
 use g4_kernel::patch::{
-    self, BAD_FILE, BAD_VERSION, EXISTS, NO_CHANGES, NOT_A_FOLDER, PublishOptions, PublishPhase,
-    PublishProgress, PublishReport, PublishTargets, RELEASES_BROKEN, Release, VERSION_TAKEN,
+    self, PublishOptions, PublishPhase, PublishProgress, PublishReport, PublishTargets, Release,
+    bad_file, bad_version, exists, no_changes, not_a_folder, releases_broken, version_taken,
 };
 use g4_kernel::project::Project;
 use g4_kernel::start::BaseMark;
@@ -86,30 +86,30 @@ impl PublishArgs {
 }
 
 /// The kernel's refusals of a release with a code of their own: `releases_broken`
-/// ([`RELEASES_BROKEN`] with path and reason), `bad_version` ([`BAD_VERSION`]),
-/// `version_taken` ([`VERSION_TAKEN`]), `bad_file` ([`BAD_FILE`]), `bad_dir` (the place is a
-/// file or lies below one, [`NOT_A_FOLDER`] with the path), `exists` (`<Datei> ` + [`EXISTS`])
-/// and `no_changes` ([`NO_CHANGES`]); `base_missing` for the kernel's [`patch::NO_MARK`]. Any
+/// ([`releases_broken`] with path and reason), `bad_version` ([`bad_version`]),
+/// `version_taken` ([`version_taken`]), `bad_file` ([`bad_file`]), `bad_dir` (the place is a
+/// file or lies below one, [`not_a_folder`] with the path), `exists` (`<Datei> ` + [`exists`])
+/// and `no_changes` ([`no_changes`]); `base_missing` for the kernel's [`patch::no_mark`]. Any
 /// other error as it is (the failed self-check is an `error` with its sentence).
 fn publish_error(e: KernelError) -> CmdError {
     let KernelError::Refused(why) = &e else {
         return e.into();
     };
-    let code = if why.starts_with(RELEASES_BROKEN) {
+    let code = if why.starts_with(&releases_broken()) {
         "releases_broken"
-    } else if why == BAD_VERSION {
+    } else if *why == bad_version() {
         "bad_version"
-    } else if why == VERSION_TAKEN {
+    } else if *why == version_taken() {
         "version_taken"
-    } else if why == BAD_FILE {
+    } else if *why == bad_file() {
         "bad_file"
-    } else if why.starts_with(NOT_A_FOLDER) {
+    } else if why.starts_with(&not_a_folder()) {
         "bad_dir"
-    } else if why.ends_with(EXISTS) {
+    } else if why.ends_with(&exists()) {
         "exists"
-    } else if why == NO_CHANGES {
+    } else if *why == no_changes() {
         "no_changes"
-    } else if why == patch::NO_MARK {
+    } else if *why == patch::no_mark() {
         return base_missing(why.clone());
     } else {
         return e.into();
@@ -563,7 +563,11 @@ mod tests {
         std::fs::write(d.root.join(RELEASES_FILE), "{kaputt").unwrap();
         let err = releases_impl(&d.state).unwrap_err();
         assert_eq!(err.code, "releases_broken");
-        assert!(err.message.starts_with(RELEASES_BROKEN), "{}", err.message);
+        assert!(
+            err.message.starts_with(&releases_broken()),
+            "{}",
+            err.message
+        );
         // Publishing is refused with it too, and the file stays as it was.
         let err = check_publish_patch(&d.state, &opts("0.1.0"), None).unwrap_err();
         assert_eq!(err.code, "releases_broken");
@@ -619,17 +623,20 @@ mod tests {
         let err = publish(opts("0.1.0"));
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("version_taken", VERSION_TAKEN)
+            ("version_taken", version_taken().as_str())
         );
         let err = publish(opts("0.1 beta"));
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("bad_version", BAD_VERSION)
+            ("bad_version", bad_version().as_str())
         );
         let mut bad = opts("0.2.0");
         bad.file = Some("a/b".into());
         let err = publish(bad);
-        assert_eq!((err.code, err.message.as_str()), ("bad_file", BAD_FILE));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("bad_file", bad_file().as_str())
+        );
 
         // An existing file at the chosen place, without overwrite.
         std::fs::create_dir_all(d.root.join("out")).unwrap();
@@ -638,7 +645,7 @@ mod tests {
         existing.dir = Some("out".into());
         let err = publish(existing.clone());
         assert_eq!(err.code, "exists", "{}", err.message);
-        assert_eq!(err.message, format!("X-v0.2.0.xdelta {EXISTS}"));
+        assert_eq!(err.message, format!("X-v0.2.0.xdelta {}", exists()));
         // A place that is a file.
         let mut file_dir = opts("0.2.0");
         file_dir.dir = Some("out/X-v0.2.0.xdelta".into());
@@ -663,7 +670,7 @@ mod tests {
         let err = publish_patch_impl(&d.state, opts("0.1.0"), &mut |_| {}).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("base_missing", patch::NO_MARK)
+            ("base_missing", patch::no_mark().as_str())
         );
         assert!(!d.root.join("build").exists());
         assert!(!d.root.join(RELEASES_FILE).exists());
@@ -770,7 +777,10 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("no_changes", NO_CHANGES));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_changes", no_changes().as_str())
+        );
         assert!(!d.root.join(RELEASES_FILE).exists());
         assert!(!d.root.join("build/X-v0.1.0.xdelta").exists());
     }

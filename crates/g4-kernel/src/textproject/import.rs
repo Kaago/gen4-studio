@@ -2627,7 +2627,7 @@ mod tests {
         assert!(
             found
                 .message
-                .contains("Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen"),
+                .contains("Egg move table full: 1 910 of 1 910 entries"),
             "{found:?}"
         );
     }
@@ -2745,7 +2745,7 @@ mod tests {
         assert!(
             warning
                 .message
-                .contains("Ei-Attacken: Lage in Overlay 5 für CPUE nicht geprüft"),
+                .contains("Egg moves: location in overlay 5 not checked for CPUE"),
             "{warning:?}"
         );
         let report = import(&p, Some(&fx.base())).unwrap();

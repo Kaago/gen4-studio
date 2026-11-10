@@ -2,7 +2,7 @@
 //! (spec 3b.4 §7): findings the user ignored, by code, subject, key and fingerprint, and checks
 //! switched off by code. Errors are never left out: an error cannot be ignored, a check that
 //! reports errors cannot be switched off, and an entry a hand-written file has for either is
-//! not honoured. "Ausgangslage übernehmen" ignores every warning and info of a report at once.
+//! not honoured. "Adopt baseline" ignores every warning and info of a report at once.
 //!
 //! The file lives in the project root because it is project content, like the sources: the
 //! top level of `.g4/` is versioned project metadata too (`base.json`, `preview.png`), but its
@@ -139,12 +139,15 @@ impl SubjectFile {
                         .ok()
                         .and_then(|v| v.as_str().map(str::to_owned))
                         .unwrap_or_default();
-                    return Err(format!("{kind} nimmt nur eine Nummer, nicht {text}"));
+                    return Err(
+                        t!("checks.ignore_number_only", kind = kind, text = text).into_owned()
+                    );
                 }
-                text.parse().map_err(|_| format!("{text} ist zu groß"))?
+                text.parse()
+                    .map_err(|_| t!("checks.ignore_too_big", n = text).into_owned())?
             }
         };
-        let n = u16::try_from(n).map_err(|_| format!("{n} ist zu groß"))?;
+        let n = u16::try_from(n).map_err(|_| t!("checks.ignore_too_big", n = n).into_owned())?;
         Ok(Subject::of(self.kind, n))
     }
 }
@@ -225,10 +228,9 @@ impl IgnoreSet {
         let invalid = |why: String| KernelError::InvalidProject(format!("{IGNORE_FILE}: {why}"));
         let file: IgnoreFile = serde_json::from_str(&text).map_err(|e| invalid(e.to_string()))?;
         if file.version > IGNORE_VERSION {
-            return Err(invalid(format!(
-                "Version {} stammt aus einer neueren Fassung von Gen4 Studio.",
-                file.version
-            )));
+            return Err(invalid(
+                t!("checks.ignore_newer", version = file.version).into_owned(),
+            ));
         }
         let ignored = file
             .ignored
@@ -290,7 +292,7 @@ impl IgnoreSet {
         self.ignored.remove(key)
     }
 
-    /// "Ausgangslage übernehmen": puts every warning and info of `findings` on the list
+    /// "Adopt baseline": puts every warning and info of `findings` on the list
     /// (errors stay); returns how many were not on it yet.
     pub fn accept_baseline<'a>(
         &mut self,
@@ -525,7 +527,7 @@ mod tests {
         match load(dir.path()) {
             Err(KernelError::InvalidProject(why)) => assert_eq!(
                 why,
-                "g4-checks.json: Version 2 stammt aus einer neueren Fassung von Gen4 Studio."
+                "g4-checks.json: Version 2 comes from a newer version of Gen4 Studio."
             ),
             other => panic!("expected the refusal, got {other:?}"),
         }
@@ -825,7 +827,7 @@ mod id_tests {
             (
                 "\"index\": 3",
                 "\"index\": \"EVENT_3\"",
-                "eventFile nimmt nur eine Nummer, nicht EVENT_3",
+                "eventFile takes only a number, not EVENT_3",
             ),
         ] {
             let text = with_map_id.replacen(from, to, 1);

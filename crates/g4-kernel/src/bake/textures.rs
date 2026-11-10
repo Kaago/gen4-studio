@@ -124,10 +124,13 @@ pub struct AppendReport {
 }
 
 /// The label of appending `count` textures to map texture pack `pack`:
-/// „Kartentexturen 0020: 2 Texturen angehängt“.
+/// „Map textures 0020: 2 textures appended“.
 pub fn append_label(pack: u16, count: usize) -> String {
-    let noun = if count == 1 { "Textur" } else { "Texturen" };
-    format!("Kartentexturen {pack:04}: {count} {noun} angehängt")
+    if count == 1 {
+        t!("bake.append_label_one", pack = pack : {:04}).into_owned()
+    } else {
+        t!("bake.append_label_other", pack = pack : {:04}, count = count).into_owned()
+    }
 }
 
 /// Appends `textures` to map texture pack `pack` as one file step labelled `label`; every
@@ -519,11 +522,8 @@ mod tests {
         let before = f.pack();
         let new = [tex("neu_a", 16, 3), tex("neu_b", 16, 2)];
         let label = append_label(0, 2);
-        assert_eq!(label, "Kartentexturen 0000: 2 Texturen angehängt");
-        assert_eq!(
-            append_label(20, 1),
-            "Kartentexturen 0020: 1 Textur angehängt"
-        );
+        assert_eq!(label, "Map textures 0000: 2 textures appended");
+        assert_eq!(append_label(20, 1), "Map textures 0020: 1 texture appended");
         let report = append_textures(&mut f.store, 0, &new, &label).unwrap();
         let after = f.pack();
         assert_ne!(after, before);
