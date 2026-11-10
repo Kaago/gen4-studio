@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import type { DockviewApi, DockviewGroupPanel, IDockviewPanelProps } from "dockview-react";
+import i18next from "i18next";
 import { act } from "react";
 import type { FunctionComponent } from "react";
 import { createRoot } from "react-dom/client";
@@ -168,6 +169,29 @@ describe("Deck", () => {
     localStorage.setItem(layoutKey("welt"), JSON.stringify(stored(["world", "matrix"], ["worldmap"], ["inspector", "script", "problems"])));
     await mount();
     expect(layoutOf(api())).toEqual([["world", "matrix"], ["worldmap"], ["inspector", "script", "problems"]]);
+  });
+
+  it("retitles_the_tabs_of_a_restored_layout_and_after_a_switch_of_language", async () => {
+    // A layout stored in English keeps no title of its own: the tabs say what the language shown says.
+    const english = stored(["world", "matrix", "worldmap"], ["inspector", "script", "problems"]);
+    english.panels.worldmap.title = "World map";
+    english.panels.problems.title = "Problems";
+    localStorage.setItem(layoutKey("welt"), JSON.stringify(english));
+    await mount();
+    const titles = () => [...dock().querySelectorAll<HTMLElement>("[data-dock-tab]")].map((t) => t.textContent);
+    expect(titles()).toEqual(expect.arrayContaining(["3D", "Raster", "Weltkarte", "Inspector", "Script", "Probleme"]));
+    try {
+      await act(async () => void (await i18next.changeLanguage("en")));
+      expect(titles()).toEqual(expect.arrayContaining(["3D", "Matrix", "World map", "Inspector", "Script", "Problems"]));
+      expect(titles()).not.toContain("Weltkarte");
+    } finally {
+      // The suite runs in German (vitest.setup.ts).
+      await act(async () => void (await i18next.changeLanguage("de")));
+    }
+    expect(titles()).toEqual(expect.arrayContaining(["Weltkarte", "Probleme"]));
+    await settle();
+    const saved = JSON.parse(localStorage.getItem(layoutKey("welt"))!);
+    expect([saved.panels.worldmap.title, saved.panels.problems.title]).toEqual(["Weltkarte", "Probleme"]);
   });
 
   it("restores_the_limits_of_the_inspector_beside_the_view", async () => {

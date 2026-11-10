@@ -138,7 +138,9 @@
     "trigger": "Auslöser {{slot}}",
     "object": "Objekt {{slot}}",
     "condition": "Bedingung {{number}}",
-    "line": "Zeile {{line}} · {{field}}"
+    "line": "Zeile {{line}} · {{field}}",
+    "edgeSets": "{{place}} setzt Wert {{value}}: {{where}}",
+    "edgeChecks": "{{place}} prüft Wert {{value}}: {{where}}"
   },
   "storyRecipeModel": {
     "trainersTalk": "Trainer sprechen über ihre Kampftexte",

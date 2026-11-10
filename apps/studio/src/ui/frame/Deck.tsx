@@ -129,6 +129,17 @@ function markGroup(group: DockviewGroupPanel) {
   else group.element.removeAttribute("data-dock-group-kind");
 }
 
+/**
+ * Gives every panel of the dock the tab title of its spec in the language shown. A restored layout carries the titles of the language it
+ * was stored in, and a switch of language does not reach the panels already added (dockview keeps the title it was given).
+ */
+function retitle(api: DockviewApi, area: DeckArea) {
+  for (const spec of AREA_PANELS[area]) {
+    const panel = api.getPanel(spec.id);
+    if (panel && panel.title !== spec.title) panel.api.setTitle(spec.title);
+  }
+}
+
 /** Builds `arrangement` of `depth` in the dock and remembers it as the arrangement and layout of the area (its sub-area `sub`). */
 function arrange(api: DockviewApi, area: DeckArea, arrangement: Arrangement, depth: Depth, sub: string | undefined) {
   applyArrangement(api, area, arrangement, depth);
@@ -164,6 +175,7 @@ function initLayout(api: DockviewApi, area: DeckArea, depth: Depth, sub: string 
   if (saved && isSaneLayout(saved, AREA_PANELS[area])) {
     try {
       api.fromJSON(saved as SerializedDockview);
+      retitle(api, area);
       syncDepthPanels(api, area, depth);
       restoreLimits(api, area, loadArrangement(area, sub));
       return;
@@ -205,6 +217,12 @@ const DeckDock = memo(function DeckDock({
     const api = apiRef.current;
     if (api) syncDepthPanels(api, area, depth);
   }, [apiRef, area, depth]);
+  // A switch of language retitles the tabs (the dock is not built anew).
+  const { i18n } = useTranslation();
+  useEffect(() => {
+    const api = apiRef.current;
+    if (api) retitle(api, area);
+  }, [apiRef, area, i18n.language]);
   // Another sub-area: the layout of the one shown so far is stored first (with its floating groups, before dockview announces its last
   // change), then the new one's is restored in the same dock. A dock that is not ready restores the new one when it gets ready.
   useEffect(() => {
