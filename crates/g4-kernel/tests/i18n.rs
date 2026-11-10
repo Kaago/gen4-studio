@@ -288,3 +288,15 @@ fn patch_app_header_is_the_same_in_both_languages() {
         "{notes_en}"
     );
 }
+
+/// The kernel's sentence for a game code that is no Gen-4 code: the start wizard compares it
+/// with `project:wizard.support.unknown` in both languages (so it does not show it twice), whose
+/// values must stay these.
+#[test]
+fn not_gen4_matches_the_frontend_in_both_languages() {
+    let _turn = locale_lock();
+    set_locale("de");
+    assert_eq!(g4_kernel::start::not_gen4(), "Kein Gen-4-Spiel erkannt");
+    set_locale("en");
+    assert_eq!(g4_kernel::start::not_gen4(), "No Gen 4 game recognized");
+}
