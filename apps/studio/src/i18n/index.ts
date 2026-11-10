@@ -115,10 +115,62 @@ export function readLanguage(): Language {
   return value === "de" || value === "en" ? value : "system";
 }
 
-/** The language shown for a choice; `system` follows the navigator. */
+/** How long the start waits for the backend's system language before `navigator.language` decides. */
+export const SYSTEM_LANGUAGE_TIMEOUT_MS = 1500;
+
+/** The system language as the backend reported it (inside Tauri), kept from the first answer on; `null`: the navigator decides. */
+let systemLanguage: Effective | null = null;
+/** The one question to the backend, shared by all who wait for it. */
+let systemAsked: Promise<Effective> | null = null;
+
+/** `navigator.language` as a language; some tests run without a navigator. */
+function navigatorLanguage(): Effective {
+  return detectLanguage(typeof navigator === "undefined" ? "" : navigator.language);
+}
+
+/**
+ * The language shown for a choice; `system` follows the system language the backend reported (inside Tauri, see `resolveSystemLanguage`),
+ * else the navigator.
+ */
 export function effectiveLanguage(l: Language = readLanguage()): Effective {
   if (l !== "system") return l;
-  return detectLanguage(typeof navigator === "undefined" ? "" : navigator.language);
+  return systemLanguage ?? navigatorLanguage();
+}
+
+/**
+ * Asks the backend once for the language of the operating system (`system_language`) and keeps the answer for `effectiveLanguage`: inside
+ * Tauri `navigator.language` follows the localizations of the app bundle, not the OS (WKWebView names „en-US“ on a German Mac). Outside
+ * Tauri there is nothing to ask; there, and when the backend fails, reports nothing or does not answer within `timeoutMs`, the navigator
+ * decides (an answer after the timeout is dropped: the language shown must not change behind the user's back). Resolves to what
+ * `effectiveLanguage("system")` answers from then on.
+ */
+export function resolveSystemLanguage(timeoutMs: number = SYSTEM_LANGUAGE_TIMEOUT_MS): Promise<Effective> {
+  systemAsked ??= askSystemLanguage(timeoutMs);
+  return systemAsked;
+}
+
+async function askSystemLanguage(timeoutMs: number): Promise<Effective> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // Loaded lazily for the reason given in `applyLanguage`.
+    const backend = await import("./backend");
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    const reported = await Promise.race([backend.systemLanguage(), timeout]);
+    if (reported) systemLanguage = detectLanguage(reported);
+  } catch (e) {
+    console.warn("system_language failed; the navigator language decides", e);
+  } finally {
+    clearTimeout(timer);
+  }
+  return effectiveLanguage("system");
+}
+
+/** For the tests: forgets the backend's answer, the next `resolveSystemLanguage` asks again. */
+export function forgetSystemLanguage(): void {
+  systemLanguage = null;
+  systemAsked = null;
 }
 
 /** `<html lang>`; some tests run without a document. */
@@ -146,8 +198,8 @@ export function init(l: Language): void {
 
 /**
  * Makes `l` the language of the app: remembers it, switches i18next and `<html lang>`, then tells the backend (`set_locale`) so
- * its messages follow. Resolves when the backend has answered; a backend that refuses (an older one without the command) is
- * logged and does not keep the app from starting.
+ * its messages follow. `system` first waits for the system language (`resolveSystemLanguage`, asked once). Resolves when the
+ * backend has answered; a backend that refuses (an older one without the command) is logged and does not keep the app from starting.
  */
 export async function applyLanguage(l: Language): Promise<void> {
   try {
@@ -155,6 +207,7 @@ export async function applyLanguage(l: Language): Promise<void> {
   } catch {
     /* the choice is simply not remembered */
   }
+  if (l === "system") await resolveSystemLanguage();
   const effective = effectiveLanguage(l);
   await i18next.changeLanguage(effective);
   setDocumentLanguage(effective);
@@ -166,6 +219,16 @@ export async function applyLanguage(l: Language): Promise<void> {
   } catch (e) {
     console.warn("set_locale failed; the backend keeps its language", e);
   }
+}
+
+/**
+ * The language at the start, before the first render (`main.tsx`): asks the backend for the system language in any case (a later switch to
+ * „System“ then finds it at once), applies the stored choice and resolves when it is shown and the backend knows it. With „System“ that
+ * waits for the backend's answer (at most `SYSTEM_LANGUAGE_TIMEOUT_MS`); a fixed choice does not wait for it.
+ */
+export async function startLanguage(): Promise<void> {
+  void resolveSystemLanguage();
+  await applyLanguage(readLanguage());
 }
 
 /** For modules without React: `t("<ns>:<key>")`. Components use `useTranslation("<ns>")`. */

@@ -45,4 +45,13 @@ describe("main.tsx", () => {
     expect(imports[0]).toBe("./i18n/boot");
     expect(imports.indexOf("./App")).toBeGreaterThan(0);
   });
+
+  it("renders only after the language is applied, the system language from the backend included", () => {
+    const source = readCss("../main.tsx", import.meta.url);
+    // `startLanguage` asks the backend for the system language and applies the stored choice (index.test.ts, "startLanguage"); `boot()`
+    // awaits it before the first render.
+    const started = source.indexOf("await startLanguage();");
+    expect(started).toBeGreaterThan(0);
+    expect(source.indexOf("createRoot(")).toBeGreaterThan(started);
+  });
 });

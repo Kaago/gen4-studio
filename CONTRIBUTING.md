@@ -1,6 +1,6 @@
 # Contributing to Gen4 Studio
 
-Thank you for wanting to help. Gen4 Studio is an editor for Pokémon Gen 4 (Diamond, Pearl, Platinum, HeartGold, SoulSilver) ROM hacks, MIT licensed. Bug reports, ideas, documentation and code are all welcome.
+Thank you for wanting to help. Gen4 Studio is an editor for Pokémon Gen 4 ROM hacks (Platinum, HeartGold and SoulSilver; Diamond and Pearl are detected but not enabled yet), MIT licensed. Bug reports, ideas, documentation and code are all welcome.
 
 By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Security problems do not belong in a public issue, see [SECURITY.md](SECURITY.md).
 

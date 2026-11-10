@@ -303,6 +303,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("world_layers", Kind::Write),
     // The language is the user's (Settings) or the environment's (`G4_LANG`), not an agent's.
     ("set_locale", APP_ONLY),
+    // The OS language for "System" in Settings › Language: the app's webview asks, no agent.
+    ("system_language", APP_ONLY),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -639,6 +641,7 @@ mod tests {
                     Kind::Unavailable("mcp.access.app_only")
                 ),
                 ("set_locale", Kind::Unavailable("mcp.access.app_only")),
+                ("system_language", Kind::Unavailable("mcp.access.app_only")),
             ]
         );
         let mut depends: Vec<&str> = of(|k| *k == Kind::Depends)

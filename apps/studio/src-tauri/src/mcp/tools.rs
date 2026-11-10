@@ -3595,7 +3595,7 @@ mod tests {
                 revision: 0,
                 size: 128,
                 sha1: format!("d40f19ac{}", "0".repeat(32)),
-                known_base: Some("Platin DE (test project)".into()),
+                known_base: Some("Platinum DE (test project)".into()),
                 support: Support::Verified,
             },
             warnings: Vec::new(),
@@ -3603,12 +3603,12 @@ mod tests {
         };
         assert_eq!(
             assign_question("p.nds", &check),
-            "Assign base ROM: p.nds (Platin DE (test project), SHA-1 d40f19ac)"
+            "Assign base ROM: p.nds (Platinum DE (test project), SHA-1 d40f19ac)"
         );
         check.warnings = vec![warning(BaseWarningKind::TitleDiffers)];
         assert_eq!(
             assign_question("p.nds", &check),
-            "Assign base ROM: p.nds (Platin DE (test project), SHA-1 d40f19ac; title differs \
+            "Assign base ROM: p.nds (Platinum DE (test project), SHA-1 d40f19ac; title differs \
              from the project)"
         );
         check.info.known_base = None;

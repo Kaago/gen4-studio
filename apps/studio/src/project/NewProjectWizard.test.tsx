@@ -350,6 +350,23 @@ describe("NewProjectWizard", () => {
     expect(button("Weiter")?.disabled).toBe(true);
   });
 
+  it.each(["Kein Gen-4-Spiel erkannt", "No Gen 4 game recognized"])("shows_the_kernels_not_gen4_sentence_once_whatever_its_language (%s)", async (reason) => {
+    // The kernel speaks the language it was set to; the badge already says it in the language shown.
+    vi.mocked(inspectRom).mockResolvedValue(rom({ title: "TETRIS", game_code: "ATRE", family: null, language: "english", known_base: null, support: { kind: "unknown", reason } }));
+    await show();
+    await type(field("ROM-Datei"), "/roms/t.nds");
+    expect(text().split("Kein Gen-4-Spiel erkannt")).toHaveLength(2);
+    expect(text()).not.toContain("No Gen 4 game recognized");
+  });
+
+  it("shows_another_unknown_reason_beside_the_badge", async () => {
+    vi.mocked(inspectRom).mockResolvedValue(rom({ title: "TETRIS", game_code: "ATRE", family: null, language: "english", known_base: null, support: { kind: "unknown", reason: "Kein DS-Spiel" } }));
+    await show();
+    await type(field("ROM-Datei"), "/roms/t.nds");
+    expect(text()).toContain("Kein Gen-4-Spiel erkannt");
+    expect(text()).toContain("Kein DS-Spiel");
+  });
+
   it("untested_language_shows_the_plaque", async () => {
     vi.mocked(inspectRom).mockResolvedValue(HG_FR);
     await show();

@@ -105,8 +105,12 @@ ROM gültig); sonst gibt es keine Warnung. Die Warnungen kommen in dieser Reihen
 ## `base_roms.yaml`
 
 `crates/g4-kernel/metadata/base_roms.yaml` listet ROMs, gegen die der Editor ausprobiert wurde
-(`sha1`, `game_code`, `label`, `source`). `inspect_rom` gibt das `label` als `known_base` zurück,
-wenn SHA-1 und Spielcode passen. Die Einträge heißen „Testprojekt“, nicht „sauberer Dump“: ein
+(`sha1`, `game_code`, `game` mit `platinum` oder `heartgold`, `region` wie `DE` oder `US`).
+`inspect_rom` gibt ein Label als `known_base` zurück, wenn SHA-1 und Spielcode passen. Das Label
+entsteht beim Fragen aus dem Katalog in der Sprache des Prozesses (`start.known_base`: „Platin DE
+(Testprojekt)“, englisch „Platinum DE (test project)“); die App merkt es sich in `base-roms.json`,
+baut es für einen bekannten Dump aber beim Lesen der Datei und beim Wiederfinden der ROM neu.
+Die Einträge heißen „Testprojekt“, nicht „sauberer Dump“: ein
 Abgleich mit der No-Intro-Datenbank ist nicht gemacht. Die Tabelle ist eine Auskunft, keine
 Freigabe; die Freigabe steht in `Support` (`inspect_rom`).
 

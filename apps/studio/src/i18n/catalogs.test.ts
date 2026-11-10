@@ -17,11 +17,34 @@ function flatten(obj: Catalog, prefix = ""): Map<string, unknown> {
   return out;
 }
 
-const PLACEHOLDER = /\{\{(\w+)\}\}/g;
+/** i18next's `{{name}}` and `{{name, format}}` (`{{count, number}}`): compared by the name. */
+const NAMED = /\{\{\s*(\w+)\s*(?:,[^}]*)?\}\}/g;
+/** The check catalog's own `{1}` and `{1:id}` (`checks/messages.ts`): compared with the kind. */
+const NUMBERED = /(?<!\{)\{(\d+(?::\w+)?)\}(?!\})/g;
 
+/** The placeholders of `value`, each once, sorted: `{{name}}` for a named one (format dropped), `{n}`/`{n:kind}` for a numbered one. */
 function placeholders(value: string): string[] {
-  return [...new Set([...value.matchAll(PLACEHOLDER)].map((m) => m[1]))].sort();
+  const named = [...value.matchAll(NAMED)].map((m) => `{{${m[1]}}}`);
+  const numbered = [...value.matchAll(NUMBERED)].map((m) => `{${m[1]}}`);
+  return [...new Set([...named, ...numbered])].sort();
 }
+
+describe("placeholders", () => {
+  it("reads named, formatted and numbered placeholders", () => {
+    expect(placeholders("{{count, number}} of {{total}}, again {{ count }}")).toEqual(["{{count}}", "{{total}}"]);
+    expect(placeholders("Trainer {0:id} uses {1} and {2:num}, not {x} or {{3}}")).toEqual(["{0:id}", "{1}", "{2:num}", "{{3}}"]);
+    expect(placeholders("none")).toEqual([]);
+  });
+
+  it("tells a dropped format apart from nothing, and a changed kind apart", () => {
+    // The name decides for i18next's placeholders: the format may differ, the name may not.
+    expect(placeholders("{{count, number}} Dateien")).toEqual(placeholders("{{count}} files"));
+    expect(placeholders("{{count, number}} Dateien")).not.toEqual(placeholders("{{n, number}} files"));
+    // A numbered placeholder keeps its kind: `{1:id}` and `{1}` are different.
+    expect(placeholders("Header {1:id}")).not.toEqual(placeholders("Header {1}"));
+    expect(placeholders("Header {1:id}")).not.toEqual(placeholders("Header"));
+  });
+});
 
 const de = resources.de as Record<string, Catalog>;
 const en = resources.en as Record<string, Catalog>;
@@ -75,7 +98,7 @@ describe("catalogs", () => {
         if (typeof valueDe !== "string" || typeof valueEn !== "string") continue;
         const a = placeholders(valueDe);
         const b = placeholders(valueEn);
-        if (a.join(",") !== b.join(",")) problems.push(`${key}: de {{${a.join("}}, {{")}}} vs en {{${b.join("}}, {{")}}}`);
+        if (a.join(",") !== b.join(",")) problems.push(`${key}: de ${a.join(", ") || "none"} vs en ${b.join(", ") || "none"}`);
       }
       expect(problems, `namespace ${ns}: placeholders differ: ${problems.join("; ")}`).toEqual([]);
     });

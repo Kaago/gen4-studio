@@ -2,7 +2,7 @@ import { useContext, useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../api";
-import { t } from "../i18n";
+import { matchesAnyLanguage, t } from "../i18n";
 import type { Created, CreatePhase, CreateProgress, DestCheck, RomInfo, Template } from "../api";
 import { openPath } from "../platform/dialogs";
 import { Badge, Button, CheckList, Checkbox, DSScreen, Icon, Notice, Switch, TextField } from "../ui/primitives";
@@ -45,9 +45,6 @@ export const templateName = (template: Template): string => t(`project:templates
 
 /** The template cards, in their order; title and text are read at render (`project:wizard.cards`). */
 const CARDS: readonly Template[] = ["original", "empty_region", "data_only"];
-
-/** The kernel's own words for a game code that is no Gen-4 code (`g4_kernel::start::NOT_GEN4`): compared, never shown. */
-const KERNEL_NOT_GEN4 = "Kein Gen-4-Spiel erkannt";
 
 type PhaseState = "open" | "running" | "done" | "failed";
 type PhaseRow = { id: CreatePhase; state: PhaseState; done: number; total: number };
@@ -129,8 +126,9 @@ function SupportBadge({ support }: { support: RomInfo["support"] }) {
 function RomCard({ info }: { info: RomInfo }) {
   const { t } = useTranslation("project");
   const { support } = info;
-  // The badge says „Kein Gen-4-Spiel erkannt“ already: a reason that only repeats it is not shown again.
-  const repeatsBadge = support.kind === "unknown" && (support.reason === KERNEL_NOT_GEN4 || support.reason === t("wizard.support.unknown"));
+  // The badge says „Kein Gen-4-Spiel erkannt“ already: a reason that only repeats it is not shown again. The kernel's sentence
+  // (`g4_kernel::start::not_gen4`) is the badge's in its language, whichever the backend speaks (pinned in crates/g4-kernel/tests/i18n.rs).
+  const repeatsBadge = support.kind === "unknown" && matchesAnyLanguage("project:wizard.support.unknown", support.reason);
   const why = support.kind === "untested" ? t("wizard.untested") : support.kind === "locked" || (support.kind === "unknown" && !repeatsBadge) ? support.reason : null;
   return (
     <>
