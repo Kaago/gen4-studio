@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn adopt_and_revert_rewrite_the_git_templates_where_the_block_is() {
         use crate::git::templates::{
-            BLOCK_START, BROKEN_BLOCK, Layout, TemplateAction, gitignore_block, write_templates,
+            BLOCK_START, Layout, TemplateAction, broken_block, gitignore_block, write_templates,
         };
 
         let fx = TextFixture::dspre();
@@ -588,7 +588,7 @@ mod tests {
         let warning = report.templates_warning.expect("a warning");
         assert!(
             warning.starts_with("The Git templates could not be switched: .gitignore: ")
-                && warning.contains(BROKEN_BLOCK),
+                && warning.contains(&broken_block()),
             "{warning}"
         );
         assert!(crate::textproject::is_text_project(fx.root()));
@@ -779,7 +779,7 @@ mod tests {
         match revert(&fx.project()) {
             Err(KernelError::Refused(why)) => assert_eq!(
                 why,
-                "g4-world.json cannot be read (unbekannte ID MAP_X in roomNames). Repair it \
+                "g4-world.json cannot be read (unknown ID MAP_X in roomNames). Repair it \
                  first, then take the text project back."
             ),
             other => panic!("expected the refusal, got {other:?}"),

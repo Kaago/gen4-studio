@@ -25,7 +25,9 @@ use crate::text::{Problem, Severity, TextMessage, default_message_id};
 pub use crate::store::PLACEHOLDER_REASON;
 
 /// The refusal when the project's scripts are not adopted (the UI shows it as it is).
-pub const ADOPT_FIRST: &str = "Erst Scripts übernehmen (Bereich Welt, Panel Script)";
+pub fn adopt_first() -> String {
+    t!("data.adopt_first").into_owned()
+}
 
 /// Trainer IDs with a "defeated" flag of their own in Platinum and HGSS: flags `0x550 + ID`
 /// up to `0x95F` (trainer-mechanics-3b3b.md §4), the fallback where `arm9_tables.yaml` has
@@ -74,7 +76,7 @@ pub struct TrainerTextsOutcome {
 
 /// The reason undo gives at the step that created trainer `id` (the UI shows it as it is).
 pub fn not_undoable(id: u16) -> String {
-    format!("Trainer {id} anlegen lässt sich nicht rückgängig machen")
+    t!("data.trainer_not_undoable", id = id).into_owned()
 }
 
 fn refused(text: impl Into<String>) -> KernelError {
@@ -92,7 +94,7 @@ pub fn create_trainer(
     name: &str,
 ) -> Result<CreateTrainerReport, KernelError> {
     if !scripts::is_adopted(project) {
-        return Err(refused(ADOPT_FIRST));
+        return Err(refused(adopt_first()));
     }
     let meta = scripts::project_trainer_script_meta(project)?;
     let capacity = trainer_flag_capacity(project);
@@ -112,11 +114,12 @@ pub fn trainer_flag_capacity(project: &Project) -> u16 {
 pub fn name_too_long(name: &str) -> Option<String> {
     let units = name_units(name);
     (units > NAME_MAX_CHARS + 1).then(|| {
-        format!(
-            "Der Name hat {} Zeichen, höchstens {NAME_MAX_CHARS} passen. Kürze ihn; längere Namen \
-             brauchen einen arm9-Patch.",
-            units - 1
+        t!(
+            "data.name_too_long",
+            units = units - 1,
+            max = NAME_MAX_CHARS
         )
+        .into_owned()
     })
 }
 
@@ -141,17 +144,17 @@ pub fn next_trainer(
     meta: &TrainerScriptMeta,
     flag_capacity: u16,
 ) -> Result<NextTrainer, KernelError> {
-    let mut id = u16::try_from(count)
-        .map_err(|_| refused(format!("{count} Trainer: es ist keine Nummer mehr frei.")))?;
+    let mut id =
+        u16::try_from(count).map_err(|_| refused(t!("data.no_trainer_number", count = count)))?;
     let placeholder = (id == meta.seen_id()).then_some(id);
     if placeholder.is_some() {
         id += 1;
     }
     if id >= flag_capacity {
-        return Err(refused(format!(
-            "Trainer {id} hätte kein Besiegt-Flag: das Spiel hat Flags für die Trainer 0 bis {}. \
-             Mehr Trainer gehen erst mit einem Patch, der Flags hinzufügt.",
-            flag_capacity.saturating_sub(1)
+        return Err(refused(t!(
+            "data.no_defeat_flag",
+            id = id,
+            last = flag_capacity.saturating_sub(1)
         )));
     }
     let extend = u32::from(id) > scripts::battle_slots(project, meta)?.max();
@@ -185,7 +188,7 @@ pub fn create_trainer_with(
 ) -> Result<CreateTrainerReport, KernelError> {
     // Check and compute everything first: nothing is written before the plan stands.
     if !scripts::is_adopted(project) {
-        return Err(refused(ADOPT_FIRST));
+        return Err(refused(adopt_first()));
     }
     if let Some(why) = name_too_long(name) {
         return Err(refused(why));
@@ -194,21 +197,22 @@ pub fn create_trainer_with(
     let props_count = store.member_count(AssetKind::TrainerProperties)?;
     let party_count = store.member_count(AssetKind::TrainerParty)?;
     if props_count != party_count {
-        return Err(refused(format!(
-            "Die Trainerdaten passen nicht zusammen: {props_count} Eigenschaften, aber \
-             {party_count} Teams. Gleiche die beiden Ordner im Projekt an (DSPRE oder Sicherung), \
-             dann lässt sich ein Trainer anlegen."
+        return Err(refused(t!(
+            "data.trainer_data_mismatch",
+            props = props_count,
+            parties = party_count
         )));
     }
     let family = project.family;
     let names_archive = bank_index(family, project.language, Bank::TrainerNames)
-        .ok_or_else(|| refused("Dieses Spiel hat keine Namensliste für Trainer; hier lässt sich kein Trainer anlegen."))?;
+        .ok_or_else(|| refused(t!("data.no_name_list")))?;
     let name_count = names.names(store, Bank::TrainerNames)?.len();
     if name_count != props_count {
-        return Err(refused(format!(
-            "Die Trainernamen (Textarchiv {names_archive:04}) haben {name_count} Einträge für \
-             {props_count} Trainer. Gleiche sie im Bereich Texte an (ein Name je Trainer), dann \
-             lässt sich ein Trainer anlegen."
+        return Err(refused(t!(
+            "data.names_mismatch",
+            archive = names_archive : {:04},
+            names = name_count,
+            trainers = props_count
         )));
     }
     let table_len = store.trainer_text_table(0)?.entries.len();
@@ -223,23 +227,20 @@ pub fn create_trainer_with(
     ] {
         if let Some(reason) = store.locked(asset) {
             let what = if asset.kind == AssetKind::TextArchive {
-                format!("Die Trainernamen (Textarchiv {:04})", asset.index)
+                t!("data.locked_names", archive = asset.index : {:04})
             } else {
-                "Die Kampftexte".to_owned()
+                t!("data.locked_battle_texts")
             };
-            return Err(refused(format!(
-                "{what} sind gesperrt ({reason}). Ein neuer Trainer braucht dort einen Eintrag; \
-                 erst wenn sie wieder lesbar sind, lässt sich ein Trainer anlegen."
+            return Err(refused(t!(
+                "data.trainer_parts_locked",
+                what = what,
+                reason = reason
             )));
         }
     }
     // `trtblofs` holds byte offsets as u16; a new trainer points at the end of `trtbl`.
-    let text_offset = u16::try_from(table_len * 4).map_err(|_| {
-        refused(format!(
-            "Die Tabelle der Kampftexte ist voll ({table_len} Einträge): ein neuer Trainer fände \
-             keinen Platz. Entferne ungenutzte Kampftexte, dann lässt sich ein Trainer anlegen."
-        ))
-    })?;
+    let text_offset = u16::try_from(table_len * 4)
+        .map_err(|_| refused(t!("data.text_table_full", len = table_len)))?;
     let NextTrainer {
         id,
         placeholder,
@@ -260,21 +261,16 @@ pub fn create_trainer_with(
             .into_iter()
             .find(|a| a.kind == AssetKind::TextArchive && !trainer_banks.contains(&Some(a.index)))
     {
-        return Err(refused(format!(
-            "Textarchiv {:04} erst speichern: das Kampf-Script bekommt neue Plätze und wird neu \
-             kompiliert",
-            text.index
+        return Err(refused(t!(
+            "data.save_archive_first",
+            archive = text.index : {:04}
         )));
     }
     for index in placeholder.iter().copied().chain([id]) {
         for kind in [AssetKind::TrainerProperties, AssetKind::TrainerParty] {
             let path = project.member_path(kind, index);
             if path.exists() {
-                return Err(refused(format!(
-                    "{} gibt es schon; das Studio überschreibt sie nicht. Verschiebe die Datei \
-                     oder öffne das Projekt neu, dann lässt sich ein Trainer anlegen.",
-                    path.display()
-                )));
+                return Err(refused(t!("data.member_exists", path = path.display())));
             }
         }
     }
@@ -310,19 +306,15 @@ pub fn create_trainer_with(
                     meta.battle_file
                 )),
                 // The old source and member are back: nothing was written, refused in words.
-                KernelError::Compile(problems) => refused(format!(
-                    "Das Kampf-Script {:04} ließ sich mit neuen Plätzen nicht kompilieren ({}) \
-                     und ist unverändert. Speichere die Scripts im Bereich Welt, Panel Script, \
-                     und behebe die Probleme dort, dann lässt sich ein Trainer anlegen.",
-                    meta.battle_file,
-                    match problems.len() {
-                        1 => "1 Problem".to_owned(),
-                        n => format!("{n} Probleme"),
+                KernelError::Compile(problems) => refused(t!(
+                    "data.extend_compile_failed",
+                    file = meta.battle_file : {:04},
+                    problems = match problems.len() {
+                        1 => t!("data.problems_one"),
+                        n => t!("data.problems_other", n = n),
                     }
                 )),
-                KernelError::InvalidProject(why) => refused(format!(
-                    "{why}. Das Kampf-Script ist unverändert; prüfe die Datei im Panel Script."
-                )),
+                KernelError::InvalidProject(why) => refused(t!("data.extend_invalid", why = why)),
                 e => e,
             })?;
         progress.extended = Some(meta.battle_file);
@@ -364,23 +356,27 @@ pub fn create_trainer_with(
         .collect();
     // The members are on disk already: the step is an undo barrier, never undone without them.
     store
-        .barrier_transaction(&format!("Trainer {id} angelegt"), &not_undoable(id), |tx| {
-            tx.edit_text_archive(names_archive, |doc| {
-                for text in new_names {
-                    let n = doc.messages.len();
-                    doc.messages.push(TextMessage {
-                        id: default_message_id(n),
-                        text,
-                        other: Default::default(),
-                    });
-                }
-            })?;
-            tx.edit_trainer_text_offsets(0, |o| {
-                let len = (usize::from(id) + 1).max(o.offsets.len());
-                o.offsets.resize(len, 0);
-                o.offsets[usize::from(id)] = text_offset;
-            })
-        })
+        .barrier_transaction(
+            &t!("data.trainer_created_label", id = id),
+            &not_undoable(id),
+            |tx| {
+                tx.edit_text_archive(names_archive, |doc| {
+                    for text in new_names {
+                        let n = doc.messages.len();
+                        doc.messages.push(TextMessage {
+                            id: default_message_id(n),
+                            text,
+                            other: Default::default(),
+                        });
+                    }
+                })?;
+                tx.edit_trainer_text_offsets(0, |o| {
+                    let len = (usize::from(id) + 1).max(o.offsets.len());
+                    o.offsets.resize(len, 0);
+                    o.offsets[usize::from(id)] = text_offset;
+                })
+            },
+        )
         .map_err(|e| progress.failed("setting its name and text offset", e))?;
     Ok(CreateTrainerReport {
         id,
@@ -515,7 +511,7 @@ pub fn set_trainer_texts_labelled(
         .into_iter()
         .collect();
 
-    let default_label = format!("Kampftexte Trainer {id}");
+    let default_label = t!("data.battle_texts_label", id = id).into_owned();
     let (_, change) = store.transaction(label.unwrap_or(&default_label), |tx| {
         tx.edit_text_archive(archive, |doc| {
             for (i, text) in &updates {
@@ -827,7 +823,7 @@ mod tests {
         assert_eq!(f.offsets(), [0, 0, 0, 8]);
         assert_eq!(
             f.store.history(),
-            (vec!["Trainer 3 angelegt".to_owned()], vec![])
+            (vec!["Trainer 3 created".to_owned()], vec![])
         );
         assert_eq!(f.store.trainer(3).unwrap().class, 1);
         assert_eq!(f.store.locked(trainer_id(3)), None);
@@ -837,7 +833,7 @@ mod tests {
         let err = f.store.undo().unwrap_err();
         assert!(
             matches!(&err, KernelError::Refused(r)
-                if r == "Trainer 3 anlegen lässt sich nicht rückgängig machen"),
+                if r == "Creating trainer 3 cannot be undone"),
             "{err}"
         );
         assert_eq!(f.texts(TRAINER_NAMES)[3], "{TRAINER_NAME:Jens}");
@@ -870,7 +866,7 @@ mod tests {
         assert_eq!(
             f.store.history(),
             (
-                vec!["vorher".to_owned(), "Trainer 3 angelegt".to_owned()],
+                vec!["vorher".to_owned(), "Trainer 3 created".to_owned()],
                 vec!["nachher".to_owned()]
             )
         );
@@ -885,8 +881,8 @@ mod tests {
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
         assert_eq!(
             err.to_string(),
-            "Der Name hat 12 Zeichen, höchstens 7 passen. Kürze ihn; längere Namen brauchen \
-             einen arm9-Patch."
+            "The name has 12 characters; at most 7 fit. Shorten it; longer names need an arm9 \
+             patch."
         );
         assert_eq!(f.count(), 3);
         assert_eq!(f.create(1, "Maximil").unwrap().id, 3);
@@ -910,8 +906,7 @@ mod tests {
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
         assert_eq!(
             err.to_string(),
-            "Textarchiv 0412 erst speichern: das Kampf-Script bekommt neue Plätze und wird neu \
-             kompiliert"
+            "Save text archive 0412 first: the battle script gets new slots and is compiled again"
         );
         assert_eq!(f.count(), 4);
         assert_eq!(f.source(), source);
@@ -952,7 +947,7 @@ mod tests {
         assert_eq!(f.offsets(), [0, 0, 0, 8, 0, 8]);
         assert_eq!(
             f.store.history().0,
-            ["Trainer 3 angelegt", "Trainer 5 angelegt"]
+            ["Trainer 3 created", "Trainer 5 created"]
         );
         // The placeholder is shown, but locked; the new trainer is not.
         f.store.trainer(4).unwrap();
@@ -1077,9 +1072,9 @@ mod tests {
         assert_eq!(
             err.to_string(),
             format!(
-                "Das Kampf-Script {file:04} ließ sich mit neuen Plätzen nicht kompilieren (1 \
-                 Problem) und ist unverändert. Speichere die Scripts im Bereich Welt, Panel \
-                 Script, und behebe die Probleme dort, dann lässt sich ein Trainer anlegen."
+                "The battle script {file:04} could not be compiled with new slots (1 problem) and \
+                 is unchanged. Save the scripts in World, panel “Script”, and fix the problems \
+                 there; then a trainer can be created."
             )
         );
         assert_eq!(f.source(), BATTLE);
@@ -1114,7 +1109,7 @@ mod tests {
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
         assert!(
             err.to_string().starts_with(&format!(
-                "Kampf-Scriptdatei {file:04} kam beim Kompilieren anders heraus als erwartet: "
+                "Battle script file {file:04} came out of the compiler differently than expected: "
             )),
             "{err}"
         );
@@ -1156,7 +1151,7 @@ mod tests {
         let mut f = fixture(false);
         let err = f.create(1, "Jens").unwrap_err();
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
-        assert_eq!(err.to_string(), ADOPT_FIRST);
+        assert_eq!(err.to_string(), adopt_first());
         assert_eq!(f.count(), 3);
         assert_eq!(f.store.history(), (vec![], vec![]));
     }
@@ -1168,8 +1163,8 @@ mod tests {
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
         assert_eq!(
             err.to_string(),
-            "Trainer 3 hätte kein Besiegt-Flag: das Spiel hat Flags für die Trainer 0 bis 2. \
-             Mehr Trainer gehen erst mit einem Patch, der Flags hinzufügt."
+            "Trainer 3 would have no defeated flag: the game has flags for trainers 0 to 2. More \
+             trainers need a patch that adds flags."
         );
         assert_eq!(f.count(), 3);
         assert_eq!(f.source(), BATTLE);
@@ -1185,7 +1180,7 @@ mod tests {
         let err = f.create(1, "Jens").unwrap_err();
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
         assert!(
-            err.to_string().contains("Sicht-Script ist Platz 4"),
+            err.to_string().contains("the sight script is slot 4"),
             "{err}"
         );
         assert_eq!(f.count(), 3);
@@ -1203,9 +1198,9 @@ mod tests {
         assert_eq!(
             err.to_string(),
             format!(
-                "Die Trainernamen (Textarchiv {TRAINER_NAMES:04}) haben 2 Einträge für 3 \
-                 Trainer. Gleiche sie im Bereich Texte an (ein Name je Trainer), dann lässt sich \
-                 ein Trainer anlegen."
+                "The trainer names (text archive {TRAINER_NAMES:04}) have 2 entries for 3 \
+                 trainers. Make them match in Texts (one name per trainer); then a trainer can be \
+                 created."
             )
         );
         assert_eq!(f.count(), 3);

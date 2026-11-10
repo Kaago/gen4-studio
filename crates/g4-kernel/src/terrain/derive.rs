@@ -72,12 +72,9 @@ pub fn block_edges(grid: &HeightGrid, cells: &mut [Cell]) {
 pub fn apply_overrides(cells: &mut [Cell], overrides: &[CellOverride]) -> Result<(), KernelError> {
     let side = SIDE as u8;
     if let Some(o) = overrides.iter().find(|o| o.x >= side || o.y >= side) {
-        return Err(KernelError::Refused(format!(
-            "overrides: Kachel x {}, y {} liegt außerhalb der Karte (0 bis {}).",
-            o.x,
-            o.y,
-            side - 1
-        )));
+        return Err(KernelError::Refused(
+            t!("terrain.override_outside", x = o.x, y = o.y, max = side - 1).into_owned(),
+        ));
     }
     for o in overrides {
         if let Some(cell) = cells.get_mut(usize::from(o.y) * SIDE + usize::from(o.x)) {
@@ -345,7 +342,7 @@ mod tests {
         match apply_overrides(&mut cells, &[first, outside]) {
             Err(KernelError::Refused(text)) => assert_eq!(
                 text,
-                "overrides: Kachel x 32, y 0 liegt außerhalb der Karte (0 bis 31)."
+                "overrides: tile x 32, y 0 is outside the map (0 to 31)."
             ),
             other => panic!("{other:?}"),
         }

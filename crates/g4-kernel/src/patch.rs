@@ -1,6 +1,6 @@
 //! An xdelta patch of the built ROM against the base ROM: VCDIFF without secondary
-//! compression, with Adler32 and an application header naming both ROMs, a German notes
-//! file next to it, and a self-check before anything is written. See
+//! compression, with Adler32 and an application header naming both ROMs, a notes file in
+//! the current language next to it, and a self-check before anything is written. See
 //! `docs/formats/xdelta_patch.md`.
 
 use std::io::Write;
@@ -20,14 +20,14 @@ pub mod publish;
 pub mod release;
 
 pub use publish::{
-    BAD_FILE, EXISTS, NO_CHANGES, NO_ROM_CONTENT, NOT_A_FOLDER, PublishOptions, PublishPhase,
-    PublishProgress, PublishReport, PublishTargets, PublishedFile, PublishedKind,
-    build_and_publish, check_publish, check_targets, publish_built, readme_text, targets_for,
+    PublishOptions, PublishPhase, PublishProgress, PublishReport, PublishTargets, PublishedFile,
+    PublishedKind, bad_file, build_and_publish, check_publish, check_targets, exists, no_changes,
+    no_rom_content, not_a_folder, publish_built, readme_text, targets_for,
 };
 pub use release::{
-    BAD_VERSION, FIRST_VERSION, RELEASES_BROKEN, RELEASES_FILE, RELEASES_VERSION, Release,
-    Releases, VERSION_MAX, VERSION_TAKEN, append_release, check_version, next_version,
-    read_releases, release_file_entry, release_file_name,
+    FIRST_VERSION, RELEASES_FILE, RELEASES_VERSION, Release, Releases, VERSION_MAX, append_release,
+    bad_version, check_version, next_version, read_releases, release_file_entry, release_file_name,
+    releases_broken, version_taken,
 };
 
 /// The patch's name, its target ROM and the base it applies to, for the app header and the
@@ -65,10 +65,14 @@ pub struct PatchReport {
 }
 
 /// The self-check decoded something other than the built ROM; nothing was written.
-pub const SELF_CHECK_FAILED: &str = "Selbstprüfung fehlgeschlagen: der Patch ergibt auf der Basis-ROM nicht die gebaute ROM; nichts geschrieben.";
+pub fn self_check_failed() -> String {
+    t!("patch.self_check_failed").into_owned()
+}
 
 /// A project without a base mark: the refusal of `build_and_create`, the app, MCP and `g4k`.
-pub const NO_MARK: &str = "Diesem Projekt ist keine Basis-ROM zugeordnet.";
+pub fn no_mark() -> String {
+    t!("patch.no_mark").into_owned()
+}
 
 /// `<Projekt>-<Spielcode>`: the folder name without `_DSPRE_contents`, cleaned to a file name
 /// (see [`clean`]), `Projekt` if nothing is left, and the project's game code.
@@ -161,7 +165,7 @@ pub fn app_header(meta: &PatchMeta, base_sha1: &str) -> String {
     )
 }
 
-/// The German notes file `<Name>.xdelta.txt`, lines ending in `\n`.
+/// The notes file `<Name>.xdelta.txt` in the current language, lines ending in `\n`.
 pub fn notes(meta: &PatchMeta, base_sha1: &str, target_sha1: &str) -> String {
     notes_with(meta, base_sha1, target_sha1, None)
 }
@@ -191,17 +195,20 @@ pub fn notes_with(
         base_label,
         studio_version,
     } = meta;
-    let mut text = format!(
-        "Gen4 Studio: Patch für {base_label}\n\
-         Spiel: {game_code}\n\
-         Basis-ROM SHA-1: {base_sha1}\n\
-         Ziel-ROM SHA-1: {target_sha1}\n\
-         Studio-Version: {studio_version}\n"
-    );
+    let mut text = t!(
+        "patch.notes_header",
+        base_label = base_label,
+        game_code = game_code,
+        base_sha1 = base_sha1,
+        target_sha1 = target_sha1,
+        studio_version = studio_version
+    )
+    .into_owned();
     if let Some(release) = release {
-        text.push_str(&format!(
-            "Version: {}\nDatum: {}\n",
-            release.version, release.date
+        text.push_str(&t!(
+            "patch.notes_release",
+            version = release.version,
+            date = release.date
         ));
     }
     text.push('\n');
@@ -209,7 +216,7 @@ pub fn notes_with(
     if let Some(release) = release {
         let changes = release.notes.trim_end();
         if !changes.trim().is_empty() {
-            text.push_str(&format!("\nÄnderungen:\n{changes}\n"));
+            text.push_str(&format!("\n{}\n{changes}\n", t!("patch.changes_heading")));
         }
     }
     text
@@ -218,15 +225,12 @@ pub fn notes_with(
 /// The paragraph `Anwenden: …` of the notes and `README.txt` for the patch `<name>.xdelta`,
 /// ending in `\n`.
 pub(crate) fn apply_line(name: &str) -> String {
-    format!(
-        "Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“) oder mit \
-         Rom Patcher JS, auf genau die Basis-ROM mit dieser SHA-1.\n"
-    )
+    t!("patch.apply_line", name = name).into_owned()
 }
 
 /// Writes a patch from `base` to the ROM at `built_rom` to `out` and its notes next to it.
 /// The patch is decoded again before anything is written; if that does not give the built
-/// ROM (by SHA-1), the result is `Refused(SELF_CHECK_FAILED)` (shown as it is, without a
+/// ROM (by SHA-1), the result is `Refused(self_check_failed())` (shown as it is, without a
 /// prefix) and an old patch stays as it was.
 pub fn create_patch(
     base: &BaseRom,
@@ -259,9 +263,9 @@ pub fn create_patch_with_notes(
     )
 }
 
-/// The decoder of the self-check: xdelta's, a failure is [`SELF_CHECK_FAILED`].
+/// The decoder of the self-check: xdelta's, a failure is [`self_check_failed`].
 pub(crate) fn decode(source: &[u8], patch: &[u8]) -> Result<Vec<u8>, KernelError> {
-    g4_xdelta::decode(source, patch).map_err(|_| KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
+    g4_xdelta::decode(source, patch).map_err(|_| KernelError::Refused(self_check_failed()))
 }
 
 /// The decoder of the self-check: source and patch in, the decoded target out.
@@ -271,7 +275,7 @@ pub(crate) type Verify = dyn Fn(&[u8], &[u8]) -> Result<Vec<u8>, KernelError>;
 /// they start, and the refusal of a built ROM equal to the base.
 pub(crate) struct Run<'a> {
     pub(crate) on_phase: &'a mut dyn FnMut(PublishPhase),
-    /// `Refused(publish::NO_CHANGES)` before encoding when the built ROM is the base ROM.
+    /// `Refused(publish::no_changes())` before encoding when the built ROM is the base ROM.
     pub(crate) refuse_unchanged: bool,
 }
 
@@ -292,14 +296,14 @@ pub(crate) fn create_patch_with(
     let target = std::fs::read(built_rom).map_err(io_at(built_rom))?;
     let target_sha1 = sha1_hex(&target);
     if refuse_unchanged && target_sha1.eq_ignore_ascii_case(base.sha1()) {
-        return Err(KernelError::Refused(publish::NO_CHANGES.to_owned()));
+        return Err(KernelError::Refused(publish::no_changes()));
     }
     let header = app_header(meta, base.sha1());
 
     on_phase(PublishPhase::Encode);
     let started = Instant::now();
     let patch = g4_xdelta::encode(base.bytes(), &target, header.as_bytes())
-        .map_err(|e| KernelError::Refused(format!("Patch nicht erstellt: {e}")))?;
+        .map_err(|e| KernelError::Refused(t!("patch.not_created", error = e).into_owned()))?;
     let encode_ms = elapsed_ms(started);
     drop(target);
 
@@ -307,7 +311,7 @@ pub(crate) fn create_patch_with(
     let started = Instant::now();
     let decoded = verify(base.bytes(), &patch)?;
     if sha1_hex(&decoded) != target_sha1 {
-        return Err(KernelError::Refused(SELF_CHECK_FAILED.to_owned()));
+        return Err(KernelError::Refused(self_check_failed()));
     }
     let verify_ms = elapsed_ms(started);
     drop(decoded);
@@ -353,9 +357,9 @@ pub(crate) fn create_patch_with(
 /// Writes `bytes` to `.<file name>.tmp` next to `path` and returns that path; removed again
 /// on an error.
 pub(crate) fn write_tmp(path: &Path, bytes: &[u8]) -> Result<PathBuf, KernelError> {
-    let name = path
-        .file_name()
-        .ok_or_else(|| KernelError::Refused(format!("{}: kein Dateiname", path.display())))?;
+    let name = path.file_name().ok_or_else(|| {
+        KernelError::Refused(t!("patch.no_file_name", path = path.display()).into_owned())
+    })?;
     let mut tmp_name = std::ffi::OsString::from(".");
     tmp_name.push(name);
     tmp_name.push(".tmp");
@@ -390,8 +394,7 @@ pub fn build_and_create(
     base: &BaseRom,
     out: Option<&Path>,
 ) -> Result<(BuildReport, PatchReport), KernelError> {
-    let mark =
-        read_base_mark(&project.root).ok_or_else(|| KernelError::Refused(NO_MARK.to_owned()))?;
+    let mark = read_base_mark(&project.root).ok_or_else(|| KernelError::Refused(no_mark()))?;
     if !mark.sha1.eq_ignore_ascii_case(base.sha1()) {
         return Err(KernelError::Refused(other_rom(base.sha1(), &mark)));
     }
@@ -584,15 +587,15 @@ mod tests {
         let target = "0123456789abcdef0123456789abcdef01234567";
         assert_eq!(
             notes(&test_meta(), base, target),
-            "Gen4 Studio: Patch für Platin/DE: Basis\n\
-             Spiel: CPUE\n\
-             Basis-ROM SHA-1: d40f19ac24d67c721a4ab25e1c013154443d75b4\n\
-             Ziel-ROM SHA-1: 0123456789abcdef0123456789abcdef01234567\n\
-             Studio-Version: 0.1.0\n\
+            "Gen4 Studio: patch for Platin/DE: Basis\n\
+             Game: CPUE\n\
+             Base ROM SHA-1: d40f19ac24d67c721a4ab25e1c013154443d75b4\n\
+             Target ROM SHA-1: 0123456789abcdef0123456789abcdef01234567\n\
+             Studio version: 0.1.0\n\
              \n\
-             Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> Mein Hack-CPUE.xdelta \
-             Mein Hack-CPUE.nds“) oder mit Rom Patcher JS, auf genau die Basis-ROM mit \
-             dieser SHA-1.\n"
+             To apply: with xdelta3 (“xdelta3 -d -s <base ROM> Mein Hack-CPUE.xdelta \
+             Mein Hack-CPUE.nds”) or with Rom Patcher JS, on exactly the base ROM with \
+             this SHA-1.\n"
         );
     }
 
@@ -665,13 +668,13 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            matches!(&err, KernelError::Refused(m) if m == SELF_CHECK_FAILED),
+            matches!(&err, KernelError::Refused(m) if *m == self_check_failed()),
             "{err:?}"
         );
-        assert_eq!(err.to_string(), SELF_CHECK_FAILED);
+        assert_eq!(err.to_string(), self_check_failed());
         // A verify that cannot decode at all fails the same way.
         let broken = |_: &[u8], _: &[u8]| -> Result<Vec<u8>, KernelError> {
-            Err(KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
+            Err(KernelError::Refused(self_check_failed()))
         };
         let err = create_patch_with(
             &f.base,
@@ -687,10 +690,10 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            matches!(&err, KernelError::Refused(m) if m == SELF_CHECK_FAILED),
+            matches!(&err, KernelError::Refused(m) if *m == self_check_failed()),
             "{err:?}"
         );
-        assert_eq!(err.to_string(), SELF_CHECK_FAILED);
+        assert_eq!(err.to_string(), self_check_failed());
 
         assert_eq!(std::fs::read(&out).unwrap(), old_patch);
         assert_eq!(std::fs::read(notes_path(&out)).unwrap(), old_notes);
@@ -728,7 +731,7 @@ mod tests {
         let (_tmp, project) = minimal_project("X_DSPRE_contents");
         let err = build_and_create(&project, &f.base, None).unwrap_err();
         assert!(
-            matches!(&err, KernelError::Refused(m) if m == NO_MARK),
+            matches!(&err, KernelError::Refused(m) if *m == no_mark()),
             "{err:?}"
         );
 
@@ -769,19 +772,19 @@ mod tests {
         let with = notes_with(&meta, BASE_SHA1, TARGET_SHA1, Some(&info));
         assert_eq!(
             with,
-            "Gen4 Studio: Patch für Platin/DE: Basis\n\
-             Spiel: CPUE\n\
-             Basis-ROM SHA-1: d40f19ac24d67c721a4ab25e1c013154443d75b4\n\
-             Ziel-ROM SHA-1: 0123456789abcdef0123456789abcdef01234567\n\
-             Studio-Version: 0.1.0\n\
+            "Gen4 Studio: patch for Platin/DE: Basis\n\
+             Game: CPUE\n\
+             Base ROM SHA-1: d40f19ac24d67c721a4ab25e1c013154443d75b4\n\
+             Target ROM SHA-1: 0123456789abcdef0123456789abcdef01234567\n\
+             Studio version: 0.1.0\n\
              Version: 0.1.0\n\
-             Datum: 2026-10-31T10:00:00Z\n\
+             Date: 2026-10-31T10:00:00Z\n\
              \n\
-             Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> Mein Hack-CPUE.xdelta \
-             Mein Hack-CPUE.nds“) oder mit Rom Patcher JS, auf genau die Basis-ROM mit \
-             dieser SHA-1.\n\
+             To apply: with xdelta3 (“xdelta3 -d -s <base ROM> Mein Hack-CPUE.xdelta \
+             Mein Hack-CPUE.nds”) or with Rom Patcher JS, on exactly the base ROM with \
+             this SHA-1.\n\
              \n\
-             Änderungen:\n\
+             Changes:\n\
              Neue Karte\n\
              Zweite Zeile\n"
         );
@@ -794,7 +797,7 @@ mod tests {
         let typed = release_info("  Eingerückt\r\n\nZeile  \n\n\n");
         let with = notes_with(&meta, BASE_SHA1, TARGET_SHA1, Some(&typed));
         assert!(
-            with.ends_with("Änderungen:\n  Eingerückt\r\n\nZeile\n"),
+            with.ends_with("Changes:\n  Eingerückt\r\n\nZeile\n"),
             "{with:?}"
         );
     }
@@ -807,7 +810,7 @@ mod tests {
             notes(&meta, BASE_SHA1, TARGET_SHA1)
         );
         let plain = notes(&meta, BASE_SHA1, TARGET_SHA1);
-        for missing in ["\nVersion:", "\nDatum:", "Änderungen"] {
+        for missing in ["\nVersion:", "\nDate:", "Changes"] {
             assert!(!plain.contains(missing), "{missing}");
         }
     }
@@ -819,9 +822,9 @@ mod tests {
         for empty in ["", " \n\t\n"] {
             let info = release_info(empty);
             let with = notes_with(&meta, BASE_SHA1, TARGET_SHA1, Some(&info));
-            assert!(with.contains("Version: 0.1.0\nDatum: 2026-10-31T10:00:00Z\n"));
-            assert!(!with.contains("Änderungen"), "{with}");
-            assert!(with.ends_with("dieser SHA-1.\n"), "{with}");
+            assert!(with.contains("Version: 0.1.0\nDate: 2026-10-31T10:00:00Z\n"));
+            assert!(!with.contains("Changes"), "{with}");
+            assert!(with.ends_with("this SHA-1.\n"), "{with}");
             assert_eq!(with.lines().count(), plain.lines().count() + 2);
         }
     }
@@ -840,7 +843,7 @@ mod tests {
             notes_with(&meta, f.base.sha1(), &report.target_sha1, Some(&info))
         );
         assert!(text.contains("Version: 0.1.0\n"), "{text}");
-        assert!(text.contains("Änderungen:\nNeue Karte\n"), "{text}");
+        assert!(text.contains("Changes:\nNeue Karte\n"), "{text}");
         let patch = std::fs::read(&out).unwrap();
         assert_eq!(
             g4_xdelta::decode(f.base.bytes(), &patch).unwrap(),

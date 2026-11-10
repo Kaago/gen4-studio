@@ -18,8 +18,10 @@ use crate::project::{AssetKind, Location, Project};
 
 /// The key of the egg moves in `overlay_tables.yaml`.
 const TABLE: &str = "egg_moves";
-/// How the sentences name the table.
-const LABEL: &str = "Ei-Attacken";
+/// How the sentences name the table („Egg moves“).
+fn label() -> String {
+    t!("data.egg_moves_label").into_owned()
+}
 
 /// Where the table is read from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -63,7 +65,7 @@ pub fn egg_moves_place(project: &Project) -> Result<Result<EggMovesPlace, String
             let Some(table) = overlay_table(&project.game_code, TABLE) else {
                 return Ok(Err(unverified_reason(
                     &project.game_code,
-                    LABEL,
+                    &label(),
                     overlay_number(),
                 )));
             };
@@ -71,10 +73,13 @@ pub fn egg_moves_place(project: &Project) -> Result<Result<EggMovesPlace, String
             let overlay = match project.overlay(table.overlay) {
                 Ok(overlay) => overlay,
                 Err(e) => {
-                    return Ok(Err(format!(
-                        "{LABEL}: Overlay {} lässt sich nicht finden ({e})",
-                        table.overlay
-                    )));
+                    return Ok(Err(t!(
+                        "data.egg_overlay_missing",
+                        label = label(),
+                        overlay = table.overlay,
+                        error = e
+                    )
+                    .into_owned()));
                 }
             };
             match read_slice(&overlay.path, table.offset, table.budget)? {
@@ -90,10 +95,12 @@ pub fn egg_moves_place(project: &Project) -> Result<Result<EggMovesPlace, String
                 _ => Ok(Err(signature_missing(table.offset))),
             }
         }
-        Family::Dp => Ok(Err(format!(
-            "{LABEL}: Lage für {} nicht bekannt",
-            project.game_code
-        ))),
+        Family::Dp => Ok(Err(t!(
+            "data.egg_place_unknown",
+            label = label(),
+            game = project.game_code
+        )
+        .into_owned())),
     }
 }
 
@@ -132,28 +139,32 @@ fn read_slice(path: &Path, offset: u64, len: usize) -> Result<Option<Vec<u8>>, K
     }
 }
 
-/// „Ei-Attacken: Overlay 5 trägt an 0x2923E keine Tabelle (Signatur fehlt)“
+/// „Egg moves: overlay 5 holds no table at 0x2923E (signature missing)“
 pub fn signature_missing(offset: u64) -> String {
-    format!(
-        "{LABEL}: Overlay {} trägt an {offset:#X} keine Tabelle (Signatur fehlt)",
-        overlay_number()
+    t!(
+        "data.egg_signature_missing",
+        label = label(),
+        overlay = overlay_number(),
+        offset = offset : {:#X}
     )
+    .into_owned()
 }
 
-/// „Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen“: every word of the budget is used
-/// (marks, moves and the end all count).
+/// „Egg move table full: 1 910 of 1 910 entries“: every word of the budget is used (marks,
+/// moves and the end all count).
 pub fn budget_full(total_words: usize) -> String {
-    let total = grouped(total_words);
-    format!("{LABEL}-Tabelle voll: {total} von {total} Einträgen")
+    t!("data.egg_budget_full", total = grouped(total_words)).into_owned()
 }
 
 /// Why the store does not write a fixed table whose bytes would fail the signature (the
 /// next open would lock it): the table starts with species 1, every species is below 600.
 pub fn signature_lost() -> String {
-    format!(
-        "{LABEL}: so geschrieben wäre die Tabelle in Overlay {} nicht mehr erkennbar (sie beginnt mit Art 1, Artnummern unter 600)",
-        overlay_number()
+    t!(
+        "data.egg_signature_lost",
+        label = label(),
+        overlay = overlay_number()
     )
+    .into_owned()
 }
 
 /// `n` with a space between groups of three digits: „1 910“.
@@ -177,11 +188,11 @@ mod tests {
     fn sentences_name_the_place_and_the_budget() {
         assert_eq!(
             signature_missing(0x2923E),
-            "Ei-Attacken: Overlay 5 trägt an 0x2923E keine Tabelle (Signatur fehlt)"
+            "Egg moves: overlay 5 holds no table at 0x2923E (signature missing)"
         );
         assert_eq!(
             budget_full(1910),
-            "Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen"
+            "Egg move table full: 1 910 of 1 910 entries"
         );
         assert_eq!(grouped(6), "6");
         assert_eq!(grouped(999), "999");

@@ -349,7 +349,7 @@ fn the_graph_has_one_node_per_value_and_edges_set_to_checked() {
             id: "p:script:0101".to_owned(),
             source: id(AssetKind::Script, 101),
             header: Some(1),
-            label: "Scriptdatei 0101".to_owned(),
+            label: "Script file 0101".to_owned(),
             loose: false,
             field: "SetVar",
             slot: Some(2),
@@ -367,12 +367,12 @@ fn the_graph_has_one_node_per_value_and_edges_set_to_checked() {
     else {
         unreachable!()
     };
-    assert_eq!((label.as_str(), *header), ("Level-Script 0005", Some(3)));
+    assert_eq!((label.as_str(), *header), ("Level script 0005", Some(3)));
     assert_eq!((*field, *slot), (LEVEL_SCRIPT_FIELD, Some(0)));
     let GraphNode::Place { label, header, .. } = place_node(&graph, "p:event:0001") else {
         unreachable!()
     };
-    assert_eq!((label.as_str(), *header), ("Eventdatei 0001", None));
+    assert_eq!((label.as_str(), *header), ("Event file 0001", None));
     let found = edges(&graph);
     for expected in [
         edge("p:script:0101", "v:1", 1, Access::Write, "SetVar"),
@@ -514,14 +514,14 @@ fn steps_lie_on_their_value_nodes_and_unknown_values_are_noted_only() {
 fn place_labels_name_the_file() {
     assert_eq!(
         place_label(id(AssetKind::Script, 101), "SetVar"),
-        "Scriptdatei 0101"
+        "Script file 0101"
     );
     assert_eq!(
         place_label(id(AssetKind::Event, 394), "var"),
-        "Eventdatei 0394"
+        "Event file 0394"
     );
     assert_eq!(
         place_label(id(AssetKind::Script, 5), "var_conditions"),
-        "Level-Script 0005"
+        "Level script 0005"
     );
 }

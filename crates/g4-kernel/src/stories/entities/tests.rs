@@ -253,7 +253,7 @@ fn create_over_the_store_is_one_undo_step() {
     let mut st = store(&fx);
     let report = create_story(&mut st, &testfaden()).unwrap();
     assert!(report.change.is_some());
-    assert_eq!(st.history().0, ["Geschichte „Testfaden“ angelegt"]);
+    assert_eq!(st.history().0, ["Story “Testfaden” created"]);
     let (register, story, layout) = (fx.read(REGISTER), fx.read(STORY_0), fx.read(LAYOUT_0));
 
     // One undo takes both files and the register entry back.
@@ -268,7 +268,7 @@ fn create_over_the_store_is_one_undo_step() {
     assert_eq!(fx.read(REGISTER), register);
     assert_eq!(fx.read(STORY_0), story);
     assert_eq!(fx.read(LAYOUT_0), layout);
-    assert_eq!(st.history().0, ["Geschichte „Testfaden“ angelegt"]);
+    assert_eq!(st.history().0, ["Story “Testfaden” created"]);
 }
 
 #[test]
@@ -307,8 +307,8 @@ fn update_replaces_given_fields_and_records_one_step() {
     assert_eq!(
         st.history().0,
         [
-            "Geschichte „Testfaden“ angelegt",
-            "Geschichte „Testfaden“ geändert"
+            "Story “Testfaden” created",
+            "Story “Testfaden” changed"
         ]
     );
     let story = read_story(&fx.project(), 0).unwrap().unwrap();
@@ -336,7 +336,7 @@ fn update_replaces_given_fields_and_records_one_step() {
         },
     )
     .unwrap();
-    assert_eq!(st.history().0[2], "Geschichte „Der Wächter“ geändert");
+    assert_eq!(st.history().0[2], "Story “Der Wächter” changed");
     assert_eq!(json(&fx, STORY_0)["id"], "STORY_TESTFADEN");
 
     // Undo puts the old bytes back, one step at a time.
@@ -453,7 +453,7 @@ fn update_without_change_is_refused() {
     ] {
         assert_eq!(
             refused(update_story(&mut st, "STORY_TESTFADEN", &patch)),
-            NOTHING_TO_CHANGE
+            nothing_to_change()
         );
     }
     assert_eq!(st.history().0.len(), 1);

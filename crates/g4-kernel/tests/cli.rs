@@ -798,7 +798,7 @@ fn cli_base_assign_writes_a_dspre_mark() {
     assert_eq!(
         lines,
         [
-            "warning: Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.",
+            "warning: Unknown or modified ROM; patches apply only to exactly this file.",
             format!(
                 "assigned sha1={} label={}",
                 mark.sha1,
@@ -840,7 +840,7 @@ fn cli_base_assign_refuses_another_game_with_exit_1() {
         .arg(&nds)
         .assert()
         .code(1)
-        .stderr(contains("Falsches Spiel"));
+        .stderr(contains("Wrong game"));
     assert!(!root.join(".g4").exists());
 }
 
@@ -922,7 +922,7 @@ fn cli_base_check_with_rom_prints_the_warnings_as_json() {
         check["warnings"],
         serde_json::json!([{
             "kind": "unknown_dump",
-            "message": "Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.",
+            "message": "Unknown or modified ROM; patches apply only to exactly this file.",
         }]),
         "{check}"
     );
@@ -935,7 +935,7 @@ fn cli_base_check_with_rom_prints_the_warnings_as_json() {
         .assert()
         .success()
         .stdout(contains(
-            "warning: Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.",
+            "warning: Unknown or modified ROM; patches apply only to exactly this file.",
         ));
     // Another game: exit 1 with the reason, as JSON too.
     common::with_game_code(&nds, "IPKE");
@@ -947,15 +947,10 @@ fn cli_base_check_with_rom_prints_the_warnings_as_json() {
         .arg("--json")
         .assert()
         .code(1)
-        .stderr(contains("Falsches Spiel"));
+        .stderr(contains("Wrong game"));
     let check: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
     assert_eq!(check["warnings"], serde_json::json!([]), "{check}");
-    assert!(
-        check["refused"]
-            .as_str()
-            .unwrap()
-            .starts_with("Falsches Spiel")
-    );
+    assert!(check["refused"].as_str().unwrap().starts_with("Wrong game"));
     assert!(!root.join(".g4").exists());
 }
 
@@ -994,8 +989,8 @@ fn cli_patch_create_without_a_mark_fails() {
         .assert()
         .code(1)
         .stderr(contains(format!(
-            "{} Ordne sie mit `g4k base assign <Projekt> <nds>` zu.",
-            g4_kernel::patch::NO_MARK
+            "{} Assign it with `g4k base assign <project> <nds>`.",
+            g4_kernel::patch::no_mark()
         )));
     assert!(!root.join("build").exists());
 }
@@ -1048,7 +1043,7 @@ fn cli_patch_create_with_a_missing_base_names_it() {
 #[test]
 fn cli_publish_prints_the_files_and_the_count() {
     use g4_kernel::patch::{
-        BAD_FILE, BAD_VERSION, EXISTS, NO_CHANGES, RELEASES_FILE, release_file_name,
+        RELEASES_FILE, bad_file, bad_version, exists, no_changes, release_file_name,
     };
     use g4_kernel::project::{AssetKind, Project};
 
@@ -1081,15 +1076,15 @@ fn cli_publish_prints_the_files_and_the_count() {
     )
     .assert()
     .code(1)
-    .stderr(contains(format!("X-v0.1.0.xdelta {EXISTS}")));
+    .stderr(contains(format!("X-v0.1.0.xdelta {}", exists())));
     publish(&root, &nds, &["--version", "1 0"])
         .assert()
         .code(1)
-        .stderr(contains(BAD_VERSION));
+        .stderr(contains(bad_version()));
     publish(&root, &nds, &["--version", "0.1.0", "--file", "a/b"])
         .assert()
         .code(1)
-        .stderr(contains(BAD_FILE));
+        .stderr(contains(bad_file()));
     publish(
         &root,
         &nds,
@@ -1118,7 +1113,7 @@ fn cli_publish_prints_the_files_and_the_count() {
     publish(&copy, &nds, &["--version", "0.1.0"])
         .assert()
         .code(1)
-        .stderr(contains(NO_CHANGES));
+        .stderr(contains(no_changes()));
     assert!(!copy.join(RELEASES_FILE).exists());
     // One permission byte of map 3.
     let project = Project::open(&copy).unwrap();
@@ -1155,7 +1150,7 @@ fn cli_publish_prints_the_files_and_the_count() {
     publish(&copy, &nds, &["--version", "0.1.1", "--file", &first])
         .assert()
         .code(1)
-        .stderr(contains(format!("{first} {EXISTS}")));
+        .stderr(contains(format!("{first} {}", exists())));
     let releases = g4_kernel::patch::read_releases(&copy).unwrap();
     assert_eq!(releases.releases.len(), 1);
 }
@@ -1337,7 +1332,7 @@ fn cli_text_export_without_a_mark_fails() {
     text(&["export"], &root)
         .assert()
         .code(1)
-        .stderr(contains(g4_kernel::patch::NO_MARK))
+        .stderr(contains(g4_kernel::patch::no_mark()))
         .stderr(contains("g4k base assign"));
     assert!(!root.join("data").exists());
     assert!(!root.join("g4-project.json").exists());
@@ -1805,7 +1800,7 @@ fn cli_git_templates() {
     .unwrap();
     templates().assert().code(1).stderr(contains(format!(
         ".gitignore: {}",
-        g4_kernel::git::templates::BROKEN_BLOCK
+        g4_kernel::git::templates::broken_block()
     )));
 }
 
@@ -1859,7 +1854,7 @@ fn cli_git_init_and_status() {
     let out = stdout_of(&assert);
     assert!(out.contains("created .gitignore\n"), "{out}");
     let last = out.lines().last().unwrap();
-    assert!(last.starts_with("committed Ausgangsstand files="), "{out}");
+    assert!(last.starts_with("committed Initial state files="), "{out}");
     assert!(last.contains(" branch="), "{out}");
 
     let mut status = g4k_isolated(home.path()).unwrap();
@@ -1877,7 +1872,7 @@ fn cli_git_init_and_status() {
     let assert = again.args(["git", "init"]).arg(root).assert().success();
     let out = stdout_of(&assert);
     assert!(
-        out.ends_with(&format!("not committed: {}\n", g4_kernel::git::IN_REPO)),
+        out.ends_with(&format!("not committed: {}\n", g4_kernel::git::in_repo())),
         "{out}"
     );
 }
@@ -1935,7 +1930,7 @@ fn cli_git_commit_all_prints_the_commit() {
     commit_all()
         .assert()
         .code(1)
-        .stderr(contains(g4_kernel::git::NOTHING_TO_COMMIT));
+        .stderr(contains(g4_kernel::git::nothing_to_commit()));
 }
 
 /// A clone of the exported fixture `fx`: its sources only (no DSPRE part, no members).
@@ -1995,7 +1990,7 @@ fn cli_text_restore() {
         .arg(fx.rom())
         .assert()
         .code(1)
-        .stderr(contains(g4_kernel::patch::NO_MARK));
+        .stderr(contains(g4_kernel::patch::no_mark()));
 }
 
 /// The synthetic project with its trainers unpacked, committed with gix only, then trainer 1's
@@ -2058,7 +2053,7 @@ fn cli_diff_prints_fields_against_head() {
         .args(["trainer", "1", "--against", "base"])
         .assert()
         .failure()
-        .stderr(contains(g4_kernel::patch::NO_MARK));
+        .stderr(contains(g4_kernel::patch::no_mark()));
     // An unknown kind.
     g4k()
         .args(["diff"])
@@ -2243,7 +2238,7 @@ fn cli_recipe_apply_empty_region_needs_the_flag() {
         .assert()
         .code(1)
         .stderr(contains(
-            "error: Empty world lässt sich nicht rückgängig machen; mit --allow-irreversible",
+            "error: Empty world cannot be undone; use --allow-irreversible",
         ));
     assert!(!s.dir.path().join("rotom.toml").exists());
     // With the flag it gets past the question; the synthetic world then has no start town.
@@ -2397,8 +2392,7 @@ fn cli_recipe_apply_figure_appears_asks_only_when_a_level_script_file_is_created
         .assert()
         .code(1)
         .stderr(contains(
-            "error: Create level script file lässt sich nicht rückgängig machen; mit \
-             --allow-irreversible",
+            "error: Create level script file cannot be undone; use --allow-irreversible",
         ));
     let assert = g4k()
         .args(["recipe", "apply"])
@@ -2492,7 +2486,7 @@ fn story_create_and_list_on_a_text_fixture() {
     let out = stdout_of(&story(&["threads"]).assert().success());
     assert!(
         out.lines()
-            .any(|l| l == "0x4030 VAR_PLAYER_STARTER 3 Werte · 2 Orte"),
+            .any(|l| l == "0x4030 VAR_PLAYER_STARTER 3 values · 2 places"),
         "{out}"
     );
     let out = stdout_of(&story(&["threads", "--json"]).assert().success());
@@ -2609,8 +2603,8 @@ fn cli_delete_plan_apply_restore() {
         .assert()
         .code(1)
         .stderr(contains(
-            "error: delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); \
-             kopflos nur mit --allow-irreversible",
+            "error: delete_entity cannot be undone (free the number); headless only with \
+             --allow-irreversible",
         ));
     assert!(fx.root().join("data/trainers/0002.json").is_file());
 
@@ -2646,7 +2640,7 @@ fn cli_delete_plan_apply_restore() {
         .args(["trainer", "1"])
         .assert()
         .code(1)
-        .stderr(contains("Trainer 0001 ist nicht gelöscht."));
+        .stderr(contains("Trainer 0001 is not deleted."));
 }
 
 #[test]

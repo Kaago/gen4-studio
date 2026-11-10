@@ -160,7 +160,7 @@ fn delete_removes_both_files_and_the_register_entry_as_one_undo_step() {
     );
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Geschichte „Testfaden“ gelöscht")
+        Some("Story “Testfaden” deleted")
     );
     assert_eq!(store.history().0.len(), undo_before + 1);
     assert_eq!(bytes_of(&fx, "data/stories/0000.json"), None);
@@ -331,7 +331,7 @@ fn text_project_with_a_story_builds_from_base_byte_equal() {
         &project,
         Some(&cli),
         &CommitOptions {
-            message: Some("Geschichte „Testfaden“ angelegt".to_owned()),
+            message: Some("Story “Testfaden” created".to_owned()),
             notes: None,
         },
         &mut |_| {},

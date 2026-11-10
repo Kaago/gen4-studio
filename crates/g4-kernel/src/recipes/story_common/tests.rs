@@ -192,7 +192,7 @@ mod with_fixture {
         .unwrap();
         assert_eq!(
             refused(check_pool_number(&project, FlagKind::Flag, 0x41)),
-            "FLAG_EIGEN gibt es schon (Nummer 65)."
+            "FLAG_EIGEN already exists (number 65)."
         );
     }
 

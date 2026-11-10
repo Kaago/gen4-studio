@@ -247,11 +247,13 @@ fn short(sha1: &str) -> &str {
 }
 
 fn other_rom_text(found_sha1: &str, label: &str, wanted_sha1: &str) -> String {
-    format!(
-        "Das ist eine andere ROM (SHA-1 {}…), gesucht ist {label} ({}…).",
-        short(found_sha1),
-        short(wanted_sha1)
+    t!(
+        "base.other_rom",
+        found = short(found_sha1),
+        label = label,
+        wanted = short(wanted_sha1)
     )
+    .into_owned()
 }
 
 /// Why a ROM with SHA-1 `found_sha1` is not the base ROM of `mark`.
@@ -261,16 +263,17 @@ pub fn other_rom(found_sha1: &str, mark: &BaseMark) -> String {
 
 /// Why there is no base ROM for `mark`; the same sentence in `g4k`, MCP and the app.
 pub fn missing_text(mark: &BaseMark) -> String {
-    format!(
-        "Basis-ROM nicht gefunden: {} ({}…).",
-        base_label(mark),
-        short(&mark.sha1)
+    t!(
+        "base.missing",
+        label = base_label(mark),
+        sha1 = short(&mark.sha1)
     )
+    .into_owned()
 }
 
 /// The error for a base ROM whose structure does not hold what its header says.
 fn unreadable(why: impl std::fmt::Display) -> KernelError {
-    KernelError::Refused(format!("Basis-ROM nicht lesbar: {why}"))
+    KernelError::Refused(t!("base.unreadable", why = why).into_owned())
 }
 
 fn le_u16(data: &[u8], at: usize) -> Option<u16> {
@@ -285,11 +288,11 @@ fn le_u32(data: &[u8], at: usize) -> Option<usize> {
 /// The `offset, size` pair at `at` in the header as a range of `data`.
 fn header_range(data: &[u8], at: usize, what: &str) -> Result<Range<usize>, KernelError> {
     let (Some(start), Some(len)) = (le_u32(data, at), le_u32(data, at + 4)) else {
-        return Err(unreadable("der Kopf ist zu kurz"));
+        return Err(unreadable(t!("base.header_short")));
     };
     match start.checked_add(len) {
         Some(end) if end <= data.len() => Ok(start..end),
-        _ => Err(unreadable(format!("{what} liegt hinter dem Ende der ROM"))),
+        _ => Err(unreadable(t!("base.past_end", what = what))),
     }
 }
 
@@ -298,10 +301,10 @@ fn header_range(data: &[u8], at: usize, what: &str) -> Result<Range<usize>, Kern
 /// Every offset is checked; `None`: no such file (a folder is no file). Names are compared
 /// as bytes, which is exact for the ASCII paths of the archives.
 fn find_file(data: &[u8], inside: &str) -> Result<Option<Range<usize>>, KernelError> {
-    let fnt = &data[header_range(data, 0x40, "die Dateinamentabelle")?];
-    let fat = &data[header_range(data, 0x48, "die Dateibelegungstabelle")?];
+    let fnt = &data[header_range(data, 0x40, &t!("base.what_fnt"))?];
+    let fat = &data[header_range(data, 0x48, &t!("base.what_fat"))?];
     let parts: Vec<&str> = inside.split('/').filter(|p| !p.is_empty()).collect();
-    let broken = || unreadable("die Dateinamentabelle ist beschädigt");
+    let broken = || unreadable(t!("base.fnt_broken"));
     let mut dir = 0usize;
     for (i, part) in parts.iter().enumerate() {
         let entry = dir * 8;
@@ -336,14 +339,10 @@ fn find_file(data: &[u8], inside: &str) -> Result<Option<Range<usize>>, KernelEr
             Some((id, false)) if last => {
                 let entry = usize::from(id) * 8;
                 let (Some(start), Some(end)) = (le_u32(fat, entry), le_u32(fat, entry + 4)) else {
-                    return Err(unreadable(format!(
-                        "{inside} fehlt in der Dateibelegungstabelle"
-                    )));
+                    return Err(unreadable(t!("base.not_in_fat", inside = inside)));
                 };
                 if start > end || end > data.len() {
-                    return Err(unreadable(format!(
-                        "{inside} liegt hinter dem Ende der ROM"
-                    )));
+                    return Err(unreadable(t!("base.past_end", what = inside)));
                 }
                 return Ok(Some(start..end));
             }
@@ -396,7 +395,7 @@ impl BaseRom {
             let label = known_base_label(&wanted.to_ascii_lowercase(), None)
                 .ok()
                 .flatten()
-                .unwrap_or_else(|| "die Basis-ROM".to_owned());
+                .unwrap_or_else(|| t!("base.the_base_rom").into_owned());
             return Err(KernelError::Refused(other_rom_text(&sha1, &label, wanted)));
         }
         BaseRom::from_bytes(bytes, sha1)
@@ -464,7 +463,7 @@ impl BaseRom {
         let inside = inside_rom(packed);
         let bytes = self
             .file_slice(&inside)?
-            .ok_or_else(|| unreadable(format!("{inside} fehlt")))?;
+            .ok_or_else(|| unreadable(t!("base.missing_inside", inside = inside)))?;
         Ok(Some(Narc::read(bytes)?))
     }
 
@@ -480,15 +479,16 @@ impl BaseRom {
     /// without the autoloads. An encrypted secure area is refused.
     pub fn arm9(&self) -> Result<Vec<u8>, KernelError> {
         let data = self.rom.data();
-        let range = header_range(data, 0x20, "der ARM9")?;
+        let arm9_word = t!("base.what_arm9");
+        let range = header_range(data, 0x20, &arm9_word)?;
         // ds-rom slices the ARM9 and the 12-byte footer behind it without a check.
         if range.end + 12 > data.len() {
-            return Err(unreadable("der ARM9 liegt hinter dem Ende der ROM"));
+            return Err(unreadable(t!("base.past_end", what = arm9_word)));
         }
         guard_panic("ds-rom", || {
             let mut arm9 = self.rom.arm9().map_err(unreadable)?;
             if arm9.is_encrypted() {
-                return Err(unreadable("der ARM9 ist verschlüsselt"));
+                return Err(unreadable(t!("base.arm9_encrypted")));
             }
             arm9.decompress().map_err(unreadable)?;
             Ok(arm9.code().map_err(unreadable)?.to_vec())
@@ -501,7 +501,7 @@ impl BaseRom {
         let offset = header_table_offset_for(&self.game_code)?;
         let names = self
             .file_slice(MAPNAME_INSIDE)?
-            .ok_or_else(|| unreadable(format!("{MAPNAME_INSIDE} fehlt")))?;
+            .ok_or_else(|| unreadable(t!("base.missing_inside", inside = MAPNAME_INSIDE)))?;
         let count = names.len() / MAPNAME_RECORD;
         if count > usize::from(u16::MAX) + 1 {
             return Err(KernelError::Uxie(format!("too many map headers: {count}")));
@@ -509,9 +509,10 @@ impl BaseRom {
         let arm9 = self.arm9()?;
         let end = offset + (count * uxie::map_header::MAP_HEADER_SIZE) as u64;
         if (arm9.len() as u64) < end {
-            return Err(unreadable(format!(
-                "der ARM9 hat {} Bytes, die Header-Tabelle braucht {end}",
-                arm9.len()
+            return Err(unreadable(t!(
+                "base.arm9_too_short",
+                len = arm9.len(),
+                end = end
             )));
         }
         let family = match self.family {
@@ -891,11 +892,11 @@ mod tests {
 
         assert_eq!(
             missing_text(&platinum),
-            "Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…)."
+            "Base ROM not found: Platin DE (Testprojekt) (d40f19ac…)."
         );
         assert_eq!(
             other_rom("fedcba9876543210fedcba9876543210fedcba98", &unknown),
-            "Das ist eine andere ROM (SHA-1 fedcba98…), gesucht ist POKEMON PL (CPUE) (01234567…)."
+            "This is another ROM (SHA-1 fedcba98…); the one wanted is POKEMON PL (CPUE) (01234567…)."
         );
     }
 

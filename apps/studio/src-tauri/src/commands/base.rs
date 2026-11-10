@@ -17,7 +17,9 @@ use crate::mcp::settings::ProjectKey;
 use crate::state::AppState;
 
 /// Why there is no patch for a project without a base mark; the kernel's sentence.
-pub const NO_MARK: &str = g4_kernel::patch::NO_MARK;
+pub fn no_mark() -> String {
+    g4_kernel::patch::no_mark()
+}
 
 /// The base ROM of the open project, as Technik › Veröffentlichen shows it.
 #[derive(Debug, Serialize)]
@@ -127,12 +129,12 @@ pub(crate) fn base_missing(message: String) -> CmdError {
 }
 
 /// The mark and the found base ROM of the project at `root` (searched as [`base_of`]);
-/// without one `base_missing` with the reason of the status ([`NO_MARK`],
+/// without one `base_missing` with the reason of the status ([`no_mark`],
 /// `base::missing_text`, the refusal of an unreadable mark).
 pub(crate) fn found_base(state: &AppState, root: &Path) -> Result<(BaseMark, Located), CmdError> {
     match base_of(state, root) {
         Base::Found(mark, hit) => Ok((mark, hit)),
-        Base::Unassigned(_) => Err(base_missing(NO_MARK.to_owned())),
+        Base::Unassigned(_) => Err(base_missing(no_mark())),
         Base::Missing(_, reason) | Base::Unreadable(reason) => Err(base_missing(reason)),
     }
 }
@@ -197,7 +199,7 @@ pub(crate) fn register_base_rom_at(
 ) -> Result<(), CmdError> {
     let mark = match start::mark_state(root) {
         MarkState::Present(mark) => mark,
-        MarkState::Missing => return Err(NO_MARK.into()),
+        MarkState::Missing => return Err(no_mark().into()),
         other => return Err(other.refusal().unwrap_or_default().into()),
     };
     if state.base_roms.is_original(path) {
@@ -213,7 +215,7 @@ pub(crate) fn register_base_rom_at(
 
 /// Builds the open project to `build/<Name>.nds` (as `build_rom`) and writes the patch
 /// against its base ROM to `build/<Name>.xdelta`. Without a found base ROM it is
-/// `base_missing` with the status's reason (or [`NO_MARK`]) and nothing is built. The user's
+/// `base_missing` with the status's reason (or [`no_mark`]) and nothing is built. The user's
 /// patch (the Tauri command): the sync before the build takes the agents' turn.
 pub fn create_patch_impl(state: &AppState) -> Result<PatchDto, CmdError> {
     create_patch_checked(state, true, &|_| Ok(()))
@@ -397,7 +399,7 @@ mod tests {
         let check = check_base_impl(&d.state, text(&d.nds)).unwrap();
         assert_eq!(
             check.refused.as_deref(),
-            Some("Falsches Spiel: die ROM ist IPKE, das Projekt CPUE.")
+            Some("Wrong game: the ROM is IPKE, the project CPUE.")
         );
         assert!(check.warnings.is_empty());
         assert!(!d.root.join(".g4").exists());
@@ -406,7 +408,7 @@ mod tests {
         let err = assign_base_impl(&d.state, text(&d.nds)).unwrap_err();
         assert_eq!(
             err.message,
-            "Falsches Spiel: die ROM ist IPKE, das Projekt CPUE."
+            "Wrong game: the ROM is IPKE, the project CPUE."
         );
         assert!(!d.root.join(".g4").exists());
     }
@@ -527,7 +529,7 @@ mod tests {
     fn register_without_a_mark_names_it() {
         let d = dspre();
         let err = register_base_rom_impl(&d.state, text(&d.nds)).unwrap_err();
-        assert_eq!(err.message, NO_MARK);
+        assert_eq!(err.message, no_mark());
         assert!(d.state.base_roms.settings().roms.is_empty());
     }
 
@@ -585,7 +587,7 @@ mod tests {
             panic!("{status:?}");
         };
         assert!(
-            reason.starts_with("Die Basismarke .g4/base.json ist nicht lesbar ("),
+            reason.starts_with("The base mark .g4/base.json cannot be read ("),
             "{reason}"
         );
         assert_eq!(
@@ -610,7 +612,7 @@ mod tests {
         };
         assert_eq!(
             reason,
-            "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version 3)."
+            "The base mark comes from a newer version of Gen4 Studio (version 3)."
         );
         let newer = build_rom_impl(&d.state, text(&out), false).unwrap_err();
         assert_eq!((newer.code, &newer.message), (plain.code, &plain.message));
@@ -620,7 +622,10 @@ mod tests {
     fn create_patch_without_a_base_answers_base_missing() {
         let d = dspre();
         let err = create_patch_impl(&d.state).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
         assert!(!d.root.join("build").exists());
 
         // Assigned, then moved away: the reason names the missing ROM, nothing is built.

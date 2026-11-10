@@ -197,7 +197,7 @@ fn bake_test_on_the_synthetic_project_is_one_undo_step() {
         report.report.strips
     );
     let (undo, _) = store.history();
-    assert_eq!(undo, ["Testfläche gebacken: Karte 0000"]);
+    assert_eq!(undo, ["Test surface baked: Map 0000"]);
 
     let pack_after = member(&store, AssetKind::MapTexture, 0);
     assert_ne!(pack_after, pack_before);
@@ -258,8 +258,8 @@ fn bake_test_twice_reuses_the_own_textures() {
     assert_eq!(
         store.history().0,
         [
-            "Testfläche gebacken: Karte 0000",
-            "Testfläche gebacken: Karte 0000"
+            "Test surface baked: Map 0000",
+            "Test surface baked: Map 0000"
         ]
     );
 

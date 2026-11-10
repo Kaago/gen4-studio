@@ -2785,7 +2785,7 @@ fn vanilla_trainers_load_unlocked_through_the_store() {
 // --- tombstones (3d.4) ---
 
 use g4_kernel::delete::{
-    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
+    DeleteTarget, no_tombstone_for_binaries, no_tombstone_for_files, not_a_text_project,
 };
 use g4_kernel::store::HEADER_TABLE;
 use g4_kernel::textproject::Art;
@@ -3148,7 +3148,7 @@ fn set_deleted_refuses_the_dspre_layout() {
         })
         .unwrap_err();
     assert!(
-        matches!(&err, KernelError::Refused(why) if why == NOT_A_TEXT_PROJECT),
+        matches!(&err, KernelError::Refused(why) if *why == not_a_text_project()),
         "{err}"
     );
     assert_eq!(st.undo_depth(), 0);
@@ -3165,7 +3165,7 @@ fn set_deleted_refuses_the_dspre_layout() {
             .transaction("Gelöscht", |tx| tx.set_deleted(target, true))
             .unwrap_err();
         assert!(
-            matches!(&err, KernelError::Refused(why) if why == NO_TOMBSTONE_FOR_FILES),
+            matches!(&err, KernelError::Refused(why) if *why == no_tombstone_for_files()),
             "{err}"
         );
     }
@@ -3176,7 +3176,7 @@ fn set_deleted_refuses_the_dspre_layout() {
         })
         .unwrap_err();
     assert!(
-        matches!(&err, KernelError::Refused(why) if why == NO_TOMBSTONE_FOR_BINARIES),
+        matches!(&err, KernelError::Refused(why) if *why == no_tombstone_for_binaries()),
         "{err}"
     );
     // A failing transaction keeps a tombstone it staged out of the store.

@@ -1686,7 +1686,7 @@ mod tests {
         assert!(rows(&after, "text.too-wide").is_empty());
         assert_eq!(
             history_impl(&state).unwrap().undo.last().unwrap(),
-            "Behoben: text.too-wide"
+            "Fixed: text.too-wide"
         );
 
         // Undo brings the finding back as it was.

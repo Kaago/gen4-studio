@@ -23,7 +23,7 @@ use super::types::{
 };
 use crate::data::names::{Bank, NameTables, bank_index};
 use crate::data::trainer_create::{
-    ADOPT_FIRST, KIND_AFTER, KIND_LOSE, NextTrainer, TEXT_BEFORE_BATTLE, TrainerText,
+    KIND_AFTER, KIND_LOSE, NextTrainer, TEXT_BEFORE_BATTLE, TrainerText, adopt_first,
     create_trainer_with, name_too_long, next_trainer, set_trainer_texts_labelled,
     trainer_flag_capacity,
 };
@@ -128,7 +128,7 @@ struct Checked {
 fn game_setup(store: &Store) -> Result<(TrainerScriptMeta, u16), KernelError> {
     let project = store.project();
     if !scripts::is_adopted(project) {
-        return Err(refused(ADOPT_FIRST));
+        return Err(refused(adopt_first()));
     }
     Ok((
         scripts::project_trainer_script_meta(project)?,
@@ -137,7 +137,7 @@ fn game_setup(store: &Store) -> Result<(TrainerScriptMeta, u16), KernelError> {
 }
 
 /// Every check before the first write, in this order: the header, adopted scripts
-/// ([`ADOPT_FIRST`]), a name that fits, a team of 1 to 6 Pokémon of species the game has at
+/// ([`adopt_first`]), a name that fits, a team of 1 to 6 Pokémon of species the game has at
 /// levels 1 to 100, the sight, the direction, a writable event file, a tile of the header's
 /// matrix no object of the file stands on, battle texts that match their table, the next id
 /// as `create_trainer` gives it (the placeholder of the sight slot skipped, a defeat flag for
@@ -152,7 +152,7 @@ fn check(
     let project = store.project_arc();
     let family = project.family;
     if !scripts::is_adopted(&project) {
-        return Err(refused(ADOPT_FIRST));
+        return Err(refused(adopt_first()));
     }
     if input.name.trim().is_empty() {
         return Err(refused(t!("recipes.trainer_needs_name")));

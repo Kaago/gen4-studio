@@ -31,7 +31,7 @@ use super::story_common::{
 };
 use super::story_scripts::Tail;
 use super::types::{check_writable, id, refused};
-use crate::data::trainer_create::ADOPT_FIRST;
+use crate::data::trainer_create::adopt_first;
 use crate::dialog::{DialogKind, DialogSource, dialog_of};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
@@ -56,12 +56,12 @@ pub(crate) fn common_script_text(local_id: u16, script: u16) -> String {
     .into_owned()
 }
 
-/// Refuses a project whose scripts are not adopted ([`ADOPT_FIRST`]): a hull is rotom source.
+/// Refuses a project whose scripts are not adopted ([`adopt_first`]): a hull is rotom source.
 pub(crate) fn require_adopted(store: &Store) -> Result<(), KernelError> {
     if scripts::is_adopted(store.project()) {
         Ok(())
     } else {
-        Err(refused(ADOPT_FIRST))
+        Err(refused(adopt_first()))
     }
 }
 

@@ -17,7 +17,7 @@ use serde::Serialize;
 
 use crate::base::{BaseRom, other_rom};
 use crate::error::{KernelError, io_at};
-use crate::patch::NO_MARK;
+use crate::patch::no_mark;
 use crate::project::Project;
 use crate::start::{MarkState, mark_state};
 
@@ -98,7 +98,7 @@ pub struct RestoreReport {
 ///    record.
 ///
 /// Refused, with nothing written, without [`needs_restore`] ([`has_game_files`]), without a
-/// base mark ([`NO_MARK`]; an unreadable or newer mark with its own sentence) and for another
+/// base mark ([`no_mark`]; an unreadable or newer mark with its own sentence) and for another
 /// ROM than the mark's (the sentence of [`other_rom`], as the import and `patch create` say
 /// it). Staging folders of earlier runs (`.g4/tmp/restore-*`) are removed first, this run's
 /// at its end, also when it fails. An import that fails after `header.yaml` is copied leaves
@@ -114,7 +114,7 @@ pub fn restore_from_base(
     }
     let mark = match mark_state(root) {
         MarkState::Present(mark) => mark,
-        MarkState::Missing => return Err(KernelError::Refused(NO_MARK.to_owned())),
+        MarkState::Missing => return Err(KernelError::Refused(no_mark())),
         state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
             return Err(KernelError::Refused(state.refusal().unwrap_or_default()));
         }
@@ -620,7 +620,7 @@ mod tests {
         let (_tmp, clone) = clone_of(&fx);
         std::fs::remove_file(clone.join(".g4/base.json")).unwrap();
         let err = restore_from_base(&clone, &fx.base(), &mut |_| {}).unwrap_err();
-        assert_eq!(refusal(err), NO_MARK);
+        assert_eq!(refusal(err), no_mark());
         assert!(needs_restore(&clone));
     }
 

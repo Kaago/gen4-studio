@@ -16,15 +16,15 @@ use std::time::Instant;
 
 use g4_kernel::base::{BaseRom, base_label};
 use g4_kernel::diff::{
-    self, Against, DiffSources, DiffSubject, EntityDiffReport, NO_BASE_FOR_FILES, NO_COMMIT,
-    NO_REPO, NOT_A_FILE, OUTSIDE_PROJECT, SCRIPTS_HAVE_NO_UNSAVED,
+    self, Against, DiffSources, DiffSubject, EntityDiffReport, no_base_for_files, no_commit,
+    no_repo, not_a_file, outside_project, scripts_have_no_unsaved,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::git::templates::{Layout, layout_of};
 use g4_kernel::git::{
-    self, CommitOptions, CommitProgress, CommitReport, ENCLOSING_REPO, GIT_NEEDED, GitCli, GitRepo,
-    HeadInfo, InitOptions, InitProgress, InitReport, NO_REPO_TO_COMMIT, NOTHING_TO_COMMIT,
-    RepoKind, find_git,
+    self, CommitOptions, CommitProgress, CommitReport, GitCli, GitRepo, HeadInfo, InitOptions,
+    InitProgress, InitReport, RepoKind, enclosing_repo, find_git, git_needed, no_repo_to_commit,
+    nothing_to_commit,
 };
 use g4_kernel::original::ChangedEntry;
 use g4_kernel::project::Project;
@@ -240,22 +240,22 @@ impl Drop for InitBusy<'_> {
     }
 }
 
-/// The kernel's diff refusals with a code of their own: `no_repo` ([`NO_REPO`]), `no_commit`
-/// ([`NO_COMMIT`]) and `not_diffable` (a file against the base, a script against the saved
-/// state, a path or folder outside the project, no regular file: [`NO_BASE_FOR_FILES`],
-/// [`SCRIPTS_HAVE_NO_UNSAVED`], [`OUTSIDE_PROJECT`], [`NOT_A_FILE`]).
+/// The kernel's diff refusals with a code of their own: `no_repo` ([`no_repo`]), `no_commit`
+/// ([`no_commit`]) and `not_diffable` (a file against the base, a script against the saved
+/// state, a path or folder outside the project, no regular file: [`no_base_for_files`],
+/// [`scripts_have_no_unsaved`], [`outside_project`], [`not_a_file`]).
 fn diff_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(why) if why == NO_REPO => CmdError::refused("no_repo", why),
-        KernelError::Refused(why) if why == NO_COMMIT => CmdError::refused("no_commit", why),
+        KernelError::Refused(why) if why == no_repo() => CmdError::refused("no_repo", why),
+        KernelError::Refused(why) if why == no_commit() => CmdError::refused("no_commit", why),
         KernelError::Refused(why)
             if [
-                NO_BASE_FOR_FILES,
-                SCRIPTS_HAVE_NO_UNSAVED,
-                OUTSIDE_PROJECT,
-                NOT_A_FILE,
+                no_base_for_files(),
+                scripts_have_no_unsaved(),
+                outside_project(),
+                not_a_file(),
             ]
-            .contains(&why.as_str()) =>
+            .contains(&why) =>
         {
             CmdError::refused("not_diffable", why)
         }
@@ -293,7 +293,7 @@ pub fn diff_entity_impl(
         Against::Head => {
             let project = super::open_project_arc(state)?;
             let Some(repo) = GitRepo::discover(&project.root)? else {
-                return Err(CmdError::refused("no_repo", NO_REPO));
+                return Err(CmdError::refused("no_repo", no_repo()));
             };
             let sources = DiffSources {
                 repo: Some(&repo),
@@ -308,7 +308,7 @@ pub fn diff_entity_impl(
                 subject,
                 DiffSubject::File { .. } | DiffSubject::Story { .. }
             ) {
-                return Err(CmdError::refused("not_diffable", NO_BASE_FOR_FILES));
+                return Err(CmdError::refused("not_diffable", no_base_for_files()));
             }
             let (mark, hit) = found_base(state, &project.root)?;
             let base = BaseRom::open_unchecked(&hit.path, &mark.sha1)?;
@@ -426,18 +426,20 @@ fn checked_for_commit(session: &crate::state::Session) -> Result<Arc<Project>, C
 }
 
 /// The kernel's refusals of „Stand sichern“ with a code of their own: `no_repo`
-/// ([`NO_REPO_TO_COMMIT`]), `enclosing_repo` ([`ENCLOSING_REPO`]), `nothing_to_commit`
-/// ([`NOTHING_TO_COMMIT`]) and `no_git` ([`GIT_NEEDED`]); any other error as it is.
+/// ([`no_repo_to_commit`]), `enclosing_repo` ([`enclosing_repo`]), `nothing_to_commit`
+/// ([`nothing_to_commit`]) and `no_git` ([`git_needed`]); any other error as it is.
 fn commit_error(e: KernelError) -> CmdError {
     let KernelError::Refused(why) = &e else {
         return e.into();
     };
-    let code = match why.as_str() {
-        NO_REPO_TO_COMMIT => "no_repo",
-        ENCLOSING_REPO => "enclosing_repo",
-        NOTHING_TO_COMMIT => "nothing_to_commit",
-        GIT_NEEDED => "no_git",
-        _ => return e.into(),
+    let codes = [
+        (no_repo_to_commit(), "no_repo"),
+        (enclosing_repo(), "enclosing_repo"),
+        (nothing_to_commit(), "nothing_to_commit"),
+        (git_needed(), "no_git"),
+    ];
+    let Some(&(_, code)) = codes.iter().find(|(text, _)| text == why) else {
+        return e.into();
     };
     CmdError::refused(code, why.clone())
 }
@@ -616,10 +618,10 @@ mod tests {
     };
     use g4_kernel::base::{base_label, missing_text};
     use g4_kernel::diff::{
-        DiffState, EntityDiff, NO_BASE_FOR_FILES, NO_COMMIT, NO_REPO, SCRIPTS_HAVE_NO_UNSAVED,
+        DiffState, EntityDiff, no_base_for_files, no_commit, no_repo, scripts_have_no_unsaved,
     };
     use g4_kernel::git::templates::write_templates;
-    use g4_kernel::git::{FIRST_COMMIT, NOT_INSTALLED};
+    use g4_kernel::git::{first_commit, not_installed};
     use g4_kernel::original::ChangeState;
     use g4_kernel::project::{AssetKind, Project};
     use g4_kernel::start::read_base_mark;
@@ -844,7 +846,7 @@ mod tests {
         let root = fixture.dir.path();
         let report = git_init_with(&state, None, InitOptions::default(), &mut |_| {}).unwrap();
         assert!(!report.committed);
-        assert_eq!(report.reason.as_deref(), Some(NOT_INSTALLED));
+        assert_eq!(report.reason, Some(not_installed()));
         assert!(root.join(".gitignore").is_file());
         assert!(root.join(".gitattributes").is_file());
         assert!(!root.join(".git").exists());
@@ -886,24 +888,30 @@ mod tests {
 
         let status = git_status_impl(&state).unwrap();
         assert_eq!(status.repo, RepoKind::Own);
-        assert_eq!(status.head.unwrap().summary, FIRST_COMMIT);
+        assert_eq!(status.head.unwrap().summary, first_commit());
         assert_eq!(status.changes, 0, "{:?}", status.entries);
         assert!(status.branch.is_some());
         // The repository holds the project now: a second run only writes the templates.
         let again = git_init_with(&state, Some(&cli), InitOptions::default(), &mut |_| {}).unwrap();
         assert!(!again.committed);
-        assert_eq!(again.reason.as_deref(), Some(g4_kernel::git::IN_REPO));
+        assert_eq!(again.reason, Some(g4_kernel::git::in_repo()));
     }
 
     #[test]
     fn diff_against_head_without_a_repo_is_no_repo() {
         let (fixture, state) = open_synthetic();
         let err = diff_entity_impl(&state, TRAINER_1, Against::Head).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("no_repo", NO_REPO));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_repo", no_repo().as_str())
+        );
         // A repository without a commit: no_commit.
         GitFixture::init(fixture.dir.path());
         let err = diff_entity_impl(&state, TRAINER_1, Against::Head).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("no_commit", NO_COMMIT));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_commit", no_commit().as_str())
+        );
     }
 
     #[test]
@@ -942,7 +950,7 @@ mod tests {
         let err = diff_entity_impl(&state, TRAINER_1, Against::Base).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("base_missing", crate::commands::NO_MARK)
+            ("base_missing", crate::commands::no_mark().as_str())
         );
         // A file has no base side, found or not.
         let file = DiffSubject::File {
@@ -951,7 +959,7 @@ mod tests {
         let err = diff_entity_impl(&state, file, Against::Base).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("not_diffable", NO_BASE_FOR_FILES)
+            ("not_diffable", no_base_for_files().as_str())
         );
     }
 
@@ -964,7 +972,7 @@ mod tests {
         assert_eq!(report.state, DiffState::Changed, "{report:?}");
         assert_eq!(
             (report.old_label.as_str(), report.new_label.as_str()),
-            ("Gespeichert", "Ungespeichert")
+            ("Saved", "Unsaved")
         );
         let EntityDiff::Fields { changes, .. } = &report.diff else {
             panic!("{report:?}");
@@ -984,7 +992,7 @@ mod tests {
             diff_entity_impl(&state, DiffSubject::Script { index: 0 }, Against::Saved).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("not_diffable", SCRIPTS_HAVE_NO_UNSAVED)
+            ("not_diffable", scripts_have_no_unsaved().as_str())
         );
         // No project open: errors.
         assert!(unsaved_changes_impl(&AppState::default()).is_err());
@@ -1185,13 +1193,13 @@ mod tests {
         let err = check_git_commit_all(&state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+            ("no_repo", g4_kernel::git::no_repo_to_commit().as_str())
         );
         let err =
             git_commit_all_with(&state, None, CommitOptions::default(), &mut |_| {}).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+            ("no_repo", g4_kernel::git::no_repo_to_commit().as_str())
         );
         assert!(!fixture.dir.path().join(".gitignore").exists());
         // With a repository but without git: no_git, before anything is written.
@@ -1200,7 +1208,7 @@ mod tests {
             git_commit_all_with(&state, None, CommitOptions::default(), &mut |_| {}).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_git", g4_kernel::git::GIT_NEEDED)
+            ("no_git", g4_kernel::git::git_needed().as_str())
         );
         assert!(!fixture.dir.path().join(".gitignore").exists());
         // The store is writable again.
@@ -1223,7 +1231,10 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("nothing_to_commit", g4_kernel::git::NOTHING_TO_COMMIT)
+            (
+                "nothing_to_commit",
+                g4_kernel::git::nothing_to_commit().as_str()
+            )
         );
 
         ai_7(&state);
@@ -1261,7 +1272,7 @@ mod tests {
         let err = git_commit_prepare_impl(&state).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+            ("no_repo", g4_kernel::git::no_repo_to_commit().as_str())
         );
         GitFixture::init(fixture.dir.path());
         set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap();

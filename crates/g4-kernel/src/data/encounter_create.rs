@@ -16,7 +16,9 @@ use crate::store::{ChangeId, MapHeader, Store};
 
 /// The refusal for an encounter file a HeartGold/SoulSilver header could not name (the UI
 /// shows it as it is).
-pub const HGSS_LIMIT: &str = "HeartGold kann höchstens 255 Begegnungsdateien ansprechen; binde im Header-Editor eine vorhandene an.";
+pub fn hgss_limit() -> String {
+    t!("data.hgss_encounter_limit").into_owned()
+}
 
 /// Encounter files a header of `family` can name: HGSS stores the index in a byte with 0xFF
 /// for "none" (0 to 254); Platinum and DP in a u16 with 0xFFFF for "none".
@@ -38,7 +40,7 @@ fn encounter_len(family: Family) -> usize {
 /// Appends an encounter file at the end of the archive and returns its index: a copy of
 /// file `copy_of` as the editor shows it (unsaved edits included), or one of zero bytes
 /// (424 or 196). Written at once, not undoable. Refused when no header could name the new
-/// index ([`HGSS_LIMIT`] in HeartGold/SoulSilver) or the file to copy has the wrong length.
+/// index ([`hgss_limit`] in HeartGold/SoulSilver) or the file to copy has the wrong length.
 pub fn create_encounter_file(
     project: &Project,
     store: &mut Store,
@@ -48,10 +50,8 @@ pub fn create_encounter_file(
     let count = store.member_count(AssetKind::Encounter)?;
     if count >= encounter_file_limit(family) {
         return Err(KernelError::Refused(match family {
-            Family::Hgss => HGSS_LIMIT.to_owned(),
-            Family::Pt | Family::Dp => {
-                format!("{count} Begegnungsdateien: ein Header kann keine weitere ansprechen.")
-            }
+            Family::Hgss => hgss_limit(),
+            Family::Pt | Family::Dp => t!("data.encounter_limit", count = count).into_owned(),
         }));
     }
     let len = encounter_len(family);
@@ -59,11 +59,15 @@ pub fn create_encounter_file(
         Some(source) => {
             let bytes = store.encounter_bytes(source)?;
             if bytes.len() != len {
-                return Err(KernelError::Refused(format!(
-                    "Begegnungsdatei {source:04} hat {} Bytes statt {len} und wird nicht kopiert. \
-                     Wähle eine andere Vorlage oder „Leer“.",
-                    bytes.len()
-                )));
+                return Err(KernelError::Refused(
+                    t!(
+                        "data.encounter_wrong_length",
+                        source = source : {:04},
+                        len = bytes.len(),
+                        expected = len
+                    )
+                    .into_owned(),
+                ));
             }
             bytes
         }
@@ -84,19 +88,15 @@ pub fn split_encounter_file(
 ) -> Result<(u16, Option<ChangeId>), KernelError> {
     let headers = store.header_table()?;
     let current = headers.get(usize::from(header)).ok_or_else(|| {
-        KernelError::Refused(format!(
-            "Header {header} gibt es nicht (das Projekt hat {} Header).",
-            headers.len()
-        ))
+        KernelError::Refused(
+            t!("data.no_header", header = header, count = headers.len()).into_owned(),
+        )
     })?;
     let file = encounter_file(current).ok_or_else(|| {
-        KernelError::Refused(format!(
-            "Header {header} hat keine Begegnungsdatei. Binde im Header-Editor eine an (Feld \
-                 „Begegnungen“), dann lässt sie sich abspalten."
-        ))
+        KernelError::Refused(t!("data.header_without_encounters", header = header).into_owned())
     })?;
     let copy = create_encounter_file(project, store, Some(file))?;
-    let label = format!("Begegnungsdatei {copy} für Header {header} abgespalten");
+    let label = t!("data.encounter_split_label", copy = copy, header = header).into_owned();
     let (_, change) = store
         .transaction(&label, |tx| {
             tx.edit_header(header, |h| set_encounter_file(h, copy))
@@ -210,7 +210,7 @@ mod tests {
         );
         assert_eq!(
             store.history().0,
-            [format!("Begegnungsdatei {copy} für Header 0 abgespalten")]
+            [format!("Encounter file {copy} split off for Header 0")]
         );
         // Undo switches the header back; the copy stays.
         let undone = store.undo().unwrap();
@@ -229,7 +229,7 @@ mod tests {
         let headers = store.header_table().unwrap().len();
         assert_eq!(
             err.to_string(),
-            format!("Header 99 gibt es nicht (das Projekt hat {headers} Header).")
+            format!("Header 99 does not exist (the project has {headers} headers).")
         );
         assert_eq!(
             store.member_count(AssetKind::Encounter).unwrap(),
@@ -248,8 +248,8 @@ mod tests {
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
         assert_eq!(
             err.to_string(),
-            "Header 1 hat keine Begegnungsdatei. Binde im Header-Editor eine an (Feld \
-             „Begegnungen“), dann lässt sie sich abspalten."
+            "Header 1 has no encounter file. Attach one in the header editor (field \
+             “Encounters”); then it can be split off."
         );
         assert_eq!(
             store.member_count(AssetKind::Encounter).unwrap(),

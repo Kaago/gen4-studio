@@ -40,8 +40,11 @@ fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
     }
 }
 
+/// `g4k live …` in English (g4k follows `G4_LANG`, then `LANG`): the tests assert the English
+/// messages.
 fn g4k(stub: &FakeStub, args: &[&str]) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_g4k"));
+    cmd.env("G4_LANG", "en");
     cmd.args(["live", args[0], "--port"])
         .arg(stub.port.to_string())
         .args(["--game", "CPUD"])
@@ -264,6 +267,7 @@ fn errors_carry_their_codes() {
     let port = stub.port;
     let (code, out) = {
         let o = Command::new(env!("CARGO_BIN_EXE_g4k"))
+            .env("G4_LANG", "en")
             .args([
                 "live",
                 "status",
@@ -287,6 +291,7 @@ fn errors_carry_their_codes() {
     );
     drop(stub);
     let o = Command::new(env!("CARGO_BIN_EXE_g4k"))
+        .env("G4_LANG", "en")
         .args([
             "live",
             "status",
@@ -351,7 +356,7 @@ fn a_stub_that_closes_every_connection_is_closed_with_a_sentence() {
     assert_eq!(
         out["error"]["message"],
         format!(
-            "Der GDB-Stub auf Port {} schließt jede Verbindung sofort: melonDS neu starten",
+            "The GDB stub on port {} closes every connection at once: restart melonDS",
             stub.port
         )
     );

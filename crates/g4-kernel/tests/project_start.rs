@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use g4_kernel::error::KernelError;
 use g4_kernel::start::{
-    DP_LOCKED, NOT_GEN4, Support, Template, create_project, inspect_rom, read_base_mark,
+    Support, Template, create_project, dp_locked, inspect_rom, not_gen4, read_base_mark,
 };
 use g4_kernel::test_support::{synthetic_rom, with_game_code};
 use sha1::{Digest, Sha1};
@@ -56,7 +56,7 @@ fn inspect_locks_diamond() {
     assert_eq!(
         info.support,
         Support::Locked {
-            reason: DP_LOCKED.into()
+            reason: dp_locked()
         }
     );
 }
@@ -101,12 +101,7 @@ fn inspect_accepts_a_zero_header_as_unknown_without_a_language() {
     let info = inspect_rom(&path).unwrap();
     assert_eq!(info.family, None);
     assert_eq!(info.language, None);
-    assert_eq!(
-        info.support,
-        Support::Unknown {
-            reason: NOT_GEN4.into()
-        }
-    );
+    assert_eq!(info.support, Support::Unknown { reason: not_gen4() });
 }
 
 #[test]

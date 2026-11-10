@@ -52,7 +52,7 @@ fn vanilla_creates_trainers_behind_the_sight_slot() {
     let err = create_trainer(&project, &mut store, &mut names, 2, "Jens").unwrap_err();
     assert_eq!(
         err.to_string(),
-        "Erst Scripts übernehmen (Bereich Welt, Panel Script)"
+        "Adopt the scripts first (World, panel “Script”)"
     );
     scripts::adopt(&project, &mut |_| {}).unwrap();
     assert_eq!(scripts::battle_script_file(&project).unwrap(), battle_file);

@@ -301,13 +301,13 @@ mod tests {
 
     use super::*;
     use crate::commands::{
-        DataKind, EventKind, EventPatch, NO_MARK, NavTargetDto, add_event_impl, data_list_impl,
+        DataKind, EventKind, EventPatch, NavTargetDto, add_event_impl, data_list_impl,
         get_events_impl, get_header_impl, get_matrix_impl, history_impl, list_headers_impl,
-        open_project_impl, open_synthetic, set_header_impl, set_matrix_cell_impl, undo_impl,
-        update_event_impl,
+        no_mark, open_project_impl, open_synthetic, set_header_impl, set_matrix_cell_impl,
+        undo_impl, update_event_impl,
     };
     use g4_formats::narc::Narc;
-    use g4_kernel::delete::{CANNOT_FREE_ORIGINAL, IRREVERSIBLE, NOT_A_TEXT_PROJECT};
+    use g4_kernel::delete::{cannot_free_original, irreversible, not_a_text_project};
     use g4_kernel::project::AssetKind;
     use g4_kernel::store::MapHeader;
     use g4_kernel::test_support::{ProjectOriginal, TextFixture};
@@ -382,7 +382,10 @@ mod tests {
         assert_eq!(plan.refusal, None);
         assert!(plan.references.is_empty() && plan.warnings.is_empty());
         assert!(plan.original && !plan.deleted);
-        assert_eq!(plan.cannot_free.as_deref(), Some(CANNOT_FREE_ORIGINAL));
+        assert_eq!(
+            plan.cannot_free.as_deref(),
+            Some(cannot_free_original().as_str())
+        );
         assert_eq!(plan.label, "Trainer 0001");
         let json = serde_json::to_value(&plan).unwrap();
         assert_eq!(
@@ -396,7 +399,7 @@ mod tests {
         assert!(result.change.is_some(), "{result:?}");
         assert_eq!(result.freed, None);
         assert_eq!(history_impl(&state).unwrap().undo.len(), depth + 1);
-        assert_eq!(last_step(&state), "Gelöscht: Trainer 0001");
+        assert_eq!(last_step(&state), "Deleted: Trainer 0001");
         assert!(trainer_deleted(&state, 1));
         assert!(
             plan_with_original(&state, &base, TRAINER_1)
@@ -406,24 +409,30 @@ mod tests {
 
         let result = restore_entity_impl(&state, TRAINER_1).unwrap();
         assert!(result.change.is_some(), "{result:?}");
-        assert_eq!(last_step(&state), "Wiederhergestellt: Trainer 0001");
+        assert_eq!(last_step(&state), "Restored: Trainer 0001");
         assert!(!trainer_deleted(&state, 1));
         let err = restore_entity_impl(&state, TRAINER_1).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("error", "Trainer 0001 ist nicht gelöscht.")
+            ("error", "Trainer 0001 is not deleted.")
         );
 
         // Without a base ROM the plan and the delete answer base_missing, recording nothing.
         let (_s, dspre) = open_synthetic();
         let err = plan_delete_impl(&dspre, TRAINER_1).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
         let err = delete_entity_impl(&dspre, TRAINER_1, false).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
         assert!(history_impl(&dspre).unwrap().undo.is_empty());
         // An own flag name is never original: its plan needs no base ROM.
         let plan = plan_delete_impl(&dspre, DeleteTarget::Flag { number: 148 }).unwrap();
-        assert_eq!(plan.refusal.as_deref(), Some(NOT_A_TEXT_PROJECT));
+        assert_eq!(plan.refusal.as_deref(), Some(not_a_text_project().as_str()));
     }
 
     #[test]
@@ -543,10 +552,10 @@ mod tests {
                 .len(),
             2
         );
-        assert_eq!(last_step(&state), "Nummer freigegeben: Trainer 0002");
+        assert_eq!(last_step(&state), "Number freed: Trainer 0002");
         // Undo stops at the barrier.
         let err = undo_impl(&state).unwrap_err();
-        assert_eq!(err.message, IRREVERSIBLE);
+        assert_eq!(err.message, irreversible());
     }
 
     /// Sets tombstones on the open project's store as one step.
@@ -649,7 +658,7 @@ mod tests {
         // A warp to header 1.
         refused(
             update_event_impl(&state, file, EventKind::Warp, warp, to_header_1()),
-            "Header 0001 ist gelöscht.",
+            "Header 0001 is deleted.",
         );
         refused(
             add_event_impl(
@@ -662,7 +671,7 @@ mod tests {
                 None,
             )
             .map(drop),
-            "Header 0001 ist gelöscht.",
+            "Header 0001 is deleted.",
         );
         // The header's event file.
         let mut edited = header.clone();
@@ -673,18 +682,18 @@ mod tests {
         }
         refused(
             set_header_impl(&state, 0, edited, "edit header"),
-            &format!("Event file {other:04} ist gelöscht."),
+            &format!("Event file {other:04} is deleted."),
         );
         // A matrix cell's map and header.
         refused(
             set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None),
-            "Map 0001 ist gelöscht.",
+            "Map 0001 is deleted.",
         );
         let matrix = get_matrix_impl(&state, 0).unwrap();
         if matrix.headers.is_some() {
             refused(
                 set_matrix_cell_impl(&state, 0, 0, 0, None, Some(1), None),
-                "Header 0001 ist gelöscht.",
+                "Header 0001 is deleted.",
             );
         }
         assert_eq!(history_impl(&state).unwrap().undo.len(), depth);
@@ -757,6 +766,6 @@ mod tests {
                 .len(),
             usize::from(index)
         );
-        assert_eq!(undo_impl(&state).unwrap_err().message, IRREVERSIBLE);
+        assert_eq!(undo_impl(&state).unwrap_err().message, irreversible());
     }
 }

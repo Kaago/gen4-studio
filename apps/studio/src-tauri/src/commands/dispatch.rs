@@ -1955,7 +1955,7 @@ mod tests {
                 other => panic!("{key}: {:?}", other.map(|_| ())),
             };
             assert_eq!(
-                message, "Flag 0x0094 hat keine Nummer, die sich freigeben lässt.",
+                message, "Flag 0x0094 has no number that can be freed.",
                 "{key}"
             );
         }
@@ -2223,7 +2223,10 @@ mod tests {
         let policy = policy_over(&fixture);
         match dispatch(&state, &policy, "create_patch", json!({})) {
             Err(DispatchError::Cmd(e)) => {
-                assert_eq!((e.code, e.message.as_str()), ("base_missing", NO_MARK))
+                assert_eq!(
+                    (e.code, e.message.as_str()),
+                    ("base_missing", no_mark().as_str())
+                )
             }
             other => panic!("{other:?}"),
         }
@@ -2466,11 +2469,7 @@ mod tests {
         match egg {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "read_only");
-                assert!(
-                    e.message.contains("für CPUE nicht geprüft"),
-                    "{}",
-                    e.message
-                );
+                assert!(e.message.contains("not checked for CPUE"), "{}", e.message);
             }
             other => panic!("{other:?}"),
         }

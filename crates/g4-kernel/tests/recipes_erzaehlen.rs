@@ -29,7 +29,7 @@ use std::time::Instant;
 use g4_formats::game::Family;
 use g4_kernel::data::names::{Bank, NameTables, bank_index};
 use g4_kernel::data::trainer_create::{
-    ADOPT_FIRST, TRAINER_FLAG_CAPACITY, create_trainer_with, trainer_texts,
+    TRAINER_FLAG_CAPACITY, adopt_first, create_trainer_with, trainer_texts,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetId, AssetKind, Project};
@@ -569,11 +569,11 @@ fn a_figure_needs_adopted_scripts() {
     let depth = store.undo_depth();
     assert_eq!(
         refused(new_figure::plan(&mut store, &input(40, 7, "x"))),
-        ADOPT_FIRST
+        adopt_first()
     );
     assert_eq!(
         refused(new_figure::apply(&mut store, &input(40, 7, "x"))),
-        ADOPT_FIRST
+        adopt_first()
     );
     assert_eq!(store.undo_depth(), depth);
 }
@@ -1563,7 +1563,7 @@ fn apply_creates_the_trainer_then_one_step_for_team_texts_and_object() {
     let history = store.history().0;
     assert_eq!(
         history[history.len() - 2..],
-        ["Trainer 3 angelegt", "Trainer “Jens” placed here"]
+        ["Trainer 3 created", "Trainer “Jens” placed here"]
     );
     store.undo().unwrap();
     assert!(store.event(0).unwrap().object_events.is_empty());
@@ -1571,10 +1571,10 @@ fn apply_creates_the_trainer_then_one_step_for_team_texts_and_object() {
     assert!(texts_of(&mut store, 3).is_empty());
     assert_eq!(trainer_count(&store), 4);
     assert_eq!(session_names.trainer_name(&mut store, 3), "Jens");
-    assert_eq!(store.history().0.last().unwrap(), "Trainer 3 angelegt");
+    assert_eq!(store.history().0.last().unwrap(), "Trainer 3 created");
     let err = store.undo().unwrap_err();
     assert!(
-        matches!(&err, KernelError::Refused(r) if r == "Trainer 3 anlegen lässt sich nicht rückgängig machen"),
+        matches!(&err, KernelError::Refused(r) if r == "Creating trainer 3 cannot be undone"),
         "{err}"
     );
     store.redo().unwrap();
@@ -1658,7 +1658,7 @@ fn a_failed_placement_leaves_the_trainer_and_no_half_step() {
     assert_eq!(trainer_count(&store), 4);
     assert_eq!(
         store.history(),
-        (vec!["Trainer 3 angelegt".to_owned()], vec![])
+        (vec!["Trainer 3 created".to_owned()], vec![])
     );
     assert!(store.event(0).unwrap().object_events.is_empty());
     assert!(party_of(&mut store, 3).is_empty());
@@ -1685,7 +1685,7 @@ fn a_failed_placement_leaves_the_trainer_and_no_half_step() {
     );
     assert_eq!(
         store.history(),
-        (vec!["Trainer 5 angelegt".to_owned()], vec![])
+        (vec!["Trainer 5 created".to_owned()], vec![])
     );
     assert!(store.event(0).unwrap().object_events.is_empty());
     assert!(party_of(&mut store, 5).is_empty());
@@ -1763,7 +1763,7 @@ fn the_seen_slot_is_skipped_like_create_trainer() {
     let history = store.history().0;
     assert_eq!(
         history[history.len() - 2..],
-        ["Trainer 5 angelegt", "Trainer “Jens” placed here"]
+        ["Trainer 5 created", "Trainer “Jens” placed here"]
     );
 }
 
@@ -1793,10 +1793,7 @@ fn a_trainer_with_a_bad_team_name_sight_or_tile_is_refused() {
         (with(&|i| i.sight = 0), "Sight range"),
         (with(&|i| i.sight = 16), "Sight range"),
         (with(&|i| i.dir = 4), "Facing direction"),
-        (
-            with(&|i| i.name = "Jens-Peter".into()),
-            "höchstens 7 passen",
-        ),
+        (with(&|i| i.name = "Jens-Peter".into()), "at most 7 fit"),
         (with(&|i| i.name = String::new()), "name"),
     ];
     for (input, expected) in cases {
@@ -1826,11 +1823,11 @@ fn a_trainer_needs_adopted_scripts() {
     let input = trainer_input(40, 7);
     assert_eq!(
         refused(plan_trainer(&mut store, &meta, &input)),
-        ADOPT_FIRST
+        adopt_first()
     );
     assert_eq!(
         refused(apply_trainer(&mut store, &meta, &input)),
-        ADOPT_FIRST
+        adopt_first()
     );
     assert_eq!(trainer_count(&store), 3);
 }
@@ -1939,7 +1936,7 @@ fn vanilla_trainer_here_in_the_town() {
     assert_eq!(
         history[history.len() - 2..],
         [
-            format!("Trainer {id} angelegt"),
+            format!("Trainer {id} created"),
             "Trainer “Jens” placed here".to_owned()
         ]
     );

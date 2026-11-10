@@ -141,3 +141,19 @@ fn world_message_fills_variables() {
     assert_eq!(en, "Cell (3, 7) is outside the map (0 to 31).");
     assert!(en.contains('3') && en.contains('7'), "{en}");
 }
+
+/// A real key of the git module with two variables (`git.default_subject`, the subject of
+/// „Save a snapshot“ without a message): both values land in the sentence, in German and in
+/// English.
+#[test]
+fn git_message_fills_variables() {
+    let _turn = locale_lock();
+    set_locale("de");
+    let de = t!("git.default_subject", date = "2026-11-10", time = "12:34");
+    assert_eq!(de, "Stand 2026-11-10 12:34 UTC");
+    assert!(de.contains("2026-11-10") && de.contains("12:34"), "{de}");
+    set_locale("en");
+    let en = t!("git.default_subject", date = "2026-11-10", time = "12:34");
+    assert_eq!(en, "Snapshot 2026-11-10 12:34 UTC");
+    assert!(en.contains("2026-11-10") && en.contains("12:34"), "{en}");
+}

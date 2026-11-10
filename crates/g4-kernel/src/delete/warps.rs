@@ -24,7 +24,7 @@ pub struct WarpDelete {
 
 /// The name of warp `index` of event file `file` in [`KernelError::Referenced`].
 fn label(file: u16, index: u16) -> String {
-    format!("Eventdatei {file:04}, Tür {index}")
+    t!("delete.warp_label", file = file : {:04}, index = index).into_owned()
 }
 
 /// Removes warp `index` of event file `file`: refused with `Referenced` while a warp points at
@@ -95,10 +95,7 @@ pub fn delete_warp(
         }
     }
     if !locks.is_empty() {
-        return Err(KernelError::Referenced {
-            label: label(file, index),
-            references: locks,
-        });
+        return Err(KernelError::referenced(label(file, index), locks));
     }
 
     let at = usize::from(index);

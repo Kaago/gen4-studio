@@ -1,5 +1,5 @@
 //! "Git einrichten": the project's templates, then `git init` and the first commit
-//! [`FIRST_COMMIT`] with the `git` CLI; "Stand sichern" ([`commit_all`]): the templates, then
+//! [`first_commit`] with the `git` CLI; "Stand sichern" ([`commit_all`]): the templates, then
 //! `git add -A` and a commit with a subject and notes. The Studio runs only the subcommands of
 //! its private `Sub` (never a remote, push, fetch, pull, clone or config), each with
 //! `GIT_TERMINAL_PROMPT=0`, an empty stdin and a time limit of five minutes. Reading the
@@ -21,35 +21,68 @@ use crate::git::templates::{Layout, TemplateReport, layout_of, write_templates};
 use crate::project::Project;
 
 /// The answer without a `git` CLI: the templates are written, the repository is not.
-pub const NOT_INSTALLED: &str = "Git ist nicht installiert. Die Vorlagen sind geschrieben; das Repository legst du an, sobald Git da ist (git-scm.com/downloads).";
+pub fn not_installed() -> String {
+    t!("git.not_installed").into_owned()
+}
 /// The answer when a repository (the project's own or an enclosing one) holds the project.
-pub const IN_REPO: &str =
-    "Das Projekt liegt schon in einem Git-Repository; Gen4 Studio hat nur die Vorlagen ergänzt.";
-/// The message of the first commit.
-pub const FIRST_COMMIT: &str = "Ausgangsstand";
+pub fn in_repo() -> String {
+    t!("git.in_repo").into_owned()
+}
+/// The message of the first commit („Initial state“).
+pub fn first_commit() -> String {
+    t!("git.first_commit").into_owned()
+}
 /// The author and committer of the first commit when Git has no identity configured.
 pub const STUDIO_NAME: &str = "Gen4 Studio";
 /// See [`STUDIO_NAME`]; `.invalid` is reserved and never delivered.
 pub const STUDIO_EMAIL: &str = "studio@gen4.invalid";
 /// How the answer starts when `git add` or the commit failed (after `git init`).
-pub const COMMIT_FAILED: &str = "Der erste Commit ist gescheitert";
+pub fn commit_failed() -> String {
+    t!("git.commit_failed").into_owned()
+}
 /// How the answer starts when `git init` itself failed.
-pub const INIT_FAILED: &str = "Git konnte das Repository nicht anlegen";
+pub fn init_failed() -> String {
+    t!("git.init_failed").into_owned()
+}
 /// Git's part of the answer when a subcommand ran longer than its five minutes.
-pub const TIMED_OUT: &str = "Git hat nach 5 Minuten nicht geantwortet.";
+pub fn timed_out() -> String {
+    t!("git.timed_out").into_owned()
+}
 /// "Stand sichern" without a `git` CLI.
-pub const GIT_NEEDED: &str = "Git ist nicht installiert; „Stand sichern“ braucht die git-Kommandozeile (git-scm.com/downloads).";
+pub fn git_needed() -> String {
+    t!("git.git_needed").into_owned()
+}
 /// "Stand sichern" in a project without a repository.
-pub const NO_REPO_TO_COMMIT: &str =
-    "Dieses Projekt liegt in keinem Git-Repository; richte Git zuerst ein.";
+pub fn no_repo_to_commit() -> String {
+    t!("git.no_repo_to_commit").into_owned()
+}
 /// "Stand sichern" in a project below a larger repository's work tree.
-pub const ENCLOSING_REPO: &str = "Das Projekt liegt in einem größeren Git-Repository; sichere den Stand dort mit deinem Git-Werkzeug.";
+pub fn enclosing_repo() -> String {
+    t!("git.enclosing_repo").into_owned()
+}
 /// "Stand sichern" without a change since `HEAD`.
-pub const NOTHING_TO_COMMIT: &str = "Keine Änderung seit dem letzten Commit; nichts zu sichern.";
+pub fn nothing_to_commit() -> String {
+    t!("git.nothing_to_commit").into_owned()
+}
 /// How the answer starts when `git add` or the commit of "Stand sichern" failed.
-pub const COMMIT_ALL_FAILED: &str = "Der Commit ist gescheitert";
+pub fn commit_all_failed() -> String {
+    t!("git.commit_all_failed").into_owned()
+}
 /// How the answer of a failed "Stand sichern" ends: `HEAD` stays, the work tree too.
-const COMMIT_ALL_KEPT: &str = "Es ist nichts committet; deine Änderungen bleiben im Projekt.";
+fn commit_all_kept() -> String {
+    t!("git.commit_all_kept").into_owned()
+}
+
+/// Which step failed, for the frame of [`failed`]'s answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Failed {
+    /// `git init` ([`init_failed`]).
+    Init,
+    /// `git add` or the first commit after `git init` ([`commit_failed`]).
+    FirstCommit,
+    /// `git add` or the commit of "Stand sichern" ([`commit_all_failed`]).
+    CommitAll,
+}
 
 /// How long one subcommand may run before it is killed.
 const TIMEOUT: Duration = Duration::from_secs(300);
@@ -260,9 +293,9 @@ fn verify(path: PathBuf) -> Option<GitCli> {
 /// 2. `Templates`: [`write_templates`]; its error (a broken block) is this call's `Err`.
 ///
 /// Then no repository is set up when one already holds the project (its own or an enclosing
-/// one: [`IN_REPO`]), with `templates_only` (no reason) or without `cli` ([`NOT_INSTALLED`]).
+/// one: [`in_repo`]), with `templates_only` (no reason) or without `cli` ([`not_installed`]).
 /// Else `Init` (`git init -q`, the branch named by the user's `init.defaultBranch`), `Add`
-/// (`git add -A`) and `Commit` (`git commit -q -m Ausgangsstand`; when Git has no configured
+/// (`git add -A`) and `Commit` (`git commit -q -m <first_commit>`; when Git has no configured
 /// identity, `git var GIT_COMMITTER_IDENT` with `user.useConfigOnly` fails, this one commit is
 /// by [`STUDIO_NAME`] `<`[`STUDIO_EMAIL`]`>`, the configuration stays untouched). A failing
 /// subcommand is no `Err`: `committed` stays false and `reason` carries Git's stderr (at most
@@ -307,14 +340,14 @@ pub fn git_init(
         Ok(report)
     };
     if GitRepo::discover(root)?.is_some() {
-        report.reason = Some(IN_REPO.to_owned());
+        report.reason = Some(in_repo());
         return finish(report);
     }
     if opts.templates_only {
         return finish(report);
     }
     let Some(cli) = cli else {
-        report.reason = Some(NOT_INSTALLED.to_owned());
+        report.reason = Some(not_installed());
         return finish(report);
     };
 
@@ -322,7 +355,7 @@ pub fn git_init(
     let ran = run(cli, Some(root), &Sub::Init, TIMEOUT);
     report.phase_ms.insert(InitPhase::Init, millis(t));
     if !succeeded(&ran) {
-        report.reason = Some(failed(INIT_FAILED, &ran));
+        report.reason = Some(failed(Failed::Init, &ran));
         return finish(report);
     }
 
@@ -330,16 +363,16 @@ pub fn git_init(
     let ran = run(cli, Some(root), &Sub::Add, TIMEOUT);
     report.phase_ms.insert(InitPhase::Add, millis(t));
     if !succeeded(&ran) {
-        report.reason = Some(failed(COMMIT_FAILED, &ran));
+        report.reason = Some(failed(Failed::FirstCommit, &ran));
         return finish(report);
     }
 
     let t = begin(InitPhase::Commit);
-    let (ran, studio_identity) = commit(cli, root, FIRST_COMMIT.to_owned(), None);
+    let (ran, studio_identity) = commit(cli, root, first_commit(), None);
     report.studio_identity = studio_identity;
     report.phase_ms.insert(InitPhase::Commit, millis(t));
     if !succeeded(&ran) {
-        report.reason = Some(failed(COMMIT_FAILED, &ran));
+        report.reason = Some(failed(Failed::FirstCommit, &ran));
         return finish(report);
     }
 
@@ -374,12 +407,17 @@ fn commit(
     (run(cli, Some(root), &sub, TIMEOUT), studio_identity)
 }
 
-/// „Stand {YYYY-MM-DD} {HH:MM} UTC“, the time now (the kernel knows no time zone; the app and
+/// „Snapshot {YYYY-MM-DD} {HH:MM} UTC“, the time now (the kernel knows no time zone; the app and
 /// `g4k` give their own subject in local time).
 pub fn default_subject() -> String {
     let now = crate::start::now_rfc3339();
     // `YYYY-MM-DDTHH:MM:SSZ`
-    format!("Stand {} {} UTC", &now[..10], &now[11..16])
+    t!(
+        "git.default_subject",
+        date = &now[..10],
+        time = &now[11..16]
+    )
+    .into_owned()
 }
 
 /// The subject of `opts`: `message` trimmed to its first line, else (none or empty)
@@ -395,28 +433,28 @@ pub fn subject_of(opts: &CommitOptions) -> String {
 }
 
 /// The refusals of "Stand sichern", before any subcommand runs, in this order: no repository
-/// holds the project ([`NO_REPO_TO_COMMIT`]), an enclosing one does ([`ENCLOSING_REPO`]), no
-/// `cli` ([`GIT_NEEDED`]); each before anything is written. Then the templates are written
+/// holds the project ([`no_repo_to_commit`]), an enclosing one does ([`enclosing_repo`]), no
+/// `cli` ([`git_needed`]); each before anything is written. Then the templates are written
 /// ([`write_templates`]; a broken block is its `Err`), since a refreshed block may add a change
 /// (a file a newer template lets in, such as `.g4/releases.json`), and the status is read: no
-/// change is [`NOTHING_TO_COMMIT`]. Else the status, whose paths the commit will take.
+/// change is [`nothing_to_commit`]. Else the status, whose paths the commit will take.
 pub fn check_commit_all(project: &Project, cli: Option<&GitCli>) -> Result<GitStatus, KernelError> {
-    let refused = |text: &str| Err(KernelError::Refused(text.to_owned()));
+    let refused = |text: String| Err(KernelError::Refused(text));
     let Some(repo) = GitRepo::discover(&project.root)? else {
-        return refused(NO_REPO_TO_COMMIT);
+        return refused(no_repo_to_commit());
     };
     match repo.kind() {
         RepoKind::Own => {}
-        RepoKind::Enclosing { .. } => return refused(ENCLOSING_REPO),
-        RepoKind::None => return refused(NO_REPO_TO_COMMIT),
+        RepoKind::Enclosing { .. } => return refused(enclosing_repo()),
+        RepoKind::None => return refused(no_repo_to_commit()),
     }
     if cli.is_none() {
-        return refused(GIT_NEEDED);
+        return refused(git_needed());
     }
     write_templates(project)?;
     let status = repo.status()?;
     if status.paths.is_empty() {
-        return refused(NOTHING_TO_COMMIT);
+        return refused(nothing_to_commit());
     }
     Ok(status)
 }
@@ -431,7 +469,7 @@ pub fn check_commit_all(project: &Project, cli: Option<&GitCli>) -> Result<GitSt
 ///
 /// An unborn `HEAD` (a repository without a commit) is no refusal: this commit is the first. A
 /// failing subcommand is no `Err`: `committed` stays false and `reason` carries Git's stderr
-/// (at most 400 characters) after [`COMMIT_ALL_FAILED`]; `HEAD` stays where it was. Nothing
+/// (at most 400 characters) after [`commit_all_failed`]; `HEAD` stays where it was. Nothing
 /// here adds a remote, turns off a setting of the user or skips a hook.
 pub fn commit_all(
     project: &Project,
@@ -450,7 +488,7 @@ pub fn commit_all(
     let t = begin(CommitPhase::Templates);
     let status = check_commit_all(project, cli)?;
     let Some(cli) = cli else {
-        return Err(KernelError::Refused(GIT_NEEDED.to_owned()));
+        return Err(KernelError::Refused(git_needed()));
     };
     let mut report = CommitReport {
         committed: false,
@@ -471,7 +509,7 @@ pub fn commit_all(
     let ran = run(cli, Some(root), &Sub::Add, TIMEOUT);
     report.phase_ms.insert(CommitPhase::Add, millis(t));
     if !succeeded(&ran) {
-        report.reason = Some(failed(COMMIT_ALL_FAILED, &ran));
+        report.reason = Some(failed(Failed::CommitAll, &ran));
         return finish(report);
     }
 
@@ -486,7 +524,7 @@ pub fn commit_all(
     report.studio_identity = studio_identity;
     report.phase_ms.insert(CommitPhase::Commit, millis(t));
     if !succeeded(&ran) {
-        report.reason = Some(failed(COMMIT_ALL_FAILED, &ran));
+        report.reason = Some(failed(Failed::CommitAll, &ran));
         return finish(report);
     }
 
@@ -601,20 +639,19 @@ fn drain<R: Read + Send + 'static>(mut stream: R) -> Receiver<Vec<u8>> {
 }
 
 /// The answer for a failed subcommand: `<prefix>: <Git's words>. <what stays>`, Git's words
-/// being its stderr ([`stderr_detail`]) or [`TIMED_OUT`].
-fn failed(prefix: &str, ran: &Result<Ran, RunError>) -> String {
+/// being its stderr ([`stderr_detail`]) or [`timed_out`]; the prefix and what stays follow
+/// from the step that failed.
+fn failed(step: Failed, ran: &Result<Ran, RunError>) -> String {
     let detail = match ran {
         Ok(out) => stderr_detail(&out.stderr, Some(out.status)),
-        Err(RunError::TimedOut) => TIMED_OUT.to_owned(),
-        Err(RunError::Spawn(e)) => format!("Git ließ sich nicht starten ({e})"),
+        Err(RunError::TimedOut) => timed_out(),
+        Err(RunError::Spawn(e)) => t!("git.spawn_failed", error = e).into_owned(),
     };
     let detail = detail.trim_end_matches('.');
-    let tail = match prefix {
-        INIT_FAILED => {
-            "Die Vorlagen sind geschrieben; lege das Repository mit deinem Git-Werkzeug an."
-        }
-        COMMIT_ALL_FAILED => COMMIT_ALL_KEPT,
-        _ => "Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug.",
+    let (prefix, tail) = match step {
+        Failed::Init => (init_failed(), t!("git.init_failed_tail").into_owned()),
+        Failed::FirstCommit => (commit_failed(), t!("git.commit_failed_tail").into_owned()),
+        Failed::CommitAll => (commit_all_failed(), commit_all_kept()),
     };
     format!("{prefix}: {detail}. {tail}")
 }
@@ -631,8 +668,8 @@ fn stderr_detail(stderr: &[u8], status: Option<ExitStatus>) -> String {
         .join(" ");
     if joined.is_empty() {
         return match status.and_then(|s| s.code()) {
-            Some(code) => format!("git endete mit Code {code}"),
-            None => "git wurde beendet".to_owned(),
+            Some(code) => t!("git.exit_code", code = code).into_owned(),
+            None => t!("git.terminated").into_owned(),
         };
     }
     if joined.chars().count() > STDERR_CHARS {
@@ -657,7 +694,7 @@ enum Sub {
     /// configured (or `GIT_COMMITTER_*`) identity, instead of making one up from the account
     /// and host name.
     Ident,
-    /// `git commit -q -m <subject> [-m <body>]` (the first commit: [`FIRST_COMMIT`] without a
+    /// `git commit -q -m <subject> [-m <body>]` (the first commit: [`first_commit`] without a
     /// body), with the studio identity as `-c` for this commit only. Each text is one
     /// argument after its `-m`, never read as an option.
     Commit {
@@ -767,7 +804,7 @@ mod tests {
         })
         .unwrap();
         assert!(!report.committed);
-        assert_eq!(report.reason.as_deref(), Some(NOT_INSTALLED));
+        assert_eq!(report.reason, Some(not_installed()));
         assert_eq!(report.head, None);
         assert!(!fx.root().join(".git").exists());
         assert!(fx.root().join(".gitignore").is_file());
@@ -809,7 +846,7 @@ mod tests {
         let report =
             git_init(&project, cli.as_ref(), &InitOptions::default(), &mut |_| {}).unwrap();
         assert!(!report.committed);
-        assert_eq!(report.reason.as_deref(), Some(IN_REPO));
+        assert_eq!(report.reason, Some(in_repo()));
         assert!(!root.join(".git").exists(), "never a repository inside one");
         assert!(root.join(".gitignore").is_file());
         assert!(root.join(".gitattributes").is_file());
@@ -831,7 +868,7 @@ mod tests {
         )
         .unwrap();
         assert!(!report.committed);
-        assert_eq!(report.reason.as_deref(), Some(IN_REPO));
+        assert_eq!(report.reason, Some(in_repo()));
     }
 
     #[test]
@@ -897,12 +934,12 @@ mod tests {
             );
             let without = Sub::Commit {
                 studio_identity,
-                subject: FIRST_COMMIT.into(),
+                subject: first_commit(),
                 body: None,
             };
             assert_eq!(
                 without.args()[skip..],
-                ["commit", "-q", "-m", FIRST_COMMIT],
+                ["commit", "-q", "-m", first_commit().as_str()],
                 "{:?}",
                 without.args()
             );
@@ -911,10 +948,10 @@ mod tests {
 
     #[test]
     fn subject_defaults_to_stand_with_utc_time_and_takes_the_first_line() {
-        // `^Stand \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$`, without a regex crate.
+        // `^Snapshot \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$`, without a regex crate.
         let shape = |text: &str| {
             let Some(rest) = text
-                .strip_prefix("Stand ")
+                .strip_prefix("Snapshot ")
                 .and_then(|r| r.strip_suffix(" UTC"))
             else {
                 return false;
@@ -942,7 +979,7 @@ mod tests {
         assert_eq!(of(Some("  Stand Test  \r\nmehr")), "Stand Test");
         assert!(shape(&of(None)));
         assert!(shape(&of(Some("  \n "))), "an empty message is none");
-        assert!(!shape("Stand 2026-10-31 12:00"));
+        assert!(!shape("Snapshot 2026-10-31 12:00"));
     }
 
     #[test]
@@ -1036,7 +1073,7 @@ mod tests {
         assert!(report.committed, "{report:?}");
         assert_eq!(report.reason, None);
         let head = report.head.as_ref().unwrap();
-        assert_eq!(head.summary, FIRST_COMMIT);
+        assert_eq!(head.summary, first_commit());
         assert!(!config(root).contains("[remote"), "{}", config(root));
 
         let repo = GitRepo::discover(root).unwrap().unwrap();
@@ -1139,14 +1176,11 @@ mod tests {
         .unwrap();
         assert!(!report.committed);
         let reason = report.reason.unwrap();
-        assert!(
-            reason.starts_with("Der erste Commit ist gescheitert:"),
-            "{reason}"
-        );
+        assert!(reason.starts_with("The first commit failed:"), "{reason}");
         assert!(reason.contains("gpg"), "Git's own words: {reason}");
         assert!(
             reason.ends_with(
-                ". Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug."
+                ". The repository and the templates are in place; commit with your Git tool."
             ),
             "{reason}"
         );
@@ -1167,11 +1201,13 @@ mod tests {
     #[test]
     fn a_long_stderr_is_cut_and_a_timeout_has_the_same_frame() {
         let long = "x".repeat(1000);
-        let reason = failed(COMMIT_FAILED, &Err(RunError::TimedOut));
+        let reason = failed(Failed::FirstCommit, &Err(RunError::TimedOut));
         assert_eq!(
             reason,
             format!(
-                "{COMMIT_FAILED}: {TIMED_OUT} Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug."
+                "{}: {} The repository and the templates are in place; commit with your Git tool.",
+                commit_failed(),
+                timed_out()
             )
         );
         let detail = stderr_detail(long.as_bytes(), None);
@@ -1248,7 +1284,7 @@ mod tests {
             &CommitOptions::default(),
             &mut |_| {},
         ));
-        assert_eq!(refused, NO_REPO_TO_COMMIT);
+        assert_eq!(refused, no_repo_to_commit());
         assert!(!fx.root().join(".git").exists());
         assert!(!fx.root().join(".gitignore").exists(), "nothing written");
 
@@ -1262,10 +1298,10 @@ mod tests {
             &CommitOptions::default(),
             &mut |_| {},
         ));
-        assert_eq!(refused, GIT_NEEDED);
+        assert_eq!(refused, git_needed());
         assert!(matches!(
             check_commit_all(&fx.project(), None),
-            Err(KernelError::Refused(text)) if text == GIT_NEEDED
+            Err(KernelError::Refused(text)) if text == git_needed()
         ));
     }
 
@@ -1286,7 +1322,7 @@ mod tests {
             &CommitOptions::default(),
             &mut |_| {},
         ));
-        assert_eq!(refused, ENCLOSING_REPO);
+        assert_eq!(refused, enclosing_repo());
         assert_eq!(head_of(&root).unwrap().id, before, "no new commit");
         assert!(!root.join(".gitignore").exists(), "nothing written");
 
@@ -1301,7 +1337,7 @@ mod tests {
             &CommitOptions::default(),
             &mut |_| {},
         ));
-        assert_eq!(refused, NOTHING_TO_COMMIT);
+        assert_eq!(refused, nothing_to_commit());
         assert_eq!(head_of(fx.root()).unwrap().id, before, "no new commit");
     }
 
@@ -1380,7 +1416,11 @@ mod tests {
         )
         .unwrap();
         assert!(report.committed, "{report:?}");
-        assert!(report.subject.starts_with("Stand "), "{}", report.subject);
+        assert!(
+            report.subject.starts_with("Snapshot "),
+            "{}",
+            report.subject
+        );
         assert!(report.subject.ends_with(" UTC"), "{}", report.subject);
         let repo = gix::open(fx.root()).unwrap();
         let message = repo
@@ -1522,12 +1562,12 @@ mod tests {
         assert!(!report.committed);
         let reason = report.reason.unwrap();
         assert!(
-            reason.starts_with(&format!("{COMMIT_ALL_FAILED}:")),
+            reason.starts_with(&format!("{}:", commit_all_failed())),
             "{reason}"
         );
         assert!(reason.contains("gpg"), "Git's own words: {reason}");
         assert!(
-            reason.ends_with(&format!(". {COMMIT_ALL_KEPT}")),
+            reason.ends_with(&format!(". {}", commit_all_kept())),
             "{reason}"
         );
         assert_eq!(report.head, None);
@@ -1547,10 +1587,15 @@ mod tests {
 
     #[test]
     fn a_commit_all_timeout_has_the_same_frame() {
-        let reason = failed(COMMIT_ALL_FAILED, &Err(RunError::TimedOut));
+        let reason = failed(Failed::CommitAll, &Err(RunError::TimedOut));
         assert_eq!(
             reason,
-            format!("{COMMIT_ALL_FAILED}: {TIMED_OUT} {COMMIT_ALL_KEPT}")
+            format!(
+                "{}: {} {}",
+                commit_all_failed(),
+                timed_out(),
+                commit_all_kept()
+            )
         );
     }
 }

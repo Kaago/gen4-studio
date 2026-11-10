@@ -18,13 +18,14 @@ mod ranges;
 mod save_layout;
 
 pub use entities::{
-    FlagEntity, HAS_OWN_NAME, ID_REQUIRED, NOTHING_TO_CHANGE, NameReport, NameRequest, TakenBy,
-    entity_rel, name_flag, name_flag_files, not_in_save_text, own_names, read_entity, taken_text,
+    FlagEntity, NameReport, NameRequest, TakenBy, entity_rel, has_own_name, id_required,
+    name_flag, name_flag_files, not_in_save_text, nothing_to_change, own_names, read_entity,
+    taken_text,
 };
 pub use names::{NameTable, name_is_unused, names};
 pub use pool::{
-    POOL_EMPTY, POOL_EMPTY_VAR, Pool, RESERVED_BY_EMPTY_REGION, free_flag, free_var, pool,
-    pool_empty_text, reserved,
+    Pool, free_flag, free_var, pool, pool_empty, pool_empty_text, pool_empty_var, reserved,
+    reserved_by_empty_region,
 };
 pub use ranges::{
     Area, Range, Ranges, area_of, hidden_item_flag, hidden_items_base, in_save, pool_range, ranges,

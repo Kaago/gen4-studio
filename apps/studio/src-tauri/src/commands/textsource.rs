@@ -758,7 +758,7 @@ mod tests {
         let (_fixture, state) = open_synthetic();
         assert_eq!(
             status(&state),
-            json!({ "state": "dspre", "adoptable": false, "reason": crate::commands::NO_MARK })
+            json!({ "state": "dspre", "adoptable": false, "reason": crate::commands::no_mark() })
         );
         // A mark and its ROM: adoptable.
         let t = dspre();
@@ -769,7 +769,7 @@ mod tests {
         // The ROM gone: the reason says which.
         t.state.base_roms.set_explicit(None);
         let reason = status(&t.state)["reason"].clone();
-        assert!(reason.as_str().unwrap().contains("Basis-ROM"), "{reason}");
+        assert!(reason.as_str().unwrap().contains("Base ROM"), "{reason}");
 
         let t = adopted();
         let now = status(&t.state);

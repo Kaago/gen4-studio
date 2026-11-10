@@ -551,8 +551,8 @@ mod tests {
         );
         assert_eq!(
             text("data/flags/4095.json"),
-            "textproject.schema: Nummer 0x0FFF liegt außerhalb des Spielstands (Flags 0x0001 \
-             bis 0x0B5F)."
+            "textproject.schema: Number 0x0FFF is outside the save game (flags 0x0001 to \
+             0x0B5F)."
         );
 
         // A newer version of a kind: one warning at its key, its files are not read.
@@ -635,8 +635,8 @@ mod tests {
         };
         assert_eq!(
             text("data/ids/stories.json"),
-            "textproject.id-dangling: `STORY_GONE` (Nummer 2) hat keine Datei \
-             data/stories/0002.json; jede Geschichte hat eine."
+            "textproject.id-dangling: `STORY_GONE` (number 2) has no file \
+             data/stories/0002.json; every story has one."
         );
         assert_eq!(
             text("data/stories/0000.json"),
@@ -644,8 +644,8 @@ mod tests {
         );
         assert_eq!(
             text("data/stories/0001.json"),
-            "textproject.id-mismatch: id: `STORY_B` ist nicht die ID der Geschichte 1 (das \
-             Register nennt keine)."
+            "textproject.id-mismatch: id: `STORY_B` is not the ID of story 1 (the register \
+             names none)."
         );
     }
 

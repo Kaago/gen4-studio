@@ -2875,7 +2875,7 @@ mod tests {
         );
         // The edit after the barrier is rolled back, the barrier step stays.
         assert_eq!(data(&toolbox, "move", 1), moves);
-        assert_eq!(history(&toolbox)["undo"], json!(["Trainer 3 angelegt"]));
+        assert_eq!(history(&toolbox)["undo"], json!(["Trainer 3 created"]));
     }
 
     #[test]
@@ -3498,7 +3498,7 @@ mod tests {
         assign_refused_unasked(
             &d,
             "andere.nds",
-            "Falsches Spiel: die ROM ist IPKE, das Projekt CPUE.",
+            "Wrong game: the ROM is IPKE, the project CPUE.",
         );
         assert!(!d.root.join(".g4").exists());
 
@@ -3511,7 +3511,7 @@ mod tests {
             AGENT,
         ));
         assert!(
-            message.starts_with("Die Basismarke .g4/base.json ist nicht lesbar ("),
+            message.starts_with("The base mark .g4/base.json cannot be read ("),
             "{message}"
         );
         assert_eq!(d.state.agents.status().question, None);
@@ -3542,7 +3542,7 @@ mod tests {
         assign_refused_unasked(
             &d,
             "../X.nds",
-            "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest.",
+            "The project was created from a ROM; its base ROM is fixed.",
         );
     }
 
@@ -4696,7 +4696,7 @@ mod tests {
         ));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("no_repo", g4_kernel::diff::NO_REPO)
+            ("no_repo", g4_kernel::diff::no_repo().as_str())
         );
         let diff = toolbox
             .call(
@@ -4727,7 +4727,7 @@ mod tests {
             let (code, message, _) = failed(toolbox.call("diff_entity", args.clone(), AGENT));
             assert_eq!(
                 (code.as_str(), message.as_str()),
-                ("not_diffable", g4_kernel::diff::OUTSIDE_PROJECT),
+                ("not_diffable", g4_kernel::diff::outside_project().as_str()),
                 "{args}"
             );
         }
@@ -4825,7 +4825,7 @@ mod tests {
         let (code, message, _) = call(json!({ "version": "0.1.0" }));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("base_missing", patch::NO_MARK)
+            ("base_missing", patch::no_mark().as_str())
         );
         assert_eq!(d.state.agents.status().question, None);
         // Also with overwrite: refused before the question.
@@ -4890,8 +4890,11 @@ mod tests {
                 message.starts_with("Path is outside the allowed folders: "),
                 "{place:?}: {message}"
             );
-            assert!(!message.contains("Not a folder"), "{message}");
-            assert!(!message.contains("liegt schon"), "{message}");
+            assert!(
+                !message.contains(&g4_kernel::patch::not_a_folder()),
+                "{message}"
+            );
+            assert!(!message.contains(&g4_kernel::patch::exists()), "{message}");
         };
 
         // In the app, with and without a base ROM, with and without overwrite.
@@ -4956,7 +4959,7 @@ mod tests {
         let (code, message, _) = failed(d.toolbox.call("git_commit_all", json!({}), AGENT));
         assert_eq!(
             (code.as_str(), message.as_str()),
-            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+            ("no_repo", g4_kernel::git::no_repo_to_commit().as_str())
         );
         assert_eq!(d.state.agents.status().question, None);
 
@@ -5191,7 +5194,7 @@ mod tests {
             unasked(trainers),
             (
                 "error".to_owned(),
-                format!("Trainer {trainers:04} gibt es nicht.")
+                format!("Trainer {trainers:04} does not exist.")
             )
         );
         assert_eq!(
@@ -5268,13 +5271,13 @@ mod tests {
         let (code, message, _) =
             failed(toolbox.call("set_map_terrain", args(rows("0", 31)), AGENT));
         assert_eq!(code, "error");
-        assert_eq!(message, "heights: 32 Zeilen erwartet, 31 da.");
+        assert_eq!(message, "heights: 32 rows expected, 31 found.");
         let mut high = rows("0", 32);
         high[6] = format!("0 0 0 0 63{}", " 0".repeat(27));
         let (_, message, _) = failed(toolbox.call("set_map_terrain", args(high), AGENT));
         assert_eq!(
             message,
-            "Kachel x 4, y 6: Höhe 63 liegt außerhalb von \u{2212}16 bis 62 Stufen."
+            "Tile x 4, y 6: height 63 is outside \u{2212}16 to 62 steps."
         );
         assert_eq!(history(&toolbox)["undo"], json!([]));
 

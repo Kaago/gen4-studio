@@ -37,7 +37,7 @@ pub enum OriginalStatusDto {
         sha1: String,
         counts: BTreeMap<&'static str, usize>,
     },
-    /// No base mark, an unreadable mark or a base ROM that is not found: why (`NO_MARK`,
+    /// No base mark, an unreadable mark or a base ROM that is not found: why (`no_mark()`,
     /// `base::missing_text`, the refusal of the mark).
     Unavailable { reason: String },
 }
@@ -238,7 +238,7 @@ mod tests {
 
     use super::*;
     use crate::commands::{
-        NO_MARK, adopt_scripts_impl, assign_base_impl, history_impl, open_project_impl,
+        adopt_scripts_impl, assign_base_impl, history_impl, no_mark, open_project_impl,
         open_synthetic, save_script_impl,
     };
     use g4_kernel::base::missing_text;
@@ -296,7 +296,7 @@ mod tests {
         let status = original_status_impl(&d.state).unwrap();
         assert_eq!(
             serde_json::to_value(&status).unwrap(),
-            json!({ "state": "unavailable", "reason": NO_MARK })
+            json!({ "state": "unavailable", "reason": no_mark() })
         );
         // No project open: an error, not a status.
         assert!(original_status_impl(&AppState::default()).is_err());
@@ -319,11 +319,17 @@ mod tests {
     #[test]
     fn reset_without_a_found_base_answers_base_missing_and_records_nothing() {
         let d = dspre();
-        // No mark: the reason is NO_MARK, for the plan as for the reset.
+        // No mark: the reason is no_mark(), for the plan as for the reset.
         let err = plan_reset_impl(&d.state, TRAINER_1).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
         let err = reset_to_original_impl(&d.state, TRAINER_1, None).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
 
         // The base ROM vanishes between the dialog and „Zurücksetzen“ (moved away).
         let _elsewhere = assign_and_move_away(&d);
@@ -353,7 +359,10 @@ mod tests {
         let d = dspre();
         let mut calls = 0;
         let err = changed_from_original_impl(&d.state, &mut |_| calls += 1).unwrap_err();
-        assert_eq!((err.code, err.message.as_str()), ("base_missing", NO_MARK));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("base_missing", no_mark().as_str())
+        );
 
         let _elsewhere = assign_and_move_away(&d);
         let mark = read_base_mark(&d.root).unwrap();

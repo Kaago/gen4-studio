@@ -14,8 +14,8 @@ use crate::project::Project;
 use crate::start::{BaseMark, now_rfc3339, read_base_mark};
 
 use super::{
-    NO_MARK, PatchMeta, PatchReport, Release, ReleaseInfo, Releases, Run, append_release,
-    apply_line, check_version, create_patch_with, decode, default_targets, elapsed_ms, meta,
+    PatchMeta, PatchReport, Release, ReleaseInfo, Releases, Run, append_release, apply_line,
+    check_version, create_patch_with, decode, default_targets, elapsed_ms, meta, no_mark,
     notes_path, read_releases, release_file_entry, release_file_name, write_tmp,
 };
 
@@ -96,26 +96,33 @@ pub struct PublishReport {
     pub ms: u64,
 }
 
-/// A target exists and `overwrite` is false; follows `<Dateiname> `.
-pub const EXISTS: &str =
-    "liegt schon am Speicherort; wähle einen anderen Namen oder ersetze die Datei.";
+/// A target exists and `overwrite` is false; follows `<file name> `.
+pub fn exists() -> String {
+    t!("patch.exists").into_owned()
+}
 /// The built ROM is the base ROM.
-pub const NO_CHANGES: &str =
-    "Die gebaute ROM gleicht der Basis-ROM; es gibt nichts zu veröffentlichen.";
+pub fn no_changes() -> String {
+    t!("patch.no_changes").into_owned()
+}
 /// The patch's file name is empty or has a character a file name cannot.
-pub const BAD_FILE: &str = "Der Dateiname darf nicht leer sein und weder / \\ : * ? \" < > | noch Steuerzeichen enthalten.";
+pub fn bad_file() -> String {
+    t!("patch.bad_file").into_owned()
+}
 /// What a release hands on, for the wizard's preview.
-pub const NO_ROM_CONTENT: &str =
-    "Kein ROM-Inhalt, nur der Patch: wer ihn anwendet, braucht dieselbe Basis-ROM.";
+pub fn no_rom_content() -> String {
+    t!("patch.no_rom_content").into_owned()
+}
 
 /// The folder of a release, or the first path above it that exists, is a file; follows
-/// `: <Pfad>`.
-pub const NOT_A_FOLDER: &str = "Der Speicherort ist kein Ordner";
+/// `: <path>`.
+pub fn not_a_folder() -> String {
+    t!("patch.not_a_folder").into_owned()
+}
 
 /// The patch's suffix.
 const XDELTA: &str = ".xdelta";
 
-/// The targets of `opts` (`Err(Refused(BAD_FILE))` for a bad name); creates nothing.
+/// The targets of `opts` (`Err(Refused(bad_file()))` for a bad name); creates nothing.
 pub fn targets_for(
     project: &Project,
     opts: &PublishOptions,
@@ -140,7 +147,7 @@ pub fn targets_for(
 
 const README: &str = "README.txt";
 
-/// `file` with `.xdelta` (added when missing), or `Refused(BAD_FILE)` for a name that is empty
+/// `file` with `.xdelta` (added when missing), or `Refused(bad_file())` for a name that is empty
 /// (also before the suffix, after cutting spaces and dots) or has a character a file name
 /// cannot.
 fn file_name(file: &str) -> Result<String, KernelError> {
@@ -149,12 +156,12 @@ fn file_name(file: &str) -> Result<String, KernelError> {
     };
     let stem = file.strip_suffix(XDELTA).unwrap_or(file);
     if stem.trim_matches([' ', '.']).is_empty() || file.contains(bad) {
-        return Err(KernelError::Refused(BAD_FILE.to_owned()));
+        return Err(KernelError::Refused(bad_file()));
     }
     Ok(format!("{stem}{XDELTA}"))
 }
 
-/// `Refused("<name> " + EXISTS)` when the patch or its notes exist and `overwrite` is false.
+/// `Refused("<name> " + exists())` when the patch or its notes exist and `overwrite` is false.
 /// `README.txt` never counts: it describes the newest release in its folder and is always
 /// replaced.
 pub fn check_targets(targets: &PublishTargets, overwrite: bool) -> Result<(), KernelError> {
@@ -164,7 +171,8 @@ pub fn check_targets(targets: &PublishTargets, overwrite: bool) -> Result<(), Ke
             Ok(meta) if meta.is_dir() => break,
             Ok(_) => {
                 return Err(KernelError::Refused(format!(
-                    "{NOT_A_FOLDER}: {}",
+                    "{}: {}",
+                    not_a_folder(),
                     ancestor.display()
                 )));
             }
@@ -178,8 +186,9 @@ pub fn check_targets(targets: &PublishTargets, overwrite: bool) -> Result<(), Ke
         if std::fs::symlink_metadata(file).is_ok() {
             let name = file.file_name().unwrap_or(file.as_os_str());
             return Err(KernelError::Refused(format!(
-                "{} {EXISTS}",
-                name.to_string_lossy()
+                "{} {}",
+                name.to_string_lossy(),
+                exists()
             )));
         }
     }
@@ -199,10 +208,10 @@ pub fn check_publish(
     Ok(targets)
 }
 
-/// `README.txt`: `{Projekt} v{version} ({Tag})`, a blank line, the notes (or „Keine
-/// Änderungsnotizen.“), a blank line, `Basis-ROM SHA-1: …` and the line `Anwenden: …` of the
-/// notes. `{Projekt}` is `meta.name` without `-v{version}` at its end, `{Tag}` the day of
-/// `release.date`.
+/// `README.txt`: `{project} v{version} ({day})`, a blank line, the notes (or „No change
+/// notes.“), a blank line, `Base ROM SHA-1: …` and the line `To apply: …` of the notes, in
+/// the current language. `{project}` is `meta.name` without `-v{version}` at its end, `{day}`
+/// the day of `release.date`.
 pub fn readme_text(meta: &PatchMeta, release: &ReleaseInfo<'_>, base_sha1: &str) -> String {
     let suffix = format!("-v{}", release.version);
     let project = meta
@@ -212,20 +221,20 @@ pub fn readme_text(meta: &PatchMeta, release: &ReleaseInfo<'_>, base_sha1: &str)
         .unwrap_or(&meta.name);
     let day = release.date.get(..10).unwrap_or(release.date);
     let notes = release.notes.trim_end();
+    let no_notes;
     let notes = if notes.trim().is_empty() {
-        NO_NOTES
+        no_notes = t!("patch.no_notes");
+        no_notes.as_ref()
     } else {
         notes
     };
     format!(
-        "{project} v{} ({day})\n\n{notes}\n\nBasis-ROM SHA-1: {base_sha1}\n{}",
+        "{project} v{} ({day})\n\n{notes}\n\n{}\n{}",
         release.version,
+        t!("patch.readme_base_sha1", base_sha1 = base_sha1),
         apply_line(&meta.name)
     )
 }
-
-/// `README.txt` of a release without change notes.
-const NO_NOTES: &str = "Keine Änderungsnotizen.";
 
 /// Encode, verify, write (patch, notes, readme), record; `built_rom` is the ROM the app or
 /// `build_and_publish` built.
@@ -320,11 +329,10 @@ pub fn publish_built(
     })
 }
 
-/// The project's base mark, `Refused(NO_MARK)` without one, `Refused(other_rom …)` when
+/// The project's base mark, `Refused(no_mark())` without one, `Refused(other_rom …)` when
 /// `base` is not its ROM.
 fn required_mark(project: &Project, base: &BaseRom) -> Result<BaseMark, KernelError> {
-    let mark =
-        read_base_mark(&project.root).ok_or_else(|| KernelError::Refused(NO_MARK.to_owned()))?;
+    let mark = read_base_mark(&project.root).ok_or_else(|| KernelError::Refused(no_mark()))?;
     if !mark.sha1.eq_ignore_ascii_case(base.sha1()) {
         return Err(KernelError::Refused(other_rom(base.sha1(), &mark)));
     }
@@ -389,8 +397,8 @@ mod tests {
 
     use super::*;
     use crate::patch::{
-        RELEASES_FILE, VERSION_TAKEN, default_targets, next_version, notes_path, project_stem,
-        read_releases,
+        RELEASES_FILE, default_targets, next_version, notes_path, project_stem, read_releases,
+        version_taken,
     };
     use crate::test_support::TextFixture;
 
@@ -526,9 +534,9 @@ mod tests {
                 ..opts("0.1.0")
             };
             let err = targets_for(&project, &named).unwrap_err();
-            assert_eq!(refused(&err), BAD_FILE, "{bad:?}");
+            assert_eq!(refused(&err), bad_file(), "{bad:?}");
             let err = check_publish(&project, &named).unwrap_err();
-            assert_eq!(refused(&err), BAD_FILE, "{bad:?}");
+            assert_eq!(refused(&err), bad_file(), "{bad:?}");
         }
         for bad in ["a\nb", "\u{1}", "  ", ".xdelta", " .xdelta"] {
             let named = PublishOptions {
@@ -536,7 +544,7 @@ mod tests {
                 ..opts("0.1.0")
             };
             let err = targets_for(&project, &named).unwrap_err();
-            assert_eq!(refused(&err), BAD_FILE, "{bad:?}");
+            assert_eq!(refused(&err), bad_file(), "{bad:?}");
         }
         // Spaces and dots inside are fine.
         let fine = PublishOptions {
@@ -562,14 +570,14 @@ mod tests {
 
         let err = check_publish(&project, &opts("0.1.0")).unwrap_err();
         let message = refused(&err);
-        assert!(message.contains(EXISTS), "{message}");
-        assert_eq!(message, format!("{name} {EXISTS}"));
+        assert!(message.contains(&exists()), "{message}");
+        assert_eq!(message, format!("{name} {}", exists()));
 
         // The real build: refused before it, no phase reported, nothing recorded.
         let mut phases = 0usize;
         let err = build_and_publish(&project, &fx.base(), &opts("0.1.0"), &mut |_| phases += 1)
             .unwrap_err();
-        assert_eq!(refused(&err), format!("{name} {EXISTS}"));
+        assert_eq!(refused(&err), format!("{name} {}", exists()));
         assert_eq!(phases, 0);
         assert!(!fx.root().join(RELEASES_FILE).exists());
         assert!(!targets.rom.exists());
@@ -580,7 +588,7 @@ mod tests {
         std::fs::write(&targets.notes, b"old notes").unwrap();
         let err = check_publish(&project, &opts("0.1.0")).unwrap_err();
         let notes_name = targets.notes.file_name().unwrap().to_string_lossy();
-        assert_eq!(refused(&err), format!("{notes_name} {EXISTS}"));
+        assert_eq!(refused(&err), format!("{notes_name} {}", exists()));
         std::fs::remove_file(&targets.notes).unwrap();
         std::fs::write(targets.dir.join("README.txt"), b"old readme").unwrap();
         assert!(check_publish(&project, &opts("0.1.0")).is_ok());
@@ -723,7 +731,7 @@ mod tests {
         assert_eq!(entry.base_sha1, fx.sha1());
         assert_eq!(entry.notes, "Neue Karte\nZweite Zeile");
         assert!(
-            notes.contains(&format!("Datum: {}\n", entry.date)),
+            notes.contains(&format!("Date: {}\n", entry.date)),
             "{notes}"
         );
 
@@ -749,12 +757,12 @@ mod tests {
         assert_eq!(next_version(&releases), "0.1.1");
 
         let (result, phases) = publish(&fx, &opts("0.1.0"));
-        assert_eq!(refused(&result.unwrap_err()), VERSION_TAKEN);
+        assert_eq!(refused(&result.unwrap_err()), version_taken());
         assert!(phases.is_empty(), "{phases:?}");
         let err = check_publish(&fx.project(), &opts("0.1.0")).unwrap_err();
-        assert_eq!(refused(&err), VERSION_TAKEN);
+        assert_eq!(refused(&err), version_taken());
         let err = check_publish(&fx.project(), &opts("1 0")).unwrap_err();
-        assert_eq!(refused(&err), crate::patch::BAD_VERSION);
+        assert_eq!(refused(&err), crate::patch::bad_version());
 
         let report = publish(&fx, &opts("0.1.1")).0.unwrap();
         assert_eq!(report.releases.releases.len(), 2);
@@ -773,7 +781,7 @@ mod tests {
             &mut |p| phases.push(p.phase),
         )
         .unwrap_err();
-        assert_eq!(refused(&err), NO_CHANGES);
+        assert_eq!(refused(&err), no_changes());
         // Refused before encoding.
         assert!(phases.is_empty(), "{phases:?}");
         assert!(!fx.root().join("build").exists());
@@ -860,10 +868,10 @@ mod tests {
              Neue Karte\n\
              Zweite Zeile\n\
              \n\
-             Basis-ROM SHA-1: d40f19ac24d67c721a4ab25e1c013154443d75b4\n\
-             Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> Mein Hack-v0.1.0.xdelta \
-             Mein Hack-v0.1.0.nds“) oder mit Rom Patcher JS, auf genau die Basis-ROM mit \
-             dieser SHA-1.\n"
+             Base ROM SHA-1: d40f19ac24d67c721a4ab25e1c013154443d75b4\n\
+             To apply: with xdelta3 (“xdelta3 -d -s <base ROM> Mein Hack-v0.1.0.xdelta \
+             Mein Hack-v0.1.0.nds”) or with Rom Patcher JS, on exactly the base ROM with \
+             this SHA-1.\n"
         );
         let empty = ReleaseInfo {
             notes: " \n",
@@ -871,7 +879,7 @@ mod tests {
         };
         let text = readme_text(&meta, &empty, sha1);
         assert!(
-            text.starts_with("Mein Hack v0.1.0 (2026-10-31)\n\nKeine Änderungsnotizen.\n\n"),
+            text.starts_with("Mein Hack v0.1.0 (2026-10-31)\n\nNo change notes.\n\n"),
             "{text}"
         );
         // A name of the user's own stays whole.
@@ -947,7 +955,7 @@ mod tests {
             &build,
         )
         .unwrap_err();
-        assert_eq!(refused(&err), crate::patch::NO_MARK);
+        assert_eq!(refused(&err), crate::patch::no_mark());
         assert_eq!(calls.get(), 0);
         assert_eq!(phases, 0);
         assert!(!fx.root().join(RELEASES_FILE).exists());
