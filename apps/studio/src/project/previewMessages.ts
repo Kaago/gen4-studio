@@ -10,10 +10,18 @@ const SENTENCES = { "preview.format": "format", "preview.too_large": "tooLarge",
 const CODE = /\bpreview\.(format|too_large|unreadable)\b/;
 
 /**
- * The bridge's own refusals of a path or of arguments (`bridge/roots.rs`, `dispatch.rs`, German) and the transport's („Brücke nicht
- * erreichbar“, `platform/transport.ts`, in the language shown): they say what happened already and keep their text.
+ * The bridge's and the path policy's own refusals of a path or of arguments (`bridge/roots.rs`, `commands/policy.rs`, `dispatch.rs`, in
+ * the language the app speaks: English or German) and the transport's („Brücke nicht erreichbar“, `platform/transport.ts`, in the
+ * language shown): they say what happened already and keep their text.
  */
-const OWN_WORDS = /^(Pfad liegt außerhalb|Pfad ist kein gültiger Text|Ungültige Argumente|Brücke|Kein Tauri|Bridge|No Tauri)/;
+const OWN_WORDS = [
+  // English (`locales/en.yml` of the studio crate)
+  /^(Path is outside the allowed folders|Path is not valid text|Invalid arguments for|Path not readable|Folder not readable|Not a file:|Not a folder:|No file name:)/,
+  /^(Originals (\(_DSPRE_contents\) )?are locked|Save games \(_saves\) are locked|Only the open project:|Bridge|No Tauri)/,
+  // German (`locales/de.yml`)
+  /^(Pfad liegt außerhalb|Pfad ist kein gültiger Text|Ungültige Argumente|Pfad nicht lesbar|Ordner nicht lesbar|Keine Datei:|Kein Ordner:|Kein Dateiname:)/,
+  /^(Originale (\(_DSPRE_contents\) )?sind gesperrt|Spielstände \(_saves\) sind gesperrt|Nur das offene Projekt:|Brücke|Kein Tauri)/,
+];
 
 /**
  * The toast text of a failed preview write: the sentence of its code, the bridge's own refusal, the sentence of an `Error` the app throws
@@ -26,7 +34,7 @@ export function previewErrorText(e: unknown): string {
   if (key !== undefined) return t(`project:preview.${key}`);
   if (e instanceof Error) return e.message;
   // Any other failure of a write: the kernel's or the system's own text is English and names no way out („Permission denied (os error 13)“).
-  return OWN_WORDS.test(text) ? text : t("project:preview.other");
+  return OWN_WORDS.some((words) => words.test(text)) ? text : t("project:preview.other");
 }
 
 /** Asks for a picture file (PNG or JPEG) for the preview; null when cancelled. In the browser the path is typed into the page. */

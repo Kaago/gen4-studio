@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale } from "../api.base";
-import { applyLanguage, detectLanguage, effectiveLanguage, init, LANGUAGE_KEY, readLanguage } from "./index";
+import { applyLanguage, detectLanguage, effectiveLanguage, init, LANGUAGE_KEY, matchesAnyLanguage, readLanguage } from "./index";
 
 vi.mock("../api.base", () => ({ setLocale: vi.fn(() => Promise.resolve()) }));
 
@@ -168,5 +168,17 @@ describe("plural keys", () => {
     expect(i18next.t("filesChanged", { count: 0 })).toBe("0 files changed");
     expect(i18next.t("filesChanged", { count: 2 })).toBe("2 files changed");
     // The suite runs in German; `afterEach` puts the language back.
+  });
+});
+
+describe("matchesAnyLanguage", () => {
+  it("matches the sentence of a key in either language, whichever is shown", async () => {
+    for (const shown of ["de", "en"] as const) {
+      await i18next.changeLanguage(shown);
+      expect(matchesAnyLanguage("workbench:placeNames.unnamed", "Ohne Ortsnamen")).toBe(true);
+      expect(matchesAnyLanguage("workbench:placeNames.unnamed", "No place name")).toBe(true);
+      expect(matchesAnyLanguage("workbench:placeNames.unnamed", "No place name ")).toBe(false);
+      expect(matchesAnyLanguage("workbench:placeNames.unnamed", null)).toBe(false);
+    }
   });
 });

@@ -4282,7 +4282,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             user.join().unwrap().what.as_deref(),
-            Some("Set up as text project")
+            Some("Set up as a text project")
         );
         let events = serde_json::to_value(state.agents.poll(0).events).unwrap();
         let reopened: Vec<&Value> = events

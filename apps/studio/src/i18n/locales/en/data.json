@@ -419,7 +419,7 @@
     "ppHint": "with PP Up at most {{max}}",
     "priorityHint": "from −7 to +5, higher attacks first",
     "percentHint": "in percent",
-    "behaviour": "Behavior",
+    "behavior": "Behavior",
     "effectId": "Effect ID",
     "effectHint": "Index of the battle scripts",
     "traitsByte": "Traits byte {{hex}}",

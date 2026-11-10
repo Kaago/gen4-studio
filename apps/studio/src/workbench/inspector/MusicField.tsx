@@ -4,6 +4,7 @@ import { errorText, nameTables } from "../../api";
 import type { ProjectInfo, SoundNameDto } from "../../api";
 import { Button, InspectorRow, Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
+import { inSentence } from "../terms";
 import styles from "./Editor.module.css";
 import type { FieldSpec } from "./fields";
 
@@ -78,7 +79,7 @@ export function MusicField({
         <div className={styles.inline} data-music-field={spec.key}>
           <span>{piece?.name ?? t("musicField.piece", { value })}</span>
           {piece?.used_in && <span className={styles.pieceName}>{piece.used_in}</span>}
-          <Button kind="quiet" size="s" aria-label={t("musicField.chooseLabel", { label: spec.label })} onClick={() => setPicking(true)}>
+          <Button kind="quiet" size="s" aria-label={t("musicField.chooseLabel", { label: inSentence(spec.label) })} onClick={() => setPicking(true)}>
             {t("musicField.choose")}
           </Button>
         </div>
@@ -86,7 +87,7 @@ export function MusicField({
       <Picker
         open={picking}
         onOpenChange={setPicking}
-        title={t("inspectorField.chooseLabel", { label: spec.label })}
+        title={t("inspectorField.chooseLabel", { label: inSentence(spec.label) })}
         items={items}
         placeholder={t("musicField.search")}
         emptyText={sounds === null ? t("inspectorField.loading") : t("musicField.notFound")}

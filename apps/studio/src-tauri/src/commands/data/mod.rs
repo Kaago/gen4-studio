@@ -41,6 +41,8 @@ use g4_kernel::data::names::{Bank, NameTables, bank_index, sound_names};
 use g4_kernel::error::KernelError;
 use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project};
+// Why the data editors are locked for Diamond and Pearl: the kernel's sentence for the family.
+use g4_kernel::start::dp_locked;
 use g4_kernel::store::{MapHeader, Store};
 use g4_kernel::textproject::Art;
 use serde_json::json;
@@ -49,11 +51,6 @@ use tauri::{Manager, State};
 use super::{lock, session};
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
-
-/// Why the data editors are locked for Diamond and Pearl.
-pub fn dp_locked() -> String {
-    t!("commands.data.dp_locked").into_owned()
-}
 
 fn asset(kind: AssetKind, index: u16) -> AssetId {
     AssetId { kind, index }

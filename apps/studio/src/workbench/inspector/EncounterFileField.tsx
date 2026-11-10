@@ -81,7 +81,7 @@ export function EncounterFileField({
       <Picker
         open={picking}
         onOpenChange={setPicking}
-        title={t("inspectorField.chooseLabel", { label: spec.label })}
+        title={t("inspectorField.chooseLabel", { label: inSentence(spec.label) })}
         items={items}
         placeholder={t("encounterFileField.search")}
         emptyText={files === null ? t("inspectorField.loading") : (files.error ?? t("encounterFileField.notFound"))}

@@ -268,8 +268,8 @@ pub(super) fn refuse_locked_map(
     Ok(())
 }
 
-/// „Map 0001 cannot be adopted: its member does not read (…).“: why a binary map whose member
-/// is locked or does not read does not become a world map; `adopting` says what was asked
+/// "Map 0001 cannot be adopted: its member cannot be read (…).": why a binary map whose member
+/// is locked or cannot be read does not become a world map; `adopting` says what was asked
 /// (adopt it, else create a world on it), `cause` the decoder's error or the lock's reason.
 pub(super) fn binary_map_refusal(map: u16, adopting: bool, cause: &str) -> String {
     let key = if adopting {

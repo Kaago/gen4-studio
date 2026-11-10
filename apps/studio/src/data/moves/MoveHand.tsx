@@ -90,7 +90,7 @@ function BaseColumn({ e }: { e: Editing }) {
 function BehaviourColumn({ e }: { e: Editing }) {
   const { t } = useTranslation("data");
   return (
-    <Column title={t("moveHand.behaviour")}>
+    <Column title={t("moveHand.behavior")}>
       <MoveSelect e={e} field="target" options={TARGETS} />
       <div className={styles.flags} data-field="flags" role="group" aria-label={t("moveView.traits")}>
         {NAMED_FLAGS.map((f) => (

@@ -1053,7 +1053,7 @@ static TOOLS: &[ToolDef] = &[
                             &["tool"],
                         ),
                     },
-                    "label": label("\"Agent: N Änderungen\" (N calls)"),
+                    "label": label("\"Agent: N changes\" (N calls)"),
                 }),
                 &["calls"],
             )
@@ -1244,7 +1244,7 @@ static TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "adopt_text_project",
-        title: "Set up as text project",
+        title: "Set up as a text project",
         description: "Sets the DSPRE folder up as a text project: adopts the scripts, writes \
                       g4-project.json and one JSON per entity under data/ and records the sync; \
                       needs a saved project and the base ROM; a text project is refused at once. \
@@ -1343,7 +1343,7 @@ static TOOLS: &[ToolDef] = &[
         title: "Set up Git",
         description: "Sets the project up for Git, only local: writes .gitignore and \
                       .gitattributes (an existing file only gets the Gen4 Studio block), runs \
-                      git init and makes a first commit \"Ausgangsstand\" with the git command \
+                      git init and makes a first commit \"Initial state\" with the git command \
                       line; it never adds a remote and never pushes. Without git installed, \
                       with templates_only, or inside an existing repository it writes the \
                       templates only (committed: false with the reason); refuses unsaved \
@@ -1401,9 +1401,9 @@ static TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "git_commit_all",
-        title: "Save the state in Git",
+        title: "Save a snapshot",
         description: "Commits every change of the project (git add -A, git commit) with the git \
-                      command line: subject message (default \"Stand <date> <time> UTC\") and \
+                      command line: subject message (default \"Snapshot <date> <time> UTC\") and \
                       notes as the body; never a remote, never a push. Refuses unsaved changes \
                       (unsaved), a project in no repository (no_repo) or in an enclosing one \
                       (enclosing_repo), a clean tree (nothing_to_commit) and a missing git \
@@ -1414,7 +1414,7 @@ static TOOLS: &[ToolDef] = &[
             object(
                 json!({
                     "message": text("the commit's subject, its first line (default \
-                                     \"Stand <date> <time> UTC\")"),
+                                     \"Snapshot <date> <time> UTC\")"),
                     "notes": text("the commit's body (optional)"),
                 }),
                 &[],
@@ -1654,7 +1654,7 @@ static TOOLS: &[ToolDef] = &[
         title: "List the stories",
         description: concat!(
             "The stories of a text project by number: id, name, progress (var or flag) and the \
-             number of steps; a story file that does not read is a row with its problem instead \
+             number of steps; a story file that cannot be read is a row with its problem instead \
              (progress null). Empty outside a text project. ",
             data_note!()
         ),
@@ -1989,8 +1989,8 @@ fn world_edit_args() -> Value {
             "req": object_described(
                 json!({
                     "map": uint("map index, as get_matrix returns in maps"),
-                    "label": text("the history text; default „Welt geändert: Karte NNNN (N \
-                                   Zellen)“"),
+                    "label": text("the history text; default \"World changed: Map NNNN (N \
+                                   cells)\""),
                     "changes": {
                         "type": "array",
                         "description": "the changes, applied in order as one undo step",

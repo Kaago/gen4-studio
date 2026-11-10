@@ -778,7 +778,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
             force: false,
         },
     ));
-    assert!(text.starts_with("This is another ROM"), "{text}");
+    assert!(text.starts_with("This is a different ROM"), "{text}");
 
     // An older schema version.
     let old = Fx::new();

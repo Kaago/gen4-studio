@@ -95,7 +95,7 @@ export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null,
     if (!working) onDone(null);
   };
   const sources = [
-    ...(neighbour ? [{ value: "neighbour" as const, label: t("extendAreaDialog.neighbour", { map: id4(neighbour.map) }) }] : []),
+    ...(neighbour ? [{ value: "neighbour" as const, label: t("extendAreaDialog.neighbor", { map: id4(neighbour.map) }) }] : []),
     { value: "pick" as const, label: t("extendAreaDialog.pick") },
   ];
 

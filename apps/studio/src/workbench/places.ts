@@ -1,5 +1,5 @@
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
-import { t } from "../i18n";
+import { matchesAnyLanguage, t } from "../i18n";
 import { id4, termLabel, termPlural } from "./terms";
 
 export type PlaceKind = "outside" | "inside";
@@ -25,7 +25,7 @@ export interface Place {
 /** The name of the group of headers without a location name, in the language shown. */
 export const unnamedPlace = (): string => t("workbench:placeNames.unnamed");
 /** Whether `name` is the name of that group, in either language (a name the world gave before the language switched still counts). */
-export const isUnnamedPlace = (name: string): boolean => (["de", "en"] as const).some((lng) => t("workbench:placeNames.unnamed", { lng }) === name);
+export const isUnnamedPlace = (name: string): boolean => matchesAnyLanguage("workbench:placeNames.unnamed", name);
 export const UNNAMED_KEY = "__unnamed";
 
 /**

@@ -1,4 +1,5 @@
 import i18next from "i18next";
+import type { FlatNamespace, ParseKeysWithoutVariables } from "i18next";
 import { initReactI18next } from "react-i18next";
 import commonDe from "./locales/de/common.json";
 import appDe from "./locales/de/app.json";
@@ -169,3 +170,18 @@ export async function applyLanguage(l: Language): Promise<void> {
 
 /** For modules without React: `t("<ns>:<key>")`. Components use `useTranslation("<ns>")`. */
 export const t = i18next.t;
+
+/** A key `t` resolves without values: the default namespace's own keys and `"<ns>:<key>"` of every namespace. */
+type SentenceKey = ParseKeysWithoutVariables<[typeof defaultNS, ...Exclude<FlatNamespace, typeof defaultNS>[]]>;
+
+/** The languages the catalogs hold, in the order `matchesAnyLanguage` compares them. */
+const LANGUAGES: readonly Effective[] = ["de", "en"];
+
+/**
+ * Whether `text` is the sentence of `key` (`"<ns>:<key>"`, without placeholders) in either language: for words that come from elsewhere —
+ * the kernel or the backend, which speak the language they were set to, or a name given before the language switched — so a check holds
+ * whichever language the app shows.
+ */
+export function matchesAnyLanguage(key: SentenceKey, text: unknown): boolean {
+  return LANGUAGES.some((lng) => t(key, { lng }) === text);
+}

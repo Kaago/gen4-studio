@@ -379,8 +379,8 @@ a fresh session (scenario batch) checks cold, on Platinum DE with adopted script
 **`g4-checks.json`.** Hidden findings and disabled checks are stored in the project in `<project>/g4-checks.json`
 (not in `.g4/`, which is a deletable cache): `{"version": 1, "ignored": [{"code", "subject": {"kind", "index"}, "key",
 "fingerprint"}], "disabled": [code]}`, the fingerprint as 16 hex digits. Since 4.3b, `version` (1) is always in the file;
-a file without the field (3b.4 to 4.3a) counts as version 1, a higher one is refused by Studio ("g4-checks.json: version 2
-comes from a newer version of Gen4 Studio."). `subject.index` is an ID or a
+a file without the field (3b.4 to 4.3a) counts as version 1, a higher one is refused by Studio ("g4-checks.json: Version 2
+was written by a newer release of Gen4 Studio."). `subject.index` is an ID or a
 number for `header` and `trainer` (`"MAP_T01"` or `3`; the ID is what gets written in the text project), a number for all other kinds; format in
 [docs/formats/text_project.md](../formats/text_project.md), "`g4-checks.json`". `ignore_finding`, `unignore_finding`, `accept_baseline` and
 `set_check_enabled` write the file immediately (atomically); `open_project` reads it. A broken file (edited by hand,
@@ -509,7 +509,7 @@ The gated tests in `crates/g4-kernel/tests/base.rs` (`G4_TEST_PROJECT`; the base
 | `base_rom_members_equal_the_vanilla_folders` | the archives from the ROM equal the folders of the project |
 | `base_rom_header_table_equals_the_vanilla_project` | the header table from the ARM9 of the ROM equals that of the project |
 | `patch_after_map_and_after_map_script_text_is_small_and_applies` | patch after a map change ≤ 1 KiB, after map, script and text in one place ≤ 16 KiB, creating ≤ 1 s, applied with our own decoder and (if in `PATH`) with `xdelta3 -d` equal; text archive 0 as a stress line without a limit |
-| `publish_after_a_map_edit_writes_a_small_patch_that_applies` (4.5) | `build_and_publish` after one map byte (`0.1.0`, with `README.txt`): phases `build`, `encode`, `verify`, `write`, `record` in this order, patch ≤ 1 KiB, applied with our own decoder and (if in `PATH`) with `xdelta3 -d` equal to the built ROM, sidecar file with `Version:` and `Änderungen:` (the sidecar text is German), one entry in `.g4/releases.json`; `0.1.1` after that gives two entries; prints `publish <game code> size=… build_ms=… encode_ms=… verify_ms=…` |
+| `publish_after_a_map_edit_writes_a_small_patch_that_applies` (4.5) | `build_and_publish` after one map byte (`0.1.0`, with `README.txt`): phases `build`, `encode`, `verify`, `write`, `record` in this order, patch ≤ 1 KiB, applied with our own decoder and (if in `PATH`) with `xdelta3 -d` equal to the built ROM, sidecar file with `Version:` and `Changes:` (the sidecar text follows the language of the process), one entry in `.g4/releases.json`; `0.1.1` after that gives two entries; prints `publish <game code> size=… build_ms=… encode_ms=… verify_ms=…` |
 
 ```sh
 G4_TEST_PROJECT="/<absolute path to Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \

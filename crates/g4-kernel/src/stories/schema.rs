@@ -818,8 +818,7 @@ mod tests {
         let problems = check(1, &story("STORY_A", "\"var\": \"VAR_UNUSED_0x406C\""));
         assert_eq!(
             problems[0].message,
-            "textproject.id-mismatch: id: `STORY_A` is not the ID of story 1 (the register \
-             names none)."
+            "textproject.id-mismatch: id: `STORY_A` is not the ID of story 1 (none registered)."
         );
         // No JSON.
         let problems = check(0, "nicht json");

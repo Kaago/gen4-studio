@@ -644,8 +644,7 @@ mod tests {
         );
         assert_eq!(
             text("data/stories/0001.json"),
-            "textproject.id-mismatch: id: `STORY_B` is not the ID of story 1 (the register \
-             names none)."
+            "textproject.id-mismatch: id: `STORY_B` is not the ID of story 1 (none registered)."
         );
     }
 

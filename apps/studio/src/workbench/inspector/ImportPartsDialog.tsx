@@ -609,8 +609,8 @@ export function ImportPartsDialog({
             <span className={styles.convertTitle}>{t("workbench:importPartsDialog.convert")}</span>
             <div className={styles.convertOptions}>
               <div className={styles.option}>
-                <span className={styles.optionLabel}>{t("workbench:importPartsDialog.colours")}</span>
-                <Segmented ariaLabel={t("workbench:importPartsDialog.colours")} options={COLOURS} value={colours} onChange={setColours} size="s" />
+                <span className={styles.optionLabel}>{t("workbench:importPartsDialog.colors")}</span>
+                <Segmented ariaLabel={t("workbench:importPartsDialog.colors")} options={COLOURS} value={colours} onChange={setColours} size="s" />
               </div>
               {hasModel && (
                 <TextField

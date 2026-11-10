@@ -896,7 +896,7 @@ mod tests {
         );
         assert_eq!(
             other_rom("fedcba9876543210fedcba9876543210fedcba98", &unknown),
-            "This is another ROM (SHA-1 fedcba98…); the one wanted is POKEMON PL (CPUE) (01234567…)."
+            "This is a different ROM (SHA-1 fedcba98…); the expected one is POKEMON PL (CPUE) (01234567…)."
         );
     }
 

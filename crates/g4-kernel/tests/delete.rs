@@ -167,11 +167,11 @@ fn labels_use_the_words_of_the_app() {
     // One later entry, several.
     assert_eq!(
         later_entries_live(593, 1),
-        "Number 593 stays taken because 1 later entry is still alive."
+        "Number 593 stays taken because 1 later entry still exists."
     );
     assert_eq!(
         later_entries_live(901, 2),
-        "Number 901 stays taken because 2 later entries are still alive."
+        "Number 901 stays taken because 2 later entries still exist."
     );
     assert_eq!(
         no_tombstone_for_files(),
@@ -384,7 +384,7 @@ fn plan_refuses_an_original_header_script_and_archive_with_the_reason() {
     assert!(p.can_free.is_none());
     assert_eq!(
         p.cannot_free.as_deref(),
-        Some("Number 1 stays taken because 1 later entry is still alive.")
+        Some("Number 1 stays taken because 1 later entry still exists.")
     );
 
     // Textures and models have no envelope either.
@@ -1094,7 +1094,7 @@ fn free_number_refuses_a_tombstone_before_a_living_entry() {
     let depth = st.undo_depth();
     assert_eq!(
         refused(free_number(&mut st, &mut refs, &base, target)),
-        "Number 1 stays taken because 1 later entry is still alive."
+        "Number 1 stays taken because 1 later entry still exists."
     );
     assert_eq!(st.undo_depth(), depth);
     assert!(exists(&fx, "data/trainers/0001.json"));
