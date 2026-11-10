@@ -26,7 +26,7 @@ Gen4 Studio ist für Leute gedacht, die Orte und Geschichten bauen wollen, statt
 
 | Erzählen | Technik |
 |---|---|
-| ![Erzählen: Geschichten, Figuren und Dialoge](docs/media/erzaehlen.png) | ![Technik: Änderungen gegenüber dem Original](docs/media/technik-aenderungen.png) |
+| ![Erzählen: Geschichten, Figuren und Dialoge](docs/media/erzaehlen.png) | ![Technik › Änderungen: geänderte Felder gegenüber dem letzten Commit](docs/media/technik-aenderungen.png) |
 
 <!-- section: features -->
 ## Was es kann
@@ -138,6 +138,8 @@ Gen4 Studio baut auf der Arbeit der Gen-4-Hacking-Community auf. Danke an:
 ## Rechtliches
 
 Gen4 Studio enthält keine ROM-Daten, keine Spielressourcen und kein urheberrechtlich geschütztes Material von Nintendo, Game Freak oder The Pokémon Company. Sie benötigen Ihre eigene, rechtmäßig erworbene Kopie des Spiels. Pokémon und alle zugehörigen Namen sind Marken ihrer jeweiligen Inhaber. Dieses Projekt steht in keiner Verbindung zu ihnen und wird von ihnen nicht unterstützt.
+
+Die Bildschirmfotos zeigen Gen4 Studio beim Bearbeiten einer ROM, die dem Maintainer gehört.
 
 <!-- section: build-contribute-license -->
 ## Selbst bauen, mitmachen, Lizenz

@@ -10,6 +10,8 @@ license = "MIT"
 [workspace.dependencies]
 # The message catalogs of the kernel and the Tauri crate (`locales/{en,de}.yml`, `t!`).
 rust-i18n = "4.2.4"
+# The language of the operating system, for the "System" choice of the app (`commands::locale`).
+sys-locale = "0.3.2"
 
 [profile.dev.package.ds-rom]
 opt-level = 3

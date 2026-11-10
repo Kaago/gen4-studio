@@ -256,6 +256,7 @@ pub const COMMANDS: &[&str] = &[
     "world_import_tmj",
     "world_layers",
     "set_locale",
+    "system_language",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1390,6 +1391,9 @@ pub fn dispatch(
             set_locale_impl(&a.lang);
             Ok(())
         }),
+        "system_language" => run!(json, "system_language", args, {}, |_a| Ok(
+            system_language_impl()
+        )),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1919,6 +1923,8 @@ mod tests {
             ),
             // `en` is the default: the lib tests share the process, none may switch to German.
             ("set_locale", json!({ "lang": "en" })),
+            // Reads the OS locale, changes nothing.
+            ("system_language", json!({})),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

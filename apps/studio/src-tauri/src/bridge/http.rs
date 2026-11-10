@@ -1027,7 +1027,11 @@ mod tests {
             app_data: Some(data.clone()),
         })
         .unwrap();
-        assert_eq!(server.shared.state.base_roms.settings(), remembered);
+        // Read from the folder; the label of the known Platinum DE dump is built anew
+        // (`BaseRomSettings::load`).
+        let mut expected = remembered.clone();
+        expected.roms[0].label = Some("Platinum DE (test project)".into());
+        assert_eq!(server.shared.state.base_roms.settings(), expected);
         server.stop();
     }
 

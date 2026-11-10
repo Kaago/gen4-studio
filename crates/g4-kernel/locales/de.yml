@@ -864,6 +864,10 @@ error:
 start:
   dp_locked: "Diamant/Perl: ohne Testprojekt nicht freigegeben"
   not_gen4: "Kein Gen-4-Spiel erkannt"
+  known_base: "%{game} %{region} (Testprojekt)"
+  game:
+    platinum: "Platin"
+    heartgold: "HeartGold"
   mark_unreadable: "Die Basismarke .g4/base.json ist nicht lesbar (%{why}); entferne sie, dann ordne neu zu."
   mark_newer: "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version %{version})."
   wrong_game: "Falsches Spiel: die ROM ist %{rom}, das Projekt %{project}."

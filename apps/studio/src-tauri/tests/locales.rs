@@ -1,7 +1,8 @@
 //! The message catalogs of the Tauri crate: `en.yml` and `de.yml` have the same keys, the same
 //! `%{…}` placeholders per key and no empty values; the `set_locale` command switches the
 //! language of the process, and the field labels, command errors, the MCP glossary, prompts and
-//! access texts follow it.
+//! access texts follow it. `system_language` answers the OS locale for "System", and the macOS
+//! bundle declares both languages.
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -10,7 +11,7 @@ use g4_kernel::i18n::{check_catalogs, locale, set_locale};
 use g4_kernel::test_support::synthetic_project;
 use serde_json::{Map, Value, json};
 use studio_lib::AppState;
-use studio_lib::dispatch::{DispatchError, dispatch, field_label};
+use studio_lib::dispatch::{DispatchError, Reply, dispatch, field_label};
 use studio_lib::mcp::access::{Access, Class, admit, classify};
 use studio_lib::mcp::prompts::PromptDef;
 use studio_lib::mcp::{docs, prompts};
@@ -110,6 +111,56 @@ fn set_locale_command_sets_the_process_locale() {
     for (lang, expected) in [("de-AT", "de"), ("xx", "en"), ("de", "de"), ("en", "en")] {
         dispatch(&state, &policy, "set_locale", json!({ "lang": lang })).unwrap();
         assert_eq!(locale(), expected, "{lang}");
+    }
+}
+
+#[test]
+fn system_language_command_answers_a_locale_or_null_and_changes_nothing() {
+    let _locale = LocaleGuard::take();
+    let project = synthetic_project();
+    let policy = UserPolicy::new(project.dir.path(), &[], None).unwrap();
+    let state = AppState::default();
+    set_locale("de");
+    let reply = dispatch(&state, &policy, "system_language", json!({})).unwrap();
+    let Reply::Json(value) = reply else {
+        panic!("system_language answers JSON");
+    };
+    match value {
+        Value::Null => {}
+        Value::String(locale) => assert!(!locale.trim().is_empty(), "{locale:?}"),
+        other => panic!("not a locale: {other}"),
+    }
+    // Asking is no choice: the language of the process stays.
+    assert_eq!(locale(), "de");
+}
+
+/// The macOS bundle names English and German as its localizations (`Info.plist`, which Tauri
+/// merges): WKWebView's `navigator.language` and WebKit's own texts follow only those.
+#[test]
+fn the_macos_bundle_declares_english_and_german() {
+    let plist =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Info.plist")).unwrap();
+    let after = |key: &str| {
+        let at = plist
+            .find(&format!("<key>{key}</key>"))
+            .unwrap_or_else(|| panic!("{key} missing"));
+        plist[at..].to_owned()
+    };
+    assert!(
+        after("CFBundleDevelopmentRegion")
+            .split("</string>")
+            .next()
+            .unwrap()
+            .ends_with("<string>en"),
+        "{plist}"
+    );
+    let localizations = after("CFBundleLocalizations");
+    let array = &localizations[..localizations.find("</array>").unwrap()];
+    for lang in ["en", "de"] {
+        assert!(
+            array.contains(&format!("<string>{lang}</string>")),
+            "{plist}"
+        );
     }
 }
 

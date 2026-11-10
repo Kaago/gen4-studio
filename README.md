@@ -26,7 +26,7 @@ It is made for people who want to build places and stories rather than edit tabl
 
 | Tell | Technical |
 |---|---|
-| ![Tell: stories, characters and dialogs](docs/media/erzaehlen.png) | ![Technical: changes against the original](docs/media/technik-aenderungen.png) |
+| ![Tell: stories, characters and dialogs](docs/media/erzaehlen.png) | ![Technical › Changes: field changes against the last commit](docs/media/technik-aenderungen.png) |
 
 <!-- section: features -->
 ## What it does
@@ -138,6 +138,8 @@ Gen4 Studio builds on the work of the Gen 4 hacking community. Thank you to:
 ## Legal
 
 Gen4 Studio contains no ROM data, no game assets and no copyrighted material from Nintendo, Game Freak or The Pokémon Company. You need your own legally obtained copy of the game. Pokémon and all related names are trademarks of their respective owners. This project is not affiliated with or endorsed by them.
+
+The screenshots show Gen4 Studio editing a ROM the maintainer owns.
 
 <!-- section: build-contribute-license -->
 ## Building, contributing and license

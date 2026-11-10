@@ -85,3 +85,13 @@ export async function setLocale(lang: Effective): Promise<void> {
   if (!inTauri()) return;
   await invoke<void>("set_locale", { lang });
 }
+
+/**
+ * The language of the operating system as the backend reads it (`system_language`, for example „de-DE“), for the choice „System“: inside
+ * Tauri `navigator.language` follows the localizations of the app bundle, not the OS. `null` outside Tauri (the browser's navigator is the
+ * system's there) and when the OS reports none.
+ */
+export async function systemLanguage(): Promise<string | null> {
+  if (!inTauri()) return null;
+  return invoke<string | null>("system_language");
+}

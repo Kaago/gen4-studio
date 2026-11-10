@@ -14,7 +14,7 @@ use sha1::{Digest, Sha1};
 use crate::error::{KernelError, guard_panic, io_at};
 use crate::original::Original;
 use crate::project::{ArchiveMap, AssetKind, header_table_offset_for};
-use crate::start::{BaseMark, known_base_label, suggest_base};
+use crate::start::{BaseMark, known_base_label, known_base_label_in, suggest_base};
 
 /// The folder `g4k` and a headless Studio search for base ROMs (not recursive).
 pub const BASE_ROM_DIR_VAR: &str = "G4_BASE_ROM_DIR";
@@ -233,9 +233,16 @@ pub fn locate(mark: &BaseMark, search: &Search<'_>) -> Result<Option<Located>, K
     Ok(None)
 }
 
-/// The label of the mark's ROM in `base_roms.yaml`, else `<title> (<game_code>)`.
+/// The label of the mark's ROM in `base_roms.yaml` in the language of the process, else
+/// `<title> (<game_code>)`.
 pub fn base_label(mark: &BaseMark) -> String {
-    known_base_label(&mark.sha1, Some(&mark.game_code))
+    base_label_in(mark, &rust_i18n::locale())
+}
+
+/// [`base_label`] in `locale` (`en`, `de`), whatever the process speaks: the app header of a
+/// patch names the base in English ([`crate::i18n::DEFAULT`]), the same in every language.
+pub fn base_label_in(mark: &BaseMark, locale: &str) -> String {
+    known_base_label_in(&mark.sha1, Some(&mark.game_code), locale)
         .ok()
         .flatten()
         .unwrap_or_else(|| format!("{} ({})", mark.title, mark.game_code))
@@ -888,11 +895,14 @@ mod tests {
         assert_eq!(base_label(&unknown), "POKEMON PL (CPUE)");
         let mut platinum = mark("d40f19ac24d67c721a4ab25e1c013154443d75b4");
         platinum.game_code = "CPUD".into();
-        assert_eq!(base_label(&platinum), "Platin DE (Testprojekt)");
+        assert_eq!(base_label(&platinum), "Platinum DE (test project)");
+        assert_eq!(base_label_in(&platinum, "en"), "Platinum DE (test project)");
+        assert_eq!(base_label_in(&platinum, "de"), "Platin DE (Testprojekt)");
+        assert_eq!(base_label_in(&unknown, "de"), "POKEMON PL (CPUE)");
 
         assert_eq!(
             missing_text(&platinum),
-            "Base ROM not found: Platin DE (Testprojekt) (d40f19ac…)."
+            "Base ROM not found: Platinum DE (test project) (d40f19ac…)."
         );
         assert_eq!(
             other_rom("fedcba9876543210fedcba9876543210fedcba98", &unknown),
