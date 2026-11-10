@@ -842,7 +842,7 @@ async fn irreversible_needs_the_flag() {
     let message = error["message"].as_str().unwrap();
     // (the reason is the recipe's own title, which the kernel names)
     let title = g4_kernel::recipes::RecipeId::EmptyRegion.title();
-    assert!(message.contains(title), "{message}");
+    assert!(message.contains(&title), "{message}");
     let status = result(call_tool(&client, "header_patch_status", json!({})).await);
     assert_eq!(status["applied"], false);
     assert_eq!(
