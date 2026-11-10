@@ -222,7 +222,7 @@ pub struct MethodDto {
 /// A replacement list stored in the encounter file, by the kernel's key (Platinum `swarm`,
 /// `day`, `night`, `radar`, `dual_ruby` … `dual_leafgreen`; HeartGold `radio_hoenn`,
 /// `radio_sinnoh`, `land_swarm`, `surf_swarm`, `night_fish`, `fish_swarm`), with its
-/// `label` in the language of the process ("Day", "Hoenn radio"; "Tag", "Radio Hoenn" in
+/// `label` in the language of the process ("Day", "Hoenn Sound"; "Tag", "Radio Hoenn" in
 /// German), when the game uses it (English) and its entries as slots.
 /// `DataPatch::Encounter` takes `list` as `method` and the entry as `slot`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

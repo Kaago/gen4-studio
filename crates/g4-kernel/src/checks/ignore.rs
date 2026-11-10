@@ -527,7 +527,7 @@ mod tests {
         match load(dir.path()) {
             Err(KernelError::InvalidProject(why)) => assert_eq!(
                 why,
-                "g4-checks.json: Version 2 comes from a newer version of Gen4 Studio."
+                "g4-checks.json: Version 2 was written by a newer release of Gen4 Studio."
             ),
             other => panic!("expected the refusal, got {other:?}"),
         }

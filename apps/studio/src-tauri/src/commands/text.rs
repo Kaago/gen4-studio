@@ -329,7 +329,7 @@ mod tests {
         let index = create_text_archive_impl(&state).unwrap();
         assert_eq!(index, 698);
         let doc = get_text_archive_impl(&state, index).unwrap();
-        assert_eq!(doc.messages[0].text, "Neuer Text");
+        assert_eq!(doc.messages[0].text, "New text");
         assert!(dirty_impl(&state).unwrap().is_empty());
     }
 

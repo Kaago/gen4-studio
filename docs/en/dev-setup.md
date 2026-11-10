@@ -379,8 +379,8 @@ a fresh session (scenario batch) checks cold, on Platinum DE with adopted script
 **`g4-checks.json`.** Hidden findings and disabled checks are stored in the project in `<project>/g4-checks.json`
 (not in `.g4/`, which is a deletable cache): `{"version": 1, "ignored": [{"code", "subject": {"kind", "index"}, "key",
 "fingerprint"}], "disabled": [code]}`, the fingerprint as 16 hex digits. Since 4.3b, `version` (1) is always in the file;
-a file without the field (3b.4 to 4.3a) counts as version 1, a higher one is refused by Studio ("g4-checks.json: version 2
-comes from a newer version of Gen4 Studio."). `subject.index` is an ID or a
+a file without the field (3b.4 to 4.3a) counts as version 1, a higher one is refused by Studio ("g4-checks.json: Version 2
+was written by a newer release of Gen4 Studio."). `subject.index` is an ID or a
 number for `header` and `trainer` (`"MAP_T01"` or `3`; the ID is what gets written in the text project), a number for all other kinds; format in
 [docs/formats/text_project.md](../formats/text_project.md), "`g4-checks.json`". `ignore_finding`, `unignore_finding`, `accept_baseline` and
 `set_check_enabled` write the file immediately (atomically); `open_project` reads it. A broken file (edited by hand,

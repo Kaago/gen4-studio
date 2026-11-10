@@ -817,6 +817,7 @@ dialog:
   script_unreadable_why: "Scriptdatei %{file} lässt sich nicht lesen: %{error}"
   no_slot: "Scriptdatei %{file} hat kein Script #%{slot}"
 store:
+  new_text_message: "Neuer Text"
   no_tombstone: "%{label} hat keinen Grabstein."
   no_header: "Header %{id} gibt es nicht (nur %{count})."
   not_exported: "%{path} wurde nicht exportiert."

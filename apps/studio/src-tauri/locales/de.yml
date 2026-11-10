@@ -99,7 +99,6 @@ commands:
     trainer_party_count: "%{who}: Team %{old} → %{new} Pokémon"
     trainer_texts_changed: "%{who}: Kampftexte geändert"
     replacement_list: "Ersatzliste"
-    dp_locked: "Diamant/Perl: ohne Testprojekt nicht freigegeben"
     header_name: "Header %{id}"
     grass_morning: "Gras morgens"
     grass_day: "Gras tagsüber"

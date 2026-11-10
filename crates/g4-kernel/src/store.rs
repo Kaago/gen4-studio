@@ -2931,8 +2931,9 @@ impl Store {
         self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref())
     }
 
-    /// Appends a text archive with key 0 and one message, "Neuer Text", as the last member of
-    /// the archive, writes its member and its JSON at once and loads it. Returns its index.
+    /// Appends a text archive with key 0 and one message, "New text" (`store.new_text_message`
+    /// in the language of the process: it is editable content), as the last member of the
+    /// archive, writes its member and its JSON at once and loads it. Returns its index.
     /// Not undoable.
     pub fn create_text_archive(&mut self) -> Result<u16, KernelError> {
         let doc = TextArchiveDoc {
@@ -2940,7 +2941,7 @@ impl Store {
             lang: self.lang().to_owned(),
             messages: vec![TextMessage {
                 id: text::default_message_id(0),
-                text: "Neuer Text".to_owned(),
+                text: t!("store.new_text_message").into_owned(),
                 other: Default::default(),
             }],
         };
@@ -5514,7 +5515,7 @@ mod tests {
             let doc = st.text_archive(698).unwrap();
             assert_eq!(doc.key, 0);
             let texts: Vec<_> = doc.messages.iter().map(|m| m.text.as_str()).collect();
-            assert_eq!(texts, ["Neuer Text"]);
+            assert_eq!(texts, ["New text"]);
             assert!(st.dirty().is_empty());
         }
 

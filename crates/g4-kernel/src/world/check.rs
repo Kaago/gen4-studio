@@ -180,8 +180,8 @@ fn bake_problems(store: &mut Store, map: u16, at: &Spot<'_>, problems: &mut Vec<
 }
 
 /// `world.member-changed` (warning) when the member of world map `map` differs from its record
-/// (DSPRE wrote it): „Karte 0123: Der Member wurde außerhalb des Studios geändert (DSPRE?). In
-/// Technik › Textprojekt „Neu backen“ oder „Als binäre Karte übernehmen“.“ Nothing without a
+/// (DSPRE wrote it): "Map 0123: The member was changed outside the Studio (DSPRE?). In
+/// Technical › Text project, “Bake again” or “Adopt as binary map”." Nothing without a
 /// record, and nothing when the side cannot be told (the file refused: the import's error).
 fn member_problems(store: &mut Store, map: u16, at: &Spot<'_>, problems: &mut Vec<Problem>) {
     if let Ok(Some(WorldSide::MemberChanged | WorldSide::Both)) = world_side(store, map) {

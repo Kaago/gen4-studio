@@ -216,7 +216,7 @@ enum Command {
     /// (no save layout for the game code), `rejected` (the stub answered an error) and `io`.
     #[command(subcommand)]
     Live(LiveCommand),
-    /// Delete an entity (Löschen, 3d.4): plan it without writing, delete it as one undo step
+    /// Delete an entity (3d.4): plan it without writing, delete it as one undo step
     /// and save, or take its tombstone back and save.
     #[command(subcommand)]
     Delete(DeleteCommand),
@@ -1554,7 +1554,7 @@ enum TextCommand {
     /// totals; when the `.gitignore` holds the block of Gen4 Studio, the templates written anew
     /// as `g4k git templates` prints them (or `warning: …`). On a text project it writes
     /// nothing and records the sync anew (a repair);
-    /// Gen4 Studio refuses that („Das Projekt ist schon ein Textprojekt.“).
+    /// Gen4 Studio refuses that ("The project is already a text project.").
     Adopt {
         project: PathBuf,
         /// The base ROM; another SHA-1 than the mark's is refused.
@@ -2210,10 +2210,11 @@ enum GitCommand {
     Templates { project: PathBuf },
     /// Set the project up as a local Git repository: unpack every archive (DSPRE layout),
     /// write the templates (printed like `git templates`), then `git init`, `git add -A` and
-    /// the first commit "Ausgangsstand", never a remote. Prints `committed Ausgangsstand
-    /// files=<n> branch=<b>`, else `not committed: <reason>` (a repository already holds the
-    /// project, Git is not installed) or `not committed` with `--templates-only`. Exit 1 when
-    /// a Git subcommand failed (the repository and the templates stay).
+    /// the first commit "Initial state" (in the language of the process), never a remote.
+    /// Prints `committed Initial state files=<n> branch=<b>`, else `not committed: <reason>`
+    /// (a repository already holds the project, Git is not installed) or `not committed` with
+    /// `--templates-only`. Exit 1 when a Git subcommand failed (the repository and the
+    /// templates stay).
     Init {
         project: PathBuf,
         /// Write the templates only, no repository.
@@ -2228,18 +2229,18 @@ enum GitCommand {
     /// places) or `git not found`.
     Status {
         project: PathBuf,
-        /// List the changed entities (as „Technik › Änderungen“ against the last commit).
+        /// List the changed entities (as "Technical › Changes" against the last commit).
         #[arg(long)]
         entries: bool,
     },
-    /// "Stand sichern": refresh the templates, then `git add -A` and one commit of everything
+    /// "Save a snapshot": refresh the templates, then `git add -A` and one commit of everything
     /// that changed, in the project's own repository, never a remote. Prints `committed
     /// <short> "<subject>" files=<n>`, else `not committed: <reason>` with exit 1 when a Git
     /// subcommand failed. Refused with its sentence and exit 1: no repository, an enclosing
     /// one, no change since the last commit, no `git`.
     CommitAll {
         project: PathBuf,
-        /// The subject (its first line); without one "Stand <YYYY-MM-DD> <HH:MM> UTC".
+        /// The subject (its first line); without one "Snapshot <YYYY-MM-DD> <HH:MM> UTC".
         #[arg(long)]
         message: Option<String>,
         /// Notes, the commit's body.
@@ -3180,8 +3181,8 @@ enum DeleteCommand {
         project: PathBuf,
         kind: String,
         index: u16,
-        /// Free the number („Nummer freigeben“): a new entity at the end leaves the project
-        /// for good. Needs `--allow-irreversible`.
+        /// Free the number (as "Free the number" in the app): a new entity at the end leaves
+        /// the project for good. Needs `--allow-irreversible`.
         #[arg(long)]
         free_number: bool,
         /// Free a number although undo does not bring it back.

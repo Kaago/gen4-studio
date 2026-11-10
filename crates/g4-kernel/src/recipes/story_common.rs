@@ -173,7 +173,7 @@ pub(crate) struct Figure {
 }
 
 /// The figure `at` names. Refused: a header that does not exist, an event file without an
-/// object with that `local_id` („Header {h} has no figure {local_id}.“). A trainer
+/// object with that `local_id` ("Header {h} has no character {local_id}."). A trainer
 /// is an object that sees (`trainer_type` ≠ 0) or runs a trainer's battle script.
 pub(crate) fn figure(store: &mut Store, at: &FigureRef) -> Result<Figure, KernelError> {
     let event_file = header_files(store, at.header)?.event_file;
@@ -264,9 +264,9 @@ pub(crate) fn story_var_id(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
     unique_id("VAR", name, "", taken)
 }
 
-/// Refuses number `n` of `kind` as a recipe's new flag or variable: the save must hold it
-/// („Variable 0x8001 is not in the save.“), it must lie in the general area („… is not in the
-/// general area.“) and must have no own name yet ([`taken_text`]). Whether a
+/// Refuses number `n` of `kind` as a recipe's new flag or variable: the save game must hold it
+/// ("Variable 0x8001 is not in the save game."), it must lie in the general area ("… is not in
+/// the general area.") and must have no own name yet ([`taken_text`]). Whether a
 /// script uses it is the caller's to know (the reference index).
 pub(crate) fn check_pool_number(
     project: &Project,

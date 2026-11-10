@@ -718,7 +718,7 @@ mod tests {
         assert_eq!(species(land), [6]);
         let sinnoh = x.iter().find(|l| l.list == "radio_sinnoh").unwrap();
         assert_eq!(species(sinnoh), [0, 7]);
-        assert_eq!(sinnoh.label, "Sinnoh radio");
+        assert_eq!(sinnoh.label, "Sinnoh Sound");
         let SlotDto { replaces, .. } = &sinnoh.slots[1];
         let targets: Vec<_> = replaces.iter().map(|t| (t.method, t.slot)).collect();
         assert_eq!(targets, [("grass", 4), ("grass", 5)]);
