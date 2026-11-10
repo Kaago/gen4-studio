@@ -83,7 +83,7 @@ export function Field({ spec, value, max, onCommit, disabled, headers = NO_HEADE
         <Picker
           open={picking}
           onOpenChange={setPicking}
-          title={t("inspectorField.chooseLabel", { label: spec.label })}
+          title={t("inspectorField.chooseLabel", { label: inSentence(spec.label) })}
           items={items}
           placeholder={t("inspectorField.searchNumber")}
           onPick={(item) => onCommit(spec, Number(item.id))}

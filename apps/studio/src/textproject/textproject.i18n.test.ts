@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AdoptReport, TextProjectStatus } from "../api";
-import { adoptProgressText, adoptedText, isReopen, reopenText, unsavedText } from "./AdoptDialog";
+import { adoptProgressText, adoptedText, isReopen, unsavedText } from "./AdoptDialog";
 import { liftedText } from "./MigrateDialog";
 import { renamedText } from "./RenameIdDialog";
 import { revertedText } from "./RevertDialog";
@@ -14,10 +14,10 @@ const report = { export: { files: 6512 }, ms: 14_200, templates: null, templates
 describe("textproject in English", () => {
   it("recognizes_the_reopen_answer_in_either_language", async () => {
     // The refusal has no code of its own: the dialog knows it by its words, in the backend's language whatever the app shows.
-    const german = reopenText();
+    const german = i18next.t("textproject:adoptDialog.reopen");
     await i18next.changeLanguage("en");
     expect(isReopen(german)).toBe(true);
-    expect(isReopen(reopenText())).toBe(true);
+    expect(isReopen(i18next.t("textproject:adoptDialog.reopen"))).toBe(true);
     expect(isReopen("Save first: 1 unsaved change.")).toBe(false);
   });
 

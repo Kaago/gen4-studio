@@ -106,7 +106,7 @@
     "pickFolder": "Choose folder",
     "summary": {
       "adopts": " Scripts are adopted.",
-      "asTextProject": ", as text project",
+      "asTextProject": ", as a text project",
       "withGit": ", with Git",
       "sentence": "Creates “{{name}}” from {{game}} with the template {{template}}{{options}}, in {{dest}}.{{adopts}} The ROM stays unchanged."
     },
@@ -118,7 +118,7 @@
     "romPlaceholder": "Path to the .nds file",
     "chooseFile": "Choose file…",
     "readingRom": "Reading the ROM…",
-    "textProject": "Set up as text project",
+    "textProject": "Set up as a text project",
     "textProjectHint": "One readable file per entry, ready for Git; creating takes a little longer.",
     "git": "Set up Git (local only)",
     "gitHint": "Creates a local repository with a first commit; nothing is uploaded.",

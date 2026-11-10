@@ -4,7 +4,7 @@ import { deleteEntity, deleteTargetLabel, isCmdError, resetErrorText } from "../
 import type { DeleteResult, DeleteTarget, RefDto, StoryMention } from "../api";
 import { Badge, Checkbox, Dialog, ListRow, Notice, Reference, useRovingList } from "../ui/primitives";
 import type { DialogAction } from "../ui/primitives";
-import { t as translate } from "../i18n";
+import { matchesAnyLanguage } from "../i18n";
 import type { NavTarget } from "../workbench/navigation";
 import { useDeletePlan } from "./useDeletePlan";
 import styles from "./DeleteDialog.module.css";
@@ -20,11 +20,12 @@ export type DeleteDialogProps = {
 };
 
 /**
- * Whether `refusal` is the kernel's refusal in the DSPRE layout (`delete::NOT_A_TEXT_PROJECT`): the dialog then adds the way to empty
- * the entity instead. The kernel words it in German; a sentence of either catalog counts, so the hint stays when it speaks English.
+ * Whether `refusal` is the kernel's refusal in the DSPRE layout (`delete.not_a_text_project`): the dialog then adds the way to empty
+ * the entity instead. The kernel words it in the language it was set to; a sentence of either catalog counts, so the hint stays when it
+ * speaks another language than the app shows.
  */
 function isNotATextProject(refusal: string | null): boolean {
-  return refusal !== null && (["de", "en"] as const).some((lng) => translate("delete:deleteDialog.notATextProject", { lng }) === refusal);
+  return refusal !== null && matchesAnyLanguage("delete:deleteDialog.notATextProject", refusal);
 }
 
 /**

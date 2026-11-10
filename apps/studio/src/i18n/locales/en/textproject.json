@@ -37,7 +37,7 @@
     "close": "Close",
     "cancel": "Cancel",
     "setUp": "Set up",
-    "title": "Set up as text project?",
+    "title": "Set up as a text project?",
     "description": "Writes g4-project.json and about 6,500 files under data/. The game files stay as they are; you can revert in Technical › Text project.",
     "beforeSetUp": "Before setting up",
     "settingUp": "Setting up…"

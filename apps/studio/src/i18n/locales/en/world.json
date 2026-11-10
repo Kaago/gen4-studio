@@ -122,6 +122,6 @@
     "mapsNotLoaded_other": "{{count}} maps not loaded: {{first}}",
     "modelsNotLoaded_one": "{{count}} model not loaded: {{first}}",
     "modelsNotLoaded_other": "{{count}} models not loaded: {{first}}",
-    "loadingMaps": "Loading maps ..."
+    "loadingMaps": "Loading maps…"
   }
 }

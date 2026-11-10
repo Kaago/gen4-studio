@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tilesetGet, worldEdit, worldGet } from "../../api.world";
 import type { TilesetDto, WorldEditRequest, WorldGetDto } from "../../api.world";
-import { t } from "../../i18n";
+import { matchesAnyLanguage, t } from "../../i18n";
 import { usePaint } from "../../workbench/paint/PaintContext";
 import type { PaintState } from "../../workbench/paint/PaintContext";
 import { heightColor } from "../scene/heightLayer";
@@ -51,12 +51,12 @@ function limitNotice(n: number): string {
 /**
  * Whether `e` is the kernel refusing a stroke that changes nothing (its `NOTHING_TO_CHANGE`): from a terrain or cliff stroke it is no
  * error. The kernel says it in the language it was set to, and the catalogs keep its words for each language (`paint.nothingToChange`);
- * the words of both languages are matched, for a kernel that speaks another language than the app shows (today it says it in German).
+ * the words of both languages are matched, for a kernel that speaks another language than the app shows.
  */
 const changesNothing = (e: unknown) => {
   if (typeof e !== "object" || e === null) return false;
   const message = (e as { message?: unknown }).message;
-  return (["de", "en"] as const).some((lng) => message === t("world:paint.nothingToChange", { lng }));
+  return matchesAnyLanguage("world:paint.nothingToChange", message);
 };
 
 /** The note of a terrain or cliff stroke without an active edge set. */

@@ -284,7 +284,7 @@
     "noProjectWhy": "Open a project, then Technical shows its text project here.",
     "olderLead": "Text project, schema version {{schema}}: older than this version of Gen4 Studio. Until it is upgraded, it can only be read.",
     "newer": "The text project comes from a newer version of Gen4 Studio (schema version {{schema}}).",
-    "setUp": "Set up as text project…",
+    "setUp": "Set up as a text project…",
     "notSynced": "Not synced yet.",
     "lastSynced": "Last synced {{ago}}.",
     "currentLead": "Text project, schema version {{schema}}. {{synced}}",
