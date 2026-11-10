@@ -1897,7 +1897,7 @@ fn vanilla_trainer_here_in_the_town() {
         .expect("a free tile in front of the house");
     let draft = new_trainer_here::plan(&mut store, &input(x, z)).unwrap();
     assert!(
-        draft.notes[0].contains(&format!("als Nummer {expected} ")),
+        draft.notes[0].contains(&format!("as number {expected} ")),
         "{:?}",
         draft.notes
     );
