@@ -157,3 +157,31 @@ fn git_message_fills_variables() {
     assert_eq!(en, "Snapshot 2026-11-10 12:34 UTC");
     assert!(en.contains("2026-11-10") && en.contains("12:34"), "{en}");
 }
+
+/// The five sentences the frontend mirrors (its English catalogs hold them byte for byte:
+/// `git:gitWords.notInstalled`, `publish:publishWords.kernel.*`): a change here must show there.
+#[test]
+fn mirror_sentences_match_the_frontend_in_english() {
+    let _turn = locale_lock();
+    set_locale("en");
+    assert_eq!(
+        t!("git.not_installed"),
+        "Git is not installed. The templates are written; you set up the repository as soon as \
+         Git is there (git-scm.com/downloads)."
+    );
+    assert_eq!(
+        t!("patch.bad_version"),
+        "The version must not be empty, must be at most 32 characters long and must contain \
+         neither spaces nor / \\ : * ? \" < > |."
+    );
+    assert_eq!(t!("patch.version_taken"), "This version already exists.");
+    assert_eq!(
+        t!("patch.bad_file"),
+        "The file name must not be empty and must contain neither / \\ : * ? \" < > | nor \
+         control characters."
+    );
+    assert_eq!(
+        t!("patch.no_rom_content"),
+        "No ROM content, only the patch: anyone who applies it needs the same base ROM."
+    );
+}

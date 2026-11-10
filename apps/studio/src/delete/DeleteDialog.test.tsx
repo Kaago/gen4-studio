@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteEntity, planDelete } from "../api";
 import type { DeletePlan, DeleteResult, StoryMention } from "../api";
 import deDelete from "../i18n/locales/de/delete.json";
+import enDelete from "../i18n/locales/en/delete.json";
 import { pressKey } from "../ui/primitives/testUtils";
 import { DeleteDialog } from "./DeleteDialog";
 import type { DeleteDialogProps } from "./DeleteDialog";
@@ -287,9 +288,14 @@ describe("DeleteDialog", () => {
 
 describe("the kernel's refusal in the DSPRE layout", () => {
   it("not_a_text_project_mirrors_the_kernel_sentence", () => {
-    // The dialog knows `delete::NOT_A_TEXT_PROJECT` by its words (the kernel says it in German): a change in the kernel must show here.
-    const types = readFileSync("../../crates/g4-kernel/src/delete/types.rs", "utf8");
-    const rust = /pub const NOT_A_TEXT_PROJECT: &str =\s*"((?:[^"\\]|\\.)*)";/.exec(types);
-    expect(rust?.[1]).toBe(deDelete.deleteDialog.notATextProject);
+    // The dialog knows the kernel's refusal by its words in either language: a change in the kernel must show here.
+    // The kernel sentence lives in its catalogs as `delete.not_a_text_project`.
+    const sentence = (lang: "de" | "en") => {
+      const catalog = readFileSync(`../../crates/g4-kernel/locales/${lang}.yml`, "utf8");
+      const section = /^delete:\n((?:(?: .*)?\n)*)/m.exec(catalog)?.[1] ?? "";
+      return /^ {2}not_a_text_project: "((?:[^"\\]|\\.)*)"$/m.exec(section)?.[1];
+    };
+    expect(sentence("de")).toBe(deDelete.deleteDialog.notATextProject);
+    expect(sentence("en")).toBe(enDelete.deleteDialog.notATextProject);
   });
 });
