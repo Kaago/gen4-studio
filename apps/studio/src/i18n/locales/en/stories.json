@@ -138,7 +138,9 @@
     "trigger": "Trigger {{slot}}",
     "object": "Object {{slot}}",
     "condition": "Condition {{number}}",
-    "line": "Line {{line}} · {{field}}"
+    "line": "Line {{line}} · {{field}}",
+    "edgeSets": "{{place}} sets value {{value}}: {{where}}",
+    "edgeChecks": "{{place}} checks value {{value}}: {{where}}"
   },
   "storyRecipeModel": {
     "trainersTalk": "Trainers speak through their battle texts",

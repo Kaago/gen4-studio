@@ -67,6 +67,17 @@ export function edgeLabel(edge: GraphEdgeDto, graph: ThreadGraphDto): string {
 }
 
 /**
+ * What a screen reader says for an edge (React Flow would say „Edge from p:script:0101 to v:1“): the place by its header (else its source)
+ * sets or checks the value, and where („Zweiblattdorf setzt Wert 1: Zeile 12 · SetVar“).
+ */
+export function edgeAria(edge: GraphEdgeDto, graph: ThreadGraphDto, where: string): string {
+  const sets = edge.from.startsWith("p:");
+  const place = graph.nodes.find((n) => n.id === (sets ? edge.from : edge.to));
+  const name = place?.kind === "place" ? (place.header_name ?? place.label) : (sets ? edge.from : edge.to);
+  return t(sets ? "stories:graphModel.edgeSets" : "stories:graphModel.edgeChecks", { place: name, value: edge.value, where });
+}
+
+/**
  * A thread's graph as React Flow nodes and edges: one `story` node per graph node (all at the origin; `layoutGraph` places them) and one
  * edge per reference, labelled where it is; an edge at a value only noted is dashed (class `noted`).
  */
@@ -75,15 +86,17 @@ export function toFlow(graph: ThreadGraphDto): { nodes: Node<StoryNodeData>[]; e
     (node): Node<StoryNodeData> => ({ id: node.id, type: STORY_NODE_TYPE, position: { x: 0, y: 0 }, data: nodeData(node) }),
   );
   const noted = new Set(nodes.filter((n) => n.data.notedOnly).map((n) => n.id));
-  const edges = graph.edges.map(
-    (edge, i): Edge => ({
+  const edges = graph.edges.map((edge, i): Edge => {
+    const label = edgeLabel(edge, graph);
+    return {
       id: `e${i}:${edge.from}>${edge.to}`,
       source: edge.from,
       target: edge.to,
-      label: edgeLabel(edge, graph),
+      label,
+      ariaLabel: edgeAria(edge, graph, label),
       className: [edge.from.startsWith("p:") ? "sets" : "checks", noted.has(edge.from) || noted.has(edge.to) ? "noted" : ""].filter(Boolean).join(" "),
       data: { access: edge.access, value: edge.value },
-    }),
-  );
+    };
+  });
   return { nodes, edges };
 }

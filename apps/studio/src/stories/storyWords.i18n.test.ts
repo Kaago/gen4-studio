@@ -1,5 +1,7 @@
 import i18next from "i18next";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { toFlow } from "./graph/graphModel";
+import { sampleThreadGraph } from "./graph/sampleGraph";
 import { threadOf } from "./storiesTesting";
 import { freeVarsText, placesText, recipeTitle, storiesCount, useText, valuesText } from "./storyWords";
 import { threadsCount } from "./ThreadsSurface";
@@ -30,6 +32,13 @@ describe("story words in English", () => {
     expect(useText({ message: { archive: 12, index: 4 } })).toBe("Text archive 0012 · Text 4");
     expect(useText({ levelScript: { file: 5, condition: 1 } })).toBe("Level script 0005 · Condition 1");
     expect(useText({ object: { local_id: 3, file: 101 } })).toBe("Object 3 · Event file 0101");
+  });
+
+  it("says who sets or checks a value on a graph edge in English", () => {
+    const edges = toFlow(sampleThreadGraph).edges;
+    const aria = (from: string, to: string) => edges.find((e) => e.source === from && e.target === to)?.ariaLabel;
+    expect(aria("p:script:0101", "v:1")).toBe("Zweiblattdorf sets value 1: Line 12 · SetVar");
+    expect(aria("v:1", "p:event:0394")).toBe("Route 201 checks value 1: Trigger 0");
   });
 
   it("titles the recipes in English and leaves an unknown one as it is", () => {
