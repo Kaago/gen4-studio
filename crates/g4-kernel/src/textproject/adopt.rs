@@ -779,7 +779,7 @@ mod tests {
         match revert(&fx.project()) {
             Err(KernelError::Refused(why)) => assert_eq!(
                 why,
-                "g4-world.json does not read (unbekannte ID MAP_X in roomNames). Repair it \
+                "g4-world.json cannot be read (unbekannte ID MAP_X in roomNames). Repair it \
                  first, then take the text project back."
             ),
             other => panic!("expected the refusal, got {other:?}"),

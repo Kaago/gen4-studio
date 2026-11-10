@@ -1471,7 +1471,7 @@ mod tests {
         assert_eq!(
             m.message,
             format!(
-                "The side file data/maps/0003.haus.glb does not read ({}).",
+                "The side file data/maps/0003.haus.glb cannot be read ({}).",
                 m.args[1]
             )
         );

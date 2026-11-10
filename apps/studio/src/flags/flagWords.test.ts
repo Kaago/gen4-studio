@@ -77,8 +77,10 @@ describe("flag words", () => {
 
   it("not_a_text_project_mirrors_the_kernel_sentence", () => {
     // The lock of naming in the DSPRE layout says what `name_flag` would answer: a change in the kernel must show here.
-    const rename = readFileSync("../../crates/g4-kernel/src/textproject/rename.rs", "utf8");
-    const rust = /pub const NOT_A_TEXT_PROJECT: &str =\s*"((?:[^"\\]|\\.)*)";/.exec(rename);
-    expect(rust?.[1]).toBe(NOT_A_TEXT_PROJECT);
+    // The kernel sentence lives in its German catalog as `textproject.not_a_text_project`.
+    const catalog = readFileSync("../../crates/g4-kernel/locales/de.yml", "utf8");
+    const textproject = /^textproject:\n((?:(?: .*)?\n)*)/m.exec(catalog)?.[1] ?? "";
+    const kernel = /^ {2}not_a_text_project: "((?:[^"\\]|\\.)*)"$/m.exec(textproject);
+    expect(kernel?.[1]).toBe(NOT_A_TEXT_PROJECT);
   });
 });

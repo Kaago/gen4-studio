@@ -564,7 +564,7 @@ fn renaming_a_story_id_changes_register_and_file() {
     .unwrap();
     assert_eq!(
         refusal("STORY_ZWEI").as_deref(),
-        Some("STORY_ZWEI exists already (number 1).")
+        Some("STORY_ZWEI already exists (number 1).")
     );
     assert_eq!(
         crate::stories::number_of(&fx.project(), "STORY_WAECHTER").unwrap(),

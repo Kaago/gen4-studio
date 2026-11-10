@@ -361,7 +361,7 @@ fn set_world(
 ///
 /// Refused ([`KernelError::Refused`], nothing changed): outside a text project
 /// ([`super::world_needs_text_project`]), Form 2 without apicula ([`adopt_needs_apicula`]), a
-/// map that is a world map already ([`already_world`]), a locked map or one whose member does
+/// map that is already a world map ([`already_world`]), a locked map or one whose member does
 /// not read ([`super::edit::binary_map_refusal`]: „Karte 0001 lässt sich nicht übernehmen: ihr
 /// Member lässt sich nicht lesen (…).“), a package that is not there (the refusal of
 /// [`Store::tileset`]), and what [`world_adopt_glb`] refuses. apicula's own failure is its

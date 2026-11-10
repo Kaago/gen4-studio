@@ -1009,7 +1009,7 @@ mod tests {
         };
         assert!(
             text.starts_with(
-                "textproject.map-source: Map 0000 is a world map, its member does not read;"
+                "textproject.map-source: Map 0000 is a world map, its member cannot be read;"
             ),
             "{text}"
         );

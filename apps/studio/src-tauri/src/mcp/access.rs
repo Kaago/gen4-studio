@@ -826,7 +826,7 @@ mod tests {
         ] {
             assert_eq!(
                 classify(empty.clone()),
-                Class::Irreversible("Empty the world".to_owned()),
+                Class::Irreversible("Empty world".to_owned()),
                 "{empty}"
             );
         }

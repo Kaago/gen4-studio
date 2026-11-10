@@ -90,16 +90,16 @@ fn a_dialog_step_takes_its_value_appearing_and_rewards_do_not() {
             "a7",
             1,
             StepKind::Appearance,
-            "Figure 3 appears from step 1",
+            "Character 3 appears from step 1",
         ),
-        step("s1", 1, StepKind::Dialog, "Talk with figure 2"),
-        step("r9", 2, StepKind::Reward, "Reward from figure 2"),
+        step("s1", 1, StepKind::Dialog, "Talk with character 2"),
+        step("r9", 2, StepKind::Reward, "Reward from character 2"),
     ]);
     assert_eq!(step_of(&story, 1).map(|s| s.key.as_str()), Some("a7"));
     assert_eq!(step_of(&story, 3), None);
     match dialog_step_taken(&story, 1) {
         Err(KernelError::Refused(why)) => {
-            assert_eq!(why, "Step 1 already exists: “Talk with figure 2”.");
+            assert_eq!(why, "Step 1 already exists: “Talk with character 2”.");
         }
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -174,7 +174,7 @@ mod with_fixture {
         assert!(check_pool_number(&project, FlagKind::Flag, 0x41).is_ok());
         assert_eq!(
             refused(check_pool_number(&project, FlagKind::Flag, 0xB60)),
-            "Flag 0x0B60 is not in the save."
+            "Flag 0x0B60 is not in the save game."
         );
         assert_eq!(
             refused(check_pool_number(&project, FlagKind::Flag, 0x2DA)),
@@ -259,7 +259,7 @@ mod with_fixture {
         assert!(figure(&mut store, &at(6)).unwrap().trainer);
         assert_eq!(
             refused(figure(&mut store, &at(9))),
-            "Header 0 has no figure 9."
+            "Header 0 has no character 9."
         );
     }
 

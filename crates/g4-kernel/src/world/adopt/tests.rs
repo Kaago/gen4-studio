@@ -306,7 +306,7 @@ fn adopt_refuses_dspre_world_locked_and_gltf() {
     adopt(&mut st, 0);
     assert_eq!(
         refused(world_adopt(&mut st, &req(json!({"map": 0})))),
-        "Map 0000 is a world map already."
+        "Map 0000 is already a world map."
     );
     assert_eq!(st.history().0.len(), 1);
     // A locked map.
@@ -320,7 +320,7 @@ fn adopt_refuses_dspre_world_locked_and_gltf() {
     .unwrap();
     assert_eq!(
         refused(world_adopt(&mut st, &req(json!({"map": 1})))),
-        "Map 0001 cannot be adopted: its member does not read (gesperrt)."
+        "Map 0001 cannot be adopted: its member cannot be read (gesperrt)."
     );
     assert_eq!(st.world(1).unwrap(), None);
     assert_eq!(st.history().0.len(), 1);

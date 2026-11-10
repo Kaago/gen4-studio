@@ -548,7 +548,7 @@ fn the_seam_reads_a_neighbour_and_notes_cells_that_no_longer_fit() {
     assert_eq!(
         r.notes,
         [
-            "Seam to Map 0124: 3 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
+            "Seam to Map 0124: 3 cells there no longer fit the set “Weg”; the neighboring map stays as it is."
         ]
     );
     // A stroke at the edge next to an outside neighbour: its cells z 19–21 no longer fit.
@@ -557,7 +557,7 @@ fn the_seam_reads_a_neighbour_and_notes_cells_that_no_longer_fit() {
     assert_eq!(
         r.notes,
         [
-            "Seam to Map 0124: 3 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
+            "Seam to Map 0124: 3 cells there no longer fit the set “Weg”; the neighboring map stays as it is."
         ]
     );
     assert_eq!(
@@ -608,7 +608,7 @@ fn one_seam_cell_is_noted_in_the_singular() {
     assert_eq!(
         r.notes,
         [
-            "Seam to Map 0007: 1 cell there no longer fits the set “Weg”; the neighbouring map stays as it is."
+            "Seam to Map 0007: 1 cell there no longer fits the set “Weg”; the neighboring map stays as it is."
         ]
     );
     // Another layer's seam cells are not read.

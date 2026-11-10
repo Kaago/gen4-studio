@@ -244,7 +244,7 @@ fn rename_refuses_taken_fallback_and_malformed_ids_and_writes_nothing() {
         (
             KAI,
             "TRAINER_POKEMON_TRAINER_MIA",
-            "TRAINER_POKEMON_TRAINER_MIA exists already (number 2).".to_owned(),
+            "TRAINER_POKEMON_TRAINER_MIA already exists (number 2).".to_owned(),
         ),
         (
             KAI,
@@ -254,7 +254,7 @@ fn rename_refuses_taken_fallback_and_malformed_ids_and_writes_nothing() {
         (
             KAI,
             "TRAINER_SEVEN",
-            "rotom knows TRAINER_SEVEN already as number 7.".to_owned(),
+            "rotom already knows TRAINER_SEVEN as number 7.".to_owned(),
         ),
         (KAI, KAI, "The new ID is the old one.".to_owned()),
         (KAI, "TRAINER_kai", format.to_owned()),
@@ -433,7 +433,7 @@ fn a_trainer_class_rename_is_not_taken_for_a_trainer() {
 #[test]
 fn a_fixed_table_id_is_refused() {
     let fx = fixture();
-    let fixed = "stands in a fixed table; only IDs with a register can be renamed (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_, FLAG_, VAR_).";
+    let fixed = "is in a fixed table; only IDs with a register can be renamed (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_, FLAG_, VAR_).";
     for id in ["SPECIES_PIKACHU", "ITEM_POTION", "MOVE_0001"] {
         let plan = plan_rename(&fx.project(), id, "SPECIES_PIKA").unwrap();
         assert_eq!(plan.refusal, Some(format!("{id} {fixed}")), "{id}");
@@ -451,7 +451,7 @@ fn a_fixed_table_id_is_refused() {
     let plan = plan_rename(&dspre.project(), KAI, "TRAINER_KID_KAI").unwrap();
     assert_eq!(
         plan.refusal.as_deref(),
-        Some("No text project: IDs exist only after “Set up as text project…”.")
+        Some("No text project: IDs only exist after “Set up as a text project…”.")
     );
     assert_eq!(plan.kind, Some(SymbolKind::Trainer));
     assert_eq!(plan.number, None);
@@ -483,7 +483,7 @@ fn a_broken_json_naming_the_id_is_refused() {
     fx.write("g4-world.json", format!("{{ \"{KAI}\": ").as_bytes());
     let plan = plan_rename(&fx.project(), KAI, "TRAINER_KID_KAI").unwrap();
     let why = plan.refusal.unwrap();
-    assert!(why.starts_with("g4-world.json does not read ("), "{why}");
+    assert!(why.starts_with("g4-world.json cannot be read ("), "{why}");
     assert!(
         why.ends_with("); repair the file first, then rename."),
         "{why}"
@@ -603,7 +603,7 @@ fn what_fails_after_the_files_is_a_warning() {
     let warnings = after_move(&p, &[], &Default::default());
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
-        warnings[0].starts_with("The ID files for rotom are not written anew ("),
+        warnings[0].starts_with("The ID files for rotom were not rewritten ("),
         "{warnings:?}"
     );
 }

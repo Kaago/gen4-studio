@@ -492,7 +492,7 @@ pub(crate) mod tests {
         let err = part_in_at(&unreadable, "model", dir.path(), &KEY, None, &base).unwrap_err();
         assert!(
             err.starts_with(
-                "textproject.side-file: model.file: the side file `0005.nsbmd` does not read ("
+                "textproject.side-file: model.file: the side file `0005.nsbmd` cannot be read ("
             ),
             "{err}"
         );

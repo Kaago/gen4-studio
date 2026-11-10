@@ -405,14 +405,14 @@ fn world_to_binary_keeps_the_baked_map() {
     create(&mut st, 0);
     st.save().unwrap();
     let baked = map_bytes(&mut st);
-    assert_eq!(world_to_binary_label(123), "World given up: Map 0123");
+    assert_eq!(world_to_binary_label(123), "World discarded: Map 0123");
     let report = world_to_binary(&mut st, 0).unwrap();
     assert_eq!((report.map, report.tileset), (0, 0));
     assert!(report.change.is_some());
     assert!(report.bake.is_none());
     assert_eq!(
         st.history().0.last().map(String::as_str),
-        Some("World given up: Map 0000")
+        Some("World discarded: Map 0000")
     );
     assert_eq!(st.world(0).unwrap(), None);
     assert_eq!(map_bytes(&mut st), baked);

@@ -482,7 +482,7 @@ fn neighbours_are_never_written() {
     assert_eq!(
         report.notes,
         [
-            "Seam to Map 0001: 3 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
+            "Seam to Map 0001: 3 cells there no longer fit the set “Weg”; the neighboring map stays as it is."
         ]
     );
     assert_eq!(world(&mut st, 1), east);
@@ -572,7 +572,7 @@ fn notes_are_in_the_report() {
     assert_eq!(
         report.notes,
         [
-            "Seam to Map 0000: 5 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
+            "Seam to Map 0000: 5 cells there no longer fit the set “Weg”; the neighboring map stays as it is."
         ]
     );
     let v = serde_json::to_value(&report).unwrap();

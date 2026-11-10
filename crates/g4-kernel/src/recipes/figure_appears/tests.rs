@@ -8,19 +8,19 @@ fn key_label_and_texts() {
     assert_eq!(step_key(256), "a256");
     assert_eq!(
         label(4, 1, true, "Testfaden"),
-        "Figure 4 appears from step 1 in “Testfaden”"
+        "Character 4 appears from step 1 in “Testfaden”"
     );
     assert_eq!(
         label(7, 2, false, "Testfaden"),
-        "Figure 7 vanishes from step 2 in “Testfaden”"
+        "Character 7 vanishes from step 2 in “Testfaden”"
     );
     assert_eq!(
         description(4, "Testfaden"),
-        "Visibility of figure 4 in “Testfaden”"
+        "Visibility of character 4 in “Testfaden”"
     );
     assert_eq!(
         has_flag_text(4, "FLAG_X"),
-        "Figure 4 already has the visibility flag FLAG_X."
+        "Character 4 already has the visibility flag FLAG_X."
     );
     assert_eq!(created_text(3), "Level script file 3 is created and stays");
 }

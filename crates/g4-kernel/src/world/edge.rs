@@ -495,7 +495,7 @@ mod tests {
         assert_eq!(
             labels,
             [
-                "Centre",
+                "Center",
                 "Edge N",
                 "Edge E",
                 "Edge S",

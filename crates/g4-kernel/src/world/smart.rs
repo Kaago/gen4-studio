@@ -101,7 +101,7 @@ pub(crate) fn missing_place(set: &str, place: &str, x: i32, z: i32) -> String {
     .into_owned()
 }
 
-/// „Seam to Map 0124: 3 cells there no longer fit the set “Path”; the neighbouring map stays
+/// „Seam to Map 0124: 3 cells there no longer fit the set “Path”; the neighboring map stays
 /// as it is.“ (one cell: „1 cell there no longer fits …“).
 pub(crate) fn seam_note(map: u16, cells: usize, set: &str) -> String {
     if cells == 1 {

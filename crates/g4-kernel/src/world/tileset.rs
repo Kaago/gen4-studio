@@ -1966,7 +1966,7 @@ mod tests {
         let mut plain = Store::new(Arc::new(Project::open(synth.dir.path()).unwrap()));
         let why = refusal(plain.tileset(0));
         assert!(
-            why.starts_with("Map texture package 0000 does not read: "),
+            why.starts_with("Map texture package 0000 cannot be read: "),
             "{why}"
         );
     }
@@ -2080,7 +2080,7 @@ mod tests {
         save_tileset(&mut store, 0).unwrap();
         assert_eq!(
             refusal(save_tileset(&mut store, 0)),
-            "data/tilesets/0000.json exists already."
+            "data/tilesets/0000.json already exists."
         );
         assert_eq!(store.history().0.len(), 1);
 

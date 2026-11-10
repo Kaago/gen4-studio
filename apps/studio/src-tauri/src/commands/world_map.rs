@@ -851,7 +851,7 @@ mod tests {
         // It is there already.
         assert_eq!(
             refused(&state, &policy, "tileset_save", json!({ "package": 0 })),
-            "data/tilesets/0000.json exists already."
+            "data/tilesets/0000.json already exists."
         );
     }
 
@@ -958,7 +958,7 @@ mod tests {
             "{released}"
         );
         assert!(released["change"].is_number(), "{released}");
-        assert_eq!(labels(&state).last().unwrap(), "World given up: Map 0000");
+        assert_eq!(labels(&state).last().unwrap(), "World discarded: Map 0000");
         let binary = call(&state, &policy, "world_get", json!({ "map": 0 }));
         assert_eq!(
             (&binary["world"], &binary["bake"]),
@@ -1111,7 +1111,7 @@ mod tests {
                 "world_adopt",
                 json!({ "req": { "map": 0 } })
             ),
-            "Map 0000 is a world map already."
+            "Map 0000 is already a world map."
         );
         call(&state, &policy, "undo", json!({}));
         assert_eq!(
@@ -2004,7 +2004,7 @@ mod tests {
         assert_eq!(
             report["notes"],
             json!([
-                "Seam to Map 0001: 3 cells there no longer fit the set “Weg”; the neighbouring map stays as it is."
+                "Seam to Map 0001: 3 cells there no longer fit the set “Weg”; the neighboring map stays as it is."
             ]),
             "{report}"
         );

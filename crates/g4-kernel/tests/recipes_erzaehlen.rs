@@ -169,10 +169,10 @@ fn list_names_the_seven_recipes_up_to_new_trainer_here_first() {
             (RecipeId::CreateArea, "Create area", false),
             (RecipeId::CreateRoom, "Create room", false),
             (RecipeId::ExtendArea, "Extend area", false),
-            (RecipeId::EmptyRegion, "Empty the world", true),
-            (RecipeId::NewFigure, "New figure", false),
-            (RecipeId::ConnectDoors, "Connect doors", false),
-            (RecipeId::NewTrainerHere, "New trainer here", true),
+            (RecipeId::EmptyRegion, "Empty world", true),
+            (RecipeId::NewFigure, "New character", false),
+            (RecipeId::ConnectDoors, "Connect door", false),
+            (RecipeId::NewTrainerHere, "New Trainer here", true),
         ]
     );
     assert_eq!(
@@ -211,7 +211,7 @@ fn next_steps_after_3d5_lock_with_3d9_and_later() {
         .collect();
     assert_eq!(short["edit_dialog"], (true, None));
     assert_eq!(short["story_join"], (true, None));
-    assert_eq!(short["play_here"], (false, Some("Comes with 3d.9")));
+    assert_eq!(short["play_here"], (false, Some("Coming with 3d.9")));
     assert_eq!(short["new_figure"], (true, None));
     assert_eq!(short["adjust_terrain"], (true, None));
     // All three recipes of 3d.5 are in the list, so free.
@@ -221,7 +221,7 @@ fn next_steps_after_3d5_lock_with_3d9_and_later() {
     }
     // An unknown step comes later (the transitional „Kommt mit 3d.7“ is gone).
     let unknown = next_steps(&["something_new"]);
-    assert_eq!(unknown[0].reason.as_deref(), Some("Comes later"));
+    assert_eq!(unknown[0].reason.as_deref(), Some("Coming later"));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -365,7 +365,7 @@ fn apply_of_a_figure_is_one_undo_step_with_a_numbered_message() {
     assert_eq!(store.undo_depth(), depth + 1);
     assert_eq!(
         store.history().0.last().map(String::as_str),
-        Some("Figure “Hallo, ich bin neu h…” placed")
+        Some("Character “Hallo, ich bin neu h…” placed")
     );
     let next: Vec<(&str, bool)> = outcome
         .next
@@ -944,7 +944,7 @@ fn apply_connects_two_event_files_in_one_step() {
         .iter()
         .map(|s| (s.id.as_str(), s.available, s.reason.as_deref()))
         .collect();
-    assert_eq!(next, [("play_here", false, Some("Comes with 3d.9"))]);
+    assert_eq!(next, [("play_here", false, Some("Coming with 3d.9"))]);
 
     // Undo puts both event files and the map back byte for byte; redo brings the step back.
     let after = door_bytes(&store);
@@ -971,7 +971,7 @@ fn apply_connects_two_event_files_in_one_step() {
         "input": { "a": { "header": 1, "warp": 0, "tür": 1 }, "b": { "header": 0, "warp": 0 } },
     }))
     .unwrap();
-    assert!(refused(recipes::plan(&mut store, &wrong)).contains("Connect doors"));
+    assert!(refused(recipes::plan(&mut store, &wrong)).contains("Connect door"));
 }
 
 #[test]
@@ -1529,7 +1529,7 @@ fn apply_creates_the_trainer_then_one_step_for_team_texts_and_object() {
         .iter()
         .map(|s| (s.id.as_str(), s.available, s.reason.as_deref()))
         .collect();
-    assert_eq!(next, [("play_here", false, Some("Comes with 3d.9"))]);
+    assert_eq!(next, [("play_here", false, Some("Coming with 3d.9"))]);
 
     // The trainer: class, name, team, texts.
     assert_eq!(trainer_count(&store), 4);

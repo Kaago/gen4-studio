@@ -205,7 +205,7 @@ fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, Ke
     }
 
     let Some((base, _)) = next else {
-        return Err(refused(t!("recipes.no_neighbour_map", x = x, y = y)));
+        return Err(refused(t!("recipes.no_neighbor_map", x = x, y = y)));
     };
     let package = match (input.tileset, header) {
         (Some(package), _) => Some(package),
@@ -216,7 +216,7 @@ fn resolve(store: &mut Store, input: &NewPaintedMapInput) -> Result<Resolved, Ke
             .first()
             .map(|&(_, pack)| pack),
     };
-    let package = package.ok_or_else(|| refused(t!("recipes.no_header_shows_neighbour")))?;
+    let package = package.ok_or_else(|| refused(t!("recipes.no_header_shows_neighbor")))?;
     let tiles = store.tileset(package)?.tiles.len();
     let token = input.fill_tile.as_deref().unwrap_or(DEFAULT_FILL);
     let fill = parse_tile(token)
@@ -676,7 +676,7 @@ mod tests {
         refused_both(
             &mut store,
             &lone,
-            "No header shows a neighbouring map; give a tileset (`tileset`).",
+            "No header shows a neighboring map; specify a tileset (`tileset`).",
         );
         let with_tileset = NewPaintedMapInput {
             tileset: Some(0),
@@ -739,7 +739,7 @@ mod tests {
             fill_tile: Some(".".to_owned()),
             ..at(3, 0)
         };
-        refused_both(&mut store, &empty, "`.` fills no ground; give a tile.");
+        refused_both(&mut store, &empty, "`.` fills no ground; specify a tile.");
         let high = NewPaintedMapInput {
             height: Some(70),
             ..at(3, 0)

@@ -337,7 +337,7 @@ fn base64_reads_and_compression_is_refused() {
         has(
             &e,
             "layers[1].compression",
-            "The Studio does not read compressed layers; in Tiled, choose CSV under Map › Properties “Tile Layer Format”."
+            "The Studio cannot read compressed layers; in Tiled, choose CSV under Map › Properties “Tile Layer Format”."
         ),
         "{e:?}"
     );
@@ -356,7 +356,7 @@ fn an_external_tileset_is_refused() {
         has(
             &e,
             "tilesets[1].source",
-            "The Studio does not read external tilesets (`source`); embed the tileset in Tiled."
+            "The Studio cannot read external tilesets (`source`); embed the tileset in Tiled."
         ),
         "{e:?}"
     );
@@ -479,7 +479,7 @@ fn foreign_sizes_and_packages_are_refused() {
         "{e:?}"
     );
     assert!(
-        has(&e, "infinite", "The Studio does not read infinite maps."),
+        has(&e, "infinite", "The Studio cannot read infinite maps."),
         "{e:?}"
     );
     // Another package than the world's.

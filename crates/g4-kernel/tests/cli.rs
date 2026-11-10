@@ -1746,7 +1746,7 @@ fn cli_text_rename_id() {
         .assert()
         .code(1)
         .stderr(contains(
-            "TRAINER_POKEMON_TRAINER_MIA exists already (number 2).",
+            "TRAINER_POKEMON_TRAINER_MIA already exists (number 2).",
         ));
     assert_eq!(
         std::fs::read_to_string(root.join("data/trainers/0001.json")).unwrap(),
@@ -2124,13 +2124,13 @@ fn cli_recipe_list() {
             "create_area  Create area",
             "create_room  Create room",
             "extend_area  Extend area",
-            "empty_region  Empty the world  irreversible",
-            "new_figure  New figure",
-            "connect_doors  Connect doors",
-            "new_trainer_here  New trainer here  irreversible",
+            "empty_region  Empty world  irreversible",
+            "new_figure  New character",
+            "connect_doors  Connect door",
+            "new_trainer_here  New Trainer here  irreversible",
             "new_story  New story",
-            "talk_advances  Talk advances the story",
-            "figure_appears  Figure appears/disappears from step",
+            "talk_advances  Conversation advances",
+            "figure_appears  Character appears/disappears from step",
             "scene_on_enter  Scene on entering",
             "reward_once  One-time reward",
             "new_painted_map  Paint new map  irreversible",
@@ -2243,7 +2243,7 @@ fn cli_recipe_apply_empty_region_needs_the_flag() {
         .assert()
         .code(1)
         .stderr(contains(
-            "error: Empty the world lässt sich nicht rückgängig machen; mit --allow-irreversible",
+            "error: Empty world lässt sich nicht rückgängig machen; mit --allow-irreversible",
         ));
     assert!(!s.dir.path().join("rotom.toml").exists());
     // With the flag it gets past the question; the synthetic world then has no start town.

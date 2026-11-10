@@ -414,7 +414,7 @@ mod tests {
             "locked": "map 0123: does not write back byte for byte",
             "raw": {"file": "0123.map.bin"}
         }));
-        let refusal = "textproject.map-source: Map 0123 is a world map, its member does not read; writing would lose the world object. Repair the member first (or save the world from the file).";
+        let refusal = "textproject.map-source: Map 0123 is a world map, its member cannot be read; writing would lose the world object. Repair the member first (or save the world from the file).";
         let refused = |r: Result<Vec<u8>, KernelError>| match r {
             Err(KernelError::Refused(text)) => text,
             other => panic!("{other:?}"),

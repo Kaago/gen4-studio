@@ -68,12 +68,12 @@ pub fn not_a_world_map(map: u16) -> String {
     t!("world.not_a_world_map", map = map : {:04}).into_owned()
 }
 
-/// „Map 0123 is a world map already.“
+/// „Map 0123 is already a world map.“
 pub fn already_world(map: u16) -> String {
     t!("world.already_world", map = map : {:04}).into_owned()
 }
 
-/// „Map 0123 lies in no matrix cell with a header; give a tileset (`tileset`).“
+/// „Map 0123 lies in no matrix cell with a header; specify a tileset (`tileset`).“
 fn no_package(map: u16) -> String {
     t!("world.no_package", map = map : {:04}).into_owned()
 }
@@ -186,7 +186,7 @@ pub struct WorldReport {
     pub notes: Vec<String>,
 }
 
-/// „World given up: Map 0123“, the label of [`world_to_binary`].
+/// „World discarded: Map 0123“, the label of [`world_to_binary`].
 pub fn world_to_binary_label(map: u16) -> String {
     t!("world.to_binary_label", map = map : {:04}).into_owned()
 }
@@ -286,10 +286,10 @@ fn refused(text: String) -> KernelError {
 }
 
 /// „Welt anlegen“: the world of map `req.map` as one undo step „World created: Map 0123“, a
-/// ground layer („Ground“, [`super::doc`]) all `fill` at `height`, no ramp, permissions derived.
+/// ground layer („Boden“, [`super::doc`]) all `fill` at `height`, no ramp, permissions derived.
 ///
 /// Refused ([`KernelError::Refused`], nothing changed): outside a text project
-/// ([`world_needs_text_project`]), a map that is a world map already ([`already_world`]), a map
+/// ([`world_needs_text_project`]), a map that is already a world map ([`already_world`]), a map
 /// whose member does not read (it cannot carry a world, see [`super::keep::carry_world`]), no
 /// package given and none from the headers, a package that is not there (the refusal of
 /// [`Store::tileset`]), a `fill` that is no tile or lies past the tileset, a height outside
@@ -1080,7 +1080,7 @@ mod tests {
             ),
             (
                 json!({"map": 0, "tileset": 0, "fill": "."}),
-                "`.` fills no ground; give a tile.".to_owned(),
+                "`.` fills no ground; specify a tile.".to_owned(),
             ),
             (
                 json!({"map": 0, "tileset": 0, "height": 70}),
@@ -1093,7 +1093,7 @@ mod tests {
             // Map 2 lies in no matrix cell of the synthetic project.
             (
                 json!({"map": 2}),
-                "Map 0002 lies in no matrix cell with a header; give a tileset (`tileset`)."
+                "Map 0002 lies in no matrix cell with a header; specify a tileset (`tileset`)."
                     .to_owned(),
             ),
         ];
@@ -1120,7 +1120,7 @@ mod tests {
                 &mut store,
                 &create_req(json!({"map": 0, "tileset": 0}))
             )),
-            "Map 0000 is a world map already."
+            "Map 0000 is already a world map."
         );
         assert_eq!(store.history().0.len(), 1);
         assert_eq!(fx.read(MAP), file);
@@ -1153,7 +1153,7 @@ mod tests {
                 &mut store,
                 &create_req(json!({"map": 0, "tileset": 0}))
             )),
-            "Map 0000 cannot be created as a world: its member does not read (data truncated: needed 4 bytes, have 1)."
+            "Map 0000 cannot be created as a world: its member cannot be read (data truncated: needed 4 bytes, have 1)."
         );
         assert!(store.history().0.is_empty());
         assert_eq!(fx.read(MAP), locked);
@@ -1452,7 +1452,7 @@ mod tests {
                 &mut store,
                 json!({"map": 0, "changes": [{"cells": [[0, 0]], "tile": "0001"}]})
             )),
-            "textproject.map-source: Map 0000 is a world map, its member does not read; writing would lose the world object. Repair the member first (or save the world from the file)."
+            "textproject.map-source: Map 0000 is a world map, its member cannot be read; writing would lose the world object. Repair the member first (or save the world from the file)."
         );
         assert_eq!(world(&mut store, 0), before);
         assert_eq!(store.history(), history);
@@ -1510,7 +1510,7 @@ pub struct WorldLayersRequest {
     pub op: LayerOp,
 }
 
-/// „Layer “Bushes” exists already.“
+/// „Layer “Bushes” already exists.“
 fn layer_taken(name: &str) -> String {
     t!("world.layer_taken", name = name).into_owned()
 }
@@ -1521,7 +1521,7 @@ fn layer_taken(name: &str) -> String {
 ///
 /// Refused ([`KernelError::Refused`], nothing changed) as [`world_edit`] (outside a text
 /// project, a map without world, a locked map, a world that does not read into cells) and with
-/// „The ground layer (0) stays.“, „A layer needs a name.“, „Layer “Bushes” exists already.“
+/// „The ground layer (0) stays.“, „A layer needs a name.“, „Layer “Bushes” already exists.“
 /// (names compared trimmed, case-sensitive) and a layer the world lacks ([`no_layer`]).
 /// [`WorldReport::cells`] is 0.
 pub fn world_layers(
@@ -1742,12 +1742,12 @@ mod layer_tests {
         refuses(
             &mut store,
             json!({"map": 0, "op": {"add": {"name": " Büsche"}}}),
-            "Layer “Büsche” exists already.",
+            "Layer “Büsche” already exists.",
         );
         refuses(
             &mut store,
             json!({"map": 0, "op": {"add": {"name": "Boden"}}}),
-            "Layer “Boden” exists already.",
+            "Layer “Boden” already exists.",
         );
         // Names differ by case.
         layers(

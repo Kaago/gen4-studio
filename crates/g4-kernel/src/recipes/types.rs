@@ -229,7 +229,7 @@ impl<R: Serialize> Outcome<R> {
 /// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe or the
 /// step is no recipe the app runs (`edit_dialog` opens the dialog editor, `story_join` „Gespräch
 /// schaltet weiter“ with the figure set, `adjust_terrain` the terrain painting of the new cell),
-/// else locked with `reason` „Comes later“ (`play_here`: „Comes with 3d.9“). The label of a
+/// else locked with `reason` „Coming later“ (`play_here`: „Coming with 3d.9“). The label of a
 /// step is its name in the current locale ([`step_label`]).
 pub fn next_steps(ids: &[&str]) -> Vec<NextStep> {
     ids.iter()
@@ -498,7 +498,7 @@ mod tests {
                 ("new_figure", true, None),
                 ("edit_dialog", true, None),
                 ("story_join", true, None),
-                ("play_here", false, Some("Comes with 3d.9")),
+                ("play_here", false, Some("Coming with 3d.9")),
                 ("adjust_terrain", true, None),
             ]
         );

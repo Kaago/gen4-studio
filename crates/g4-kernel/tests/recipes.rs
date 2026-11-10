@@ -191,12 +191,7 @@ fn list_names_the_four_recipes_with_titles() {
     let titles: Vec<&str> = list.iter().map(|r| r.title.as_str()).collect();
     assert_eq!(
         &titles[..4],
-        [
-            "Create area",
-            "Create room",
-            "Extend area",
-            "Empty the world"
-        ]
+        ["Create area", "Create room", "Extend area", "Empty world"]
     );
     let irreversible: Vec<bool> = list.iter().map(|r| r.irreversible).collect();
     assert_eq!(&irreversible[..4], [false, false, false, true]);
@@ -435,7 +430,7 @@ fn apply_of_a_room_with_an_entrance_is_one_undo_step() {
         outcome.next,
         vec![NextStep {
             id: "new_figure".into(),
-            label: "New figure here".into(),
+            label: "New character here".into(),
             available: true,
             reason: None,
         }]
@@ -598,7 +593,7 @@ fn is_irreversible_follows_allow_patch_and_empty_region() {
     assert_eq!(empty.input, json!({}));
     assert_eq!(
         recipes::is_irreversible(&empty).unwrap().as_deref(),
-        Some("Empty the world")
+        Some("Empty world")
     );
     let empty = call("empty_region", serde_json::Value::Null);
     assert_eq!(empty.input, json!({}));
