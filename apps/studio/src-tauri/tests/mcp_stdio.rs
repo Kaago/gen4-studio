@@ -588,7 +588,10 @@ fn clone_of_a_text_project_names_the_restore() {
     std::fs::write(clone.path().join("g4-project.json"), "{}").unwrap();
     let (code, stderr) = run_bad(&["--project", clone.path().to_str().unwrap()]);
     assert_eq!(code, Some(2), "{stderr}");
-    assert!(stderr.contains("Textprojekt ohne Spieldateien"), "{stderr}");
+    assert!(
+        stderr.contains("text project without game files"),
+        "{stderr}"
+    );
     assert!(
         stderr.contains(&format!(
             "g4k text restore {} [--base-rom <nds>]",
