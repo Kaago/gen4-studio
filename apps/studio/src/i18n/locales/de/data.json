@@ -419,7 +419,7 @@
     "ppHint": "mit AP-Plus höchstens {{max}}",
     "priorityHint": "von −7 bis +5, höher greift zuerst an",
     "percentHint": "in Prozent",
-    "behaviour": "Verhalten",
+    "behavior": "Verhalten",
     "effectId": "Effekt-ID",
     "effectHint": "Index der Kampfskripte",
     "traitsByte": "Merkmale-Byte {{hex}}",

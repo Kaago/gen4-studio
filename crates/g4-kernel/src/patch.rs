@@ -180,9 +180,10 @@ pub struct ReleaseInfo<'a> {
     pub notes: &'a str,
 }
 
-/// [`notes`] plus `Version:` and `Datum:` after `Studio-Version:` and, at the end, the
-/// paragraph `Änderungen:` (only when the release has notes, which stand as typed with
-/// their trailing white space cut, followed by exactly one `\n`); `None` gives [`notes`].
+/// [`notes`] plus `Version:` and `Date:` after `Studio version:` and, at the end, the
+/// paragraph `Changes:` (in the language of the process; only when the release has notes,
+/// which stand as typed with their trailing white space cut, followed by exactly one `\n`);
+/// `None` gives [`notes`].
 pub fn notes_with(
     meta: &PatchMeta,
     base_sha1: &str,
