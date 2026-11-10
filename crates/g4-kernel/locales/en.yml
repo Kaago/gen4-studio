@@ -864,6 +864,10 @@ error:
 start:
   dp_locked: "Diamond/Pearl: not supported without a test project"
   not_gen4: "No Gen 4 game recognized"
+  known_base: "%{game} %{region} (test project)"
+  game:
+    platinum: "Platinum"
+    heartgold: "HeartGold"
   mark_unreadable: "The base mark .g4/base.json cannot be read (%{why}); remove it, then assign the base ROM again."
   mark_newer: "The base mark comes from a newer version of Gen4 Studio (version %{version})."
   wrong_game: "Wrong game: the ROM is %{rom}, the project %{project}."

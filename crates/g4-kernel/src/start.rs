@@ -56,16 +56,47 @@ pub struct RomInfo {
     pub size: u64,
     /// SHA-1 of the whole file, 40 lowercase hex digits.
     pub sha1: String,
-    /// Label of the entry in `base_roms.yaml` whose SHA-1 equals [`RomInfo::sha1`].
+    /// Label of the entry in `base_roms.yaml` whose SHA-1 equals [`RomInfo::sha1`], in the
+    /// language of the process ([`known_base_label`]).
     pub known_base: Option<String>,
     pub support: Support,
 }
 
+/// The game of an entry in `base_roms.yaml`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum KnownGame {
+    Platinum,
+    Heartgold,
+}
+
+/// An entry of `base_roms.yaml`. Its label is no field: [`BaseRom::label`] builds it in the
+/// language asked for.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BaseRom {
     sha1: String,
     game_code: String,
-    label: String,
+    game: KnownGame,
+    /// `DE`, `US`: the region as the label shows it.
+    region: String,
+}
+
+impl BaseRom {
+    /// The label in `locale`: "Platinum DE (test project)", "Platin DE (Testprojekt)".
+    fn label(&self, locale: &str) -> String {
+        let game = match self.game {
+            KnownGame::Platinum => t!("start.game.platinum", locale = locale),
+            KnownGame::Heartgold => t!("start.game.heartgold", locale = locale),
+        };
+        t!(
+            "start.known_base",
+            locale = locale,
+            game = game,
+            region = self.region
+        )
+        .into_owned()
+    }
 }
 
 /// The table of known dumps, parsed once.
@@ -79,16 +110,25 @@ fn base_roms() -> Result<&'static [BaseRom], KernelError> {
         .map_err(|e| KernelError::InvalidProject(e.clone()))
 }
 
-/// The label in `base_roms.yaml` of the dump with this SHA-1 (and this game code, when one is
-/// given).
-pub(crate) fn known_base_label(
+/// The label of the dump in `base_roms.yaml` with this SHA-1 (and this game code, when one is
+/// given), in the language of the process; built when asked, so it follows a language switch.
+pub fn known_base_label(
     sha1: &str,
     game_code: Option<&str>,
+) -> Result<Option<String>, KernelError> {
+    known_base_label_in(sha1, game_code, &rust_i18n::locale())
+}
+
+/// [`known_base_label`] in `locale` (`en`, `de`), whatever the process speaks.
+pub fn known_base_label_in(
+    sha1: &str,
+    game_code: Option<&str>,
+    locale: &str,
 ) -> Result<Option<String>, KernelError> {
     Ok(base_roms()?
         .iter()
         .find(|e| e.sha1 == sha1 && game_code.is_none_or(|code| e.game_code == code))
-        .map(|e| e.label.clone()))
+        .map(|e| e.label(locale)))
 }
 
 fn serialize_family<S: Serializer>(family: &Option<Family>, s: S) -> Result<S::Ok, S::Error> {
@@ -1148,8 +1188,12 @@ mod tests {
     fn the_base_table_parses_and_lists_the_three_test_copies() {
         let table = base_roms().unwrap();
         for e in table {
-            assert_eq!(e.sha1.len(), 40, "{}", e.label);
-            assert!(e.sha1.chars().all(|c| c.is_ascii_hexdigit()), "{}", e.label);
+            assert_eq!(e.sha1.len(), 40, "{}", e.label("en"));
+            assert!(
+                e.sha1.chars().all(|c| c.is_ascii_hexdigit()),
+                "{}",
+                e.label("en")
+            );
         }
         for code in ["CPUD", "IPKD", "IPKE"] {
             assert!(table.iter().any(|e| e.game_code == code), "{code}");

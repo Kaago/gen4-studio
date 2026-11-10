@@ -58,10 +58,12 @@ mit leeren Kompressionsfeldern:
 ```
 
 Zum Beispiel
-`Mein Hack-CPUD.nds//Platin DE (Testprojekt) [d40f19ac24d67c721a4ab25e1c013154443d75b4].nds/`.
-`<Basislabel>` ist `base::base_label` der Marke (Name aus `base_roms.yaml`, sonst
-`<Titel> (<Spielcode>)`), bereinigt wie `<Projekt>` (leer wird `Basis-ROM`); so steht kein `/` darin,
-das die Felder trennt. `xdelta3 printhdr <Patch>` zeigt den Header, Rom Patcher JS überspringt ihn.
+`Mein Hack-CPUD.nds//Platinum DE (test project) [d40f19ac24d67c721a4ab25e1c013154443d75b4].nds/`.
+`<Basislabel>` ist `base::base_label_in` der Marke auf Englisch (Name aus `base_roms.yaml`, sonst
+`<Titel> (<Spielcode>)`), gleich in jeder Sprache des Prozesses (`PatchMeta::header_label`; die
+Begleitdatei nennt die Basis in der Sprache des Prozesses), bereinigt wie `<Projekt>` (leer wird
+`Basis-ROM`); so steht kein `/` darin, das die Felder trennt. `xdelta3 printhdr <Patch>` zeigt den
+Header, Rom Patcher JS überspringt ihn.
 VCDIFF selbst hat kein Feld für eine Prüfsumme der Quelle; der Header und die Begleitdatei nennen sie.
 
 ## Begleitdatei `<Name>.xdelta.txt`

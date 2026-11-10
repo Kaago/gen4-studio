@@ -10,7 +10,7 @@ use std::time::Instant;
 use serde::Serialize;
 use sha1::{Digest, Sha1};
 
-use crate::base::{BaseRom, base_label, other_rom};
+use crate::base::{BaseRom, base_label, base_label_in, other_rom};
 use crate::build::BuildReport;
 use crate::error::{KernelError, io_at};
 use crate::project::Project;
@@ -37,8 +37,12 @@ pub struct PatchMeta {
     /// `<Projekt>-<Spielcode>`, see [`patch_name`].
     pub name: String,
     pub game_code: String,
-    /// [`crate::base::base_label`] of the mark, as it is (the app header cleans it).
+    /// [`crate::base::base_label`] of the mark, in the language of the process: the notes
+    /// name the base with it.
     pub base_label: String,
+    /// [`crate::base::base_label_in`] of the mark in English, as it is (the app header cleans
+    /// it): the header inside the patch is the same whichever language wrote it.
+    pub header_label: String,
     pub studio_version: String,
 }
 
@@ -144,6 +148,7 @@ pub fn meta(project: &Project, base: &BaseMark) -> PatchMeta {
         name: patch_name(project),
         game_code: project.game_code.clone(),
         base_label: base_label(base),
+        header_label: base_label_in(base, crate::i18n::DEFAULT),
         studio_version: env!("CARGO_PKG_VERSION").to_owned(),
     }
 }
@@ -156,12 +161,13 @@ pub fn notes_path(patch: &Path) -> PathBuf {
 }
 
 /// The VCDIFF application header in xdelta's form `target/target-compression/source/
-/// source-compression/` with empty compression fields: `<Name>.nds//<label> [<sha1>].nds/`.
+/// source-compression/` with empty compression fields: `<Name>.nds//<label> [<sha1>].nds/`,
+/// the label in English ([`PatchMeta::header_label`]) in every language.
 pub fn app_header(meta: &PatchMeta, base_sha1: &str) -> String {
     format!(
         "{}.nds//{} [{base_sha1}].nds/",
         meta.name,
-        clean(&meta.base_label, "Basis-ROM")
+        clean(&meta.header_label, "Basis-ROM")
     )
 }
 
@@ -190,10 +196,13 @@ pub fn notes_with(
     target_sha1: &str,
     release: Option<&ReleaseInfo<'_>>,
 ) -> String {
+    // The notes name the base in the language of the process; `header_label` is the app
+    // header's.
     let PatchMeta {
         name,
         game_code,
         base_label,
+        header_label: _,
         studio_version,
     } = meta;
     let mut text = t!(
@@ -485,6 +494,7 @@ mod tests {
             name: "Mein Hack-CPUE".into(),
             game_code: "CPUE".into(),
             base_label: "Platin/DE: Basis".into(),
+            header_label: "Platinum/DE: Base".into(),
             studio_version: "0.1.0".into(),
         }
     }
@@ -568,6 +578,7 @@ mod tests {
                 name: "Mein Hack-CPUE".into(),
                 game_code: "CPUE".into(),
                 base_label: "POKEMON PL (CPUE)".into(),
+                header_label: "POKEMON PL (CPUE)".into(),
                 studio_version: env!("CARGO_PKG_VERSION").into(),
             }
         );
@@ -578,7 +589,7 @@ mod tests {
         let sha1 = "d40f19ac24d67c721a4ab25e1c013154443d75b4";
         assert_eq!(
             app_header(&test_meta(), sha1),
-            "Mein Hack-CPUE.nds//Platin_DE_ Basis [d40f19ac24d67c721a4ab25e1c013154443d75b4].nds/"
+            "Mein Hack-CPUE.nds//Platinum_DE_ Base [d40f19ac24d67c721a4ab25e1c013154443d75b4].nds/"
         );
     }
 

@@ -853,6 +853,7 @@ mod tests {
             name: "Mein Hack-v0.1.0".into(),
             game_code: "CPUE".into(),
             base_label: "POKEMON PL (CPUE)".into(),
+            header_label: "POKEMON PL (CPUE)".into(),
             studio_version: "0.1.0".into(),
         };
         let sha1 = "d40f19ac24d67c721a4ab25e1c013154443d75b4";
