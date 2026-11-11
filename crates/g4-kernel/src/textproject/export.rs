@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use crate::base::{BaseRom, other_rom};
 use crate::data::names::{Bank, trainer_name};
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, codes, io_at};
 use crate::fsutil::Journal;
 use crate::places::location_bank;
 use crate::project::{AssetKind, Project};
@@ -201,7 +201,7 @@ pub(super) fn run_checked(
     let mut report = ExportReport::default();
     let adopted = scripts::is_adopted(project);
     if !adopted && !opts.adopt_scripts {
-        return Err(KernelError::Refused(not_adopted()));
+        return Err(KernelError::coded(codes::NOT_ADOPTED, not_adopted()));
     }
     let layer_start = Instant::now();
     let base_step = |done| ExportProgress {
@@ -221,7 +221,7 @@ pub(super) fn run_checked(
     if !opts.force
         && let Some(refusal) = step::export_refusal(project)?
     {
-        return Err(KernelError::Refused(refusal));
+        return Err(KernelError::coded(codes::UNSYNCED, refusal));
     }
     if !adopted {
         let adopted = scripts::adopt(project, &mut |p| {

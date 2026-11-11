@@ -195,7 +195,7 @@ pub fn bake_world_maps(
         let verbatim = Verbatim::of(&world, &base);
         let baked = match bake_world(&mut store, map, &world, &base, &verbatim) {
             Ok(baked) => baked,
-            Err(KernelError::Refused(text)) => {
+            Err(KernelError::Refused(text) | KernelError::Coded { message: text, .. }) => {
                 out.problems
                     .push(problem(&rel, WORLD_BAKE_CODE, format!("world: {text}")));
                 continue;

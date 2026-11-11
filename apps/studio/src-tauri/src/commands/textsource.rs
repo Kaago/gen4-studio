@@ -14,11 +14,9 @@ use std::sync::Arc;
 use g4_formats::game::Family;
 use g4_kernel::base::BaseRom;
 use g4_kernel::build::state::BuildState;
-use g4_kernel::error::KernelError;
+use g4_kernel::error::{KernelError, codes};
 use g4_kernel::project::{AssetId, Project, SourceMode};
-use g4_kernel::textproject::adopt::{
-    self, AdoptProgress, AdoptReport, RevertReport, revert_pending,
-};
+use g4_kernel::textproject::adopt::{self, AdoptProgress, AdoptReport, RevertReport};
 use g4_kernel::textproject::migrate::{self, MigrateReport};
 use g4_kernel::textproject::rename::{self, RenamePlan, RenameResult, not_a_text_project};
 use g4_kernel::textproject::symbols::SymbolKind;
@@ -131,21 +129,18 @@ fn text_project(project: &Project, message: &str) -> Result<(), CmdError> {
     }
 }
 
-/// A kernel error of the text project's commands as the app answers it: a refusal of a
-/// pending change (`revert_pending`) is `pending`, the refusal outside a text project
-/// `not_text_project`; anything else as everywhere.
+/// A kernel error of the text project's commands as the app answers it, by the kernel's code: a
+/// refusal of a pending change ([`adopt::revert_pending`]) is `pending`, the refusal outside a text
+/// project `not_text_project`, changes the members lack `unsynced`; anything else as
+/// everywhere.
 fn text_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(why) if why == revert_pending() => CmdError::refused("pending", why),
-        KernelError::Refused(why) if why == not_a_text_project() => {
-            CmdError::refused("not_text_project", why)
-        }
-        // The adoption of a text project exports it: changes the members lack refuse it.
-        KernelError::Refused(why)
-            if why.starts_with(&g4_kernel::textproject::unsynced_export_prefix()) =>
-        {
-            CmdError::refused("unsynced", why)
-        }
+        // The adoption of a text project exports it: changes the members lack refuse it
+        // (`unsynced`).
+        KernelError::Coded {
+            code: code @ (codes::PENDING | codes::NOT_TEXT_PROJECT | codes::UNSYNCED),
+            message,
+        } => CmdError::refused(code, message),
         other => other.into(),
     }
 }
@@ -526,7 +521,10 @@ pub fn resolve_external_conflict_impl(
     session.writable()?;
     text_project(&session.project, &not_text_project_message())?;
     let result = sync::resolve(&mut session.store, &key, keep);
-    if !matches!(result, Err(KernelError::Refused(_))) {
+    if !matches!(
+        result,
+        Err(KernelError::Refused(_) | KernelError::Coded { .. })
+    ) {
         // It may have written a source or a member before it failed.
         session.disk_changed();
         session.files_written(&[]);
@@ -715,11 +713,35 @@ mod tests {
     use g4_kernel::project::AssetKind;
     use g4_kernel::test_support::{TextFixture, synthetic_project};
     use g4_kernel::textproject::MANIFEST_FILE;
+    use g4_kernel::textproject::adopt::revert_pending;
     use serde_json::json;
 
     const MOVE_1_JSON: &str = "data/moves/0001.json";
     const MOVE_1_MEMBER: &str = "unpacked/moveData/0001";
     const KAI: &str = "TRAINER_YOUNGSTER_KAI";
+    /// A sentence no catalog holds: the code of a refusal comes from the kernel's code alone.
+    const FOREIGN: &str = "Ein deutscher Satz, den kein Katalog kennt";
+
+    #[test]
+    fn text_error_reads_the_kernels_code_not_its_words() {
+        for (code, expected) in [
+            ("pending", "pending"),
+            ("not_text_project", "not_text_project"),
+            ("unsynced", "unsynced"),
+            // A code this command does not answer is a plain error, as a refusal is.
+            ("unknown_id", "error"),
+            ("invalid_id", "error"),
+        ] {
+            let err = text_error(KernelError::coded(code, FOREIGN));
+            assert_eq!(
+                (err.code, err.message.as_str()),
+                (expected, FOREIGN),
+                "{code}"
+            );
+        }
+        let err = text_error(KernelError::Refused(FOREIGN.to_owned()));
+        assert_eq!((err.code, err.message.as_str()), ("error", FOREIGN));
+    }
 
     /// The synthetic text-project fixture open in a fresh state, its base ROM found (as
     /// `--base-rom` names it).

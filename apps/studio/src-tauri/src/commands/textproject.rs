@@ -4,11 +4,9 @@
 use std::sync::Arc;
 
 use g4_kernel::base::BaseRom;
-use g4_kernel::error::KernelError;
+use g4_kernel::error::{KernelError, codes};
 use g4_kernel::project::Project;
-use g4_kernel::textproject::{
-    self, CheckReport, ExportOptions, ExportReport, not_adopted, unsynced_export_prefix,
-};
+use g4_kernel::textproject::{self, CheckReport, ExportOptions, ExportReport, not_adopted};
 use tauri::Manager;
 
 use crate::errors::CmdError;
@@ -72,15 +70,14 @@ pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
     textproject::export(&project, &base, &opts).map_err(export_error)
 }
 
-/// The kernel's export refusals with a code of their own: `not_adopted`, `unsynced`.
+/// The kernel's export refusals with a code of their own, by the kernel's code: `not_adopted`,
+/// `unsynced`.
 fn export_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(message) if message == not_adopted() => {
-            CmdError::refused("not_adopted", message)
-        }
-        KernelError::Refused(message) if message.starts_with(&unsynced_export_prefix()) => {
-            CmdError::refused("unsynced", message)
-        }
+        KernelError::Coded {
+            code: code @ (codes::NOT_ADOPTED | codes::UNSYNCED),
+            message,
+        } => CmdError::refused(code, message),
         other => other.into(),
     }
 }
@@ -204,15 +201,26 @@ mod tests {
         assert!(text_export_impl(&AppState::default()).is_err());
     }
 
+    /// A sentence no catalog holds: the code of a refusal comes from the kernel's code alone.
+    const FOREIGN: &str = "Ein deutscher Satz, den kein Katalog kennt";
+
     #[test]
-    fn the_kernels_unsynced_refusal_answers_unsynced() {
-        let message = format!("{} (data/moves/0001.json); …", unsynced_export_prefix());
-        let err = export_error(KernelError::Refused(message.clone()));
-        assert_eq!((err.code, err.message), ("unsynced", message));
-        let err = export_error(KernelError::Refused(not_adopted()));
-        assert_eq!(err.code, "not_adopted");
-        let err = export_error(KernelError::Refused("anders".to_owned()));
-        assert_eq!(err.code, "error");
+    fn export_error_reads_the_kernels_code_not_its_words() {
+        for (code, expected) in [
+            ("not_adopted", "not_adopted"),
+            ("unsynced", "unsynced"),
+            // A code this command does not answer is a plain error, as a refusal is.
+            ("pending", "error"),
+        ] {
+            let err = export_error(KernelError::coded(code, FOREIGN));
+            assert_eq!(
+                (err.code, err.message.as_str()),
+                (expected, FOREIGN),
+                "{code}"
+            );
+        }
+        let err = export_error(KernelError::Refused(FOREIGN.to_owned()));
+        assert_eq!((err.code, err.message.as_str()), ("error", FOREIGN));
     }
 
     #[test]

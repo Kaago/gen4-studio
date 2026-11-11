@@ -16,15 +16,13 @@ use std::time::Instant;
 
 use g4_kernel::base::{BaseRom, base_label};
 use g4_kernel::diff::{
-    self, Against, DiffSources, DiffSubject, EntityDiffReport, no_base_for_files, no_commit,
-    no_repo, not_a_file, outside_project, scripts_have_no_unsaved,
+    self, Against, DiffSources, DiffSubject, EntityDiffReport, no_base_for_files, no_repo,
 };
-use g4_kernel::error::KernelError;
+use g4_kernel::error::{KernelError, codes};
 use g4_kernel::git::templates::{Layout, layout_of};
 use g4_kernel::git::{
     self, CommitOptions, CommitProgress, CommitReport, GitCli, GitRepo, HeadInfo, InitOptions,
-    InitProgress, InitReport, RepoKind, enclosing_repo, find_git, git_needed, no_repo_to_commit,
-    nothing_to_commit,
+    InitProgress, InitReport, RepoKind, find_git,
 };
 use g4_kernel::original::ChangedEntry;
 use g4_kernel::project::Project;
@@ -240,25 +238,17 @@ impl Drop for InitBusy<'_> {
     }
 }
 
-/// The kernel's diff refusals with a code of their own: `no_repo` ([`no_repo`]), `no_commit`
-/// ([`no_commit`]) and `not_diffable` (a file against the base, a script against the saved
-/// state, a path or folder outside the project, no regular file: [`no_base_for_files`],
-/// [`scripts_have_no_unsaved`], [`outside_project`], [`not_a_file`]).
+/// The kernel's diff refusals with a code of their own, by the kernel's code: `no_repo`
+/// ([`no_repo`]), `no_commit` ([`diff::no_commit`]) and `not_diffable` (a file against the
+/// base, a script against the saved state, a path or folder outside the project, no regular
+/// file: [`no_base_for_files`], [`diff::scripts_have_no_unsaved`], [`diff::outside_project`],
+/// [`diff::not_a_file`]).
 fn diff_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(why) if why == no_repo() => CmdError::refused("no_repo", why),
-        KernelError::Refused(why) if why == no_commit() => CmdError::refused("no_commit", why),
-        KernelError::Refused(why)
-            if [
-                no_base_for_files(),
-                scripts_have_no_unsaved(),
-                outside_project(),
-                not_a_file(),
-            ]
-            .contains(&why) =>
-        {
-            CmdError::refused("not_diffable", why)
-        }
+        KernelError::Coded {
+            code: code @ (codes::NO_REPO | codes::NO_COMMIT | codes::NOT_DIFFABLE),
+            message,
+        } => CmdError::refused(code, message),
         other => other.into(),
     }
 }
@@ -425,23 +415,22 @@ fn checked_for_commit(session: &crate::state::Session) -> Result<Arc<Project>, C
     Ok(Arc::clone(&session.project))
 }
 
-/// The kernel's refusals of „Stand sichern“ with a code of their own: `no_repo`
-/// ([`no_repo_to_commit`]), `enclosing_repo` ([`enclosing_repo`]), `nothing_to_commit`
-/// ([`nothing_to_commit`]) and `no_git` ([`git_needed`]); any other error as it is.
+/// The kernel's refusals of „Stand sichern“ with a code of their own, by the kernel's code:
+/// `no_repo` ([`git::no_repo_to_commit`]), `enclosing_repo` ([`git::enclosing_repo`]),
+/// `nothing_to_commit` ([`git::nothing_to_commit`]) and `no_git` ([`git::git_needed`]); any
+/// other error as it is.
 fn commit_error(e: KernelError) -> CmdError {
-    let KernelError::Refused(why) = &e else {
-        return e.into();
-    };
-    let codes = [
-        (no_repo_to_commit(), "no_repo"),
-        (enclosing_repo(), "enclosing_repo"),
-        (nothing_to_commit(), "nothing_to_commit"),
-        (git_needed(), "no_git"),
-    ];
-    let Some(&(_, code)) = codes.iter().find(|(text, _)| text == why) else {
-        return e.into();
-    };
-    CmdError::refused(code, why.clone())
+    match e {
+        KernelError::Coded {
+            code:
+                code @ (codes::NO_REPO
+                | codes::ENCLOSING_REPO
+                | codes::NOTHING_TO_COMMIT
+                | codes::NO_GIT),
+            message,
+        } => CmdError::refused(code, message),
+        other => other.into(),
+    }
 }
 
 /// The refusals of „Stand sichern“ that come before the question (over MCP in the app it runs
@@ -632,6 +621,50 @@ mod tests {
     use serde_json::{Value, json};
 
     const TRAINER_1: DiffSubject = DiffSubject::Trainer { index: 1 };
+    /// A sentence no catalog holds: the code of a refusal comes from the kernel's code alone.
+    const FOREIGN: &str = "Ein deutscher Satz, den kein Katalog kennt";
+
+    #[test]
+    fn diff_error_reads_the_kernels_code_not_its_words() {
+        for (code, expected) in [
+            ("no_repo", "no_repo"),
+            ("no_commit", "no_commit"),
+            ("not_diffable", "not_diffable"),
+            // A code this command does not answer is a plain error, as a refusal is.
+            ("no_mark", "error"),
+            ("nothing_to_commit", "error"),
+        ] {
+            let err = diff_error(KernelError::coded(code, FOREIGN));
+            assert_eq!(
+                (err.code, err.message.as_str()),
+                (expected, FOREIGN),
+                "{code}"
+            );
+        }
+        let err = diff_error(KernelError::Refused(FOREIGN.to_owned()));
+        assert_eq!((err.code, err.message.as_str()), ("error", FOREIGN));
+    }
+
+    #[test]
+    fn commit_error_reads_the_kernels_code_not_its_words() {
+        for (code, expected) in [
+            ("no_repo", "no_repo"),
+            ("enclosing_repo", "enclosing_repo"),
+            ("nothing_to_commit", "nothing_to_commit"),
+            ("no_git", "no_git"),
+            // A code this command does not answer is a plain error, as a refusal is.
+            ("no_commit", "error"),
+        ] {
+            let err = commit_error(KernelError::coded(code, FOREIGN));
+            assert_eq!(
+                (err.code, err.message.as_str()),
+                (expected, FOREIGN),
+                "{code}"
+            );
+        }
+        let err = commit_error(KernelError::Refused(FOREIGN.to_owned()));
+        assert_eq!((err.code, err.message.as_str()), ("error", FOREIGN));
+    }
 
     fn root_of(state: &AppState) -> PathBuf {
         crate::commands::open_project_arc(state)

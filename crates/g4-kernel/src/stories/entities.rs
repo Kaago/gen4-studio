@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, codes, io_at};
 use crate::project::Project;
 use crate::store::{ChangeId, FileChange, FileStep, FileStepKind, HEADER_TABLE, Store};
 use crate::text::Problem;
@@ -91,9 +91,10 @@ pub struct StoryReport {
 /// smallest free number, register entry, JSON (canonical) and an empty layout, as one file
 /// step labelled „Geschichte „<name>“ angelegt“. Refused before anything is written
 /// ([`KernelError::Refused`]): not a current text project
-/// ([`not_a_text_project`](crate::textproject::rename::not_a_text_project)), an empty name
-/// ([`name_empty_text`]), a progress id that resolves nowhere
-/// ([`unknown_id_text`](crate::textproject::ids::unknown_id_text)), a duplicate step key
+/// ([`not_a_text_project`](crate::textproject::rename::not_a_text_project),
+/// [`KernelError::Coded`] `not_text_project`), an empty name ([`name_empty_text`]), a progress
+/// id that resolves nowhere ([`unknown_id_text`](crate::textproject::ids::unknown_id_text),
+/// coded `unknown_id`, as every unknown id here), a duplicate step key
 /// ([`duplicate_key_text`]). A value above `u16` does not deserialize.
 ///
 /// [`normalize`]: crate::textproject::symbols::normalize
@@ -255,12 +256,28 @@ fn refuse<T>(why: impl Into<String>) -> Result<T, KernelError> {
     Err(KernelError::Refused(why.into()))
 }
 
+/// The refusal outside a text project ([`not_a_text_project`], code `not_text_project`).
+fn not_text_project<T>() -> Result<T, KernelError> {
+    Err(KernelError::coded(
+        codes::NOT_TEXT_PROJECT,
+        not_a_text_project(),
+    ))
+}
+
+/// The refusal of an id the register does not have ([`unknown_id_text`], code `unknown_id`).
+fn unknown_id<T>(id: &str) -> Result<T, KernelError> {
+    Err(KernelError::coded(codes::UNKNOWN_ID, unknown_id_text(id)))
+}
+
 /// Refuses a folder that is no text project of the current schema.
 fn text_project(project: &Project) -> Result<(), KernelError> {
     match schema_state(&project.root)? {
         SchemaState::Current => Ok(()),
-        SchemaState::Missing => refuse(not_a_text_project()),
-        state => refuse(refusal(state).unwrap_or_else(not_a_text_project)),
+        SchemaState::Missing => not_text_project(),
+        state => match refusal(state) {
+            Some(why) => refuse(why),
+            None => not_text_project(),
+        },
     }
 }
 
@@ -272,7 +289,8 @@ fn checked_name(name: &str) -> Result<String, KernelError> {
     }
 }
 
-/// Refuses a progress id that resolves nowhere, with the resolver's sentence.
+/// Refuses a progress id that resolves nowhere, with the resolver's sentence (each of them an
+/// unknown id: code `unknown_id`).
 fn check_progress(resolver: &Resolver, progress: &Progress) -> Result<(), KernelError> {
     let (kind, id) = match progress {
         Progress::Var(id) => (SymbolKind::Var, id),
@@ -281,7 +299,7 @@ fn check_progress(resolver: &Resolver, progress: &Progress) -> Result<(), Kernel
     resolver
         .number(kind, &RefInput::Id(id.clone()))
         .map(|_| ())
-        .map_err(KernelError::Refused)
+        .map_err(|why| KernelError::coded(codes::UNKNOWN_ID, why))
 }
 
 /// Refuses the first step key that an earlier step has.
@@ -352,7 +370,7 @@ fn prepare_update(
     let root = &project.root;
     let registry = Registry::load(root, SymbolKind::Story)?;
     let Some(number) = registry.ids.get(id).and_then(|&n| u16::try_from(n).ok()) else {
-        return refuse(unknown_id_text(id));
+        return unknown_id(id);
     };
     let rel = story_rel(number);
     let before = read_optional(root, &rel)?;
@@ -419,7 +437,7 @@ fn prepare_delete(project: &Project, id: &str) -> Result<Prepared, KernelError> 
     let root = &project.root;
     let registry = Registry::load(root, SymbolKind::Story)?;
     let Some(number) = registry.ids.get(id).and_then(|&n| u16::try_from(n).ok()) else {
-        return refuse(unknown_id_text(id));
+        return unknown_id(id);
     };
     let mut ids = registry.ids.clone();
     ids.remove(id);
@@ -509,7 +527,7 @@ pub fn append_step(
     let project = store.project_arc();
     text_project(&project)?;
     let Some(number) = super::schema::number_of(&project, id)? else {
-        return refuse(unknown_id_text(id));
+        return unknown_id(id);
     };
     let Some(story) = super::schema::read_story(&project, number)? else {
         let rel = story_rel(number);

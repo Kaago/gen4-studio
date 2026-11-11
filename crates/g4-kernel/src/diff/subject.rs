@@ -6,7 +6,7 @@ use std::path::{Component, Path};
 use serde::{Deserialize, Serialize};
 
 use crate::dynamic_headers;
-use crate::error::KernelError;
+use crate::error::{KernelError, codes};
 use crate::original::changed::{HEADER_GROUP, group_name, group_of};
 use crate::original::{ResetTarget, asset_label};
 use crate::project::{AssetId, AssetKind, Project};
@@ -269,7 +269,10 @@ impl DiffSubject {
         if inside {
             Ok(())
         } else {
-            Err(KernelError::Refused(super::outside_project()))
+            Err(KernelError::coded(
+                codes::NOT_DIFFABLE,
+                super::outside_project(),
+            ))
         }
     }
 

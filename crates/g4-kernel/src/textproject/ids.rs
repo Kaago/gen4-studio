@@ -45,7 +45,7 @@ impl Default for RefInput {
 }
 
 /// The error code of an id no table, register or internal name knows.
-pub const UNKNOWN_ID_CODE: &str = "unknown_id";
+pub const UNKNOWN_ID_CODE: &str = crate::error::codes::UNKNOWN_ID;
 
 /// The sentence for an id nothing knows: `Unbekannte ID: {id}.`
 pub fn unknown_id_text(id: &str) -> String {

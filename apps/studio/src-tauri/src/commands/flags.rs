@@ -9,16 +9,14 @@ use std::time::Instant;
 
 use g4_formats::game::Family;
 use g4_kernel::data::refs::{Access, Ref, ScriptCounts, Target, Usage};
-use g4_kernel::error::KernelError;
+use g4_kernel::error::{KernelError, codes};
 use g4_kernel::flags::{
-    self, Area, FlagKind, NameReport, NameRequest, TakenBy, area_of, names, taken_text,
-    trainer_flag,
+    self, Area, FlagKind, NameReport, NameRequest, area_of, names, trainer_flag,
 };
 use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project, SourceMode};
 use g4_kernel::scripts;
 use g4_kernel::store::Store;
-use g4_kernel::textproject::rename::{format_text, not_a_text_project};
 use serde::Serialize;
 
 use super::data::NavTargetDto;
@@ -491,7 +489,7 @@ pub fn name_flag_impl(state: &AppState, req: NameRequest) -> Result<NameReport, 
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     session.writable()?;
-    let report = flags::name_flag(&mut session.store, &req).map_err(|e| name_error(e, &req))?;
+    let report = flags::name_flag(&mut session.store, &req).map_err(name_error)?;
     // The register and the entity file were written past the store.
     session.files_written(&[]);
     session.id_files_changed();
@@ -499,37 +497,18 @@ pub fn name_flag_impl(state: &AppState, req: NameRequest) -> Result<NameReport, 
     Ok(report)
 }
 
-/// A refusal of [`flags::name_flag`] with its code (see [`name_flag_impl`]).
-fn name_error(e: KernelError, req: &NameRequest) -> CmdError {
-    let KernelError::Refused(why) = e else {
-        return e.into();
-    };
-    let code = if why == not_a_text_project() {
-        "not_text_project"
-    } else if why == format_text(req.kind.symbol()) {
-        "invalid_id"
-    } else if req.id.as_deref().is_some_and(|id| is_taken(&why, id)) {
-        "taken"
-    } else {
-        "refused"
+/// A refusal of [`flags::name_flag`] with its code (see [`name_flag_impl`]), by the kernel's
+/// code: `not_text_project`, `invalid_id` and `taken` as they are, any other refusal `refused`.
+fn name_error(e: KernelError) -> CmdError {
+    let (code, why) = match e {
+        KernelError::Coded {
+            code: code @ (codes::NOT_TEXT_PROJECT | codes::INVALID_ID | codes::TAKEN),
+            message,
+        } => (code, message),
+        KernelError::Refused(why) | KernelError::Coded { message: why, .. } => ("refused", why),
+        other => return other.into(),
     };
     CmdError::refused(code, why)
-}
-
-/// Whether `why` is a [`taken_text`] of `id`: the sentence up to its number.
-fn is_taken(why: &str, id: &str) -> bool {
-    [
-        TakenBy::Register(0),
-        TakenBy::Fallback(0),
-        TakenBy::Pret(0),
-        TakenBy::Rotom(0),
-    ]
-    .into_iter()
-    .any(|by| {
-        let text = taken_text(id, by);
-        text.rfind('0')
-            .is_some_and(|number| why.starts_with(&text[..number]))
-    })
 }
 
 /// Builds the reference index on first use (seconds on a large project), so off the main
@@ -591,6 +570,29 @@ mod tests {
     const NAMELESS: u16 = 0x1234;
     /// `VAR_PLAYER_HOUSE_RIVAL_STATE`.
     const RIVAL_STATE: u16 = 0x40A5;
+    /// A sentence no catalog holds: the code of a refusal comes from the kernel's code alone.
+    const FOREIGN: &str = "Ein deutscher Satz, den kein Katalog kennt";
+
+    #[test]
+    fn name_error_reads_the_kernels_code_not_its_words() {
+        for (code, expected) in [
+            ("not_text_project", "not_text_project"),
+            ("invalid_id", "invalid_id"),
+            ("taken", "taken"),
+            // A code this command does not answer is a plain refusal.
+            ("unknown_id", "refused"),
+        ] {
+            let err = name_error(KernelError::coded(code, FOREIGN));
+            assert_eq!(
+                (err.code, err.message.as_str()),
+                (expected, FOREIGN),
+                "{code}"
+            );
+        }
+        let err = name_error(KernelError::Refused(FOREIGN.to_owned()));
+        assert_eq!((err.code, err.message.as_str()), ("refused", FOREIGN));
+        assert_eq!(name_error(KernelError::FindingStale).code, "finding_stale");
+    }
 
     fn object_with_flag(state: &AppState, event_file: u16, flag: u16) -> u16 {
         let patch = EventPatch {

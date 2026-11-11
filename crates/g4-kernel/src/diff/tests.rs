@@ -102,7 +102,7 @@ fn try_diff(
 
 fn refusal(result: Result<EntityDiffReport, KernelError>) -> String {
     match result {
-        Err(KernelError::Refused(why)) => why,
+        Err(KernelError::Refused(why) | KernelError::Coded { message: why, .. }) => why,
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

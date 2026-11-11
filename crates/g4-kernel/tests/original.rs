@@ -732,7 +732,7 @@ fn last_label(store: &Store) -> String {
 
 fn refusal<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
     match result {
-        Err(KernelError::Refused(why)) => why,
+        Err(KernelError::Refused(why) | KernelError::Coded { message: why, .. }) => why,
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

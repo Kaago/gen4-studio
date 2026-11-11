@@ -16,7 +16,7 @@ use g4_formats::game::Family;
 use serde::{Deserialize, Serialize};
 
 use super::{FlagKind, in_save, names, ranges};
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, codes, io_at};
 use crate::project::Project;
 use crate::scripts;
 use crate::store::{ChangeId, FileChange, FileStep, FileStepKind, HEADER_TABLE, Store};
@@ -181,8 +181,9 @@ pub fn not_in_save_text(kind: FlagKind, n: u16, family: Family) -> String {
 /// documentation): labelled „Flag benannt: FLAG_X (0x0094)“, „Variable benannt: VAR_X (0x406C)“
 /// or „Beschreibung geändert: FLAG_X“. Every refusal comes before anything is written and is
 /// [`KernelError::Refused`] with its sentence: not a current text project
-/// ([`not_a_text_project`]), the number outside the save ([`not_in_save_text`]), an id without
-/// the kind's prefix or with other characters ([`format_text`]), an id taken ([`taken_text`]),
+/// ([`not_a_text_project`], [`KernelError::Coded`] `not_text_project`), the number outside the
+/// save ([`not_in_save_text`]), an id without the kind's prefix or with other characters
+/// ([`format_text`], coded `invalid_id`), an id taken ([`taken_text`], coded `taken`),
 /// a number with another own name ([`has_own_name`]), no id for a number without an own name
 /// ([`id_required`]), nothing to do ([`nothing_to_change`]).
 pub fn name_flag(store: &mut Store, req: &NameRequest) -> Result<NameReport, KernelError> {
@@ -252,13 +253,20 @@ fn read_optional(root: &Path, rel: &Path) -> Result<Option<Vec<u8>>, KernelError
     }
 }
 
-/// Checks the rules of [`name_flag`] and makes its step; a refusal is [`KernelError::Refused`].
+/// Checks the rules of [`name_flag`] and makes its step; a refusal is [`KernelError::Refused`]
+/// or [`KernelError::Coded`] (see [`name_flag`]).
 fn prepare(project: &Project, req: &NameRequest) -> Result<Named, KernelError> {
     let refuse = |why: String| Err(KernelError::Refused(why));
+    let coded = |code, why: String| Err(KernelError::coded(code, why));
     match schema_state(&project.root)? {
         SchemaState::Current => {}
-        SchemaState::Missing => return refuse(not_a_text_project()),
-        state => return refuse(refusal(state).unwrap_or_else(not_a_text_project)),
+        SchemaState::Missing => return coded(codes::NOT_TEXT_PROJECT, not_a_text_project()),
+        state => {
+            return match refusal(state) {
+                Some(why) => refuse(why),
+                None => coded(codes::NOT_TEXT_PROJECT, not_a_text_project()),
+            };
+        }
     }
     let (kind, n) = (req.kind, req.number);
     let symbol = kind.symbol();
@@ -275,13 +283,13 @@ fn prepare(project: &Project, req: &NameRequest) -> Result<Named, KernelError> {
             // The pret name of another number first: pret names may have a lower-case `0x`,
             // which the form refuses with a less telling sentence.
             if let Some(other) = names(family, kind).number(id).filter(|&other| other != n) {
-                return refuse(taken_text(id, TakenBy::Pret(other)));
+                return coded(codes::TAKEN, taken_text(id, TakenBy::Pret(other)));
             }
             if !well_formed(symbol, id) {
-                return refuse(format_text(symbol));
+                return coded(codes::INVALID_ID, format_text(symbol));
             }
             if let Some(by) = taken(project, kind, n, &registry, id)? {
-                return refuse(taken_text(id, by));
+                return coded(codes::TAKEN, taken_text(id, by));
             }
             if own.is_some() {
                 return refuse(has_own_name());

@@ -138,7 +138,7 @@ fn compile_problems(result: Result<impl std::fmt::Debug, KernelError>) -> Vec<Pr
 
 fn refusal(result: Result<ExportReport, KernelError>) -> String {
     match result {
-        Err(KernelError::Refused(text)) => text,
+        Err(KernelError::Refused(text) | KernelError::Coded { message: text, .. }) => text,
         other => panic!("expected Refused, got {other:?}"),
     }
 }
@@ -1378,7 +1378,7 @@ impl Fx {
 /// The refusal of a call that is not an export.
 fn refused<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
     match result {
-        Err(KernelError::Refused(text)) => text,
+        Err(KernelError::Refused(text) | KernelError::Coded { message: text, .. }) => text,
         other => panic!("expected Refused, got {other:?}"),
     }
 }

@@ -279,12 +279,16 @@ fn rename_refuses_taken_fallback_and_malformed_ids_and_writes_nothing() {
 
         let mut st = store(&fx);
         match rename_id(&mut st, old, new) {
-            Err(KernelError::Refused(r)) => assert_eq!(&r, why, "{old} → {new}"),
+            Err(e @ (KernelError::Refused(_) | KernelError::Coded { .. })) => {
+                assert_eq!(&e.to_string(), why, "{old} → {new}");
+            }
             other => panic!("{old} → {new}: expected a refusal, got {other:?}"),
         }
         assert!(st.history().0.is_empty());
         match rename_id_files(&fx.project(), old, new) {
-            Err(KernelError::Refused(r)) => assert_eq!(&r, why, "{old} → {new}"),
+            Err(e @ (KernelError::Refused(_) | KernelError::Coded { .. })) => {
+                assert_eq!(&e.to_string(), why, "{old} → {new}");
+            }
             other => panic!("{old} → {new}: expected a refusal, got {other:?}"),
         }
     }

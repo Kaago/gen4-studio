@@ -250,17 +250,17 @@ fn tileset_of(project: &Project, package: u16) -> Result<Option<Tileset>, Kernel
     match read_tileset_file(project, package) {
         Ok(Some(tileset)) => return Ok(Some(tileset)),
         Ok(None) => {}
-        Err(KernelError::Refused(_)) => return Ok(None),
+        Err(KernelError::Refused(_) | KernelError::Coded { .. }) => return Ok(None),
         Err(e) => return Err(e),
     }
     let path = match package_file(project, package) {
         Ok(path) => path,
-        Err(KernelError::Refused(_)) => return Ok(None),
+        Err(KernelError::Refused(_) | KernelError::Coded { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
     match read_package_file(&path, package) {
         Ok(btx) => Ok(Some(textures_only(package, &btx))),
-        Err(KernelError::Refused(_)) => Ok(None),
+        Err(KernelError::Refused(_) | KernelError::Coded { .. }) => Ok(None),
         Err(e) => Err(e),
     }
 }
@@ -333,7 +333,7 @@ fn schema_of(
         let count = project.member_count(AssetKind::MapTexture)?;
         if usize::from(package) >= count && !in_base(package) {
             let text = match missing_package(package, count) {
-                KernelError::Refused(text) => text,
+                KernelError::Refused(text) | KernelError::Coded { message: text, .. } => text,
                 other => other.to_string(),
             };
             let e = WorldError {

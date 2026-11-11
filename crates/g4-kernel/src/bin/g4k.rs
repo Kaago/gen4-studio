@@ -2748,9 +2748,11 @@ fn story(command: StoryCommand) -> Result<(), Failure> {
         StoryCommand::Get { project, id } => {
             let project = Project::open(&project)?;
             let Some(number) = stories::number_of(&project, &id)? else {
-                return Err(
-                    KernelError::Refused(g4_kernel::textproject::ids::unknown_id_text(&id)).into(),
-                );
+                return Err(KernelError::coded(
+                    g4_kernel::error::codes::UNKNOWN_ID,
+                    g4_kernel::textproject::ids::unknown_id_text(&id),
+                )
+                .into());
             };
             let Some(story) = stories::read_story(&project, number)? else {
                 return Err(Failure::Message(

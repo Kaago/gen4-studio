@@ -9,7 +9,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 use crate::base::{BaseRom, other_rom};
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, codes, io_at};
 use crate::project::Project;
 use crate::start::{BaseMark, now_rfc3339, read_base_mark};
 
@@ -122,7 +122,7 @@ pub fn not_a_folder() -> String {
 /// The patch's suffix.
 const XDELTA: &str = ".xdelta";
 
-/// The targets of `opts` (`Err(Refused(bad_file()))` for a bad name); creates nothing.
+/// The targets of `opts` (`Err(Coded(bad_file, bad_file()))` for a bad name); creates nothing.
 pub fn targets_for(
     project: &Project,
     opts: &PublishOptions,
@@ -147,7 +147,7 @@ pub fn targets_for(
 
 const README: &str = "README.txt";
 
-/// `file` with `.xdelta` (added when missing), or `Refused(bad_file())` for a name that is empty
+/// `file` with `.xdelta` (added when missing), or `Coded(bad_file, …)` for a name that is empty
 /// (also before the suffix, after cutting spaces and dots) or has a character a file name
 /// cannot.
 fn file_name(file: &str) -> Result<String, KernelError> {
@@ -156,12 +156,14 @@ fn file_name(file: &str) -> Result<String, KernelError> {
     };
     let stem = file.strip_suffix(XDELTA).unwrap_or(file);
     if stem.trim_matches([' ', '.']).is_empty() || file.contains(bad) {
-        return Err(KernelError::Refused(bad_file()));
+        return Err(KernelError::coded(codes::BAD_FILE, bad_file()));
     }
     Ok(format!("{stem}{XDELTA}"))
 }
 
-/// `Refused("<name> " + exists())` when the patch or its notes exist and `overwrite` is false.
+/// `Coded(exists, "<name> " + exists())` when the patch or its notes exist and `overwrite` is
+/// false; `Coded(bad_dir, not_a_folder() + ": <path>")` when the folder or the first path above
+/// it that exists is a file.
 /// `README.txt` never counts: it describes the newest release in its folder and is always
 /// replaced.
 pub fn check_targets(targets: &PublishTargets, overwrite: bool) -> Result<(), KernelError> {
@@ -170,11 +172,10 @@ pub fn check_targets(targets: &PublishTargets, overwrite: bool) -> Result<(), Ke
         match std::fs::metadata(ancestor) {
             Ok(meta) if meta.is_dir() => break,
             Ok(_) => {
-                return Err(KernelError::Refused(format!(
-                    "{}: {}",
-                    not_a_folder(),
-                    ancestor.display()
-                )));
+                return Err(KernelError::coded(
+                    codes::BAD_DIR,
+                    format!("{}: {}", not_a_folder(), ancestor.display()),
+                ));
             }
             Err(_) => {}
         }
@@ -185,11 +186,10 @@ pub fn check_targets(targets: &PublishTargets, overwrite: bool) -> Result<(), Ke
     for file in [&targets.patch, &targets.notes] {
         if std::fs::symlink_metadata(file).is_ok() {
             let name = file.file_name().unwrap_or(file.as_os_str());
-            return Err(KernelError::Refused(format!(
-                "{} {}",
-                name.to_string_lossy(),
-                exists()
-            )));
+            return Err(KernelError::coded(
+                codes::EXISTS,
+                format!("{} {}", name.to_string_lossy(), exists()),
+            ));
         }
     }
     Ok(())
@@ -202,7 +202,7 @@ pub fn check_publish(
     opts: &PublishOptions,
 ) -> Result<PublishTargets, KernelError> {
     let releases = read_releases(&project.root)?;
-    check_version(&opts.version, &releases).map_err(KernelError::Refused)?;
+    check_version(&opts.version, &releases)?;
     let targets = targets_for(project, opts)?;
     check_targets(&targets, opts.overwrite)?;
     Ok(targets)
@@ -329,10 +329,11 @@ pub fn publish_built(
     })
 }
 
-/// The project's base mark, `Refused(no_mark())` without one, `Refused(other_rom …)` when
+/// The project's base mark, `Coded(no_mark, no_mark())` without one, `Refused(other_rom …)` when
 /// `base` is not its ROM.
 fn required_mark(project: &Project, base: &BaseRom) -> Result<BaseMark, KernelError> {
-    let mark = read_base_mark(&project.root).ok_or_else(|| KernelError::Refused(no_mark()))?;
+    let mark = read_base_mark(&project.root)
+        .ok_or_else(|| KernelError::coded(codes::NO_MARK, no_mark()))?;
     if !mark.sha1.eq_ignore_ascii_case(base.sha1()) {
         return Err(KernelError::Refused(other_rom(base.sha1(), &mark)));
     }
@@ -458,7 +459,7 @@ mod tests {
 
     fn refused(err: &KernelError) -> &str {
         match err {
-            KernelError::Refused(message) => message,
+            KernelError::Refused(message) | KernelError::Coded { message, .. } => message,
             other => panic!("not refused: {other:?}"),
         }
     }

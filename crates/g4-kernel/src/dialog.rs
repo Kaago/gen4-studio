@@ -727,7 +727,7 @@ fn split_refusals(
 /// The sentence of a refusal; another error as its message.
 fn refusal_text(error: &KernelError) -> String {
     match error {
-        KernelError::Refused(why) => why.clone(),
+        KernelError::Refused(why) | KernelError::Coded { message: why, .. } => why.clone(),
         other => other.to_string(),
     }
 }

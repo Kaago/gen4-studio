@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use g4_formats::game::Family;
 use g4_kernel::data::refs::{Access, Ref, Target};
-use g4_kernel::error::KernelError;
+use g4_kernel::error::{KernelError, codes};
 use g4_kernel::flags::{self, FlagKind, names};
 use g4_kernel::project::{AssetId, AssetKind, Project, SourceMode};
 use g4_kernel::scripts;
@@ -20,7 +20,6 @@ use g4_kernel::stories::{
 use g4_kernel::text::Problem;
 use g4_kernel::textproject::ids::{RefInput, UNKNOWN_ID_CODE, unknown_id_text};
 use g4_kernel::textproject::registry::Registry;
-use g4_kernel::textproject::rename::not_a_text_project;
 use g4_kernel::textproject::symbols::SymbolKind;
 use serde::Serialize;
 use serde_json::Value;
@@ -446,15 +445,13 @@ fn progress_parts(progress: &Progress) -> (SymbolKind, &str) {
 /// names nothing, `refused` for anything else (an empty name, a step key twice, nothing to
 /// change).
 fn story_error(e: KernelError) -> CmdError {
-    let KernelError::Refused(why) = e else {
-        return e.into();
-    };
-    let code = if why == not_a_text_project() {
-        "not_text_project"
-    } else if why.starts_with(unknown_id_text("").trim_end_matches('.')) {
-        UNKNOWN_ID_CODE
-    } else {
-        "refused"
+    let (code, why) = match e {
+        KernelError::Coded {
+            code: code @ (codes::NOT_TEXT_PROJECT | codes::UNKNOWN_ID),
+            message,
+        } => (code, message),
+        KernelError::Refused(why) | KernelError::Coded { message: why, .. } => ("refused", why),
+        other => return other.into(),
     };
     CmdError::refused(code, why)
 }
