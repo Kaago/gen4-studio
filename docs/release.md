@@ -3,10 +3,11 @@
 # Release: macOS-DMG und Windows-Installer
 
 Gen4 Studio erscheint als DMG für macOS (arm64) und als NSIS-Installer für Windows (x64). Beide Pakete entstehen aus den
-hermetischen Quellen: keine ROM, kein Spielstand, kein Geheimnis. Das DMG baut `scripts/release-local.sh` auf dem Mac des
+hermetischen Quellen: keine ROM, kein Spielstand, kein Geheimnis im Paket. Das DMG baut `scripts/release-local.sh` auf dem Mac des
 Maintainers, der auch Tag und Release-Entwurf anlegt; nur den Installer baut der Workflow `release.yml` auf einem gehosteten
-Windows-Runner, von Hand gestartet. Die CI `ci.yml` läuft bei jedem Pull Request und jedem Push auf `main` (Abschnitt „Workflows, Tags und Versionen“). Dieses
-Dokument beschreibt beide Bundles, den Weg vom Tag zum Release, die Lizenzhinweise und den vorbereiteten Schritt zum Signieren.
+Windows-Runner, von Hand gestartet. Beide Wege signieren dazu die Update-Pakete für den Updater der App (Abschnitt „Update-Pakete“);
+dafür liegt ein Schlüssel beim Maintainer und in den GitHub-Secrets. Die CI `ci.yml` läuft bei jedem Pull Request und jedem Push auf `main` (Abschnitt „Workflows, Tags und Versionen“). Dieses
+Dokument beschreibt beide Bundles, den Weg vom Tag zum Release, die Update-Pakete, die Lizenzhinweise und den vorbereiteten Schritt zum Signieren.
 Die Abnahme mit einer ROM und mit dem fertigen Paket steht in `docs/release-ci-gate.md`.
 
 Das Bundle enthält Fremdkomponenten, damit die App ohne den Entwicklungsbaum läuft:
@@ -30,6 +31,7 @@ Der Spielmodus live (melonDS-Kern im Fenster) bleibt macOS-only; unter Windows m
 - Kein eigener `PATH` mehr nötig: `pnpm bundle` und `pnpm tauri` laufen über `apps/studio/scripts/with-rust.sh`, das `/opt/homebrew/opt/rustup/bin` und `~/.cargo/bin` vor den `PATH` setzt (`tauri build` braucht `cargo`; ohne das brach der Bau mit „failed to run 'cargo metadata'“ ab).
 - Die Datei `.cargo/config.toml` (CFLAGS für nitroarc auf neuen macOS-SDKs) liegt im Repository und gilt automatisch. Unter Windows stört sie nicht.
 - Die Fassungen der Werkzeuge (apicula, rotom, cargo-deny, pnpm, Node, cargo-about) stehen an einer Stelle: `scripts/tool-versions.env`.
+- Für einen Release der Schlüssel der Update-Signatur (`~/.tauri/gen4-studio-updater.key`) und sein Passwort im Schlüsselbund (Abschnitt „Update-Pakete“). Entwicklung, Gate und Probeläufe brauchen sie nicht.
 
 ## macOS: das DMG
 
@@ -99,8 +101,9 @@ auch unter MSVC-Rust; beide kommen aus MSYS2 (`msys2/setup-msys2`, Paket `mingw-
   `cargo build` und `cargo test` alle `bundle.resources` neben die Binary und überschriebe die echte DLL (von uxies
   `build.rs` dorthin gelegt) mit dem leeren Platzhalter; `target\debug\studio.exe` fände dann die DLL nicht mehr.
 
-**Signatur:** Der Installer ist nicht signiert. SmartScreen warnt beim ersten Start („Der Computer wurde durch Windows
-geschützt“): „Weitere Informationen“, dann „Trotzdem ausführen“.
+**Signatur:** Der Installer ist nicht mit einem Code-Signing-Zertifikat signiert. SmartScreen warnt beim ersten Start („Der Computer wurde durch Windows
+geschützt“): „Weitere Informationen“, dann „Trotzdem ausführen“. Die Datei `<Installer>.sig` daneben ist etwas anderes: die Signatur
+des Updaters (Abschnitt „Update-Pakete“), die nur die App prüft.
 
 **Prüfung:** `apps/studio/scripts/check-bundle-windows.sh <Installer>` installiert still in einen Ordner unter `$RUNNER_TEMP`,
 prüft die Dateien (`studio.exe`, `apicula.exe`, `rotom-lsp.exe`, die DLL, `licenses/`) und ruft `studio.exe doctor` auf; die Ausgabe endet mit
@@ -140,21 +143,27 @@ gh workflow run ci.yml --ref <Branch>     # ein Branch statt main (er muss gepus
 
 1. Prüfungen vor dem Bau: `version.sh check <Tag>`, sauberer Arbeitsbaum, HEAD gleich `main` gleich `origin/main` (nach
    `git fetch origin main`), `check-no-rom-data.sh` über das Repository, die Release-Notizen (Abschnitt der Fassung ohne
-   Suffix aus `CHANGELOG.md`, `scripts/release/changelog-section.sh`). Ohne `--dry-run` zusätzlich: `gh` ist angemeldet,
+   Suffix aus `CHANGELOG.md`, `scripts/release/changelog-section.sh`) und der Updater-Schlüssel (Schritt „Updater-Schlüssel“, Abschnitt
+   „Update-Pakete“): Ein echter Release bricht ohne Schlüssel oder Passwort vor dem Bau ab. Ohne `--dry-run` zusätzlich: `gh` ist angemeldet,
    zum Tag gibt es noch keinen Release (auch keinen Entwurf), ein schon vorhandener Tag (lokal oder auf `origin`) zeigt auf HEAD.
 2. Bau wie früher der Job `bundle-macos`: `pnpm install --frozen-lockfile`, dann `CI=true pnpm bundle -- --bundles app,dmg`
    (apicula und rotom-lsp baut `prepare-bundle.sh` nach `scripts/tool-versions.env`, wenn sie in `tools/` fehlen; `cargo-about`
    in der Fassung `CARGO_ABOUT_VERSION` muss installiert sein), danach `scripts/release/macos-dmg.sh` mit dem hdiutil-Rückfall.
-3. Prüfung: `check-bundle.sh`, `check-no-rom-data.sh <app> <dmg>` und der Rauchtest (`smoke-packaged.sh`, leere Umgebung) auf
-   einem synthetischen Projekt aus `make_synthetic`.
-4. `dist-release/` (gitignoriert) mit `Gen4-Studio_<Fassung>_aarch64.dmg`, `SHA256SUMS.txt` (`shasum -a 256`) und `notes.md`.
+   Mit Schlüssel kommt `--config src-tauri/tauri.updater.conf.json` dazu: Tauri signiert dann das Update-Paket
+   `Gen4 Studio.app.tar.gz` und schreibt dessen `.sig`.
+3. Prüfung: das Update-Paket (nicht leer, `Gen4 Studio.app/` als erster Eintrag des Archivs, `.sig` nicht leer), `check-bundle.sh`,
+   `check-no-rom-data.sh <app> <dmg>` und der Rauchtest (`smoke-packaged.sh`, leere Umgebung) auf einem synthetischen Projekt aus `make_synthetic`.
+4. `dist-release/` (gitignoriert) mit `Gen4-Studio_<Fassung>_aarch64.dmg`, mit Schlüssel `Gen4-Studio_<Fassung>_aarch64.app.tar.gz` und
+   `….app.tar.gz.sig`, `SHA256SUMS.txt` (`shasum -a 256`, nur das DMG; die Zeile des Installers ergänzt `release.yml`) und `notes.md`.
 5. Ohne `--dry-run`: `git tag -a <Tag>` (falls er fehlt), `git push origin <Tag>` und
-   `gh release create <Tag> --draft [--prerelease] --title "Gen4 Studio <Fassung>" --notes-file dist-release/notes.md` mit DMG
-   und `SHA256SUMS.txt`. Einen Tag mit `-rc` legt das Skript als Pre-Release an.
+   `gh release create <Tag> --draft [--prerelease] --title "Gen4 Studio <Fassung>" --notes-file dist-release/notes.md` mit DMG,
+   Update-Paket, dessen `.sig` und `SHA256SUMS.txt`. Einen Tag mit `-rc` legt das Skript als Pre-Release an.
 
 Mit `--dry-run` läuft alles bis auf Tag, Push und Release; die letzte Zeile ist `release-local: Probelauf ok (<Dateien>)`.
+Ohne Schlüssel baut der Probelauf ohne Update-Paket und meldet das (`Updater-Pakete: ausgelassen (kein Schlüssel)`).
 `G4_RELEASE_ALLOW_BRANCH=1` lässt einen Probelauf außerhalb von `main` zu (etwa in einem Worktree), nur mit `--dry-run`;
-`G4_RELEASE_SKIP_BUILD=1` ist nur für `scripts/tests/release-local.test.sh`. Der Probelauf vom 5. November 2026 (`v0.1.0-rc.2`)
+`G4_RELEASE_SKIP_BUILD=1` ist nur für `scripts/tests/release-local.test.sh`; `G4_UPDATER_KEY` und `G4_UPDATER_KEYCHAIN` stehen im Abschnitt
+„Update-Pakete“. Der Probelauf vom 5. November 2026 (`v0.1.0-rc.2`)
 dauerte rund 5 Minuten nach einem Release-Build von gut 3 Minuten, kalt also etwa 10 Minuten.
 
 **Release, Schritt 2: `release.yml`** (Windows) baut den Installer auf `windows-latest` aus dem Tag und prüft ihn
@@ -165,22 +174,109 @@ gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false   # Installer an den 
 gh workflow run release.yml -f tag=vX.Y.Z                    # Probelauf (dry_run=true): bauen und prüfen, nichts hochladen
 ```
 
-Der Job `version` prüft die Fassung des Tags gegen den Tag, `bundle-windows` baut und prüft, und `publish-windows` (nur ohne
+Der Job `version` prüft die Fassung des Tags gegen den Tag, `bundle-windows` baut und prüft (der Schritt „Bundle (nsis)“ bekommt die
+Secrets der Update-Signatur und übergibt `--config src-tauri/tauri.updater.conf.json`; fehlt das Secret, scheitert er; „Installer“
+verlangt neben dem `*-setup.exe` auch dessen `.sig`), und `publish-windows` (nur ohne
 `dry_run`) lädt `Gen4-Studio_<Fassung>_x64-setup.exe` an den **vorhandenen** Entwurf, ergänzt dessen `SHA256SUMS.txt` um die
 Zeile des Installers (`scripts/release/add-checksum.sh`, eine Zeile gleichen Namens wird ersetzt) und lädt sie mit `--clobber`
-neu hoch. Gibt es zum Tag keinen Release oder ist er kein Entwurf mehr, bricht der Job mit einer Meldung ab. Ein Lauf kostet kalt
+neu hoch. Danach lädt es die `.sig` des Installers hoch und schreibt `latest.json` (Abschnitt „Update-Pakete“). Gibt es zum Tag keinen Release oder ist er kein Entwurf mehr, bricht der Job mit einer Meldung ab. Ein Lauf kostet kalt
 rund 0,70 $ (Windows-Minuten zählen doppelt); Caches gehören zum Ref, von dem der Workflow startet (Standard `main`), ein
 späterer Lauf liest also, was der vorige gespeichert hat.
 
-Danach prüft der Maintainer den Entwurf (DMG, Installer, `SHA256SUMS.txt` mit beiden Zeilen, Text) und veröffentlicht ihn von Hand.
+Danach prüft der Maintainer den Entwurf (die sieben Assets der Checkliste im Abschnitt „Update-Pakete“, `SHA256SUMS.txt` mit beiden Zeilen, Text) und veröffentlicht ihn von Hand.
 
 **Versionen:** Die Fassung steht an einer Stelle, `version` in `[workspace.package]` der `Cargo.toml`; `apps/studio/package.json`
 trägt dieselbe Zahl (Tauri liest sie von dort). `scripts/version.sh` druckt sie (`version.sh`), setzt sie (`version.sh set <Fassung>`,
 schreibt auch `Cargo.lock`) und prüft sie (`version.sh check [<Tag>]`: beide Stellen gleich, gültiges SemVer, ein Abschnitt
 in `CHANGELOG.md`, der Tag ist `v<Fassung>`). Tags heißen `vX.Y.Z` und `vX.Y.Z-rc.N`; für `-rc` gilt der Abschnitt der Fassung ohne Suffix.
 Ablauf: `version.sh set`, Abschnitt in `CHANGELOG.md` ergänzen, `scripts/gate.sh`, mergen und `main` pushen, dann
-`bash scripts/release-local.sh vX.Y.Z` (Tag, Push, Entwurf mit dem DMG), `gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false`
-(Installer dazu), Entwurf prüfen und veröffentlichen.
+`bash scripts/release-local.sh vX.Y.Z` (Tag, Push, Entwurf mit DMG und Update-Paket), `gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false`
+(Installer und `latest.json` dazu), Entwurf prüfen und veröffentlichen. Tags mit Build-Metadaten (`vX.Y.Z+build`) gehen nicht:
+`scripts/release/updater-manifest.sh` lehnt sie ab.
+
+## Update-Pakete
+
+Die App fragt auf GitHub, ob es eine neuere Fassung gibt, lädt sie und installiert sie (Updater-Plugin von Tauri; nur in der gepackten
+App, nicht in der Entwicklung). Dafür hat jeder Release neben DMG und Installer signierte Update-Pakete und die Datei `latest.json`. Die Signatur
+ist eine minisign-Signatur aus `tauri signer generate` und hat nichts mit Developer ID oder einem Windows-Zertifikat zu tun: Sie sagt der App
+nur, dass das Paket vom Maintainer stammt; der öffentliche Schlüssel dazu steht in `apps/studio/src-tauri/tauri.conf.json`
+(`plugins.updater.pubkey`), die App installiert nur Pakete mit gültiger Signatur.
+
+**Schlüssel und Passwort.**
+
+- Der private Schlüssel liegt auf dem Mac des Maintainers unter `~/.tauri/gen4-studio-updater.key` (Rechte 600, Ordner `~/.tauri` 700),
+  das Passwort im Schlüsselbund (Dienst `gen4-studio-updater`, Konto `$USER`).
+- Auf GitHub liegen sie als Secrets `TAURI_SIGNING_PRIVATE_KEY` (Inhalt der Schlüsseldatei) und `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+  `release.yml` liest sie nur im Schritt „Bundle (nsis)“; ein Workflow, den ein Pull Request startet, sieht sie nicht
+  (`release.yml` läuft nur von Hand).
+- Der Maintainer sichert Schlüsseldatei und Passwort zusätzlich im Passwort-Manager.
+- Schlüssel und Passwort stehen nie im Repository, in Logs oder in der Ausgabe eines Skripts.
+
+Die Secrets setzt der Maintainer auf dem Mac, einmal und nach jedem neuen Schlüssel (das Passwort geht über eine Pipe, nie in eine Befehlszeile):
+
+```sh
+gh secret set TAURI_SIGNING_PRIVATE_KEY <"$HOME/.tauri/gen4-studio-updater.key"
+security find-generic-password -s gen4-studio-updater -a "$USER" -w | gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+gh secret list   # beide Namen erscheinen
+```
+
+**Wo `release-local.sh` den Schlüssel findet.** Der Schlüssel ist `TAURI_SIGNING_PRIVATE_KEY` (der Inhalt) oder, wenn die Variable leer ist, der Inhalt der
+Datei `G4_UPDATER_KEY` (Vorgabe `~/.tauri/gen4-studio-updater.key`). Das Passwort ist `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (auch ein leeres zählt) oder,
+wenn die Variable nicht gesetzt ist, der Schlüsselbund-Eintrag; `G4_UPDATER_KEYCHAIN=0` schaltet die Abfrage des Schlüsselbunds ab (die Tests tun das). Fehlt
+eines von beiden, bricht ein echter Release vor dem Bau ab (`Updater-Schlüssel fehlt: …`); ein Probelauf baut dann ohne Update-Paket.
+`bundle.createUpdaterArtifacts` steht nur in `apps/studio/src-tauri/tauri.updater.conf.json`, die beide Release-Wege mit `--config` übergeben:
+Entwicklung, Gate, CI und Beitragende bauen ohne Schlüssel.
+
+**Die sieben Assets.** Bevor ein Entwurf veröffentlicht wird, muss er genau diese Dateien haben:
+
+- [ ] `Gen4-Studio_<Fassung>_aarch64.dmg` (macOS, von `release-local.sh`)
+- [ ] `Gen4-Studio_<Fassung>_aarch64.app.tar.gz` (Update-Paket macOS, `release-local.sh`)
+- [ ] `Gen4-Studio_<Fassung>_aarch64.app.tar.gz.sig` (`release-local.sh`)
+- [ ] `Gen4-Studio_<Fassung>_x64-setup.exe` (Windows, `release.yml`; zugleich das Update-Paket für Windows)
+- [ ] `Gen4-Studio_<Fassung>_x64-setup.exe.sig` (`release.yml`)
+- [ ] `SHA256SUMS.txt` (nennt nur DMG und Installer, nicht die Update-Pakete)
+- [ ] `latest.json` (`release.yml`)
+
+DMG und Installer bleiben die Downloads für Menschen.
+
+**`latest.json`.** Zuletzt läuft in `publish-windows` der Schritt „Update manifest“: Er holt die `.sig` des macOS-Pakets aus dem Entwurf, nimmt als Text
+den Text des Entwurfs (die Release-Notizen aus `CHANGELOG.md`; was im Entwurf steht, zeigt die App) und ruft
+`scripts/release/updater-manifest.sh <Tag> <Notizen> <macOS-.sig> <Windows-.sig> latest.json` auf. Das Skript prüft, was es schreibt: der Tag ist `v<SemVer>`,
+beide Signaturen sind nicht leer, Base64 und beginnen entschlüsselt mit `untrusted comment:`; die Adressen zeigen auf die Assets des Tags. Fehlt die macOS-`.sig`
+(`release-local.sh` lief ohne Schlüssel) oder ist eine Prüfung nicht erfüllt, scheitert der Job vor dem Hochladen und `latest.json` entsteht nicht.
+Tags mit Build-Metadaten (`+…`) sind nicht unterstützt: das Skript lehnt sie ab, weil das `+` in Dateinamen und Adressen landen würde.
+
+**Wann die App den Release sieht.** Die App liest `https://github.com/Kaago/gen4-studio/releases/latest/download/latest.json`. GitHub leitet `latest` auf den
+neuesten **veröffentlichten** Release, der kein Pre-Release ist: Entwürfe und `-rc`-Fassungen sieht die App nie. Sobald ein Release veröffentlicht ist, zeigt `latest` darauf;
+vorher müssen alle sieben Assets im Entwurf liegen (Checkliste oben). Unter Windows beendet sich die App, wenn der Updater den Installer ausführt.
+
+**Abnahme mit rc-Releases.** Der Update-Weg wird vor einem Release mit zwei Pre-Releases abgenommen (für 1.0.1: `v1.0.1-rc.1` und `v1.0.1-rc.2`), jedes
+durch den ganzen Weg; dasselbe Rezept gilt nach jeder Änderung am Updater. Die Variable `G4_UPDATE_ENDPOINT` (eine `https://`-Adresse) ersetzt den Endpunkt
+der App; die Prüfung der Signatur bleibt dieselbe.
+
+1. Je rc: `version.sh set <Fassung>`, Commit, Push, `bash scripts/release-local.sh v<Fassung>`, `gh workflow run release.yml -f tag=v<Fassung> -f dry_run=false`.
+   Der Entwurf hat sieben Assets, `latest.json` nennt die rc-Fassung. Veröffentlichen als Pre-Release: `gh release edit v<Fassung> --draft=false --prerelease`.
+2. Am Release von rc.2 liegt zusätzlich `latest-badsig.json`: `latest.json` von rc.2, in beiden Plattformen mit `signature` aus der jeweiligen `.sig` von rc.1.
+3. Mac: rc.1 aus dem DMG nach „Programme“ installieren und im Terminal starten:
+
+   ```sh
+   G4_UPDATE_ENDPOINT=https://github.com/Kaago/gen4-studio/releases/download/v1.0.1-rc.2/latest-badsig.json \
+     "/Applications/Gen4 Studio.app/Contents/MacOS/studio"
+   ```
+
+   Die Frage nach der Zustimmung mit „Nicht suchen“ beantworten. Menü „Nach Updates suchen…“: Der Hinweis auf rc.2 erscheint; „Installieren…“
+   endet mit einem Fehler-Toast zur Signatur, die App läuft weiter (Einstellungen › Updates zeigt rc.1). Beenden und mit `…/latest.json` statt
+   `…/latest-badsig.json` neu starten, in einer Projektkopie eine Änderung machen und nicht speichern, „Installieren…“: Der Dialog warnt vor dem Verlust;
+   „Installieren und neu starten“ lädt mit Fortschritt, die App startet als rc.2 neu, Gatekeeper fragt nicht, und
+   `codesign --verify --deep --strict "/Applications/Gen4 Studio.app"` ist ok. Notieren, ob macOS dabei nach der App-Verwaltung gefragt hat.
+4. Windows: dasselbe mit dem Installer von rc.1 und `set G4_UPDATE_ENDPOINT=…` in `cmd`. Ohne Windows-Rechner bleibt das offen: Der Update-Weg unter Windows
+   ist dann erst mit dem ersten echten Update (1.0.1 auf 1.0.2) im Feld geprüft.
+5. Danach rc-Releases und rc-Tags löschen (`gh release delete v<Fassung> --cleanup-tag -y`, dazu die lokalen Tags) und den echten Release veröffentlichen.
+
+**Verlust des Schlüssels.** Geht die Schlüsseldatei oder das Passwort verloren (und gibt es keine Sicherung im Passwort-Manager), kann niemand mehr Pakete
+signieren, die installierte Versionen annehmen: Sie erhalten keine Updates mehr. Ein neuer Schlüssel (`tauri signer generate`, neuer öffentlicher Schlüssel in
+`tauri.conf.json`, neue Secrets) gilt nur für Fassungen, die ihn enthalten; wer eine ältere Fassung hat, installiert die neue einmal von Hand (DMG oder Installer). Ein Verdacht, dass der Schlüssel in fremde Hände geraten ist,
+ist eine Sicherheitsmeldung (`SECURITY.md`): Dann gilt dasselbe, mit neuem Schlüssel und neuen Secrets.
 
 ## Lizenzhinweise
 
@@ -291,11 +387,13 @@ würde es so aktiviert:
 4. In `sign_notarize` die Zeilen aus dem Kopf des Skripts einsetzen: das DMG notarisieren (`xcrun notarytool submit … --wait`) und
    das Ticket anheften (`xcrun stapler staple`).
 
-Unter Windows bräuchte es ein Code-Signing-Zertifikat; ohne eines bleibt die Warnung von SmartScreen. Auto-Update gibt es noch nicht.
+Unter Windows bräuchte es ein Code-Signing-Zertifikat; ohne eines bleibt die Warnung von SmartScreen. Der Auto-Update braucht keines von beiden:
+seine Signatur ist die eigene des Abschnitts „Update-Pakete“.
 
 ## Bekannte Grenzen
 
 - Beide Pakete sind nicht mit einer Developer ID signiert und nicht notarisiert (macOS ad-hoc, Windows gar nicht); die Wege
   stehen oben.
 - Nur macOS arm64 und Windows x64; Linux ist kein Ziel dieser Phase.
-- Auto-Update und Signatur über eine Developer ID folgen später.
+- Signatur über eine Developer ID folgt später; der Auto-Update (Abschnitt „Update-Pakete“) ist davon unabhängig.
+- Der Update-Weg unter Windows bleibt ohne Windows-Rechner ungeprüft; dann ist das erste echte Update (1.0.1 auf 1.0.2) die Probe.

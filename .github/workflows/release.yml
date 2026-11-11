@@ -1,9 +1,16 @@
 # Release of Gen4 Studio, Windows side (spec release-ci 5): builds the NSIS installer from the
-# hermetic sources (no ROM, no save game, no secret) and uploads it to the draft release that
+# hermetic sources (no ROM, no save game) and uploads it to the draft release that
 # scripts/release-local.sh made on the maintainer's Mac. The macOS DMG, its checks, the tag, the
 # release notes and the draft itself come from that script: no macOS runner (macOS minutes count
 # ten times; the whole release ran about $1.80 on hosted runners, the Windows part alone about
 # $0.70 cold).
+#
+# Updater packages (release 1.0.1, docs/release.md "Update-Pakete"): the installer is also the
+# Windows update package. The Bundle step signs it with the secrets TAURI_SIGNING_PRIVATE_KEY and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD (read only there; this workflow never runs for a pull
+# request) and so writes <installer>.sig. publish-windows uploads installer and .sig, takes the
+# .sig of the macOS update package from the draft and writes latest.json
+# (scripts/release/updater-manifest.sh), which it uploads as well.
 #
 # Manual only (workflow_dispatch), never on a tag push:
 #   gh workflow run release.yml -f tag=v0.1.0 -f dry_run=false   build, check, upload to the draft
@@ -171,9 +178,16 @@ jobs:
         working-directory: apps/studio
         run: pnpm install --frozen-lockfile
 
+      # The only step that reads the signing secrets. --config adds createUpdaterArtifacts: Tauri
+      # signs the installer and writes <installer>.sig next to it.
       - name: Bundle (nsis)
         working-directory: apps/studio
-        run: pnpm bundle -- --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "Secret TAURI_SIGNING_PRIVATE_KEY fehlt (docs/release.md)" >&2; exit 1; }
+          pnpm bundle -- --bundles nsis --config src-tauri/tauri.updater.conf.json
 
       - name: Installer
         id: setup
@@ -183,8 +197,10 @@ jobs:
             [ -s "$f" ] && setup="$f"
           done
           [ -n "$setup" ] || { echo "Kein *-setup.exe in target/release/bundle/nsis" >&2; exit 1; }
+          [ -s "$setup.sig" ] || { echo "Keine Signatur $setup.sig (createUpdaterArtifacts, Secret TAURI_SIGNING_PRIVATE_KEY)" >&2; exit 1; }
           echo "path=$setup" >> "$GITHUB_OUTPUT"
-          echo "installer: $setup"
+          echo "sig=$setup.sig" >> "$GITHUB_OUTPUT"
+          echo "installer: $setup (mit .sig)"
 
       # Installs silently to $RUNNER_TEMP/g4s, checks the files and runs `studio.exe doctor`.
       - name: check-bundle-windows
@@ -220,14 +236,18 @@ jobs:
       - name: Name the installer
         env:
           SETUP: ${{ steps.setup.outputs.path }}
+          SETUP_SIG: ${{ steps.setup.outputs.sig }}
         run: |
           mkdir -p dist-release
           cp "$SETUP" "dist-release/Gen4-Studio_${VERSION}_x64-setup.exe"
+          cp "$SETUP_SIG" "dist-release/Gen4-Studio_${VERSION}_x64-setup.exe.sig"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-nsis
-          path: dist-release/Gen4-Studio_${{ env.VERSION }}_x64-setup.exe
+          path: |
+            dist-release/Gen4-Studio_${{ env.VERSION }}_x64-setup.exe
+            dist-release/Gen4-Studio_${{ env.VERSION }}_x64-setup.exe.sig
           retention-days: 7
           if-no-files-found: error
 
@@ -264,7 +284,10 @@ jobs:
           key: tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/tool-versions.env') }}
 
   # Not on a dry run: the installer goes to the draft of the tag (made by release-local.sh), and
-  # its line to the draft's SHA256SUMS.txt. A missing or already published release stops the job.
+  # its line to the draft's SHA256SUMS.txt; then its .sig, and latest.json from the .sig of both
+  # update packages. A missing or already published release, or a draft without the .sig of the
+  # macOS package (release-local.sh without the key), stops the job; latest.json is only written
+  # (and uploaded) when everything is there.
   publish-windows:
     name: publish-windows
     needs: [version, bundle-windows]
@@ -315,3 +338,26 @@ jobs:
           cat sums/SHA256SUMS.txt
           gh release upload "$TAG" "$exe" --clobber
           gh release upload "$TAG" sums/SHA256SUMS.txt --clobber
+
+      - name: Upload installer signature
+        run: |
+          sig="release/Gen4-Studio_${VERSION}_x64-setup.exe.sig"
+          [ -s "$sig" ] || { echo "Datei fehlt: $sig" >&2; ls -l release >&2; exit 1; }
+          gh release upload "$TAG" "$sig" --clobber
+
+      # latest.json: version, notes (the body of the draft) and both signatures. The macOS .sig
+      # comes from the draft; without it (or with a broken one, see updater-manifest.sh) the job
+      # fails before anything is uploaded. `latest` points at the release only once it is published.
+      - name: Update manifest
+        run: |
+          mac="Gen4-Studio_${VERSION}_aarch64.app.tar.gz.sig"
+          mkdir -p mac
+          gh release download "$TAG" --pattern "$mac" --dir mac || true
+          [ -s "mac/$mac" ] || {
+            echo "Der Entwurf $TAG hat kein macOS-Update-Paket (release-local.sh mit Schluessel)" >&2
+            exit 1
+          }
+          gh release view "$TAG" --json body --jq .body > notes.md
+          bash scripts/release/updater-manifest.sh "$TAG" notes.md "mac/$mac" "release/Gen4-Studio_${VERSION}_x64-setup.exe.sig" latest.json
+          cat latest.json
+          gh release upload "$TAG" latest.json --clobber

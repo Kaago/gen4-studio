@@ -2,6 +2,9 @@
 # Tests for scripts/release-local.sh, without a build (G4_RELEASE_SKIP_BUILD=1): arguments, the
 # checks before the build, and what a dry run and a real run do with git and gh. Each test works
 # on a fresh repository with a bare "origin" next to it and a fake gh that only records its calls.
+# No test reads the real updater key or the keychain: run() points G4_UPDATER_KEY at a file that
+# does not exist, switches the keychain off (G4_UPDATER_KEYCHAIN=0) and removes the signing
+# variables from the environment; tests that sign hand in a dummy key and password.
 set -euo pipefail
 
 . "$(dirname "$0")/lib.sh"
@@ -11,6 +14,9 @@ SCRIPT="$REPO_ROOT/scripts/release-local.sh"
 # No global or system git config of the developer (commit signing, hooks, default branch).
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
+
+# A dummy signing key and password (the build is skipped, nothing signs); no output may contain them.
+SIGNED=(TAURI_SIGNING_PRIVATE_KEY=dummy TAURI_SIGNING_PRIVATE_KEY_PASSWORD=pw)
 
 # setup [<version>]: prints a folder with work/ (a repository on main at <version>, default
 # 0.2.0-rc.1, pushed to origin), origin.git and bin/gh (records its arguments in gh.log).
@@ -51,7 +57,8 @@ SH
 }
 
 # run <dir> [NAME=value...] <args...>: the script on <dir>/work, without a build; leading
-# NAME=value arguments go into its environment.
+# NAME=value arguments go into its environment. By default there is no updater key: neither in
+# the environment nor in a file, and the keychain is not asked.
 run() {
   local d="$1" vars=()
   shift
@@ -59,8 +66,20 @@ run() {
     vars+=("$1")
     shift
   done
-  env PATH="$d/bin:$PATH" G4_RELEASE_ROOT="$d/work" G4_RELEASE_SKIP_BUILD=1 \
+  env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+    PATH="$d/bin:$PATH" G4_RELEASE_ROOT="$d/work" G4_RELEASE_SKIP_BUILD=1 \
+    G4_UPDATER_KEY=/nonexistent G4_UPDATER_KEYCHAIN=0 \
     ${vars[@]+"${vars[@]}"} bash "$SCRIPT" "$@"
+}
+
+# assert_no_secret <text>: neither the dummy key nor the dummy password (the whole word) is in it.
+assert_no_secret() {
+  case "$1" in
+    *dummy*) fail "the key was printed: $1" ;;
+  esac
+  if printf '%s\n' "$1" | grep -qw 'pw'; then
+    fail "the password was printed: $1"
+  fi
 }
 
 commit_in() { # commit_in <dir> <message>: a new commit on the current branch of work/
@@ -127,8 +146,8 @@ test_main_not_origin() {
 test_allow_branch_only_with_dry_run() {
   local d
   d="$(setup)"
-  assert_status 1 run "$d" G4_RELEASE_ALLOW_BRANCH=1 v0.2.0-rc.1
-  assert_contains "gilt nur mit --dry-run" run "$d" G4_RELEASE_ALLOW_BRANCH=1 v0.2.0-rc.1
+  assert_status 1 run "$d" "${SIGNED[@]}" G4_RELEASE_ALLOW_BRANCH=1 v0.2.0-rc.1
+  assert_contains "gilt nur mit --dry-run" run "$d" "${SIGNED[@]}" G4_RELEASE_ALLOW_BRANCH=1 v0.2.0-rc.1
   [ ! -e "$d/gh.log" ] || fail "gh ran"
 }
 
@@ -166,20 +185,20 @@ test_dry_run_writes_output_and_touches_nothing() {
 test_release_tags_pushes_and_creates_a_prerelease_draft() {
   local d
   d="$(setup)"
-  assert_status 0 run "$d" v0.2.0-rc.1
+  assert_status 0 run "$d" "${SIGNED[@]}" v0.2.0-rc.1
   [ "$(cd "$d/work" && git cat-file -t v0.2.0-rc.1)" = "tag" ] || fail "no annotated tag"
   [ "$(git -C "$d/origin.git" rev-parse 'v0.2.0-rc.1^{commit}')" = "$(git -C "$d/work" rev-parse HEAD)" ] ||
     fail "tag not on origin at HEAD"
   grep -q '^auth status$' "$d/gh.log" || fail "no gh auth status: $(cat "$d/gh.log")"
   grep -q '^release view v0.2.0-rc.1$' "$d/gh.log" || fail "no gh release view: $(cat "$d/gh.log")"
-  grep -Eq "^release create v0\.2\.0-rc\.1 --draft --verify-tag --title Gen4 Studio 0\.2\.0-rc\.1 --notes-file .*/dist-release/notes\.md --prerelease .*/dist-release/Gen4-Studio_0\.2\.0-rc\.1_aarch64\.dmg .*/dist-release/SHA256SUMS\.txt$" "$d/gh.log" ||
+  grep -Eq "^release create v0\.2\.0-rc\.1 --draft --verify-tag --title Gen4 Studio 0\.2\.0-rc\.1 --notes-file .*/dist-release/notes\.md --prerelease .*/dist-release/Gen4-Studio_0\.2\.0-rc\.1_aarch64\.dmg .*/dist-release/Gen4-Studio_0\.2\.0-rc\.1_aarch64\.app\.tar\.gz .*/dist-release/Gen4-Studio_0\.2\.0-rc\.1_aarch64\.app\.tar\.gz\.sig .*/dist-release/SHA256SUMS\.txt$" "$d/gh.log" ||
     fail "gh release create: $(cat "$d/gh.log")"
 }
 
 test_final_version_is_no_prerelease() {
   local d
   d="$(setup 0.2.0)"
-  assert_status 0 run "$d" v0.2.0
+  assert_status 0 run "$d" "${SIGNED[@]}" v0.2.0
   grep -q '^release create v0.2.0 --draft' "$d/gh.log" || fail "no release create: $(cat "$d/gh.log")"
   if grep -q -- '--prerelease' "$d/gh.log"; then
     fail "a final version became a pre-release"
@@ -189,8 +208,8 @@ test_final_version_is_no_prerelease() {
 test_existing_release_aborts_before_the_tag() {
   local d
   d="$(setup)"
-  assert_status 1 run "$d" FAKE_GH_RELEASE_EXISTS=1 v0.2.0-rc.1
-  assert_contains "gibt es schon einen Release" run "$d" FAKE_GH_RELEASE_EXISTS=1 v0.2.0-rc.1
+  assert_status 1 run "$d" "${SIGNED[@]}" FAKE_GH_RELEASE_EXISTS=1 v0.2.0-rc.1
+  assert_contains "gibt es schon einen Release" run "$d" "${SIGNED[@]}" FAKE_GH_RELEASE_EXISTS=1 v0.2.0-rc.1
   [ -z "$(git -C "$d/origin.git" tag)" ] || fail "a tag was pushed"
   if grep -q '^release create' "$d/gh.log"; then
     fail "a release was created"
@@ -203,8 +222,8 @@ test_tag_on_another_commit_aborts() {
   (cd "$d/work" && git tag -a v0.2.0-rc.1 -m old)
   commit_in "$d" later
   (cd "$d/work" && git push -q origin main)
-  assert_status 1 run "$d" v0.2.0-rc.1
-  assert_contains "der lokale Tag v0.2.0-rc.1 zeigt auf" run "$d" v0.2.0-rc.1
+  assert_status 1 run "$d" "${SIGNED[@]}" v0.2.0-rc.1
+  assert_contains "der lokale Tag v0.2.0-rc.1 zeigt auf" run "$d" "${SIGNED[@]}" v0.2.0-rc.1
 }
 
 test_remote_tag_on_another_commit_aborts() {
@@ -213,8 +232,169 @@ test_remote_tag_on_another_commit_aborts() {
   (cd "$d/work" && git tag -a v0.2.0-rc.1 -m old && git push -q origin v0.2.0-rc.1 && git tag -d v0.2.0-rc.1 >/dev/null)
   commit_in "$d" later
   (cd "$d/work" && git push -q origin main)
-  assert_status 1 run "$d" v0.2.0-rc.1
-  assert_contains "der Tag v0.2.0-rc.1 auf origin zeigt auf" run "$d" v0.2.0-rc.1
+  assert_status 1 run "$d" "${SIGNED[@]}" v0.2.0-rc.1
+  assert_contains "der Tag v0.2.0-rc.1 auf origin zeigt auf" run "$d" "${SIGNED[@]}" v0.2.0-rc.1
+}
+
+# --- updater packages ---------------------------------------------------------------------------
+
+# The `release create` line of gh.log (empty when gh never created a release).
+release_create_line() { # release_create_line <dir>
+  [ -e "$1/gh.log" ] || return 0
+  grep '^release create' "$1/gh.log" || true
+}
+
+# assert_uploads_updater_packages <dir>: the `release create` call names the .app.tar.gz and its .sig.
+assert_uploads_updater_packages() {
+  local line
+  line="$(release_create_line "$1")"
+  case "$line" in
+    *"_aarch64.app.tar.gz "*"_aarch64.app.tar.gz.sig "*) ;;
+    *) fail "the update bundle and its signature are not uploaded: ${line:-no release created}" ;;
+  esac
+}
+
+test_real_release_without_key_aborts_before_gh_and_tag() {
+  local d out status=0
+  d="$(setup)"
+  out="$(run "$d" v0.2.0-rc.1 2>&1)" || status=$?
+  [ "$status" -eq 1 ] || fail "status $status: $out"
+  case "$out" in
+    *"Updater-Schlüssel fehlt"*"Update-Pakete"*) ;;
+    *) fail "no message about the missing key: $out" ;;
+  esac
+  [ -z "$(release_create_line "$d")" ] || fail "a release was created: $(cat "$d/gh.log")"
+  [ ! -e "$d/gh.log" ] || fail "gh ran before the key check: $(cat "$d/gh.log")"
+  [ -z "$(git -C "$d/origin.git" tag)" ] || fail "a tag was pushed"
+  [ -z "$(cd "$d/work" && git tag)" ] || fail "a tag was made"
+}
+
+test_real_release_without_password_aborts() {
+  local d out status=0
+  d="$(setup)"
+  out="$(run "$d" TAURI_SIGNING_PRIVATE_KEY=dummy v0.2.0-rc.1 2>&1)" || status=$?
+  [ "$status" -eq 1 ] || fail "status $status: $out"
+  case "$out" in
+    *"Updater-Schlüssel fehlt"*"Passwort"*) ;;
+    *) fail "no message about the missing password: $out" ;;
+  esac
+  assert_no_secret "$out"
+  [ -z "$(release_create_line "$d")" ] || fail "a release was created"
+  [ -z "$(git -C "$d/origin.git" tag)" ] || fail "a tag was pushed"
+}
+
+test_empty_password_counts_as_set() {
+  # A key made without a password has an empty one: set, so signing goes on.
+  local d
+  d="$(setup)"
+  assert_status 0 run "$d" TAURI_SIGNING_PRIVATE_KEY=dummy TAURI_SIGNING_PRIVATE_KEY_PASSWORD= v0.2.0-rc.1
+  assert_uploads_updater_packages "$d"
+}
+
+test_real_release_uploads_the_updater_packages() {
+  local d out out_dir
+  d="$(setup)"
+  out="$(run "$d" "${SIGNED[@]}" v0.2.0-rc.1 2>&1)" || fail "release failed: $out"
+  assert_no_secret "$out"
+  assert_uploads_updater_packages "$d"
+  assert_no_secret "$(cat "$d/gh.log")"
+  out_dir="$d/work/dist-release"
+  [ -s "$out_dir/Gen4-Studio_0.2.0-rc.1_aarch64.app.tar.gz" ] || fail "no app.tar.gz"
+  [ -s "$out_dir/Gen4-Studio_0.2.0-rc.1_aarch64.app.tar.gz.sig" ] || fail "no app.tar.gz.sig"
+  # SHA256SUMS.txt stays with the DMG (the installer line comes from release.yml).
+  [ "$(wc -l <"$out_dir/SHA256SUMS.txt" | tr -d ' ')" = 1 ] || fail "SHA256SUMS.txt: $(cat "$out_dir/SHA256SUMS.txt")"
+  grep -Eq '^[0-9a-f]{64}  Gen4-Studio_0\.2\.0-rc\.1_aarch64\.dmg$' "$out_dir/SHA256SUMS.txt" ||
+    fail "SHA256SUMS.txt: $(cat "$out_dir/SHA256SUMS.txt")"
+}
+
+test_dry_run_without_key_skips_the_updater_packages() {
+  local d out
+  d="$(setup)"
+  out="$(run "$d" v0.2.0-rc.1 --dry-run 2>&1)" || fail "dry run failed: $out"
+  case "$out" in
+    *"Updater-Pakete: ausgelassen (kein Schlüssel)"*) ;;
+    *) fail "no note about the skipped updater packages: $out" ;;
+  esac
+  case "$out" in
+    *"Probelauf ok (dist-release/Gen4-Studio_0.2.0-rc.1_aarch64.dmg, dist-release/SHA256SUMS.txt, dist-release/notes.md)"*) ;;
+    *) fail "no ok line: $out" ;;
+  esac
+  [ ! -e "$d/work/dist-release/Gen4-Studio_0.2.0-rc.1_aarch64.app.tar.gz" ] || fail "an app.tar.gz was made"
+  [ ! -e "$d/gh.log" ] || fail "gh ran"
+}
+
+test_dry_run_with_key_lists_the_updater_packages() {
+  local d out
+  d="$(setup)"
+  out="$(run "$d" "${SIGNED[@]}" v0.2.0-rc.1 --dry-run 2>&1)" || fail "dry run failed: $out"
+  assert_no_secret "$out"
+  case "$out" in
+    *"Updater-Pakete: ausgelassen"*) fail "the updater packages were skipped: $out" ;;
+  esac
+  case "$out" in
+    *"Probelauf ok (dist-release/Gen4-Studio_0.2.0-rc.1_aarch64.dmg, dist-release/Gen4-Studio_0.2.0-rc.1_aarch64.app.tar.gz, dist-release/Gen4-Studio_0.2.0-rc.1_aarch64.app.tar.gz.sig, dist-release/SHA256SUMS.txt, dist-release/notes.md)"*) ;;
+    *) fail "no ok line with the updater packages: $out" ;;
+  esac
+  [ -s "$d/work/dist-release/Gen4-Studio_0.2.0-rc.1_aarch64.app.tar.gz" ] || fail "no app.tar.gz"
+  [ -s "$d/work/dist-release/Gen4-Studio_0.2.0-rc.1_aarch64.app.tar.gz.sig" ] || fail "no app.tar.gz.sig"
+  [ ! -e "$d/gh.log" ] || fail "gh ran"
+}
+
+test_key_file_is_read_and_never_printed() {
+  local d out key
+  d="$(setup)"
+  key="$(tmpdir)/updater.key"
+  printf 'dummy-file-key\n' >"$key"
+  out="$(run "$d" G4_UPDATER_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=pw v0.2.0-rc.1 2>&1)" ||
+    fail "release failed: $out"
+  assert_no_secret "$out"
+  assert_uploads_updater_packages "$d"
+  assert_no_secret "$(cat "$d/gh.log")"
+}
+
+test_password_comes_from_the_keychain() {
+  # macOS only: a fake `security` in PATH answers (the real keychain is never asked).
+  [ "$(uname -s)" = "Darwin" ] || return 0
+  local d out
+  d="$(setup)"
+  cat >"$d/bin/security" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >>"$(dirname "$0")/../security.log"
+if [ "$1 $2 $3 $4 $5" = "find-generic-password -s gen4-studio-updater -a ${USER:-$(id -un)}" ] && [ "$6" = "-w" ]; then
+  echo keychain-pw
+  exit 0
+fi
+exit 44
+SH
+  chmod +x "$d/bin/security"
+  out="$(run "$d" G4_UPDATER_KEYCHAIN=1 TAURI_SIGNING_PRIVATE_KEY=dummy v0.2.0-rc.1 2>&1)" ||
+    fail "release failed: $out"
+  grep -q '^find-generic-password -s gen4-studio-updater -a ' "$d/security.log" || fail "the keychain was not asked"
+  assert_uploads_updater_packages "$d"
+  case "$out" in
+    *keychain-pw*) fail "the password was printed: $out" ;;
+  esac
+  assert_no_secret "$out"
+}
+
+test_keychain_is_not_asked_when_switched_off() {
+  [ "$(uname -s)" = "Darwin" ] || return 0
+  local d
+  d="$(setup)"
+  printf '#!/usr/bin/env bash\necho asked >>"$(dirname "$0")/../security.log"\necho keychain-pw\n' >"$d/bin/security"
+  chmod +x "$d/bin/security"
+  assert_status 1 run "$d" TAURI_SIGNING_PRIVATE_KEY=dummy v0.2.0-rc.1
+  [ ! -e "$d/security.log" ] || fail "the keychain was asked"
+}
+
+test_keychain_is_not_asked_without_a_key() {
+  [ "$(uname -s)" = "Darwin" ] || return 0
+  local d
+  d="$(setup)"
+  printf '#!/usr/bin/env bash\necho asked >>"$(dirname "$0")/../security.log"\necho keychain-pw\n' >"$d/bin/security"
+  chmod +x "$d/bin/security"
+  assert_status 0 run "$d" G4_UPDATER_KEYCHAIN=1 v0.2.0-rc.1 --dry-run
+  [ ! -e "$d/security.log" ] || fail "the keychain was asked although there is no key"
 }
 
 run_tests
