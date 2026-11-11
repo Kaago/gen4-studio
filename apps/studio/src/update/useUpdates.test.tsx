@@ -51,6 +51,11 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+/** A `CmdError` as the Rust commands send it: only the cause, in the words of the updater plugin (the stage is named by the webview). */
+const cmdError = (message: string, code = "error") => ({ code, message, asset: null, problems: [] });
+/** How often `part` occurs in `text`. */
+const occurrences = (text: string, part: string) => text.split(part).length - 1;
+
 describe("useUpdates", () => {
   let container: HTMLElement;
   let root: Root;
@@ -267,12 +272,16 @@ describe("useUpdates", () => {
       expect(control.version).toBe("1.0.1");
     });
 
-    it("shows_an_error_toast_when_it_fails", async () => {
-      const deps = quiet({ check: vi.fn(async () => Promise.reject({ code: "error", message: "kein Netz", asset: null })) });
+    it("shows_an_error_toast_when_it_fails_with_the_stage_named_exactly_once", async () => {
+      const cause = "error sending request for url (https://github.com/Kaago/gen4-studio/releases/latest/download/latest.json)";
+      const deps = quiet({ check: vi.fn(async () => Promise.reject(cmdError(cause))) });
       await mount(deps);
       await act(async () => control.checkNow());
       await flush();
-      expect(listToasts().map((x) => [x.kind, x.text])).toEqual([["error", "Die Suche nach Updates ist gescheitert: kein Netz"]]);
+      const [[kind, text]] = listToasts().map((x) => [x.kind, x.text]);
+      expect(kind).toBe("error");
+      expect(text).toBe(`Die Suche nach Updates ist gescheitert: ${cause}`);
+      expect(occurrences(text, "Die Suche nach Updates ist gescheitert")).toBe(1);
       expect(control.prefs.lastCheck).toBeNull();
     });
 
@@ -471,21 +480,48 @@ describe("useUpdates", () => {
       expect(listToasts().filter((x) => x.kind === "progress")).toHaveLength(1);
     });
 
-    it("closes_the_progress_and_shows_an_error_toast_when_the_download_fails", async () => {
-      const deps = found({ download: vi.fn(async () => Promise.reject({ code: "error", message: "Verbindung abgebrochen", asset: null })) });
+    it("closes_the_progress_and_names_the_download_stage_once_when_the_download_fails", async () => {
+      const cause = "Download request failed with status: 404 Not Found";
+      const deps = found({ download: vi.fn(async () => Promise.reject(cmdError(cause))) });
       await mount(deps);
       await press("Installieren…");
       expect(deps.install).not.toHaveBeenCalled();
       expect(listToasts().filter((x) => x.kind === "progress")).toEqual([]);
-      expect(listToasts().map((x) => [x.kind, x.text])).toEqual([["error", "Das Update ließ sich nicht installieren: Verbindung abgebrochen"]]);
+      const [[kind, text]] = listToasts().map((x) => [x.kind, x.text]);
+      expect(kind).toBe("error");
+      expect(text).toBe(`Das Update ließ sich nicht laden: ${cause}`);
+      expect(text).not.toContain("installieren");
     });
 
-    it("closes_the_progress_and_shows_an_error_toast_when_the_install_fails", async () => {
-      const deps = found({ install: vi.fn(async () => Promise.reject({ code: "unsaved", message: "Es gibt ungespeicherte Änderungen.", asset: null })) });
+    it("names_the_download_stage_once_for_a_failed_signature_too", async () => {
+      const cause = "Signature verification failed";
+      const deps = found({ download: vi.fn(async () => Promise.reject(cmdError(cause))) });
+      await mount(deps);
+      await press("Installieren…");
+      const [[, text]] = listToasts().map((x) => [x.kind, x.text]);
+      expect(text).toBe(`Das Update ließ sich nicht laden: ${cause}`);
+      expect(occurrences(text, "Das Update ließ sich nicht")).toBe(1);
+    });
+
+    it("closes_the_progress_and_names_the_install_stage_once_when_the_install_fails", async () => {
+      const cause = "failed to install the update and to restore the previous app, which was left at /Applications/Gen4 Studio.app.old";
+      const deps = found({ install: vi.fn(async () => Promise.reject(cmdError(cause))) });
       await mount(deps);
       await press("Installieren…");
       expect(listToasts().filter((x) => x.kind === "progress")).toEqual([]);
-      expect(listToasts().map((x) => [x.kind, x.text])).toEqual([["error", "Das Update ließ sich nicht installieren: Es gibt ungespeicherte Änderungen."]]);
+      const [[kind, text]] = listToasts().map((x) => [x.kind, x.text]);
+      expect(kind).toBe("error");
+      expect(text).toBe(`Das Update ließ sich nicht installieren: ${cause}`);
+      expect(occurrences(text, "Das Update ließ sich nicht")).toBe(1);
+    });
+
+    it("an_unsaved_refusal_of_the_install_keeps_its_own_words_after_the_install_stage", async () => {
+      const deps = found({ install: vi.fn(async () => Promise.reject(cmdError("Es gibt ungespeicherte Änderungen. Vor dem Update speichern oder dem Verwerfen zustimmen.", "unsaved"))) });
+      await mount(deps);
+      await press("Installieren…");
+      expect(listToasts().map((x) => [x.kind, x.text])).toEqual([
+        ["error", "Das Update ließ sich nicht installieren: Es gibt ungespeicherte Änderungen. Vor dem Update speichern oder dem Verwerfen zustimmen."],
+      ]);
     });
 
     it("a_failed_install_can_be_tried_again_with_a_new_check", async () => {

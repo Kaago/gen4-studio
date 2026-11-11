@@ -127,12 +127,16 @@ export function useUpdates(unsavedRef: MutableRefObject<number>, deps?: Partial<
     if (installRunning.current) return;
     installRunning.current = true;
     let installed = false;
+    // Where a failure happened: the backend sends only the cause, the toast names the stage once.
+    let stage: "download" | "install" = "install";
     try {
       const unsavedAtConfirm = unsavedRef.current;
       if (!(await confirm(info, unsavedAtConfirm > 0))) return;
       toast.dismissKey(TOAST_KEY);
       toast.progress(TOAST_KEY, t("app:updates.downloading", { percent: 0 }));
+      stage = "download";
       await latest.current.download(info.version);
+      stage = "install";
       if (unsavedRef.current > unsavedAtConfirm && !(await confirm(info, true))) {
         toast.progress(TOAST_KEY, null);
         return;
@@ -141,7 +145,8 @@ export function useUpdates(unsavedRef: MutableRefObject<number>, deps?: Partial<
       installed = true;
     } catch (e) {
       toast.progress(TOAST_KEY, null);
-      toast.error(t("app:updates.installFailed", { reason: errorText(e) }));
+      const reason = errorText(e);
+      toast.error(stage === "download" ? t("app:updates.downloadFailed", { reason }) : t("app:updates.installFailed", { reason }));
     } finally {
       if (!installed) installRunning.current = false;
     }

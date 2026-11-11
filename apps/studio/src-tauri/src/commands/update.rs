@@ -174,6 +174,15 @@ fn running() -> CmdError {
     t!("commands.update.running").into_owned().into()
 }
 
+/// A failure of the updater plugin (the check, the download, the install) as the webview gets
+/// it: the cause alone, in the plugin's words. The webview puts the stage in front of it, once
+/// (`updates.checkFailed`, `updates.downloadFailed`, `updates.installFailed`), so a prefix here
+/// would show up twice. Refusals that are no plugin failure (running, unsaved, not found) keep
+/// their own sentences.
+fn plugin_failure<E: std::fmt::Display>(e: E) -> CmdError {
+    e.to_string().into()
+}
+
 /// The address in [`ENDPOINT_VAR`], if one is set: `Ok(None)` for none (or an empty one), an
 /// error naming the value when it is no `https` address.
 pub fn endpoint_override(raw: Option<&str>) -> Result<Option<tauri::Url>, String> {
@@ -264,9 +273,7 @@ pub async fn update_check(
     app: AppHandle,
     state: State<'_, UpdateState>,
 ) -> Result<Option<UpdateInfo>, CmdError> {
-    let check_failed = |e: tauri_plugin_updater::Error| {
-        CmdError::from(t!("commands.update.check_failed", error = e).into_owned())
-    };
+    let check_failed = plugin_failure::<tauri_plugin_updater::Error>;
     let mut builder = app.updater_builder().timeout(CHECK_TIMEOUT);
     // Windows ends the app inside the plugin: take the helpers that outlive it down first.
     let exiting = app.clone();
@@ -322,9 +329,7 @@ pub async fn update_download(
         Ok(bytes) => state.lock().downloaded(&version, bytes),
         Err(e) => {
             state.lock().download_failed();
-            Err(t!("commands.update.download_failed", error = e)
-                .into_owned()
-                .into())
+            Err(plugin_failure(e))
         }
     }
 }
@@ -352,9 +357,7 @@ pub async fn update_install(
         Ok(()) => restart(&app),
         Err(e) => {
             state.lock().install_failed(&version, bytes);
-            Err(t!("commands.update.install_failed", error = e)
-                .into_owned()
-                .into())
+            Err(plugin_failure(e))
         }
     }
 }
@@ -396,6 +399,31 @@ mod tests {
     fn a_plain_http_override_is_refused() {
         let e = endpoint_override(Some("http://localhost:8000/latest.json")).unwrap_err();
         assert!(e.contains("http://localhost:8000/latest.json"), "{e}");
+    }
+
+    #[test]
+    fn a_plugin_failure_is_its_cause_alone() {
+        // The webview names the stage; a prefix here would be shown twice.
+        for (error, cause) in [
+            (
+                tauri_plugin_updater::Error::EmptyEndpoints,
+                "Updater does not have any endpoints set.",
+            ),
+            (
+                tauri_plugin_updater::Error::Network(
+                    "Download request failed with status: 404 Not Found".to_owned(),
+                ),
+                "`Download request failed with status: 404 Not Found`",
+            ),
+            (
+                tauri_plugin_updater::Error::ReleaseNotFound,
+                "Could not fetch a valid release JSON from the remote",
+            ),
+        ] {
+            let failure = plugin_failure(error);
+            assert_eq!(failure.code, "error");
+            assert_eq!(failure.message, cause);
+        }
     }
 
     #[test]

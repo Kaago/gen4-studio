@@ -78,6 +78,7 @@
     "installing": "Update wird installiert…",
     "upToDate": "Gen4 Studio {{version}} ist aktuell.",
     "checkFailed": "Die Suche nach Updates ist gescheitert: {{reason}}",
+    "downloadFailed": "Das Update ließ sich nicht laden: {{reason}}",
     "installFailed": "Das Update ließ sich nicht installieren: {{reason}}"
   },
   "gameLabel": {

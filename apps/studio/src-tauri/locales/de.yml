@@ -216,12 +216,9 @@ commands:
     project_switched_unsynced: "Das Projekt wurde gewechselt; nichts abgeglichen."
   update:
     bad_endpoint: "G4_UPDATE_ENDPOINT ist keine https-Adresse: %{value}"
-    check_failed: "Die Suche nach Updates ist gescheitert: %{error}"
-    download_failed: "Das Update ließ sich nicht laden: %{error}"
     not_found: "Es gibt kein Update %{version} zum Installieren. Bitte erneut suchen."
     running: "Ein Update wird schon installiert."
     unsaved: "Es gibt ungespeicherte Änderungen. Vor dem Update speichern oder dem Verwerfen zustimmen."
-    install_failed: "Das Update ließ sich nicht installieren: %{error}"
   world:
     cell_outside: "Die Zelle (%{x}, %{y}) liegt außerhalb der Karte (32 × 32)."
   world_meta:

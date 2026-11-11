@@ -216,12 +216,9 @@ commands:
     project_switched_unsynced: "The project was switched; nothing was synced."
   update:
     bad_endpoint: "G4_UPDATE_ENDPOINT is not an https address: %{value}"
-    check_failed: "Could not check for updates: %{error}"
-    download_failed: "The update could not be downloaded: %{error}"
     not_found: "There is no update %{version} to install. Check for updates again."
     running: "An update is already being installed."
     unsaved: "There are unsaved changes. Save them, or agree to discard them, before updating."
-    install_failed: "The update could not be installed: %{error}"
   world:
     cell_outside: "Cell (%{x}, %{y}) is outside the 32 × 32 map."
   world_meta:
