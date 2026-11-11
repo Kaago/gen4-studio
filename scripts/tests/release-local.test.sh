@@ -41,10 +41,12 @@ setup() {
     git push -q origin main
     git fetch -q origin
   )
-  # gh: `auth status` ok, `release view` finds nothing unless FAKE_GH_RELEASE_EXISTS=1.
+  # gh: `auth status` ok, `release view` finds nothing unless FAKE_GH_RELEASE_EXISTS=1. Besides its
+  # arguments (gh.log) it records whether the signing variables are in its environment (gh.env).
   cat >"$d/bin/gh" <<'SH'
 #!/usr/bin/env bash
 echo "$*" >>"$(dirname "$0")/../gh.log"
+echo "key=${TAURI_SIGNING_PRIVATE_KEY-unset} pw=${TAURI_SIGNING_PRIVATE_KEY_PASSWORD-unset}" >>"$(dirname "$0")/../gh.env"
 case "$1 $2" in
   "auth status") exit 0 ;;
   "release view") [ "${FAKE_GH_RELEASE_EXISTS:-}" = "1" ] && exit 0; echo "release not found" >&2; exit 1 ;;
@@ -244,6 +246,15 @@ release_create_line() { # release_create_line <dir>
   grep '^release create' "$1/gh.log" || true
 }
 
+# assert_gh_saw_no_signing_variables <dir>: gh ran, and never with the key or the password in its
+# environment (the recorded lines are not printed).
+assert_gh_saw_no_signing_variables() {
+  local lines
+  [ -s "$1/gh.env" ] || fail "gh did not run, so there is nothing to check"
+  lines="$(sort -u "$1/gh.env")"
+  [ "$lines" = "key=unset pw=unset" ] || fail "gh saw the key or the password in its environment"
+}
+
 # assert_uploads_updater_packages <dir>: the `release create` call names the .app.tar.gz and its .sig.
 assert_uploads_updater_packages() {
   local line
@@ -371,10 +382,35 @@ SH
     fail "release failed: $out"
   grep -q '^find-generic-password -s gen4-studio-updater -a ' "$d/security.log" || fail "the keychain was not asked"
   assert_uploads_updater_packages "$d"
+  assert_gh_saw_no_signing_variables "$d"
   case "$out" in
     *keychain-pw*) fail "the password was printed: $out" ;;
   esac
   assert_no_secret "$out"
+}
+
+test_key_and_password_stay_out_of_the_environment_of_the_tools() {
+  # gh stands for every tool this script starts besides the bundle command (the build is skipped).
+  local d
+  d="$(setup)"
+  # Control: the fake gh does record a key it is given.
+  env TAURI_SIGNING_PRIVATE_KEY=control "$d/bin/gh" auth status
+  [ "$(cat "$d/gh.env")" = "key=control pw=unset" ] || fail "the fake gh does not record its environment"
+  rm -f "$d/gh.env" "$d/gh.log"
+  # Exported by the caller (the test's mechanism): un-exported after the key step.
+  assert_status 0 run "$d" "${SIGNED[@]}" v0.2.0-rc.1
+  assert_uploads_updater_packages "$d"
+  assert_gh_saw_no_signing_variables "$d"
+}
+
+test_key_file_and_password_stay_out_of_the_environment_of_the_tools() {
+  local d key
+  d="$(setup)"
+  key="$(tmpdir)/updater.key"
+  printf 'dummy-file-key\n' >"$key"
+  assert_status 0 run "$d" G4_UPDATER_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=pw v0.2.0-rc.1
+  assert_uploads_updater_packages "$d"
+  assert_gh_saw_no_signing_variables "$d"
 }
 
 test_keychain_is_not_asked_when_switched_off() {

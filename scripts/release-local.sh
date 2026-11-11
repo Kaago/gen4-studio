@@ -39,6 +39,10 @@
 # when that is not set, the keychain entry (service gen4-studio-updater, account $USER; macOS
 # `security`). A real release needs both and stops before the build without them. A dry run
 # without them builds without update packages and says so. Key and password are never printed.
+# They are kept in shell variables that are not exported and reach only the bundle command
+# (`pnpm bundle`, where Tauri reads them), so `pnpm install`, the smoke test, `git` and `gh` never
+# see them. Variables the caller exported already are un-exported (`export -n`) after the key
+# step for the same reason: the caller's own shell keeps them, the children of this script do not.
 #
 # Variables (all optional):
 #   G4_RELEASE_ROOT          the repository to release (default: this script's repository; tests)
@@ -171,8 +175,8 @@ bash "$SCRIPTS/release/changelog-section.sh" "$VERSION" "$ROOT/CHANGELOG.md" >"$
 echo "$(wc -l <"$OUT/notes.md" | tr -d ' ') Zeilen aus CHANGELOG.md"
 
 step "Updater-Schlüssel"
-# Key and password go to the environment of the bundle step (Tauri reads them there) and are
-# never printed: only where they come from.
+# Key and password stay in plain shell variables (not exported, see the header): the bundle step
+# passes them on to Tauri, nothing else sees them. They are never printed, only where they come from.
 UPDATER_KEY_FILE="${G4_UPDATER_KEY:-$HOME/.tauri/gen4-studio-updater.key}"
 SIGN=0
 SIGN_MISSING=""
@@ -182,7 +186,6 @@ if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
   KEY_FROM="Umgebung"
 elif [ -f "$UPDATER_KEY_FILE" ] && [ -r "$UPDATER_KEY_FILE" ]; then
   TAURI_SIGNING_PRIVATE_KEY="$(cat "$UPDATER_KEY_FILE")"
-  export TAURI_SIGNING_PRIVATE_KEY
   [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || KEY_FROM="Datei $UPDATER_KEY_FILE"
 fi
 if [ -z "$KEY_FROM" ]; then
@@ -193,7 +196,6 @@ else
   elif [ "$(uname -s)" = "Darwin" ] && [ "${G4_UPDATER_KEYCHAIN:-}" != "0" ] && command -v security >/dev/null 2>&1; then
     if KEYCHAIN_PW="$(security find-generic-password -s gen4-studio-updater -a "${USER:-$(id -un)}" -w 2>/dev/null)"; then
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$KEYCHAIN_PW"
-      export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
       PW_FROM="Schlüsselbund"
     fi
     KEYCHAIN_PW=""
@@ -202,6 +204,8 @@ else
     SIGN_MISSING="kein Passwort: weder TAURI_SIGNING_PRIVATE_KEY_PASSWORD noch der Schlüsselbund-Eintrag gen4-studio-updater (Konto ${USER:-$(id -un)})"
   fi
 fi
+# Whatever the caller exported: from here on only the bundle step gets the key and the password.
+export -n TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 if [ -z "$SIGN_MISSING" ]; then
   SIGN=1
   echo "Updater-Pakete: werden signiert (Schlüssel: $KEY_FROM, Passwort: $PW_FROM)"
@@ -274,14 +278,22 @@ else
   BUNDLE="$ROOT/target/release/bundle"
   bundle_args=(--bundles app,dmg)
   if [ "$SIGN" -eq 1 ]; then
-    # createUpdaterArtifacts: the .app.tar.gz and its .sig (the key is in the environment).
+    # createUpdaterArtifacts: the .app.tar.gz and its .sig (Tauri reads the key from the environment
+    # of the bundle command, see below).
     bundle_args+=(--config src-tauri/tauri.updater.conf.json)
   fi
   # A DMG or .app of an earlier build must never stand in for this one (macos-dmg.sh takes the
   # first DMG it finds).
   rm -rf "$BUNDLE/dmg" "$BUNDLE/macos"
   BUNDLE_STATUS=0
-  (cd apps/studio && CI=true pnpm bundle -- "${bundle_args[@]}") || BUNDLE_STATUS=$?
+  (
+    cd apps/studio
+    if [ "$SIGN" -eq 1 ]; then
+      # Exported in this subshell only: the one command that needs the key and the password.
+      export TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    fi
+    CI=true pnpm bundle -- "${bundle_args[@]}"
+  ) || BUNDLE_STATUS=$?
   echo "Bundle-Status: $BUNDLE_STATUS"
 
   step "DMG"

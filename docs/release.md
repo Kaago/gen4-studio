@@ -387,7 +387,7 @@ würde es so aktiviert:
 4. In `sign_notarize` die Zeilen aus dem Kopf des Skripts einsetzen: das DMG notarisieren (`xcrun notarytool submit … --wait`) und
    das Ticket anheften (`xcrun stapler staple`).
 
-Unter Windows bräuchte es ein Code-Signing-Zertifikat; ohne eines bleibt die Warnung von SmartScreen. Der Auto-Update braucht keines von beiden:
+Unter Windows bräuchte es ein Code-Signing-Zertifikat; ohne eines bleibt die Warnung von SmartScreen. Das Auto-Update braucht keines von beiden:
 seine Signatur ist die eigene des Abschnitts „Update-Pakete“.
 
 ## Bekannte Grenzen
@@ -395,5 +395,5 @@ seine Signatur ist die eigene des Abschnitts „Update-Pakete“.
 - Beide Pakete sind nicht mit einer Developer ID signiert und nicht notarisiert (macOS ad-hoc, Windows gar nicht); die Wege
   stehen oben.
 - Nur macOS arm64 und Windows x64; Linux ist kein Ziel dieser Phase.
-- Signatur über eine Developer ID folgt später; der Auto-Update (Abschnitt „Update-Pakete“) ist davon unabhängig.
+- Signatur über eine Developer ID folgt später; das Auto-Update (Abschnitt „Update-Pakete“) ist davon unabhängig.
 - Der Update-Weg unter Windows bleibt ohne Windows-Rechner ungeprüft; dann ist das erste echte Update (1.0.1 auf 1.0.2) die Probe.
