@@ -7,31 +7,52 @@
 #   1. checks before any build: `version.sh check <tag>`, a clean working tree, HEAD == main ==
 #      origin/main (after `git fetch origin main`), no ROM data in the repository
 #      (check-no-rom-data.sh), the release notes (the CHANGELOG.md section of the base version,
-#      scripts/release/changelog-section.sh); for a real release also `gh auth status`, that no
-#      release of the tag exists yet and that a tag of that name (local or on origin) is HEAD;
+#      scripts/release/changelog-section.sh), the updater key (a real release needs it, see
+#      below); for a real release also `gh auth status`, that no release of the tag exists yet
+#      and that a tag of that name (local or on origin) is HEAD;
 #   2. builds like the former bundle-macos job of release.yml: the tools come from
 #      prepare-bundle.sh (apicula and rotom-lsp at the versions of scripts/tool-versions.env,
 #      built into tools/ when missing; cargo-about must be installed), `pnpm install
 #      --frozen-lockfile`, `CI=true pnpm bundle -- --bundles app,dmg` (CI=true: Tauri's DMG script
 #      skips the Finder styling by AppleScript), then scripts/release/macos-dmg.sh (Tauri's DMG or
-#      the hdiutil fallback, named Gen4-Studio_<version>_aarch64.dmg);
-#   3. checks the result: check-bundle.sh, check-no-rom-data.sh <app> <dmg>, and the smoke test
+#      the hdiutil fallback, named Gen4-Studio_<version>_aarch64.dmg). With the updater key the
+#      bundle also gets `--config src-tauri/tauri.updater.conf.json`: Tauri then signs the update
+#      bundle `Gen4 Studio.app.tar.gz` and writes its `.sig` (the updater of the packed app
+#      installs only packages with a valid signature);
+#   3. checks the result: the update bundle (not empty, `Gen4 Studio.app/` first in the archive,
+#      signature not empty), check-bundle.sh, check-no-rom-data.sh <app> <dmg>, and the smoke test
 #      (smoke-packaged.sh, clean environment) on a synthetic project from make_synthetic;
-#   4. writes dist-release/: the DMG, SHA256SUMS.txt (shasum -a 256) and notes.md;
+#   4. writes dist-release/: the DMG, with the key Gen4-Studio_<version>_aarch64.app.tar.gz and
+#      its .sig, SHA256SUMS.txt (shasum -a 256, only the DMG: the installer's line comes from
+#      release.yml) and notes.md;
 #   5. without --dry-run: `git tag -a <tag>` (when missing), `git push origin <tag>` and
-#      `gh release create <tag> --draft [--prerelease]` with the DMG and SHA256SUMS.txt. The
-#      Windows installer follows from release.yml (workflow_dispatch, see docs/release.md), which
-#      uploads it to this draft and adds its line to SHA256SUMS.txt.
+#      `gh release create <tag> --draft [--prerelease]` with the DMG, the update bundle and its
+#      .sig and SHA256SUMS.txt. The Windows installer follows from release.yml
+#      (workflow_dispatch, see docs/release.md), which uploads it and its .sig to this draft, adds
+#      its line to SHA256SUMS.txt and writes latest.json (scripts/release/updater-manifest.sh).
 # --dry-run does all of 1 to 4 (without the gh and tag checks) and ends with
 # `release-local: Probelauf ok (<files>)`. Nothing is tagged, pushed or published.
+#
+# The updater key (spec 1.0.1, 3.2 and 3.5; docs/release.md, "Update-Pakete"): the private key is
+# TAURI_SIGNING_PRIVATE_KEY (its content) or, when that is empty, the content of the file
+# G4_UPDATER_KEY; its password is TAURI_SIGNING_PRIVATE_KEY_PASSWORD (set, also an empty one) or,
+# when that is not set, the keychain entry (service gen4-studio-updater, account $USER; macOS
+# `security`). A real release needs both and stops before the build without them. A dry run
+# without them builds without update packages and says so. Key and password are never printed.
+# They are kept in shell variables that are not exported and reach only the bundle command
+# (`pnpm bundle`, where Tauri reads them), so `pnpm install`, the smoke test, `git` and `gh` never
+# see them. Variables the caller exported already are un-exported (`export -n`) after the key
+# step for the same reason: the caller's own shell keeps them, the children of this script do not.
 #
 # Variables (all optional):
 #   G4_RELEASE_ROOT          the repository to release (default: this script's repository; tests)
 #   G4_RELEASE_ALLOW_BRANCH  1: skip the HEAD == main == origin/main check, only with --dry-run
 #                            (a dry run from a feature branch or a worktree)
 #   G4_RELEASE_SKIP_BUILD    1: tests only, needs G4_RELEASE_ROOT. No build and no checks of the
-#                            bundle: a placeholder file stands for the DMG, so steps 4 and 5
-#                            can be tested.
+#                            bundle: placeholder files stand for the DMG (and the update bundle
+#                            and its .sig), so steps 4 and 5 can be tested.
+#   G4_UPDATER_KEY           the private updater key file (default ~/.tauri/gen4-studio-updater.key)
+#   G4_UPDATER_KEYCHAIN      0: do not ask the keychain for the password (tests)
 #
 # Signing and notarization are prepared, not enabled (spec release-ci 5): the DMG is signed ad hoc
 # (`bundle.macOS.signingIdentity: "-"` in apps/studio/src-tauri/tauri.macos.conf.json). With a
@@ -115,6 +136,7 @@ case "$VERSION" in
 esac
 OUT="$ROOT/dist-release"
 DMG_NAME="Gen4-Studio_${VERSION}_aarch64.dmg"
+APP_TGZ_NAME="Gen4-Studio_${VERSION}_aarch64.app.tar.gz"
 
 # --- 1. checks before the build ------------------------------------------------------------------
 
@@ -152,6 +174,48 @@ bash "$SCRIPTS/release/changelog-section.sh" "$VERSION" "$ROOT/CHANGELOG.md" >"$
   die "keine Release-Notizen für $VERSION (siehe oben)"
 echo "$(wc -l <"$OUT/notes.md" | tr -d ' ') Zeilen aus CHANGELOG.md"
 
+step "Updater-Schlüssel"
+# Key and password stay in plain shell variables (not exported, see the header): the bundle step
+# passes them on to Tauri, nothing else sees them. They are never printed, only where they come from.
+UPDATER_KEY_FILE="${G4_UPDATER_KEY:-$HOME/.tauri/gen4-studio-updater.key}"
+SIGN=0
+SIGN_MISSING=""
+KEY_FROM=""
+PW_FROM=""
+if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+  KEY_FROM="Umgebung"
+elif [ -f "$UPDATER_KEY_FILE" ] && [ -r "$UPDATER_KEY_FILE" ]; then
+  TAURI_SIGNING_PRIVATE_KEY="$(cat "$UPDATER_KEY_FILE")"
+  [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || KEY_FROM="Datei $UPDATER_KEY_FILE"
+fi
+if [ -z "$KEY_FROM" ]; then
+  SIGN_MISSING="weder TAURI_SIGNING_PRIVATE_KEY noch die Datei $UPDATER_KEY_FILE (G4_UPDATER_KEY)"
+else
+  if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+x}" ]; then
+    PW_FROM="Umgebung"
+  elif [ "$(uname -s)" = "Darwin" ] && [ "${G4_UPDATER_KEYCHAIN:-}" != "0" ] && command -v security >/dev/null 2>&1; then
+    if KEYCHAIN_PW="$(security find-generic-password -s gen4-studio-updater -a "${USER:-$(id -un)}" -w 2>/dev/null)"; then
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$KEYCHAIN_PW"
+      PW_FROM="Schlüsselbund"
+    fi
+    KEYCHAIN_PW=""
+  fi
+  if [ -z "$PW_FROM" ]; then
+    SIGN_MISSING="kein Passwort: weder TAURI_SIGNING_PRIVATE_KEY_PASSWORD noch der Schlüsselbund-Eintrag gen4-studio-updater (Konto ${USER:-$(id -un)})"
+  fi
+fi
+# Whatever the caller exported: from here on only the bundle step gets the key and the password.
+export -n TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+if [ -z "$SIGN_MISSING" ]; then
+  SIGN=1
+  echo "Updater-Pakete: werden signiert (Schlüssel: $KEY_FROM, Passwort: $PW_FROM)"
+elif [ "$DRY_RUN" -eq 1 ]; then
+  echo "$SIGN_MISSING"
+  echo "Updater-Pakete: ausgelassen (kein Schlüssel)"
+else
+  die "Updater-Schlüssel fehlt: $SIGN_MISSING (docs/release.md, Abschnitt „Update-Pakete“)"
+fi
+
 if [ "$DRY_RUN" -ne 1 ]; then
   step "GitHub und Tag"
   command -v gh >/dev/null 2>&1 || die "gh fehlt (brew install gh)"
@@ -184,6 +248,10 @@ sign_notarize() { # sign_notarize <dmg>
 if [ "$SKIP_BUILD" -eq 1 ]; then
   step "Bau ausgelassen (G4_RELEASE_SKIP_BUILD=1, nur für Tests)"
   echo "placeholder for $DMG_NAME" >"$OUT/$DMG_NAME"
+  if [ "$SIGN" -eq 1 ]; then
+    echo "placeholder for $APP_TGZ_NAME" >"$OUT/$APP_TGZ_NAME"
+    echo "placeholder for $APP_TGZ_NAME.sig" >"$OUT/$APP_TGZ_NAME.sig"
+  fi
 else
   [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ] ||
     die "das DMG entsteht nur auf macOS arm64 (hier: $(uname -s) $(uname -m))"
@@ -208,11 +276,24 @@ else
 
   step "Bundle (app, dmg)"
   BUNDLE="$ROOT/target/release/bundle"
+  bundle_args=(--bundles app,dmg)
+  if [ "$SIGN" -eq 1 ]; then
+    # createUpdaterArtifacts: the .app.tar.gz and its .sig (Tauri reads the key from the environment
+    # of the bundle command, see below).
+    bundle_args+=(--config src-tauri/tauri.updater.conf.json)
+  fi
   # A DMG or .app of an earlier build must never stand in for this one (macos-dmg.sh takes the
   # first DMG it finds).
   rm -rf "$BUNDLE/dmg" "$BUNDLE/macos"
   BUNDLE_STATUS=0
-  (cd apps/studio && CI=true pnpm bundle -- --bundles app,dmg) || BUNDLE_STATUS=$?
+  (
+    cd apps/studio
+    if [ "$SIGN" -eq 1 ]; then
+      # Exported in this subshell only: the one command that needs the key and the password.
+      export TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    fi
+    CI=true pnpm bundle -- "${bundle_args[@]}"
+  ) || BUNDLE_STATUS=$?
   echo "Bundle-Status: $BUNDLE_STATUS"
 
   step "DMG"
@@ -226,6 +307,20 @@ else
   rm -f "$DMG_INFO"
   [ -d "$APP" ] && [ -s "$DMG" ] || die "macos-dmg.sh hat kein .app oder DMG gemeldet"
   [ "$DMG" = "$OUT/$DMG_NAME" ] || die "DMG $DMG, erwartet $OUT/$DMG_NAME"
+
+  if [ "$SIGN" -eq 1 ]; then
+    step "Update-Paket"
+    UPDATE_TGZ="$BUNDLE/macos/Gen4 Studio.app.tar.gz"
+    [ -s "$UPDATE_TGZ" ] ||
+      die "Update-Paket fehlt oder ist leer: $UPDATE_TGZ (Bundle-Status $BUNDLE_STATUS; Schlüssel oder Passwort falsch?)"
+    [ -s "$UPDATE_TGZ.sig" ] || die "Signatur fehlt oder ist leer: $UPDATE_TGZ.sig (Bundle-Status $BUNDLE_STATUS)"
+    FIRST_ENTRY="$(tar -tzf "$UPDATE_TGZ" | sed -n '1p')" || die "$UPDATE_TGZ ist kein lesbares tar.gz"
+    [ "$FIRST_ENTRY" = "Gen4 Studio.app/" ] ||
+      die "erster Eintrag in $UPDATE_TGZ: '$FIRST_ENTRY', erwartet 'Gen4 Studio.app/'"
+    cp "$UPDATE_TGZ" "$OUT/$APP_TGZ_NAME"
+    cp "$UPDATE_TGZ.sig" "$OUT/$APP_TGZ_NAME.sig"
+    echo "$APP_TGZ_NAME und $APP_TGZ_NAME.sig"
+  fi
 
   step "Signieren und Notarisieren"
   sign_notarize "$DMG"
@@ -250,7 +345,11 @@ step "SHA256SUMS.txt"
 (cd "$OUT" && shasum -a 256 "$DMG_NAME" >SHA256SUMS.txt)
 cat "$OUT/SHA256SUMS.txt"
 
-FILES="dist-release/$DMG_NAME, dist-release/SHA256SUMS.txt, dist-release/notes.md"
+if [ "$SIGN" -eq 1 ]; then
+  FILES="dist-release/$DMG_NAME, dist-release/$APP_TGZ_NAME, dist-release/$APP_TGZ_NAME.sig, dist-release/SHA256SUMS.txt, dist-release/notes.md"
+else
+  FILES="dist-release/$DMG_NAME, dist-release/SHA256SUMS.txt, dist-release/notes.md"
+fi
 if [ "$DRY_RUN" -eq 1 ]; then
   echo
   echo "release-local: Probelauf ok ($FILES)"
@@ -272,9 +371,10 @@ args=(--draft --verify-tag --title "Gen4 Studio $VERSION" --notes-file "$OUT/not
 if [ "$PRERELEASE" -eq 1 ]; then
   args+=(--prerelease)
 fi
-gh release create "$TAG" "${args[@]}" "$OUT/$DMG_NAME" "$OUT/SHA256SUMS.txt" ||
+gh release create "$TAG" "${args[@]}" "$OUT/$DMG_NAME" "$OUT/$APP_TGZ_NAME" "$OUT/$APP_TGZ_NAME.sig" "$OUT/SHA256SUMS.txt" ||
   die "gh release create ist gescheitert (Tag $TAG ist gepusht; den Schritt von Hand wiederholen)"
 
 echo
 echo "release-local: Entwurf $TAG angelegt ($FILES)"
-echo "Windows-Installer dazu: gh workflow run release.yml -f tag=$TAG -f dry_run=false"
+echo "Windows-Installer, seine .sig und latest.json dazu: gh workflow run release.yml -f tag=$TAG -f dry_run=false"
+echo "Danach hat der Entwurf sieben Dateien (docs/release.md, Abschnitt „Update-Pakete“)."

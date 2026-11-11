@@ -47,8 +47,17 @@ if [ ! -f "$ROTOM_LSP_SRC" ]; then
   else
     # Das macOS-SDK >= 15.4 deklariert strchrnul selbst; nitroarcs static-Variante kollidiert damit.
     # Der Wert steht auch in .cargo/config.toml; `cargo install` hat ihn beim ersten Versuch nicht uebernommen.
-    CFLAGS="-D_POSIX_C_SOURCE=200809L ${CFLAGS:-}" cargo install --git https://github.com/KalaayPT/rotom \
-      --tag "$ROTOM_TAG" rotom-lsp --root "$ROOT/tools/rotom"
+    # Unter macOS dazu -headerpad_max_install_names: Neue Linker (ld-prime, macOS 27) lassen kaum Platz
+    # im Mach-O-Header, und ohne ihn passt der zweite `install_name_tool -add_rpath` unten nicht mehr
+    # ("larger updated load commands do not fit"). Nur dort gesetzt: ein leeres RUSTFLAGS wuerde die
+    # Einstellungen aus der Cargo-Konfiguration verdraengen.
+    (
+      if [ "$(uname -s)" = "Darwin" ]; then
+        export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-Wl,-headerpad_max_install_names"
+      fi
+      CFLAGS="-D_POSIX_C_SOURCE=200809L ${CFLAGS:-}" cargo install --git https://github.com/KalaayPT/rotom \
+        --tag "$ROTOM_TAG" rotom-lsp --root "$ROOT/tools/rotom"
+    )
   fi
 fi
 # END rotom-lsp install
