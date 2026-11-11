@@ -8,6 +8,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 keeps `apps/studio/package.json` and `Cargo.lock` in line. The release workflow uses the
 section of the version as the text of the draft release.
 
+## [1.0.1] - Unreleased
+
+### Added
+
+- Auto-update from GitHub Releases. On the first start Gen4 Studio asks once whether it may check for a new version; if yes, it checks at startup, at most once a day. Settings › Updates has a switch, "Check now", the version and the last check, and the menu has "Check for Updates…". A new version shows a notice with "Install…" and "Skip this version"; installing downloads the update, warns about unsaved changes, installs it and restarts the app (on Windows the app closes while the installer runs). Updates are signed with the project's own key, and nothing about your projects is sent. If you run 1.0.0, install 1.0.1 once by hand.
+
+### Fixed
+
+- Switching the language tells the backend first and reloads the texts it built (overview, data, checks, problems, project info, Git status).
+- Errors carry codes instead of being recognized by their translated text.
+- The remaining English refusals and errors in the German interface are translated.
+- Palette groups have language-neutral ids.
+- The prefilled reward text follows the language of the ROM, not of the interface.
+- Flag fields read correctly inside a sentence.
+- Cleaned up duplicate entries in the message catalog.
+
 ## [1.0.0] - 2026-11-10
 
 ### Added

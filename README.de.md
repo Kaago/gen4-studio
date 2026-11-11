@@ -78,6 +78,16 @@ xattr -dr com.apple.quarantine "/Applications/Gen4 Studio.app"
 
 **Windows (SmartScreen).** Den Installer starten. Zeigt SmartScreen „Der Computer wurde durch Windows geschützt“, wählen Sie „Weitere Informationen“ und dann „Trotzdem ausführen“. Der Installer braucht keine Administratorrechte und installiert nach `%LOCALAPPDATA%\Gen4 Studio`. Fehlt WebView2, lädt der Installer es nach.
 
+### Updates
+
+Beim ersten Start einer Version mit Updater fragt Gen4 Studio einmal, ob es auf GitHub nach neuen Versionen suchen darf: „Automatisch suchen“ oder „Nicht suchen“. Stimmen Sie zu, sucht es beim Start, höchstens einmal am Tag. Lehnen Sie ab, sucht es nur, wenn Sie es auslösen. Sie können das jederzeit in Einstellungen › Updates ändern („Automatisch nach Updates suchen“); dort stehen auch die installierte Version und der Zeitpunkt der letzten Suche, und es gibt den Knopf „Jetzt suchen“. „Nach Updates suchen…“ im Menü (unter macOS im Menü „Gen4 Studio“, unter Windows im Menü „Help“) sucht sofort.
+
+Eine Suche ist eine normale HTTPS-Anfrage an GitHub, wie bei jedem Download; GitHub sieht dabei also Ihre IP-Adresse. Über Ihre Projekte, Ihre ROM oder Ihre Arbeit in der App wird nichts gesendet.
+
+Ist eine neuere Version da, bietet ein Hinweis „Installieren…“ und „Diese Version überspringen“ an; Schließen heißt „später“. „Installieren…“ zeigt die Version und was neu ist, warnt vor ungespeicherten Änderungen (sie gehen verloren), lädt das Update, installiert es und startet Gen4 Studio neu. Unter Windows schließt sich die App, während der Installer läuft, und die neue Version startet danach. Updates sind mit einem eigenen Schlüssel des Projekts signiert, und Gen4 Studio installiert nur ein Paket mit gültiger Signatur. Das ist kein Entwicklerzertifikat; die oben beschriebenen Warnungen Ihres Systems gelten für einen frischen Download also weiterhin. Auf der Release-Seite liegen auch Dateien für den Updater (`.app.tar.gz`, `.sig`, `latest.json`); Sie müssen sie nicht herunterladen. Wie die Update-Pakete gebaut und signiert werden, steht in [docs/release.md](docs/release.md) (Deutsch) und [docs/en/release.md](docs/en/release.md) (Englisch), Abschnitt „Update-Pakete“ beziehungsweise „Updater packages“.
+
+Versionen vor 1.0.1 können sich nicht selbst aktualisieren. Wenn Sie 1.0.0 verwenden, installieren Sie 1.0.1 einmal von Hand, wie oben beschrieben; danach kommen Updates über die App.
+
 <!-- section: quickstart -->
 ## Schnellstart
 
