@@ -15,6 +15,14 @@
 # plugin, which checks the same with requireSignedVersion): a signature for another version,
 # or none, is refused, so latest.json cannot pair this version with an older signed package.
 #
+# The signatures must also be made with the key the app trusts. The app's public key is
+# `plugins.updater.pubkey` in apps/studio/src-tauri/tauri.conf.json (the Base64 of a minisign
+# public key file; its second line decodes to 2 bytes of algorithm, 8 of key id and 32 of key).
+# The second line of each signature text decodes to 2 bytes of algorithm, 8 of key id and 64 of
+# signature; the key ids must be the same, as the updater plugin requires. A signature of another
+# key (a rotated key, the wrong secret in the workflow) is refused here, with both key ids, and
+# not found out in the field by every user.
+#
 # Output (keys in this order, indented by two):
 #   version, notes, pub_date,
 #   platforms: darwin-aarch64 and windows-x86_64, each signature and url
@@ -27,9 +35,11 @@
 # <reason>` on stderr) leaves no output file and an existing <out-json> untouched. Wrong
 # arguments are status 2.
 #
-# Variables (both optional):
+# Variables (all optional):
 #   G4_RELEASE_REPO    <owner>/<repo> of the release (default Kaago/gen4-studio)
 #   G4_MANIFEST_DATE   pub_date as UTC timestamp YYYY-MM-DDTHH:MM:SSZ (default: now; tests)
+#   G4_UPDATER_CONFIG  the Tauri configuration to read plugins.updater.pubkey from (default:
+#                      apps/studio/src-tauri/tauri.conf.json of this repository; tests)
 # No network. Needs python3 (standard library only). Works with bash 3.2 (macOS), Git Bash and the
 # ubuntu runner.
 set -euo pipefail
@@ -50,6 +60,8 @@ SIG_WINDOWS="$4"
 OUT="$5"
 REPO="${G4_RELEASE_REPO:-Kaago/gen4-studio}"
 DATE="${G4_MANIFEST_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+CONFIG="${G4_UPDATER_CONFIG:-$ROOT/apps/studio/src-tauri/tauri.conf.json}"
 
 # SemVer 2.0.0 as in scripts/version.sh, without build metadata (the + would end up in file names
 # and addresses).
@@ -79,13 +91,13 @@ command -v python3 >/dev/null 2>&1 || die "python3 fehlt"
 TMP="$OUT.tmp.$$"
 trap 'rm -f "$TMP"' EXIT
 
-python3 -I - "$TAG" "$VERSION" "$REPO" "$DATE" "$NOTES" "$SIG_DARWIN" "$SIG_WINDOWS" "$OUT" "$TMP" <<'PY'
+python3 -I - "$TAG" "$VERSION" "$REPO" "$DATE" "$NOTES" "$SIG_DARWIN" "$SIG_WINDOWS" "$OUT" "$TMP" "$CONFIG" <<'PY'
 import base64
 import binascii
 import json
 import sys
 
-tag, version, repo, date, notes_path, darwin_path, windows_path, out_path, tmp_path = sys.argv[1:10]
+tag, version, repo, date, notes_path, darwin_path, windows_path, out_path, tmp_path, config_path = sys.argv[1:11]
 
 
 def fail(message):
@@ -99,6 +111,48 @@ def read(path):
             return handle.read()
     except OSError:
         fail(path + ": nicht lesbar")
+
+
+def show_key_id(key_id):
+    """A key id as minisign prints it (the 8 bytes as a little-endian number, upper-case hex)."""
+    return key_id[::-1].hex().upper()
+
+
+def minisign_line(line, size, algorithms):
+    """The bytes of a Base64 line of a minisign file (public key or signature), None when it is
+    no Base64, has not `size` bytes or starts with another algorithm than `algorithms`."""
+    try:
+        raw = base64.b64decode(line.strip(), validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if len(raw) != size or raw[:2] not in algorithms:
+        return None
+    return raw
+
+
+def public_key_id(path):
+    """The key id of plugins.updater.pubkey in the Tauri configuration `path`."""
+    try:
+        config = json.loads(read(path).decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        fail(path + ": kein gültiges JSON (erwartet wird die Tauri-Konfiguration)")
+    try:
+        pubkey = config["plugins"]["updater"]["pubkey"]
+    except (KeyError, TypeError):
+        fail(path + ": plugins.updater.pubkey fehlt")
+    if not isinstance(pubkey, str) or not pubkey.strip():
+        fail(path + ": plugins.updater.pubkey ist leer")
+    try:
+        text = base64.b64decode(pubkey.strip(), validate=True)
+    except (binascii.Error, ValueError):
+        fail(path + ": plugins.updater.pubkey ist kein Base64 (erwartet wird der Inhalt der .pub-Datei)")
+    lines = text.replace(b"\r", b"").split(b"\n")
+    raw = None
+    if len(lines) >= 2 and lines[0].startswith(b"untrusted comment:"):
+        raw = minisign_line(lines[1], 42, (b"Ed",))
+    if raw is None:
+        fail(path + ": plugins.updater.pubkey ist kein minisign-Schlüssel (erwartet: Kommentarzeile, dann 42 Bytes mit Kennung Ed in Base64)")
+    return raw[2:10]
 
 
 def trusted_comment(decoded):
@@ -119,9 +173,9 @@ def signed_version(comment):
     return None
 
 
-def signature(path, platform):
+def signature(path, platform, key_id):
     """The .sig content without surrounding whitespace, after checking that it is the base64 of a
-    minisign text whose trusted comment names the version of the tag."""
+    minisign text made with the key `key_id` whose trusted comment names the version of the tag."""
     raw = read(path).strip()
     if not raw:
         fail(path + ": Signatur fehlt (die Datei ist leer)")
@@ -132,6 +186,21 @@ def signature(path, platform):
     if not decoded.startswith(b"untrusted comment:"):
         fail(path + ': Signatur ist kein minisign-Text ("untrusted comment" fehlt)')
     where = path + " (" + platform + ")"
+    lines = decoded.replace(b"\r", b"").split(b"\n")
+    signed_by = minisign_line(lines[1], 74, (b"Ed", b"ED")) if len(lines) >= 2 else None
+    if signed_by is None:
+        fail(where + ": Signatur ist kein minisign-Text (die zweite Zeile ist keine Signatur: 74 Bytes mit Kennung Ed oder ED in Base64)")
+    if signed_by[2:10] != key_id:
+        fail(
+            where
+            + ": Signatur ist mit einem anderen Schlüssel gemacht (Schlüssel-ID "
+            + show_key_id(signed_by[2:10])
+            + "), die App vertraut der Schlüssel-ID "
+            + show_key_id(key_id)
+            + " (plugins.updater.pubkey in "
+            + config_path
+            + ")"
+        )
     comment = trusted_comment(decoded)
     if comment is None:
         fail(where + ': Signatur hat keinen "trusted comment"')
@@ -158,8 +227,9 @@ except UnicodeDecodeError:
 if not notes.strip():
     fail(notes_path + ": die Notizen sind leer")
 
-signature_darwin = signature(darwin_path, "darwin-aarch64")
-signature_windows = signature(windows_path, "windows-x86_64")
+key_id = public_key_id(config_path)
+signature_darwin = signature(darwin_path, "darwin-aarch64", key_id)
+signature_windows = signature(windows_path, "windows-x86_64", key_id)
 
 base = "https://github.com/%s/releases/download/%s/Gen4-Studio_%s_" % (repo, tag, version)
 manifest = {
