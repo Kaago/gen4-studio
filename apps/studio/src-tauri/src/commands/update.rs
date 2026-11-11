@@ -11,8 +11,8 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri_plugin_updater::{Update, UpdaterBuilder, UpdaterExt};
 
 use crate::errors::CmdError;
 use crate::state::AppState;
@@ -27,6 +27,11 @@ pub const PROGRESS_EVENT: &str = "update-progress";
 
 /// How long the check may take before it counts as failed.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long a read may wait for the next bytes before the connection counts as stalled and the
+/// check or the download fails. It resets with each read, so a slow line is no problem; the
+/// download has no limit on its total time.
+const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Without a known size, a progress event goes out each time this many bytes arrived.
 const UNKNOWN_SIZE_STEP: u64 = 512 * 1024;
@@ -183,6 +188,28 @@ fn plugin_failure<E: std::fmt::Display>(e: E) -> CmdError {
     e.to_string().into()
 }
 
+/// The updater builder of the check: the check's time limit, and, for the requests of the
+/// check and of the download that follows from it (the update keeps the builder's client
+/// settings), a limit of `stall` on each wait for bytes. The plugin sets no such limit, so a
+/// stalled connection would keep the download, and with it the UI, busy until the app restarts.
+fn updater_builder<R: Runtime>(app: &AppHandle<R>, stall: Duration) -> UpdaterBuilder {
+    app.updater_builder()
+        .timeout(CHECK_TIMEOUT)
+        .configure_client(move |client| client.read_timeout(stall))
+}
+
+/// Downloads and verifies `update`, reporting each chunk to `on_chunk` (bytes, size when
+/// known). The total time is not limited: the plugin may hand an update the builder's timeout
+/// (2.14.1 does not), which would cut off a slow but healthy download of 25 MB; a stalled one
+/// ends by the read limit of [`updater_builder`].
+async fn fetch<C: FnMut(usize, Option<u64>)>(
+    mut update: Update,
+    on_chunk: C,
+) -> tauri_plugin_updater::Result<Vec<u8>> {
+    update.timeout = None;
+    update.download(on_chunk, || {}).await
+}
+
 /// The address in [`ENDPOINT_VAR`], if one is set: `Ok(None)` for none (or an empty one), an
 /// error naming the value when it is no `https` address.
 pub fn endpoint_override(raw: Option<&str>) -> Result<Option<tauri::Url>, String> {
@@ -274,12 +301,11 @@ pub async fn update_check(
     state: State<'_, UpdateState>,
 ) -> Result<Option<UpdateInfo>, CmdError> {
     let check_failed = plugin_failure::<tauri_plugin_updater::Error>;
-    let mut builder = app.updater_builder().timeout(CHECK_TIMEOUT);
+    let mut builder = updater_builder(&app, STALL_TIMEOUT);
     // Windows ends the app inside the plugin: take the helpers that outlive it down first.
     let exiting = app.clone();
     builder = builder.on_before_exit(move || {
-        crate::lsp::stop_on_exit(&exiting);
-        crate::live_hub::stop_on_exit(&exiting);
+        crate::shutdown_helpers(&exiting);
         exiting.cleanup_before_exit();
     });
     if let Some(url) = endpoint_override(std::env::var(ENDPOINT_VAR).ok().as_deref())? {
@@ -314,17 +340,13 @@ pub async fn update_download(
 ) -> Result<(), CmdError> {
     let update = state.lock().begin_download(&version)?;
     let mut throttle = ProgressThrottle::default();
-    let downloaded = update
-        .download(
-            |chunk, total| {
-                if let Some(progress) = throttle.advance(chunk, total) {
-                    // A failed emit only means the webview misses one update.
-                    let _ = app.emit(PROGRESS_EVENT, progress);
-                }
-            },
-            || {},
-        )
-        .await;
+    let downloaded = fetch(update, |chunk, total| {
+        if let Some(progress) = throttle.advance(chunk, total) {
+            // A failed emit only means the webview misses one update.
+            let _ = app.emit(PROGRESS_EVENT, progress);
+        }
+    })
+    .await;
     match downloaded {
         Ok(bytes) => state.lock().downloaded(&version, bytes),
         Err(e) => {
@@ -424,6 +446,106 @@ mod tests {
             assert_eq!(failure.code, "error");
             assert_eq!(failure.message, cause);
         }
+    }
+
+    /// A mock app with the updater plugin (public key and endpoint are stand-ins).
+    fn updater_app() -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".to_owned(),
+            serde_json::json!({
+                "pubkey": "c3RhbmQtaW4=",
+                "endpoints": ["https://127.0.0.1:1/latest.json"],
+            }),
+        );
+        tauri::test::mock_builder()
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .build(context)
+            .expect("mock app")
+    }
+
+    /// Serves one download on `127.0.0.1`: the headers of a body of `size` bytes, then each of
+    /// `parts` after its pause, then silence while the connection stays open.
+    fn serve_once(size: usize, parts: Vec<(Duration, Vec<u8>)>) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {size}\r\n\r\n");
+            let _ = stream.write_all(head.as_bytes());
+            for (pause, bytes) in parts {
+                std::thread::sleep(pause);
+                let _ = stream.write_all(&bytes);
+                let _ = stream.flush();
+            }
+            // The test is over long before this: the connection never delivers the rest.
+            std::thread::sleep(Duration::from_secs(60));
+        });
+        port
+    }
+
+    /// The update of a manifest that names `http://127.0.0.1:{port}/package`, made by the
+    /// updater of `updater_builder(.., stall)`. The plugin installs its TLS provider with the
+    /// first check, which the app always has made before a download: a check against a closed
+    /// port does that here.
+    async fn update_at(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        port: u16,
+        stall: Duration,
+    ) -> Update {
+        let updater = updater_builder(app.handle(), stall).build().unwrap();
+        let _ = updater.check().await;
+        updater
+            .restore_update(serde_json::json!({
+                "version": "99.0.0",
+                "url": format!("http://127.0.0.1:{port}/package"),
+                "signature": "c3RhbmQtaW4=",
+            }))
+            .unwrap()
+            .expect("99.0.0 is newer")
+    }
+
+    #[tokio::test]
+    async fn a_stalled_download_ends_with_an_error_instead_of_hanging() {
+        let app = updater_app();
+        let stall = Duration::from_millis(300);
+        // 1000 bytes announced, 3 arrive, then nothing.
+        let port = serve_once(1000, vec![(Duration::ZERO, vec![1, 2, 3])]);
+        let update = update_at(&app, port, stall).await;
+        let started = std::time::Instant::now();
+        let outcome = tokio::time::timeout(Duration::from_secs(10), fetch(update, |_, _| {})).await;
+        let result = outcome.expect("the download hangs: nothing ended the stalled connection");
+        assert!(result.is_err());
+        assert!(started.elapsed() < Duration::from_secs(8));
+    }
+
+    #[tokio::test]
+    async fn a_slow_download_is_not_cut_off_by_a_total_time_limit() {
+        let app = updater_app();
+        // Five parts 150 ms apart (750 ms in all) arrive within the 1 s stall limit each. The
+        // update carries a total limit of 300 ms, as a later plugin might hand it.
+        let parts: Vec<_> = (0..5)
+            .map(|i| (Duration::from_millis(150), vec![i; 10]))
+            .collect();
+        let port = serve_once(50, parts);
+        let mut update = update_at(&app, port, Duration::from_secs(1)).await;
+        update.timeout = Some(Duration::from_millis(300));
+        let mut received = 0;
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(10),
+            fetch(update, |chunk, _| received += chunk),
+        )
+        .await;
+        let result = outcome.expect("the download hangs");
+        // The stand-in signature fails the check after the last byte; what counts is that all
+        // of the body arrived first.
+        assert!(result.is_err());
+        assert_eq!(received, 50, "{result:?}");
     }
 
     #[test]

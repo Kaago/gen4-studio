@@ -63,6 +63,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [dev-dependencies]
 tempfile = "3"
+# The mock runtime: the updater is built on a mock app to test a stalled download (`commands::update`).
+tauri = { version = "2", features = ["test"] }
 g4-kernel = { path = "../../../crates/g4-kernel", features = ["test-support"] }
 g4-formats = { path = "../../../crates/g4-formats", features = ["test-support"] }
 rmcp = { version = "=3.7.0", default-features = false, features = ["client", "transport-child-process"] }

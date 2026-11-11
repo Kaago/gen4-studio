@@ -343,18 +343,25 @@ pub fn run() {
                 // The exit goes ahead (also the one after `force_quit`): end rotom-lsp. `Exit`
                 // covers an exit that skipped the request.
                 RunEvent::ExitRequested { .. } => lsp::stop_on_exit(app),
-                RunEvent::Exit => {
-                    lsp::stop_on_exit(app);
-                    // Detach from melonDS's stub, end our melonDS, stop the worker.
-                    live_hub::stop_on_exit(app);
-                    // The MCP server stops and its discovery file goes; the switch stays on.
-                    if let Some(server) = app.try_state::<Arc<AppServer>>() {
-                        server.shutdown();
-                    }
-                }
+                RunEvent::Exit => shutdown_helpers(app),
                 _ => {}
             }
         });
+}
+
+/// Takes down what the app started and what would outlive it: rotom-lsp, melonDS and the
+/// worker, and the MCP server with its discovery file (`mcp.json` would keep a dead port and
+/// token). The one place for it: the exit event calls it, and so does the hook of the Windows
+/// installer (`commands::update`), which ends the app inside the updater plugin, before any
+/// exit event.
+pub(crate) fn shutdown_helpers(app: &tauri::AppHandle) {
+    lsp::stop_on_exit(app);
+    // Detach from melonDS's stub, end our melonDS, stop the worker.
+    live_hub::stop_on_exit(app);
+    // The MCP server stops and its discovery file goes; the switch stays on.
+    if let Some(server) = app.try_state::<Arc<AppServer>>() {
+        server.shutdown();
+    }
 }
 
 /// The agent hub of the app: settings in the app data folder (`G4_APP_DATA_DIR` first),
