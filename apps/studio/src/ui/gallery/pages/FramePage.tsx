@@ -436,12 +436,12 @@ function SceneDemo({ locked = null }: { locked?: string | null }) {
 }
 
 const PALETTE_ITEMS: PickerItem[] = [
-  { id: "cmd-open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", group: "Befehle" },
-  { id: "cmd-save", label: "Speichern", icon: "save", shortcut: "⌘S", group: "Befehle", disabled: true, description: "Erst ein Projekt öffnen" },
-  { id: "cmd-theme", label: "Thema wechseln", icon: "sun", group: "Befehle" },
-  { id: "place-1", label: "Zweiblattdorf", area: "welt", description: "2 Header", group: "Orte" },
-  { id: "header-411", label: "Zweiblattdorf", tech: "0411", description: "T01", area: "welt", group: "Header" },
-  { id: "archive-411", label: "Zweiblattdorf", tech: "0411", description: "Textarchiv, verwendet von Header 0411", area: "texte", group: "Textarchive" },
+  { id: "cmd-open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", group: "commands" },
+  { id: "cmd-save", label: "Speichern", icon: "save", shortcut: "⌘S", group: "commands", disabled: true, description: "Erst ein Projekt öffnen" },
+  { id: "cmd-theme", label: "Thema wechseln", icon: "sun", group: "commands" },
+  { id: "place-1", label: "Zweiblattdorf", area: "welt", description: "2 Header", group: "places" },
+  { id: "header-411", label: "Zweiblattdorf", tech: "0411", description: "T01", area: "welt", group: "headers" },
+  { id: "archive-411", label: "Zweiblattdorf", tech: "0411", description: "Textarchiv, verwendet von Header 0411", area: "texte", group: "textArchives" },
 ];
 
 const TAB_ITEMS: TabItem[] = [

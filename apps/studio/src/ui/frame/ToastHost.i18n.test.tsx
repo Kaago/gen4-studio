@@ -61,7 +61,7 @@ describe("ui helpers in English", () => {
     expect(typeName(1)).toBe("Fighting");
     expect(typeName(19)).toBe("Type 19");
     expect(pokemonTypes[17]!.name).toBe("Dark");
-    expect(groupName("Befehle")).toBe("Commands");
-    expect(groupName("Orte")).toBe("Places");
+    expect(groupName("commands")).toBe("Commands");
+    expect(groupName("places")).toBe("Places");
   });
 });

@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import enGit from "../i18n/locales/en/git.json";
+import { kernelSentence } from "../testing/kernelCatalog";
 import { commitReportOf, gitStatusOf, noRepo } from "./gitTesting";
 import { changedFilesText, changesWord, commitDoneText, gitFoundText, notInstalledText, statusText, statusTooltip } from "./gitWords";
 
@@ -48,13 +48,8 @@ describe("gitWords", () => {
   it("not_installed_mirrors_the_kernel_sentence", () => {
     // The dialog and the wizard tell „only the templates“ from a failed commit by this sentence: a change in the kernel must show here.
     // The kernel sentence lives in its catalogs as `git.not_installed`; German against the German shown, English against the English one.
-    const sentence = (lang: "de" | "en") => {
-      const catalog = readFileSync(`../../crates/g4-kernel/locales/${lang}.yml`, "utf8");
-      const git = /^git:\n((?:(?: .*)?\n)*)/m.exec(catalog)?.[1] ?? "";
-      return /^ {2}not_installed: "((?:[^"\\]|\\.)*)"$/m.exec(git)?.[1];
-    };
-    expect(sentence("de")).toBe(notInstalledText());
-    expect(sentence("en")).toBe(enGit.gitWords.notInstalled);
+    expect(kernelSentence("de", "git", "not_installed")).toBe(notInstalledText());
+    expect(kernelSentence("en", "git", "not_installed")).toBe(enGit.gitWords.notInstalled);
   });
 
   it("changed_files_have_none_singular_and_plural", () => {

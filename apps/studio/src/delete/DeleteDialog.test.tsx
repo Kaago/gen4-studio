@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -8,6 +7,7 @@ import { deleteEntity, planDelete } from "../api";
 import type { DeletePlan, DeleteResult, StoryMention } from "../api";
 import deDelete from "../i18n/locales/de/delete.json";
 import enDelete from "../i18n/locales/en/delete.json";
+import { kernelSentence } from "../testing/kernelCatalog";
 import { pressKey } from "../ui/primitives/testUtils";
 import { DeleteDialog } from "./DeleteDialog";
 import type { DeleteDialogProps } from "./DeleteDialog";
@@ -290,12 +290,7 @@ describe("the kernel's refusal in the DSPRE layout", () => {
   it("not_a_text_project_mirrors_the_kernel_sentence", () => {
     // The dialog knows the kernel's refusal by its words in either language: a change in the kernel must show here.
     // The kernel sentence lives in its catalogs as `delete.not_a_text_project`.
-    const sentence = (lang: "de" | "en") => {
-      const catalog = readFileSync(`../../crates/g4-kernel/locales/${lang}.yml`, "utf8");
-      const section = /^delete:\n((?:(?: .*)?\n)*)/m.exec(catalog)?.[1] ?? "";
-      return /^ {2}not_a_text_project: "((?:[^"\\]|\\.)*)"$/m.exec(section)?.[1];
-    };
-    expect(sentence("de")).toBe(deDelete.deleteDialog.notATextProject);
-    expect(sentence("en")).toBe(enDelete.deleteDialog.notATextProject);
+    expect(kernelSentence("de", "delete", "not_a_text_project")).toBe(deDelete.deleteDialog.notATextProject);
+    expect(kernelSentence("en", "delete", "not_a_text_project")).toBe(enDelete.deleteDialog.notATextProject);
   });
 });

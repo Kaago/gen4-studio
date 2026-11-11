@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import i18next from "i18next";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -29,9 +30,10 @@ describe("FlagField", () => {
     invalidateFlagLists();
     onCommit.mockReset();
   });
-  afterEach(() => {
+  afterEach(async () => {
     act(() => root.unmount());
     container.remove();
+    await i18next.changeLanguage("de");
   });
   type Props = Partial<Parameters<typeof FlagField>[0]>;
   const show = async (over: Props = {}) => {
@@ -72,6 +74,18 @@ describe("FlagField", () => {
     await show({ disabled: true });
     expect(chip().disabled).toBe(true);
     expect(button("Wählen…")!.disabled).toBe(true);
+  });
+
+  it("names_the_label_in_the_sentence_of_the_language_shown", async () => {
+    const chooser = () => container.querySelector("button[aria-label]")?.getAttribute("aria-label");
+    // German keeps its noun capitalized; English lower-cases a leading capital and leaves an abbreviation alone.
+    await show({ label: "Abzeichen" });
+    expect(chooser()).toBe("Abzeichen wählen…");
+    await i18next.changeLanguage("en");
+    await show({ label: "Badge" });
+    expect(chooser()).toBe("Choose badge…");
+    await show({ label: "HP" });
+    expect(chooser()).toBe("Choose HP…");
   });
 
   it("zero_reads_no_list_until_the_picker_opens", async () => {
