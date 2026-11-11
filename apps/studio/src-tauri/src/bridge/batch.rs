@@ -17,7 +17,7 @@ use crate::state::AppState;
 pub fn run_batch(file: &Path, roots: Roots, out: &mut impl Write) -> Result<(), String> {
     let text = std::fs::read_to_string(file).map_err(|e| {
         t!(
-            "bridge.batch_file_unreadable",
+            "mcp.discovery.file_unreadable",
             path = file.display(),
             error = e
         )

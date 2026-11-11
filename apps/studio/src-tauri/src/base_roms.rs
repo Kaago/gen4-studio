@@ -83,7 +83,7 @@ impl BaseRomSettings {
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| {
             t!(
-                "base_roms.folder_not_created",
+                "commands.policy.folder_not_created",
                 path = dir.display(),
                 error = e
             )
@@ -355,7 +355,7 @@ enum Change<'a> {
 fn path_text(path: &Path) -> Result<String, String> {
     path.to_str()
         .map(str::to_owned)
-        .ok_or_else(|| t!("base_roms.path_not_text", path = path.display()).into_owned())
+        .ok_or_else(|| t!("commands.common.path_not_text", path = path.display()).into_owned())
 }
 
 /// The time now as RFC 3339, UTC.

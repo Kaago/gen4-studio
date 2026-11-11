@@ -445,9 +445,9 @@ impl Toolbox {
         state.base_roms.configure(None);
         state.base_roms.set_explicit(base_rom);
         let root = policy.project();
-        let path = root
-            .to_str()
-            .ok_or_else(|| t!("mcp.tools.path_not_text", path = root.display()).into_owned())?;
+        let path = root.to_str().ok_or_else(|| {
+            t!("commands.common.path_not_text", path = root.display()).into_owned()
+        })?;
         let info = open_project_impl(&state, path).map_err(|e| e.message)?;
         // A text project of an older schema opens in the app to be lifted; headless nothing
         // could edit it, so the server does not start (as for a newer one or a broken

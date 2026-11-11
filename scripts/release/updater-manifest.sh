@@ -9,7 +9,11 @@
 # v. <notes-file> is the text the updater shows (UTF-8, taken as it is). The two .sig files are the
 # ones `tauri build` writes next to the update bundles: one line of base64 that decodes to the
 # minisign text and so starts with `untrusted comment:`. The value of "signature" is the file
-# content without the whitespace at both ends (the base64 line, not the decoded text).
+# content without the whitespace at both ends (the base64 line, not the decoded text). The text
+# also has a line `trusted comment: ` whose tab-separated fields (timestamp:…, file:…) include
+# version:<version> for this very version (the first version: field decides, as in the updater
+# plugin, which checks the same with requireSignedVersion): a signature for another version,
+# or none, is refused, so latest.json cannot pair this version with an older signed package.
 #
 # Output (keys in this order, indented by two):
 #   version, notes, pub_date,
@@ -97,9 +101,27 @@ def read(path):
         fail(path + ": nicht lesbar")
 
 
-def signature(path):
+def trusted_comment(decoded):
+    """The text after `trusted comment: ` in the first line that has it, None without one."""
+    for line in decoded.split(b"\n"):
+        line = line.rstrip(b"\r")
+        if line.startswith(b"trusted comment: "):
+            return line[len(b"trusted comment: "):]
+    return None
+
+
+def signed_version(comment):
+    """The first `version:` field of the trusted comment (tab-separated key:value fields), None
+    without one."""
+    for field in comment.split(b"\t"):
+        if field.startswith(b"version:"):
+            return field[len(b"version:"):]
+    return None
+
+
+def signature(path, platform):
     """The .sig content without surrounding whitespace, after checking that it is the base64 of a
-    minisign text."""
+    minisign text whose trusted comment names the version of the tag."""
     raw = read(path).strip()
     if not raw:
         fail(path + ": Signatur fehlt (die Datei ist leer)")
@@ -109,6 +131,23 @@ def signature(path):
         fail(path + ": Signatur ist kein Base64 (erwartet wird der Inhalt der .sig-Datei in einer Zeile)")
     if not decoded.startswith(b"untrusted comment:"):
         fail(path + ': Signatur ist kein minisign-Text ("untrusted comment" fehlt)')
+    where = path + " (" + platform + ")"
+    comment = trusted_comment(decoded)
+    if comment is None:
+        fail(where + ': Signatur hat keinen "trusted comment"')
+    signed = signed_version(comment)
+    if signed is None:
+        fail(where + ': Signatur nennt im "trusted comment" keine Fassung (erwartet version:' + version + ")")
+    if signed != version.encode("ascii"):
+        fail(
+            where
+            + ': Signatur nennt im "trusted comment" version:'
+            + signed.decode("utf-8", "replace")
+            + ", der Tag "
+            + tag
+            + " verlangt version:"
+            + version
+        )
     return raw.decode("ascii")
 
 
@@ -119,8 +158,8 @@ except UnicodeDecodeError:
 if not notes.strip():
     fail(notes_path + ": die Notizen sind leer")
 
-signature_darwin = signature(darwin_path)
-signature_windows = signature(windows_path)
+signature_darwin = signature(darwin_path, "darwin-aarch64")
+signature_windows = signature(windows_path, "windows-x86_64")
 
 base = "https://github.com/%s/releases/download/%s/Gen4-Studio_%s_" % (repo, tag, version)
 manifest = {

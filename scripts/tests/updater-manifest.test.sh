@@ -8,21 +8,29 @@ set -euo pipefail
 SCRIPT="$REPO_ROOT/scripts/release/updater-manifest.sh"
 DATE="2026-11-20T10:00:00Z"
 
-# The .sig file as Tauri writes it: the minisign signature text as one line of base64.
-SIG_TEXT="$(printf 'untrusted comment: signature from tauri secret key\nRWQ\ntrusted comment: timestamp:1\tfile:x\nAAA\n')"
+# The .sig file as Tauri writes it: the minisign signature text as one line of base64. Its trusted
+# comment is tab-separated key:value fields, the last one the version the package was built as.
 b64() { # b64 <text>: one line, no wrapping (GNU base64 wraps at 76 characters)
   printf '%s\n' "$1" | base64 | tr -d '\r\n'
 }
-SIG_MAC="$(b64 "$SIG_TEXT")"
-SIG_WIN="$(b64 "$SIG_TEXT
-second")"
+sig_text() { # sig_text <trusted comment; \t is a tab>: the minisign text
+  printf 'untrusted comment: signature from tauri secret key\nRWQ\ntrusted comment: %b\nAAA' "$1"
+}
+sig_mac_for() { b64 "$(sig_text "timestamp:1\\tfile:x\\tversion:$1")"; }
+sig_win_for() { # a different text than the macOS one (an extra line), so the two cannot be mixed up
+  b64 "$(sig_text "timestamp:1\\tfile:x\\tversion:$1")
+second"
+}
+SIG_MAC="$(sig_mac_for 1.0.1)"
+SIG_WIN="$(sig_win_for 1.0.1)"
 
-setup() { # prints a folder with notes.md, mac.sig, win.sig (all valid); out.json is not there
+setup() { # setup [<version>]: prints a folder with notes.md, mac.sig, win.sig (all valid, the
+          # signatures for <version>, default 1.0.1); out.json is not there
   local d
   d="$(tmpdir)"
   printf 'Neu: Aktualisierung\n\n- Zeile mit Umlaut: \xc3\xa4\n' >"$d/notes.md"
-  printf '%s\n' "$SIG_MAC" >"$d/mac.sig"
-  printf '%s\n' "$SIG_WIN" >"$d/win.sig"
+  printf '%s\n' "$(sig_mac_for "${1:-1.0.1}")" >"$d/mac.sig"
+  printf '%s\n' "$(sig_win_for "${1:-1.0.1}")" >"$d/win.sig"
   printf '%s' "$d"
 }
 
@@ -30,8 +38,8 @@ run() { # run <tag> <dir> [<out>]: the script with the files of setup
   G4_MANIFEST_DATE="$DATE" bash "$SCRIPT" "$1" "$2/notes.md" "$2/mac.sig" "$2/win.sig" "${3:-$2/out.json}"
 }
 
-# check_json <dir> <version> <tag> <repo>: <dir>/out.json is the manifest of setup (same values,
-# same keys in the same order)
+# check_json <dir> <version> <tag> <repo>: <dir>/out.json is the manifest of setup <version> (same
+# values, same keys in the same order)
 check_json() {
   python3 -I -c '
 import json, sys
@@ -52,7 +60,7 @@ assert list(d) == ["version", "notes", "pub_date", "platforms"], list(d)
 assert list(d["platforms"]) == ["darwin-aarch64", "windows-x86_64"], list(d["platforms"])
 for p in d["platforms"].values():
     assert list(p) == ["signature", "url"], list(p)
-' "$1" "$2" "$3" "$4" "$SIG_MAC" "$SIG_WIN"
+' "$1" "$2" "$3" "$4" "$(sig_mac_for "$2")" "$(sig_win_for "$2")"
 }
 
 no_output() { # no_output <dir>: neither out.json nor a temp file next to it
@@ -69,7 +77,7 @@ test_valid_release() {
 
 test_prerelease_tag() {
   local d
-  d="$(setup)"
+  d="$(setup 1.0.1-rc.2)"
   assert_status 0 run v1.0.1-rc.2 "$d"
   check_json "$d" 1.0.1-rc.2 v1.0.1-rc.2 Kaago/gen4-studio
   grep -q '"version": "1.0.1-rc.2"' "$d/out.json" || fail "version: $(cat "$d/out.json")"
@@ -193,6 +201,127 @@ test_base64_of_other_text_fails() {
   assert_contains "untrusted comment" run v1.0.1 "$d"
   assert_contains "$d/win.sig" run v1.0.1 "$d"
   no_output "$d"
+}
+
+# setup_sigs <dir> <mac trusted comment> <win trusted comment>: the signatures of <dir> with the
+# given trusted comments (\t is a tab)
+setup_sigs() {
+  b64 "$(sig_text "$2")" >"$1/mac.sig"
+  b64 "$(sig_text "$3")" >"$1/win.sig"
+}
+
+test_signature_without_a_version_fails() {
+  local d
+  d="$(setup)"
+  setup_sigs "$d" 'timestamp:1\tfile:x' 'timestamp:1\tfile:x\tversion:1.0.1'
+  assert_status 1 run v1.0.1 "$d"
+  assert_contains "$d/mac.sig" run v1.0.1 "$d"
+  assert_contains "darwin-aarch64" run v1.0.1 "$d"
+  assert_contains "version:1.0.1" run v1.0.1 "$d"
+  no_output "$d"
+}
+
+test_windows_signature_without_a_version_fails() {
+  local d
+  d="$(setup)"
+  setup_sigs "$d" 'timestamp:1\tfile:x\tversion:1.0.1' 'timestamp:1\tfile:x'
+  assert_status 1 run v1.0.1 "$d"
+  assert_contains "$d/win.sig" run v1.0.1 "$d"
+  assert_contains "windows-x86_64" run v1.0.1 "$d"
+  no_output "$d"
+}
+
+test_signature_without_a_trusted_comment_fails() {
+  local d
+  d="$(setup)"
+  b64 "$(printf 'untrusted comment: signature from tauri secret key\nRWQ\nAAA')" >"$d/mac.sig"
+  assert_status 1 run v1.0.1 "$d"
+  assert_contains "$d/mac.sig" run v1.0.1 "$d"
+  assert_contains "trusted comment" run v1.0.1 "$d"
+  no_output "$d"
+}
+
+test_signature_for_another_version_fails() {
+  local d
+  d="$(setup)"
+  setup_sigs "$d" 'timestamp:1\tfile:x\tversion:1.0.1' 'timestamp:1\tfile:x\tversion:1.0.0'
+  assert_status 1 run v1.0.1 "$d"
+  assert_contains "$d/win.sig" run v1.0.1 "$d"
+  assert_contains "windows-x86_64" run v1.0.1 "$d"
+  assert_contains "version:1.0.0" run v1.0.1 "$d"
+  assert_contains "version:1.0.1" run v1.0.1 "$d"
+  no_output "$d"
+  setup_sigs "$d" 'timestamp:1\tfile:x\tversion:0.9.0' 'timestamp:1\tfile:x\tversion:1.0.1'
+  assert_status 1 run v1.0.1 "$d"
+  assert_contains "$d/mac.sig" run v1.0.1 "$d"
+  assert_contains "version:0.9.0" run v1.0.1 "$d"
+  no_output "$d"
+}
+
+test_the_version_must_match_the_tag_exactly() {
+  local d
+  d="$(setup 1.0.1)"
+  assert_status 1 run v1.0.1-rc.2 "$d"
+  no_output "$d"
+  d="$(setup 1.0.1-rc.2)"
+  assert_status 1 run v1.0.1 "$d"
+  assert_status 1 run v1.0.1-rc.1 "$d"
+  no_output "$d"
+}
+
+test_a_version_that_is_no_whole_field_fails() {
+  local d c
+  d="$(setup)"
+  # a longer value, a longer name, a prefix, spaces instead of tabs, an empty value
+  for c in 'timestamp:1\tfile:x\tversion:1.0.1.1' 'timestamp:1\tfile:x\tapp_version:1.0.1' \
+    'timestamp:1\tfile:x\tversion:1.0' 'timestamp:1 file:x version:1.0.1' 'timestamp:1\tfile:x\tversion:' \
+    'timestamp:1\tfile:x\tversion:1.0.1 ' 'timestamp:1\tfile:x\tVersion:1.0.1' 'version=1.0.1'; do
+    setup_sigs "$d" "$c" 'timestamp:1\tfile:x\tversion:1.0.1'
+    assert_status 1 run v1.0.1 "$d"
+    setup_sigs "$d" 'timestamp:1\tfile:x\tversion:1.0.1' "$c"
+    assert_status 1 run v1.0.1 "$d"
+  done
+  no_output "$d"
+}
+
+test_the_first_version_field_decides() {
+  # the updater of the app reads the first one
+  local d
+  d="$(setup)"
+  setup_sigs "$d" 'timestamp:1\tversion:0.9.0\tversion:1.0.1' 'timestamp:1\tversion:1.0.1'
+  assert_status 1 run v1.0.1 "$d"
+  no_output "$d"
+  setup_sigs "$d" 'timestamp:1\tversion:1.0.1\tversion:0.9.0' 'timestamp:1\tversion:1.0.1'
+  assert_status 0 run v1.0.1 "$d"
+}
+
+test_a_version_outside_the_trusted_comment_does_not_count() {
+  # the untrusted comment is not covered by the signature; only the trusted one binds the version
+  local d
+  d="$(setup)"
+  b64 "$(printf 'untrusted comment: signature\tversion:1.0.1\nRWQ\ntrusted comment: timestamp:1\tfile:x\nAAA')" >"$d/mac.sig"
+  assert_status 1 run v1.0.1 "$d"
+  assert_contains "$d/mac.sig" run v1.0.1 "$d"
+  no_output "$d"
+  b64 "$(printf 'untrusted comment: signature\nRWQ\ntrusted comment: timestamp:1\tfile:x\nversion:1.0.1')" >"$d/mac.sig"
+  assert_status 1 run v1.0.1 "$d"
+  no_output "$d"
+}
+
+test_a_wrong_version_leaves_an_existing_file_alone() {
+  local d
+  d="$(setup 1.0.0)"
+  echo old >"$d/out.json"
+  assert_status 1 run v1.0.1 "$d"
+  [ "$(cat "$d/out.json")" = "old" ] || fail "existing file changed: $(cat "$d/out.json")"
+  [ "$(ls "$d" | grep -c '^out')" = "1" ] || fail "temp file left behind: $(ls "$d")"
+}
+
+test_a_signature_with_windows_line_endings_still_matches() {
+  local d
+  d="$(setup)"
+  b64 "$(printf 'untrusted comment: signature from tauri secret key\r\nRWQ\r\ntrusted comment: timestamp:1\tfile:x\tversion:1.0.1\r\nAAA\r')" >"$d/mac.sig"
+  assert_status 0 run v1.0.1 "$d"
 }
 
 test_missing_notes_fail() {

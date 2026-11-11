@@ -60,10 +60,17 @@ impl DevPolicy {
             .iter()
             .map(|dir| {
                 let canonical = dir.canonicalize().map_err(|e| {
-                    t!("bridge.folder_unreadable", path = dir.display(), error = e).into_owned()
+                    t!(
+                        "commands.policy.folder_unreadable",
+                        path = dir.display(),
+                        error = e
+                    )
+                    .into_owned()
                 })?;
                 if !canonical.is_dir() {
-                    return Err(t!("bridge.not_a_folder", path = dir.display()).into_owned());
+                    return Err(
+                        t!("commands.policy.not_a_folder", path = dir.display()).into_owned()
+                    );
                 }
                 if is_locked(&canonical) {
                     return Err(t!("bridge.originals_locked", path = dir.display()).into_owned());
@@ -91,7 +98,7 @@ impl DevPolicy {
     fn check_canonical(&self, canonical: &Path, shown: &str) -> Result<(), CmdError> {
         if !self.dirs.iter().any(|root| canonical.starts_with(root)) {
             return Err(CmdError::from(
-                t!("bridge.outside", path = shown).into_owned(),
+                t!("commands.policy.outside", path = shown).into_owned(),
             ));
         }
         if is_locked(canonical) {
@@ -113,7 +120,7 @@ impl DevPolicy {
         std::fs::create_dir(&build).map_err(|e| {
             CmdError::from(
                 t!(
-                    "bridge.folder_not_created",
+                    "commands.policy.folder_not_created",
                     path = build.display(),
                     error = e
                 )
@@ -149,7 +156,7 @@ impl Policy for DevPolicy {
         let canonical = canonicalize(Path::new(path), path)?;
         if !canonical.is_file() {
             return Err(CmdError::from(
-                t!("bridge.not_a_file", path = path).into_owned(),
+                t!("commands.policy.not_a_file", path = path).into_owned(),
             ));
         }
         if self
@@ -199,9 +206,9 @@ impl Policy for DevPolicy {
     /// it would make counts as allowed.
     fn check_target(&self, out: &str) -> Result<PathBuf, CmdError> {
         let path = Path::new(out);
-        let name = path
-            .file_name()
-            .ok_or_else(|| CmdError::from(t!("bridge.no_file_name", path = out).into_owned()))?;
+        let name = path.file_name().ok_or_else(|| {
+            CmdError::from(t!("commands.policy.no_file_name", path = out).into_owned())
+        })?;
         let parent = match path.parent() {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
@@ -240,9 +247,9 @@ impl Policy for DevPolicy {
     /// original would be written through). The folder itself need not exist.
     fn check_new_project(&self, dest: &str) -> Result<PathBuf, CmdError> {
         let path = Path::new(dest);
-        let name = path
-            .file_name()
-            .ok_or_else(|| CmdError::from(t!("bridge.no_file_name", path = dest).into_owned()))?;
+        let name = path.file_name().ok_or_else(|| {
+            CmdError::from(t!("commands.policy.no_file_name", path = dest).into_owned())
+        })?;
         let parent = match path.parent() {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
@@ -275,7 +282,7 @@ fn locked(shown: &str) -> CmdError {
 
 fn canonicalize(path: &Path, shown: &str) -> Result<PathBuf, CmdError> {
     path.canonicalize().map_err(|e| {
-        CmdError::from(t!("bridge.path_unreadable", path = shown, error = e).into_owned())
+        CmdError::from(t!("commands.policy.path_unreadable", path = shown, error = e).into_owned())
     })
 }
 
