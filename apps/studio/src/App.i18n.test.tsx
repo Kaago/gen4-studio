@@ -212,8 +212,8 @@ describe("App language switch", () => {
       act(() => void palette.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
       await flush();
       // What the open project asked for so far, once or more: the overview (matrices, event files), the data lists and names the palette
-      // asked for, the checks, the Git state and the project's state as a text project.
-      const reads = ["list_matrices", "list_warps", "data_list", "name_tables", "run_checks", "git_status", "text_project_status"] as const;
+      // asked for, the checks, the Git state, the project's state as a text project and the base ROM's state for resetting.
+      const reads = ["list_matrices", "list_warps", "data_list", "name_tables", "run_checks", "git_status", "text_project_status", "original_status"] as const;
       const before = Object.fromEntries(reads.map((cmd) => [cmd, count(cmd)]));
       for (const cmd of reads) expect(before[cmd], cmd).toBeGreaterThan(0);
       const mark = sent.length;

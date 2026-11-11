@@ -1246,7 +1246,8 @@ function AppBody() {
   // The language shown changed. The backend knows the new one by now (`applyLanguage` tells it before i18next switches), but what it built
   // in the old one is cached here, above the workbench that remounts. It is read again, each part on the path a bus event takes already:
   // the overviews (matrix and warp listings), the data lists that were asked for, the checks (they replace the findings of the problems list),
-  // the project's state as a text project and the Git status. Not on the first render, and not for a choice that keeps the language.
+  // the project's state as a text project, the Git status and the base ROM's state for „Auf Original zurücksetzen“ (its reason is a sentence of
+  // the backend). Not on the first render, and not for a choice that keeps the language.
   const languageRead = useRef(shownLanguage);
   const readAgainInLanguage = useStableCallback(() => {
     if (session.info === null) return;
@@ -1255,6 +1256,7 @@ function AppBody() {
     void checks.recheck();
     rereadTextStatus();
     void git.refresh();
+    void original.refresh();
   });
   useEffect(() => {
     if (languageRead.current === shownLanguage) return;
