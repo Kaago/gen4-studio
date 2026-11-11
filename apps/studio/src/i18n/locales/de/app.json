@@ -15,7 +15,14 @@
     "densityCompact": "Kompakt",
     "densityHint": "Kompakt: Zeilen 24 statt 32 px hoch",
     "emulator": "Emulator",
-    "keys": "Tastenkürzel"
+    "keys": "Tastenkürzel",
+    "updates": "Updates",
+    "updatesAuto": "Automatisch nach Updates suchen",
+    "updatesHint": "Höchstens einmal am Tag beim Start, auf GitHub. Über Projekte wird nichts gesendet.",
+    "updatesCheckNow": "Jetzt suchen",
+    "updatesVersion": "Version {{version}}",
+    "updatesLastChecked": "Zuletzt gesucht {{when}}",
+    "updatesNeverChecked": "Noch nicht gesucht"
   },
   "agents": {
     "title": "Agenten",
@@ -51,6 +58,27 @@
     "confirmText": "„{{client}}“ möchte: {{what}} (lässt sich nicht rückgängig machen).",
     "somethingIrreversible": "etwas Unumkehrbares",
     "allow": "Zulassen"
+  },
+  "updates": {
+    "consentTitle": "Updates",
+    "consent": "Soll Gen4 Studio beim Start auf GitHub nach einer neuen Version suchen (höchstens einmal am Tag)? Über Projekte wird nichts gesendet. Das lässt sich in den Einstellungen ändern.",
+    "consentYes": "Automatisch suchen",
+    "consentNo": "Nicht suchen",
+    "available": "Gen4 Studio {{version}} ist verfügbar.",
+    "install": "Installieren…",
+    "skip": "Diese Version überspringen",
+    "confirmTitle": "Gen4 Studio aktualisieren",
+    "confirm": "Gen4 Studio {{version}} installieren und neu starten? (Installiert: {{current}})",
+    "unsavedWarning": "Ungespeicherte Änderungen gehen verloren.",
+    "notesHeading": "Neu:",
+    "installAndRestart": "Installieren und neu starten",
+    "cancel": "Abbrechen",
+    "downloading": "Update wird geladen… {{percent}} %",
+    "downloadingBytes": "Update wird geladen… {{size}}",
+    "installing": "Update wird installiert…",
+    "upToDate": "Gen4 Studio {{version}} ist aktuell.",
+    "checkFailed": "Die Suche nach Updates ist gescheitert: {{reason}}",
+    "installFailed": "Das Update ließ sich nicht installieren: {{reason}}"
   },
   "gameLabel": {
     "dp": "Diamant/Perl",
