@@ -2280,10 +2280,10 @@ fn git(command: GitCommand) -> Result<(), Failure> {
                 None => println!("not committed"),
                 Some(reason) => println!("not committed: {reason}"),
             }
-            // A Git subcommand failed: neither an existing repository nor a missing Git.
-            let expected = [g4_kernel::git::in_repo(), g4_kernel::git::not_installed()];
-            match &report.reason {
-                Some(reason) if !expected.contains(reason) => {
+            // A Git subcommand failed: neither an existing repository nor a missing Git. The
+            // code says which, whatever the language of the sentence.
+            match report.reason_code {
+                Some(g4_kernel::git::REASON_FAILED) => {
                     Err(Failure::Message("git init failed".into()))
                 }
                 _ => Ok(()),

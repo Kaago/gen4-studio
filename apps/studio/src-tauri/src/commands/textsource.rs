@@ -213,9 +213,10 @@ fn same_session<'g>(
 
 /// Replaces the session of `project` by `fresh` (the same folder, opened anew after an
 /// adoption, a revert or a migration), but only while it is unchanged: still open, no
-/// unsaved value, its change generation still `generation`. Else [`reopen_message`] and the session
-/// stays as it is: nothing is lost, the files were only written past it. Without the agents'
-/// turn: the caller holds it (the Tauri command, an agent's call).
+/// unsaved value, its change generation still `generation`. Else the refusal `reopen`
+/// ([`reopen_message`]; the UI tells it by the code) and the session stays as it is: nothing is
+/// lost, the files were only written past it. Without the agents' turn: the caller holds it
+/// (the Tauri command, an agent's call).
 fn replace_if_unchanged(
     state: &AppState,
     project: &Arc<Project>,
@@ -227,7 +228,7 @@ fn replace_if_unchanged(
         session.store.dirty().is_empty() && session.store.change_generation() == generation
     });
     if !unchanged {
-        return Err(reopen_message().into());
+        return Err(CmdError::refused("reopen", reopen_message()));
     }
     let old = guard.replace(fresh);
     drop(guard);
@@ -1332,6 +1333,9 @@ mod tests {
         let path = t.fx.root().to_str().unwrap();
         let (fresh, _) = super::super::new_session(&t.state, path).unwrap();
         let err = replace_if_unchanged(&t.state, &project, generation, fresh).unwrap_err();
+        // The UI knows the answer by its code, not by its words.
+        assert_eq!(err.code, "reopen");
+        assert_eq!(err.message, reopen_message());
         assert!(err.message.contains("please reopen"), "{}", err.message);
         // The edit is still there, in the same session.
         assert_eq!(dirty_impl(&t.state).unwrap().len(), 1);

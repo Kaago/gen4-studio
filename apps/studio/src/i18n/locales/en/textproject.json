@@ -16,7 +16,6 @@
     "renaming": "Renaming…"
   },
   "adoptDialog": {
-    "reopen": "The files are converted, but the open session was changed in the meantime and stays as it is; please reopen the project.",
     "unsaved_one": "Save first: {{count}} unsaved change.",
     "unsaved_other": "Save first: {{count}} unsaved changes.",
     "progress": {

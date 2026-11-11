@@ -293,14 +293,24 @@ describe("NewProjectWizard", () => {
   });
 
   it("the_result_says_only_the_templates_were_written_without_git", async () => {
-    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason: notInstalledText(), head: null, files: 0 }));
+    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason: notInstalledText(), reason_code: "not_installed", head: null, files: 0 }));
     expect(warning).toBe("Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.");
     expect(shown).not.toContain("Git eingerichtet");
   });
 
+  it("the_result_tells_a_missing_git_by_the_code_not_the_sentence", async () => {
+    // The kernel's sentence for a missing Git under the code of a failure is shown as the reason; a missing Git under other words is „templates only“.
+    const failed = await createWithGit(initReportOf({ committed: false, reason: notInstalledText(), reason_code: "failed", head: null, files: 0 }));
+    expect(failed.warning).toBe(notInstalledText());
+    act(() => root.unmount());
+    root = createRoot(container);
+    const missing = await createWithGit(initReportOf({ committed: false, reason: "no git here", reason_code: "not_installed", head: null, files: 0 }));
+    expect(missing.warning).toBe("Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.");
+  });
+
   it("the_result_shows_why_the_first_commit_failed", async () => {
     const reason = "Der erste Commit ist gescheitert: error: gpg failed to sign the data. Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug.";
-    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason, head: null, files: 0 }));
+    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason, reason_code: "failed", head: null, files: 0 }));
     expect(warning).toBe(reason);
     expect(shown).not.toContain("Git eingerichtet");
   });

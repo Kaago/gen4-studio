@@ -16,7 +16,6 @@
     "renaming": "Wird umbenannt …"
   },
   "adoptDialog": {
-    "reopen": "Die Dateien sind umgestellt, aber die offene Sitzung wurde inzwischen geändert und bleibt, wie sie ist; das Projekt bitte neu öffnen.",
     "unsaved_one": "Erst speichern: {{count}} ungespeicherte Änderung.",
     "unsaved_other": "Erst speichern: {{count}} ungespeicherte Änderungen.",
     "progress": {

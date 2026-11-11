@@ -1878,6 +1878,55 @@ fn cli_git_init_and_status() {
 }
 
 #[test]
+fn cli_git_init_without_git_writes_the_templates_and_succeeds() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    // The reason is decided by its code, not by the sentence: no `git` is no failure.
+    let assert = g4k()
+        .args(["git", "init"])
+        .arg(root)
+        .env("G4_GIT", "/nicht/da")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    assert!(
+        out.ends_with(&format!(
+            "not committed: {}\n",
+            g4_kernel::git::not_installed()
+        )),
+        "{out}"
+    );
+    assert!(!root.join(".git").exists());
+    assert!(root.join(".gitattributes").is_file());
+}
+
+#[test]
+fn cli_git_init_fails_when_the_first_commit_fails() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let home = tempfile::tempdir().unwrap();
+    let Some(mut init) = g4k_isolated(home.path()) else {
+        return;
+    };
+    // A signing program that fails: Git's own refusal, neither an existing repository nor a
+    // missing Git, so the exit code says it went wrong.
+    init.env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "true")
+        .env("GIT_CONFIG_KEY_1", "gpg.program")
+        .env("GIT_CONFIG_VALUE_1", "false");
+    let assert = init.args(["git", "init"]).arg(root).assert().failure();
+    let out = stdout_of(&assert);
+    assert!(out.contains("not committed: "), "{out}");
+    assert!(
+        !out.contains(&g4_kernel::git::in_repo())
+            && !out.contains(&g4_kernel::git::not_installed()),
+        "{out}"
+    );
+    assert!(root.join(".git").is_dir());
+}
+
+#[test]
 fn cli_git_init_templates_only() {
     let s = common::synthetic_project();
     let root = s.dir.path();

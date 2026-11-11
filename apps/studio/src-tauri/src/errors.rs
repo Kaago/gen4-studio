@@ -36,7 +36,10 @@ use crate::state::Session;
 /// outside, a conflict or a broken file), `"conflicts"`
 /// (`build_rom` of a text project with an open conflict; nothing was saved or built) and
 /// `"unknown_id"` (MCP: a symbolic id in the arguments nothing knows), `"busy"` (a write
-/// while the project is set up as text project; nothing was changed), Git's (4.4)
+/// while the project is set up as text project; nothing was changed), `"reopen"`
+/// (`adopt_text_project`, `revert_text_project`, `migrate_text_project`: the files were
+/// written but the open session was changed meanwhile and stays as it is; the project must
+/// be opened anew, nothing is lost), Git's (4.4)
 /// `"no_repo"` and `"no_commit"` (`diff_entity` against the last commit: no repository holds
 /// the project, or it has no commit yet), `"not_diffable"` (`diff_entity`: a project file
 /// against the base ROM, a script against the saved state, a path or member folder outside

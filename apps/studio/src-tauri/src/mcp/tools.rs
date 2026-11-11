@@ -809,7 +809,7 @@ impl<'a> Call<'a> {
     fn recheck(&self, command: &str, args: &Value, admitted: &Admitted) -> Result<(), ToolError> {
         if self.shared.is_none()
             || admitted.confirm.is_some()
-            || !needs_store(command, &classify(command, args, self.policy))
+            || !needs_store(command, args, &classify(command, args, self.policy))
         {
             return Ok(());
         }
@@ -1001,7 +1001,7 @@ impl<'a> Call<'a> {
             });
         };
         let mut class = classify(command, args, self.policy);
-        if needs_store(command, &class)
+        if needs_store(command, args, &class)
             && let Ok(exact) =
                 self.with_session(|s| classify_in(command, args, self.policy, &mut s.store))
         {

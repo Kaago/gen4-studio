@@ -70,15 +70,20 @@ export type InitPhase = "unpack" | "templates" | "init" | "add" | "commit";
 /** What writing the block of Gen4 Studio did to one file. */
 export type TemplateAction = "created" | "appended" | "updated" | "unchanged";
 
+/** Why „Git einrichten“ made no commit: no `git` was found, a repository holds the project already, or a Git command failed. */
+export type InitReasonCode = "in_repo" | "not_installed" | "failed";
+
 /**
  * What „Git einrichten“ did. `committed` is false with a `reason` (a sentence: no `git`, already in a repository, the commit failed with
- * Git's text) when no commit was made; `head` and `files` (entries of the index) only with the commit. `studio_identity`: Git knows no name
+ * Git's text) when no commit was made; `reason_code` is its kind, the same in every language (null exactly when `reason` is), and what the
+ * UI decides by, never the sentence. `head` and `files` (entries of the index) only with the commit. `studio_identity`: Git knows no name
  * yet, so the commit is by „Gen4 Studio“. `phase_ms`: the milliseconds of each phase that ran (the backend always sends it).
  */
 export interface InitReport {
   templates: { layout: "dspre" | "text_project"; files: { path: string; action: TemplateAction }[]; ignored_archives: number };
   committed: boolean;
   reason: string | null;
+  reason_code: InitReasonCode | null;
   head: HeadInfo | null;
   files: number;
   studio_identity: boolean;

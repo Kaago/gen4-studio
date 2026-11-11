@@ -76,7 +76,7 @@ export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusiv
       if (report.committed) {
         toast.info(initDoneText(report));
         onClose();
-      } else if (isNotInstalled(report.reason)) {
+      } else if (isNotInstalled(report)) {
         toast.info(templatesOnlyText());
         onClose();
       } else {

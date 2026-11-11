@@ -3,18 +3,10 @@ import { useTranslation } from "react-i18next";
 import { adoptTextProject, errorText, isCmdError } from "../api";
 import type { AdoptProgress, AdoptReport } from "../api";
 import { templatesNote } from "../git/gitWords";
-import { matchesAnyLanguage, t } from "../i18n";
+import { t } from "../i18n";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
 import styles from "./AdoptDialog.module.css";
-
-/**
- * Whether `message` is the backend's answer when the files were set up but the open session changed meanwhile and was kept
- * (`commands.textsource.reopen`, `textproject:adoptDialog.reopen`): the project must be opened anew, setting it up again would be refused.
- * The refusal has no code of its own, and the backend says it in the language it was set to: the words of both catalogs count, so the
- * hint stays when the backend speaks another language than the app shows.
- */
-export const isReopen = (message: string): boolean => matchesAnyLanguage("textproject:adoptDialog.reopen", message);
 
 /** The unsaved count as the kernel says it („Erst speichern: 1 ungespeicherte Änderung.“). */
 export function unsavedText(n: number): string {
@@ -95,7 +87,8 @@ export function AdoptDialog({ unsaved, baseLabel, baseReason, scriptsAdopted, on
       onClose();
     } catch (e) {
       setError(errorText(e));
-      setReopen(isCmdError(e) && isReopen(e.message));
+      // The files were set up but the open session changed meanwhile and was kept: the project must be opened anew, setting it up again would be refused.
+      setReopen(isCmdError(e) && e.code === "reopen");
     } finally {
       busy.current = false;
       setRunning(false);
