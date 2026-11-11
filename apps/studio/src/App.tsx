@@ -1243,6 +1243,27 @@ function AppBody() {
     }
   }, [activeScript]);
 
+  // The language shown changed. The backend knows the new one by now (`applyLanguage` tells it before i18next switches), but what it built
+  // in the old one is cached here, above the workbench that remounts. It is read again, each part on the path a bus event takes already:
+  // the overviews (matrix and warp listings), the data lists that were asked for, the checks (they replace the findings of the problems list),
+  // the project's state as a text project, the Git status and the base ROM's state for „Auf Original zurücksetzen“ (its reason is a sentence of
+  // the backend). Not on the first render, and not for a choice that keeps the language.
+  const languageRead = useRef(shownLanguage);
+  const readAgainInLanguage = useStableCallback(() => {
+    if (session.info === null) return;
+    void overview.refresh();
+    dataStore.reload();
+    void checks.recheck();
+    rereadTextStatus();
+    void git.refresh();
+    void original.refresh();
+  });
+  useEffect(() => {
+    if (languageRead.current === shownLanguage) return;
+    languageRead.current = shownLanguage;
+    readAgainInLanguage();
+  }, [shownLanguage, readAgainInLanguage]);
+
   // The breadcrumb of the hinge: place, header, selection. Each crumb is a link (`data.goTo` keeps its identity).
   // The memos below that make text are made again in a new language (`shownLanguage`): the words of places, crumbs and palette entries are read when they are built.
   const places = useMemo(() => buildPlaces(scene.headers, overview.matrices, overview.links), [scene.headers, overview.matrices, overview.links, shownLanguage]);

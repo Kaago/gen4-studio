@@ -1086,7 +1086,7 @@ export interface PlaceCreated {
 
 export const placeSlots = () => invoke<PlaceSlots>("place_slots");
 /** Creates the place `name` and gives it to the map headers `headers`, one undo step. Rejects an empty name, a
- * character the game does not know, a full bank and Diamond/Pearl (German sentences). */
+ * character the game does not know, a full bank and Diamond/Pearl (sentences in the backend's language, `set_locale`). */
 export const createPlace = (name: string, headers: number[]) => invoke<PlaceCreated>("create_place", { name, headers });
 /** Renames the place at `index` for every map header carrying it, one undo step. */
 export const renamePlace = (index: number, name: string) => invoke<void>("rename_place", { index, name });
@@ -1142,7 +1142,7 @@ export interface MapBudgetDto {
   bdhc: BudgetItemDto;
   buildings: BudgetItemDto;
   textures: TextureBudgetDto | null;
-  /** Why `textures` is `null` (German, shown as it is). */
+  /** Why `textures` is `null`: a sentence in the backend's language (`set_locale`), shown as it is. */
   textures_missing: string | null;
 }
 

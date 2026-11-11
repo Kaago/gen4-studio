@@ -118,6 +118,9 @@ export function readLanguage(): Language {
 /** How long the start waits for the backend's system language before `navigator.language` decides. */
 export const SYSTEM_LANGUAGE_TIMEOUT_MS = 1500;
 
+/** How long a switch waits for the backend to take the new language (`set_locale`) before the app switches anyway. */
+export const SET_LOCALE_TIMEOUT_MS = 3000;
+
 /** The system language as the backend reported it (inside Tauri), kept from the first answer on; `null`: the navigator decides. */
 let systemLanguage: Effective | null = null;
 /** The one question to the backend, shared by all who wait for it. */
@@ -139,8 +142,8 @@ export function effectiveLanguage(l: Language = readLanguage()): Effective {
 
 /**
  * Asks the backend once for the language of the operating system (`system_language`) and keeps the answer for `effectiveLanguage`: inside
- * Tauri `navigator.language` follows the localizations of the app bundle, not the OS (WKWebView names „en-US“ on a German Mac). Outside
- * Tauri there is nothing to ask; there, and when the backend fails, reports nothing or does not answer within `timeoutMs`, the navigator
+ * Tauri `navigator.language` may report the bundle's localizations rather than the OS language (WKWebView can name „en-US“ on a German
+ * Mac). Outside Tauri there is nothing to ask; there, and when the backend fails, reports nothing or does not answer within `timeoutMs`, the navigator
  * decides (an answer after the timeout is dropped: the language shown must not change behind the user's back). Resolves to what
  * `effectiveLanguage("system")` answers from then on.
  */
@@ -196,12 +199,43 @@ export function init(l: Language): void {
   setDocumentLanguage(lng);
 }
 
+/** The number of the latest `applyLanguage` call: an earlier one that is still waiting for the backend leaves the switch to the later. */
+let latestApply = 0;
+
 /**
- * Makes `l` the language of the app: remembers it, switches i18next and `<html lang>`, then tells the backend (`set_locale`) so
- * its messages follow. `system` first waits for the system language (`resolveSystemLanguage`, asked once). Resolves when the
- * backend has answered; a backend that refuses (an older one without the command) is logged and does not keep the app from starting.
+ * Tells the backend the language (`set_locale`) and waits for its answer, at most `SET_LOCALE_TIMEOUT_MS`. A refusal (an older backend
+ * without the command) and a missing answer are logged once and do not keep the app from switching.
+ */
+async function tellBackend(lang: Effective): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`no answer within ${SET_LOCALE_TIMEOUT_MS} ms`)), SET_LOCALE_TIMEOUT_MS);
+    });
+    const told = (async () => {
+      // Loaded here, not at the top: `vitest.setup.ts` imports this module before every test, and the backend wrapper (with the
+      // transport and Tauri's `invoke` under it) would be fixed to its real version before a test file's own `vi.mock` could replace it.
+      const { setLocale } = await import("./backend");
+      await setLocale(lang);
+    })();
+    await Promise.race([told, timeout]);
+  } catch (e) {
+    console.warn("set_locale failed; the backend keeps its language", e);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Makes `l` the language of the app: remembers it, then tells the backend (`set_locale`) so that what it answers from now on is in the
+ * new language, and only then switches i18next and `<html lang>`. The app reads again what the backend wrote in the old language as soon as
+ * the language shown changes (`App`), so the backend must know first. `system` first waits for the system language
+ * (`resolveSystemLanguage`, asked once). Resolves when the language is switched: the backend has answered, refused (logged) or kept
+ * silent for `SET_LOCALE_TIMEOUT_MS` (logged); none of that keeps the app from starting. A later call that comes while this one waits
+ * decides the language: this one then leaves the switch to it.
  */
 export async function applyLanguage(l: Language): Promise<void> {
+  const mine = ++latestApply;
   try {
     localStorage.setItem(LANGUAGE_KEY, l);
   } catch {
@@ -209,22 +243,17 @@ export async function applyLanguage(l: Language): Promise<void> {
   }
   if (l === "system") await resolveSystemLanguage();
   const effective = effectiveLanguage(l);
+  await tellBackend(effective);
+  if (mine !== latestApply) return;
   await i18next.changeLanguage(effective);
   setDocumentLanguage(effective);
-  try {
-    // Loaded here, not at the top: `vitest.setup.ts` imports this module before every test, and the backend wrapper (with the
-    // transport and Tauri's `invoke` under it) would be fixed to its real version before a test file's own `vi.mock` could replace it.
-    const { setLocale } = await import("./backend");
-    await setLocale(effective);
-  } catch (e) {
-    console.warn("set_locale failed; the backend keeps its language", e);
-  }
 }
 
 /**
  * The language at the start, before the first render (`main.tsx`): asks the backend for the system language in any case (a later switch to
- * „System“ then finds it at once), applies the stored choice and resolves when it is shown and the backend knows it. With „System“ that
- * waits for the backend's answer (at most `SYSTEM_LANGUAGE_TIMEOUT_MS`); a fixed choice does not wait for it.
+ * „System“ then finds it at once), applies the stored choice and resolves when it is shown and the backend knows it (or did not answer
+ * within `SET_LOCALE_TIMEOUT_MS`). With „System“ that waits for the backend's answer first (at most `SYSTEM_LANGUAGE_TIMEOUT_MS`); a fixed
+ * choice does not wait for it.
  */
 export async function startLanguage(): Promise<void> {
   void resolveSystemLanguage();

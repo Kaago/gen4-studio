@@ -31,8 +31,9 @@ export interface BaseMarkDto {
 export type BaseSource = "explicit" | "known" | "sibling" | "dir";
 
 /**
- * The base ROM of the open project. `label` names it („Platin DE (Testprojekt)“); `reason` is a German sentence ready to show; `patch_name`
- * is `<Projekt>-<Spielcode>`, the name the agents' `create_patch` writes under `build/` (the kernel's `patch::patch_name`).
+ * The base ROM of the open project. `label` names it („Platin DE (Testprojekt)“); `reason` is a sentence in the backend's language
+ * (`set_locale`) ready to show; `patch_name` is `<Projekt>-<Spielcode>`, the name the agents' `create_patch` writes under `build/` (the
+ * kernel's `patch::patch_name`).
  */
 export type BaseStatus =
   | { state: "unassigned"; suggestion: string | null }
@@ -42,7 +43,7 @@ export type BaseStatus =
 
 export interface BaseWarning {
   kind: "title_differs" | "revision_differs" | "unknown_dump" | "arm7_differs" | "banner_differs";
-  /** The German sentence for the user. */
+  /** A sentence in the backend's language (`set_locale`) for the user. */
   message: string;
 }
 
@@ -78,18 +79,19 @@ export function formatBytes(n: number): string {
 }
 
 /**
- * Tells the backend the language of its own texts (`set_locale`, `de` or `en`). Only inside Tauri there is a backend to tell: the
- * browser mode and the tests resolve at once.
+ * Tells the backend the language of its own texts (`set_locale`, `de` or `en`). Inside Tauri the backend is the app's process; in the
+ * browser during development it is the dev bridge, a process of its own that reads `G4_LANG` at its start and has no other way to learn
+ * a switch. Elsewhere (the tests, a build without a backend) there is nothing to tell: it resolves at once.
  */
 export async function setLocale(lang: Effective): Promise<void> {
-  if (!inTauri()) return;
+  if (!inTauri() && import.meta.env.MODE !== "development") return;
   await invoke<void>("set_locale", { lang });
 }
 
 /**
  * The language of the operating system as the backend reads it (`system_language`, for example „de-DE“), for the choice „System“: inside
- * Tauri `navigator.language` follows the localizations of the app bundle, not the OS. `null` outside Tauri (the browser's navigator is the
- * system's there) and when the OS reports none.
+ * Tauri `navigator.language` may report the bundle's localizations rather than the OS language. `null` outside Tauri (the browser's
+ * navigator is the system's there) and when the OS reports none.
  */
 export async function systemLanguage(): Promise<string | null> {
   if (!inTauri()) return null;

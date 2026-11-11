@@ -1,7 +1,9 @@
 //! The language of the messages: the webview tells the backend which one the user chose.
-//! The setting is process-wide (`g4_kernel::i18n`), so it also reaches the kernel, the MCP
-//! answers and the dev bridge that run in the same process. For the choice "System" the
-//! webview asks the backend for the language of the operating system.
+//! The setting is process-wide (`g4_kernel::i18n`), so it also reaches the kernel and the MCP
+//! answers that run in the same process. The dev bridge (`studio-bridge`) is a process of its
+//! own: it reads `G4_LANG` at its start (`init_from_env`) and, in the browser mode, gets
+//! `set_locale` from the page like the app does. For the choice "System" the webview asks the
+//! backend for the language of the operating system.
 
 /// Sets the language of this process's messages: `de` (also `de-AT`, `de_CH`) selects German,
 /// anything else English.
@@ -30,8 +32,8 @@ fn reported(locale: Option<String>) -> Option<String> {
 }
 
 /// What "System" in Settings › Language follows inside the app. WKWebView's
-/// `navigator.language` names the localizations of the app bundle, not the language of the OS,
-/// so the webview asks here (`null`: it keeps `navigator.language`).
+/// `navigator.language` may report the bundle's localizations rather than the OS language, so
+/// the webview asks here (`null`: it keeps `navigator.language`).
 #[tauri::command]
 pub fn system_language() -> Option<String> {
     system_language_impl()
