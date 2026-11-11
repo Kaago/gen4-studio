@@ -746,6 +746,16 @@ fn template_refuses_before_adopting_the_scripts() {
         .code(1)
         .stderr(contains("the world is already empty"));
     untouched();
+    // The refusal is a catalog sentence: German with `G4_LANG=de`.
+    g4k()
+        .env("G4_LANG", "de")
+        .args(["template"])
+        .arg(root)
+        .arg("empty-region")
+        .assert()
+        .code(1)
+        .stderr(contains("Die Welt ist schon leer"));
+    untouched();
 }
 
 #[test]

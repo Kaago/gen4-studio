@@ -136,7 +136,9 @@ pub fn apply(
         DataPatch::Tm { n, on } if species_kind => {
             let n = usize::from(n);
             if n >= MACHINES {
-                return Err(format!("there are {MACHINES} machines, none at {n}").into());
+                return Err(t!("commands.data.no_machine", count = MACHINES, n = n)
+                    .into_owned()
+                    .into());
             }
             let old = store.personal(index)?.tm(n);
             let name = display::species(names, store, index);

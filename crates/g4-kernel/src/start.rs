@@ -586,7 +586,9 @@ pub(crate) fn create_project_with(
     let (secure_area_crc, secure_area_sha1) = read_secure_area(rom)?;
     let name = dest
         .file_name()
-        .ok_or_else(|| KernelError::Refused(format!("{} has no folder name", dest.display())))?
+        .ok_or_else(|| {
+            KernelError::Refused(t!("start.no_folder_name", path = dest.display()).into_owned())
+        })?
         .to_string_lossy()
         .into_owned();
     let parent = match dest.parent() {

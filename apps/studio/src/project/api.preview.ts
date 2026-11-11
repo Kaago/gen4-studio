@@ -4,7 +4,7 @@ import { invoke } from "../platform/transport";
  * The project preview for the start list, mirroring `apps/studio/src-tauri/src/commands/preview.rs` and
  * `g4_kernel::preview` (phase 4.0 design, §3.3). `api.ts` re-exports everything.
  *
- * Without `path` both commands work on the open project (rejected with "no project open" without one); with `path` they
+ * Without `path` both commands work on the open project (rejected with the error "No project is open." without one); with `path` they
  * touch only `<path>/.g4/preview.png` and `<path>/.g4/cache/preview-standard.png`, without opening the project. A folder
  * that is gone or has no valid preview answers `source: null`. In the dev bridge `path` and `file` must lie under an
  * allowed root.

@@ -293,13 +293,13 @@ mod tests {
         let closed = AppState::default();
         assert_eq!(
             get_header_impl(&closed, 0).unwrap_err().message,
-            "no project open"
+            "No project is open."
         );
         assert_eq!(
             set_header_impl(&closed, 0, h, "edit header")
                 .unwrap_err()
                 .message,
-            "no project open"
+            "No project is open."
         );
     }
 

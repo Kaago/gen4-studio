@@ -80,6 +80,47 @@ fn command_errors_follow_the_locale() {
     );
 }
 
+/// The refusals the commands used to spell in English (a command without an open project, a
+/// cell off the map) are catalog sentences: they follow the language of the process.
+#[test]
+fn refusals_without_a_session_follow_the_locale() {
+    let _locale = LocaleGuard::take();
+    let project = synthetic_project();
+    let policy = UserPolicy::new(project.dir.path(), &[], None).unwrap();
+    let state = AppState::default();
+    let message = |lang: &str, command: &str, args: Value| {
+        set_locale(lang);
+        match dispatch(&state, &policy, command, args) {
+            Err(DispatchError::Cmd(e)) => (e.code, e.message),
+            other => panic!("{other:?}"),
+        }
+    };
+    assert_eq!(
+        message("de", "dirty", json!({})),
+        ("error", "Kein Projekt geöffnet.".to_owned())
+    );
+    assert_eq!(
+        message("en", "dirty", json!({})),
+        ("error", "No project is open.".to_owned())
+    );
+    // The cell is checked before the session is looked up.
+    let off_map = json!({ "index": 0, "x": 40, "y": 3, "kind": 0, "collision": 0 });
+    assert_eq!(
+        message("de", "set_permission", off_map.clone()),
+        (
+            "error",
+            "Die Zelle (40, 3) liegt außerhalb der Karte (32 × 32).".to_owned()
+        )
+    );
+    assert_eq!(
+        message("en", "set_permission", off_map),
+        (
+            "error",
+            "Cell (40, 3) is outside the 32 × 32 map.".to_owned()
+        )
+    );
+}
+
 #[test]
 fn doctor_report_follows_the_locale() {
     let _locale = LocaleGuard::take();

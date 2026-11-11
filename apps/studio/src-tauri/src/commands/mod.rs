@@ -98,7 +98,12 @@ pub(crate) fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, 
 }
 
 pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
-    guard.as_mut().ok_or_else(|| "no project open".into())
+    guard.as_mut().ok_or_else(no_project)
+}
+
+/// The refusal of a command that needs an open project, when none is open.
+pub(crate) fn no_project() -> CmdError {
+    CmdError::from(t!("commands.common.no_project").into_owned())
 }
 
 /// The refusal of a path that is no valid text (it cannot be passed on as a string).
@@ -255,7 +260,7 @@ mod tests {
         let err = dirty_impl(&AppState::default()).unwrap_err();
         assert_eq!(
             (err.code, err.message.as_str()),
-            ("error", "no project open")
+            ("error", "No project is open.")
         );
         let (_s, state) = open_synthetic();
         let err = get_map_model_glb_with(&state, 0, 0, None).unwrap_err();

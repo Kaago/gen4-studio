@@ -271,11 +271,11 @@ mod tests {
         let closed = AppState::default();
         assert_eq!(
             get_area_data_impl(&closed, 0).unwrap_err().message,
-            "no project open"
+            "No project is open."
         );
         assert_eq!(
             set_area_data_impl(&closed, 0, a, "x").unwrap_err().message,
-            "no project open"
+            "No project is open."
         );
     }
 

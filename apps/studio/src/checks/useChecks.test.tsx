@@ -236,7 +236,7 @@ describe("useChecks", () => {
   });
 
   it("reports_a_failed_run_and_forgets_everything_without_a_project", async () => {
-    vi.mocked(runChecks).mockRejectedValueOnce({ code: "error", message: "no project open", asset: null });
+    vi.mocked(runChecks).mockRejectedValueOnce({ code: "error", message: "Kein Projekt geöffnet.", asset: null });
     await render(project("/p"));
     expect(onError).toHaveBeenCalledOnce();
     vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("warp.dest-warp")] }));

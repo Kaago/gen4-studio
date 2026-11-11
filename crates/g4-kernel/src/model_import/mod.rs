@@ -539,10 +539,7 @@ pub fn convert_for_map(
             .project()
             .map_tileset_member(ctx.pack)?
             .ok_or_else(|| {
-                KernelError::Refused(format!(
-                    "map texture pack {:04} is not in the archive",
-                    ctx.pack
-                ))
+                KernelError::Refused(t!("bake.pack_missing", pack = ctx.pack : {:04}).into_owned())
             })?;
         let after = match appended_pack_or_refusal(&before, &plan.new)? {
             Ok(after) => after,

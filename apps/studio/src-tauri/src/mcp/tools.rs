@@ -1158,7 +1158,7 @@ impl<'a> Call<'a> {
             (None, Some(shared)) => {
                 serde_json::to_value(project_info_of(self.state, shared.project)?)
             }
-            (None, None) => return Err(ToolError::error("no project open")),
+            (None, None) => return Err(ToolError::error(t!("commands.common.no_project"))),
         };
         let mut info = info.map_err(|e| ToolError::error(e.to_string()))?;
         // The project as a source now: an adoption (or a revert) since it opened changed it.
@@ -1194,7 +1194,7 @@ impl<'a> Call<'a> {
         let Some(session) = guard.as_mut() else {
             return Err(match self.shared {
                 Some(_) => ToolError::refused("no_project", t!(NO_PROJECT)),
-                None => ToolError::error("no project open"),
+                None => ToolError::error(t!("commands.common.no_project")),
             });
         };
         if let Some(shared) = &self.shared

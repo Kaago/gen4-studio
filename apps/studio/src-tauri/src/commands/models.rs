@@ -305,7 +305,7 @@ mod tests {
             .unwrap_err();
         assert!(err.message.contains("apicula"), "{}", err.message);
         let err = get_map_model_glb_impl(&AppState::default(), 0, 0).unwrap_err();
-        assert_eq!(err.message, "no project open");
+        assert_eq!(err.message, "No project is open.");
     }
 
     /// The terrain model of synthetic map 0.

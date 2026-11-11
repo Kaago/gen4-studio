@@ -36,6 +36,36 @@ describe("historyLabel", () => {
     expect(historyLabel(label, "tuefteln")).toBe(german);
   });
 
+  // The labels the commands (events, buildings, matrix, world, text, headers, area data) hand to a changeset as English developer strings.
+  const commandLabels = [
+    "move event",
+    "edit event",
+    "add event",
+    "delete event",
+    "change building model",
+    "edit building",
+    "add building",
+    "delete building",
+    "edit matrix cell",
+    "edit matrix sections",
+    "resize matrix",
+    "rename matrix",
+    "paint",
+    "edit text",
+    "add message",
+    "remove message",
+    "edit header",
+    "edit area data",
+  ];
+
+  it.each(commandLabels)("translates_%s_into_a_text_that_is_not_the_english_label", (label) => {
+    for (const depth of ["bauen", "tuefteln"] as const) {
+      const german = historyLabel(label, depth);
+      expect(german, `${label} (${depth})`).not.toBe(label);
+      expect(german, `${label} (${depth})`).not.toBe("Änderung");
+    }
+  });
+
   it("translates_the_label_of_imported_map_parts", () => {
     expect(historyLabel("map 0668: model and permissions and terrain imported", "bauen")).toBe("Karte 0668: Modell, Kollision und Laufhöhen importiert");
     expect(historyLabel("map 0668: model and permissions and terrain imported", "tuefteln")).toBe("Karte 0668: Modell, Kollision und BDHC importiert");

@@ -6,6 +6,8 @@ commands:
   base:
     grant_not_moved: "Base ROM assigned, but the agent grant was not rewritten: %{error}"
     project_switched: "The project was switched during the export; no patch was created."
+  buildings:
+    too_many: "Map %{map} has too many buildings."
   checks:
     subject_header: "Header %{n}"
     subject_event_file: "Event file %{n}"
@@ -63,6 +65,7 @@ commands:
     fix_block_upper: "Block upper cell"
   common:
     path_not_text: "Path is not valid text: %{path}"
+    no_project: "No project is open."
   data:
     species_fallback: "Species %{index}"
     move_fallback: "Move %{index}"
@@ -125,11 +128,15 @@ commands:
     source_map: "Map %{index}"
     building: "Building %{n}"
     building_inside: "Building %{n} (inside)"
+    no_machine: "There are %{count} TMs and HMs, none at %{n}."
+    no_trainer_field: "No editable trainer field %{field}."
   delete:
     project_switched: "The project was switched; nothing was deleted."
   dispatch:
     invalid_arguments: "Invalid arguments for %{name}: %{error}"
     no_project_folder: "Not a project folder: %{path}"
+  events:
+    too_many: "Event file %{file} has too many events."
   flags:
     scripts_not_indexed: "Adopt the scripts first: without the script sources the index does not know which flags scripts use."
     scripts_not_indexed_vars: "Adopt the scripts first: without the script sources the index does not know which variables scripts use."
@@ -215,6 +222,8 @@ commands:
     running: "An update is already being installed."
     unsaved: "There are unsaved changes. Save them, or agree to discard them, before updating."
     install_failed: "The update could not be installed: %{error}"
+  world:
+    cell_outside: "Cell (%{x}, %{y}) is outside the 32 × 32 map."
   world_meta:
     broken: "%{file} is damaged: %{why}. Repair or delete the file."
 doctor:
