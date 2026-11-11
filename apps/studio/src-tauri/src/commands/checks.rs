@@ -362,7 +362,7 @@ fn run_checks_with(
                 }
                 break;
             },
-            PassOutcome::NoSession => return Err("no project open".into()),
+            PassOutcome::NoSession => return Err(super::no_project()),
         }
     }
 }
@@ -1289,7 +1289,7 @@ mod tests {
         assert_eq!(passes, 3);
         assert!(report.groups.is_empty() && report.findings.is_empty());
         let err = run_checks_with(&state, &Group::ALL, |_, _| PassOutcome::NoSession).unwrap_err();
-        assert_eq!(err.message, "no project open");
+        assert_eq!(err.message, "No project is open.");
     }
 
     #[test]

@@ -645,9 +645,12 @@ mod tests {
         assert!(lock(&state).unwrap().is_none());
         assert_eq!(
             list_headers_impl(&state).unwrap_err().message,
-            "no project open"
+            "No project is open."
         );
-        assert_eq!(history_impl(&state).unwrap_err().message, "no project open");
+        assert_eq!(
+            history_impl(&state).unwrap_err().message,
+            "No project is open."
+        );
         assert!(member_counts_impl(&state).is_err());
         // Nothing open: closing again does nothing.
         close_project_impl(&state).unwrap();

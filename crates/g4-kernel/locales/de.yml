@@ -877,6 +877,7 @@ start:
   arm7_differs: "Der ARM7-Code der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
   banner_differs: "Das Banner der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
   base_fixed: "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest."
+  no_folder_name: "%{path} hat keinen Ordnernamen"
 base:
   other_rom: "Das ist eine andere ROM (SHA-1 %{found}…), gesucht ist %{label} (%{wanted}…)."
   missing: "Basis-ROM nicht gefunden: %{label} (%{sha1}…)."
@@ -1022,10 +1023,29 @@ live:
   save_layout_unknown: "Für %{game} ist die Lage des Spielstands nicht bekannt"
 templates:
   region_label: "Vorlage: Leere Region mit Startstadt"
+  start_town_missing: "Startstadt %{town} nicht gefunden"
+  world_already_empty: "Die Welt ist schon leer"
 bake:
   append_label_one: "Kartentexturen %{pack}: 1 Textur angehängt"
   append_label_other: "Kartentexturen %{pack}: %{count} Texturen angehängt"
   test_label: "Testfläche gebacken: Karte %{map}"
+  dp_textures: "Diamant/Perl: Texturen werden ohne Testprojekt nicht angehängt"
+  dp_test_surface: "Diamant/Perl: Die Testfläche wird ohne Testprojekt nicht gebacken"
+  block_outside: "Der Block bei x %{x}, z %{z} liegt außerhalb der Karte: seine Kachel muss in 0 bis %{max} liegen"
+  pack_missing: "Das Karten-Texturpaket %{pack} ist nicht im Archiv"
+  area_data_missing: "Die Gebietsdaten %{area} sind nicht im Archiv"
+map_import:
+  dp_not_released: "Diamant/Perl: ohne Testprojekt nicht freigegeben"
+  no_part: "Kein Teil ausgewählt"
+  not_in_source: "Nicht in der Quelle: %{part}"
+  part:
+    model: "Modell"
+    permissions: "Kollision"
+    buildings: "Gebäude"
+    terrain: "Laufhöhen (BDHC)"
+    background_sound: "Hintergrundklang"
+    whole_map: "ganze Karte"
+    textures: "Texturen"
 diff:
   no_repo: "Dieses Projekt liegt in keinem Git-Repository."
   no_commit: "Noch kein Commit: es gibt nichts zu vergleichen."

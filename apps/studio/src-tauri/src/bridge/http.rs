@@ -731,7 +731,7 @@ mod tests {
         assert_eq!(reply.content_type, "application/json");
         let body = reply.json();
         assert_eq!(body["code"], "error");
-        assert_eq!(body["message"], "no project open");
+        assert_eq!(body["message"], "No project is open.");
         server.stop();
     }
 

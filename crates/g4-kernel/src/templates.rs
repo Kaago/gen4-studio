@@ -253,7 +253,9 @@ pub fn plan_empty_region(store: &mut Store) -> Result<RegionPlan, KernelError> {
         .iter()
         .find(|h| h.internal_name == recipe.start_town && h.matrix_id == 0)
         .ok_or_else(|| {
-            KernelError::Refused(format!("start town {} not found", recipe.start_town))
+            KernelError::Refused(
+                t!("templates.start_town_missing", town = recipe.start_town).into_owned(),
+            )
         })?;
     let start_header = town.id;
     let town_name = town.location_name.clone();

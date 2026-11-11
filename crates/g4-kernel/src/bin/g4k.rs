@@ -281,7 +281,9 @@ fn apply_template(path: &Path, template: WorldTemplate) -> Result<(), Failure> {
             let plan =
                 g4_kernel::templates::plan_empty_region(&mut Store::new(Arc::clone(&project)))?;
             if plan.already_empty {
-                return Err(KernelError::Refused("the world is already empty".into()).into());
+                return Err(
+                    KernelError::Refused(t!("templates.world_already_empty").into_owned()).into(),
+                );
             }
             if !g4_kernel::scripts::is_adopted(&project) {
                 let adopted = g4_kernel::scripts::adopt(&project, &mut |_| {})?;

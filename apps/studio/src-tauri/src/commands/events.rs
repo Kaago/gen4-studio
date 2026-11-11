@@ -12,6 +12,11 @@ use super::{lock, session};
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
+/// The refusal of an event file with more events of one class than a 16-bit index reaches.
+pub(crate) fn too_many_events(event_file: u16) -> CmdError {
+    CmdError::from(t!("commands.events.too_many", file = event_file : {:04}).into_owned())
+}
+
 /// The four classes of events in an event file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -352,8 +357,7 @@ pub fn add_event_impl(
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let count = kind.count(session.store.event(event_file)?);
-    let index = u16::try_from(count)
-        .map_err(|_| CmdError::from(format!("event file {event_file:04} has too many events")))?;
+    let index = u16::try_from(count).map_err(|_| too_many_events(event_file))?;
     if let Some(patch) = &patch {
         guard_patch(&mut session.store, event_file, kind, None, patch)?;
     }
@@ -953,7 +957,7 @@ mod tests {
             add_event_impl(&none, 0, EventKind::Warp, 0, 0, None, None)
                 .unwrap_err()
                 .message,
-            "no project open"
+            "No project is open."
         );
     }
 

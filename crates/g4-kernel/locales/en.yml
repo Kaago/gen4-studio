@@ -877,6 +877,7 @@ start:
   arm7_differs: "The ARM7 code of the ROM differs from the project; it may be the wrong ROM."
   banner_differs: "The banner of the ROM differs from the project; it may be the wrong ROM."
   base_fixed: "The project was created from a ROM; its base ROM is fixed."
+  no_folder_name: "%{path} has no folder name"
 base:
   other_rom: "This is a different ROM (SHA-1 %{found}…); the expected one is %{label} (%{wanted}…)."
   missing: "Base ROM not found: %{label} (%{sha1}…)."
@@ -1022,10 +1023,29 @@ live:
   save_layout_unknown: "The location of the save game is not known for %{game}"
 templates:
   region_label: "Template: Empty region with a starting town"
+  start_town_missing: "start town %{town} not found"
+  world_already_empty: "the world is already empty"
 bake:
   append_label_one: "Map textures %{pack}: 1 texture appended"
   append_label_other: "Map textures %{pack}: %{count} textures appended"
   test_label: "Test surface baked: Map %{map}"
+  dp_textures: "Diamond/Pearl: textures are not appended without a test project"
+  dp_test_surface: "Diamond/Pearl: the test surface is not baked without a test project"
+  block_outside: "the block at (%{x}, %{z}) leaves the map: its tile must lie in 0..=%{max}"
+  pack_missing: "map texture pack %{pack} is not in the archive"
+  area_data_missing: "area data %{area} is not in the archive"
+map_import:
+  dp_not_released: "Diamond/Pearl: not released without a test project"
+  no_part: "no part selected"
+  not_in_source: "%{part} is not in the source"
+  part:
+    model: "model"
+    permissions: "permissions"
+    buildings: "buildings"
+    terrain: "terrain"
+    background_sound: "background sound"
+    whole_map: "whole map"
+    textures: "textures"
 diff:
   no_repo: "This project is not in a Git repository."
   no_commit: "No commit yet: there is nothing to compare."

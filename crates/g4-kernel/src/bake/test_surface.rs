@@ -247,7 +247,7 @@ pub fn bake_test(store: &mut Store, opts: &BakeTestOptions) -> Result<BakeTestRe
     let map = opts.map;
     if store.project().family == Family::Dp {
         return Err(KernelError::Refused(
-            "Diamond/Pearl: the test surface is not baked without a test project".into(),
+            t!("bake.dp_test_surface").into_owned(),
         ));
     }
     if let Some(why) = store.busy() {
@@ -257,14 +257,14 @@ pub fn bake_test(store: &mut Store, opts: &BakeTestOptions) -> Result<BakeTestRe
     if let Some((x, z)) = opts.block
         && (x > BLOCK_MAX || z > BLOCK_MAX)
     {
-        return Err(KernelError::Refused(format!(
-            "the block at ({x}, {z}) leaves the map: its tile must lie in 0..={BLOCK_MAX}"
-        )));
+        return Err(KernelError::Refused(
+            t!("bake.block_outside", x = x, z = z, max = BLOCK_MAX).into_owned(),
+        ));
     }
     let ctx = bake_context(store, map)?;
     let pack = ctx.pack;
     let before = store.project().map_tileset_member(pack)?.ok_or_else(|| {
-        KernelError::Refused(format!("map texture pack {pack:04} is not in the archive"))
+        KernelError::Refused(t!("bake.pack_missing", pack = pack : {:04}).into_owned())
     })?;
     let in_pack: Vec<String> = Nsbtx::read(&before)?
         .textures

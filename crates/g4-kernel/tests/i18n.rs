@@ -4,13 +4,16 @@
 //! written into a file the same in every language (the app header of a patch) does not.
 
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use g4_kernel::bake::{BakeTestOptions, append_textures, bake_test};
 use g4_kernel::base::base_label;
 use g4_kernel::i18n::{check_catalogs, locale, set_locale};
+use g4_kernel::map_import::{self, Source};
 use g4_kernel::patch;
 use g4_kernel::project::Project;
 use g4_kernel::start::{BaseMark, known_base_label};
+use g4_kernel::store::Store;
 use rust_i18n::t;
 
 // `t!` forwards to `crate::_rust_i18n_t!`, which `i18n!` generates: this test crate loads the
@@ -299,4 +302,67 @@ fn not_gen4_matches_the_frontend_in_both_languages() {
     assert_eq!(g4_kernel::start::not_gen4(), "Kein Gen-4-Spiel erkannt");
     set_locale("en");
     assert_eq!(g4_kernel::start::not_gen4(), "No Gen 4 game recognized");
+}
+
+/// A project of `game_code` with nothing but its `header.yaml`: enough for the refusals that
+/// come before anything is read.
+fn bare_store(game_code: &str) -> (tempfile::TempDir, Store) {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("Spiel_DSPRE_contents");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("header.yaml"), format!("gamecode: {game_code}\n")).unwrap();
+    let store = Store::new(Arc::new(Project::open(&root).unwrap()));
+    (tmp, store)
+}
+
+/// What Diamond/Pearl says to a map part import, to appending textures and to baking the test
+/// surface, in the language of the process (these refusals come from the catalog).
+#[test]
+fn diamond_pearl_refusals_follow_the_locale() {
+    let _turn = locale_lock();
+    let (_tmp, mut store) = bare_store("ADAE");
+    let mut refusals = |lang: &str| {
+        set_locale(lang);
+        let import = map_import::import(&mut store, 0, &Source::Files(Vec::new()), &[], false);
+        let append = append_textures(&mut store, 0, &[], "label");
+        let bake = bake_test(&mut store, &BakeTestOptions::default());
+        [
+            import.unwrap_err().to_string(),
+            append.unwrap_err().to_string(),
+            bake.unwrap_err().to_string(),
+        ]
+    };
+    let de = refusals("de");
+    let en = refusals("en");
+    assert_eq!(
+        de,
+        [
+            "import refused: Diamant/Perl: ohne Testprojekt nicht freigegeben",
+            "Diamant/Perl: Texturen werden ohne Testprojekt nicht angehängt",
+            "Diamant/Perl: Die Testfläche wird ohne Testprojekt nicht gebacken",
+        ]
+    );
+    assert_eq!(
+        en,
+        [
+            "import refused: Diamond/Pearl: not released without a test project",
+            "Diamond/Pearl: textures are not appended without a test project",
+            "Diamond/Pearl: the test surface is not baked without a test project",
+        ]
+    );
+}
+
+/// A map part import with no part selected is refused in the language of the process.
+#[test]
+fn import_without_a_part_follows_the_locale() {
+    let _turn = locale_lock();
+    let (_tmp, mut store) = bare_store("CPUE");
+    let mut refusal = |lang: &str| {
+        set_locale(lang);
+        map_import::import(&mut store, 0, &Source::Files(Vec::new()), &[], false)
+            .unwrap_err()
+            .to_string()
+    };
+    assert_eq!(refusal("de"), "import refused: Kein Teil ausgewählt");
+    assert_eq!(refusal("en"), "import refused: no part selected");
 }

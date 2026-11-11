@@ -203,7 +203,7 @@ impl EventsDto {
             file.coord_events.len(),
         ];
         if counts.iter().any(|&n| n > usize::from(u16::MAX)) {
-            return Err(format!("event file {event_file_id:04} has too many events").into());
+            return Err(super::events::too_many_events(event_file_id));
         }
         Ok(EventsDto {
             event_file_id,
@@ -364,7 +364,9 @@ pub fn set_permission_impl(
     collision: u8,
 ) -> Result<(), CmdError> {
     if x >= MAP_TILES || y >= MAP_TILES {
-        return Err(format!("cell ({x}, {y}) is outside the 32 x 32 map").into());
+        return Err(t!("commands.world.cell_outside", x = x, y = y)
+            .into_owned()
+            .into());
     }
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
@@ -428,7 +430,7 @@ mod tests {
     #[test]
     fn tile_behaviors_command_needs_an_open_project() {
         let err = tile_behaviors_impl(&AppState::default()).unwrap_err();
-        assert_eq!(err.message, "no project open");
+        assert_eq!(err.message, "No project is open.");
     }
 
     #[test]
@@ -474,7 +476,7 @@ mod tests {
             set_permission_impl(&AppState::default(), 0, 0, 0, 0, 0)
                 .unwrap_err()
                 .message,
-            "no project open"
+            "No project is open."
         );
     }
 

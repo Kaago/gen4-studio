@@ -3226,7 +3226,9 @@ mod tests {
         let state = AppState::default();
         for name in ["plan_empty_region", "apply_empty_region"] {
             match dispatch(&state, &roots, name, json!({})) {
-                Err(DispatchError::Cmd(e)) => assert_eq!(e.message, "no project open", "{name}"),
+                Err(DispatchError::Cmd(e)) => {
+                    assert_eq!(e.message, "No project is open.", "{name}")
+                }
                 other => panic!("{name}: {other:?}"),
             }
         }
@@ -3399,7 +3401,7 @@ mod tests {
         ] {
             assert_eq!(
                 refused_with(&state, &policy, name, args),
-                "no project open",
+                "No project is open.",
                 "{name}"
             );
         }

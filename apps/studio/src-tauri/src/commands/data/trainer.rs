@@ -35,6 +35,11 @@ pub fn name_too_long() -> String {
     t!("commands.data.name_too_long").into_owned()
 }
 
+/// The refusal of a trainer field the editor does not know.
+fn no_trainer_field(field: &str) -> String {
+    t!("commands.data.no_trainer_field", field = field).into_owned()
+}
+
 fn trainer_id(index: u16) -> AssetId {
     asset(AssetKind::Trainer, index)
 }
@@ -337,8 +342,8 @@ pub fn apply(
     let one = |change: Option<_>| change.map(|_| vec![id]).unwrap_or_default();
     match patch {
         DataPatch::Trainer { field, value } => {
-            let name = labels::label(labels::TRAINER, &field)
-                .ok_or_else(|| format!("no editable trainer field {field}"))?;
+            let name =
+                labels::label(labels::TRAINER, &field).ok_or_else(|| no_trainer_field(&field))?;
             let mut next = doc.clone();
             let old = match field.as_str() {
                 "class" => {
@@ -358,7 +363,7 @@ pub fn apply(
                         .strip_prefix("item")
                         .and_then(|n| n.parse().ok())
                         .filter(|&n| n < 4)
-                        .ok_or_else(|| format!("no editable trainer field {field}"))?;
+                        .ok_or_else(|| no_trainer_field(&field))?;
                     next.items[n] = narrow(value, &field)?;
                     i64::from(doc.items[n])
                 }
