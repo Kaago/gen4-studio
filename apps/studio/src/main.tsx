@@ -1,4 +1,4 @@
-// First, before anything that could pull in the app: i18next must be initialised when the app modules are evaluated.
+// First, before anything that could pull in the app: i18next must be initialized when the app modules are evaluated.
 import "./i18n/boot";
 import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
@@ -22,7 +22,7 @@ const Gallery = lazy(() => import("./ui/gallery/Gallery").then((m) => ({ default
 /**
  * Styling first (it must not wait for the backend), then the language (the first render must already speak it, and the backend
  * must know it; with „System“ inside Tauri that is the OS language the backend reports), then the render. i18next itself is
- * initialised earlier, by `./i18n/boot`, with the navigator's guess.
+ * initialized earlier, by `./i18n/boot`, with the navigator's guess.
  */
 async function boot(): Promise<void> {
   applyTheme(readTheme());

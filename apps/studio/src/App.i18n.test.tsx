@@ -5,6 +5,9 @@ import type { Root } from "react-dom/client";
 import i18next from "i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LANGUAGE_KEY } from "./i18n";
+import { report } from "./checks/checksTesting";
+import { noRepo } from "./git/gitTesting";
+import { releasesOf } from "./publish/publishTesting";
 
 /**
  * The language switch of Einstellungen over the real App: the panels are stubs, the deck renders its hinge, the transport answers the few
@@ -47,12 +50,38 @@ vi.mock("./ui/frame/Deck", () => ({
     </>
   ),
 }));
-const invoke = vi.hoisted(() =>
-  vi.fn(async (cmd: string) =>
-    cmd === "agent_settings" ? { settings: { version: 1, enabled: false, expert: false, grants: [] }, setup_line: "claude mcp add gen4-studio -- \"/x\" mcp", open_project: null } : undefined,
-  ),
-);
-vi.mock("./platform/transport", () => ({ invoke, inTauri: () => false }));
+/** `tauri`: whether the page pretends to run inside the Tauri window (the language test below does: the backend is there to be told). */
+const env = vi.hoisted(() => ({ tauri: false }));
+/** Every command the transport was given, in order, with the language i18next showed at that moment. */
+const sent = vi.hoisted(() => [] as { cmd: string; shown: string }[]);
+const answers: Record<string, unknown> = {
+  agent_settings: { settings: { version: 1, enabled: false, expert: false, grants: [] }, setup_line: "claude mcp add gen4-studio -- \"/x\" mcp", open_project: null },
+  open_project: { root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 0 },
+  list_headers: { headers: [], names_error: null },
+  member_counts: {},
+  dirty: [],
+  history: { undo: [], redo: [] },
+  list_matrices: { matrices: [], unreadable: [] },
+  list_warps: { links: [], unreadable: [] },
+  data_list: [],
+  name_tables: { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: {}, sounds: [] },
+  item_table: null,
+  run_checks: report(),
+  checks_status: report({ groups: [] }),
+  git_status: noRepo(),
+  text_project_status: { state: "dspre", adoptable: true, reason: null },
+  base_status: { state: "unassigned", suggestion: null },
+  releases: releasesOf(),
+  original_status: { state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." },
+  world_meta_get: { meta: { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} }, broken: null },
+  system_language: null,
+};
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock("./platform/transport", () => ({ invoke, inTauri: () => env.tauri }));
+// Inside Tauri the dialog is the system's: the folder to open is given.
+vi.mock("./platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("./platform/dialogs")>()), openPath: async () => "/p" }));
+// Play mode stays off: its transport answers every command with undefined (useLive has its own tests).
+vi.mock("./platform/liveEvents", async (importOriginal) => ({ ...(await importOriginal<typeof import("./platform/liveEvents")>()), subscribeLive: () => () => {} }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }) }));
@@ -62,12 +91,25 @@ import App from "./App";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+/** A switch waits for the backend (`set_locale`) before the app shows the new language: waits until it does, then lets the render settle. */
+const switchedTo = async (lang: string) => {
+  await act(async () => {
+    await vi.waitFor(() => expect(i18next.language).toBe(lang));
+  });
+  await flush();
+};
 
 describe("App language switch", () => {
   let container: HTMLElement;
   let root: Root;
   beforeEach(() => {
     localStorage.clear();
+    sent.length = 0;
+    invoke.mockReset();
+    invoke.mockImplementation(async (cmd: string) => {
+      sent.push({ cmd, shown: i18next.language });
+      return answers[cmd];
+    });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -76,6 +118,7 @@ describe("App language switch", () => {
     act(() => root.unmount());
     container.remove();
     localStorage.clear();
+    env.tauri = false;
     await i18next.changeLanguage("de");
   });
 
@@ -93,7 +136,7 @@ describe("App language switch", () => {
     await flush();
 
     await act(async () => languageOption("English")!.click());
-    await flush();
+    await switchedTo("en");
 
     expect(i18next.language).toBe("en");
     expect(localStorage.getItem(LANGUAGE_KEY)).toBe("en");
@@ -119,7 +162,7 @@ describe("App language switch", () => {
     await flush();
 
     await act(async () => languageOption("English")!.click());
-    await flush();
+    await switchedTo("en");
 
     // The areas mount anew with no target: they keep what the user chose since, instead of jumping back to the old link.
     expect(shown.dataTarget).toBeNull();
@@ -145,5 +188,67 @@ describe("App language switch", () => {
     // A fresh visit to the settings does not pull the focus to the language control.
     expect(document.activeElement).toBe(outside);
     outside.remove();
+  });
+
+  describe("inside the app, with a project open", () => {
+    const count = (cmd: string) => sent.filter((c) => c.cmd === cmd).length;
+    const click = async (label: string) => {
+      const button = [...container.querySelectorAll("button")].find((b) => b.textContent === label || b.getAttribute("aria-label") === label);
+      if (!button) throw new Error(`no button ${label}`);
+      await act(async () => button.click());
+    };
+
+    it("tells the backend the new language first, then reads again what it built in the old one", async () => {
+      env.tauri = true;
+      await act(async () => root.render(<App />));
+      await flush();
+      await click("Projekt öffnen");
+      await flush();
+      // The palette asks for every data list (the store reads what was asked for); closed again, the lists stay wanted.
+      const paletteButton = [...container.querySelectorAll<HTMLButtonElement>("header button")].find((b) => b.textContent?.includes("Suchen oder Befehl eingeben"))!;
+      await act(async () => paletteButton.click());
+      await flush();
+      const palette = document.querySelector<HTMLInputElement>("[role=dialog] input[role=combobox]")!;
+      act(() => void palette.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      await flush();
+      // What the open project asked for so far, once or more: the overview (matrices, event files), the data lists and names the palette
+      // asked for, the checks, the Git state and the project's state as a text project.
+      const reads = ["list_matrices", "list_warps", "data_list", "name_tables", "run_checks", "git_status", "text_project_status"] as const;
+      const before = Object.fromEntries(reads.map((cmd) => [cmd, count(cmd)]));
+      for (const cmd of reads) expect(before[cmd], cmd).toBeGreaterThan(0);
+      const mark = sent.length;
+
+      await act(async () => atlas("einstellungen").click());
+      await flush();
+      await act(async () => languageOption("English")!.click());
+      await switchedTo("en");
+
+      // The backend heard the language while the app still showed German ...
+      const told = sent.findIndex((c, i) => i >= mark && c.cmd === "set_locale");
+      expect(told).toBeGreaterThanOrEqual(mark);
+      expect(sent[told]!.shown).toBe("de");
+      expect(invoke).toHaveBeenCalledWith("set_locale", { lang: "en" });
+      expect(i18next.language).toBe("en");
+      // ... and each of the reads above was made again, after that, so what came back is in English.
+      for (const cmd of reads) {
+        expect(count(cmd), cmd).toBeGreaterThan(before[cmd]!);
+        expect(sent.slice(mark, told).filter((c) => c.cmd === cmd), `${cmd} before the backend knew`).toEqual([]);
+      }
+    });
+
+    it("reads nothing again when a choice keeps the language", async () => {
+      env.tauri = true;
+      await act(async () => root.render(<App />));
+      await flush();
+      await click("Projekt öffnen");
+      await flush();
+      await act(async () => atlas("einstellungen").click());
+      await flush();
+      sent.length = 0;
+      await act(async () => languageOption("Deutsch")!.click());
+      await flush();
+      expect(i18next.language).toBe("de");
+      expect(sent.map((c) => c.cmd)).toEqual(["set_locale"]);
+    });
   });
 });

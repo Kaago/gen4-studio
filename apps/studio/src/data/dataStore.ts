@@ -50,6 +50,7 @@ function namedBy(archives: NameArchivesDto | undefined, archive: number | null, 
  * The data lists of the open project for the data areas and the palette (`useSyncExternalStore`). Nothing is read until a list is
  * needed (`need`, when an area shows or the palette opens); each part is read once, and again when it changed (`onEvent`: a data
  * member, or a text archive a name table is read from). Another project starts over: answers for the old one are dropped, the icons forgotten.
+ * A switch of the language reads what was asked for again (`reload`).
  */
 export class DataStore {
   private snapshot: DataSnapshot = EMPTY;
@@ -78,6 +79,21 @@ export class DataStore {
     this.stale.clear();
     resetIcons();
     this.set({ ...EMPTY, project });
+  }
+
+  /**
+   * Drops everything read and reads again each part that was asked for, in the language the backend speaks now: its rows, names, locks and
+   * error texts are in the language it had when it answered. Answers still on their way (asked in the old language) are dropped too. A
+   * store that was never asked reads nothing and tells nobody.
+   */
+  reload(): void {
+    if (this.wanted.size === 0) return;
+    const parts = [...this.wanted];
+    this.generation++;
+    this.reading.clear();
+    this.stale.clear();
+    this.set({ ...EMPTY, project: this.snapshot.project });
+    for (const part of parts) this.read(part);
   }
 
   /** Reads the rows of `kind` and the names (and for items the item table) of `project`, unless they are read or being read. */

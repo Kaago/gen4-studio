@@ -2,8 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Merged by Tauri into the Info.plist of the macOS bundle (and embedded into the binary of `pnpm tauri dev`).
-  The localizations of the app: without them WKWebView reports `navigator.language` "en-US" on a German Mac and
-  native WebKit texts (context menu, file dialogs) stay English. tests/locales.rs checks the list.
+  The localizations of the app: without them WKWebView may report `navigator.language` "en-US" on a German Mac (it may
+  report the bundle's localizations rather than the OS language) and native WebKit texts (context menu, file dialogs)
+  may stay English. tests/locales.rs checks the list.
 -->
 <plist version="1.0">
 <dict>
