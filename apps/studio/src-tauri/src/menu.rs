@@ -5,8 +5,10 @@
 //! without a `RunEvent::ExitRequested`, so the unsaved-edits check never ran on Cmd+Q. Our item
 //! carries the same accelerator and goes through `request_quit` in lib.rs instead. "Check for
 //! Updates…" sends `menu-check-updates` to the webview, which runs the check (lib.rs). Its text
-//! is the language of the process when the menu is built, which is before the webview chooses
-//! one: it follows `G4_LANG` and `LANG` (the other items are English).
+//! is in the language of the process when the menu is built: at start that is `G4_LANG` or
+//! `LANG`, before the webview chooses one, and each time the webview sets the language
+//! (`set_locale`) the menu is built anew ([`follow_locale`]), so the item follows the app's
+//! language (the other items are English).
 
 use tauri::menu::{
     AboutMetadata, HELP_SUBMENU_ID, Menu, MenuItem, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID,
@@ -19,8 +21,26 @@ pub const QUIT_ID: &str = "g4-quit";
 /// Menu id of "Check for Updates…".
 pub const CHECK_UPDATES_ID: &str = "g4-check-updates";
 
-/// Same layout as `Menu::default`, with Quit replaced (see the module docs).
+/// Same layout as `Menu::default`, with Quit replaced (see the module docs), in the language
+/// of the process.
 pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    menu_in(app, &g4_kernel::i18n::locale())
+}
+
+/// Builds the app menu anew in `lang` and makes it the app's menu (the old one is dropped). The
+/// menu ids stay, so the handler in lib.rs (`on_menu_event`) keeps working.
+pub fn follow_locale<R: Runtime>(app: &AppHandle<R>, lang: &str) -> tauri::Result<()> {
+    app.set_menu(menu_in(app, lang)?)?;
+    Ok(())
+}
+
+/// The text of "Check for Updates…" in `lang` (`en` or `de`).
+fn check_updates_label(lang: &str) -> String {
+    t!("menu.check_updates", locale = lang).into_owned()
+}
+
+/// The app menu with the texts that are ours in `lang`.
+fn menu_in<R: Runtime>(app: &AppHandle<R>, lang: &str) -> tauri::Result<Menu<R>> {
     let pkg_info = app.package_info();
     let config = app.config();
     let about_metadata = AboutMetadata {
@@ -40,7 +60,7 @@ pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let check_updates = MenuItem::with_id(
         app,
         CHECK_UPDATES_ID,
-        t!("menu.check_updates"),
+        check_updates_label(lang),
         true,
         None::<&str>,
     )?;
@@ -126,4 +146,17 @@ pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &help_menu,
         ],
     )
+}
+
+// No test builds a menu: muda creates its items on the main thread only, which the test harness
+// does not run on. The text is the part with a decision in it.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_for_updates_is_in_the_language_asked_for_not_the_one_of_the_process() {
+        assert_eq!(check_updates_label("en"), "Check for Updates…");
+        assert_eq!(check_updates_label("de"), "Nach Updates suchen…");
+    }
 }
