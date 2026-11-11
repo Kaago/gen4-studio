@@ -669,6 +669,14 @@ impl AppState {
     pub fn lock_session(&self) -> MutexGuard<'_, Option<Session>> {
         self.session.lock().unwrap_or_else(|e| e.into_inner())
     }
+
+    /// How many assets of the open project have unsaved edits (0 without a project); what an
+    /// exit or an update would throw away.
+    pub fn unsaved_count(&self) -> usize {
+        self.lock_session()
+            .as_ref()
+            .map_or(0, |session| session.store.dirty().len())
+    }
 }
 
 /// Whether an exit request must be held back to ask the user first.
@@ -719,6 +727,16 @@ mod tests {
         let project = Arc::new(Project::open(fixture.dir.path()).unwrap());
         *state.lock_session() = Some(Session::new(project));
         state
+    }
+
+    #[test]
+    fn unsaved_count_counts_the_dirty_assets_of_the_open_project() {
+        assert_eq!(AppState::default().unsaved_count(), 0);
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = open_state(&fixture);
+        assert_eq!(state.unsaved_count(), 0);
+        add_warp(&state);
+        assert_eq!(state.unsaved_count(), 1);
     }
 
     fn add_warp(state: &AppState) {

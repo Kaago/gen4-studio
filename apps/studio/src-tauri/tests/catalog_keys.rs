@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// The top-level keys of the command layer, the MCP server (`mcp`), the dev bridge (`bridge`)
 /// and the files around them.
-const SECTIONS: [&str; 9] = [
+const SECTIONS: [&str; 10] = [
     "base_roms",
     "bridge",
     "commands",
@@ -20,6 +20,7 @@ const SECTIONS: [&str; 9] = [
     "live_hub",
     "lsp",
     "mcp",
+    "menu",
 ];
 
 /// String literals that look like a key of a section and are none: the name of the file
