@@ -163,13 +163,14 @@ die Millisekunden im Bericht unter `phase_ms`):
 | `add` | `git add -A` | Antwort |
 | `commit` | `git -c user.useConfigOnly=true var GIT_COMMITTER_IDENT`, dann `git commit -q -m Ausgangsstand` | Antwort |
 
-Vor `init` hört `git_init` ohne Fehler auf, mit `committed: false`:
+Vor `init` hört `git_init` ohne Fehler auf, mit `committed: false`. Jeder Grund hat neben dem Satz `reason`, der in der
+Sprache des Prozesses steht, einen `reason_code`, der in jeder Sprache gleich ist; Aufrufer entscheiden nach dem Code, nie nach dem Satz:
 
 - Ein Repository hält das Projekt schon (das eigene oder ein umschließendes, etwa ein Dotfile-Repo im
-  Home-Ordner): nur die Vorlagen, `reason` = „Das Projekt liegt schon in einem Git-Repository; Gen4
+  Home-Ordner): nur die Vorlagen, `reason_code` = `in_repo`, `reason` = „Das Projekt liegt schon in einem Git-Repository; Gen4
   Studio hat nur die Vorlagen ergänzt.“ Nie ein Repository im Repository.
-- `templates_only` (`g4k git init --templates-only`): nur die Vorlagen, kein `reason`.
-- Kein `git` gefunden: nur die Vorlagen, `reason` = „Git ist nicht installiert. Die Vorlagen sind
+- `templates_only` (`g4k git init --templates-only`): nur die Vorlagen, weder `reason` noch `reason_code` (beide `null`).
+- Kein `git` gefunden: nur die Vorlagen, `reason_code` = `not_installed`, `reason` = „Git ist nicht installiert. Die Vorlagen sind
   geschrieben; das Repository legst du an, sobald Git da ist (git-scm.com/downloads).“ Status,
   Branch und `HEAD` liest `gix` ohnehin ohne installiertes Git.
 
@@ -199,7 +200,7 @@ user.email=studio@gen4.invalid` (`.invalid` ist reserviert und nie zustellbar), 
 verhindert, dass Git aus Konto- und Rechnername eine Adresse rät (unter macOS etwa
 `name@rechner.local`) und diese im Commit landet.
 
-**Fehler:** Scheitert ein Unterbefehl nach dem Anlegen, bleiben Repository und Vorlagen;
+**Fehler:** Jeder dieser Fehler hat `reason_code` = `failed`. Scheitert ein Unterbefehl nach dem Anlegen, bleiben Repository und Vorlagen;
 `committed: false`, `reason` = „Der erste Commit ist gescheitert: `<stderr>`. Repository und Vorlagen
 sind angelegt; committe mit deinem Git-Werkzeug.“ (stderr in einer Zeile, auf 400 Zeichen gekürzt).
 Eine Zeitüberschreitung steht im selben Rahmen („… gescheitert: Git hat nach 5 Minuten nicht
@@ -207,7 +208,8 @@ geantwortet. Repository …“). Scheitert schon `git init`: „Git konnte das R
 `<stderr>`. Die Vorlagen sind geschrieben; lege das Repository mit deinem Git-Werkzeug an.“ Das
 Studio schaltet nichts ab, was der Nutzer eingestellt hat (`commit.gpgsign`, Hooks).
 
-**Bericht** (`InitReport`): `templates` (wie `g4k git templates`), `committed`, `reason`, `head`
+**Bericht** (`InitReport`): `templates` (wie `g4k git templates`), `committed`, `reason`, `reason_code`
+(`in_repo`, `not_installed` oder `failed`; `null` genau dann, wenn `reason` `null` ist), `head`
 (Id, Kurz-Id, Betreff, Zeit; über `gix`), `files` (Einträge im Index), `studio_identity`,
 `phase_ms`, `ms`.
 
