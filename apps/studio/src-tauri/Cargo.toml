@@ -28,6 +28,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+# The auto-updater: checks GitHub Releases for a newer signed build (`commands::update`).
+tauri-plugin-updater = "2"
 g4-kernel = { path = "../../../crates/g4-kernel" }
 g4-formats = { path = "../../../crates/g4-formats" }
 # `studio doctor` calls nitroarc through uxie to prove the shared library loads.

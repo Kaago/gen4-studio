@@ -209,6 +209,13 @@ commands:
     reopen: "Die Dateien sind umgestellt, aber die offene Sitzung wurde inzwischen geändert und bleibt, wie sie ist; das Projekt bitte neu öffnen."
     project_switched: "Das Projekt wurde gewechselt."
     project_switched_unsynced: "Das Projekt wurde gewechselt; nichts abgeglichen."
+  update:
+    bad_endpoint: "G4_UPDATE_ENDPOINT ist keine https-Adresse: %{value}"
+    check_failed: "Die Suche nach Updates ist gescheitert: %{error}"
+    not_found: "Es gibt kein Update %{version} zum Installieren. Bitte erneut suchen."
+    running: "Ein Update wird schon installiert."
+    unsaved: "Es gibt ungespeicherte Änderungen. Vor dem Update speichern oder dem Verwerfen zustimmen."
+    install_failed: "Das Update ließ sich nicht installieren: %{error}"
   world_meta:
     broken: "%{file} ist beschädigt: %{why}. Repariere oder lösche die Datei."
 doctor:
@@ -556,6 +563,8 @@ mcp:
       text: "Setze in Gen4 Studio in den Ort mit dem Header %{header} einen Trainer %{class}. Gehe so vor und melde dich nach jedem Schritt kurz:\n1. get_header (id %{header}): event_file_id und script_file_id. get_events zeigt die vorhandenen Trainer-Personen (ihr Script ist 3000 + Trainer-Id − 1) und freie Kacheln.\n2. scripts_status: Ohne übernommene Scripts lehnt create_trainer ab; bitte den Nutzer, sie in der App zu übernehmen (Welt, Panel Script, „Übernehmen“).\n3. data_list mit kind \"trainer\" und data_get: ein vorhandener Trainer der Klasse als Vorbild. Die Klassen-Id steht in dessen Feld class.\n4. create_trainer mit class und name (Namen sind kurz, in Platin höchstens 7 Zeichen; nicht rückgängig, die App fragt nach). Die Antwort nennt die neue Trainer-Id.\n5. data_edit mit kind \"trainer\", index = die neue Trainer-Id aus Schritt 4 und patch {\"TrainerParty\": {party}}: das Team (ohne Pokémon stürzt der Kampf ab), set_trainer_texts für die Kampftexte (jeder Text endet mit Zeilenumbruch, die Warnungen stehen in der Antwort).\n6. add_event mit kind \"object\", x, z und patch: script = 3000 + Trainer-Id − 1, trainer_type 1, Sichtweite 3; die Blickrichtung quer zum Weg. Das Muster zeigt der Trainer aus Schritt 1.\n7. get_events als Gegenprobe, refs mit target {kind \"trainer\", index} zeigt, wo er steht, run_checks, dann save."
       class_named: "der Klasse „%{class}“"
       class_ask: "einer Klasse (frage den Nutzer, welcher)"
+menu:
+  check_updates: "Nach Updates suchen…"
 bridge:
   need_root: "Mindestens ein erlaubter Ordner (--allow-root) ist nötig"
   folder_unreadable: "Ordner nicht lesbar: %{path}: %{error}"

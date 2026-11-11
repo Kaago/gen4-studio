@@ -257,6 +257,8 @@ pub const COMMANDS: &[&str] = &[
     "world_layers",
     "set_locale",
     "system_language",
+    "update_check",
+    "update_install",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -392,7 +394,7 @@ macro_rules! run {
 
 /// Runs the command `name` against `state`. The paths of `open_project`, `build_rom`,
 /// `run_rom`, the map part and the project preview commands are checked by `policy` first;
-/// `force_quit` is a no-op and the language server is off.
+/// `force_quit` and the update commands are no-ops (`null`) and the language server is off.
 pub fn dispatch(
     state: &AppState,
     policy: &dyn Policy,
@@ -671,6 +673,8 @@ pub fn dispatch(
             |a| resolve_text_conflicts_impl(state, a.choices)
         ),
         "force_quit" => Ok(Reply::Json(Value::Null)),
+        // There is no updater in the browser: nothing found, nothing installed.
+        "update_check" | "update_install" => Ok(Reply::Json(Value::Null)),
         "data_list" => run!(
             json, "data_list", args,
             { kind: DataKind, filter: Option<DataFilter> },
@@ -1925,6 +1929,12 @@ mod tests {
             ("set_locale", json!({ "lang": "en" })),
             // Reads the OS locale, changes nothing.
             ("system_language", json!({})),
+            // No updater in the browser: both answer null.
+            ("update_check", json!({})),
+            (
+                "update_install",
+                json!({ "version": "1.0.2", "discardUnsaved": false }),
+            ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

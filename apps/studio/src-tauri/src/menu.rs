@@ -1,8 +1,12 @@
-//! The app menu: Tauri's default menu, except that "Quit" is our own item.
+//! The app menu: Tauri's default menu, except that "Quit" is our own item, and "Check for
+//! Updates…" is added.
 //!
 //! The predefined Quit item sends `terminate:` straight to NSApplication, which ends the app
 //! without a `RunEvent::ExitRequested`, so the unsaved-edits check never ran on Cmd+Q. Our item
-//! carries the same accelerator and goes through `request_quit` in lib.rs instead.
+//! carries the same accelerator and goes through `request_quit` in lib.rs instead. "Check for
+//! Updates…" sends `menu-check-updates` to the webview, which runs the check (lib.rs). Its text
+//! is the language of the process when the menu is built, which is before the webview chooses
+//! one: it follows `G4_LANG` and `LANG` (the other items are English).
 
 use tauri::menu::{
     AboutMetadata, HELP_SUBMENU_ID, Menu, MenuItem, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID,
@@ -11,6 +15,9 @@ use tauri::{AppHandle, Runtime};
 
 /// Menu id of our Quit item.
 pub const QUIT_ID: &str = "g4-quit";
+
+/// Menu id of "Check for Updates…".
+pub const CHECK_UPDATES_ID: &str = "g4-check-updates";
 
 /// Same layout as `Menu::default`, with Quit replaced (see the module docs).
 pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
@@ -29,6 +36,13 @@ pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         format!("Quit {}", pkg_info.name),
         true,
         Some("CmdOrCtrl+Q"),
+    )?;
+    let check_updates = MenuItem::with_id(
+        app,
+        CHECK_UPDATES_ID,
+        t!("menu.check_updates"),
+        true,
+        None::<&str>,
     )?;
 
     let window_menu = Submenu::with_id_and_items(
@@ -52,6 +66,8 @@ pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         &[
             #[cfg(not(target_os = "macos"))]
             &PredefinedMenuItem::about(app, None, Some(about_metadata.clone()))?,
+            #[cfg(not(target_os = "macos"))]
+            &check_updates,
         ],
     )?;
 
@@ -65,6 +81,7 @@ pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 true,
                 &[
                     &PredefinedMenuItem::about(app, None, Some(about_metadata))?,
+                    &check_updates,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::services(app, None)?,
                     &PredefinedMenuItem::separator(app)?,

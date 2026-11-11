@@ -209,6 +209,13 @@ commands:
     reopen: "The files are converted, but the open session was changed in the meantime and stays as it is; please reopen the project."
     project_switched: "The project was switched."
     project_switched_unsynced: "The project was switched; nothing was synced."
+  update:
+    bad_endpoint: "G4_UPDATE_ENDPOINT is not an https address: %{value}"
+    check_failed: "Could not check for updates: %{error}"
+    not_found: "There is no update %{version} to install. Check for updates again."
+    running: "An update is already being installed."
+    unsaved: "There are unsaved changes. Save them, or agree to discard them, before updating."
+    install_failed: "The update could not be installed: %{error}"
   world_meta:
     broken: "%{file} is damaged: %{why}. Repair or delete the file."
 doctor:
@@ -556,6 +563,8 @@ mcp:
       text: "In Gen4 Studio, put a trainer %{class} in the place with header %{header}. Work through it like this and report briefly after each step:\n1. get_header (id %{header}): event_file_id and script_file_id. get_events shows the existing trainer characters (their script is 3000 + trainer id − 1) and free tiles.\n2. scripts_status: without adopted scripts create_trainer refuses; ask the user to adopt them in the app (World, panel Script, \"Adopt\").\n3. data_list with kind \"trainer\" and data_get: an existing trainer of the class as a model. The class id is in its field class.\n4. create_trainer with class and name (names are short, at most 7 characters in Platinum; cannot be undone, the app asks first). The answer names the new trainer id.\n5. data_edit with kind \"trainer\", index = the new trainer id from step 4 and patch {\"TrainerParty\": {party}}: the team (without Pokémon the battle crashes), set_trainer_texts for the battle texts (every text ends with a line break, the warnings are in the answer).\n6. add_event with kind \"object\", x, z and patch: script = 3000 + trainer id − 1, trainer_type 1, sight range 3; the facing direction across the path. The trainer from step 1 shows the pattern.\n7. get_events as a cross-check, refs with target {kind \"trainer\", index} shows where it stands, run_checks, then save."
       class_named: "of the class \"%{class}\""
       class_ask: "of a class (ask the user which one)"
+menu:
+  check_updates: "Check for Updates…"
 bridge:
   need_root: "At least one allowed folder (--allow-root) is needed"
   folder_unreadable: "Folder not readable: %{path}: %{error}"
