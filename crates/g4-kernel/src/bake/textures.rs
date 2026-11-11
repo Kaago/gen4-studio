@@ -104,7 +104,7 @@ pub fn areas_of_pack(store: &mut Store, pack: u16) -> Result<Vec<u8>, KernelErro
 fn area_data(store: &mut Store, area: u8) -> Result<g4_formats::area_data::AreaData, KernelError> {
     store
         .area_data_checked(area)?
-        .ok_or_else(|| KernelError::Refused(format!("area data {area} is not in the archive")))
+        .ok_or_else(|| KernelError::Refused(t!("bake.area_data_missing", area = area).into_owned()))
 }
 
 /// What [`append_textures`] did: the pack, the names appended (in order), the member's size
@@ -150,16 +150,14 @@ pub fn append_textures(
     label: &str,
 ) -> Result<AppendReport, KernelError> {
     if store.project().family == Family::Dp {
-        return Err(KernelError::Refused(
-            "Diamond/Pearl: textures are not appended without a test project".into(),
-        ));
+        return Err(KernelError::Refused(t!("bake.dp_textures").into_owned()));
     }
     if let Some(why) = store.busy() {
         return Err(KernelError::Busy(why.to_owned()));
     }
     store.project().editable()?;
     let before = current_pack(store.project(), pack)?.ok_or_else(|| {
-        KernelError::Refused(format!("map texture pack {pack:04} is not in the archive"))
+        KernelError::Refused(t!("bake.pack_missing", pack = pack : {:04}).into_owned())
     })?;
     let btx = appended(Btx0::read(&before)?, textures)?.map_err(refusal)?;
     let after = nsbtx::write(&btx)?;

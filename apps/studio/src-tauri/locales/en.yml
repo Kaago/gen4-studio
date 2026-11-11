@@ -1,6 +1,4 @@
 base_roms:
-  folder_not_created: "Folder cannot be created: %{path}: %{error}"
-  path_not_text: "Path is not valid text: %{path}"
   rom_unreadable: "ROM not readable: %{path}: %{error}"
 commands:
   agents:
@@ -8,6 +6,8 @@ commands:
   base:
     grant_not_moved: "Base ROM assigned, but the agent grant was not rewritten: %{error}"
     project_switched: "The project was switched during the export; no patch was created."
+  buildings:
+    too_many: "Map %{map} has too many buildings."
   checks:
     subject_header: "Header %{n}"
     subject_event_file: "Event file %{n}"
@@ -65,6 +65,7 @@ commands:
     fix_block_upper: "Block upper cell"
   common:
     path_not_text: "Path is not valid text: %{path}"
+    no_project: "No project is open."
   data:
     species_fallback: "Species %{index}"
     move_fallback: "Move %{index}"
@@ -127,11 +128,15 @@ commands:
     source_map: "Map %{index}"
     building: "Building %{n}"
     building_inside: "Building %{n} (inside)"
+    no_machine: "There are %{count} TMs and HMs, none at %{n}."
+    no_trainer_field: "No editable trainer field %{field}."
   delete:
     project_switched: "The project was switched; nothing was deleted."
   dispatch:
     invalid_arguments: "Invalid arguments for %{name}: %{error}"
     no_project_folder: "Not a project folder: %{path}"
+  events:
+    too_many: "Event file %{file} has too many events."
   flags:
     scripts_not_indexed: "Adopt the scripts first: without the script sources the index does not know which flags scripts use."
     scripts_not_indexed_vars: "Adopt the scripts first: without the script sources the index does not know which variables scripts use."
@@ -209,6 +214,13 @@ commands:
     reopen: "The files are converted, but the open session was changed in the meantime and stays as it is; please reopen the project."
     project_switched: "The project was switched."
     project_switched_unsynced: "The project was switched; nothing was synced."
+  update:
+    bad_endpoint: "G4_UPDATE_ENDPOINT is not an https address: %{value}"
+    not_found: "There is no update %{version} to install. Check for updates again."
+    running: "An update is already being installed."
+    unsaved: "There are unsaved changes. Save them, or agree to discard them, before updating."
+  world:
+    cell_outside: "Cell (%{x}, %{y}) is outside the 32 × 32 map."
   world_meta:
     broken: "%{file} is damaged: %{why}. Repair or delete the file."
 doctor:
@@ -444,7 +456,6 @@ mcp:
     project_switched: "Another project is now open in Gen4 Studio"
     unknown_resource: "Unknown resource: %{uri}"
     no_nested_batch: "g4_batch cannot contain itself"
-    path_not_text: "Path is not valid text: %{path}"
     unknown_tool: "Unknown tool: %{tool}"
     call_needs_command: "g4_call needs command, the name of a command"
     bad_publish_args: "Invalid arguments for publish_patch: %{error}"
@@ -523,12 +534,8 @@ mcp:
     unknown_answer: "Unknown answer: %{answer}"
   settings:
     project_folder_unreadable: "Project folder not readable: %{path}: %{error}"
-    path_not_text: "Path is not valid text: %{path}"
-    folder_not_created: "Folder cannot be created: %{path}: %{error}"
-    no_file_name: "No file name: %{path}"
     file_unwritable: "File not writable: %{path}: %{error}"
   discovery:
-    folder_not_created: "Folder cannot be created: %{path}: %{error}"
     file_unreadable: "File not readable: %{path}: %{error}"
     file_invalid: "File invalid: %{path}: %{error}"
   prompts:
@@ -556,20 +563,14 @@ mcp:
       text: "In Gen4 Studio, put a trainer %{class} in the place with header %{header}. Work through it like this and report briefly after each step:\n1. get_header (id %{header}): event_file_id and script_file_id. get_events shows the existing trainer characters (their script is 3000 + trainer id − 1) and free tiles.\n2. scripts_status: without adopted scripts create_trainer refuses; ask the user to adopt them in the app (World, panel Script, \"Adopt\").\n3. data_list with kind \"trainer\" and data_get: an existing trainer of the class as a model. The class id is in its field class.\n4. create_trainer with class and name (names are short, at most 7 characters in Platinum; cannot be undone, the app asks first). The answer names the new trainer id.\n5. data_edit with kind \"trainer\", index = the new trainer id from step 4 and patch {\"TrainerParty\": {party}}: the team (without Pokémon the battle crashes), set_trainer_texts for the battle texts (every text ends with a line break, the warnings are in the answer).\n6. add_event with kind \"object\", x, z and patch: script = 3000 + trainer id − 1, trainer_type 1, sight range 3; the facing direction across the path. The trainer from step 1 shows the pattern.\n7. get_events as a cross-check, refs with target {kind \"trainer\", index} shows where it stands, run_checks, then save."
       class_named: "of the class \"%{class}\""
       class_ask: "of a class (ask the user which one)"
+menu:
+  check_updates: "Check for Updates…"
 bridge:
   need_root: "At least one allowed folder (--allow-root) is needed"
-  folder_unreadable: "Folder not readable: %{path}: %{error}"
-  not_a_folder: "Not a folder: %{path}"
   originals_locked: "Originals (_DSPRE_contents) are locked: %{path}"
   originals_locked_new: "Originals (_DSPRE_contents) are locked: %{path}. In browser mode, create it without the suffix."
   saves_locked: "Save games (_saves) are locked: %{path}"
-  outside: "Path is outside the allowed folders: %{path}"
-  folder_not_created: "Folder cannot be created: %{path}: %{error}"
-  not_a_file: "Not a file: %{path}"
-  no_file_name: "No file name: %{path}"
-  path_unreadable: "Path not readable: %{path}: %{error}"
   no_emulator: "Not available in browser mode, use g4emu"
-  agents_off: "Local agents are off (Settings › Agents)"
   too_many_calls: "Too many simultaneous agent calls"
   app_data_not_created: "App data folder %{path} cannot be created: %{error}"
   no_runtime: "No runtime for MCP: %{error}"
@@ -582,7 +583,6 @@ bridge:
   unknown_command: "Unknown command: %{name}"
   command_crashed: "Command crashed"
   token_missing: "G4_BRIDGE_TOKEN is missing"
-  batch_file_unreadable: "File not readable: %{path}: %{error}"
   batch_output_unwritable: "Output not writable: %{error}"
   batch_command_failed: "%{name} failed: %{error}"
   batch_invalid_json: "Not valid JSON: %{error}"

@@ -5,28 +5,25 @@ import { termPlural } from "../../workbench/terms";
 import { Picker } from "../primitives";
 import type { PickerItem } from "../primitives";
 
-/** The identifier of the items group; written with an escape so that this file holds no German word. */
-const ITEMS = "Gegenst\u00e4nde";
-
 /**
- * The groups of the palette in the order it lists them. Each is the identifier an entry carries in `group` (the callers write these
- * words, whatever the language); the heading the palette shows for it is read from the catalog (`groupName`).
+ * The groups of the palette in the order it lists them. Each is the language-neutral identifier an entry carries in `group` (the callers
+ * write these ids, whatever the language); the heading the palette shows for it is read from the catalog (`groupName`).
  */
-export const PALETTE_GROUPS = ["Befehle", "Orte", "Header", "Textarchive", "Pokémon", "Trainer", "Begegnungen", "Attacken", ITEMS, "Scripts"] as const;
+export const PALETTE_GROUPS = ["commands", "places", "headers", "textArchives", "pokemon", "trainers", "encounters", "moves", "items", "scripts"] as const;
 export type PaletteGroup = (typeof PALETTE_GROUPS)[number];
 
 /** The heading of each group, read when it is asked for: the palette's own words from `ui`, the world's words from `terms`. */
 const HEADINGS: Record<PaletteGroup, () => string> = {
-  Befehle: () => translate("ui:palette.groups.commands"),
-  Orte: () => termPlural("place"),
-  Header: () => termPlural("header"),
-  Textarchive: () => termPlural("textArchive"),
-  Pokémon: () => translate("ui:palette.groups.pokemon"),
-  Trainer: () => translate("ui:palette.groups.trainers"),
-  Begegnungen: () => translate("ui:palette.groups.encounters"),
-  Attacken: () => translate("ui:palette.groups.moves"),
-  [ITEMS]: () => translate("ui:palette.groups.items"),
-  Scripts: () => termPlural("script"),
+  commands: () => translate("ui:palette.groups.commands"),
+  places: () => termPlural("place"),
+  headers: () => termPlural("header"),
+  textArchives: () => termPlural("textArchive"),
+  pokemon: () => translate("ui:palette.groups.pokemon"),
+  trainers: () => translate("ui:palette.groups.trainers"),
+  encounters: () => translate("ui:palette.groups.encounters"),
+  moves: () => translate("ui:palette.groups.moves"),
+  items: () => translate("ui:palette.groups.items"),
+  scripts: () => termPlural("script"),
 };
 
 /** The heading of a group in the language that is shown; a group the palette does not know (a caller's own) is shown as it is. */
@@ -35,7 +32,7 @@ export function groupName(group: string): string {
 }
 
 /** With an empty search the palette lists the commands only. Module constants: the picker memoises on them. */
-const EMPTY_QUERY_GROUPS: readonly string[] = ["Befehle"];
+const EMPTY_QUERY_GROUPS: readonly string[] = ["commands"];
 
 /** At most this many hits per group (spec §5.8). */
 export const PALETTE_LIMIT = 8;

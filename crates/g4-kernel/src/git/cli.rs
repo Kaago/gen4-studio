@@ -15,10 +15,20 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::KernelError;
+use crate::error::{KernelError, codes};
 use crate::git::repo::{GitRepo, GitStatus, HeadInfo, RepoKind};
 use crate::git::templates::{Layout, TemplateReport, layout_of, write_templates};
 use crate::project::Project;
+
+/// [`InitReport::reason_code`] when a repository (the project's own or an enclosing one) holds
+/// the project: only the templates are written ([`in_repo`]).
+pub const REASON_IN_REPO: &str = "in_repo";
+/// [`InitReport::reason_code`] when no `git` CLI was found: only the templates are written
+/// ([`not_installed`]).
+pub const REASON_NOT_INSTALLED: &str = "not_installed";
+/// [`InitReport::reason_code`] when a Git subcommand of the set-up failed (Git's own words in
+/// `reason`); what was made stays.
+pub const REASON_FAILED: &str = "failed";
 
 /// The answer without a `git` CLI: the templates are written, the repository is not.
 pub fn not_installed() -> String {
@@ -140,8 +150,11 @@ pub struct InitOptions {
     pub templates_only: bool,
 }
 
-/// What [`git_init`] did. `committed` is false with a `reason` (a sentence) when no commit was
-/// made, and without one for `templates_only`. `head` and `files` (entries in the index) only
+/// What [`git_init`] did. `committed` is false with a `reason` (a sentence, in the language of
+/// the process) when no commit was made, and without one for `templates_only`. `reason_code`
+/// is the kind of that reason, the same in every language: [`REASON_IN_REPO`],
+/// [`REASON_NOT_INSTALLED`] or [`REASON_FAILED`], `None` exactly when `reason` is. Callers
+/// decide by the code, never by the sentence. `head` and `files` (entries in the index) only
 /// with the commit; `studio_identity`: the commit is by [`STUDIO_NAME`]. `phase_ms`: each
 /// phase that ran with its milliseconds; `ms` the whole.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -149,11 +162,20 @@ pub struct InitReport {
     pub templates: TemplateReport,
     pub committed: bool,
     pub reason: Option<String>,
+    pub reason_code: Option<&'static str>,
     pub head: Option<HeadInfo>,
     pub files: u32,
     pub studio_identity: bool,
     pub phase_ms: BTreeMap<InitPhase, u64>,
     pub ms: u64,
+}
+
+impl InitReport {
+    /// Why no commit was made: the sentence and its code, set together.
+    fn declined(&mut self, code: &'static str, reason: String) {
+        self.reason = Some(reason);
+        self.reason_code = Some(code);
+    }
 }
 
 /// The options of [`commit_all`]: the subject (`message`, its first line; without one
@@ -329,6 +351,7 @@ pub fn git_init(
         templates,
         committed: false,
         reason: None,
+        reason_code: None,
         head: None,
         files: 0,
         studio_identity: false,
@@ -340,14 +363,14 @@ pub fn git_init(
         Ok(report)
     };
     if GitRepo::discover(root)?.is_some() {
-        report.reason = Some(in_repo());
+        report.declined(REASON_IN_REPO, in_repo());
         return finish(report);
     }
     if opts.templates_only {
         return finish(report);
     }
     let Some(cli) = cli else {
-        report.reason = Some(not_installed());
+        report.declined(REASON_NOT_INSTALLED, not_installed());
         return finish(report);
     };
 
@@ -355,7 +378,7 @@ pub fn git_init(
     let ran = run(cli, Some(root), &Sub::Init, TIMEOUT);
     report.phase_ms.insert(InitPhase::Init, millis(t));
     if !succeeded(&ran) {
-        report.reason = Some(failed(Failed::Init, &ran));
+        report.declined(REASON_FAILED, failed(Failed::Init, &ran));
         return finish(report);
     }
 
@@ -363,7 +386,7 @@ pub fn git_init(
     let ran = run(cli, Some(root), &Sub::Add, TIMEOUT);
     report.phase_ms.insert(InitPhase::Add, millis(t));
     if !succeeded(&ran) {
-        report.reason = Some(failed(Failed::FirstCommit, &ran));
+        report.declined(REASON_FAILED, failed(Failed::FirstCommit, &ran));
         return finish(report);
     }
 
@@ -372,7 +395,7 @@ pub fn git_init(
     report.studio_identity = studio_identity;
     report.phase_ms.insert(InitPhase::Commit, millis(t));
     if !succeeded(&ran) {
-        report.reason = Some(failed(Failed::FirstCommit, &ran));
+        report.declined(REASON_FAILED, failed(Failed::FirstCommit, &ran));
         return finish(report);
     }
 
@@ -439,22 +462,22 @@ pub fn subject_of(opts: &CommitOptions) -> String {
 /// (a file a newer template lets in, such as `.g4/releases.json`), and the status is read: no
 /// change is [`nothing_to_commit`]. Else the status, whose paths the commit will take.
 pub fn check_commit_all(project: &Project, cli: Option<&GitCli>) -> Result<GitStatus, KernelError> {
-    let refused = |text: String| Err(KernelError::Refused(text));
+    let refused = |code, text: String| Err(KernelError::coded(code, text));
     let Some(repo) = GitRepo::discover(&project.root)? else {
-        return refused(no_repo_to_commit());
+        return refused(codes::NO_REPO, no_repo_to_commit());
     };
     match repo.kind() {
         RepoKind::Own => {}
-        RepoKind::Enclosing { .. } => return refused(enclosing_repo()),
-        RepoKind::None => return refused(no_repo_to_commit()),
+        RepoKind::Enclosing { .. } => return refused(codes::ENCLOSING_REPO, enclosing_repo()),
+        RepoKind::None => return refused(codes::NO_REPO, no_repo_to_commit()),
     }
     if cli.is_none() {
-        return refused(git_needed());
+        return refused(codes::NO_GIT, git_needed());
     }
     write_templates(project)?;
     let status = repo.status()?;
     if status.paths.is_empty() {
-        return refused(nothing_to_commit());
+        return refused(codes::NOTHING_TO_COMMIT, nothing_to_commit());
     }
     Ok(status)
 }
@@ -488,7 +511,7 @@ pub fn commit_all(
     let t = begin(CommitPhase::Templates);
     let status = check_commit_all(project, cli)?;
     let Some(cli) = cli else {
-        return Err(KernelError::Refused(git_needed()));
+        return Err(KernelError::coded(codes::NO_GIT, git_needed()));
     };
     let mut report = CommitReport {
         committed: false,
@@ -805,6 +828,7 @@ mod tests {
         .unwrap();
         assert!(!report.committed);
         assert_eq!(report.reason, Some(not_installed()));
+        assert_eq!(report.reason_code, Some("not_installed"));
         assert_eq!(report.head, None);
         assert!(!fx.root().join(".git").exists());
         assert!(fx.root().join(".gitignore").is_file());
@@ -826,6 +850,7 @@ mod tests {
         let report = git_init(&fx.project(), cli.as_ref(), &opts, &mut |_| {}).unwrap();
         assert!(!report.committed);
         assert_eq!(report.reason, None);
+        assert_eq!(report.reason_code, None);
         assert!(!fx.root().join(".git").exists());
         assert!(fx.root().join(".gitignore").is_file());
     }
@@ -847,6 +872,7 @@ mod tests {
             git_init(&project, cli.as_ref(), &InitOptions::default(), &mut |_| {}).unwrap();
         assert!(!report.committed);
         assert_eq!(report.reason, Some(in_repo()));
+        assert_eq!(report.reason_code, Some("in_repo"));
         assert!(!root.join(".git").exists(), "never a repository inside one");
         assert!(root.join(".gitignore").is_file());
         assert!(root.join(".gitattributes").is_file());
@@ -869,6 +895,7 @@ mod tests {
         .unwrap();
         assert!(!report.committed);
         assert_eq!(report.reason, Some(in_repo()));
+        assert_eq!(report.reason_code, Some("in_repo"));
     }
 
     #[test]
@@ -1072,6 +1099,7 @@ mod tests {
         .unwrap();
         assert!(report.committed, "{report:?}");
         assert_eq!(report.reason, None);
+        assert_eq!(report.reason_code, None);
         let head = report.head.as_ref().unwrap();
         assert_eq!(head.summary, first_commit());
         assert!(!config(root).contains("[remote"), "{}", config(root));
@@ -1175,6 +1203,7 @@ mod tests {
         )
         .unwrap();
         assert!(!report.committed);
+        assert_eq!(report.reason_code, Some("failed"));
         let reason = report.reason.unwrap();
         assert!(reason.starts_with("The first commit failed:"), "{reason}");
         assert!(reason.contains("gpg"), "Git's own words: {reason}");
@@ -1229,7 +1258,7 @@ mod tests {
 
     fn refusal(result: Result<CommitReport, KernelError>) -> String {
         match result {
-            Err(KernelError::Refused(text)) => text,
+            Err(KernelError::Refused(text) | KernelError::Coded { message: text, .. }) => text,
             other => panic!("not refused: {other:?}"),
         }
     }
@@ -1301,7 +1330,7 @@ mod tests {
         assert_eq!(refused, git_needed());
         assert!(matches!(
             check_commit_all(&fx.project(), None),
-            Err(KernelError::Refused(text)) if text == git_needed()
+            Err(KernelError::Coded { code: "no_git", message }) if message == git_needed()
         ));
     }
 

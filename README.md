@@ -78,6 +78,16 @@ xattr -dr com.apple.quarantine "/Applications/Gen4 Studio.app"
 
 **Windows (SmartScreen).** Run the installer. If SmartScreen shows "Windows protected your PC", choose "More info", then "Run anyway". The installer needs no administrator rights and installs to `%LOCALAPPDATA%\Gen4 Studio`. If WebView2 is missing, the installer downloads it.
 
+### Updates
+
+The first time you start a version with an updater, Gen4 Studio asks once whether it may look for new versions on GitHub: "Check automatically" or "Don't check". If you agree, it checks when it starts, at most once a day. If you decline, it only checks when you ask it to. You can change this at any time in Settings › Updates ("Check for updates automatically"), which also shows the installed version and when it last checked and has a "Check now" button. "Check for Updates…" in the menu (the Gen4 Studio menu on macOS, the Help menu on Windows) checks right away.
+
+A check is a normal HTTPS request to GitHub, like any download, so GitHub sees your IP address. Nothing about your projects, your ROM or your work in the app is sent.
+
+When a newer version is found, a notice offers "Install…" and "Skip this version"; closing it means "later". "Install…" shows the version and what is new, warns you if there are unsaved changes (they are lost), downloads the update, installs it and restarts Gen4 Studio. On Windows the app closes while the installer runs, and the new version starts when it is done. Updates are signed with the project's own key, and Gen4 Studio installs only a package whose signature is valid. That is not a developer certificate, so the system warnings described above still apply to a fresh download. The release page also holds files for the updater (`.app.tar.gz`, `.sig`, `latest.json`); you do not need to download them. How the update packages are built and signed is described in [docs/en/release.md](docs/en/release.md) (section "Updater packages").
+
+Versions before 1.0.1 cannot update themselves. If you run 1.0.0, install 1.0.1 once by hand as described above; from then on, updates come through the app.
+
 <!-- section: quickstart -->
 ## Quickstart
 

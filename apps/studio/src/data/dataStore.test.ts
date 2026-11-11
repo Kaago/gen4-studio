@@ -187,6 +187,71 @@ describe("DataStore", () => {
     expect(store.get().errors.move).toBe("kaputt");
     expect(store.get().locked).toBeNull();
   });
+
+  describe("reload (the backend's language changed)", () => {
+    it("drops what was read and reads again what was asked for, nothing else", async () => {
+      const store = new DataStore();
+      store.need(projectPt, "species");
+      await settle();
+      expect(store.get().rows.species).toBe(SPECIES);
+      vi.mocked(dataList).mockClear();
+      vi.mocked(nameTables).mockClear();
+      const answered = [{ ...SPECIES[2]!, name: "Staravia (new language)" }];
+      vi.mocked(dataList).mockResolvedValue(answered);
+
+      store.reload();
+      // At once nothing of the old language is left; the project is still the same.
+      expect(store.get().rows).toEqual({});
+      expect(store.get().names).toBeNull();
+      expect(store.get().project).toBe(projectPt);
+      await settle();
+      expect(store.get().rows.species).toBe(answered);
+      expect(store.get().names).toBe(NAMES);
+      // Only the species list and the names were asked for before: no other list, no item table.
+      expect(vi.mocked(dataList).mock.calls.map((c) => c[0])).toEqual(["species"]);
+      expect(nameTables).toHaveBeenCalledTimes(1);
+      expect(itemTable).not.toHaveBeenCalled();
+    });
+
+    it("forgets the reason of a part that could not be read, and gives the new one", async () => {
+      vi.mocked(dataList).mockRejectedValue({ code: "error", message: "kaputt", asset: null });
+      const store = new DataStore();
+      store.need(projectPt, "move");
+      await settle();
+      expect(store.get().errors.move).toBe("kaputt");
+
+      vi.mocked(dataList).mockRejectedValue({ code: "error", message: "broken", asset: null });
+      store.reload();
+      expect(store.get().errors).toEqual({});
+      await settle();
+      expect(store.get().errors.move).toBe("broken");
+    });
+
+    it("drops an answer that was still on its way: it was asked in the old language", async () => {
+      let late: (rows: typeof SPECIES) => void = () => {};
+      vi.mocked(dataList).mockImplementationOnce(() => new Promise((resolve) => (late = resolve)));
+      const store = new DataStore();
+      store.need(projectPt, "species");
+      const answered = [{ ...SPECIES[2]!, name: "Staravia (new language)" }];
+      vi.mocked(dataList).mockResolvedValue(answered);
+
+      store.reload();
+      late(SPECIES);
+      await settle();
+      expect(store.get().rows.species).toBe(answered);
+    });
+
+    it("does nothing for a store that was never asked, and tells nobody", async () => {
+      const store = new DataStore();
+      const heard = vi.fn();
+      store.subscribe(heard);
+      store.reload();
+      await settle();
+      expect(heard).not.toHaveBeenCalled();
+      expect(dataList).not.toHaveBeenCalled();
+      expect(nameTables).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("dataChangedOf", () => {

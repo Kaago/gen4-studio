@@ -445,9 +445,9 @@ impl Toolbox {
         state.base_roms.configure(None);
         state.base_roms.set_explicit(base_rom);
         let root = policy.project();
-        let path = root
-            .to_str()
-            .ok_or_else(|| t!("mcp.tools.path_not_text", path = root.display()).into_owned())?;
+        let path = root.to_str().ok_or_else(|| {
+            t!("commands.common.path_not_text", path = root.display()).into_owned()
+        })?;
         let info = open_project_impl(&state, path).map_err(|e| e.message)?;
         // A text project of an older schema opens in the app to be lifted; headless nothing
         // could edit it, so the server does not start (as for a newer one or a broken
@@ -809,7 +809,7 @@ impl<'a> Call<'a> {
     fn recheck(&self, command: &str, args: &Value, admitted: &Admitted) -> Result<(), ToolError> {
         if self.shared.is_none()
             || admitted.confirm.is_some()
-            || !needs_store(command, &classify(command, args, self.policy))
+            || !needs_store(command, args, &classify(command, args, self.policy))
         {
             return Ok(());
         }
@@ -1001,7 +1001,7 @@ impl<'a> Call<'a> {
             });
         };
         let mut class = classify(command, args, self.policy);
-        if needs_store(command, &class)
+        if needs_store(command, args, &class)
             && let Ok(exact) =
                 self.with_session(|s| classify_in(command, args, self.policy, &mut s.store))
         {
@@ -1158,7 +1158,7 @@ impl<'a> Call<'a> {
             (None, Some(shared)) => {
                 serde_json::to_value(project_info_of(self.state, shared.project)?)
             }
-            (None, None) => return Err(ToolError::error("no project open")),
+            (None, None) => return Err(ToolError::error(t!("commands.common.no_project"))),
         };
         let mut info = info.map_err(|e| ToolError::error(e.to_string()))?;
         // The project as a source now: an adoption (or a revert) since it opened changed it.
@@ -1194,7 +1194,7 @@ impl<'a> Call<'a> {
         let Some(session) = guard.as_mut() else {
             return Err(match self.shared {
                 Some(_) => ToolError::refused("no_project", t!(NO_PROJECT)),
-                None => ToolError::error("no project open"),
+                None => ToolError::error(t!("commands.common.no_project")),
             });
         };
         if let Some(shared) = &self.shared

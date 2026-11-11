@@ -35,7 +35,9 @@ fn a_project_without_text_project_is_refused_before_writing() {
     let mut store = Store::new(Arc::new(fx.project()));
     let mark = store.undo_depth();
     match apply(&mut store, &input("Testfaden", 0x4030)) {
-        Err(KernelError::Refused(why)) => assert_eq!(why, not_a_text_project()),
+        Err(e) if e.code() == Some("not_text_project") => {
+            assert_eq!(e.to_string(), not_a_text_project());
+        }
         other => panic!("expected a refusal, got {other:?}"),
     }
     assert_eq!(store.undo_depth(), mark);

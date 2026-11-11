@@ -1,7 +1,10 @@
 //! The language of the messages: the webview tells the backend which one the user chose.
-//! The setting is process-wide (`g4_kernel::i18n`), so it also reaches the kernel, the MCP
-//! answers and the dev bridge that run in the same process. For the choice "System" the
-//! webview asks the backend for the language of the operating system.
+//! The setting is process-wide (`g4_kernel::i18n`), so it also reaches the kernel and the MCP
+//! answers that run in the same process. The dev bridge (`studio-bridge`) is a process of its
+//! own: it reads `G4_LANG` at its start (`init_from_env`) and, in the browser mode, gets
+//! `set_locale` from the page like the app does. For the choice "System" the webview asks the
+//! backend for the language of the operating system. The app menu is built anew with each
+//! choice, so "Check for Updates…" follows the language (`menu::follow_locale`).
 
 /// Sets the language of this process's messages: `de` (also `de-AT`, `de_CH`) selects German,
 /// anything else English.
@@ -9,10 +12,12 @@ pub fn set_locale_impl(lang: &str) {
     g4_kernel::i18n::set_locale(lang);
 }
 
-/// The webview calls this at start and whenever the user changes the language.
+/// The webview calls this at start and whenever the user changes the language. The app menu is
+/// built anew in it; a rebuild that fails only leaves the menu in the language it had.
 #[tauri::command]
-pub fn set_locale(lang: String) {
+pub fn set_locale(app: tauri::AppHandle, lang: String) {
     set_locale_impl(&lang);
+    let _ = crate::menu::follow_locale(&app, &g4_kernel::i18n::locale());
 }
 
 /// The language of the operating system as it reports it (`de-DE`, `en-US`, on Linux the
@@ -30,8 +35,8 @@ fn reported(locale: Option<String>) -> Option<String> {
 }
 
 /// What "System" in Settings › Language follows inside the app. WKWebView's
-/// `navigator.language` names the localizations of the app bundle, not the language of the OS,
-/// so the webview asks here (`null`: it keeps `navigator.language`).
+/// `navigator.language` may report the bundle's localizations rather than the OS language, so
+/// the webview asks here (`null`: it keeps `navigator.language`).
 #[tauri::command]
 pub fn system_language() -> Option<String> {
     system_language_impl()

@@ -300,7 +300,7 @@ mod tests {
             set_matrix_cell_impl(&AppState::default(), 0, 0, 0, None, None, None)
                 .unwrap_err()
                 .message,
-            "no project open"
+            "No project is open."
         );
     }
 

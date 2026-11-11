@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import enGit from "../i18n/locales/en/git.json";
-import { commitReportOf, gitStatusOf, noRepo } from "./gitTesting";
-import { changedFilesText, changesWord, commitDoneText, gitFoundText, notInstalledText, statusText, statusTooltip } from "./gitWords";
+import { kernelSentence } from "../testing/kernelCatalog";
+import { commitReportOf, gitStatusOf, initReportOf, noRepo } from "./gitTesting";
+import { changedFilesText, changesWord, commitDoneText, gitFoundText, isNotInstalled, notInstalledText, statusText, statusTooltip } from "./gitWords";
 
 describe("gitWords", () => {
   it("changes_have_none_singular_and_plural", () => {
@@ -46,15 +46,24 @@ describe("gitWords", () => {
   });
 
   it("not_installed_mirrors_the_kernel_sentence", () => {
-    // The dialog and the wizard tell „only the templates“ from a failed commit by this sentence: a change in the kernel must show here.
+    // The app keeps the kernel's sentence for a missing Git in its catalogs (a change in the kernel must show here), but never decides by it.
     // The kernel sentence lives in its catalogs as `git.not_installed`; German against the German shown, English against the English one.
-    const sentence = (lang: "de" | "en") => {
-      const catalog = readFileSync(`../../crates/g4-kernel/locales/${lang}.yml`, "utf8");
-      const git = /^git:\n((?:(?: .*)?\n)*)/m.exec(catalog)?.[1] ?? "";
-      return /^ {2}not_installed: "((?:[^"\\]|\\.)*)"$/m.exec(git)?.[1];
-    };
-    expect(sentence("de")).toBe(notInstalledText());
-    expect(sentence("en")).toBe(enGit.gitWords.notInstalled);
+    expect(kernelSentence("de", "git", "not_installed")).toBe(notInstalledText());
+    expect(kernelSentence("en", "git", "not_installed")).toBe(enGit.gitWords.notInstalled);
+  });
+
+  it("not_installed_is_told_by_the_reason_code", () => {
+    // The dialog and the wizard tell „only the templates“ from a failed commit by the kernel's `reason_code`, not by its sentence.
+    expect(isNotInstalled({ reason_code: "not_installed" })).toBe(true);
+    expect(isNotInstalled({ reason_code: "failed" })).toBe(false);
+    expect(isNotInstalled({ reason_code: "in_repo" })).toBe(false);
+    expect(isNotInstalled({ reason_code: null })).toBe(false);
+    expect(isNotInstalled({})).toBe(false);
+    // The words decide nothing: the kernel's own sentence for a missing Git, under another code, is a failure; the code with other words is not.
+    const sentence = kernelSentence("de", "git", "not_installed");
+    expect(sentence).toBeDefined();
+    expect(isNotInstalled(initReportOf({ committed: false, reason: sentence ?? null, reason_code: "failed" }))).toBe(false);
+    expect(isNotInstalled(initReportOf({ committed: false, reason: "irgendein Satz", reason_code: "not_installed" }))).toBe(true);
   });
 
   it("changed_files_have_none_singular_and_plural", () => {

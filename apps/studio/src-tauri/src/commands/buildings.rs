@@ -107,7 +107,7 @@ pub fn add_building_impl(state: &AppState, map: u16) -> Result<u16, CmdError> {
     let session = session(&mut guard)?;
     let count = session.store.map(map)?.buildings.len();
     let index = u16::try_from(count)
-        .map_err(|_| CmdError::from(format!("map {map} has too many buildings")))?;
+        .map_err(|_| CmdError::from(t!("commands.buildings.too_many", map = map).into_owned()))?;
     session.store.edit_map(map, "add building", |m| {
         m.buildings.push(Building {
             model_id: 0,
@@ -339,7 +339,7 @@ mod tests {
         let none = AppState::default();
         assert_eq!(
             add_building_impl(&none, 0).unwrap_err().message,
-            "no project open"
+            "No project is open."
         );
     }
 
@@ -400,7 +400,7 @@ mod tests {
             get_building_glb_impl(&AppState::default(), 0, 0)
                 .unwrap_err()
                 .message,
-            "no project open"
+            "No project is open."
         );
     }
 

@@ -160,7 +160,7 @@ mod with_fixture {
 
     fn refused<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
         match result {
-            Err(KernelError::Refused(why)) => why,
+            Err(KernelError::Refused(why) | KernelError::Coded { message: why, .. }) => why,
             other => panic!("expected a refusal, got {other:?}"),
         }
     }

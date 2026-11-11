@@ -1,6 +1,4 @@
 base_roms:
-  folder_not_created: "Ordner nicht anlegbar: %{path}: %{error}"
-  path_not_text: "Pfad ist kein gültiger Text: %{path}"
   rom_unreadable: "ROM nicht lesbar: %{path}: %{error}"
 commands:
   agents:
@@ -8,6 +6,8 @@ commands:
   base:
     grant_not_moved: "Basis-ROM zugeordnet, die Agenten-Freigabe aber nicht umgeschrieben: %{error}"
     project_switched: "Das Projekt wurde während des Exports gewechselt; kein Patch erstellt."
+  buildings:
+    too_many: "Karte %{map} hat zu viele Gebäude."
   checks:
     subject_header: "Header %{n}"
     subject_event_file: "Eventdatei %{n}"
@@ -65,6 +65,7 @@ commands:
     fix_block_upper: "Obere Zelle blockieren"
   common:
     path_not_text: "Pfad ist kein gültiger Text: %{path}"
+    no_project: "Kein Projekt geöffnet."
   data:
     species_fallback: "Art %{index}"
     move_fallback: "Attacke %{index}"
@@ -127,11 +128,15 @@ commands:
     source_map: "Karte %{index}"
     building: "Gebäude %{n}"
     building_inside: "Gebäude %{n} (innen)"
+    no_machine: "Es gibt %{count} TM und VM, keine bei %{n}."
+    no_trainer_field: "Kein bearbeitbares Trainerfeld %{field}."
   delete:
     project_switched: "Das Projekt wurde gewechselt; nichts gelöscht."
   dispatch:
     invalid_arguments: "Ungültige Argumente für %{name}: %{error}"
     no_project_folder: "Kein Projektordner: %{path}"
+  events:
+    too_many: "Eventdatei %{file} hat zu viele Events."
   flags:
     scripts_not_indexed: "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Flags Scripts benutzen."
     scripts_not_indexed_vars: "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Variablen Scripts benutzen."
@@ -209,6 +214,13 @@ commands:
     reopen: "Die Dateien sind umgestellt, aber die offene Sitzung wurde inzwischen geändert und bleibt, wie sie ist; das Projekt bitte neu öffnen."
     project_switched: "Das Projekt wurde gewechselt."
     project_switched_unsynced: "Das Projekt wurde gewechselt; nichts abgeglichen."
+  update:
+    bad_endpoint: "G4_UPDATE_ENDPOINT ist keine https-Adresse: %{value}"
+    not_found: "Es gibt kein Update %{version} zum Installieren. Bitte erneut suchen."
+    running: "Ein Update wird schon installiert."
+    unsaved: "Es gibt ungespeicherte Änderungen. Vor dem Update speichern oder dem Verwerfen zustimmen."
+  world:
+    cell_outside: "Die Zelle (%{x}, %{y}) liegt außerhalb der Karte (32 × 32)."
   world_meta:
     broken: "%{file} ist beschädigt: %{why}. Repariere oder lösche die Datei."
 doctor:
@@ -444,7 +456,6 @@ mcp:
     project_switched: "In Gen4 Studio ist inzwischen ein anderes Projekt offen"
     unknown_resource: "Unbekannte Ressource: %{uri}"
     no_nested_batch: "g4_batch kann sich nicht selbst enthalten"
-    path_not_text: "Pfad ist kein gültiger Text: %{path}"
     unknown_tool: "Unbekanntes Tool: %{tool}"
     call_needs_command: "g4_call braucht command, den Namen eines Befehls"
     bad_publish_args: "Ungültige Argumente für publish_patch: %{error}"
@@ -523,12 +534,8 @@ mcp:
     unknown_answer: "Unbekannte Antwort: %{answer}"
   settings:
     project_folder_unreadable: "Projektordner nicht lesbar: %{path}: %{error}"
-    path_not_text: "Pfad ist kein gültiger Text: %{path}"
-    folder_not_created: "Ordner nicht anlegbar: %{path}: %{error}"
-    no_file_name: "Kein Dateiname: %{path}"
     file_unwritable: "Datei nicht schreibbar: %{path}: %{error}"
   discovery:
-    folder_not_created: "Ordner nicht anlegbar: %{path}: %{error}"
     file_unreadable: "Datei nicht lesbar: %{path}: %{error}"
     file_invalid: "Datei ungültig: %{path}: %{error}"
   prompts:
@@ -556,20 +563,14 @@ mcp:
       text: "Setze in Gen4 Studio in den Ort mit dem Header %{header} einen Trainer %{class}. Gehe so vor und melde dich nach jedem Schritt kurz:\n1. get_header (id %{header}): event_file_id und script_file_id. get_events zeigt die vorhandenen Trainer-Personen (ihr Script ist 3000 + Trainer-Id − 1) und freie Kacheln.\n2. scripts_status: Ohne übernommene Scripts lehnt create_trainer ab; bitte den Nutzer, sie in der App zu übernehmen (Welt, Panel Script, „Übernehmen“).\n3. data_list mit kind \"trainer\" und data_get: ein vorhandener Trainer der Klasse als Vorbild. Die Klassen-Id steht in dessen Feld class.\n4. create_trainer mit class und name (Namen sind kurz, in Platin höchstens 7 Zeichen; nicht rückgängig, die App fragt nach). Die Antwort nennt die neue Trainer-Id.\n5. data_edit mit kind \"trainer\", index = die neue Trainer-Id aus Schritt 4 und patch {\"TrainerParty\": {party}}: das Team (ohne Pokémon stürzt der Kampf ab), set_trainer_texts für die Kampftexte (jeder Text endet mit Zeilenumbruch, die Warnungen stehen in der Antwort).\n6. add_event mit kind \"object\", x, z und patch: script = 3000 + Trainer-Id − 1, trainer_type 1, Sichtweite 3; die Blickrichtung quer zum Weg. Das Muster zeigt der Trainer aus Schritt 1.\n7. get_events als Gegenprobe, refs mit target {kind \"trainer\", index} zeigt, wo er steht, run_checks, dann save."
       class_named: "der Klasse „%{class}“"
       class_ask: "einer Klasse (frage den Nutzer, welcher)"
+menu:
+  check_updates: "Nach Updates suchen…"
 bridge:
   need_root: "Mindestens ein erlaubter Ordner (--allow-root) ist nötig"
-  folder_unreadable: "Ordner nicht lesbar: %{path}: %{error}"
-  not_a_folder: "Kein Ordner: %{path}"
   originals_locked: "Originale (_DSPRE_contents) sind gesperrt: %{path}"
   originals_locked_new: "Originale (_DSPRE_contents) sind gesperrt: %{path}. Im Browser-Modus ohne die Endung anlegen."
   saves_locked: "Spielstände (_saves) sind gesperrt: %{path}"
-  outside: "Pfad liegt außerhalb der erlaubten Ordner: %{path}"
-  folder_not_created: "Ordner nicht anlegbar: %{path}: %{error}"
-  not_a_file: "Keine Datei: %{path}"
-  no_file_name: "Kein Dateiname: %{path}"
-  path_unreadable: "Pfad nicht lesbar: %{path}: %{error}"
   no_emulator: "Im Browser-Modus nicht verfügbar, g4emu benutzen"
-  agents_off: "Lokale Agenten sind aus (Einstellungen › Agenten)"
   too_many_calls: "Zu viele gleichzeitige Agenten-Aufrufe"
   app_data_not_created: "App-Datenordner %{path} nicht anlegbar: %{error}"
   no_runtime: "Keine Laufzeit für MCP: %{error}"
@@ -582,7 +583,6 @@ bridge:
   unknown_command: "Unbekannter Befehl: %{name}"
   command_crashed: "Befehl ist abgestürzt"
   token_missing: "G4_BRIDGE_TOKEN fehlt"
-  batch_file_unreadable: "Datei nicht lesbar: %{path}: %{error}"
   batch_output_unwritable: "Ausgabe nicht schreibbar: %{error}"
   batch_command_failed: "%{name} fehlgeschlagen: %{error}"
   batch_invalid_json: "Kein gültiges JSON: %{error}"

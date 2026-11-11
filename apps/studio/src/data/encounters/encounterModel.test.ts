@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import i18next from "i18next";
+import { afterEach, describe, expect, it } from "vitest";
 import type { DataRowDto, HeaderSummary } from "../../api";
 import {
   applyEncounter,
@@ -12,6 +13,7 @@ import {
   replacesText,
   slotColumns,
   slotText,
+  TIME_HOURS,
   usedByText,
   warningText,
   whenText,
@@ -20,6 +22,36 @@ import { ROUTE_201, slot } from "./encounterTesting";
 
 const header = (id: number, location_name: string, internal_name = `H${id}`): HeaderSummary => ({ id, internal_name, location_index: 0, kanto: false, location_name, matrix_id: 0, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 const fileRow = (index: number, users: number[] | null): DataRowDto => ({ index, name: "", tech: String(index).padStart(4, "0"), locked: users === null ? "encounter 0001: 12 bytes, expected 424" : null, extra: users === null ? null : { users } });
+
+describe("encounterModel clock times", () => {
+  afterEach(async () => {
+    await i18next.changeLanguage("de");
+  });
+
+  it("writes_the_hours_on_the_24_hour_clock_in_german", () => {
+    expect(whenText("from 10 to 19 o'clock")).toBe("von 10 bis 19 Uhr");
+    expect(whenText("from 20 to 3 o'clock")).toBe("von 20 bis 3 Uhr");
+    expect([TIME_HOURS.morning, TIME_HOURS.day, TIME_HOURS.night]).toEqual(["4–9 Uhr", "10–19 Uhr", "20–3 Uhr"]);
+    expect(warningText("grass slot 1: the night species is empty: from 20 to 3 o'clock it gives a glitch Pokémon")).toContain("von 20 bis 3 Uhr");
+  });
+
+  it("writes_the_hours_on_the_12_hour_clock_in_english", async () => {
+    await i18next.changeLanguage("en");
+    expect(whenText("from 10 to 19 o'clock")).toBe("from 10 AM to 7 PM");
+    expect(whenText("from 20 to 3 o'clock")).toBe("from 8 PM to 3 AM");
+    expect(whenText("from 4 to 9 o'clock")).toBe("from 4 AM to 9 AM");
+    expect([TIME_HOURS.morning, TIME_HOURS.day, TIME_HOURS.night]).toEqual(["4–9 AM", "10 AM–7 PM", "8 PM–3 AM"]);
+    expect(replacedByText([{ list: "day", entry: 0, when: "from 10 to 19 o'clock", in_file: true }])).toBe("Day 1 (from 10 AM to 7 PM)");
+  });
+
+  it("says_the_same_hours_in_the_phrase_and_in_the_time_of_day", async () => {
+    // One clock for every place: the phrase of a replacement entry and the column head of a time of day agree.
+    await i18next.changeLanguage("en");
+    expect(whenText("from 10 to 19 o'clock")).toBe(`from ${TIME_HOURS.day.replace("–", " to ")}`);
+    await i18next.changeLanguage("de");
+    expect(whenText("from 10 to 19 o'clock")).toBe(`von ${TIME_HOURS.day.replace("–", " bis ")}`);
+  });
+});
 
 describe("encounterModel", () => {
   it("has_the_method_tabs_of_each_family_in_game_order_with_ersatz_last", () => {

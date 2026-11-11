@@ -844,13 +844,13 @@ pub fn tileset_texture(
     let tile = tileset.tiles.iter().find(|t| t.texture == texture);
     let path = match package_file(project, tileset.package) {
         Ok(path) => path,
-        Err(KernelError::Refused(_)) => return Ok(None),
+        Err(KernelError::Refused(_) | KernelError::Coded { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
     let btx = match read_package_file(&path, tileset.package) {
         Ok(btx) => btx,
         // A package that does not read has no texture (the synthetic project's stub).
-        Err(KernelError::Refused(_)) => return Ok(None),
+        Err(KernelError::Refused(_) | KernelError::Coded { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
     let Some(index) = btx.textures.iter().position(|t| t.name == texture) else {

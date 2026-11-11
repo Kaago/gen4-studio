@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::delete::DeleteTarget;
-use crate::error::KernelError;
+use crate::error::{KernelError, codes};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::{FileChange, FileStep, HEADER_TABLE, MapHeader, Store, trainer_pair_bytes};
 use crate::text::TextArchiveDoc;
@@ -483,7 +483,8 @@ fn refuse_unavailable(
     project: &Project,
 ) -> Result<(), KernelError> {
     match availability(target, original, project)? {
-        Some(why) => Err(KernelError::Refused(why)),
+        // [`no_original`] or [`new_message`]: both are `no_original`.
+        Some(why) => Err(KernelError::coded(codes::NO_ORIGINAL, why)),
         None => Ok(()),
     }
 }
@@ -510,7 +511,7 @@ fn base_member(
 ) -> Result<Vec<u8>, KernelError> {
     original
         .member(kind, index)?
-        .ok_or_else(|| KernelError::Refused(no_original()))
+        .ok_or_else(|| KernelError::coded(codes::NO_ORIGINAL, no_original()))
 }
 
 /// Text archive `archive` of the base, decoded.
@@ -587,7 +588,7 @@ fn original_bytes(
                 .messages
                 .into_iter()
                 .nth(usize::from(message))
-                .ok_or_else(|| KernelError::Refused(new_message()))?
+                .ok_or_else(|| KernelError::coded(codes::NO_ORIGINAL, new_message()))?
                 .text;
             let mut doc = store.text_archive(archive)?.clone();
             let Some(now) = doc.messages.get_mut(usize::from(message)) else {
@@ -852,7 +853,7 @@ fn header_pair(
         .header_table()?
         .into_iter()
         .nth(usize::from(id))
-        .ok_or_else(|| KernelError::Refused(no_original()))?;
+        .ok_or_else(|| KernelError::coded(codes::NO_ORIGINAL, no_original()))?;
     let current = store
         .header_table()?
         .get(usize::from(id))
@@ -1486,7 +1487,7 @@ mod tests {
             reset(&mut f.store, &f.original, &target, None).unwrap_err(),
         ] {
             assert!(
-                matches!(&err, KernelError::Refused(why) if *why == no_original()),
+                matches!(&err, KernelError::Coded { code: "no_original", message } if *message == no_original()),
                 "{err}"
             );
         }
@@ -1526,7 +1527,7 @@ mod tests {
         );
         let err = reset(&mut f.store, &f.original, &target, None).unwrap_err();
         assert!(
-            matches!(&err, KernelError::Refused(why) if *why == new_message()),
+            matches!(&err, KernelError::Coded { code: "no_original", message } if *message == new_message()),
             "{err}"
         );
         assert_eq!(f.store.undo_depth(), depth);
@@ -1999,7 +2000,7 @@ mod tests {
             reset(&mut f.store, &f.original, &target, None).unwrap_err(),
         ] {
             assert!(
-                matches!(&err, KernelError::Refused(why) if *why == no_original()),
+                matches!(&err, KernelError::Coded { code: "no_original", message } if *message == no_original()),
                 "{err}"
             );
         }

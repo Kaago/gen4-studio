@@ -404,7 +404,7 @@ impl EntitySource {
             return Ok(None);
         };
         let world = world_field(&bytes).map_err(|e| match e {
-            KernelError::Refused(message) => {
+            KernelError::Refused(message) | KernelError::Coded { message, .. } => {
                 KernelError::Compile(vec![located(&rel, &bytes, &message)])
             }
             e => e,

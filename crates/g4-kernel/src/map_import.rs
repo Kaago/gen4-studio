@@ -90,6 +90,21 @@ impl Part {
     }
 }
 
+/// The name of `part` in the language of the process, for the messages that say which part is
+/// meant ([`Part::label`] is the English name of the undo labels, which the UI translates).
+fn part_name(part: Part) -> String {
+    match part {
+        Part::Model => t!("map_import.part.model"),
+        Part::Permissions => t!("map_import.part.permissions"),
+        Part::Buildings => t!("map_import.part.buildings"),
+        Part::Bdhc => t!("map_import.part.terrain"),
+        Part::Bgs => t!("map_import.part.background_sound"),
+        Part::Whole => t!("map_import.part.whole_map"),
+        Part::Textures => t!("map_import.part.textures"),
+    }
+    .into_owned()
+}
+
 /// Where the parts come from: files (the extension decides the part) or another map of
 /// the project as the store holds it (unsaved edits included).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -462,7 +477,7 @@ struct Prepared {
 fn refuse_dp(store: &Store) -> Result<Family, KernelError> {
     match store.project().family {
         Family::Dp => Err(KernelError::Import(
-            "Diamond/Pearl: not released without a test project".into(),
+            t!("map_import.dp_not_released").into_owned(),
         )),
         family => Ok(family),
     }
@@ -532,7 +547,7 @@ pub fn import_with(
     let family = refuse_dp(store)?;
     opts.check()?;
     if parts.is_empty() {
-        return Err(KernelError::Import("no part selected".into()));
+        return Err(KernelError::Import(t!("map_import.no_part").into_owned()));
     }
     let mut prepared = prepare(store, map, source, opts)?;
     let mut chosen: Vec<(Part, Payload)> = Vec::new();
@@ -543,7 +558,11 @@ pub fn import_with(
         let index = prepared
             .iter()
             .position(|p| p.report.part == part)
-            .ok_or_else(|| KernelError::Import(format!("{} is not in the source", part.label())))?;
+            .ok_or_else(|| {
+                KernelError::Import(
+                    t!("map_import.not_in_source", part = part_name(part)).into_owned(),
+                )
+            })?;
         let p = prepared.swap_remove(index);
         if let PartState::Error(reason) = &p.report.state {
             return Err(KernelError::Import(format!(
@@ -896,10 +915,7 @@ fn prepare_textures(
         .project()
         .map_tileset_member(ctx.pack)?
         .ok_or_else(|| {
-            KernelError::Refused(format!(
-                "map texture pack {:04} is not in the archive",
-                ctx.pack
-            ))
+            KernelError::Refused(t!("bake.pack_missing", pack = ctx.pack : {:04}).into_owned())
         })?;
     let after = match appended_pack_or_refusal(&before, &plan.new)? {
         Ok(after) => after,

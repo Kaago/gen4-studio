@@ -55,7 +55,7 @@ fn check(store: &mut Store) -> Result<Checked, KernelError> {
     let recipe = region_recipe(family)?;
     let plan = plan_empty_region(store)?;
     if plan.already_empty {
-        return Err(refused("the world is already empty"));
+        return Err(refused(t!("templates.world_already_empty")));
     }
     if !scripts::is_adopted(store.project()) {
         return Err(refused("scripts are not adopted"));

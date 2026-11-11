@@ -48,8 +48,8 @@ describe("tile names", () => {
   });
 
   it("a_failed_fetch_is_retried_on_the_next_load", async () => {
-    tileBehaviors.mockRejectedValueOnce(new Error("no project open")).mockResolvedValueOnce(pt);
-    await expect(loadNames()).rejects.toThrow("no project open");
+    tileBehaviors.mockRejectedValueOnce(new Error("Kein Projekt geöffnet.")).mockResolvedValueOnce(pt);
+    await expect(loadNames()).rejects.toThrow("Kein Projekt geöffnet.");
     expect((await loadNames()).get(2)?.name).toBe("TALL_GRASS");
   });
 

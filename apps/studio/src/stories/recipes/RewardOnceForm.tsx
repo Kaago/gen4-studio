@@ -23,7 +23,7 @@ export type RewardOnceFormProps = {
 
 /**
  * „Belohnung einmalig“: the figure (no trainer), the step it gives from, the item (by the project's names), the text (it says „Du erhältst
- * {Gegenstand}!“ until one is typed) and the flag from the pool that keeps the reward given.
+ * {Gegenstand}!“ in the ROM's language until one is typed) and the flag from the pool that keeps the reward given.
  */
 export function RewardOnceForm({ form, onChange, steps, headers, project, revision, disabled, onError }: RewardOnceFormProps) {
   const { t } = useTranslation("stories");
@@ -36,7 +36,7 @@ export function RewardOnceForm({ form, onChange, steps, headers, project, revisi
         <span className={styles.label}>{t("rewardOnceForm.item")}</span>
         <PickField label={t("rewardOnceForm.item")} text={form.itemName ?? t("rewardOnceForm.noItemChosen")} choice="item" disabled={disabled} onPick={(item) => onChange({ ...form, item, itemName: itemName(names.items, item) })} />
       </div>
-      <SaysField value={rewardSays(form)} onChange={(text) => onChange({ ...form, text })} disabled={disabled} />
+      <SaysField value={rewardSays(form, project?.language ?? null)} onChange={(text) => onChange({ ...form, text })} disabled={disabled} />
       <PoolFlagField label={t("rewardOnceForm.rewardFlag")} value={form.flag} onChange={(flag) => onChange({ ...form, flag })} project={project} revision={revision} disabled={disabled} />
     </>
   );

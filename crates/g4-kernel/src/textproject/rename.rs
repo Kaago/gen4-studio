@@ -31,7 +31,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::checks::IGNORE_FILE;
-use crate::error::{KernelError, guard_panic, io_at};
+use crate::error::{KernelError, codes, guard_panic, io_at};
 use crate::flags::{FlagKind, names};
 use crate::fsutil::Journal;
 use crate::project::{AssetId, AssetKind, Project};
@@ -57,6 +57,16 @@ pub const MAX_ID_LEN: usize = 64;
 /// Why a folder without manifest has no ids to rename.
 pub fn not_a_text_project() -> String {
     t!("textproject.not_a_text_project").into_owned()
+}
+
+/// [`not_a_text_project`] as refusal, code `not_text_project`.
+fn not_text_project() -> KernelError {
+    KernelError::coded(codes::NOT_TEXT_PROJECT, not_a_text_project())
+}
+
+/// [`unknown_id_text`] of `id` as refusal, code `unknown_id`.
+fn unknown_id(id: &str) -> KernelError {
+    KernelError::coded(codes::UNKNOWN_ID, unknown_id_text(id))
 }
 
 /// Why a rename to the same id is refused.
@@ -138,8 +148,9 @@ pub fn plan_rename(
 
 /// Writes every file of the plan and records them as one file step labelled
 /// "ID umbenannt: {old} → {new}" (asset: trainer `n`, else the header table), then writes the
-/// id files for rotom anew. A refusal is [`KernelError::Refused`] with its sentence, and
-/// nothing is written.
+/// id files for rotom anew. A refusal is [`KernelError::Refused`] with its sentence
+/// ([`KernelError::Coded`] outside a text project, for an unknown id and for a new id of the
+/// wrong form), and nothing is written.
 pub fn rename_id(
     store: &mut Store,
     old_id: &str,
@@ -183,16 +194,14 @@ pub fn rename_id_files(
     })
 }
 
-/// The plan and its file step; a refusal is [`KernelError::Refused`].
+/// The plan and its file step; a refusal is the plan's `refusal` as error (see [`judge`]).
 fn prepared_step(
     project: &Project,
     old_id: &str,
     new_id: &str,
 ) -> Result<(RenamePlan, FileStep), KernelError> {
     let (plan, files) = prepare(project, old_id, new_id)?;
-    if let Some(why) = &plan.refusal {
-        return Err(KernelError::Refused(why.clone()));
-    }
+    let files = files?;
     let asset = match (plan.kind, plan.number.and_then(|n| u16::try_from(n).ok())) {
         (Some(SymbolKind::Trainer), Some(index)) => AssetId {
             kind: AssetKind::Trainer,
@@ -455,17 +464,25 @@ struct Judged {
     rotom: Option<rotom::ConstantDb>,
 }
 
-/// Checks the rules of a rename; `Err` is the refusal.
-fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, String>, KernelError> {
+/// Checks the rules of a rename; `Err` is the refusal ([`KernelError::Refused`], or
+/// [`KernelError::Coded`] for an id outside a text project, an unknown one, one of the wrong
+/// form).
+fn judge(
+    project: &Project,
+    old: &str,
+    new: &str,
+) -> Result<Result<Judged, KernelError>, KernelError> {
     match schema_state(&project.root)? {
         SchemaState::Current => {}
-        SchemaState::Missing => return Ok(Err(not_a_text_project())),
+        SchemaState::Missing => return Ok(Err(not_text_project())),
         state => {
-            return Ok(Err(refusal(state).unwrap_or_else(not_a_text_project)));
+            return Ok(Err(
+                refusal(state).map_or_else(not_text_project, KernelError::Refused)
+            ));
         }
     }
     let Some(kind) = kind_of(old) else {
-        return Ok(Err(unknown_id_text(old)));
+        return Ok(Err(unknown_id(old)));
     };
     if registry_file(kind).is_none() {
         let fixed = table(kind)
@@ -473,17 +490,17 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
             .or_else(|| parse_fallback(kind, old))
             .is_some();
         return Ok(Err(if fixed {
-            t!("textproject.id_fixed_table", id = old).into_owned()
+            KernelError::Refused(t!("textproject.id_fixed_table", id = old).into_owned())
         } else {
-            unknown_id_text(old)
+            unknown_id(old)
         }));
     }
     let registry = Registry::load(&project.root, kind)?;
     let Some(&number) = registry.ids.get(old) else {
-        return Ok(Err(unknown_id_text(old)));
+        return Ok(Err(unknown_id(old)));
     };
     if new == old {
-        return Ok(Err(same_id()));
+        return Ok(Err(KernelError::Refused(same_id())));
     }
     // A flag or variable: its own name must not be the pret name of another number (checked
     // before the form, as pret names may have a lower-case `0x`).
@@ -491,40 +508,39 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
         .and_then(|flag| names(project.family, flag).number(new))
         .filter(|&n| u32::from(n) != number)
     {
-        return Ok(Err(t!(
-            "textproject.id_is_pret_name",
-            id = new,
-            owner = owner
-        )
-        .into_owned()));
+        return Ok(Err(KernelError::Refused(
+            t!("textproject.id_is_pret_name", id = new, owner = owner).into_owned(),
+        )));
     }
     if !well_formed(kind, new) {
-        return Ok(Err(format_text(kind)));
+        return Ok(Err(KernelError::coded(
+            codes::INVALID_ID,
+            format_text(kind),
+        )));
     }
     if let Some(other) = kind_of(new).filter(|k| *k != kind) {
-        return Ok(Err(t!(
-            "textproject.id_other_kind",
-            id = new,
-            other = other.prefix(),
-            prefix = kind.prefix()
-        )
-        .into_owned()));
+        return Ok(Err(KernelError::Refused(
+            t!(
+                "textproject.id_other_kind",
+                id = new,
+                other = other.prefix(),
+                prefix = kind.prefix()
+            )
+            .into_owned(),
+        )));
     }
     if let Some(owner) = parse_fallback(kind, new).filter(|&n| n != number) {
-        return Ok(Err(t!(
-            "textproject.id_is_fallback",
-            id = new,
-            owner = owner
-        )
-        .into_owned()));
+        return Ok(Err(KernelError::Refused(
+            t!("textproject.id_is_fallback", id = new, owner = owner).into_owned(),
+        )));
     }
     let ids = Resolver::for_project(project)?;
     if let Ok(owner) = ids.number(kind, &RefInput::Id(new.to_owned()))
         && owner != number
     {
-        return Ok(Err(
-            t!("textproject.id_exists", id = new, owner = owner).into_owned()
-        ));
+        return Ok(Err(KernelError::Refused(
+            t!("textproject.id_exists", id = new, owner = owner).into_owned(),
+        )));
     }
     let rotom = if scripts::is_adopted(project) {
         Some(scripts::base_constants(project, false)?)
@@ -536,12 +552,9 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
         .and_then(|db| db.get(new))
         .filter(|&v| i64::from(v) != i64::from(number))
     {
-        return Ok(Err(t!(
-            "textproject.id_known_to_rotom",
-            id = new,
-            theirs = theirs
-        )
-        .into_owned()));
+        return Ok(Err(KernelError::Refused(
+            t!("textproject.id_known_to_rotom", id = new, theirs = theirs).into_owned(),
+        )));
     }
     Ok(Ok(Judged {
         kind,
@@ -551,12 +564,13 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
     }))
 }
 
-/// The plan and the file changes of renaming `old` to `new`.
+/// The plan and the file changes of renaming `old` to `new`; with a refusal the plan's
+/// `refusal` is its sentence and the changes are the refusal as error.
 fn prepare(
     project: &Project,
     old: &str,
     new: &str,
-) -> Result<(RenamePlan, Vec<FileChange>), KernelError> {
+) -> Result<(RenamePlan, Result<Vec<FileChange>, KernelError>), KernelError> {
     let mut plan = RenamePlan {
         kind: kind_of(old),
         number: None,
@@ -569,9 +583,9 @@ fn prepare(
     };
     let judged = match judge(project, old, new)? {
         Ok(judged) => judged,
-        Err(why) => {
-            plan.refusal = Some(why);
-            return Ok((plan, Vec::new()));
+        Err(refusal) => {
+            plan.refusal = Some(refusal.to_string());
+            return Ok((plan, Err(refusal)));
         }
     };
     plan.number = Some(judged.number);
@@ -620,15 +634,14 @@ fn prepare(
                 count,
             )),
             Err(why) => {
-                plan.refusal = Some(
-                    t!(
-                        "textproject.rename_unreadable",
-                        file = slashed(&rel),
-                        why = why
-                    )
-                    .into_owned(),
-                );
-                return Ok((plan, Vec::new()));
+                let refusal = t!(
+                    "textproject.rename_unreadable",
+                    file = slashed(&rel),
+                    why = why
+                )
+                .into_owned();
+                plan.refusal = Some(refusal.clone());
+                return Ok((plan, Err(KernelError::Refused(refusal))));
             }
         }
     }
@@ -676,7 +689,7 @@ fn prepare(
     plan.id_files = scripts::is_adopted(project);
     Ok((
         plan,
-        changes.into_iter().map(|(change, _)| change).collect(),
+        Ok(changes.into_iter().map(|(change, _)| change).collect()),
     ))
 }
 

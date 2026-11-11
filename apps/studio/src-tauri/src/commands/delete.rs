@@ -208,6 +208,7 @@ fn delete_in_session(
     let refused = matches!(
         result,
         Err(KernelError::Refused(_)
+            | KernelError::Coded { .. }
             | KernelError::Referenced { .. }
             | KernelError::ReadOnly { .. })
     );

@@ -157,6 +157,38 @@ describe("in-page dialogs (browser mode)", () => {
     await click("Nein");
   });
 
+  it("ask_with_labels_shows_them_instead_of_nein_and_ja", async () => {
+    const answer = ask("Automatisch suchen?", { kind: "info", okLabel: "Ja, los", cancelLabel: "Lieber nicht" });
+    await act(async () => {});
+    const labels = [...dialog()!.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
+    expect(labels.slice(0, 2)).toEqual(["Lieber nicht", "Ja, los"]);
+    expect(labels).not.toContain("Nein");
+    expect(labels).not.toContain("Ja");
+    await click("Ja, los");
+    await expect(answer).resolves.toBe(true);
+    const second = ask("Nochmal?", { okLabel: "Ja, los", cancelLabel: "Lieber nicht" });
+    await act(async () => {});
+    await click("Lieber nicht");
+    await expect(second).resolves.toBe(false);
+  });
+
+  it("ask_with_one_label_replaces_only_that_button", async () => {
+    const answer = ask("Weiter?", { okLabel: "Installieren" });
+    await act(async () => {});
+    const labels = [...dialog()!.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
+    expect(labels.slice(0, 2)).toEqual(["Nein", "Installieren"]);
+    await click("Nein");
+    await expect(answer).resolves.toBe(false);
+  });
+
+  it("ask_with_a_title_names_the_dialog_by_it", async () => {
+    void ask("Gen4 Studio 1.0.2 installieren?", { title: "Gen4 Studio aktualisieren" });
+    await act(async () => {});
+    const el = dialog()!;
+    expect(document.getElementById(el.getAttribute("aria-labelledby")!)?.textContent).toBe("Gen4 Studio aktualisieren");
+    await click("Nein");
+  });
+
   it("path_dialog_is_named_by_its_title_and_has_a_field_named_pfad", async () => {
     const answer = openPath({ directory: false, title: "Emulator wählen" });
     await act(async () => {});
@@ -221,6 +253,12 @@ describe("dialogs inside Tauri", () => {
     vi.mocked(tauriAsk).mockResolvedValue(true);
     await expect(ask("Sicher?", { kind: "warning" })).resolves.toBe(true);
     expect(tauriAsk).toHaveBeenCalledWith("Sicher?", { kind: "warning" });
+  });
+
+  it("forwards the title and the labels of ask to the native dialog", async () => {
+    vi.mocked(tauriAsk).mockResolvedValue(false);
+    await expect(ask("Frage", { kind: "warning", title: "T", okLabel: "Ja, los", cancelLabel: "Lieber nicht" })).resolves.toBe(false);
+    expect(tauriAsk).toHaveBeenCalledWith("Frage", { kind: "warning", title: "T", okLabel: "Ja, los", cancelLabel: "Lieber nicht" });
   });
 
   it("forwards openPath with directory and title, and maps a cancelled pick to null", async () => {

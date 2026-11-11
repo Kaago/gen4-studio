@@ -77,12 +77,16 @@ export function formOf(request: StoryRecipeRequest): StoryRecipeForm {
   }
 }
 
-/** A reward's text until one is typed. */
-export const rewardText = (itemName: string): string => t("stories:storyRecipeModel.rewardText", { item: itemName });
+/**
+ * A reward's text until one is typed: the sentence of the ROM's language, not of the interface (the game says it, the item is named in the
+ * ROM's own words). `romLanguage` is `ProjectInfo.language` of the open project: "German" gives German, any other language (or none yet) English.
+ */
+export const rewardText = (itemName: string, romLanguage: string | null): string =>
+  t("stories:storyRecipeModel.rewardText", { item: itemName, lng: romLanguage === "German" ? "de" : "en" });
 
-/** The text a reward says: the typed one, else „Du erhältst {Gegenstand}!“ (empty without an item). */
-export function rewardSays(form: Extract<StoryRecipeForm, { recipe: "reward_once" }>): string {
-  return form.text ?? (form.itemName === null ? "" : rewardText(form.itemName));
+/** The text a reward says: the typed one, else „Du erhältst {Gegenstand}!“ in the ROM's language (empty without an item). */
+export function rewardSays(form: Extract<StoryRecipeForm, { recipe: "reward_once" }>, romLanguage: string | null): string {
+  return form.text ?? (form.itemName === null ? "" : rewardText(form.itemName, romLanguage));
 }
 
 /** The name of the step the recipe writes when none is typed: the kernel's words, with the place of a scene and the item of a reward. */
@@ -120,8 +124,11 @@ export function stepNameOf(form: StoryRecipeForm, names: StepNames): string {
   return typed === "" ? defaultStepName(form, names) : typed;
 }
 
-/** The recipe's input, with the Rust field names; null while something it needs is missing (nothing to plan or apply yet). */
-export function inputOf(form: StoryRecipeForm, names: StepNames): StepRecipeInput | null {
+/**
+ * The recipe's input, with the Rust field names; null while something it needs is missing (nothing to plan or apply yet). `romLanguage` is
+ * the language of the open project (`ProjectInfo.language`), for the text a reward says until one is typed.
+ */
+export function inputOf(form: StoryRecipeForm, names: StepNames, romLanguage: string | null): StepRecipeInput | null {
   const { story, step } = form;
   if (story === null || step === null) return null;
   const step_name = stepNameOf(form, names);
@@ -136,7 +143,7 @@ export function inputOf(form: StoryRecipeForm, names: StepNames): StepRecipeInpu
       if (form.header === null || form.text.trim() === "") return null;
       return { story, header: form.header, step, text: form.text, step_name };
     case "reward_once": {
-      const text = rewardSays(form);
+      const text = rewardSays(form, romLanguage);
       if (form.figure === null || form.item === null || form.flag === 0 || text.trim() === "") return null;
       return { story, figure: form.figure, from_step: step, item: form.item, text, flag: form.flag, step_name };
     }

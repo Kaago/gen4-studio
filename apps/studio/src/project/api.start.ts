@@ -11,7 +11,7 @@ import { inTauri, invoke } from "../platform/transport";
  * code "error"); its parent must exist.
  */
 
-/** How far a ROM is released for the editor. `locked` and `unknown` carry the reason, in German, ready to show. */
+/** How far a ROM is released for the editor. `locked` and `unknown` carry the reason, a sentence in the backend's language (`set_locale`), ready to show. */
 export type Support = { kind: "verified" } | { kind: "untested" } | { kind: "locked"; reason: string } | { kind: "unknown"; reason: string };
 
 export interface RomInfo {

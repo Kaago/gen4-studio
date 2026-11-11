@@ -220,11 +220,11 @@ mod tests {
         let state = AppState::default();
         assert_eq!(
             list_matrices_impl(&state).unwrap_err().message,
-            "no project open"
+            "No project is open."
         );
         assert_eq!(
             list_warps_impl(&state).unwrap_err().message,
-            "no project open"
+            "No project is open."
         );
     }
 

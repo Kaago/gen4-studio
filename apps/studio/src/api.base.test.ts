@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.hoisted(() => vi.fn());
-vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
+/** `tauri`: whether the page pretends to run inside the Tauri window. */
+const env = vi.hoisted(() => ({ tauri: true }));
+vi.mock("./platform/transport", () => ({ invoke, inTauri: () => env.tauri }));
 
-import { assignBase, baseStatus, checkBase, errorText, formatBytes, registerBaseRom } from "./api";
+import { assignBase, baseStatus, checkBase, errorText, formatBytes, registerBaseRom, setLocale } from "./api";
 
 describe("base ROM commands", () => {
   beforeEach(() => {
@@ -45,5 +47,36 @@ describe("base ROM commands", () => {
     expect(errorText({ code: "base_missing", message: "Diesem Projekt ist keine Basis-ROM zugeordnet.", asset: null, problems: [] })).toBe(
       "Diesem Projekt ist keine Basis-ROM zugeordnet.",
     );
+  });
+});
+
+describe("set_locale", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    invoke.mockResolvedValue(null);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    env.tauri = true;
+  });
+
+  it("inside Tauri tells the backend the language", async () => {
+    await setLocale("en");
+    expect(invoke).toHaveBeenCalledWith("set_locale", { lang: "en" });
+  });
+
+  it("in the browser during development tells the dev bridge, a separate process that would otherwise keep G4_LANG", async () => {
+    env.tauri = false;
+    vi.stubEnv("MODE", "development");
+    await setLocale("de");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith("set_locale", { lang: "de" });
+  });
+
+  it("in the browser outside development (the tests, a build without a backend) calls nothing", async () => {
+    env.tauri = false;
+    vi.stubEnv("MODE", "test");
+    await setLocale("de");
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

@@ -281,7 +281,9 @@ fn apply_template(path: &Path, template: WorldTemplate) -> Result<(), Failure> {
             let plan =
                 g4_kernel::templates::plan_empty_region(&mut Store::new(Arc::clone(&project)))?;
             if plan.already_empty {
-                return Err(KernelError::Refused("the world is already empty".into()).into());
+                return Err(
+                    KernelError::Refused(t!("templates.world_already_empty").into_owned()).into(),
+                );
             }
             if !g4_kernel::scripts::is_adopted(&project) {
                 let adopted = g4_kernel::scripts::adopt(&project, &mut |_| {})?;
@@ -2280,10 +2282,10 @@ fn git(command: GitCommand) -> Result<(), Failure> {
                 None => println!("not committed"),
                 Some(reason) => println!("not committed: {reason}"),
             }
-            // A Git subcommand failed: neither an existing repository nor a missing Git.
-            let expected = [g4_kernel::git::in_repo(), g4_kernel::git::not_installed()];
-            match &report.reason {
-                Some(reason) if !expected.contains(reason) => {
+            // A Git subcommand failed: neither an existing repository nor a missing Git. The
+            // code says which, whatever the language of the sentence.
+            match report.reason_code {
+                Some(g4_kernel::git::REASON_FAILED) => {
                     Err(Failure::Message("git init failed".into()))
                 }
                 _ => Ok(()),
@@ -2748,9 +2750,11 @@ fn story(command: StoryCommand) -> Result<(), Failure> {
         StoryCommand::Get { project, id } => {
             let project = Project::open(&project)?;
             let Some(number) = stories::number_of(&project, &id)? else {
-                return Err(
-                    KernelError::Refused(g4_kernel::textproject::ids::unknown_id_text(&id)).into(),
-                );
+                return Err(KernelError::coded(
+                    g4_kernel::error::codes::UNKNOWN_ID,
+                    g4_kernel::textproject::ids::unknown_id_text(&id),
+                )
+                .into());
             };
             let Some(story) = stories::read_story(&project, number)? else {
                 return Err(Failure::Message(

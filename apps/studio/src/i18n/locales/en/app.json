@@ -15,7 +15,14 @@
     "densityCompact": "Compact",
     "densityHint": "Compact: rows 24 instead of 32 px high",
     "emulator": "Emulator",
-    "keys": "Keyboard shortcuts"
+    "keys": "Keyboard shortcuts",
+    "updates": "Updates",
+    "updatesAuto": "Check for updates automatically",
+    "updatesHint": "At most once a day at startup, on GitHub. Nothing about your projects is sent.",
+    "updatesCheckNow": "Check now",
+    "updatesVersion": "Version {{version}}",
+    "updatesLastChecked": "Last checked {{when}}",
+    "updatesNeverChecked": "Not checked yet"
   },
   "agents": {
     "title": "Agents",
@@ -51,6 +58,28 @@
     "confirmText": "“{{client}}” wants to: {{what}} (cannot be undone).",
     "somethingIrreversible": "something irreversible",
     "allow": "Allow"
+  },
+  "updates": {
+    "consentTitle": "Updates",
+    "consent": "Should Gen4 Studio look for a new version on GitHub when it starts (at most once a day)? Nothing about your projects is sent. You can change this in Settings.",
+    "consentYes": "Check automatically",
+    "consentNo": "Don't check",
+    "available": "Gen4 Studio {{version}} is available.",
+    "install": "Install…",
+    "skip": "Skip this version",
+    "confirmTitle": "Update Gen4 Studio",
+    "confirm": "Install Gen4 Studio {{version}} and restart? (Installed: {{current}})",
+    "unsavedWarning": "Unsaved changes will be lost.",
+    "notesHeading": "What's new:",
+    "installAndRestart": "Install and restart",
+    "cancel": "Cancel",
+    "downloading": "Downloading update… {{percent}}%",
+    "downloadingBytes": "Downloading update… {{size}}",
+    "installing": "Installing update…",
+    "upToDate": "Gen4 Studio {{version}} is up to date.",
+    "checkFailed": "Could not check for updates: {{reason}}",
+    "downloadFailed": "The update could not be downloaded: {{reason}}",
+    "installFailed": "The update could not be installed: {{reason}}"
   },
   "gameLabel": {
     "dp": "Diamond/Pearl",

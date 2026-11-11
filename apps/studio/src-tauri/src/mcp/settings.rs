@@ -81,7 +81,7 @@ impl ProjectKey {
         let path = canonical
             .to_str()
             .ok_or_else(|| {
-                t!("mcp.settings.path_not_text", path = canonical.display()).into_owned()
+                t!("commands.common.path_not_text", path = canonical.display()).into_owned()
             })?
             .to_owned();
         let base_id =
@@ -104,7 +104,7 @@ impl AgentSettings {
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| {
             t!(
-                "mcp.settings.folder_not_created",
+                "commands.policy.folder_not_created",
                 path = dir.display(),
                 error = e
             )
@@ -171,7 +171,7 @@ impl AgentSettings {
 pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let name = path
         .file_name()
-        .ok_or_else(|| t!("mcp.settings.no_file_name", path = path.display()).into_owned())?;
+        .ok_or_else(|| t!("commands.policy.no_file_name", path = path.display()).into_owned())?;
     let mut temp_name = std::ffi::OsString::from(".");
     temp_name.push(name);
     temp_name.push(format!(".{}.tmp", std::process::id()));

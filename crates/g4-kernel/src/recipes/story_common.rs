@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::types::{RecipeId, check_header_id, refused};
 use crate::data::refs::TRAINER_SCRIPTS;
 use crate::dialog::highest_message;
-use crate::error::KernelError;
+use crate::error::{KernelError, codes};
 use crate::flags::{Area, FlagKind, TakenBy, area_of, in_save, own_names, taken_text};
 use crate::project::Project;
 use crate::scripts::{self, FIRST_COMMON_SCRIPT};
@@ -42,14 +42,19 @@ pub(crate) fn made(recipe: RecipeId) -> Made {
     }
 }
 
+/// The refusal outside a text project ([`not_a_text_project`], code `not_text_project`).
+fn not_text_project() -> KernelError {
+    KernelError::coded(codes::NOT_TEXT_PROJECT, not_a_text_project())
+}
+
 /// Refuses a project that is not editable or no text project of the current schema (stories
 /// and own names live in the text project).
 pub(crate) fn text_project(project: &Project) -> Result<(), KernelError> {
     project.editable()?;
     match schema_state(&project.root)? {
         SchemaState::Current => Ok(()),
-        SchemaState::Missing => Err(refused(not_a_text_project())),
-        state => Err(refused(refusal(state).unwrap_or_else(not_a_text_project))),
+        SchemaState::Missing => Err(not_text_project()),
+        state => Err(refusal(state).map_or_else(not_text_project, refused)),
     }
 }
 
@@ -70,7 +75,7 @@ pub(crate) fn load_story(store: &mut Store, id: &str) -> Result<LoadedStory, Ker
     let project = store.project_arc();
     text_project(&project)?;
     let Some(number) = number_of(&project, id)? else {
-        return Err(refused(unknown_id_text(id)));
+        return Err(KernelError::coded(codes::UNKNOWN_ID, unknown_id_text(id)));
     };
     let Some(story) = read_story(&project, number)? else {
         return Err(refused(t!(
@@ -290,10 +295,10 @@ pub(crate) fn check_pool_number(
         )));
     }
     if let Some(own) = own_names(project, kind)?.get(&n) {
-        return Err(refused(taken_text(
-            &own.id,
-            TakenBy::Register(u32::from(n)),
-        )));
+        return Err(KernelError::coded(
+            codes::TAKEN,
+            taken_text(&own.id, TakenBy::Register(u32::from(n))),
+        ));
     }
     Ok(())
 }

@@ -36,7 +36,10 @@ use crate::state::Session;
 /// outside, a conflict or a broken file), `"conflicts"`
 /// (`build_rom` of a text project with an open conflict; nothing was saved or built) and
 /// `"unknown_id"` (MCP: a symbolic id in the arguments nothing knows), `"busy"` (a write
-/// while the project is set up as text project; nothing was changed), Git's (4.4)
+/// while the project is set up as text project; nothing was changed), `"reopen"`
+/// (`adopt_text_project`, `revert_text_project`, `migrate_text_project`: the files were
+/// written but the open session was changed meanwhile and stays as it is; the project must
+/// be opened anew, nothing is lost), Git's (4.4)
 /// `"no_repo"` and `"no_commit"` (`diff_entity` against the last commit: no repository holds
 /// the project, or it has no commit yet), `"not_diffable"` (`diff_entity`: a project file
 /// against the base ROM, a script against the saved state, a path or member folder outside
@@ -50,6 +53,9 @@ use crate::state::Session;
 /// `problems` is `[]` unless `code` is `"compile"` or `"text_conflict"`; `references` is
 /// left out unless `code` is `"referenced"` and the command knew the session to name them
 /// ([`CmdError::in_session`]).
+/// A command picks a refusal's code by the kernel's code ([`KernelError::code`]), never by its
+/// words, which are in the language of the moment; a coded refusal no command classifies is an
+/// `"error"` like any other (see `From<KernelError>`).
 #[derive(Debug, Clone, Serialize)]
 pub struct CmdError {
     pub code: &'static str,
@@ -60,6 +66,10 @@ pub struct CmdError {
     pub references: Vec<RefDto>,
 }
 
+/// A kernel error with its code: `"compile"`, `"text_conflict"`, `"stale"`, `"read_only"`,
+/// `"tool_missing"`, `"finding_stale"`, `"busy"`, `"partial"`, `"referenced"`, else `"error"`.
+/// A [`KernelError::Coded`] is `"error"` with its message like a [`KernelError::Refused`]:
+/// codes surface only where a command classifies them by [`KernelError::code`].
 impl From<KernelError> for CmdError {
     fn from(e: KernelError) -> Self {
         if let KernelError::Compile(problems) = &e {
@@ -113,6 +123,10 @@ impl From<KernelError> for CmdError {
             KernelError::Partial(_) => ("partial", None),
             // The reference lock of 3d.4; `in_session` adds the references.
             KernelError::Referenced { .. } => ("referenced", None),
+            // A coded refusal is a refusal like any other here: its code surfaces only where
+            // a command classifies it (`KernelError::code`), so the codes the app and MCP see
+            // stay the commands' own.
+            KernelError::Refused(_) | KernelError::Coded { .. } => ("error", None),
             _ => ("error", None),
         };
         CmdError {
@@ -314,6 +328,14 @@ mod tests {
         });
         assert_eq!(timeout.code, "error");
         assert_eq!(timeout.message, "apicula did not finish within 60 s");
+    }
+
+    #[test]
+    fn a_coded_kernel_error_is_a_plain_error_unless_a_command_classifies_it() {
+        let err = CmdError::from(KernelError::coded("not_adopted", "Satz"));
+        assert_eq!((err.code, err.message.as_str()), ("error", "Satz"));
+        assert!(err.asset.is_none());
+        assert!(err.problems.is_empty());
     }
 
     #[test]

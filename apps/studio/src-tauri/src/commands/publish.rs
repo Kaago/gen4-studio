@@ -13,10 +13,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use g4_kernel::base::{BaseRom, Located};
-use g4_kernel::error::KernelError;
+use g4_kernel::error::{KernelError, codes};
 use g4_kernel::patch::{
     self, PublishOptions, PublishPhase, PublishProgress, PublishReport, PublishTargets, Release,
-    bad_file, bad_version, exists, no_changes, not_a_folder, releases_broken, version_taken,
 };
 use g4_kernel::project::Project;
 use g4_kernel::start::BaseMark;
@@ -89,36 +88,33 @@ impl PublishArgs {
     }
 }
 
-/// The kernel's refusals of a release with a code of their own: `releases_broken`
-/// ([`releases_broken`] with path and reason), `bad_version` ([`bad_version`]),
-/// `version_taken` ([`version_taken`]), `bad_file` ([`bad_file`]), `bad_dir` (the place is a
-/// file or lies below one, [`not_a_folder`] with the path), `exists` (`<Datei> ` + [`exists`])
-/// and `no_changes` ([`no_changes`]); `base_missing` for the kernel's [`patch::no_mark`]. Any
-/// other error as it is (the failed self-check is an `error` with its sentence).
+/// The kernel's refusals of a release with a code of their own, by the kernel's code:
+/// `releases_broken` ([`patch::releases_broken`] with path and reason), `bad_version`
+/// ([`patch::bad_version`]), `version_taken` ([`patch::version_taken`]), `bad_file`
+/// ([`patch::bad_file`]), `bad_dir` (the place is a file or lies below one,
+/// [`patch::not_a_folder`] with the path), `exists` (`<Datei> ` + [`patch::exists`]) and
+/// `no_changes` ([`patch::no_changes`]); `base_missing` for the kernel's [`patch::no_mark`]
+/// (code `no_mark`). Any other error as it is (the failed self-check is an `error` with its
+/// sentence).
 fn publish_error(e: KernelError) -> CmdError {
-    let KernelError::Refused(why) = &e else {
-        return e.into();
-    };
-    let code = if why.starts_with(&releases_broken()) {
-        "releases_broken"
-    } else if *why == bad_version() {
-        "bad_version"
-    } else if *why == version_taken() {
-        "version_taken"
-    } else if *why == bad_file() {
-        "bad_file"
-    } else if why.starts_with(&not_a_folder()) {
-        "bad_dir"
-    } else if why.ends_with(&exists()) {
-        "exists"
-    } else if *why == no_changes() {
-        "no_changes"
-    } else if *why == patch::no_mark() {
-        return base_missing(why.clone());
-    } else {
-        return e.into();
-    };
-    CmdError::refused(code, why.clone())
+    match e {
+        KernelError::Coded {
+            code:
+                code @ (codes::RELEASES_BROKEN
+                | codes::BAD_VERSION
+                | codes::VERSION_TAKEN
+                | codes::BAD_FILE
+                | codes::BAD_DIR
+                | codes::EXISTS
+                | codes::NO_CHANGES),
+            message,
+        } => CmdError::refused(code, message),
+        KernelError::Coded {
+            code: codes::NO_MARK,
+            message,
+        } => base_missing(message),
+        other => other.into(),
+    }
 }
 
 /// The releases list of the open project with the proposal for the next version; a broken or
@@ -188,8 +184,7 @@ fn checked(
     };
     // `patch::check_publish`, with the policy before the place is looked at.
     let releases = patch::read_releases(&project.root).map_err(publish_error)?;
-    patch::check_version(&opts.version, &releases)
-        .map_err(|why| publish_error(KernelError::Refused(why)))?;
+    patch::check_version(&opts.version, &releases).map_err(publish_error)?;
     let targets = patch::targets_for(&project, opts).map_err(publish_error)?;
     if let Some(policy) = policy {
         place(policy, &targets, |policy, path| policy.check_target(path))?;
@@ -449,8 +444,40 @@ mod tests {
         DataKind, DataPatch, assign_base_impl, data_edit_impl, open_project_impl, save_impl,
         set_matrix_cell_impl,
     };
-    use g4_kernel::patch::{FIRST_VERSION, PublishedKind, RELEASES_FILE};
+    use g4_kernel::patch::{
+        FIRST_VERSION, PublishedKind, RELEASES_FILE, bad_file, bad_version, exists, no_changes,
+        releases_broken, version_taken,
+    };
     use g4_kernel::test_support::{copy_dir, synthetic_project, synthetic_rom};
+
+    /// A sentence no catalog holds: the code of a refusal comes from the kernel's code alone.
+    const FOREIGN: &str = "Ein deutscher Satz, den kein Katalog kennt";
+
+    #[test]
+    fn publish_error_reads_the_kernels_code_not_its_words() {
+        for (code, expected) in [
+            ("releases_broken", "releases_broken"),
+            ("bad_version", "bad_version"),
+            ("version_taken", "version_taken"),
+            ("bad_file", "bad_file"),
+            ("bad_dir", "bad_dir"),
+            ("exists", "exists"),
+            ("no_changes", "no_changes"),
+            // The kernel's missing base mark is the app's missing base ROM.
+            ("no_mark", "base_missing"),
+            // A code this command does not answer is a plain error, as a refusal is.
+            ("no_repo", "error"),
+        ] {
+            let err = publish_error(KernelError::coded(code, FOREIGN));
+            assert_eq!(
+                (err.code, err.message.as_str()),
+                (expected, FOREIGN),
+                "{code}"
+            );
+        }
+        let err = publish_error(KernelError::Refused(FOREIGN.to_owned()));
+        assert_eq!((err.code, err.message.as_str()), ("error", FOREIGN));
+    }
 
     /// `<tmp>/X_DSPRE_contents` (a copy of the synthetic project) and `<tmp>/X.nds` (the
     /// synthetic ROM) beside it, the project open in a fresh state.

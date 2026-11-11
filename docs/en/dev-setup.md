@@ -82,12 +82,12 @@ Build (once; `tools/` is excluded by `.gitignore`):
 ```sh
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 CFLAGS="-D_POSIX_C_SOURCE=200809L" \
-  cargo install --git https://github.com/KalaayPT/rotom --tag v0.7.0 rotom-lsp --root tools/rotom
+  cargo install --git https://github.com/KalaayPT/rotom --tag v0.7.0 --locked rotom-lsp --root tools/rotom
 ```
 
 - `CFLAGS` is needed on macOS SDKs from 15.4: otherwise nitroarc's `strchrnul` collides with the SDK declaration (the same value is in
   `.cargo/config.toml`; `cargo install` did not pick it up from there).
-- **Network while building:** on **every clean build** (also of `g4-kernel`, which includes rotom as a library), rotom's `build.rs` downloads `db-latest.zip` from the network, and the first time `cargo` also downloads the Git dependency. At run time Studio needs no network: it always uses the bundled command database in `crates/g4-kernel/metadata/scrcmd/` (revision 33, origin in `SOURCE.md` there), never a downloaded one and never `rotom init`. The warning "stripping debug info with `rust-objcopy` failed" is harmless.
+- **Network while building:** on **every clean build** (also of `g4-kernel`, which includes rotom as a library), rotom's `build.rs` downloads `db-latest.zip` from the network, and the first time `cargo` also downloads the Git dependency. At run time Studio needs no network (exception: the update check against GitHub, only in the packaged app, not under `pnpm tauri dev` and not in browser mode; at startup only after the user agrees, otherwise on demand, see the README and `docs/en/release.md`): it always uses the bundled command database in `crates/g4-kernel/metadata/scrcmd/` (revision 33, origin in `SOURCE.md` there), never a downloaded one and never `rotom init`. The warning "stripping debug info with `rust-objcopy` failed" is harmless.
 - The binary needs `libnitroarc_ffi.dylib` (LGPL, dynamically linked, as already with uxie in the app) and has **no rpath**. For
   development, put the dylib next to it and set an rpath (`cargo build --release -p studio` produces it in `target/release/`):
 

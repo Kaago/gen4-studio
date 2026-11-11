@@ -40,6 +40,10 @@ describe("FramePage", () => {
     // The button's text carries its shortcut after the label.
     act(() => [...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Palette öffnen"))!.click());
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    // The demo entries carry the palette's group ids; the heading is the catalog's word for the commands.
+    const groups = [...document.querySelectorAll('[role="dialog"] [role="group"]')].map((g) => g.textContent ?? "");
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toContain("Befehle");
   });
 
   it("shows_the_hinge_above_the_dock_and_the_floating_toolbar", () => {

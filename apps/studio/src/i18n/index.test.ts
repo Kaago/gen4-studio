@@ -11,6 +11,7 @@ import {
   matchesAnyLanguage,
   readLanguage,
   resolveSystemLanguage,
+  SET_LOCALE_TIMEOUT_MS,
   startLanguage,
   SYSTEM_LANGUAGE_TIMEOUT_MS,
 } from "./index";
@@ -117,7 +118,7 @@ describe("effectiveLanguage", () => {
 });
 
 describe("init", () => {
-  it("is idempotent: a second call does not initialise again", () => {
+  it("is idempotent: a second call does not initialize again", () => {
     expect(i18next.isInitialized).toBe(true);
     expect(i18next.language).toBe("de");
     init("en");
@@ -146,20 +147,79 @@ describe("applyLanguage", () => {
     expect(setLocaleMock).toHaveBeenCalledWith("de");
   });
 
-  it("is pending until the backend has answered", async () => {
+  it("tells the backend before i18next switches: set_locale sees the old language", async () => {
+    let shownWhenTold: string | undefined;
+    setLocaleMock.mockImplementation(async () => {
+      shownWhenTold = i18next.language;
+    });
+
+    await applyLanguage("en");
+
+    expect(setLocaleMock).toHaveBeenCalledWith("en");
+    expect(shownWhenTold).toBe("de");
+    expect(i18next.language).toBe("en");
+  });
+
+  it("is pending until the backend has answered, and shows nothing new before", async () => {
     const backend = deferred();
     setLocaleMock.mockReturnValue(backend.promise);
 
     const applied = track(applyLanguage("en"));
-    // Everything before the backend call has happened (it is the call that is awaited), the promise is still open.
     await vi.waitFor(() => expect(setLocaleMock).toHaveBeenCalledWith("en"));
     await settle();
-    expect(document.documentElement.lang).toBe("en");
+    // The choice is remembered at once; the language shown waits for the backend, so no text is built in a language it does not speak yet.
+    expect(localStorage.getItem(LANGUAGE_KEY)).toBe("en");
+    expect(i18next.language).toBe("de");
+    expect(document.documentElement.lang).not.toBe("en");
     expect(applied.state()).toBe("pending");
 
     backend.resolve();
     await settle();
     expect(applied.state()).toBe("fulfilled");
+    expect(i18next.language).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  it("waits at most SET_LOCALE_TIMEOUT_MS for the backend, then switches anyway and warns once", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(SET_LOCALE_TIMEOUT_MS).toBe(3000);
+      // The backend never answers.
+      setLocaleMock.mockReturnValue(new Promise<void>(() => {}));
+      const applied = track(applyLanguage("en"));
+      await vi.advanceTimersByTimeAsync(SET_LOCALE_TIMEOUT_MS - 1);
+      expect(applied.state()).toBe("pending");
+      expect(i18next.language).toBe("de");
+      expect(warn).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(applied.state()).toBe("fulfilled");
+      expect(i18next.language).toBe("en");
+      expect(document.documentElement.lang).toBe("en");
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets the latest choice win when an earlier one is still waiting for the backend", async () => {
+    const first = deferred();
+    setLocaleMock.mockReturnValueOnce(first.promise);
+
+    const early = track(applyLanguage("en"));
+    await vi.waitFor(() => expect(setLocaleMock).toHaveBeenCalledTimes(1));
+    // German was the language shown; the second choice is answered at once.
+    await applyLanguage("de");
+    expect(localStorage.getItem(LANGUAGE_KEY)).toBe("de");
+
+    // The first backend answers late: it must not switch the app back to English.
+    first.resolve();
+    await settle();
+    expect(early.state()).toBe("fulfilled");
+    expect(i18next.language).toBe("de");
+    expect(document.documentElement.lang).toBe("de");
   });
 
   it("still resolves when the backend refuses the locale", async () => {

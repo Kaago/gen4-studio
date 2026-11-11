@@ -305,6 +305,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("set_locale", APP_ONLY),
     // The OS language for "System" in Settings › Language: the app's webview asks, no agent.
     ("system_language", APP_ONLY),
+    // Updating the app is the user's, never an agent's.
+    ("update_check", APP_ONLY),
+    ("update_download", APP_ONLY),
+    ("update_install", APP_ONLY),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -426,13 +430,16 @@ pub fn frees_number(args: &Value) -> bool {
         .any(|key| args.get(key) == Some(&Value::Bool(true)))
 }
 
-/// Whether [`classify`]'s answer `class` for `command` depends on the project, so that
-/// [`classify_in`] answers it exactly: `recipe_apply` of a visibility or a scene, which
-/// [`classify`] holds irreversible ([`recipes::level_script_file`]) without knowing whether
-/// the place needs a level script file of its own.
-pub fn needs_store(command: &str, class: &Class) -> bool {
+/// Whether [`classify`]'s answer `class` for `command` with `args` depends on the project, so
+/// that [`classify_in`] answers it exactly: `recipe_apply` of a visibility or a scene (the
+/// recipe says so, [`recipes::creates_level_script`]), which [`classify`] holds irreversible
+/// without knowing whether the place needs a level script file of its own. The recipe decides,
+/// not the words of the reason, which are in the language of the moment.
+pub fn needs_store(command: &str, args: &Value, class: &Class) -> bool {
     command == "recipe_apply"
-        && matches!(class, Class::Irreversible(why) if *why == recipes::level_script_file())
+        && matches!(class, Class::Irreversible(_))
+        && serde_json::from_value::<RecipeCall>(args.clone())
+            .is_ok_and(|call| recipes::creates_level_script(call.recipe))
 }
 
 /// [`classify`] with the project's store at hand: where the answer depends on the project
@@ -445,7 +452,7 @@ pub fn needs_store(command: &str, class: &Class) -> bool {
 /// [`classify`].
 pub fn classify_in(command: &str, args: &Value, policy: &UserPolicy, store: &mut Store) -> Class {
     let class = classify(command, args, policy);
-    if !needs_store(command, &class) {
+    if !needs_store(command, args, &class) {
         return class;
     }
     let Ok(call) = serde_json::from_value::<RecipeCall>(args.clone()) else {
@@ -642,6 +649,9 @@ mod tests {
                 ),
                 ("set_locale", Kind::Unavailable("mcp.access.app_only")),
                 ("system_language", Kind::Unavailable("mcp.access.app_only")),
+                ("update_check", Kind::Unavailable("mcp.access.app_only")),
+                ("update_download", Kind::Unavailable("mcp.access.app_only")),
+                ("update_install", Kind::Unavailable("mcp.access.app_only")),
             ]
         );
         let mut depends: Vec<&str> = of(|k| *k == Kind::Depends)
@@ -965,13 +975,24 @@ mod tests {
         let bare = |args: &Value| classify("recipe_apply", args, &policy);
         for args in [&new_story, &talk, &reward] {
             assert_eq!(bare(args), Class::Write, "{args}");
-            assert!(!needs_store("recipe_apply", &bare(args)), "{args}");
+            assert!(!needs_store("recipe_apply", args, &bare(args)), "{args}");
         }
         for args in [&appears, &scene(0)] {
             assert_eq!(bare(args), level, "{args}");
-            assert!(needs_store("recipe_apply", &bare(args)), "{args}");
+            assert!(needs_store("recipe_apply", args, &bare(args)), "{args}");
         }
-        assert!(!needs_store("recipe_plan", &level));
+        assert!(!needs_store("recipe_plan", &appears, &level));
+        // An irreversible recipe that creates no level script file needs no store either.
+        let empty = json!({ "recipe": "empty_region" });
+        assert!(matches!(bare(&empty), Class::Irreversible(_)));
+        assert!(!needs_store("recipe_apply", &empty, &bare(&empty)));
+        // Input the recipe cannot read stays a write: nothing to decide with the store.
+        let unreadable = call("figure_appears", json!({ "story": story }));
+        assert!(!needs_store(
+            "recipe_apply",
+            &unreadable,
+            &bare(&unreadable)
+        ));
         for args in [
             call("figure_appears", json!({ "story": story })),
             call("scene_on_enter", json!({ "header": 0 })),

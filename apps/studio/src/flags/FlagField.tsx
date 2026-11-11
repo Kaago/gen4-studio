@@ -4,6 +4,7 @@ import type { FlagKind, ProjectInfo } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { Button, InspectorRow, NumberField, Reference } from "../ui/primitives";
+import { inSentence } from "../workbench/terms";
 import { FlagPicker } from "./FlagPicker";
 import { displayName, hex4, noneText } from "./flagWords";
 import { useFlagList } from "./useFlagList";
@@ -54,7 +55,7 @@ export function FlagField({ kind, label, value, onCommit, disabled, depth, proje
           disabled={disabled}
           dataAttrs={{ "data-flag-field": field ?? kind }}
         />
-        <Button kind="quiet" size="s" aria-label={t("flagField.chooseLabel", { label })} disabled={disabled} onClick={() => setPicking(true)}>
+        <Button kind="quiet" size="s" aria-label={t("flagField.chooseLabel", { label: inSentence(label) })} disabled={disabled} onClick={() => setPicking(true)}>
           {t("flagField.choose")}
         </Button>
       </div>

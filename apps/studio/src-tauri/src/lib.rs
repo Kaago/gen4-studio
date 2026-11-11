@@ -33,6 +33,7 @@ use commands::set_locale;
 use commands::split_room;
 use commands::story_delete;
 use commands::system_language;
+use commands::{UpdateState, update_check, update_download, update_install};
 use commands::{
     accept_baseline, accept_disk, add_building, add_event, add_script, adopt_scripts, apply_fix,
     apply_header_patch, build_rom, checks_status, create_area, create_encounter_file,
@@ -100,7 +101,11 @@ use mcp::http::AppServer;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // The updater: `update_check` and `update_install` (commands::update) are the only way
+        // the webview reaches it.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
+        .manage(UpdateState::default())
         .menu(menu::app_menu)
         .setup(|app| {
             setup_agents(app.handle());
@@ -110,6 +115,9 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id().as_ref() == menu::QUIT_ID {
                 request_quit(app);
+            } else if event.id().as_ref() == menu::CHECK_UPDATES_ID {
+                // A failed emit only means the webview misses the click.
+                let _ = app.emit("menu-check-updates", ());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -318,7 +326,10 @@ pub fn run() {
             world_import_tmj,
             world_layers,
             set_locale,
-            system_language
+            system_language,
+            update_check,
+            update_download,
+            update_install
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -332,18 +343,25 @@ pub fn run() {
                 // The exit goes ahead (also the one after `force_quit`): end rotom-lsp. `Exit`
                 // covers an exit that skipped the request.
                 RunEvent::ExitRequested { .. } => lsp::stop_on_exit(app),
-                RunEvent::Exit => {
-                    lsp::stop_on_exit(app);
-                    // Detach from melonDS's stub, end our melonDS, stop the worker.
-                    live_hub::stop_on_exit(app);
-                    // The MCP server stops and its discovery file goes; the switch stays on.
-                    if let Some(server) = app.try_state::<Arc<AppServer>>() {
-                        server.shutdown();
-                    }
-                }
+                RunEvent::Exit => shutdown_helpers(app),
                 _ => {}
             }
         });
+}
+
+/// Takes down what the app started and what would outlive it: rotom-lsp, melonDS and the
+/// worker, and the MCP server with its discovery file (`mcp.json` would keep a dead port and
+/// token). The one place for it: the exit event calls it, and so does the hook of the Windows
+/// installer (`commands::update`), which ends the app inside the updater plugin, before any
+/// exit event.
+pub(crate) fn shutdown_helpers(app: &tauri::AppHandle) {
+    lsp::stop_on_exit(app);
+    // Detach from melonDS's stub, end our melonDS, stop the worker.
+    live_hub::stop_on_exit(app);
+    // The MCP server stops and its discovery file goes; the switch stays on.
+    if let Some(server) = app.try_state::<Arc<AppServer>>() {
+        server.shutdown();
+    }
 }
 
 /// The agent hub of the app: settings in the app data folder (`G4_APP_DATA_DIR` first),
@@ -394,10 +412,7 @@ fn request_quit(app: &tauri::AppHandle) {
 /// poisoned is recovered, so its unsaved edits still count.
 fn exit_request_needs_confirmation(app: &tauri::AppHandle) -> bool {
     let state = app.state::<AppState>();
-    let dirty = state
-        .lock_session()
-        .as_ref()
-        .map_or(0, |session| session.store.dirty().len());
+    let dirty = state.unsaved_count();
     let window_open = !app.webview_windows().is_empty();
     quit_action(window_open, dirty, state.force_quit.load(Ordering::SeqCst)) == QuitAction::Confirm
 }

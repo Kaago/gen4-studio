@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import { afterEach, describe, expect, it } from "vitest";
 import { commitReportOf, gitStatusOf, initReportOf } from "./gitTesting";
-import { changedFilesText, changesWord, commitDoneText, initDoneText, isNotInstalled, noGitForCommit, notInstalledText, statusText, statusTooltip } from "./gitWords";
+import { changedFilesText, changesWord, commitDoneText, initDoneText, isNotInstalled, noGitForCommit, statusText, statusTooltip } from "./gitWords";
 
 afterEach(() => i18next.changeLanguage("de"));
 
@@ -27,13 +27,13 @@ describe("gitWords in English", () => {
     expect(noGitForCommit()).toBe("Git is not installed.");
   });
 
-  it("recognizes_the_kernel_sentence_in_either_language", async () => {
-    // The kernel says `NOT_INSTALLED` in German: the dialog and the wizard must still tell „only the templates“ while the app speaks English.
-    const german = notInstalledText();
-    await i18next.changeLanguage("en");
-    expect(isNotInstalled(german)).toBe(true);
-    expect(isNotInstalled(notInstalledText())).toBe(true);
-    expect(isNotInstalled("fatal: not a git repository")).toBe(false);
-    expect(isNotInstalled(null)).toBe(false);
+  it("tells_a_missing_git_by_its_code_in_either_language", async () => {
+    // The kernel words its reason in the language it was set to, which may differ from the one shown: the code is the same in both.
+    for (const lng of ["de", "en"]) {
+      await i18next.changeLanguage(lng);
+      expect(isNotInstalled({ reason_code: "not_installed" })).toBe(true);
+      expect(isNotInstalled({ reason_code: "failed" })).toBe(false);
+      expect(isNotInstalled({ reason_code: null })).toBe(false);
+    }
   });
 });

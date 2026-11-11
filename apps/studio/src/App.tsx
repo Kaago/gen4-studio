@@ -30,6 +30,7 @@ import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { SettingsArea } from "./einstellungen/SettingsArea";
+import { useUpdates } from "./update/useUpdates";
 import { applyLanguage, effectiveLanguage, readLanguage, t } from "./i18n";
 import type { Language } from "./i18n";
 import { TechnikArea } from "./technik/TechnikArea";
@@ -767,6 +768,8 @@ function AppBody() {
     if (rom !== null && play) await playRom(rom);
   });
   useWindowGuards(unsavedRef, session.setMessage);
+  // The updater (packaged app only): the question, the daily check, the offer and the install; the Settings show its column.
+  const updates = useUpdates(unsavedRef);
   // The tool of the scene. Switching to painting shows the terrain layer (painting hidden tiles would be blind).
   const onTool = useStableCallback((next: Tool) => {
     shell.setTool(next);
@@ -1243,6 +1246,27 @@ function AppBody() {
     }
   }, [activeScript]);
 
+  // The language shown changed. The backend knows the new one by now (`applyLanguage` tells it before i18next switches), but what it built
+  // in the old one is cached here, above the workbench that remounts. It is read again, each part on the path a bus event takes already:
+  // the overviews (matrix and warp listings), the data lists that were asked for, the checks (they replace the findings of the problems list),
+  // the project's state as a text project, the Git status and the base ROM's state for „Auf Original zurücksetzen“ (its reason is a sentence of
+  // the backend). Not on the first render, and not for a choice that keeps the language.
+  const languageRead = useRef(shownLanguage);
+  const readAgainInLanguage = useStableCallback(() => {
+    if (session.info === null) return;
+    void overview.refresh();
+    dataStore.reload();
+    void checks.recheck();
+    rereadTextStatus();
+    void git.refresh();
+    void original.refresh();
+  });
+  useEffect(() => {
+    if (languageRead.current === shownLanguage) return;
+    languageRead.current = shownLanguage;
+    readAgainInLanguage();
+  }, [shownLanguage, readAgainInLanguage]);
+
   // The breadcrumb of the hinge: place, header, selection. Each crumb is a link (`data.goTo` keeps its identity).
   // The memos below that make text are made again in a new language (`shownLanguage`): the words of places, crumbs and palette entries are read when they are built.
   const places = useMemo(() => buildPlaces(scene.headers, overview.matrices, overview.links), [scene.headers, overview.matrices, overview.links, shownLanguage]);
@@ -1614,6 +1638,11 @@ function AppBody() {
         focusLanguage={languageSwitched.current}
         onPickEmulator={() => void session.onPickEmulator()}
         agents={{ projectOpen: session.info !== null, bridge: !inTauri(), status: agents.status, onError: session.fail }}
+        updates={
+          updates.enabled
+            ? { version: updates.version, auto: updates.prefs.consent === "auto", lastCheck: updates.prefs.lastCheck, checking: updates.checking, onAuto: updates.setAuto, onCheckNow: updates.checkNow }
+            : undefined
+        }
       />
     ) : (
       <EmptyState what={t("common:appBody.notYetWhat")} why={t("common:appBody.notYetWhy")} />

@@ -35,7 +35,7 @@ use g4_formats::narc::Narc;
 use serde_json::Value;
 
 use crate::delete::DeleteTarget;
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, codes, io_at};
 use crate::git::GitRepo;
 use crate::original::Original;
 use crate::project::{AssetId, AssetKind, Project, SourceMode};
@@ -198,8 +198,8 @@ impl<'a> Sides<'a> {
                 let member = narc.and_then(|narc| narc.members.into_iter().nth(usize::from(index)));
                 Ok(bytes_or(member, Side::Absent))
             }
-            Kind::File(_) => Err(KernelError::Refused(no_base_for_files())),
-            Kind::JsonFile(_) => Err(KernelError::Refused(no_base_for_files())),
+            Kind::File(_) => Err(KernelError::coded(codes::NOT_DIFFABLE, no_base_for_files())),
+            Kind::JsonFile(_) => Err(KernelError::coded(codes::NOT_DIFFABLE, no_base_for_files())),
         }
     }
 
@@ -413,7 +413,10 @@ impl<'a> Sides<'a> {
                     self.messages(Some(current), None)?,
                 ))
             }
-            Kind::Script(_) => Err(KernelError::Refused(scripts_have_no_unsaved())),
+            Kind::Script(_) => Err(KernelError::coded(
+                codes::NOT_DIFFABLE,
+                scripts_have_no_unsaved(),
+            )),
             Kind::Binary(..) | Kind::Member(..) | Kind::File(_) => both_disk(),
             Kind::JsonFile(_) => both_disk(),
         }
@@ -869,7 +872,7 @@ fn json_file_side(rel: &Path, bytes: Option<Vec<u8>>) -> Side {
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
     match std::fs::metadata(path) {
         Ok(meta) if meta.is_file() => {}
-        Ok(_) => return Err(KernelError::Refused(super::not_a_file())),
+        Ok(_) => return Err(KernelError::coded(codes::NOT_DIFFABLE, super::not_a_file())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(io_at(path)(e)),
     }
@@ -906,7 +909,7 @@ impl<'a> Inside<'a> {
         };
         match &self.real {
             Some(root) if real.starts_with(root) => read_optional(&real),
-            _ => Err(KernelError::Refused(super::not_a_file())),
+            _ => Err(KernelError::coded(codes::NOT_DIFFABLE, super::not_a_file())),
         }
     }
 }

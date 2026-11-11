@@ -150,10 +150,21 @@ describe("AdoptDialog", () => {
     expect(dialog()?.querySelector("[role=alert]")?.textContent).toBe("Erst speichern: 1 ungespeicherte Änderung.");
     expect(button("Einrichten")?.disabled).toBe(false);
     expect(onAdopted).not.toHaveBeenCalled();
-    // The files moved but the session changed meanwhile: the sentence says to open the project anew; only closing is left.
+    // The sentence of the reopen answer under another code is a refusal like any other: the dialog can try again.
     vi.mocked(adoptTextProject).mockRejectedValueOnce({ code: "error", message: "Die Dateien sind umgestellt, aber die offene Sitzung wurde inzwischen geändert und bleibt, wie sie ist; das Projekt bitte neu öffnen.", asset: null });
     await act(async () => button("Einrichten")!.click());
     expect(dialog()?.querySelector("[role=alert]")?.textContent).toContain("das Projekt bitte neu öffnen");
+    expect(buttons().filter((b) => b.textContent !== "").map((b) => b.textContent)).toEqual(["Abbrechen", "Einrichten"]);
+  });
+
+  it("the_reopen_code_leaves_only_closing_whatever_the_words", async () => {
+    await show();
+    // The files moved but the session changed meanwhile: the code says to open the project anew, in the words of any language; only closing is left.
+    vi.mocked(adoptTextProject).mockRejectedValueOnce({ code: "reopen", message: "Any words at all.", asset: null });
+    await act(async () => button("Einrichten")!.click());
+    expect(dialog()?.querySelector("[role=alert]")?.textContent).toBe("Any words at all.");
     expect(buttons().filter((b) => b.textContent !== "").map((b) => b.textContent)).toEqual(["Schließen"]);
+    await act(async () => button("Schließen")!.click());
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

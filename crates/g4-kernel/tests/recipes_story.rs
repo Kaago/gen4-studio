@@ -96,7 +96,7 @@ fn fixture() -> (common::TextFixture, Store) {
 
 fn refused<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
     match result {
-        Err(KernelError::Refused(why)) => why,
+        Err(KernelError::Refused(why) | KernelError::Coded { message: why, .. }) => why,
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
@@ -883,7 +883,10 @@ fn a_failure_after_the_compile_takes_everything_back() {
     story_files_readonly(&store, false);
     assert!(result.is_err(), "{result:?}");
     assert!(
-        !matches!(result, Err(KernelError::Refused(_))),
+        !matches!(
+            result,
+            Err(KernelError::Refused(_) | KernelError::Coded { .. })
+        ),
         "{result:?}"
     );
     assert_eq!(state(&store), before);
@@ -2222,7 +2225,11 @@ fn a_failed_visibility_takes_back_the_block_and_the_level_script() {
     let result = figure_appears::apply(&mut store, &appear(4, 1, true, POOL_FLAG));
     story_files_readonly(&store, false);
     assert!(
-        result.is_err() && !matches!(result, Err(KernelError::Refused(_))),
+        result.is_err()
+            && !matches!(
+                result,
+                Err(KernelError::Refused(_) | KernelError::Coded { .. })
+            ),
         "{result:?}"
     );
     assert_eq!(appear_state(&store), before);
@@ -2805,7 +2812,11 @@ fn a_failed_scene_takes_back_the_script_and_the_level_script() {
     let result = scene_on_enter::apply(&mut store, &scene(0, 0, SCENE_TEXT));
     story_files_readonly(&store, false);
     assert!(
-        result.is_err() && !matches!(result, Err(KernelError::Refused(_))),
+        result.is_err()
+            && !matches!(
+                result,
+                Err(KernelError::Refused(_) | KernelError::Coded { .. })
+            ),
         "{result:?}"
     );
     assert_eq!(appear_state(&store), before);
