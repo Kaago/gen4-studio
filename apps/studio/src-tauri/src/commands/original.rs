@@ -12,10 +12,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use g4_kernel::base::{BaseRom, base_label};
-use g4_kernel::error::KernelError;
+use g4_kernel::error::{KernelError, codes};
 use g4_kernel::original::{
-    self, ChangedProgress, ChangedReport, ResetPlan, ResetResult, ResetTarget, new_message,
-    no_original,
+    self, ChangedProgress, ChangedReport, ResetPlan, ResetResult, ResetTarget,
 };
 use g4_kernel::project::Project;
 use serde::Serialize;
@@ -64,18 +63,16 @@ fn same_project<'s>(
     }
 }
 
-/// A kernel error of a plan or reset as the app answers it: the refusals of
-/// `original::availability` ([`no_original`], [`new_message`]) are `no_original`; anything
-/// else as everywhere (a locked asset `read_only`, its reason after „ is read-only: “).
+/// A kernel error of a plan or reset as the app answers it, by the kernel's code: an entry or
+/// message the base does not have ([`original::no_original`], [`original::new_message`]) is
+/// `no_original`; anything else as everywhere (a locked asset `read_only`, its reason after
+/// „ is read-only: “).
 fn reset_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(why) if why == no_original() || why == new_message() => CmdError {
-            code: "no_original",
-            message: why,
-            asset: None,
-            problems: Vec::new(),
-            references: Vec::new(),
-        },
+        KernelError::Coded {
+            code: code @ codes::NO_ORIGINAL,
+            message,
+        } => CmdError::refused(code, message),
         other => other.into(),
     }
 }
@@ -160,7 +157,7 @@ fn reset_in_session(
     // file was written.
     let refused = matches!(
         result,
-        Err(KernelError::Refused(_) | KernelError::ReadOnly { .. })
+        Err(KernelError::Refused(_) | KernelError::Coded { .. } | KernelError::ReadOnly { .. })
     );
     if target.writes_files() && !refused {
         // In a text project the reset texture or model goes to `data/` as well.
@@ -242,6 +239,7 @@ mod tests {
         open_synthetic, save_script_impl,
     };
     use g4_kernel::base::missing_text;
+    use g4_kernel::original::no_original;
     use g4_kernel::project::{AssetId, AssetKind};
     use g4_kernel::start::read_base_mark;
     use g4_kernel::store::FileStep;
@@ -377,14 +375,14 @@ mod tests {
 
     #[test]
     fn availability_refusals_answer_no_original_and_the_rest_keeps_its_code() {
-        for why in [no_original(), new_message()] {
-            let err = reset_error(KernelError::Refused(why.clone()));
-            assert_eq!(
-                (err.code, err.message.as_str()),
-                ("no_original", why.as_str())
-            );
-            assert_eq!(err.asset, None);
-        }
+        // The kernel's code decides, not its words: a sentence no catalog holds.
+        let foreign = "Ein deutscher Satz, den kein Katalog kennt";
+        let err = reset_error(KernelError::coded("no_original", foreign));
+        assert_eq!((err.code, err.message.as_str()), ("no_original", foreign));
+        assert_eq!(err.asset, None);
+        // A code this command does not answer is a plain error, as a refusal is.
+        let err = reset_error(KernelError::coded("not_diffable", foreign));
+        assert_eq!((err.code, err.message.as_str()), ("error", foreign));
         // Other refusals keep the plain mapping.
         let other = original::fields_only_for_headers();
         let err = reset_error(KernelError::Refused(other.clone()));

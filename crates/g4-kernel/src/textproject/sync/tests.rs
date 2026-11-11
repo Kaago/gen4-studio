@@ -982,7 +982,7 @@ fn a_json_edited_while_the_build_step_writes_is_not_recorded_in_step() {
         },
     );
     assert!(
-        matches!(&refused, Err(KernelError::Refused(text)) if text.starts_with(&crate::textproject::unsynced_export_prefix())),
+        matches!(&refused, Err(KernelError::Coded { code: "unsynced", message }) if message.starts_with(&crate::textproject::unsynced_export_prefix())),
         "{refused:?}"
     );
     assert_eq!(power(&fx), 13);
@@ -1036,7 +1036,7 @@ fn export_refused(fx: &TextFixture) -> bool {
                 force: false,
             },
         ),
-        Err(KernelError::Refused(text)) if text.starts_with(&crate::textproject::unsynced_export_prefix())
+        Err(KernelError::Coded { code: "unsynced", message }) if message.starts_with(&crate::textproject::unsynced_export_prefix())
     )
 }
 

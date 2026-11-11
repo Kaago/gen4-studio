@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::KernelError;
+use crate::error::{KernelError, codes};
 use crate::git::repo::{GitRepo, GitStatus, HeadInfo, RepoKind};
 use crate::git::templates::{Layout, TemplateReport, layout_of, write_templates};
 use crate::project::Project;
@@ -439,22 +439,22 @@ pub fn subject_of(opts: &CommitOptions) -> String {
 /// (a file a newer template lets in, such as `.g4/releases.json`), and the status is read: no
 /// change is [`nothing_to_commit`]. Else the status, whose paths the commit will take.
 pub fn check_commit_all(project: &Project, cli: Option<&GitCli>) -> Result<GitStatus, KernelError> {
-    let refused = |text: String| Err(KernelError::Refused(text));
+    let refused = |code, text: String| Err(KernelError::coded(code, text));
     let Some(repo) = GitRepo::discover(&project.root)? else {
-        return refused(no_repo_to_commit());
+        return refused(codes::NO_REPO, no_repo_to_commit());
     };
     match repo.kind() {
         RepoKind::Own => {}
-        RepoKind::Enclosing { .. } => return refused(enclosing_repo()),
-        RepoKind::None => return refused(no_repo_to_commit()),
+        RepoKind::Enclosing { .. } => return refused(codes::ENCLOSING_REPO, enclosing_repo()),
+        RepoKind::None => return refused(codes::NO_REPO, no_repo_to_commit()),
     }
     if cli.is_none() {
-        return refused(git_needed());
+        return refused(codes::NO_GIT, git_needed());
     }
     write_templates(project)?;
     let status = repo.status()?;
     if status.paths.is_empty() {
-        return refused(nothing_to_commit());
+        return refused(codes::NOTHING_TO_COMMIT, nothing_to_commit());
     }
     Ok(status)
 }
@@ -488,7 +488,7 @@ pub fn commit_all(
     let t = begin(CommitPhase::Templates);
     let status = check_commit_all(project, cli)?;
     let Some(cli) = cli else {
-        return Err(KernelError::Refused(git_needed()));
+        return Err(KernelError::coded(codes::NO_GIT, git_needed()));
     };
     let mut report = CommitReport {
         committed: false,
@@ -1229,7 +1229,7 @@ mod tests {
 
     fn refusal(result: Result<CommitReport, KernelError>) -> String {
         match result {
-            Err(KernelError::Refused(text)) => text,
+            Err(KernelError::Refused(text) | KernelError::Coded { message: text, .. }) => text,
             other => panic!("not refused: {other:?}"),
         }
     }
@@ -1301,7 +1301,7 @@ mod tests {
         assert_eq!(refused, git_needed());
         assert!(matches!(
             check_commit_all(&fx.project(), None),
-            Err(KernelError::Refused(text)) if text == git_needed()
+            Err(KernelError::Coded { code: "no_git", message }) if message == git_needed()
         ));
     }
 

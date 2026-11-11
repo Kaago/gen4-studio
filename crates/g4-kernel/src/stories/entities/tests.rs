@@ -50,8 +50,14 @@ fn step(key: &str, value: u16, kind: StepKind, name: &str, uses: Vec<Use>) -> St
 }
 
 fn refused(result: Result<StoryReport, KernelError>) -> String {
+    refusal(result).1
+}
+
+/// The code (`None` for a plain refusal) and the sentence of a refusal.
+fn refusal(result: Result<StoryReport, KernelError>) -> (Option<&'static str>, String) {
     match result {
-        Err(KernelError::Refused(why)) => why,
+        Err(KernelError::Refused(why)) => (None, why),
+        Err(KernelError::Coded { code, message }) => (Some(code), message),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
@@ -194,11 +200,11 @@ fn create_refuses_an_unknown_progress_id_and_an_empty_name() {
     let p = fx.project();
     let before = fx.read(REGISTER);
     assert_eq!(
-        refused(create_story_files(
+        refusal(create_story_files(
             &p,
             &request("Testfaden", Progress::Var("VAR_NOPE".to_owned()))
         )),
-        unknown_id_text("VAR_NOPE")
+        (Some("unknown_id"), unknown_id_text("VAR_NOPE"))
     );
     // A flag's id is no variable.
     assert_eq!(
@@ -234,13 +240,13 @@ fn create_refuses_an_unknown_progress_id_and_an_empty_name() {
 fn create_refuses_the_dspre_layout() {
     let fx = TextFixture::dspre();
     assert_eq!(
-        refused(create_story_files(&fx.project(), &testfaden())),
-        not_a_text_project()
+        refusal(create_story_files(&fx.project(), &testfaden())),
+        (Some("not_text_project"), not_a_text_project())
     );
     let mut st = store(&fx);
     assert_eq!(
-        refused(create_story(&mut st, &testfaden())),
-        not_a_text_project()
+        refusal(create_story(&mut st, &testfaden())),
+        (Some("not_text_project"), not_a_text_project())
     );
     assert!(st.history().0.is_empty());
     assert!(!fx.root().join("data").exists());
@@ -377,7 +383,7 @@ fn update_replaces_given_fields_and_records_one_step() {
         );
     }
     assert_eq!(
-        refused(update_story_files(
+        refusal(update_story_files(
             &fx.project(),
             "STORY_NIEMAND",
             &StoryPatch {
@@ -385,7 +391,7 @@ fn update_replaces_given_fields_and_records_one_step() {
                 ..StoryPatch::default()
             }
         )),
-        unknown_id_text("STORY_NIEMAND")
+        (Some("unknown_id"), unknown_id_text("STORY_NIEMAND"))
     );
     assert_eq!(fx.read(STORY_0), before);
 }

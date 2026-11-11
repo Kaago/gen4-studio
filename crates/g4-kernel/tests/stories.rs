@@ -211,7 +211,12 @@ fn delete_of_an_unknown_id_is_unknown_id() {
         delete_story_files(&fx.project(), "STORY_NOPE"),
     ] {
         match result {
-            Err(KernelError::Refused(why)) => assert_eq!(why, unknown_id_text("STORY_NOPE")),
+            Err(KernelError::Coded { code, message }) => {
+                assert_eq!(
+                    (code, message),
+                    ("unknown_id", unknown_id_text("STORY_NOPE"))
+                );
+            }
             other => panic!("expected unknown id, got {other:?}"),
         }
     }

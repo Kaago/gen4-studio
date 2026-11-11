@@ -8,6 +8,7 @@ use crate::commands::{
 use g4_kernel::scripts::LevelScriptDoc;
 use g4_kernel::stories::{StepKind, nothing_to_change};
 use g4_kernel::test_support::TextFixture;
+use g4_kernel::textproject::rename::not_a_text_project;
 use serde_json::json;
 
 /// `VAR_PLAYER_STARTER` in Platinum: the thread of the fixture.
@@ -16,6 +17,29 @@ const STARTER: &str = "VAR_PLAYER_STARTER";
 
 fn json_of<T: Serialize>(value: &T) -> Value {
     serde_json::to_value(value).unwrap()
+}
+
+/// A sentence no catalog holds: the code of a refusal comes from the kernel's code alone.
+const FOREIGN: &str = "Ein deutscher Satz, den kein Katalog kennt";
+
+#[test]
+fn story_error_reads_the_kernels_code_not_its_words() {
+    for (code, expected) in [
+        ("not_text_project", "not_text_project"),
+        ("unknown_id", "unknown_id"),
+        // A code this command does not answer is a plain refusal.
+        ("taken", "refused"),
+    ] {
+        let err = story_error(KernelError::coded(code, FOREIGN));
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            (expected, FOREIGN),
+            "{code}"
+        );
+    }
+    let err = story_error(KernelError::Refused(FOREIGN.to_owned()));
+    assert_eq!((err.code, err.message.as_str()), ("refused", FOREIGN));
+    assert_eq!(story_error(KernelError::FindingStale).code, "finding_stale");
 }
 
 /// The synthetic text project (exported, scripts adopted) open in a fresh state.

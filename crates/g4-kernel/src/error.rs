@@ -59,6 +59,12 @@ pub enum KernelError {
     /// the user as it is.
     #[error("{0}")]
     Refused(String),
+    /// A [`KernelError::Refused`] a command may answer in its own way: `code` (one of
+    /// [`codes`]) says which refusal it is in every language, `message` is shown as it is.
+    /// Everywhere else it is a refusal like any other; codes surface only where a command
+    /// classifies them ([`KernelError::code`]).
+    #[error("{message}")]
+    Coded { code: &'static str, message: String },
     /// The store refuses every write for now (the project is being set up as text project);
     /// the text says why. Nothing was changed.
     #[error("{0}")]
@@ -98,6 +104,22 @@ pub enum KernelError {
 }
 
 impl KernelError {
+    /// [`KernelError::Coded`]: the refusal `code` (one of [`codes`]) with `message`.
+    pub fn coded(code: &'static str, message: impl Into<String>) -> KernelError {
+        KernelError::Coded {
+            code,
+            message: message.into(),
+        }
+    }
+
+    /// The code of a [`KernelError::Coded`]; `None` for every other error.
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            KernelError::Coded { code, .. } => Some(code),
+            _ => None,
+        }
+    }
+
     /// [`KernelError::Referenced`] for `label` with its message: „Trainer 0001 is still in use
     /// (2 references).“
     pub fn referenced(label: String, references: Vec<Ref>) -> KernelError {
@@ -113,6 +135,63 @@ impl KernelError {
             message,
         }
     }
+}
+
+/// The codes of [`KernelError::Coded`]: which refusal it is, whatever language its message is
+/// in. Each is the `CmdError.code` Gen4 Studio answers for it where a command classifies it,
+/// except [`codes::NO_MARK`] (the app's `base_missing`).
+pub mod codes {
+    /// A command of the text project in a folder without its manifest
+    /// ([`crate::textproject::rename::not_a_text_project`]).
+    pub const NOT_TEXT_PROJECT: &str = "not_text_project";
+    /// A new own name of the wrong form ([`crate::textproject::rename::format_text`]).
+    pub const INVALID_ID: &str = "invalid_id";
+    /// An own name another number has ([`crate::flags::taken_text`]).
+    pub const TAKEN: &str = "taken";
+    /// An id nothing knows ([`crate::textproject::ids::unknown_id_text`]).
+    pub const UNKNOWN_ID: &str = "unknown_id";
+    /// A change the sync has not settled yet ([`crate::textproject::adopt::revert_pending`]).
+    pub const PENDING: &str = "pending";
+    /// Changes of the text project the members lack, which the export would throw away
+    /// ([`crate::textproject::unsynced_export_prefix`]).
+    pub const UNSYNCED: &str = "unsynced";
+    /// Scripts that are not adopted ([`crate::textproject::not_adopted`]).
+    pub const NOT_ADOPTED: &str = "not_adopted";
+    /// An entry or message the base ROM does not have ([`crate::original::no_original`],
+    /// [`crate::original::new_message`]).
+    pub const NO_ORIGINAL: &str = "no_original";
+    /// No Git repository holds the project ([`crate::diff::no_repo`],
+    /// [`crate::git::no_repo_to_commit`]).
+    pub const NO_REPO: &str = "no_repo";
+    /// A repository without a commit ([`crate::diff::no_commit`]).
+    pub const NO_COMMIT: &str = "no_commit";
+    /// A subject that has no such side or names no place inside the project
+    /// ([`crate::diff::no_base_for_files`], [`crate::diff::scripts_have_no_unsaved`],
+    /// [`crate::diff::outside_project`], [`crate::diff::not_a_file`]).
+    pub const NOT_DIFFABLE: &str = "not_diffable";
+    /// The project lies inside a larger repository ([`crate::git::enclosing_repo`]).
+    pub const ENCLOSING_REPO: &str = "enclosing_repo";
+    /// No change since the last commit ([`crate::git::nothing_to_commit`]).
+    pub const NOTHING_TO_COMMIT: &str = "nothing_to_commit";
+    /// No `git` command line ([`crate::git::git_needed`]).
+    pub const NO_GIT: &str = "no_git";
+    /// A releases list that does not read ([`crate::patch::releases_broken`]).
+    pub const RELEASES_BROKEN: &str = "releases_broken";
+    /// A version a file name cannot hold ([`crate::patch::bad_version`]).
+    pub const BAD_VERSION: &str = "bad_version";
+    /// A version the releases list has ([`crate::patch::version_taken`]).
+    pub const VERSION_TAKEN: &str = "version_taken";
+    /// A patch file name that is empty or has a character a file name cannot
+    /// ([`crate::patch::bad_file`]).
+    pub const BAD_FILE: &str = "bad_file";
+    /// The place of a release is a file or lies below one ([`crate::patch::not_a_folder`]).
+    pub const BAD_DIR: &str = "bad_dir";
+    /// A release file exists at the place ([`crate::patch::exists`]).
+    pub const EXISTS: &str = "exists";
+    /// The built ROM is the base ROM ([`crate::patch::no_changes`]).
+    pub const NO_CHANGES: &str = "no_changes";
+    /// The project has no base mark ([`crate::patch::no_mark`]).
+    pub const NO_MARK: &str = "no_mark";
 }
 
 /// „1 reference“, „{n} references“.
@@ -215,6 +294,15 @@ mod tests {
             KernelError::Git("/p: kaputt".into()).to_string(),
             "Git: /p: kaputt"
         );
+    }
+
+    #[test]
+    fn a_coded_error_shows_its_message_and_carries_its_code() {
+        let e = KernelError::coded("taken", "x");
+        assert_eq!(e.to_string(), "x");
+        assert_eq!(e.code(), Some("taken"));
+        assert_eq!(KernelError::Refused("x".into()).code(), None);
+        assert_eq!(KernelError::FindingStale.code(), None);
     }
 
     #[test]

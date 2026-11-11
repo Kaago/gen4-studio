@@ -12,7 +12,7 @@ use sha1::{Digest, Sha1};
 
 use crate::base::{BaseRom, base_label, base_label_in, other_rom};
 use crate::build::BuildReport;
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, codes, io_at};
 use crate::project::Project;
 use crate::start::{BaseMark, read_base_mark};
 
@@ -285,7 +285,8 @@ pub(crate) type Verify = dyn Fn(&[u8], &[u8]) -> Result<Vec<u8>, KernelError>;
 /// they start, and the refusal of a built ROM equal to the base.
 pub(crate) struct Run<'a> {
     pub(crate) on_phase: &'a mut dyn FnMut(PublishPhase),
-    /// `Refused(publish::no_changes())` before encoding when the built ROM is the base ROM.
+    /// `Coded(no_changes, publish::no_changes())` before encoding when the built ROM is the base
+    /// ROM.
     pub(crate) refuse_unchanged: bool,
 }
 
@@ -306,7 +307,7 @@ pub(crate) fn create_patch_with(
     let target = std::fs::read(built_rom).map_err(io_at(built_rom))?;
     let target_sha1 = sha1_hex(&target);
     if refuse_unchanged && target_sha1.eq_ignore_ascii_case(base.sha1()) {
-        return Err(KernelError::Refused(publish::no_changes()));
+        return Err(KernelError::coded(codes::NO_CHANGES, publish::no_changes()));
     }
     let header = app_header(meta, base.sha1());
 
@@ -404,7 +405,8 @@ pub fn build_and_create(
     base: &BaseRom,
     out: Option<&Path>,
 ) -> Result<(BuildReport, PatchReport), KernelError> {
-    let mark = read_base_mark(&project.root).ok_or_else(|| KernelError::Refused(no_mark()))?;
+    let mark = read_base_mark(&project.root)
+        .ok_or_else(|| KernelError::coded(codes::NO_MARK, no_mark()))?;
     if !mark.sha1.eq_ignore_ascii_case(base.sha1()) {
         return Err(KernelError::Refused(other_rom(base.sha1(), &mark)));
     }
@@ -743,7 +745,7 @@ mod tests {
         let (_tmp, project) = minimal_project("X_DSPRE_contents");
         let err = build_and_create(&project, &f.base, None).unwrap_err();
         assert!(
-            matches!(&err, KernelError::Refused(m) if *m == no_mark()),
+            matches!(&err, KernelError::Coded { code: "no_mark", message } if *message == no_mark()),
             "{err:?}"
         );
 

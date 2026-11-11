@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::KernelError;
+use crate::error::{KernelError, codes};
 use crate::fsutil::write_atomic;
 use crate::project::Project;
 
@@ -77,8 +77,8 @@ pub fn bad_version() -> String {
     t!("patch.bad_version").into_owned()
 }
 
-/// `.g4/releases.json`; a missing file is the empty list, a broken or newer one
-/// `Refused(releases_broken() …)`.
+/// `.g4/releases.json`; a missing file is the empty list, a broken or newer one a refusal with
+/// code `releases_broken` ([`releases_broken`] and why).
 pub fn read_releases(root: &Path) -> Result<Releases, KernelError> {
     let path = root.join(RELEASES_FILE);
     let text = match std::fs::read_to_string(&path) {
@@ -92,11 +92,14 @@ pub fn read_releases(root: &Path) -> Result<Releases, KernelError> {
     if let Some(version) = value.get("version").and_then(serde_json::Value::as_u64)
         && version > u64::from(RELEASES_VERSION)
     {
-        return Err(KernelError::Refused(format!(
-            "{} {}",
-            releases_broken(),
-            t!("patch.releases_newer", version = version)
-        )));
+        return Err(KernelError::coded(
+            codes::RELEASES_BROKEN,
+            format!(
+                "{} {}",
+                releases_broken(),
+                t!("patch.releases_newer", version = version)
+            ),
+        ));
     }
     let releases: Releases =
         serde_json::from_value(value).map_err(|e| broken(&path, &e.to_string()))?;
@@ -110,11 +113,10 @@ pub fn read_releases(root: &Path) -> Result<Releases, KernelError> {
 }
 
 fn broken(path: &Path, reason: &str) -> KernelError {
-    KernelError::Refused(format!(
-        "{}: {}: {reason}",
-        releases_broken(),
-        path.display()
-    ))
+    KernelError::coded(
+        codes::RELEASES_BROKEN,
+        format!("{}: {}: {reason}", releases_broken(), path.display()),
+    )
 }
 
 /// Appends `release` and writes the file atomically (2 spaces, fields in the order of
@@ -162,10 +164,11 @@ fn leading_numbers(version: &str) -> Option<[u64; 3]> {
     Some(numbers)
 }
 
-/// `Err(bad_version())` for a version that is empty, longer than [`VERSION_MAX`] characters or
-/// holds white space, a control character or one of `/ \ : * ? " < > |` (it ends up in the
-/// patch's file name); `Err(version_taken())` for one the list has; else `Ok(())`.
-pub fn check_version(version: &str, releases: &Releases) -> Result<(), String> {
+/// [`bad_version`] (code `bad_version`) for a version that is empty, longer than
+/// [`VERSION_MAX`] characters or holds white space, a control character or one of
+/// `/ \ : * ? " < > |` (it ends up in the patch's file name); [`version_taken`] (code
+/// `version_taken`) for one the list has; else `Ok(())`.
+pub fn check_version(version: &str, releases: &Releases) -> Result<(), KernelError> {
     let unsafe_char = |c: char| {
         c.is_whitespace()
             || c.is_control()
@@ -173,10 +176,10 @@ pub fn check_version(version: &str, releases: &Releases) -> Result<(), String> {
     };
     if version.is_empty() || version.chars().count() > VERSION_MAX || version.contains(unsafe_char)
     {
-        return Err(bad_version());
+        return Err(KernelError::coded(codes::BAD_VERSION, bad_version()));
     }
     if releases.has_version(version) {
-        return Err(version_taken());
+        return Err(KernelError::coded(codes::VERSION_TAKEN, version_taken()));
     }
     Ok(())
 }
@@ -295,6 +298,10 @@ mod tests {
     #[test]
     fn check_version_refuses_taken_and_unsafe_versions() {
         let releases = list(&["0.1.0"]);
+        // The refusals with their codes.
+        let check_version = |version: &str, releases: &Releases| {
+            check_version(version, releases).map_err(|e| (e.code(), e.to_string()))
+        };
         let long = "1".repeat(VERSION_MAX + 1);
         for bad in [
             "",
@@ -314,9 +321,16 @@ mod tests {
             "a\u{a0}b",
             long.as_str(),
         ] {
-            assert_eq!(check_version(bad, &releases), Err(bad_version()), "{bad:?}");
+            assert_eq!(
+                check_version(bad, &releases),
+                Err((Some("bad_version"), bad_version())),
+                "{bad:?}"
+            );
         }
-        assert_eq!(check_version("0.1.0", &releases), Err(version_taken()));
+        assert_eq!(
+            check_version("0.1.0", &releases),
+            Err((Some("version_taken"), version_taken()))
+        );
         assert_eq!(check_version("0.1.1", &releases), Ok(()));
         assert_eq!(check_version(&"1".repeat(VERSION_MAX), &releases), Ok(()));
         assert_eq!(check_version("2.0.0-beta+1_é", &releases), Ok(()));
@@ -346,7 +360,11 @@ mod tests {
         for (text, expected) in cases {
             std::fs::write(&path, text).unwrap();
             let err = read_releases(root).unwrap_err();
-            let KernelError::Refused(message) = &err else {
+            let KernelError::Coded {
+                code: "releases_broken",
+                message,
+            } = &err
+            else {
                 panic!("{err:?}");
             };
             assert!(message.starts_with(&releases_broken()), "{message}");
@@ -355,7 +373,7 @@ mod tests {
                 assert!(message.contains(&path.display().to_string()), "{message}");
             }
             let err = append_release(root, release("0.1.0")).unwrap_err();
-            assert!(matches!(err, KernelError::Refused(_)), "{err:?}");
+            assert_eq!(err.code(), Some("releases_broken"), "{err:?}");
             assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
         }
     }

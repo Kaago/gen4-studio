@@ -22,7 +22,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::KernelError;
+use crate::error::{KernelError, codes};
 use crate::git::GitRepo;
 use crate::original::{Original, ResetTarget};
 use crate::project::Project;
@@ -270,14 +270,13 @@ pub fn diff_entity(
                 subject,
                 DiffSubject::File { .. } | DiffSubject::Story { .. }
             ) {
-                return Err(KernelError::Refused(no_base_for_files()));
+                return Err(KernelError::coded(codes::NOT_DIFFABLE, no_base_for_files()));
             }
             let Some(original) = sources.original else {
-                let why = sources
-                    .base_label
-                    .clone()
-                    .unwrap_or_else(crate::patch::no_mark);
-                return Err(KernelError::Refused(why));
+                return Err(match &sources.base_label {
+                    Some(why) => KernelError::Refused(why.clone()),
+                    None => KernelError::coded(codes::NO_MARK, crate::patch::no_mark()),
+                });
             };
             let label = match &sources.base_label {
                 Some(name) => t!("diff.base_label_named", name = name).into_owned(),
@@ -288,10 +287,10 @@ pub fn diff_entity(
         }
         Against::Head => {
             let Some(repo) = sources.repo else {
-                return Err(KernelError::Refused(no_repo()));
+                return Err(KernelError::coded(codes::NO_REPO, no_repo()));
             };
             let Some(head) = repo.head()? else {
-                return Err(KernelError::Refused(no_commit()));
+                return Err(KernelError::coded(codes::NO_COMMIT, no_commit()));
             };
             let label = t!(
                 "diff.commit_label",
@@ -304,7 +303,10 @@ pub fn diff_entity(
         }
         Against::Saved => {
             if matches!(subject, DiffSubject::Script { .. }) {
-                return Err(KernelError::Refused(scripts_have_no_unsaved()));
+                return Err(KernelError::coded(
+                    codes::NOT_DIFFABLE,
+                    scripts_have_no_unsaved(),
+                ));
             }
             let Some(store) = store else {
                 return Err(KernelError::Refused(saved_needs_the_app()));

@@ -16,7 +16,7 @@ use serde::Serialize;
 use crate::base::BaseRom;
 use crate::build::state::BuildState;
 use crate::checks::{IGNORE_FILE, IgnoreSet};
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, codes, io_at};
 use crate::fsutil::{Journal, write_atomic};
 use crate::git::templates::{BLOCK_START, TemplateReport, write_templates};
 use crate::project::{AssetKind, Project};
@@ -289,7 +289,7 @@ fn refuse_pending(project: &Project) -> Result<(), KernelError> {
     let scan = sync::scan(project, &mut |_| {})?;
     sync::apply_one_sided(project, &scan, &|_| true)?;
     if scan.units.iter().any(|u| u.side != UnitSide::InSync) {
-        return Err(KernelError::Refused(revert_pending()));
+        return Err(KernelError::coded(codes::PENDING, revert_pending()));
     }
     Ok(())
 }
@@ -522,7 +522,9 @@ mod tests {
         let before = tree(&fx);
         let mut seen = Vec::new();
         match adopt(&fx.project(), &fx.base(), &mut |p| seen.push(p)) {
-            Err(KernelError::Refused(why)) => assert_eq!(why, revert_pending()),
+            Err(KernelError::Coded { code, message }) => {
+                assert_eq!((code, message), ("pending", revert_pending()));
+            }
             other => panic!("expected the refusal, got {other:?}"),
         }
         assert!(seen.is_empty(), "{seen:?}");
@@ -799,7 +801,9 @@ mod tests {
         fx.write(member, &bytes);
         let before = tree(&fx);
         match revert(&fx.project()) {
-            Err(KernelError::Refused(why)) => assert_eq!(why, revert_pending()),
+            Err(KernelError::Coded { code, message }) => {
+                assert_eq!((code, message), ("pending", revert_pending()));
+            }
             other => panic!("expected the refusal, got {other:?}"),
         }
         assert_eq!(tree(&fx), before, "nothing moved");

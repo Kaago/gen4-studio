@@ -103,7 +103,7 @@ fn source_of(store: &Store, file: u16) -> String {
 
 fn refused<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
     match result {
-        Err(KernelError::Refused(why)) => why,
+        Err(KernelError::Refused(why) | KernelError::Coded { message: why, .. }) => why,
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

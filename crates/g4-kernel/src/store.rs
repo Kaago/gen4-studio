@@ -1475,7 +1475,7 @@ impl Store {
             .unwrap_or_default();
         match bake_world(self, map, &source.world, &base, &source.verbatim) {
             Ok(baked) => Ok(Some(baked.file.write(family))),
-            Err(KernelError::Refused(_)) => Ok(None),
+            Err(KernelError::Refused(_) | KernelError::Coded { .. }) => Ok(None),
             Err(e) => Err(e),
         }
     }

@@ -16,7 +16,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::base::{BaseRom, other_rom};
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, codes, io_at};
 use crate::patch::no_mark;
 use crate::project::Project;
 use crate::start::{MarkState, mark_state};
@@ -114,7 +114,7 @@ pub fn restore_from_base(
     }
     let mark = match mark_state(root) {
         MarkState::Present(mark) => mark,
-        MarkState::Missing => return Err(KernelError::Refused(no_mark())),
+        MarkState::Missing => return Err(KernelError::coded(codes::NO_MARK, no_mark())),
         state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
             return Err(KernelError::Refused(state.refusal().unwrap_or_default()));
         }
@@ -390,7 +390,7 @@ mod tests {
 
     fn refusal(err: KernelError) -> String {
         match err {
-            KernelError::Refused(why) => why,
+            KernelError::Refused(why) | KernelError::Coded { message: why, .. } => why,
             other => panic!("not a refusal: {other:?}"),
         }
     }

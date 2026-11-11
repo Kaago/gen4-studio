@@ -25,8 +25,14 @@ fn req(kind: FlagKind, number: u16, id: Option<&str>, description: Option<&str>)
 }
 
 fn refused(result: Result<NameReport, KernelError>) -> String {
+    refusal(result).1
+}
+
+/// The code (`None` for a plain refusal) and the sentence of a refusal.
+fn refusal(result: Result<NameReport, KernelError>) -> (Option<&'static str>, String) {
     match result {
-        Err(KernelError::Refused(why)) => why,
+        Err(KernelError::Refused(why)) => (None, why),
+        Err(KernelError::Coded { code, message }) => (Some(code), message),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
@@ -216,44 +222,54 @@ fn naming_refuses_taken_and_malformed_ids() {
         b"{\"7\": \"FLAG_SEVEN\"}\n",
     );
     let format = "The new ID must start with FLAG_ and may then contain only A–Z, 0–9 and _ (at most 64 characters).";
-    let cases: Vec<(NameRequest, String)> = vec![
+    // With the code the app answers them by: a taken id `taken`, a malformed one `invalid_id`.
+    let (taken, invalid) = (Some("taken"), Some("invalid_id"));
+    let cases: Vec<(NameRequest, Option<&str>, String)> = vec![
         (
             req(FlagKind::Flag, 148, Some("FLAG_UNUSED_0x0095"), None),
+            taken,
             "FLAG_UNUSED_0x0095 is the pret name of number 149.".to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, Some("flag_x"), None),
+            invalid,
             format.to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, Some("VAR_X"), None),
+            invalid,
             format.to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, Some("FLAG_"), None),
+            invalid,
             format.to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, Some("FLAG_0149"), None),
+            taken,
             "FLAG_0149 is the fallback ID of number 149.".to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, Some("FLAG_SEVEN"), None),
+            taken,
             "FLAG_SEVEN is already known to rotom as number 7.".to_owned(),
         ),
         (
             req(FlagKind::Var, 0x406C, Some("VAR_RESULT"), None),
+            taken,
             "VAR_RESULT is the pret name of number 32780.".to_owned(),
         ),
         (
             req(FlagKind::Flag, 148, None, Some("Ohne Namen")),
+            None,
             id_required(),
         ),
     ];
-    for (request, why) in &cases {
+    for (request, code, why) in &cases {
         assert_eq!(
-            &refused(name_flag_files(&fx.project(), request)),
-            why,
+            refusal(name_flag_files(&fx.project(), request)),
+            (*code, why.clone()),
             "{request:?}"
         );
     }
@@ -264,11 +280,14 @@ fn naming_refuses_taken_and_malformed_ids() {
     name_medaille(&fx);
     // Taken in the register by another number; a second own name for 148.
     assert_eq!(
-        refused(name_flag_files(
+        refusal(name_flag_files(
             &fx.project(),
             &req(FlagKind::Flag, 150, Some(MEDAILLE), None)
         )),
-        "FLAG_HAT_MEDAILLE already exists (number 148)."
+        (
+            Some("taken"),
+            "FLAG_HAT_MEDAILLE already exists (number 148).".to_owned()
+        )
     );
     assert_eq!(
         refused(name_flag_files(
@@ -298,11 +317,14 @@ fn naming_refuses_the_dspre_layout() {
     let fx = TextFixture::dspre();
     let request = req(FlagKind::Flag, 148, Some(MEDAILLE), None);
     assert_eq!(
-        refused(name_flag_files(&fx.project(), &request)),
-        not_a_text_project()
+        refusal(name_flag_files(&fx.project(), &request)),
+        (Some("not_text_project"), not_a_text_project())
     );
     let mut store = Store::new(Arc::new(fx.project()));
-    assert_eq!(refused(name_flag(&mut store, &request)), not_a_text_project());
+    assert_eq!(
+        refusal(name_flag(&mut store, &request)),
+        (Some("not_text_project"), not_a_text_project())
+    );
     assert!(store.history().0.is_empty());
     assert!(!fx.root().join("data").exists());
     assert!(

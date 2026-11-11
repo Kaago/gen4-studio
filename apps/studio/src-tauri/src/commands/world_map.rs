@@ -182,7 +182,9 @@ pub fn world_get_impl(state: &AppState, map: u16) -> Result<WorldGetDto, CmdErro
     // keeps the world, as for its faces. `world_bake` refuses with the text.
     let bake = match store.world_bake_report(map) {
         Ok(bake) => bake,
-        Err(g4_kernel::error::KernelError::Refused(_)) => None,
+        Err(
+            g4_kernel::error::KernelError::Refused(_) | g4_kernel::error::KernelError::Coded { .. },
+        ) => None,
         Err(e) => return Err(e.into()),
     };
     Ok(WorldGetDto {
