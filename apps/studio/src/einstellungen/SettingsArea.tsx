@@ -8,6 +8,8 @@ import type { Density, Theme } from "../ui/tokens/theme";
 import { SHORTCUTS } from "../world/buildings";
 import { AgentsSettings } from "./AgentsSettings";
 import type { AgentsSettingsProps } from "./AgentsSettings";
+import { UpdatesSettings } from "./UpdatesSettings";
+import type { UpdatesSettingsProps } from "./UpdatesSettings";
 import styles from "./SettingsArea.module.css";
 
 export type SettingsAreaProps = {
@@ -26,13 +28,15 @@ export type SettingsAreaProps = {
   onPickEmulator: () => void;
   /** The column Agenten (local MCP clients in the running app). */
   agents: AgentsSettingsProps;
+  /** The column Updates, after Emulator; left out where the updater does not run (dev build, browser mode). */
+  updates?: UpdatesSettingsProps;
 };
 
 /**
- * The surface of the area Einstellungen: appearance, emulator, the app's shortcuts (read only) and the agents. Every change applies at
- * once, for every project (the agents' grant of the open project is the one setting per project).
+ * The surface of the area Einstellungen: appearance, emulator, updates (in the packaged app), the app's shortcuts (read only) and the agents.
+ * Every change applies at once, for every project (the agents' grant of the open project is the one setting per project).
  */
-export function SettingsArea({ theme, density, language, emulatorPath, onTheme, onDensity, onLanguage, focusLanguage = false, onPickEmulator, agents }: SettingsAreaProps) {
+export function SettingsArea({ theme, density, language, emulatorPath, onTheme, onDensity, onLanguage, focusLanguage = false, onPickEmulator, agents, updates }: SettingsAreaProps) {
   const { t } = useTranslation("app");
   // Built per render, not at module scope: the labels follow the language the user just switched to.
   const themes: readonly SegmentedOption<Theme>[] = [
@@ -85,6 +89,7 @@ export function SettingsArea({ theme, density, language, emulatorPath, onTheme, 
           </h2>
           <EmulatorRow path={emulatorPath} onPick={onPickEmulator} />
         </section>
+        {updates && <UpdatesSettings {...updates} />}
         <section className={styles.column} aria-labelledby="settings-keys">
           <h2 id="settings-keys" className={styles.heading}>
             {t("settings.keys")}

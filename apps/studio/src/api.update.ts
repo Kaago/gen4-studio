@@ -21,8 +21,14 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
 }
 
 /**
- * Downloads and installs `version` (the one `checkForUpdate` found) and restarts the app. `discardUnsaved` says the person was warned that
- * unsaved changes are lost; without it the backend refuses while the open project has any.
+ * Downloads `version` (the one `checkForUpdate` found) and keeps the bytes for `installUpdate`; reports `update-progress` while it loads.
+ * Nothing is installed yet, so the person can keep working (and editing) meanwhile.
+ */
+export const downloadUpdate = (version: string) => invoke<void>("update_download", { version });
+
+/**
+ * Installs the bytes `downloadUpdate` loaded for `version` and restarts the app. `discardUnsaved` says the person was warned that unsaved
+ * changes are lost; without it the backend refuses while the open project has any.
  */
 export const installUpdate = (version: string, discardUnsaved: boolean) => invoke<void>("update_install", { version, discardUnsaved });
 
