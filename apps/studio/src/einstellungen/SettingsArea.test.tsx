@@ -39,6 +39,20 @@ describe("SettingsArea", () => {
   const option = (groupLabel: string, text: string) => [...(group(groupLabel)?.querySelectorAll("button") ?? [])].find((b) => b.textContent === text);
   const heading = (text: string) => [...container.querySelectorAll("h1, h2")].find((h) => h.textContent === text);
 
+  it("shows_the_column_updates_after_emulator_only_with_updates", async () => {
+    render();
+    expect(heading("Updates")).toBeUndefined();
+    const updates = { version: "1.0.1", auto: true, lastCheck: null, checking: false, onAuto: vi.fn(), onCheckNow: vi.fn() };
+    render({ updates });
+    expect(heading("Updates")).toBeDefined();
+    const headings = [...container.querySelectorAll("h2")].map((h) => h.textContent);
+    expect(headings.indexOf("Updates")).toBe(headings.indexOf("Emulator") + 1);
+    expect(container.textContent).toContain("Version 1.0.1");
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "Jetzt suchen")!.click());
+    expect(updates.onCheckNow).toHaveBeenCalledOnce();
+    await act(async () => {});
+  });
+
   it("renders_the_columns_darstellung_emulator_tastenkuerzel_and_agenten", async () => {
     render();
     expect(heading("Einstellungen")).toBeDefined();

@@ -8,7 +8,7 @@ vi.mock("./platform/transport", () => ({ invoke, inTauri: () => tauri.on }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion }));
 
-import { appVersion, checkForUpdate, installUpdate, onMenuCheckUpdates, onUpdateProgress } from "./api.update";
+import { appVersion, checkForUpdate, downloadUpdate, installUpdate, onMenuCheckUpdates, onUpdateProgress } from "./api.update";
 import type { UpdateProgress } from "./api.update";
 
 describe("update commands outside Tauri", () => {
@@ -68,6 +68,15 @@ describe("update commands inside Tauri", () => {
     expect(invoke).toHaveBeenLastCalledWith("update_install", { version: "1.0.2", discardUnsaved: true });
     await installUpdate("1.0.3", false);
     expect(invoke).toHaveBeenLastCalledWith("update_install", { version: "1.0.3", discardUnsaved: false });
+  });
+
+  it("download_update_sends_the_version_and_passes_the_error_on", async () => {
+    invoke.mockResolvedValueOnce(null);
+    await downloadUpdate("1.0.2");
+    expect(invoke).toHaveBeenLastCalledWith("update_download", { version: "1.0.2" });
+    const error = { code: "error", message: "offline", asset: null };
+    invoke.mockRejectedValueOnce(error);
+    await expect(downloadUpdate("1.0.2")).rejects.toBe(error);
   });
 
   it("on_update_progress_listens_to_update_progress_and_passes_the_payload", async () => {

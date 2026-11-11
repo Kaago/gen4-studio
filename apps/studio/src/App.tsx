@@ -30,6 +30,7 @@ import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { SettingsArea } from "./einstellungen/SettingsArea";
+import { useUpdates } from "./update/useUpdates";
 import { applyLanguage, effectiveLanguage, readLanguage, t } from "./i18n";
 import type { Language } from "./i18n";
 import { TechnikArea } from "./technik/TechnikArea";
@@ -767,6 +768,8 @@ function AppBody() {
     if (rom !== null && play) await playRom(rom);
   });
   useWindowGuards(unsavedRef, session.setMessage);
+  // The updater (packaged app only): the question, the daily check, the offer and the install; the Settings show its column.
+  const updates = useUpdates(unsavedRef);
   // The tool of the scene. Switching to painting shows the terrain layer (painting hidden tiles would be blind).
   const onTool = useStableCallback((next: Tool) => {
     shell.setTool(next);
@@ -1635,6 +1638,11 @@ function AppBody() {
         focusLanguage={languageSwitched.current}
         onPickEmulator={() => void session.onPickEmulator()}
         agents={{ projectOpen: session.info !== null, bridge: !inTauri(), status: agents.status, onError: session.fail }}
+        updates={
+          updates.enabled
+            ? { version: updates.version, auto: updates.prefs.consent === "auto", lastCheck: updates.prefs.lastCheck, checking: updates.checking, onAuto: updates.setAuto, onCheckNow: updates.checkNow }
+            : undefined
+        }
       />
     ) : (
       <EmptyState what={t("common:appBody.notYetWhat")} why={t("common:appBody.notYetWhy")} />
