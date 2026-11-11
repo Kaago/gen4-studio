@@ -2249,7 +2249,7 @@ fn cli_recipe_apply_empty_region_needs_the_flag() {
         .assert()
         .code(1);
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
-    assert!(!stderr.contains("rückgängig"), "{stderr}");
+    assert!(!stderr.contains("cannot be undone"), "{stderr}");
 }
 
 /// `g4k recipe apply new_story` on the text fixture: the input names the story and the pool

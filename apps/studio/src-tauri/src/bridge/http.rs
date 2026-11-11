@@ -41,7 +41,7 @@ const MCP_THREADS: usize = 2;
 /// How long stopping waits for MCP work still running.
 const MCP_SHUTDOWN: Duration = Duration::from_secs(1);
 /// `/mcp` while "Allow local agents" is off (a catalog key).
-const AGENTS_OFF: &str = "bridge.agents_off";
+const AGENTS_OFF: &str = "mcp.tools.switched_off";
 /// `/mcp` calls running at once, each on a thread of its own (a call can wait 120 s for
 /// the user, so it must not hold one of the workers the UI needs to answer).
 const MCP_CALLS: usize = 16;

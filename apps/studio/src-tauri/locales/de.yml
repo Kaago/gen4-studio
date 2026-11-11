@@ -1,6 +1,4 @@
 base_roms:
-  folder_not_created: "Ordner nicht anlegbar: %{path}: %{error}"
-  path_not_text: "Pfad ist kein gültiger Text: %{path}"
   rom_unreadable: "ROM nicht lesbar: %{path}: %{error}"
 commands:
   agents:
@@ -452,7 +450,6 @@ mcp:
     project_switched: "In Gen4 Studio ist inzwischen ein anderes Projekt offen"
     unknown_resource: "Unbekannte Ressource: %{uri}"
     no_nested_batch: "g4_batch kann sich nicht selbst enthalten"
-    path_not_text: "Pfad ist kein gültiger Text: %{path}"
     unknown_tool: "Unbekanntes Tool: %{tool}"
     call_needs_command: "g4_call braucht command, den Namen eines Befehls"
     bad_publish_args: "Ungültige Argumente für publish_patch: %{error}"
@@ -531,12 +528,8 @@ mcp:
     unknown_answer: "Unbekannte Antwort: %{answer}"
   settings:
     project_folder_unreadable: "Projektordner nicht lesbar: %{path}: %{error}"
-    path_not_text: "Pfad ist kein gültiger Text: %{path}"
-    folder_not_created: "Ordner nicht anlegbar: %{path}: %{error}"
-    no_file_name: "Kein Dateiname: %{path}"
     file_unwritable: "Datei nicht schreibbar: %{path}: %{error}"
   discovery:
-    folder_not_created: "Ordner nicht anlegbar: %{path}: %{error}"
     file_unreadable: "Datei nicht lesbar: %{path}: %{error}"
     file_invalid: "Datei ungültig: %{path}: %{error}"
   prompts:
@@ -568,18 +561,10 @@ menu:
   check_updates: "Nach Updates suchen…"
 bridge:
   need_root: "Mindestens ein erlaubter Ordner (--allow-root) ist nötig"
-  folder_unreadable: "Ordner nicht lesbar: %{path}: %{error}"
-  not_a_folder: "Kein Ordner: %{path}"
   originals_locked: "Originale (_DSPRE_contents) sind gesperrt: %{path}"
   originals_locked_new: "Originale (_DSPRE_contents) sind gesperrt: %{path}. Im Browser-Modus ohne die Endung anlegen."
   saves_locked: "Spielstände (_saves) sind gesperrt: %{path}"
-  outside: "Pfad liegt außerhalb der erlaubten Ordner: %{path}"
-  folder_not_created: "Ordner nicht anlegbar: %{path}: %{error}"
-  not_a_file: "Keine Datei: %{path}"
-  no_file_name: "Kein Dateiname: %{path}"
-  path_unreadable: "Pfad nicht lesbar: %{path}: %{error}"
   no_emulator: "Im Browser-Modus nicht verfügbar, g4emu benutzen"
-  agents_off: "Lokale Agenten sind aus (Einstellungen › Agenten)"
   too_many_calls: "Zu viele gleichzeitige Agenten-Aufrufe"
   app_data_not_created: "App-Datenordner %{path} nicht anlegbar: %{error}"
   no_runtime: "Keine Laufzeit für MCP: %{error}"
@@ -592,7 +577,6 @@ bridge:
   unknown_command: "Unbekannter Befehl: %{name}"
   command_crashed: "Befehl ist abgestürzt"
   token_missing: "G4_BRIDGE_TOKEN fehlt"
-  batch_file_unreadable: "Datei nicht lesbar: %{path}: %{error}"
   batch_output_unwritable: "Ausgabe nicht schreibbar: %{error}"
   batch_command_failed: "%{name} fehlgeschlagen: %{error}"
   batch_invalid_json: "Kein gültiges JSON: %{error}"

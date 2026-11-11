@@ -1,6 +1,4 @@
 base_roms:
-  folder_not_created: "Folder cannot be created: %{path}: %{error}"
-  path_not_text: "Path is not valid text: %{path}"
   rom_unreadable: "ROM not readable: %{path}: %{error}"
 commands:
   agents:
@@ -452,7 +450,6 @@ mcp:
     project_switched: "Another project is now open in Gen4 Studio"
     unknown_resource: "Unknown resource: %{uri}"
     no_nested_batch: "g4_batch cannot contain itself"
-    path_not_text: "Path is not valid text: %{path}"
     unknown_tool: "Unknown tool: %{tool}"
     call_needs_command: "g4_call needs command, the name of a command"
     bad_publish_args: "Invalid arguments for publish_patch: %{error}"
@@ -531,12 +528,8 @@ mcp:
     unknown_answer: "Unknown answer: %{answer}"
   settings:
     project_folder_unreadable: "Project folder not readable: %{path}: %{error}"
-    path_not_text: "Path is not valid text: %{path}"
-    folder_not_created: "Folder cannot be created: %{path}: %{error}"
-    no_file_name: "No file name: %{path}"
     file_unwritable: "File not writable: %{path}: %{error}"
   discovery:
-    folder_not_created: "Folder cannot be created: %{path}: %{error}"
     file_unreadable: "File not readable: %{path}: %{error}"
     file_invalid: "File invalid: %{path}: %{error}"
   prompts:
@@ -568,18 +561,10 @@ menu:
   check_updates: "Check for Updates…"
 bridge:
   need_root: "At least one allowed folder (--allow-root) is needed"
-  folder_unreadable: "Folder not readable: %{path}: %{error}"
-  not_a_folder: "Not a folder: %{path}"
   originals_locked: "Originals (_DSPRE_contents) are locked: %{path}"
   originals_locked_new: "Originals (_DSPRE_contents) are locked: %{path}. In browser mode, create it without the suffix."
   saves_locked: "Save games (_saves) are locked: %{path}"
-  outside: "Path is outside the allowed folders: %{path}"
-  folder_not_created: "Folder cannot be created: %{path}: %{error}"
-  not_a_file: "Not a file: %{path}"
-  no_file_name: "No file name: %{path}"
-  path_unreadable: "Path not readable: %{path}: %{error}"
   no_emulator: "Not available in browser mode, use g4emu"
-  agents_off: "Local agents are off (Settings › Agents)"
   too_many_calls: "Too many simultaneous agent calls"
   app_data_not_created: "App data folder %{path} cannot be created: %{error}"
   no_runtime: "No runtime for MCP: %{error}"
@@ -592,7 +577,6 @@ bridge:
   unknown_command: "Unknown command: %{name}"
   command_crashed: "Command crashed"
   token_missing: "G4_BRIDGE_TOKEN is missing"
-  batch_file_unreadable: "File not readable: %{path}: %{error}"
   batch_output_unwritable: "Output not writable: %{error}"
   batch_command_failed: "%{name} failed: %{error}"
   batch_invalid_json: "Not valid JSON: %{error}"

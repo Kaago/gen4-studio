@@ -68,7 +68,22 @@ VCDIFF selbst hat kein Feld für eine Prüfsumme der Quelle; der Header und die 
 
 ## Begleitdatei `<Name>.xdelta.txt`
 
-Deutsch, UTF-8, Zeilen mit `\n`, fester Text (`notes`):
+In der Sprache des Prozesses (Englisch ist Vorgabe, `G4_LANG=de` Deutsch), UTF-8, Zeilen mit `\n`,
+fester Text aus dem Katalog des Kernels (`notes`: `patch.notes_header`, `patch.notes_release`,
+`patch.changes_heading`, `patch.apply_line`). Die Vorlagen zeigen die englische Fassung, die deutsche
+steht jeweils als Variante dabei:
+
+```text
+Gen4 Studio: patch for {base_label}
+Game: {game_code}
+Base ROM SHA-1: {base_sha1}
+Target ROM SHA-1: {target_sha1}
+Studio version: {studio_version}
+
+To apply: with xdelta3 (“xdelta3 -d -s <base ROM> {name}.xdelta {name}.nds”) or with Rom Patcher JS, on exactly the base ROM with this SHA-1.
+```
+
+Deutsch (`G4_LANG=de`):
 
 ```text
 Gen4 Studio: Patch für {base_label}
@@ -83,9 +98,26 @@ Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“)
 `base_label` steht hier unbereinigt, `studio_version` ist die Version des Kernels, `target_sha1` die
 SHA-1 der gebauten ROM `build/<Name>.nds`.
 
-Mit einer Veröffentlichung (`notes_with`, `create_patch_with_notes`) kommen `Version:` und `Datum:`
-nach `Studio-Version:` und, wenn der Entwickler Notizen eingegeben hat, ein letzter Absatz
-`Änderungen:` dazu:
+Mit einer Veröffentlichung (`notes_with`, `create_patch_with_notes`) kommen `Version:` und `Date:`
+(deutsch `Datum:`) nach `Studio version:` (deutsch `Studio-Version:`) und, wenn der Entwickler
+Notizen eingegeben hat, ein letzter Absatz `Changes:` (deutsch `Änderungen:`) dazu:
+
+```text
+Gen4 Studio: patch for {base_label}
+Game: {game_code}
+Base ROM SHA-1: {base_sha1}
+Target ROM SHA-1: {target_sha1}
+Studio version: {studio_version}
+Version: {version}
+Date: {date}
+
+To apply: with xdelta3 (“xdelta3 -d -s <base ROM> {name}.xdelta {name}.nds”) or with Rom Patcher JS, on exactly the base ROM with this SHA-1.
+
+Changes:
+{notes}
+```
+
+Deutsch (`G4_LANG=de`):
 
 ```text
 Gen4 Studio: Patch für {base_label}
@@ -102,10 +134,11 @@ Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“)
 {notes}
 ```
 
-Ohne Veröffentlichung fehlen `Version:`, `Datum:` und `Änderungen:`; die ersten fünf Zeilen und der
-Anwenden-Absatz sind die von 4.1a. `Datum` ist `YYYY-MM-DDTHH:MM:SSZ` (UTC, `now_rfc3339`). Der
-Block `Änderungen:` steht nur bei nicht leeren Notizen (nur Leerraum zählt als leer); die Notizen
-stehen wie eingegeben, Leerraum am Ende ist abgeschnitten, die Datei endet mit genau einem `\n`.
+Ohne Veröffentlichung fehlen `Version:`, `Date:` und `Changes:` (deutsch `Version:`, `Datum:` und
+`Änderungen:`); die ersten fünf Zeilen und der Anwenden-Absatz sind die von 4.1a. `Date` (deutsch
+`Datum`) ist `YYYY-MM-DDTHH:MM:SSZ` (UTC, `now_rfc3339`). Der Block `Changes:` (deutsch `Änderungen:`)
+steht nur bei nicht leeren Notizen (nur Leerraum zählt als leer); die Notizen stehen wie
+eingegeben, Leerraum am Ende ist abgeschnitten, die Datei endet mit genau einem `\n`.
 
 ## Veröffentlichungen `.g4/releases.json`
 
@@ -203,15 +236,28 @@ zugeordnet.“, `base::other_rom`) melden keine Phase und bauen nichts.
 | `record` | `append_release` mit Version, Datum, Datei, Notizen, `baseSha1` und Größe des Patches | gemessen |
 
 Name im App-Header und in der Anwenden-Zeile ist der Dateistamm des Patches ohne `.xdelta` (etwa
-`Mein Hack-v0.1.0`), nicht `<Projekt>-<Spielcode>`; die Begleitdatei hat `Version:`, `Datum:` und
-`Änderungen:` (siehe oben). Das Ergebnis `PublishReport` nennt den Eintrag, den `PatchReport`, die
-Dateien in der Reihenfolge Patch, Begleitdatei, `README.txt` (`files`, je Art, Pfad, Größe), die
-Liste danach, `phase_ms` und die Gesamtzeit `ms`.
+`Mein Hack-v0.1.0`), nicht `<Projekt>-<Spielcode>`; die Begleitdatei hat `Version:`, `Date:` und
+`Changes:` (deutsch `Datum:` und `Änderungen:`, siehe oben). Das Ergebnis `PublishReport` nennt den
+Eintrag, den `PatchReport`, die Dateien in der Reihenfolge Patch, Begleitdatei, `README.txt`
+(`files`, je Art, Pfad, Größe), die Liste danach, `phase_ms` und die Gesamtzeit `ms`.
 
 **`README.txt`** (`readme_text`): ein Text ohne Prüfsummen-Kopf für die, denen der Patch weitergegeben
-wird. `{Projekt}` ist der Dateistamm des Patches ohne `-v{version}` am Ende (ein eigener Name bleibt
-ganz), `{Tag}` der Tag aus `Datum` (`YYYY-MM-DD`), `{notes}` die Notizen wie in der Begleitdatei;
-ohne Notizen (nur Leerraum zählt als keine) steht dort „Keine Änderungsnotizen.“:
+wird, in der Sprache des Prozesses wie die Begleitdatei (Englisch ist Vorgabe, `G4_LANG=de`
+Deutsch). `{Projekt}` ist der Dateistamm des Patches ohne `-v{version}` am Ende (ein eigener Name
+bleibt ganz), `{Tag}` der Tag aus `Datum` (`YYYY-MM-DD`), `{notes}` die Notizen wie in der
+Begleitdatei; ohne Notizen (nur Leerraum zählt als keine) steht dort „No change notes.“ (deutsch
+„Keine Änderungsnotizen.“). Die Vorlage zeigt die englische Fassung:
+
+```text
+{Projekt} v{version} ({Tag})
+
+{notes}
+
+Base ROM SHA-1: {base_sha1}
+To apply: with xdelta3 (“xdelta3 -d -s <base ROM> {name}.xdelta {name}.nds”) or with Rom Patcher JS, on exactly the base ROM with this SHA-1.
+```
+
+Deutsch (`G4_LANG=de`):
 
 ```text
 {Projekt} v{version} ({Tag})

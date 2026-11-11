@@ -3,10 +3,18 @@
 //! is in `locales/en.yml`, and every
 //! key of the sections below is named somewhere in the code. A typo in a key would otherwise
 //! show as the key itself in the app (and tests that compare a message with the function that
-//! builds it would not notice).
+//! builds it would not notice). The test modules of `src/` do not count (a test may name a
+//! missing key on purpose), whatever they are called and also when they live in files of their
+//! own: the lexer is the kernel test's, shared.
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::ops::Range;
+use std::path::{Path, PathBuf};
+
+#[path = "../../../../crates/g4-kernel/tests/support/catalog_lex.rs"]
+mod catalog_lex;
+
+use catalog_lex::{Lexed, lex, module_paths, named, test_modules};
 
 /// The top-level keys of the command layer, the MCP server (`mcp`), the dev bridge (`bridge`)
 /// and the files around them.
@@ -54,7 +62,7 @@ fn catalog_keys(text: &str) -> BTreeSet<String> {
 }
 
 /// Every `.rs` file below `dir`.
-fn sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
@@ -65,46 +73,38 @@ fn sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// `text` without its test module: everything from the `#[cfg(test)]` above `mod tests`.
-fn without_tests(text: &str) -> &str {
-    let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    let Some(at) = lines
-        .iter()
-        .position(|l| l.trim_start_matches("pub(crate) ").starts_with("mod tests"))
-    else {
-        return text;
+/// Whether `literal` looks like a key of one of the [`SECTIONS`] (`section.name`,
+/// `section.module.name` or `section.module.name.part`, lower case and underscores).
+fn looks_like_key(literal: &str) -> bool {
+    let mut parts = literal.split('.');
+    let first = parts.next().unwrap_or_default();
+    let rest: Vec<&str> = parts.collect();
+    let word = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
     };
-    let mut first = at;
-    while first > 0 && lines[first - 1].trim_start().starts_with("#[") {
-        first -= 1;
-    }
-    let end: usize = lines[..first].iter().map(|l| l.len()).sum();
-    &text[..end]
+    SECTIONS.contains(&first)
+        && !NOT_KEYS.contains(&literal)
+        && (1..=3).contains(&rest.len())
+        && rest.iter().all(|s| word(s))
 }
 
-/// The string literals of `text` that look like a key of one of the [`SECTIONS`]
-/// (`section.name`, `section.module.name` or `section.module.name.part`, lower case and
-/// underscores).
-fn named_keys(text: &str) -> BTreeSet<String> {
-    let mut keys = BTreeSet::new();
-    for literal in text.split('"').skip(1).step_by(2) {
-        let mut parts = literal.split('.');
-        let first = parts.next().unwrap_or_default();
-        let rest: Vec<&str> = parts.collect();
-        let word = |s: &str| {
-            !s.is_empty()
-                && s.chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-        };
-        if SECTIONS.contains(&first)
-            && !NOT_KEYS.contains(&literal)
-            && (1..=3).contains(&rest.len())
-            && rest.iter().all(|s| word(s))
-        {
-            keys.insert(literal.to_owned());
-        }
-    }
-    keys
+/// The keys the production code of a source names: those of its `t!("…")` calls, whatever
+/// they start with, and its string literals that look like a key of a section. The code in
+/// the `tests` ranges does not count.
+fn keys_named(text: &str, lexed: &Lexed, tests: &[Range<usize>]) -> BTreeSet<String> {
+    let found = named(text, lexed, tests);
+    let literals = found.literals.into_iter().filter(|l| looks_like_key(l));
+    found.t_keys.into_iter().chain(literals).collect()
+}
+
+/// The keys the production code of `text` names, test modules (behind `#[cfg(test)]`, with a
+/// body or as `mod name;`) left out.
+fn production_keys(text: &str) -> BTreeSet<String> {
+    let lexed = lex(text);
+    let (tests, _) = test_modules(&lexed.code);
+    keys_named(text, &lexed, &tests)
 }
 
 #[test]
@@ -113,14 +113,26 @@ fn code_and_catalog_name_the_same_keys() {
     let en = catalog_keys(&std::fs::read_to_string(root.join("locales/en.yml")).unwrap());
     let mut files = Vec::new();
     sources(&root.join("src"), &mut files);
-    let mut named = BTreeSet::new();
+    files.sort();
+
+    // First the test modules, also those in files of their own, then the rest.
+    let mut lexed = Vec::new();
+    let mut test_files: Vec<PathBuf> = Vec::new();
     for file in files {
-        // The tests of a module may name keys on purpose (a missing one included).
-        if file.file_name().is_some_and(|n| n == "tests.rs") {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let tokens = lex(&text);
+        let (ranges, modules) = test_modules(&tokens.code);
+        for name in modules {
+            test_files.extend(module_paths(&file, &name));
+        }
+        lexed.push((file, text, tokens, ranges));
+    }
+    let mut named = BTreeSet::new();
+    for (file, text, tokens, ranges) in &lexed {
+        if test_files.iter().any(|t| file.starts_with(t)) {
             continue;
         }
-        let text = std::fs::read_to_string(&file).unwrap();
-        named.extend(named_keys(without_tests(&text)));
+        named.extend(keys_named(text, tokens, ranges));
     }
     let missing: Vec<_> = named.difference(&en).collect();
     assert!(
@@ -135,5 +147,27 @@ fn code_and_catalog_name_the_same_keys() {
     assert!(
         unused.is_empty(),
         "keys of en.yml no code names: {unused:#?}"
+    );
+}
+
+#[test]
+fn a_test_module_in_its_own_file_does_not_hide_the_code_after_it() {
+    let text = r#"
+#[cfg(test)]
+mod tests;
+
+fn code() { t!("commands.git.init_unsaved"); let k = ("hp", "labels.hp"); }
+
+#[cfg(test)]
+mod more_tests {
+    fn on_purpose() { t!("mcp.access.not_a_key"); }
+}
+"#;
+    assert_eq!(
+        production_keys(text),
+        BTreeSet::from([
+            "commands.git.init_unsaved".to_owned(),
+            "labels.hp".to_owned()
+        ])
     );
 }

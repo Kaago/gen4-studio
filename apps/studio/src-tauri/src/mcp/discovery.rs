@@ -45,7 +45,7 @@ impl Discovery {
 pub fn write(dir: &Path, discovery: &Discovery) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| {
         t!(
-            "mcp.discovery.folder_not_created",
+            "commands.policy.folder_not_created",
             path = dir.display(),
             error = e
         )
