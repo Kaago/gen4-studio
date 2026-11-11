@@ -1,7 +1,7 @@
 import type { TextProjectStatus } from "../api";
-import { t } from "../i18n";
+import { matchesAnyLanguage, t } from "../i18n";
 
-/** The kernel's reason a Diamond or Pearl folder cannot be set up (`textproject::NO_DP`) in the language that is shown: no hint for it. */
+/** The kernel's reason a Diamond or Pearl folder cannot be set up (`textproject::NO_DP`) in the language that is shown; `shouldHint` knows it in either language. */
 export const noDp = (): string => t("textproject:textProjectHint.noDp");
 
 /** Where „Nicht mehr fragen“ is kept, per project folder: a convenience of the user, no project file. */
@@ -13,7 +13,8 @@ const key = (root: string) => `g4.textProjectHint.${root}`;
  */
 export function shouldHint(root: string, status: TextProjectStatus): boolean {
   if (status.state !== "dspre") return false;
-  if (!status.adoptable && status.reason === noDp()) return false;
+  // The kernel words the reason in the language it was set to, which may differ from the one shown: a sentence of either catalog counts.
+  if (!status.adoptable && matchesAnyLanguage("textproject:textProjectHint.noDp", status.reason)) return false;
   try {
     return localStorage.getItem(key(root)) === null;
   } catch {

@@ -144,7 +144,7 @@ describe("GitInitDialog", () => {
     ]);
     expect(labels()).toEqual(["Abbrechen", "Vorlagen schreiben"]);
     expect(button("Vorlagen schreiben")?.dataset.kind).toBe("primary");
-    const report = initReportOf({ committed: false, reason: notInstalledText(), head: null, files: 0 });
+    const report = initReportOf({ committed: false, reason: notInstalledText(), reason_code: "not_installed", head: null, files: 0 });
     vi.mocked(gitInit).mockResolvedValueOnce(report);
     await act(async () => button("Vorlagen schreiben")!.click());
     expect(onDone).toHaveBeenCalledWith(report);
@@ -154,7 +154,7 @@ describe("GitInitDialog", () => {
 
   it("a_failed_commit_shows_the_reason_and_keeps_the_dialog", async () => {
     const reason = "Der erste Commit ist gescheitert: error: gpg failed to sign the data. Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug.";
-    const report = initReportOf({ committed: false, reason, head: null, files: 0 });
+    const report = initReportOf({ committed: false, reason, reason_code: "failed", head: null, files: 0 });
     vi.mocked(gitInit).mockResolvedValueOnce(report);
     await show();
     await act(async () => button("Einrichten")!.click());
@@ -169,6 +169,25 @@ describe("GitInitDialog", () => {
     expect(progress()).toBeNull();
     await act(async () => button("Schließen")!.click());
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("the_sentence_of_a_missing_git_under_the_code_of_a_failure_is_a_failure", async () => {
+    // The kernel's sentence for a missing Git under the code of a failure: the dialog stays and shows it, it does not say „templates only“.
+    const report = initReportOf({ committed: false, reason: notInstalledText(), reason_code: "failed", head: null, files: 0 });
+    vi.mocked(gitInit).mockResolvedValueOnce(report);
+    await show();
+    await act(async () => button("Einrichten")!.click());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(labels()).toEqual(["Schließen"]);
+    expect(listToasts()).toEqual([]);
+  });
+
+  it("a_missing_git_is_told_by_its_code_whatever_the_words", async () => {
+    vi.mocked(gitInit).mockResolvedValueOnce(initReportOf({ committed: false, reason: "no git here", reason_code: "not_installed", head: null, files: 0 }));
+    await show({ status: noRepo({ cli: null }) });
+    await act(async () => button("Vorlagen schreiben")!.click());
+    expect(onClose).toHaveBeenCalled();
+    expect(listToasts().map((t) => t.text)).toEqual(["Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist."]);
   });
 
   it("the_legal_note_is_always_shown", async () => {

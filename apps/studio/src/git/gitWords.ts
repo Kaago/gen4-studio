@@ -1,5 +1,5 @@
 import type { CommitReport, GitStatus, InitReport, TemplatesRewritten } from "../api";
-import { matchesAnyLanguage, t } from "../i18n";
+import { t } from "../i18n";
 
 /** The changed paths since the last commit: „keine Änderung“, „1 Änderung“, „{n} Änderungen“. */
 export function changesWord(n: number): string {
@@ -40,15 +40,18 @@ export function initDoneText(report: InitReport): string {
   return report.studio_identity ? `${done} ${t("git:gitWords.studioIdentity")}` : done;
 }
 
-/** The kernel's reason when no `git` was found (`git.not_installed`) in the language that is shown: only the templates were written. */
+/**
+ * The kernel's reason when no `git` was found (`git.not_installed`) in the language that is shown. The app does not decide by it (see
+ * `isNotInstalled`); it mirrors the kernel's sentence byte for byte (the kernel's `mirror_sentences_match_the_frontend_in_english`).
+ */
 export const notInstalledText = (): string => t("git:gitWords.notInstalled");
 
 /**
- * Whether `reason` is the kernel's `git.not_installed`. The kernel words it in the language it was set to; a sentence of either catalog
- * counts, so the check holds when it speaks another language than the app shows.
+ * Whether the set-up made no commit because no `git` was found (`reason_code` „not_installed“): only the templates were written. The code
+ * decides, not the kernel's sentence, which is in the language it was set to and may differ from the one shown.
  */
-export function isNotInstalled(reason: string | null): boolean {
-  return reason !== null && matchesAnyLanguage("git:gitWords.notInstalled", reason);
+export function isNotInstalled(report: { reason_code?: string | null }): boolean {
+  return report.reason_code === "not_installed";
 }
 
 /** The message when no `git` is installed: only the templates were written. */

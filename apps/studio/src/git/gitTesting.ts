@@ -31,6 +31,7 @@ export const initReportOf = (over: Partial<InitReport> = {}): InitReport => ({
   },
   committed: true,
   reason: null,
+  reason_code: null,
   head: { id: "4c1d2e3f".padEnd(40, "0"), short: "4c1d2e3", summary: "Ausgangsstand", time: 1_761_700_000 },
   files: 18449,
   studio_identity: false,

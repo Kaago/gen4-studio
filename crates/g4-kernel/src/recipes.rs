@@ -142,7 +142,8 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<String>, KernelError>
         // A talk and a reward are one undo step each, whatever their input.
         RecipeId::TalkAdvances | RecipeId::RewardOnce => None,
         // They may need a level script file of their own for the place, which stays after
-        // undo; whether they do, only the project tells ([`is_irreversible_in`]).
+        // undo; whether they do, only the project tells ([`is_irreversible_in`]). Exactly
+        // these are [`creates_level_script`].
         RecipeId::FigureAppears => {
             input::<figure_appears::FigureAppearsInput>(call)?;
             Some(level_script_file())
@@ -159,6 +160,15 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<String>, KernelError>
     })
 }
 
+/// Whether applying the recipe `id` may create a level script file of its own for the place,
+/// which stays after undo: a visibility (`figure_appears`) and a scene (`scene_on_enter`).
+/// [`is_irreversible`] answers [`level_script_file`] for exactly these (whatever the project),
+/// and [`is_irreversible_in`] decides from the project's plan; callers that must tell this
+/// class of recipe ask here, never by the words of the answer.
+pub fn creates_level_script(id: RecipeId) -> bool {
+    matches!(id, RecipeId::FigureAppears | RecipeId::SceneOnEnter)
+}
+
 /// What [`is_irreversible`] answers for a recipe that may create a level script file.
 pub fn level_script_file() -> String {
     t!("recipes.irreversible_level_script").into_owned()
@@ -172,11 +182,10 @@ pub fn is_irreversible_in(
     store: &mut Store,
     call: &RecipeCall,
 ) -> Result<Option<String>, KernelError> {
-    match call.recipe {
-        RecipeId::FigureAppears | RecipeId::SceneOnEnter => {
-            Ok((!plan(store, call)?.irreversible.is_empty()).then(level_script_file))
-        }
-        _ => is_irreversible(call),
+    if creates_level_script(call.recipe) {
+        Ok((!plan(store, call)?.irreversible.is_empty()).then(level_script_file))
+    } else {
+        is_irreversible(call)
     }
 }
 
@@ -221,6 +230,21 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_visibility_and_a_scene_may_create_a_level_script_file() {
+        assert!(creates_level_script(RecipeId::FigureAppears));
+        assert!(creates_level_script(RecipeId::SceneOnEnter));
+        let creating: Vec<RecipeId> = RecipeId::all()
+            .iter()
+            .copied()
+            .filter(|&id| creates_level_script(id))
+            .collect();
+        assert_eq!(creating, [RecipeId::FigureAppears, RecipeId::SceneOnEnter]);
+        assert!(!creates_level_script(RecipeId::NewStory));
+        assert!(!creates_level_script(RecipeId::TalkAdvances));
+        assert!(!creates_level_script(RecipeId::EmptyRegion));
+    }
 
     #[test]
     fn new_painted_map_is_always_irreversible() {

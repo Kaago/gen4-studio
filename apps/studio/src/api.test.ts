@@ -70,6 +70,7 @@ describe("isCmdError", () => {
     expect(isCmdError({ code: "finding_stale", message: "finding is no longer current", asset: null })).toBe(true);
     expect(isCmdError({ code: "unsynced", message: "Im Textprojekt sind Änderungen …", asset: null })).toBe(true);
     expect(isCmdError({ code: "busy", message: "m", asset: null })).toBe(true);
+    expect(isCmdError({ code: "reopen", message: "Das Projekt bitte neu öffnen.", asset: null })).toBe(true);
     expect(isCmdError("plain string")).toBe(false);
   });
 
