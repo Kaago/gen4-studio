@@ -12,7 +12,7 @@ export type AskKind = "info" | "warning" | "error";
 
 /** A question waiting for an answer on the page. */
 export type WebRequest =
-  | { kind: "ask"; message: string; level: AskKind; resolve: (yes: boolean) => void }
+  | { kind: "ask"; message: string; level: AskKind; title?: string; okLabel?: string; cancelLabel?: string; resolve: (yes: boolean) => void }
   | { kind: "path"; title: string; initial: string; resolve: (path: string | null) => void };
 
 const LAST_PATH_KEY = "g4.web.lastPath";
@@ -70,10 +70,18 @@ export function answerRequest(answer: boolean | string | null) {
   notify();
 }
 
-/** Yes/no question; Escape and the system "cancel" answer no. */
-export function ask(message: string, opts?: { kind?: AskKind }): Promise<boolean> {
+/** What `ask` may set: the kind of dialog and, instead of the system's, its title and the texts of the two buttons. */
+export type AskOptions = { kind?: AskKind; title?: string; okLabel?: string; cancelLabel?: string };
+
+/**
+ * Yes/no question; Escape and the system "cancel" answer no. `okLabel` and `cancelLabel` name the yes and the no button (the system's
+ * or „Ja“ and „Nein“ without them), `title` the dialog.
+ */
+export function ask(message: string, opts?: AskOptions): Promise<boolean> {
   if (inTauri()) return tauriAsk(message, opts);
-  return new Promise((resolve) => enqueue({ kind: "ask", message, level: opts?.kind ?? "info", resolve }));
+  return new Promise((resolve) =>
+    enqueue({ kind: "ask", message, level: opts?.kind ?? "info", title: opts?.title, okLabel: opts?.okLabel, cancelLabel: opts?.cancelLabel, resolve }),
+  );
 }
 
 /** A file type the system dialog offers, e.g. `{ name: "DS-ROM", extensions: ["nds"] }`. */

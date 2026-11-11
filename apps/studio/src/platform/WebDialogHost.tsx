@@ -23,7 +23,7 @@ function requestId(request: WebRequest): number {
 }
 
 /**
- * One request as a modal `Dialog`: a question with Nein and Ja, or a path typed into a field with Abbrechen and OK. Escape, the close
+ * One request as a modal `Dialog`: a question with Nein and Ja (or the labels it asked for), or a path typed into a field with Abbrechen and OK. Escape, the close
  * button and a click outside answer no (or cancel); Escape cancels the path dialog also with text in the field (the field follows every
  * keystroke, so there is no draft to take back first). Enter in the field takes the path.
  */
@@ -42,11 +42,11 @@ function RequestDialog({ request }: { request: WebRequest }) {
       <Dialog
         open
         onOpenChange={onOpenChange}
-        title={t("webDialog.question")}
+        title={request.title ?? t("webDialog.question")}
         description={request.message}
         actions={[
-          { label: t("webDialog.no"), onClick: () => answerRequest(false) },
-          { label: t("webDialog.yes"), kind: request.level === "warning" ? "danger" : "primary", onClick: () => answerRequest(true) },
+          { label: request.cancelLabel ?? t("webDialog.no"), onClick: () => answerRequest(false) },
+          { label: request.okLabel ?? t("webDialog.yes"), kind: request.level === "warning" ? "danger" : "primary", onClick: () => answerRequest(true) },
         ]}
       />
     );
