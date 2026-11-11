@@ -242,7 +242,9 @@ DMG und Installer bleiben die Downloads für Menschen.
 **`latest.json`.** Zuletzt läuft in `publish-windows` der Schritt „Update manifest“: Er holt die `.sig` des macOS-Pakets aus dem Entwurf, nimmt als Text
 den Text des Entwurfs (die Release-Notizen aus `CHANGELOG.md`; was im Entwurf steht, zeigt die App) und ruft
 `scripts/release/updater-manifest.sh <Tag> <Notizen> <macOS-.sig> <Windows-.sig> latest.json` auf. Das Skript prüft, was es schreibt: der Tag ist `v<SemVer>`,
-beide Signaturen sind nicht leer, Base64 und beginnen entschlüsselt mit `untrusted comment:`; die Adressen zeigen auf die Assets des Tags. Fehlt die macOS-`.sig`
+beide Signaturen sind nicht leer, Base64, beginnen entschlüsselt mit `untrusted comment:` und nennen in ihrem `trusted comment` die Fassung des Tags
+(`version:<Fassung>`); die Adressen zeigen auf die Assets des Tags. Die App prüft dasselbe beim Installieren (`plugins.updater.requireSignedVersion`):
+Ein gefälschtes `latest.json` kann so kein älteres, echt signiertes Paket als neue Fassung anbieten. Fehlt die macOS-`.sig`
 (`release-local.sh` lief ohne Schlüssel) oder ist eine Prüfung nicht erfüllt, scheitert der Job vor dem Hochladen und `latest.json` entsteht nicht.
 Tags mit Build-Metadaten (`+…`) sind nicht unterstützt: das Skript lehnt sie ab, weil das `+` in Dateinamen und Adressen landen würde.
 

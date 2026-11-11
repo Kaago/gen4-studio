@@ -242,7 +242,9 @@ The DMG and the installer stay the downloads for people.
 **`latest.json`.** The last thing `publish-windows` does is the step "Update manifest": it fetches the `.sig` of the macOS package from the draft, takes the
 body of the draft as the text (the release notes from `CHANGELOG.md`; what the draft says is what the app shows) and calls
 `scripts/release/updater-manifest.sh <tag> <notes> <macOS .sig> <Windows .sig> latest.json`. The script checks what it writes: the tag is `v<SemVer>`,
-both signatures are not empty, Base64, and start with `untrusted comment:` once decoded; the addresses point to the assets of the tag. If the macOS `.sig` is missing
+both signatures are not empty, Base64, start with `untrusted comment:` once decoded and name the version of the tag in their trusted comment
+(`version:<version>`); the addresses point to the assets of the tag. The app checks the same when it installs (`plugins.updater.requireSignedVersion`),
+so a forged `latest.json` cannot offer an older, genuinely signed package as the new version. If the macOS `.sig` is missing
 (`release-local.sh` ran without the key) or a check fails, the job fails before uploading and `latest.json` is not created.
 Tags with build metadata (`+…`) are not supported: the script refuses them because the `+` would end up in file names and addresses.
 
