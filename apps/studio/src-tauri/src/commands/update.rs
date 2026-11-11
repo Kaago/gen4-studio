@@ -1,8 +1,11 @@
-//! Updates from GitHub Releases: `update_check` looks for a newer signed build, `update_install`
-//! downloads, verifies and installs the one it found. The Tauri updater plugin does the network
-//! and the signature check (against `plugins.updater.pubkey` in `tauri.conf.json`); this module
-//! decides when an install may start and tells the webview how far it is. The webview only ever
-//! calls the two commands here, never the plugin's own (no `updater:*` permission is granted).
+//! Updates from GitHub Releases in three steps, each its own command so the webview can ask the
+//! user in between: `update_check` looks for a newer signed build, `update_download` fetches
+//! and verifies it, `update_install` installs the verified bytes. The unsaved edits are counted
+//! at the install, the last moment before the app ends, not before the download that may take
+//! minutes. The Tauri updater plugin does the network and the signature check (against
+//! `plugins.updater.pubkey` in `tauri.conf.json`); this module decides when a step may start
+//! and tells the webview how far it is. The webview only ever calls the commands here, never
+//! the plugin's own (no `updater:*` permission is granted).
 
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -18,7 +21,8 @@ use crate::state::AppState;
 /// candidate: `latest.json` of a pre-release). Only an `https` address is taken.
 pub const ENDPOINT_VAR: &str = "G4_UPDATE_ENDPOINT";
 
-/// The event that reports the progress of `update_install` to the webview.
+/// The event that reports the progress of the download and the start of the install to the
+/// webview.
 pub const PROGRESS_EVENT: &str = "update-progress";
 
 /// How long the check may take before it counts as failed.
@@ -38,74 +42,125 @@ pub struct UpdateInfo {
     pub notes: Option<String>,
 }
 
-/// How far `update_install` is, sent as [`PROGRESS_EVENT`].
+/// How far `update_download` and `update_install` are, sent as [`PROGRESS_EVENT`].
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum UpdateProgress {
-    /// Bytes downloaded so far, of `total` when the server told the size.
+    /// `update_download`: bytes downloaded so far, of `total` when the server told the size.
     Downloading { done: u64, total: Option<u64> },
-    /// The download is complete and verified; the installer runs.
+    /// `update_install` has started: the verified bytes are being installed.
     Installing,
 }
 
-/// The update `update_check` found, and whether an install is running.
+/// The update `update_check` found, its verified download, and whether a download or an
+/// install is running.
 #[derive(Default)]
 pub struct UpdateState {
-    inner: Mutex<Found>,
-}
-
-#[derive(Default)]
-struct Found {
-    /// The update the last check found; an install takes it, the next check replaces it.
-    update: Option<Update>,
-    /// An install has started and has not failed (on success the app ends).
-    installing: bool,
+    inner: Mutex<Found<Update>>,
 }
 
 impl UpdateState {
-    /// The state lock, recovered when a panic poisoned it: the state is two plain values.
-    fn lock(&self) -> MutexGuard<'_, Found> {
+    /// The state lock, recovered when a panic poisoned it: the state is plain values.
+    fn lock(&self) -> MutexGuard<'_, Found<Update>> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
 
-    /// Keeps what the last check found in place of an older find; no find clears it.
-    fn keep(&self, found: Option<Update>) {
-        self.lock().update = found;
+/// What [`UpdateState`] holds, with the update's type open so the tests need no real one.
+struct Found<U> {
+    /// The update the last check found, with its version; the next check replaces it.
+    update: Option<(String, U)>,
+    /// The downloaded and verified package of `update`; replaced or dropped with it.
+    bytes: Option<Vec<u8>>,
+    /// A download or an install is running (an install that succeeds ends the app).
+    busy: bool,
+}
+
+impl<U> Default for Found<U> {
+    fn default() -> Self {
+        Self {
+            update: None,
+            bytes: None,
+            busy: false,
+        }
+    }
+}
+
+impl<U: Clone> Found<U> {
+    /// Keeps what a check found in place of the older find and its download; no find clears
+    /// both.
+    fn replace(&mut self, found: Option<(String, U)>) {
+        self.update = found;
+        self.bytes = None;
     }
 
-    /// Starts the install of `version`: the update to install, with the install marked as
-    /// running; or why it may not start ([`install_refusal`]). Check and mark are one step, so
-    /// two calls at once start one install.
-    fn begin_install(
-        &self,
-        version: &str,
-        store_dirty: usize,
-        discard_unsaved: bool,
-    ) -> Result<Update, CmdError> {
-        let mut state = self.lock();
-        let pending = state.update.as_ref().map(|u| u.version.as_str());
-        if let Some(refusal) = install_refusal(
-            pending,
-            version,
-            store_dirty,
-            discard_unsaved,
-            state.installing,
-        ) {
+    /// The version of the found update.
+    fn found_version(&self) -> Option<&str> {
+        self.update.as_ref().map(|(version, _)| version.as_str())
+    }
+
+    /// Starts the download of `version`: the update to download, with the state marked busy;
+    /// or why it may not start ([`download_refusal`]). Check and mark are one step, so two
+    /// calls at once start one download. The found update stays where it is.
+    fn begin_download(&mut self, version: &str) -> Result<U, CmdError> {
+        if let Some(refusal) = download_refusal(self.found_version(), version, self.busy) {
             return Err(refusal);
         }
-        let Some(update) = state.update.take() else {
+        let Some((_, update)) = &self.update else {
             return Err(not_found(version));
         };
-        state.installing = true;
+        let update = update.clone();
+        self.busy = true;
         Ok(update)
     }
 
-    /// The install failed: another one may start, with `update` again unless a later check
-    /// found one meanwhile.
-    fn install_failed(&self, update: Update) {
-        let mut state = self.lock();
-        state.installing = false;
-        state.update.get_or_insert(update);
+    /// The download of `version` failed: not busy any more, the found update stays.
+    fn download_failed(&mut self) {
+        self.busy = false;
+    }
+
+    /// The download of `version` is complete and verified: not busy any more, `bytes` kept
+    /// for the install. A check that replaced the found update meanwhile made the download
+    /// worthless: `Err` then, nothing kept.
+    fn downloaded(&mut self, version: &str, bytes: Vec<u8>) -> Result<(), CmdError> {
+        self.busy = false;
+        if self.found_version() != Some(version) {
+            return Err(not_found(version));
+        }
+        self.bytes = Some(bytes);
+        Ok(())
+    }
+
+    /// Starts the install of `version`: the update with its verified bytes, the state marked
+    /// busy; or why it may not start ([`install_refusal`]). Check and mark are one step, so
+    /// two calls at once start one install.
+    fn begin_install(
+        &mut self,
+        version: &str,
+        store_dirty: usize,
+        discard_unsaved: bool,
+    ) -> Result<(U, Vec<u8>), CmdError> {
+        let downloaded = self.bytes.as_ref().and(self.found_version());
+        if let Some(refusal) =
+            install_refusal(downloaded, version, store_dirty, discard_unsaved, self.busy)
+        {
+            return Err(refusal);
+        }
+        let (Some((_, update)), Some(bytes)) = (&self.update, self.bytes.take()) else {
+            return Err(not_found(version));
+        };
+        let update = update.clone();
+        self.busy = true;
+        Ok((update, bytes))
+    }
+
+    /// The install of `version` failed: not busy any more, with `bytes` kept again for
+    /// another try unless a check replaced the update meanwhile.
+    fn install_failed(&mut self, version: &str, bytes: Vec<u8>) {
+        self.busy = false;
+        if self.found_version() == Some(version) {
+            self.bytes = Some(bytes);
+        }
     }
 }
 
@@ -113,6 +168,10 @@ fn not_found(version: &str) -> CmdError {
     t!("commands.update.not_found", version = version)
         .into_owned()
         .into()
+}
+
+fn running() -> CmdError {
+    t!("commands.update.running").into_owned().into()
 }
 
 /// The address in [`ENDPOINT_VAR`], if one is set: `Ok(None)` for none (or an empty one), an
@@ -128,20 +187,34 @@ pub fn endpoint_override(raw: Option<&str>) -> Result<Option<tauri::Url>, String
     raw.parse().map(Some).map_err(|_| bad())
 }
 
-/// Why `update_install(requested, …)` must not start, in this order: an install is running;
-/// no update was found, or another one than `requested`; unsaved edits that the user did not
-/// agree to discard (code `"unsaved"`). `pending` is the version `update_check` found.
+/// Why `update_download(requested)` must not start, in this order: a download or an install
+/// is running; no update was found, or another one than `requested`. `found` is the version
+/// `update_check` found.
+pub fn download_refusal(found: Option<&str>, requested: &str, busy: bool) -> Option<CmdError> {
+    if busy {
+        return Some(running());
+    }
+    if found != Some(requested) {
+        return Some(not_found(requested));
+    }
+    None
+}
+
+/// Why `update_install(requested, …)` must not start, in this order: a download or an install
+/// is running; no verified download for exactly `requested`; unsaved edits that the user did
+/// not agree to discard (code `"unsaved"`). `downloaded` is the version whose package
+/// `update_download` verified and kept.
 pub fn install_refusal(
-    pending: Option<&str>,
+    downloaded: Option<&str>,
     requested: &str,
     store_dirty: usize,
     discard_unsaved: bool,
-    installing: bool,
+    busy: bool,
 ) -> Option<CmdError> {
-    if installing {
-        return Some(t!("commands.update.running").into_owned().into());
+    if busy {
+        return Some(running());
     }
-    if pending != Some(requested) {
+    if downloaded != Some(requested) {
         return Some(not_found(requested));
     }
     if store_dirty > 0 && !discard_unsaved {
@@ -185,7 +258,7 @@ impl ProgressThrottle {
 }
 
 /// Looks for a newer build. `None`: this one is the newest. A found update is kept for
-/// `update_install` until it is installed or the next check replaces it.
+/// `update_download` until the next check replaces it (and drops a download of the older one).
 #[tauri::command]
 pub async fn update_check(
     app: AppHandle,
@@ -216,14 +289,52 @@ pub async fn update_check(
         current: update.current_version.clone(),
         notes: update.body.clone(),
     });
-    state.keep(found);
+    state
+        .lock()
+        .replace(found.map(|update| (update.version.clone(), update)));
     Ok(info)
 }
 
-/// Downloads, verifies and installs the update `update_check` found, which must be `version`.
-/// Refuses while unsaved edits exist unless `discard_unsaved` says the user agreed. Reports
-/// [`PROGRESS_EVENT`]. Afterwards the app restarts (on Windows the plugin ends it and the
-/// installer starts the new version).
+/// Downloads and verifies the update `update_check` found, which must be `version`, and keeps
+/// the package for `update_install`. Reports [`PROGRESS_EVENT`] `Downloading` while it runs.
+/// Installs nothing and asks nothing about unsaved edits: the user may keep working meanwhile.
+/// A failed download keeps the found update.
+#[tauri::command]
+pub async fn update_download(
+    app: AppHandle,
+    state: State<'_, UpdateState>,
+    version: String,
+) -> Result<(), CmdError> {
+    let update = state.lock().begin_download(&version)?;
+    let mut throttle = ProgressThrottle::default();
+    let downloaded = update
+        .download(
+            |chunk, total| {
+                if let Some(progress) = throttle.advance(chunk, total) {
+                    // A failed emit only means the webview misses one update.
+                    let _ = app.emit(PROGRESS_EVENT, progress);
+                }
+            },
+            || {},
+        )
+        .await;
+    match downloaded {
+        Ok(bytes) => state.lock().downloaded(&version, bytes),
+        Err(e) => {
+            state.lock().download_failed();
+            Err(t!("commands.update.download_failed", error = e)
+                .into_owned()
+                .into())
+        }
+    }
+}
+
+/// Installs the package `update_download` verified for `version`. Refuses while unsaved edits
+/// exist unless `discard_unsaved` says the user agreed; the edits are counted here, right
+/// before the app ends, so the ones made during the download count too. Reports
+/// [`PROGRESS_EVENT`] `Installing` once. Afterwards the app restarts (on Windows the plugin
+/// ends it and the installer starts the new version). A failed install keeps the update and
+/// its package.
 #[tauri::command]
 pub async fn update_install(
     app: AppHandle,
@@ -232,26 +343,15 @@ pub async fn update_install(
     discard_unsaved: bool,
 ) -> Result<(), CmdError> {
     let dirty = app.state::<AppState>().unsaved_count();
-    let update = state.begin_install(&version, dirty, discard_unsaved)?;
-    // A failed emit only means the webview misses one update.
-    let send = |progress: UpdateProgress| {
-        let _ = app.emit(PROGRESS_EVENT, progress);
-    };
-    let mut throttle = ProgressThrottle::default();
-    let result = update
-        .download_and_install(
-            |chunk, total| {
-                if let Some(progress) = throttle.advance(chunk, total) {
-                    send(progress);
-                }
-            },
-            || send(UpdateProgress::Installing),
-        )
-        .await;
-    match result {
+    let (update, bytes) = state
+        .lock()
+        .begin_install(&version, dirty, discard_unsaved)?;
+    // A failed emit only means the webview misses the update.
+    let _ = app.emit(PROGRESS_EVENT, UpdateProgress::Installing);
+    match update.install(&bytes) {
         Ok(()) => restart(&app),
         Err(e) => {
-            state.install_failed(update);
+            state.lock().install_failed(&version, bytes);
             Err(t!("commands.update.install_failed", error = e)
                 .into_owned()
                 .into())
@@ -299,13 +399,12 @@ mod tests {
     }
 
     #[test]
-    fn install_needs_the_version_that_was_found() {
-        assert_eq!(
-            install_refusal(None, "1.0.2", 0, false, false)
-                .unwrap()
-                .code,
-            "error"
-        );
+    fn install_needs_the_version_that_was_downloaded() {
+        // No download at all.
+        let e = install_refusal(None, "1.0.2", 0, false, false).unwrap();
+        assert_eq!(e.code, "error");
+        assert!(e.message.contains("1.0.2"), "{}", e.message);
+        // The download is of another version.
         assert_eq!(
             install_refusal(Some("1.0.2"), "1.0.3", 0, false, false)
                 .unwrap()
@@ -324,6 +423,13 @@ mod tests {
             "unsaved"
         );
         assert!(install_refusal(Some("1.0.2"), "1.0.2", 3, true, false).is_none());
+        // Without a download the missing package is the answer, not the edits.
+        assert_eq!(
+            install_refusal(None, "1.0.2", 3, false, false)
+                .unwrap()
+                .code,
+            "error"
+        );
     }
 
     #[test]
@@ -331,6 +437,140 @@ mod tests {
         let e = install_refusal(Some("1.0.2"), "1.0.2", 0, false, true).unwrap();
         assert_eq!(e.code, "error");
         assert!(e.message.contains("already"), "{}", e.message);
+        // A running one wins over everything else.
+        let e = install_refusal(None, "1.0.2", 3, false, true).unwrap();
+        assert!(e.message.contains("already"), "{}", e.message);
+    }
+
+    #[test]
+    fn a_download_needs_the_version_that_was_found_and_no_other_run() {
+        let e = download_refusal(None, "1.0.2", false).unwrap();
+        assert_eq!(e.code, "error");
+        assert!(e.message.contains("1.0.2"), "{}", e.message);
+        assert_eq!(
+            download_refusal(Some("1.0.2"), "1.0.3", false)
+                .unwrap()
+                .code,
+            "error"
+        );
+        assert!(download_refusal(Some("1.0.2"), "1.0.2", false).is_none());
+        let e = download_refusal(Some("1.0.2"), "1.0.2", true).unwrap();
+        assert_eq!(e.code, "error");
+        assert!(e.message.contains("already"), "{}", e.message);
+    }
+
+    /// The state with `1.0.2` found (the update itself is a stand-in).
+    fn found() -> Found<u8> {
+        let mut state = Found::default();
+        state.replace(Some(("1.0.2".to_owned(), 7)));
+        state
+    }
+
+    #[test]
+    fn a_download_keeps_the_found_update_and_blocks_other_runs() {
+        let mut state = found();
+        assert_eq!(state.begin_download("1.0.2").unwrap(), 7);
+        assert!(state.busy);
+        // A second download, an install, both while it runs.
+        for refusal in [
+            state.begin_download("1.0.2").unwrap_err(),
+            state.begin_install("1.0.2", 0, true).unwrap_err(),
+        ] {
+            assert!(refusal.message.contains("already"), "{}", refusal.message);
+        }
+        // It failed: the update is still there for another try.
+        state.download_failed();
+        assert!(!state.busy);
+        assert_eq!(state.begin_download("1.0.2").unwrap(), 7);
+        // The retry succeeds: not busy, the package is kept for the install.
+        state.downloaded("1.0.2", vec![1, 2, 3]).unwrap();
+        assert!(!state.busy);
+        assert_eq!(state.bytes.as_deref(), Some(&[1, 2, 3][..]));
+    }
+
+    #[test]
+    fn install_without_a_download_or_for_another_version_is_refused() {
+        let mut state = found();
+        // Found, not downloaded.
+        let e = state.begin_install("1.0.2", 0, true).unwrap_err();
+        assert_eq!(e.code, "error");
+        assert!(!state.busy, "a refusal marks nothing");
+        state.begin_download("1.0.2").unwrap();
+        state.downloaded("1.0.2", vec![1]).unwrap();
+        // Downloaded, but another version asked for.
+        let e = state.begin_install("1.0.3", 0, true).unwrap_err();
+        assert_eq!(e.code, "error");
+        assert!(e.message.contains("1.0.3"), "{}", e.message);
+        assert!(!state.busy);
+        assert!(state.bytes.is_some(), "a refusal keeps the package");
+        // Unsaved edits without consent, then with it.
+        assert_eq!(
+            state.begin_install("1.0.2", 2, false).unwrap_err().code,
+            "unsaved"
+        );
+        assert!(!state.busy);
+        assert_eq!(state.begin_install("1.0.2", 2, true).unwrap(), (7, vec![1]));
+        assert!(state.busy);
+        assert!(
+            state.begin_install("1.0.2", 0, true).is_err(),
+            "one install only"
+        );
+    }
+
+    #[test]
+    fn a_failed_install_keeps_the_update_and_its_package() {
+        let mut state = found();
+        state.begin_download("1.0.2").unwrap();
+        state.downloaded("1.0.2", vec![4, 5]).unwrap();
+        let (_, bytes) = state.begin_install("1.0.2", 0, false).unwrap();
+        state.install_failed("1.0.2", bytes);
+        assert!(!state.busy);
+        assert_eq!(state.begin_install("1.0.2", 0, false).unwrap().1, [4, 5]);
+    }
+
+    #[test]
+    fn a_new_check_replaces_the_update_and_drops_its_package() {
+        let mut state = found();
+        state.begin_download("1.0.2").unwrap();
+        state.downloaded("1.0.2", vec![1]).unwrap();
+        state.replace(Some(("1.0.3".to_owned(), 8)));
+        assert!(state.bytes.is_none());
+        assert_eq!(
+            state.begin_install("1.0.2", 0, true).unwrap_err().code,
+            "error"
+        );
+        assert_eq!(
+            state.begin_install("1.0.3", 0, true).unwrap_err().code,
+            "error"
+        );
+        // Nothing found drops both as well.
+        state.begin_download("1.0.3").unwrap();
+        state.downloaded("1.0.3", vec![2]).unwrap();
+        state.replace(None);
+        assert!(state.bytes.is_none());
+        assert!(state.begin_download("1.0.3").is_err());
+    }
+
+    #[test]
+    fn a_download_that_a_check_overtook_is_not_kept() {
+        // The download of 1.0.2 runs, a check finds 1.0.3 meanwhile.
+        let mut state = found();
+        state.begin_download("1.0.2").unwrap();
+        state.replace(Some(("1.0.3".to_owned(), 8)));
+        let e = state.downloaded("1.0.2", vec![1]).unwrap_err();
+        assert_eq!(e.code, "error");
+        assert!(e.message.contains("1.0.2"), "{}", e.message);
+        assert!(state.bytes.is_none());
+        assert!(!state.busy);
+        // An install that fails after a check replaced the update does not bring its package back.
+        let mut state = found();
+        state.begin_download("1.0.2").unwrap();
+        state.downloaded("1.0.2", vec![1]).unwrap();
+        let (_, bytes) = state.begin_install("1.0.2", 0, true).unwrap();
+        state.replace(Some(("1.0.3".to_owned(), 8)));
+        state.install_failed("1.0.2", bytes);
+        assert!(state.bytes.is_none());
+        assert!(!state.busy);
     }
 
     /// The `done` values of the events `chunks` cause, one chunk at a time.

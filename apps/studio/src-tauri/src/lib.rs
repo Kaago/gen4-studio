@@ -33,7 +33,7 @@ use commands::set_locale;
 use commands::split_room;
 use commands::story_delete;
 use commands::system_language;
-use commands::{UpdateState, update_check, update_install};
+use commands::{UpdateState, update_check, update_download, update_install};
 use commands::{
     accept_baseline, accept_disk, add_building, add_event, add_script, adopt_scripts, apply_fix,
     apply_header_patch, build_rom, checks_status, create_area, create_encounter_file,
@@ -328,6 +328,7 @@ pub fn run() {
             set_locale,
             system_language,
             update_check,
+            update_download,
             update_install
         ])
         .build(tauri::generate_context!())

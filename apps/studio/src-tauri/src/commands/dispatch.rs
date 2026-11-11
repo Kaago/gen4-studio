@@ -258,6 +258,7 @@ pub const COMMANDS: &[&str] = &[
     "set_locale",
     "system_language",
     "update_check",
+    "update_download",
     "update_install",
 ];
 
@@ -674,7 +675,7 @@ pub fn dispatch(
         ),
         "force_quit" => Ok(Reply::Json(Value::Null)),
         // There is no updater in the browser: nothing found, nothing installed.
-        "update_check" | "update_install" => Ok(Reply::Json(Value::Null)),
+        "update_check" | "update_download" | "update_install" => Ok(Reply::Json(Value::Null)),
         "data_list" => run!(
             json, "data_list", args,
             { kind: DataKind, filter: Option<DataFilter> },
@@ -1929,8 +1930,9 @@ mod tests {
             ("set_locale", json!({ "lang": "en" })),
             // Reads the OS locale, changes nothing.
             ("system_language", json!({})),
-            // No updater in the browser: both answer null.
+            // No updater in the browser: all three answer null.
             ("update_check", json!({})),
+            ("update_download", json!({ "version": "1.0.2" })),
             (
                 "update_install",
                 json!({ "version": "1.0.2", "discardUnsaved": false }),

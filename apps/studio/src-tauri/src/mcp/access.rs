@@ -307,6 +307,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("system_language", APP_ONLY),
     // Updating the app is the user's, never an agent's.
     ("update_check", APP_ONLY),
+    ("update_download", APP_ONLY),
     ("update_install", APP_ONLY),
 ];
 
@@ -646,6 +647,7 @@ mod tests {
                 ("set_locale", Kind::Unavailable("mcp.access.app_only")),
                 ("system_language", Kind::Unavailable("mcp.access.app_only")),
                 ("update_check", Kind::Unavailable("mcp.access.app_only")),
+                ("update_download", Kind::Unavailable("mcp.access.app_only")),
                 ("update_install", Kind::Unavailable("mcp.access.app_only")),
             ]
         );
