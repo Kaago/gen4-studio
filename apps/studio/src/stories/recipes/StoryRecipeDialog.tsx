@@ -83,7 +83,7 @@ export function StoryRecipeDialog(props: StoryRecipeDialogProps): JSX.Element {
   }
 
   const names = { headers };
-  const input = inputOf(form, names);
+  const input = inputOf(form, names, project?.language ?? null);
   const plan = useDraftPlan(form.recipe, input, noDraft);
   // Only a plan of this very input: one that changed (another place) waits for its own sentences before „Anlegen“.
   const ready = input !== null && plan.current && plan.error === null;

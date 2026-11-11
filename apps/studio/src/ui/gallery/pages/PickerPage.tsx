@@ -23,19 +23,22 @@ const texts: PickerItem[] = [
 ];
 
 const commands: PickerItem[] = [
-  { id: "cmd-open", label: "Projekt öffnen", group: "Befehle", icon: "open", shortcut: "⌘O" },
-  { id: "cmd-save", label: "Speichern", group: "Befehle", icon: "save", shortcut: "⌘S", description: "Schreibt alle Änderungen ins Projekt" },
-  { id: "cmd-build", label: "Bauen", group: "Befehle", icon: "build", shortcut: "⌘B" },
-  { id: "cmd-play", label: "Hier spielen", group: "Befehle", icon: "play", shortcut: "⌘R" },
-  { id: "cmd-theme", label: "Thema wechseln", group: "Befehle", icon: "moon" },
-  { id: "cmd-density", label: "Dichte wechseln", group: "Befehle", icon: "settings" },
+  { id: "cmd-open", label: "Projekt öffnen", group: "commands", icon: "open", shortcut: "⌘O" },
+  { id: "cmd-save", label: "Speichern", group: "commands", icon: "save", shortcut: "⌘S", description: "Schreibt alle Änderungen ins Projekt" },
+  { id: "cmd-build", label: "Bauen", group: "commands", icon: "build", shortcut: "⌘B" },
+  { id: "cmd-play", label: "Hier spielen", group: "commands", icon: "play", shortcut: "⌘R" },
+  { id: "cmd-theme", label: "Thema wechseln", group: "commands", icon: "moon" },
+  { id: "cmd-density", label: "Dichte wechseln", group: "commands", icon: "settings" },
 ];
 
 const paletteItems: PickerItem[] = [
   ...commands,
   ...places.map((p) => ({ ...p, preview: undefined, count: undefined })),
-  ...texts.map((t) => ({ ...t, id: `text-${t.id}`, group: "Textarchive" })),
+  ...texts.map((t) => ({ ...t, id: `text-${t.id}`, group: "textArchives" })),
 ];
+
+/** The demo's groups carry the palette's language-neutral ids for the commands and the archives; the others are shown as written. */
+const paletteGroupLabel = (group: string): string => (group === "commands" ? "Befehle" : group === "textArchives" ? "Textarchive" : group);
 
 const kinds = [
   { value: "alle", label: "Alle" },
@@ -94,8 +97,9 @@ export function PickerPage() {
         variant="palette"
         items={paletteItems}
         limitPerGroup={3}
-        groupOrder={["Befehle", "Städte", "Routen", "Höhlen und Wälder", "Textarchive"]}
-        emptyQueryGroups={["Befehle"]}
+        groupOrder={["commands", "Städte", "Routen", "Höhlen und Wälder", "textArchives"]}
+        groupLabel={paletteGroupLabel}
+        emptyQueryGroups={["commands"]}
         onPick={setPicked}
         placeholder="Suchen oder Befehl eingeben …"
       />

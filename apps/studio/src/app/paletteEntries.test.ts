@@ -55,7 +55,7 @@ const byId = (id: string, over: Partial<PaletteSource> = {}) => paletteEntries(s
 describe("paletteEntries", () => {
   it("lists_only_the_commands_without_a_project_and_locks_the_wizards_and_the_project_commands", () => {
     const entries = paletteEntries(source({ hasProject: false, places: [], headers: [], archives: [], scripts: null, data: null }));
-    expect(new Set(entries.map((e) => e.group))).toEqual(new Set(["Befehle"]));
+    expect(new Set(entries.map((e) => e.group))).toEqual(new Set(["commands"]));
     expect(entries.map((e) => e.label)).toEqual([
       "Projekt öffnen",
       "Neues Spiel aus ROM…",
@@ -102,54 +102,54 @@ describe("paletteEntries", () => {
 
   it("lists_without_a_project_no_places_headers_archives_or_scripts_even_when_given_some", () => {
     const entries = paletteEntries(source({ hasProject: false }));
-    expect(new Set(entries.map((e) => e.group))).toEqual(new Set(["Befehle"]));
+    expect(new Set(entries.map((e) => e.group))).toEqual(new Set(["commands"]));
   });
 
   it("names_each_member_with_its_id_and_four_digit_tech_in_its_group", () => {
-    expect(byId("header-412")).toMatchObject({ label: "Zweiblattdorf", tech: "0412", description: "T01R0101", group: "Header", area: "welt", run: { kind: "goTo", target: { kind: "header", id: 412 } } });
+    expect(byId("header-412")).toMatchObject({ label: "Zweiblattdorf", tech: "0412", description: "T01R0101", group: "headers", area: "welt", run: { kind: "goTo", target: { kind: "header", id: 412 } } });
     // A header without a location name is named by its internal name.
-    expect(byId("header-3")).toMatchObject({ label: "UNION", tech: "0003", group: "Header" });
-    expect(byId("archive-412")).toMatchObject({ label: "Zweiblattdorf", tech: "0412", group: "Textarchive", area: "texte", run: { kind: "goTo", target: { kind: "textArchive", index: 412 } } });
+    expect(byId("header-3")).toMatchObject({ label: "UNION", tech: "0003", group: "headers" });
+    expect(byId("archive-412")).toMatchObject({ label: "Zweiblattdorf", tech: "0412", group: "textArchives", area: "texte", run: { kind: "goTo", target: { kind: "textArchive", index: 412 } } });
     // An archive no header uses is named by what it is.
     expect(byId("archive-7")).toMatchObject({ label: "Textarchiv", tech: "0007" });
-    expect(byId("script-412")).toMatchObject({ label: "Scriptdatei", tech: "0412", group: "Scripts", icon: "script", run: { kind: "goTo", target: { kind: "script", file: 412 } } });
+    expect(byId("script-412")).toMatchObject({ label: "Scriptdatei", tech: "0412", group: "scripts", icon: "script", run: { kind: "goTo", target: { kind: "script", file: 412 } } });
     expect(byId("script-9")).toMatchObject({ label: "Level-Script", tech: "0009" });
     // A binary file cannot be opened in the editor.
     expect(byId("script-10")).toBeUndefined();
     // A place leads to its first header (outside first, then by id).
-    expect(byId("place-Zweiblattdorf")).toMatchObject({ label: "Zweiblattdorf", group: "Orte", area: "welt", run: { kind: "goTo", target: { kind: "header", id: 411 } } });
+    expect(byId("place-Zweiblattdorf")).toMatchObject({ label: "Zweiblattdorf", group: "places", area: "welt", run: { kind: "goTo", target: { kind: "header", id: 411 } } });
   });
 
   it("leaves_the_nameless_place_out_and_the_scripts_when_none_were_read", () => {
     const entries = paletteEntries(source({ scripts: null }));
-    expect(entries.some((e) => e.group === "Orte" && e.label === "Ohne Ortsnamen")).toBe(false);
-    expect(entries.some((e) => e.group === "Scripts")).toBe(false);
+    expect(entries.some((e) => e.group === "places" && e.label === "Ohne Ortsnamen")).toBe(false);
+    expect(entries.some((e) => e.group === "scripts")).toBe(false);
   });
 
   it("lists_species_moves_and_items_with_their_four_digit_number_and_what_they_are", () => {
-    expect(byId("species-397")).toMatchObject({ label: "Staravia", tech: "0397", description: "Normal, Flug", group: "Pokémon", area: "pokemon", run: { kind: "goTo", target: { kind: "species", index: 397 } } });
+    expect(byId("species-397")).toMatchObject({ label: "Staravia", tech: "0397", description: "Normal, Flug", group: "pokemon", area: "pokemon", run: { kind: "goTo", target: { kind: "species", index: 397 } } });
     // A species without a name in the text archive is named in German.
     expect(byId("species-520")).toMatchObject({ label: "Art 0520", tech: "0520", description: undefined });
-    expect(byId("trainer-12")).toMatchObject({ label: "Wanderer Jens", tech: "0012", description: "Route 201", group: "Trainer", area: "pokemon", run: { kind: "goTo", target: { kind: "trainer", index: 12 } } });
+    expect(byId("trainer-12")).toMatchObject({ label: "Wanderer Jens", tech: "0012", description: "Route 201", group: "trainers", area: "pokemon", run: { kind: "goTo", target: { kind: "trainer", index: 12 } } });
     expect(byId("trainer-40")).toMatchObject({ label: "Wanderer Kai", description: "Ohne Ort" });
     // An encounter file by the places of its headers.
-    expect(byId("encounter-140")).toMatchObject({ label: "Zweiblattdorf", tech: "0140", description: "Begegnungsdatei, verwendet von 2 Orten", group: "Begegnungen", area: "pokemon", run: { kind: "goTo", target: { kind: "encounter", index: 140 } } });
+    expect(byId("encounter-140")).toMatchObject({ label: "Zweiblattdorf", tech: "0140", description: "Begegnungsdatei, verwendet von 2 Orten", group: "encounters", area: "pokemon", run: { kind: "goTo", target: { kind: "encounter", index: 140 } } });
     expect(byId("encounter-141")).toMatchObject({ label: "Begegnungen 0141", description: "Begegnungsdatei, ohne Ort" });
-    expect(byId("move-17")).toMatchObject({ label: "Flügelschlag", tech: "0017", description: "Flug", group: "Attacken", area: "pokemon", run: { kind: "goTo", target: { kind: "move", index: 17 } } });
-    expect(byId("item-17")).toMatchObject({ label: "Trank", tech: "0017", description: "300 ₽", group: "Gegenstände", area: "gegenstaende", run: { kind: "goTo", target: { kind: "item", id: 17 } } });
+    expect(byId("move-17")).toMatchObject({ label: "Flügelschlag", tech: "0017", description: "Flug", group: "moves", area: "pokemon", run: { kind: "goTo", target: { kind: "move", index: 17 } } });
+    expect(byId("item-17")).toMatchObject({ label: "Trank", tech: "0017", description: "300 ₽", group: "items", area: "gegenstaende", run: { kind: "goTo", target: { kind: "item", id: 17 } } });
     // Without the item table an item is a data member without a name.
     expect(byId("item-17", { data: { ...data, items: [dataRow(17, "", { price: 300, field_pocket: 1, icon: false, data_index: 17 })], itemTable: false } })).toMatchObject({ label: "Daten 0017" });
   });
 
   it("finds_the_species_0397_by_its_number", () => {
     const hits = filterItems(paletteEntries(source({ scripts: null })), "0397");
-    expect(hits.filter((e) => e.group === "Pokémon").map((e) => e.id)).toEqual(["species-397"]);
+    expect(hits.filter((e) => e.group === "pokemon").map((e) => e.id)).toEqual(["species-397"]);
     expect(filterItems(paletteEntries(source()), "stara").map((e) => e.id)).toEqual(["species-396", "species-397"]);
   });
 
   it("lists_no_data_while_it_is_not_read", () => {
     const entries = paletteEntries(source({ data: null }));
-    expect(entries.some((e) => e.group === "Pokémon" || e.group === "Trainer" || e.group === "Begegnungen" || e.group === "Attacken" || e.group === "Gegenstände")).toBe(false);
+    expect(entries.some((e) => e.group === "pokemon" || e.group === "trainers" || e.group === "encounters" || e.group === "moves" || e.group === "items")).toBe(false);
   });
 
   it("opens_the_pokemon_area_the_moves_and_the_items_by_command", () => {
@@ -161,15 +161,15 @@ describe("paletteEntries", () => {
 
   it("puts_the_groups_in_the_order_commands_places_headers_archives_scripts", () => {
     const groups = [...new Set(paletteEntries(source()).map((e) => e.group))];
-    expect(groups).toEqual(["Befehle", "Orte", "Header", "Textarchive", "Pokémon", "Trainer", "Begegnungen", "Attacken", "Gegenstände", "Scripts"]);
+    expect(groups).toEqual(["commands", "places", "headers", "textArchives", "pokemon", "trainers", "encounters", "moves", "items", "scripts"]);
     expect(PALETTE_GROUPS).toEqual(groups);
   });
 
   it("finds_header_and_archive_0412_in_two_groups", () => {
     const hits = filterItems(paletteEntries(source({ scripts: null })), "0412");
-    expect(hits.filter((e) => e.group === "Header").map((e) => e.id)).toEqual(["header-412"]);
-    expect(hits.filter((e) => e.group === "Textarchive").map((e) => e.id)).toContain("archive-412");
-    expect(new Set(hits.map((e) => e.group))).toEqual(new Set(["Header", "Textarchive"]));
+    expect(hits.filter((e) => e.group === "headers").map((e) => e.id)).toEqual(["header-412"]);
+    expect(hits.filter((e) => e.group === "textArchives").map((e) => e.id)).toContain("archive-412");
+    expect(new Set(hits.map((e) => e.group))).toEqual(new Set(["headers", "textArchives"]));
   });
 
   it("says_textarchiv_first_in_an_archive_row_so_typing_textarchiv_finds_them", () => {
@@ -288,7 +288,7 @@ describe("paletteEntries", () => {
   it("git_setup_only_without_a_repo", () => {
     // A project in no repository: „Git einrichten…“ is offered (a status read; a busy session locks it like saving).
     const setup = byId("cmd-gitSetup", { commands: { ...commands, gitSetup: true } });
-    expect(setup).toMatchObject({ label: "Git einrichten…", icon: "git", group: "Befehle", disabled: false, run: { kind: "command", command: "gitSetup" } });
+    expect(setup).toMatchObject({ label: "Git einrichten…", icon: "git", group: "commands", disabled: false, run: { kind: "command", command: "gitSetup" } });
     expect(setup?.description).toBeUndefined();
     expect(byId("cmd-gitSetup", { commands: { ...commands, gitSetup: true, busy: true } })).toMatchObject({ disabled: true, description: "Erst Speichern oder Bauen abwarten" });
     // In a repository (own or enclosing), before the status is read, or without a project: not there at all.
@@ -299,7 +299,7 @@ describe("paletteEntries", () => {
 
   it("publish_and_commit_all_follow_their_state", () => {
     const publish = byId("cmd-publish");
-    expect(publish).toMatchObject({ label: "Veröffentlichen…", icon: "publish", group: "Befehle", disabled: false, run: { kind: "command", command: "publish" } });
+    expect(publish).toMatchObject({ label: "Veröffentlichen…", icon: "publish", group: "commands", disabled: false, run: { kind: "command", command: "publish" } });
     // Locked, in this order: no project, no found base ROM (its sentence), a save or build running, a wizard open.
     expect(byId("cmd-publish", { hasProject: false, commands: { ...commands, publishLocked: "Erst eine Basis-ROM zuordnen.", busy: true } })).toMatchObject({ disabled: true, description: "Erst ein Projekt öffnen" });
     expect(byId("cmd-publish", { commands: { ...commands, publishLocked: "Erst eine Basis-ROM zuordnen.", busy: true, wizard: true } })).toMatchObject({ disabled: true, description: "Erst eine Basis-ROM zuordnen." });
@@ -311,14 +311,14 @@ describe("paletteEntries", () => {
     expect(byId("cmd-commitAll", { commands: { ...commands, commitAll: false } })).toBeUndefined();
     expect(byId("cmd-commitAll", { hasProject: false, commands: { ...commands, commitAll: true } })).toBeUndefined();
     const commit = byId("cmd-commitAll", { commands: { ...commands, commitAll: true } });
-    expect(commit).toMatchObject({ label: "Stand sichern…", icon: "git", group: "Befehle", disabled: false, run: { kind: "command", command: "commitAll" } });
+    expect(commit).toMatchObject({ label: "Stand sichern…", icon: "git", group: "commands", disabled: false, run: { kind: "command", command: "commitAll" } });
     expect(byId("cmd-commitAll", { commands: { ...commands, commitAll: true, busy: true } })).toMatchObject({ disabled: true, description: "Erst Speichern oder Bauen abwarten" });
   });
 
   it("flags_and_variables_only_with_a_project", () => {
     // With a project: Geschichten › Flags und Variablen, with the flag's symbol.
     const flags = byId("cmd-flags");
-    expect(flags).toMatchObject({ label: "Flags und Variablen", icon: "flag", area: "geschichten", group: "Befehle", disabled: false, run: { kind: "command", command: "flags" } });
+    expect(flags).toMatchObject({ label: "Flags und Variablen", icon: "flag", area: "geschichten", group: "commands", disabled: false, run: { kind: "command", command: "flags" } });
     expect(flags?.description).toBeUndefined();
     // Without one: locked, with the reason.
     expect(byId("cmd-flags", { hasProject: false })).toMatchObject({ disabled: true, description: "Erst ein Projekt öffnen" });
@@ -330,7 +330,7 @@ describe("paletteEntries", () => {
     // The area, open without a project like the others.
     expect(byId("cmd-geschichten", { hasProject: false })).toMatchObject({ label: "Bereich Geschichten", icon: "stories", area: "geschichten", disabled: false, run: { kind: "command", command: "geschichten" } });
     // Its threads need a project.
-    expect(byId("cmd-threads")).toMatchObject({ label: "Fäden", icon: "thread", area: "geschichten", group: "Befehle", disabled: false, run: { kind: "command", command: "threads" } });
+    expect(byId("cmd-threads")).toMatchObject({ label: "Fäden", icon: "thread", area: "geschichten", group: "commands", disabled: false, run: { kind: "command", command: "threads" } });
     expect(byId("cmd-threads", { hasProject: false })).toMatchObject({ disabled: true, description: "Erst ein Projekt öffnen" });
     expect(filterItems(paletteEntries(source()), "Fäden").map((e) => e.id)).toContain("cmd-threads");
     expect(filterItems(paletteEntries(source()), "geschichten").map((e) => e.id)).toContain("cmd-geschichten");

@@ -5,20 +5,21 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PickerItem } from "../primitives";
 import { pressKey, typeInSearch } from "../primitives/testUtils";
-import { Palette } from "./Palette";
+import { PALETTE_GROUPS, Palette, groupName } from "./Palette";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type Entry = PickerItem & { run: string };
 
-const commands: Entry[] = Array.from({ length: 10 }, (_, i) => ({ id: `cmd-${i}`, label: `Befehl ${i}`, group: "Befehle", icon: "plus", run: `c${i}` }));
+const commands: Entry[] = Array.from({ length: 10 }, (_, i) => ({ id: `cmd-${i}`, label: `Befehl ${i}`, group: "commands", icon: "plus", run: `c${i}` }));
 const entries: Entry[] = [
-  { id: "cmd-save", label: "Speichern", group: "Befehle", icon: "save", shortcut: "⌘S", run: "save" },
+  { id: "cmd-save", label: "Speichern", group: "commands", icon: "save", shortcut: "⌘S", run: "save" },
   ...commands,
-  { id: "place-Zweiblattdorf", label: "Zweiblattdorf", group: "Orte", area: "welt", run: "place" },
-  { id: "header-412", label: "Zweiblattdorf", tech: "0412", description: "T01R0101", group: "Header", area: "welt", run: "header" },
-  ...Array.from({ length: 12 }, (_, i): Entry => ({ id: `header-${500 + i}`, label: `Route ${i}`, tech: String(500 + i).padStart(4, "0"), group: "Header", area: "welt", run: "h" })),
-  { id: "archive-412", label: "Zweiblattdorf", tech: "0412", group: "Textarchive", area: "texte", run: "archive" },
+  { id: "place-Zweiblattdorf", label: "Zweiblattdorf", group: "places", area: "welt", run: "place" },
+  { id: "header-412", label: "Zweiblattdorf", tech: "0412", description: "T01R0101", group: "headers", area: "welt", run: "header" },
+  ...Array.from({ length: 12 }, (_, i): Entry => ({ id: `header-${500 + i}`, label: `Route ${i}`, tech: String(500 + i).padStart(4, "0"), group: "headers", area: "welt", run: "h" })),
+  { id: "archive-412", label: "Zweiblattdorf", tech: "0412", group: "textArchives", area: "texte", run: "archive" },
+  { id: "item-17", label: "Trank", tech: "0017", group: "items", area: "gegenstaende", run: "item" },
 ];
 
 describe("Palette", () => {
@@ -82,6 +83,18 @@ describe("Palette", () => {
     expect(groups()[1]!.textContent).toContain("Textarchive");
     expect(options()).toHaveLength(2);
     expect(options().every((o) => o.textContent?.includes("0412"))).toBe(true);
+  });
+
+  it("names_the_groups_by_ascii_ids_and_shows_the_catalog_headings", () => {
+    expect(PALETTE_GROUPS).toEqual(["commands", "places", "headers", "textArchives", "pokemon", "trainers", "encounters", "moves", "items", "scripts"]);
+    expect(PALETTE_GROUPS.every((group) => /^[a-zA-Z]+$/.test(group))).toBe(true);
+    expect(PALETTE_GROUPS.map(groupName)).toEqual(["Befehle", "Orte", "Header", "Textarchive", "Pokémon", "Trainer", "Begegnungen", "Attacken", "Gegenstände", "Scripts"]);
+    // A group a caller made up is shown as it is.
+    expect(groupName("Städte")).toBe("Städte");
+    mount(vi.fn());
+    typeInSearch(input(), "trank");
+    expect(groups()).toHaveLength(1);
+    expect(groups()[0]!.textContent).toContain("Gegenstände");
   });
 
   it("lists_at_most_eight_per_group_while_searching", () => {

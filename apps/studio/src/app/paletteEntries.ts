@@ -214,7 +214,7 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     // A locked command says why instead of what it does.
     description: locked ?? description,
     disabled: locked != null,
-    group: "Befehle",
+    group: "commands",
     run: { kind: "command", command },
   }));
 }
@@ -242,25 +242,25 @@ function dataEntries({ species, trainers = [], encounters = [], moves, items, it
   const add = (row: DataRowDto, entry: Omit<PaletteEntry, "tech" | "description"> & { description: string }) =>
     entries.push({ ...entry, tech: row.tech, description: entry.description === "" ? undefined : entry.description });
   for (const row of species) {
-    add(row, { id: `species-${row.index}`, label: rowLabel("species", row, itemTable), description: speciesTypes(row), area: "pokemon", group: "Pokémon", run: { kind: "goTo", target: { kind: "species", index: row.index } } });
+    add(row, { id: `species-${row.index}`, label: rowLabel("species", row, itemTable), description: speciesTypes(row), area: "pokemon", group: "pokemon", run: { kind: "goTo", target: { kind: "species", index: row.index } } });
   }
   for (const row of trainers) {
-    add(row, { id: `trainer-${row.index}`, label: rowLabel("trainer", row, itemTable), description: trainerPlaces(row), area: "pokemon", group: "Trainer", run: { kind: "goTo", target: { kind: "trainer", index: row.index } } });
+    add(row, { id: `trainer-${row.index}`, label: rowLabel("trainer", row, itemTable), description: trainerPlaces(row), area: "pokemon", group: "trainers", run: { kind: "goTo", target: { kind: "trainer", index: row.index } } });
   }
   for (const row of encounters) {
-    add(row, { id: `encounter-${row.index}`, label: encounterRowLabel(row, headers), description: encounterUses(row), area: "pokemon", group: "Begegnungen", run: { kind: "goTo", target: { kind: "encounter", index: row.index } } });
+    add(row, { id: `encounter-${row.index}`, label: encounterRowLabel(row, headers), description: encounterUses(row), area: "pokemon", group: "encounters", run: { kind: "goTo", target: { kind: "encounter", index: row.index } } });
   }
   for (const row of moves) {
-    add(row, { id: `move-${row.index}`, label: rowLabel("move", row, itemTable), description: moveType(row), area: "pokemon", group: "Attacken", run: { kind: "goTo", target: { kind: "move", index: row.index } } });
+    add(row, { id: `move-${row.index}`, label: rowLabel("move", row, itemTable), description: moveType(row), area: "pokemon", group: "moves", run: { kind: "goTo", target: { kind: "move", index: row.index } } });
   }
   for (const row of items) {
-    add(row, { id: `item-${row.index}`, label: rowLabel("item", row, itemTable), description: itemPrice(row), area: "gegenstaende", group: "Gegenstände", run: { kind: "goTo", target: { kind: "item", id: row.index } } });
+    add(row, { id: `item-${row.index}`, label: rowLabel("item", row, itemTable), description: itemPrice(row), area: "gegenstaende", group: "items", run: { kind: "goTo", target: { kind: "item", id: row.index } } });
   }
   return entries;
 }
 
 /**
- * Every entry of the command palette, grouped in the order Befehle, Orte, Header, Textarchive, Pokémon, Attacken, Gegenstände, Scripts.
+ * Every entry of the command palette, grouped in the order commands, places, headers, textArchives, pokemon, trainers, encounters, moves, items, scripts.
  * Ids say what an entry is (`cmd-save`, `place-Zweiblattdorf`, `header-412`, `archive-412`, `species-397`, `move-17`, `item-17`,
  * `script-412`), `tech` is the four-digit number of a member. Without a project only the commands, and the ones that need a project are
  * locked.
@@ -277,7 +277,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
       label: place.name,
       description: `${place.headers.length} ${place.headers.length === 1 ? termLabel("header") : termPlural("header")}`,
       area: "welt",
-      group: "Orte",
+      group: "places",
       run: { kind: "goTo", target: { kind: "header", id: first.header.id } },
     });
   }
@@ -288,7 +288,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
       description: h.location_name ? h.internal_name : undefined,
       tech: id4(h.id),
       area: "welt",
-      group: "Header",
+      group: "headers",
       run: { kind: "goTo", target: { kind: "header", id: h.id } },
     });
   }
@@ -301,7 +301,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
       description: row.users.length > 0 ? `${termLabel("textArchive")}, ${usedBy(row.users, false)}` : undefined,
       tech: id4(row.index),
       area: "texte",
-      group: "Textarchive",
+      group: "textArchives",
       run: { kind: "goTo", target: { kind: "textArchive", index: row.index } },
     });
   }
@@ -315,7 +315,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
       description: file.headers.length > 0 ? usedBy(file.headers) : t("app:palette.noHeader"),
       tech: id4(file.file),
       icon: "script",
-      group: "Scripts",
+      group: "scripts",
       run: { kind: "goTo", target: { kind: "script", file: file.file } },
     });
   }

@@ -3,6 +3,7 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProjectInfo } from "../../api";
 import { RewardOnceForm } from "./RewardOnceForm";
 import { inputOf, rewardSays } from "./storyRecipeModel";
 import type { StoryRecipeForm } from "./storyRecipeModel";
@@ -31,10 +32,12 @@ const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve,
 const start: Reward = { recipe: "reward_once", story: "s", figure: { header: 3, local_id: 1 }, step: 2, item: null, itemName: null, text: null, flag: 7, stepName: null };
 let latest: Reward = start;
 
-function Harness() {
+const project = (language: string): ProjectInfo => ({ root: "/p", game_code: "CPUD", family: "Pt", language, header_count: 1 });
+
+function Harness({ info = project("German") }: { info?: ProjectInfo | null }) {
   const [form, setForm] = useState<Reward>(start);
   latest = form;
-  return <RewardOnceForm form={form} onChange={setForm} steps={[]} headers={[]} project={null} revision={0} onError={vi.fn()} />;
+  return <RewardOnceForm form={form} onChange={setForm} steps={[]} headers={[]} project={info} revision={0} onError={vi.fn()} />;
 }
 
 describe("RewardOnceForm", () => {
@@ -64,9 +67,21 @@ describe("RewardOnceForm", () => {
     expect(latest.item).toBe(1);
     expect(latest.text).toBeNull();
     expect(field().value).toBe("Du erhältst Trank!");
-    expect(rewardSays(latest)).toBe("Du erhältst Trank!");
+    expect(rewardSays(latest, "German")).toBe("Du erhältst Trank!");
     // So the recipe has its input: „Anlegen“ no longer waits for a typed text.
-    expect(inputOf(latest, { headers: [] })).toMatchObject({ item: 1, text: "Du erhältst Trank!" });
+    expect(inputOf(latest, { headers: [] }, "German")).toMatchObject({ item: 1, text: "Du erhältst Trank!" });
+  });
+
+  it("the_default_text_follows_the_language_of_the_rom_while_the_interface_stays_german", async () => {
+    // The suite shows German; an English ROM, and a project not yet read, still get the English sentence.
+    for (const info of [project("English"), null]) {
+      await act(async () => root.render(<Harness info={info} />));
+      await flush();
+      await act(async () => container.querySelector<HTMLButtonElement>("[data-pick=Gegenstand]")!.click());
+      await flush();
+      expect(field().value).toBe("You receive Trank!");
+      await act(async () => root.render(null));
+    }
   });
 
   it("a_typed_text_replaces_the_default", async () => {
