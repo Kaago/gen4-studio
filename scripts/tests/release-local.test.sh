@@ -413,6 +413,75 @@ test_key_file_and_password_stay_out_of_the_environment_of_the_tools() {
   assert_gh_saw_no_signing_variables "$d"
 }
 
+# build_stubs <dir>: what the build branch of the script calls, as stubs that only write to
+# <dir>/build.log: uname (macOS arm64, so the platform check passes anywhere), cargo (only
+# `cargo about --version`), node, pnpm (`install` and `bundle`) and the repository's
+# prepare-bundle.sh. Every line says whether the signing variables are in that tool's environment
+# ("set" or empty) and, for pnpm, G4_BUNDLE_SKIP_PREPARE.
+build_stubs() {
+  local d="$1" about pnpm node
+  about="$(sed -n 's/^CARGO_ABOUT_VERSION=//p' "$REPO_ROOT/scripts/tool-versions.env")"
+  pnpm="$(sed -n 's/^PNPM_VERSION=//p' "$REPO_ROOT/scripts/tool-versions.env")"
+  node="$(sed -n 's/^NODE_VERSION=//p' "$REPO_ROOT/scripts/tool-versions.env")"
+  mkdir -p "$d/home" "$d/work/apps/studio/scripts"
+  cat >"$d/bin/uname" <<'SH'
+#!/bin/sh
+case "$1" in
+  -s) echo Darwin ;;
+  -m) echo arm64 ;;
+  *) exec /usr/bin/uname "$@" ;;
+esac
+SH
+  cat >"$d/bin/cargo" <<SH
+#!/bin/sh
+[ "\$1 \$2" = "about --version" ] && echo "cargo-about $about"
+exit 0
+SH
+  printf '#!/bin/sh\necho v%s\n' "$node" >"$d/bin/node"
+  cat >"$d/bin/pnpm" <<SH
+#!/usr/bin/env bash
+if [ "\$1" = "--version" ]; then echo "$pnpm"; exit 0; fi
+echo "pnpm \$* | key=\${TAURI_SIGNING_PRIVATE_KEY+set} pw=\${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+set} skip=\${G4_BUNDLE_SKIP_PREPARE-unset}" >>"\$(dirname "\$0")/../build.log"
+SH
+  cat >"$d/work/apps/studio/scripts/prepare-bundle.sh" <<'SH'
+#!/usr/bin/env bash
+echo "prepare | key=${TAURI_SIGNING_PRIVATE_KEY+set} pw=${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+set}" >>"$(dirname "$0")/../../../../build.log"
+SH
+  chmod +x "$d/bin/uname" "$d/bin/cargo" "$d/bin/node" "$d/bin/pnpm" "$d/work/apps/studio/scripts/prepare-bundle.sh"
+  (cd "$d/work" && git add -A && git commit -q -m "stub prepare-bundle.sh")
+  (cd "$d/work" && git push -q origin main && git fetch -q origin)
+}
+
+# run_build <dir> [NAME=value...] <args...>: the script with the build branch on, on stubs; it
+# ends at the DMG step (there is no .app: G4_BUNDLE_DIR is an empty folder), after the bundle command.
+run_build() {
+  local d="$1"
+  shift
+  run "$d" HOME="$d/home" G4_RELEASE_SKIP_BUILD= G4_BUNDLE_DIR="$d/no-bundle" "$@"
+}
+
+test_the_preparation_runs_without_the_key_and_the_bundle_command_gets_it() {
+  local d
+  d="$(setup)"
+  build_stubs "$d"
+  assert_status 1 run_build "$d" "${SIGNED[@]}" v0.2.0-rc.1 --dry-run
+  [ "$(cat "$d/build.log")" = "pnpm install --frozen-lockfile | key= pw= skip=unset
+prepare | key= pw=
+pnpm bundle -- --bundles app,dmg --config src-tauri/tauri.updater.conf.json | key=set pw=set skip=1" ] ||
+    fail "unexpected calls: $(cat "$d/build.log")"
+}
+
+test_without_a_key_the_preparation_still_runs_first_and_nothing_gets_a_key() {
+  local d
+  d="$(setup)"
+  build_stubs "$d"
+  assert_status 1 run_build "$d" v0.2.0-rc.1 --dry-run
+  [ "$(cat "$d/build.log")" = "pnpm install --frozen-lockfile | key= pw= skip=unset
+prepare | key= pw=
+pnpm bundle -- --bundles app,dmg | key= pw= skip=1" ] ||
+    fail "unexpected calls: $(cat "$d/build.log")"
+}
+
 test_keychain_is_not_asked_when_switched_off() {
   [ "$(uname -s)" = "Darwin" ] || return 0
   local d

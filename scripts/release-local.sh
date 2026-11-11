@@ -10,10 +10,12 @@
 #      scripts/release/changelog-section.sh), the updater key (a real release needs it, see
 #      below); for a real release also `gh auth status`, that no release of the tag exists yet
 #      and that a tag of that name (local or on origin) is HEAD;
-#   2. builds like the former bundle-macos job of release.yml: the tools come from
-#      prepare-bundle.sh (apicula and rotom-lsp at the versions of scripts/tool-versions.env,
-#      built into tools/ when missing; cargo-about must be installed), `pnpm install
-#      --frozen-lockfile`, `CI=true pnpm bundle -- --bundles app,dmg` (CI=true: Tauri's DMG script
+#   2. builds like the former bundle-macos job of release.yml: `pnpm install --frozen-lockfile`,
+#      the tools from prepare-bundle.sh (apicula and rotom-lsp at the versions of
+#      scripts/tool-versions.env, built into tools/ when missing; cargo-about must be installed;
+#      its own step, so what it builds from Git never has the updater key in its environment),
+#      `CI=true G4_BUNDLE_SKIP_PREPARE=1 pnpm bundle -- --bundles app,dmg` (the preparation is
+#      done: only `tauri build` gets the key; CI=true: Tauri's DMG script
 #      skips the Finder styling by AppleScript), then scripts/release/macos-dmg.sh (Tauri's DMG or
 #      the hdiutil fallback, named Gen4-Studio_<version>_aarch64.dmg). With the updater key the
 #      bundle also gets `--config src-tauri/tauri.updater.conf.json`: Tauri then signs the update
@@ -40,9 +42,11 @@
 # `security`). A real release needs both and stops before the build without them. A dry run
 # without them builds without update packages and says so. Key and password are never printed.
 # They are kept in shell variables that are not exported and reach only the bundle command
-# (`pnpm bundle`, where Tauri reads them), so `pnpm install`, the smoke test, `git` and `gh` never
-# see them. Variables the caller exported already are un-exported (`export -n`) after the key
-# step for the same reason: the caller's own shell keeps them, the children of this script do not.
+# (`pnpm bundle`, where Tauri reads them), so `pnpm install`, the preparation of the tools
+# (prepare-bundle.sh: `cargo install` from Git, `cargo build`), the smoke test, `git` and `gh`
+# never see them. Variables the caller exported already are un-exported (`export -n`) after the
+# key step for the same reason: the caller's own shell keeps them, the children of this script do
+# not.
 #
 # Variables (all optional):
 #   G4_RELEASE_ROOT          the repository to release (default: this script's repository; tests)
@@ -274,6 +278,12 @@ else
   step "pnpm install"
   (cd apps/studio && pnpm install --frozen-lockfile)
 
+  step "Werkzeuge bereitlegen"
+  # Here, not inside the bundle command: the key is in no exported variable at this point, so
+  # what prepare-bundle.sh builds from Git (rotom-lsp, apicula) and compiles never sees it. The
+  # bundle step skips the preparation (G4_BUNDLE_SKIP_PREPARE=1) instead of running it again.
+  bash apps/studio/scripts/prepare-bundle.sh
+
   step "Bundle (app, dmg)"
   BUNDLE="$ROOT/target/release/bundle"
   bundle_args=(--bundles app,dmg)
@@ -292,7 +302,7 @@ else
       # Exported in this subshell only: the one command that needs the key and the password.
       export TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
     fi
-    CI=true pnpm bundle -- "${bundle_args[@]}"
+    CI=true G4_BUNDLE_SKIP_PREPARE=1 pnpm bundle -- "${bundle_args[@]}"
   ) || BUNDLE_STATUS=$?
   echo "Bundle-Status: $BUNDLE_STATUS"
 
@@ -312,7 +322,7 @@ else
     step "Update-Paket"
     UPDATE_TGZ="$BUNDLE/macos/Gen4 Studio.app.tar.gz"
     [ -s "$UPDATE_TGZ" ] ||
-      die "Update-Paket fehlt oder ist leer: $UPDATE_TGZ (Bundle-Status $BUNDLE_STATUS; Schlüssel oder Passwort falsch?)"
+      die "Update-Paket fehlt oder ist leer: $UPDATE_TGZ (Bundle-Status $BUNDLE_STATUS; Schlüssel oder Passwort falsch, oder das Bundle selbst ist gescheitert, etwa das DMG: siehe die Ausgabe von „Bundle (app, dmg)“ oben)"
     [ -s "$UPDATE_TGZ.sig" ] || die "Signatur fehlt oder ist leer: $UPDATE_TGZ.sig (Bundle-Status $BUNDLE_STATUS)"
     FIRST_ENTRY="$(tar -tzf "$UPDATE_TGZ" | sed -n '1p')" || die "$UPDATE_TGZ ist kein lesbares tar.gz"
     [ "$FIRST_ENTRY" = "Gen4 Studio.app/" ] ||

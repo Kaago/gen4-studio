@@ -48,7 +48,17 @@ test_macos_builds_rotom_lsp_with_headerpad() {
   run_block "$d" ""
   grep -q "^RUSTFLAGS: $HEADERPAD\$" "$d/cargo.log" || fail "no headerpad flag: $(cat "$d/cargo.log")"
   grep -q '^CFLAGS: -D_POSIX_C_SOURCE=200809L' "$d/cargo.log" || fail "CFLAGS lost: $(cat "$d/cargo.log")"
-  grep -q "^args: install --git https://github.com/KalaayPT/rotom --tag v9.9.9 rotom-lsp --root $d/root/tools/rotom\$" "$d/cargo.log" ||
+  grep -q "^args: install --git https://github.com/KalaayPT/rotom --tag v9.9.9 --locked rotom-lsp --root $d/root/tools/rotom\$" "$d/cargo.log" ||
+    fail "unexpected cargo call: $(cat "$d/cargo.log")"
+}
+
+# The tag ships a Cargo.lock (checked for v0.7.0); `cargo install` ignores it without --locked and
+# would take the newest dependencies at build time, on a machine that also holds the signing key.
+test_windows_installs_rotom_lsp_locked_too() {
+  local d
+  d="$(setup MINGW64_NT-10.0)"
+  run_block "$d" ".exe"
+  grep -q "^args: install --git https://github.com/KalaayPT/rotom --tag v9.9.9 --locked rotom-lsp --root $d/root/tools/rotom\$" "$d/cargo.log" ||
     fail "unexpected cargo call: $(cat "$d/cargo.log")"
 }
 

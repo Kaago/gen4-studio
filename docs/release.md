@@ -174,12 +174,13 @@ gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false   # Installer an den 
 gh workflow run release.yml -f tag=vX.Y.Z                    # Probelauf (dry_run=true): bauen und prüfen, nichts hochladen
 ```
 
-Der Job `version` prüft die Fassung des Tags gegen den Tag, `bundle-windows` baut und prüft (der Schritt „Bundle (nsis)“ bekommt die
-Secrets der Update-Signatur und übergibt `--config src-tauri/tauri.updater.conf.json`; fehlt das Secret, scheitert er; „Installer“
-verlangt neben dem `*-setup.exe` auch dessen `.sig`), und `publish-windows` (nur ohne
-`dry_run`) lädt `Gen4-Studio_<Fassung>_x64-setup.exe` an den **vorhandenen** Entwurf, ergänzt dessen `SHA256SUMS.txt` um die
+Der Job `version` prüft die Fassung des Tags gegen den Tag, `bundle-windows` baut und prüft (der Schritt „Prepare bundle“ legt die Werkzeuge
+ohne die Secrets bereit; erst der Schritt „Bundle (nsis)“ bekommt die Secrets der Update-Signatur und übergibt `--config src-tauri/tauri.updater.conf.json`;
+fehlt das Secret, scheitert er; „Installer“ verlangt neben dem `*-setup.exe` auch dessen `.sig`), und `publish-windows` (nur ohne
+`dry_run`) baut und prüft zuerst `latest.json` (Abschnitt „Update-Pakete“), bevor etwas hochgeladen wird. Dann lädt es
+`Gen4-Studio_<Fassung>_x64-setup.exe` an den **vorhandenen** Entwurf, ergänzt dessen `SHA256SUMS.txt` um die
 Zeile des Installers (`scripts/release/add-checksum.sh`, eine Zeile gleichen Namens wird ersetzt) und lädt sie mit `--clobber`
-neu hoch. Danach lädt es die `.sig` des Installers hoch und schreibt `latest.json` (Abschnitt „Update-Pakete“). Gibt es zum Tag keinen Release oder ist er kein Entwurf mehr, bricht der Job mit einer Meldung ab. Ein Lauf kostet kalt
+neu hoch, danach die `.sig` des Installers und zuletzt `latest.json`. Gibt es zum Tag keinen Release oder ist er kein Entwurf mehr, bricht der Job mit einer Meldung ab. Ein Lauf kostet kalt
 rund 0,70 $ (Windows-Minuten zählen doppelt); Caches gehören zum Ref, von dem der Workflow startet (Standard `main`), ein
 späterer Lauf liest also, was der vorige gespeichert hat.
 
@@ -208,7 +209,9 @@ nur, dass das Paket vom Maintainer stammt; der öffentliche Schlüssel dazu steh
   das Passwort im Schlüsselbund (Dienst `gen4-studio-updater`, Konto `$USER`).
 - Auf GitHub liegen sie als Secrets `TAURI_SIGNING_PRIVATE_KEY` (Inhalt der Schlüsseldatei) und `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
   `release.yml` liest sie nur im Schritt „Bundle (nsis)“; ein Workflow, den ein Pull Request startet, sieht sie nicht
-  (`release.yml` läuft nur von Hand).
+  (`release.yml` läuft nur von Hand). Was Fremdcode aus Git baut (`prepare-bundle.sh`: apicula und rotom-lsp per `cargo install`), läuft in einem
+  eigenen Schritt „Prepare bundle“ davor, ohne die Secrets; `release-local.sh` macht es ebenso, und `apps/studio/scripts/bundle.sh` gibt die
+  Variablen nie an `prepare-bundle.sh` weiter (`G4_BUNDLE_SKIP_PREPARE=1` lässt die Vorbereitung aus, wenn der Aufrufer sie schon gemacht hat).
 - Der Maintainer sichert Schlüsseldatei und Passwort zusätzlich im Passwort-Manager.
 - Schlüssel und Passwort stehen nie im Repository, in Logs oder in der Ausgabe eines Skripts.
 
@@ -227,6 +230,10 @@ eines von beiden, bricht ein echter Release vor dem Bau ab (`Updater-Schlüssel 
 `bundle.createUpdaterArtifacts` steht nur in `apps/studio/src-tauri/tauri.updater.conf.json`, die beide Release-Wege mit `--config` übergeben:
 Entwicklung, Gate, CI und Beitragende bauen ohne Schlüssel.
 
+Scheitert `release-local.sh` mit vorhandenem Schlüssel an `Update-Paket fehlt oder ist leer: …`, muss das nicht am Schlüssel oder am Passwort liegen: Auch ein Fehler
+im Bundle selbst, etwa beim DMG, bricht den signierten Release ab, ohne dass ein Update-Paket entsteht. Die Ursache steht in der Ausgabe des Schritts „Bundle (app, dmg)“
+weiter oben (das Log des Bundles, dazu `Bundle-Status` ungleich 0).
+
 **Die sieben Assets.** Bevor ein Entwurf veröffentlicht wird, muss er genau diese Dateien haben:
 
 - [ ] `Gen4-Studio_<Fassung>_aarch64.dmg` (macOS, von `release-local.sh`)
@@ -239,13 +246,17 @@ Entwicklung, Gate, CI und Beitragende bauen ohne Schlüssel.
 
 DMG und Installer bleiben die Downloads für Menschen.
 
-**`latest.json`.** Zuletzt läuft in `publish-windows` der Schritt „Update manifest“: Er holt die `.sig` des macOS-Pakets aus dem Entwurf, nimmt als Text
+**`latest.json`.** Zuerst, vor jedem Hochladen, läuft in `publish-windows` der Schritt „Update manifest“: Er holt die `.sig` des macOS-Pakets aus dem Entwurf, nimmt als Text
 den Text des Entwurfs (die Release-Notizen aus `CHANGELOG.md`; was im Entwurf steht, zeigt die App) und ruft
 `scripts/release/updater-manifest.sh <Tag> <Notizen> <macOS-.sig> <Windows-.sig> latest.json` auf. Das Skript prüft, was es schreibt: der Tag ist `v<SemVer>`,
-beide Signaturen sind nicht leer, Base64, beginnen entschlüsselt mit `untrusted comment:` und nennen in ihrem `trusted comment` die Fassung des Tags
-(`version:<Fassung>`); die Adressen zeigen auf die Assets des Tags. Die App prüft dasselbe beim Installieren (`plugins.updater.requireSignedVersion`):
+beide Signaturen sind nicht leer, Base64, beginnen entschlüsselt mit `untrusted comment:`, sind mit dem Schlüssel gemacht, dem die App vertraut, und nennen in ihrem `trusted comment`
+die Fassung des Tags (`version:<Fassung>`); die Adressen zeigen auf die Assets des Tags. Den Schlüssel erkennt das Skript an der Schlüssel-ID: Sie steht
+im Signaturtext (zweite Zeile, Bytes 3 bis 10 nach dem Entschlüsseln) und muss die des öffentlichen Schlüssels in `apps/studio/src-tauri/tauri.conf.json` sein
+(`G4_UPDATER_CONFIG` nennt eine andere Konfiguration, die Tests tun das); eine Signatur eines anderen, etwa ausgetauschten Schlüssels
+lehnt das Skript mit beiden IDs ab, statt dass es erst im Feld auffällt. Die App prüft die Fassung beim Installieren selbst (`plugins.updater.requireSignedVersion`):
 Ein gefälschtes `latest.json` kann so kein älteres, echt signiertes Paket als neue Fassung anbieten. Fehlt die macOS-`.sig`
-(`release-local.sh` lief ohne Schlüssel) oder ist eine Prüfung nicht erfüllt, scheitert der Job vor dem Hochladen und `latest.json` entsteht nicht.
+(`release-local.sh` lief ohne Schlüssel) oder ist eine Prüfung nicht erfüllt, scheitert der Job vor dem Hochladen: `latest.json` entsteht nicht, und im Entwurf
+bleibt alles, wie es war. Hochgeladen werden danach Installer, `SHA256SUMS.txt` und `.sig`, `latest.json` als Letztes.
 Tags mit Build-Metadaten (`+…`) sind nicht unterstützt: das Skript lehnt sie ab, weil das `+` in Dateinamen und Adressen landen würde.
 
 **Wann die App den Release sieht.** Die App liest `https://github.com/Kaago/gen4-studio/releases/latest/download/latest.json`. GitHub leitet `latest` auf den

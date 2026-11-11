@@ -174,12 +174,13 @@ gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false   # attach the instal
 gh workflow run release.yml -f tag=vX.Y.Z                    # dry run (dry_run=true): build and check, upload nothing
 ```
 
-The job `version` checks the version of the tag against the tag, `bundle-windows` builds and checks (the step "Bundle (nsis)" gets the
-secrets of the update signature and passes `--config src-tauri/tauri.updater.conf.json`; without the secret it fails; "Installer"
-requires the `.sig` of the `*-setup.exe` as well), and `publish-windows` (only without
-`dry_run`) uploads `Gen4-Studio_<version>_x64-setup.exe` to the **existing** draft, adds the line of the installer to its `SHA256SUMS.txt`
-(`scripts/release/add-checksum.sh`; a line of the same name is replaced) and uploads it again with `--clobber`.
-After that it uploads the `.sig` of the installer and writes `latest.json` (section "Updater packages"). If there is no release for the tag or it is no longer a draft, the job aborts with a message. A cold run costs
+The job `version` checks the version of the tag against the tag, `bundle-windows` builds and checks (the step "Prepare bundle" sets up the tools
+without the secrets; only the step "Bundle (nsis)" gets the secrets of the update signature and passes `--config src-tauri/tauri.updater.conf.json`;
+without the secret it fails; "Installer" requires the `.sig` of the `*-setup.exe` as well), and `publish-windows` (only without
+`dry_run`) first builds and checks `latest.json` (section "Updater packages"), before anything is uploaded. Then it uploads
+`Gen4-Studio_<version>_x64-setup.exe` to the **existing** draft, adds the line of the installer to its `SHA256SUMS.txt`
+(`scripts/release/add-checksum.sh`; a line of the same name is replaced) and uploads it again with `--clobber`,
+then the `.sig` of the installer and, last, `latest.json`. If there is no release for the tag or it is no longer a draft, the job aborts with a message. A cold run costs
 about $0.70 (Windows minutes count double); caches belong to the ref the workflow starts from (default `main`), so a
 later run reads what the previous one saved.
 
@@ -208,7 +209,9 @@ that the package comes from the maintainer; the matching public key is in `apps/
   the password in the keychain (service `gen4-studio-updater`, account `$USER`).
 - On GitHub they are the secrets `TAURI_SIGNING_PRIVATE_KEY` (the content of the key file) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
   `release.yml` reads them only in the step "Bundle (nsis)"; a workflow started by a pull request does not see them
-  (`release.yml` runs by hand only).
+  (`release.yml` runs by hand only). What builds third-party code from Git (`prepare-bundle.sh`: apicula and rotom-lsp by `cargo install`) runs in a
+  step of its own before it, "Prepare bundle", without the secrets; `release-local.sh` does the same, and `apps/studio/scripts/bundle.sh` never
+  passes the variables on to `prepare-bundle.sh` (`G4_BUNDLE_SKIP_PREPARE=1` skips the preparation when the caller has done it already).
 - The maintainer also keeps the key file and the password in a password manager.
 - Key and password are never in the repository, in logs or in the output of a script.
 
@@ -227,6 +230,10 @@ either is missing, a real release aborts before the build (`Updater-Schlüssel f
 `bundle.createUpdaterArtifacts` is set only in `apps/studio/src-tauri/tauri.updater.conf.json`, which both release paths pass with `--config`:
 development, the gate, CI and contributors build without a key.
 
+If `release-local.sh` fails with the key present at `Update-Paket fehlt oder ist leer: …`, the key or the password need not be wrong: an error in the
+bundle itself, for example in the DMG, also aborts the signed release, without an update package. The cause is in the output of the step "Bundle (app, dmg)"
+above it (the log of the bundle, and a `Bundle-Status` other than 0).
+
 **The seven assets.** Before a draft is published it must have exactly these files:
 
 - [ ] `Gen4-Studio_<version>_aarch64.dmg` (macOS, from `release-local.sh`)
@@ -239,13 +246,17 @@ development, the gate, CI and contributors build without a key.
 
 The DMG and the installer stay the downloads for people.
 
-**`latest.json`.** The last thing `publish-windows` does is the step "Update manifest": it fetches the `.sig` of the macOS package from the draft, takes the
+**`latest.json`.** First, before anything is uploaded, `publish-windows` runs the step "Update manifest": it fetches the `.sig` of the macOS package from the draft, takes the
 body of the draft as the text (the release notes from `CHANGELOG.md`; what the draft says is what the app shows) and calls
 `scripts/release/updater-manifest.sh <tag> <notes> <macOS .sig> <Windows .sig> latest.json`. The script checks what it writes: the tag is `v<SemVer>`,
-both signatures are not empty, Base64, start with `untrusted comment:` once decoded and name the version of the tag in their trusted comment
-(`version:<version>`); the addresses point to the assets of the tag. The app checks the same when it installs (`plugins.updater.requireSignedVersion`),
+both signatures are not empty, Base64, start with `untrusted comment:` once decoded, are made with the key the app trusts and name the version of the tag in their trusted comment
+(`version:<version>`); the addresses point to the assets of the tag. The script recognizes the key by its key id: it is in the signature text (second line, bytes 3 to 10 after
+decoding) and must be the one of the public key in `apps/studio/src-tauri/tauri.conf.json`
+(`G4_UPDATER_CONFIG` names another configuration, which the tests use); a signature of another key, for example a replaced one,
+is refused with both ids instead of being found out in the field. The app checks the version itself when it installs (`plugins.updater.requireSignedVersion`),
 so a forged `latest.json` cannot offer an older, genuinely signed package as the new version. If the macOS `.sig` is missing
-(`release-local.sh` ran without the key) or a check fails, the job fails before uploading and `latest.json` is not created.
+(`release-local.sh` ran without the key) or a check fails, the job fails before uploading: `latest.json` is not created and the draft stays as it was.
+Installer, `SHA256SUMS.txt` and `.sig` are uploaded after that, `latest.json` last.
 Tags with build metadata (`+…`) are not supported: the script refuses them because the `+` would end up in file names and addresses.
 
 **When the app sees a release.** The app reads `https://github.com/Kaago/gen4-studio/releases/latest/download/latest.json`. GitHub points `latest` to the

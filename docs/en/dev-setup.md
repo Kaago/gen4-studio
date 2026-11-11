@@ -82,7 +82,7 @@ Build (once; `tools/` is excluded by `.gitignore`):
 ```sh
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 CFLAGS="-D_POSIX_C_SOURCE=200809L" \
-  cargo install --git https://github.com/KalaayPT/rotom --tag v0.7.0 rotom-lsp --root tools/rotom
+  cargo install --git https://github.com/KalaayPT/rotom --tag v0.7.0 --locked rotom-lsp --root tools/rotom
 ```
 
 - `CFLAGS` is needed on macOS SDKs from 15.4: otherwise nitroarc's `strchrnul` collides with the SDK declaration (the same value is in
