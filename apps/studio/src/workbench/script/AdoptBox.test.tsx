@@ -65,8 +65,10 @@ describe("AdoptBox", () => {
     act(() => report({ done: 3, total: 7 }));
     expect([bar()?.getAttribute("aria-valuenow"), bar()?.getAttribute("aria-valuemax")]).toEqual(["3", "7"]);
     expect(bar()?.getAttribute("aria-label")).toBe("Fortschritt der Übernahme");
-    // The fill is the one runtime value of the box.
-    expect((bar()?.firstElementChild as HTMLElement).style.width).toBe(`${(3 / 7) * 100}%`);
+    // The fill is the one runtime value of the box. jsdom 31 keeps four decimals of a percentage, so the number is compared.
+    const width = (bar()?.firstElementChild as HTMLElement).style.width;
+    expect(width).toMatch(/^[\d.]+%$/);
+    expect(parseFloat(width)).toBeCloseTo((3 / 7) * 100, 3);
     expect(container.textContent).toContain("3 / 7 Scriptdateien");
     await act(async () => run.resolve({ decompiled: 5, skipped_empty: 1, failed: [[6, "unbekannter Befehl"]] }));
     expect(bar()).toBeNull();
