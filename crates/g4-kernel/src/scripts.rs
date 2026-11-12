@@ -3130,6 +3130,11 @@ mod tests {
         let literal = "script Main #1:\n    Message \"Hallo Welt\"\n    End\n";
         write_source(&p, 0, &ScriptSource::Rotom(literal.into())).unwrap();
         assert_eq!(compile(&p).unwrap().compiled, [0]);
+        // In the fixture the header's archive 433 is also Platinum's location bank, which
+        // rotom v0.8.1 loads as constants (`TextBankIds::for_game`) and records as a
+        // dependency of every script: the literal the first run appends changes it, so the
+        // script compiles once more (the literal is not appended again), then it holds.
+        assert_eq!(compile(&p).unwrap().compiled, [0]);
         assert!(compile(&p).unwrap().compiled.is_empty(), "nothing is stale");
 
         // A header table save without a script file or text archive change: still nothing.
