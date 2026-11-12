@@ -125,9 +125,10 @@ describe("ExtendAreaDialog", () => {
     expect(field("Karte")).toBeNull();
     const choose = [...dialog().querySelectorAll("button")].find((b) => b.textContent === "Karte wählen")!;
     act(() => choose.click());
-    await act(async () => field("Karte")!.focus());
+    // Enter commits what was typed whether or not the field has the focus: after the click on "Karte wählen" the dialog
+    // can move the focus to a button a moment later, and a blur on a field that has already lost it commits nothing.
     typeInto(field("Karte")!, "42");
-    await act(async () => field("Karte")!.blur());
+    pressKey(field("Karte")!, "Enter");
     act(() => [...dialog().querySelectorAll<HTMLElement>("[role=checkbox]")].find((c) => c.closest("label")?.textContent === "ohne Gebäude")!.click());
     await act(async () => button("Karte anlegen")?.click());
     expect(extendArea).toHaveBeenCalledWith({ matrix: 7, x: 2, y: 0, source_map: 42, clear_buildings: true, header_cell: 416 });
