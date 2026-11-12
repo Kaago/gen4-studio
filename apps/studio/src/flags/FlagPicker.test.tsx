@@ -240,12 +240,18 @@ describe("FlagPicker", () => {
     await show();
     expect(button("Im Verzeichnis zeigen")).toBeUndefined();
     await show({ onShowInDirectory });
-    await click(button("Im Verzeichnis zeigen"));
+    let calledByTheClick = -1;
+    await act(async () => {
+      button("Im Verzeichnis zeigen")!.click();
+      // Counted before anything yields: after the click returns no timer can have run yet, however late `act` flushes its own work.
+      calledByTheClick = onShowInDirectory.mock.calls.length;
+    });
     // The picker closes first; the list opens on the tick after, so the dialog's focus return does not run into it.
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(onShowInDirectory).not.toHaveBeenCalled();
+    expect(calledByTheClick).toBe(0);
     await flush();
     expect(onShowInDirectory).toHaveBeenCalledWith(0x94);
+    expect(onOpenChange.mock.invocationCallOrder[0]).toBeLessThan(onShowInDirectory.mock.invocationCallOrder[0]!);
   });
 
   it("reads_nothing_while_closed", async () => {

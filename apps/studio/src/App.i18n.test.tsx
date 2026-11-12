@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import i18next from "i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HISTORY_DEBOUNCE_MS } from "./app/useHistory";
 import { LANGUAGE_KEY } from "./i18n";
 import { report } from "./checks/checksTesting";
 import { noRepo } from "./git/gitTesting";
@@ -91,6 +92,11 @@ import App from "./App";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+/** Waits out the debounced `history` read (`HISTORY_DEBOUNCE_MS` after the opening and after edits), so none lands inside a window a test measures. */
+const settle = async () => {
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, HISTORY_DEBOUNCE_MS * 2)));
+  await flush();
+};
 /** A switch waits for the backend (`set_locale`) before the app shows the new language: waits until it does, then lets the render settle. */
 const switchedTo = async (lang: string) => {
   await act(async () => {
@@ -244,9 +250,12 @@ describe("App language switch", () => {
       await flush();
       await act(async () => atlas("einstellungen").click());
       await flush();
+      // The read the opening scheduled has run before the count starts, ...
+      await settle();
       sent.length = 0;
       await act(async () => languageOption("Deutsch")!.click());
-      await flush();
+      // ... and one the choice itself scheduled would have run before the check.
+      await settle();
       expect(i18next.language).toBe("de");
       expect(sent.map((c) => c.cmd)).toEqual(["set_locale"]);
     });
