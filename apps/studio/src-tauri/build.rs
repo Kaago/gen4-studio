@@ -19,7 +19,49 @@ fn main() {
     // `i18n!` embeds `locales/` at compile time, but rustc does not track the files a macro
     // reads: without this a changed catalog would not recompile the crate.
     println!("cargo:rerun-if-changed=locales");
-    tauri_build::build()
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os == "windows" && target_env == "msvc" {
+        build_for_windows_msvc();
+    } else {
+        tauri_build::build()
+    }
+}
+
+/// Windows (MSVC) variant of `tauri_build::build()`: the same, but the application manifest is
+/// linked into every target instead of only into the app binaries.
+///
+/// tauri-build embeds its default manifest (a dependency on Common Controls v6) through its
+/// resource file, and cargo links that only into binaries. The unit-test binary of this crate
+/// reaches tauri/muda GUI code (the menu rebuild, the mock app of the updater tests), which
+/// imports Common-Controls v6 entry points; without the manifest Windows loads comctl32 v5 and
+/// the binary dies at load with `STATUS_ENTRYPOINT_NOT_FOUND` before any test runs. tauri's own
+/// build script does the same for its tests (`embed_manifest_for_tests`).
+///
+/// So tauri-build gets no manifest, and `/MANIFEST:EMBED` + `/MANIFESTINPUT` put it into every
+/// link target (binaries, tests, the lib's test binary, the cdylib). `windows-app-manifest.xml` is
+/// tauri-build's default manifest, unchanged (`src/windows-app-manifest.xml` of tauri-build), so
+/// the manifest of the app is the same as before; update it if a tauri-build update changes the
+/// default. There is deliberately no `/WX`: a linker warning must not fail the build here.
+fn build_for_windows_msvc() {
+    let attributes = tauri_build::Attributes::new()
+        .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+    if let Err(error) = tauri_build::try_build(attributes) {
+        // Same as `tauri_build::build()`: report and fail the build script.
+        eprintln!("tauri-build failed: {error:#}");
+        std::process::exit(1);
+    }
+
+    // The linker runs from the workspace root, so the path has to be absolute.
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .expect("cargo sets CARGO_MANIFEST_DIR for build scripts");
+    let manifest = Path::new(&manifest_dir).join("windows-app-manifest.xml");
+    let manifest = manifest
+        .to_str()
+        .expect("the path of windows-app-manifest.xml is not valid UTF-8");
+    println!("cargo:rerun-if-changed={manifest}");
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg=/MANIFESTINPUT:{manifest}");
 }
 
 /// `bundle.externalBin` and, on macOS targets, `bundle.macOS.frameworks` make tauri-build require
