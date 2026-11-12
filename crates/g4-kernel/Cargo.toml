@@ -28,7 +28,7 @@ rust-i18n = { workspace = true }
 tempfile = { version = "3", optional = true }
 clap = { version = "4", features = ["derive"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-rotom = { git = "https://github.com/KalaayPT/rotom", tag = "v0.7.0" }
+rotom = { git = "https://github.com/KalaayPT/rotom", tag = "v0.8.1" }
 toml = "0.8"
 png = "0.18"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
