@@ -409,4 +409,5 @@ seine Signatur ist die eigene des Abschnitts „Update-Pakete“.
   stehen oben.
 - Nur macOS arm64 und Windows x64; Linux ist kein Ziel dieser Phase.
 - Signatur über eine Developer ID folgt später; das Auto-Update (Abschnitt „Update-Pakete“) ist davon unabhängig.
-- Der Update-Weg unter Windows bleibt ohne Windows-Rechner ungeprüft; dann ist das erste echte Update (1.0.1 auf 1.0.2) die Probe.
+- Für 1.0.1 ist der Update-Weg unter macOS abgenommen (rc.1 auf rc.2), unter Windows nicht: Bei der Abnahme gab es keinen Windows-Rechner,
+  die erste Probe ist das erste echte Update (1.0.1 auf 1.0.2).

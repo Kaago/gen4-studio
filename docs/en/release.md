@@ -409,4 +409,5 @@ its signature is the separate one of the section "Updater packages".
   are described above.
 - Only macOS arm64 and Windows x64; Linux is not a target of this phase.
 - Signing with a Developer ID follows later; the auto-update (section "Updater packages") does not depend on it.
-- The update path on Windows stays unproven without a Windows machine; then the first real update (1.0.1 to 1.0.2) is the trial.
+- For 1.0.1 the update path was accepted on macOS (rc.1 to rc.2) but not on Windows: no Windows machine was available for the
+  acceptance test, so the first real update (1.0.1 to 1.0.2) is the trial.
