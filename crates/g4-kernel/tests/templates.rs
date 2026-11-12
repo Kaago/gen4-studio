@@ -1016,6 +1016,21 @@ const STATE_FILE: &str = ".rotom/status/compile-state.json";
 #[test]
 fn undo_and_redo_after_a_compile_restore_every_file() {
     let (_s, mut store) = ready_world();
+    // The recipe's compile writes the town's texts into the archive of header 0: 433 in the
+    // fixture, which is also Platinum's location bank. rotom v0.8.1 loads that bank as
+    // constants and records it as a dependency of every script, hashed before the run, so
+    // the next compile would change what the state says. The battle texts (617) are no bank
+    // rotom loads; a compile unpacks their JSON before the recipe, as the plan does for 433.
+    store
+        .edit_header(0, "texts", |h| {
+            if let MapHeader::Pt(h) = h {
+                h.text_archive_id = 617;
+            }
+            Ok(())
+        })
+        .unwrap();
+    store.save().unwrap();
+    scripts::compile(store.project()).unwrap();
     // A second handle on the project, for its paths while the store is borrowed mutably.
     let project = Project::open(&store.project().root).unwrap();
     // The plan unpacks the text archive members (it loads the location bank), as a DSPRE
