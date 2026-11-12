@@ -76,10 +76,21 @@ describe("LevelScriptSection", () => {
   const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
   const select = (label: string) => container.querySelector<HTMLElement>(`[role=combobox][aria-label="${label}"]`)!;
   const optionEls = () => [...document.querySelectorAll<HTMLElement>("[role=option]")];
-  /** Picks the trigger `type` (shown as "Beim Laden (on_load)") from the select named `label`. */
+  /** Waits a frame at a time (at most a second) until `done` holds. */
+  const settle = async (done: () => boolean) => {
+    for (let i = 0; i < 60 && !done(); i++) await act(() => new Promise<void>((resolve) => setTimeout(resolve, 16)));
+  };
+  /**
+   * Picks the trigger `type` (shown as "Beim Laden (on_load)") from the select named `label` as a user does: the option is clicked once
+   * the open popup has the focus, and the next step comes once the focus is back on the select. Base UI moves the focus a frame after
+   * the popup opens; clicked before, that move came after the click and took the focus from the field typed into next, which then
+   * committed nothing.
+   */
   const choose = async (label: string, type: string) => {
     openSelect(select(label));
+    await settle(() => document.activeElement?.getAttribute("role") === "option");
     await act(async () => void optionEls().find((o) => o.textContent?.endsWith(`(${type})`))!.click());
+    await settle(() => document.activeElement === select(label));
   };
   const setValue = (el: HTMLInputElement, value: string) =>
     act(async () => {
