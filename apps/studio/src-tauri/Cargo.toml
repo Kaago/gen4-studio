@@ -39,7 +39,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tiny_http = { version = "0.12", optional = true }
 clap = { version = "4", features = ["derive"] }
 # `studio mcp`: the editor's tools for coding agents over stdio (Model Context Protocol).
-rmcp = { version = "=3.7.0", default-features = false, features = ["server", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "=3.9.0", default-features = false, features = ["server", "transport-io", "transport-streamable-http-server"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "fs", "net", "time"] }
 libc = "0.2"
 # The running app serves MCP over Streamable HTTP on 127.0.0.1 (`mcp::http`).
@@ -47,9 +47,9 @@ hyper = { version = "1", features = ["server", "client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
-getrandom = "0.3"
+getrandom = "0.4"
 # The project preview travels as base64 in JSON (`commands::preview`).
-base64 = "0.22"
+base64 = "0.23"
 # The message catalogs (`locales/{en,de}.yml`, `t!`); the locale is shared with g4-kernel.
 rust-i18n = { workspace = true }
 # "System" in Settings › Language: the OS locale; WKWebView's `navigator.language` may report the bundle's localizations rather than the OS language.
@@ -67,5 +67,5 @@ tempfile = "3"
 tauri = { version = "2", features = ["test"] }
 g4-kernel = { path = "../../../crates/g4-kernel", features = ["test-support"] }
 g4-formats = { path = "../../../crates/g4-formats", features = ["test-support"] }
-rmcp = { version = "=3.7.0", default-features = false, features = ["client", "transport-child-process"] }
+rmcp = { version = "=3.9.0", default-features = false, features = ["client", "transport-child-process"] }
 tokio = { version = "1", features = ["process", "time", "io-util"] }

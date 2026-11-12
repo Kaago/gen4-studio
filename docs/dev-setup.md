@@ -73,8 +73,8 @@ Folgen:
 ## rotom und rotom-lsp (Scripts)
 
 Scripts werden mit [rotom](https://github.com/KalaayPT/rotom) kompiliert; die Bibliothek ist eine Cargo-Abhängigkeit von `g4-kernel`
-(Git-Tag `v0.7.0`, mit Kommentar im Code, wo welche API benutzt wird). Completion, Hover und Diagnosen im Script-Editor liefert der
-Sprachserver `rotom-lsp`, ein eigener Prozess (Sidecar) aus **demselben Tag `v0.7.0`**. Ohne ihn läuft der Editor weiter (Öffnen,
+(Git-Tag `v0.8.1`, mit Kommentar im Code, wo welche API benutzt wird; der Kommentar nennt den Tag, an dem die Stelle geprüft wurde). Completion, Hover und Diagnosen im Script-Editor liefert der
+Sprachserver `rotom-lsp`, ein eigener Prozess (Sidecar) aus **demselben Tag `v0.8.1`**. Ohne ihn läuft der Editor weiter (Öffnen,
 Bearbeiten, Speichern, Compile), nur die Sprachdienste fehlen; die Kopfzeile zeigt „rotom-lsp fehlt — Completion und Diagnosen aus“.
 
 Bauen (einmal; `tools/` ist per `.gitignore` ausgeschlossen):
@@ -82,7 +82,7 @@ Bauen (einmal; `tools/` ist per `.gitignore` ausgeschlossen):
 ```sh
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 CFLAGS="-D_POSIX_C_SOURCE=200809L" \
-  cargo install --git https://github.com/KalaayPT/rotom --tag v0.7.0 --locked rotom-lsp --root tools/rotom
+  cargo install --git https://github.com/KalaayPT/rotom --tag v0.8.1 --locked rotom-lsp --root tools/rotom
 ```
 
 - `CFLAGS` ist auf macOS-SDKs ab 15.4 nötig: nitroarcs `strchrnul` kollidiert sonst mit der SDK-Deklaration (derselbe Wert steht in

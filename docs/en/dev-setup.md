@@ -73,8 +73,8 @@ Consequences:
 ## rotom and rotom-lsp (scripts)
 
 Scripts are compiled with [rotom](https://github.com/KalaayPT/rotom); the library is a Cargo dependency of `g4-kernel`
-(Git tag `v0.7.0`, with a comment in the code where which API is used). Completion, hover and diagnostics in the script editor come from the
-language server `rotom-lsp`, a separate process (sidecar) from the **same tag `v0.7.0`**. Without it the editor keeps working (open,
+(Git tag `v0.8.1`, with a comment in the code where which API is used; the comment names the tag at which the place was checked). Completion, hover and diagnostics in the script editor come from the
+language server `rotom-lsp`, a separate process (sidecar) from the **same tag `v0.8.1`**. Without it the editor keeps working (open,
 edit, save, compile); only the language services are missing, and the header bar says that rotom-lsp is missing and that completion and diagnostics are off.
 
 Build (once; `tools/` is excluded by `.gitignore`):
@@ -82,7 +82,7 @@ Build (once; `tools/` is excluded by `.gitignore`):
 ```sh
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 CFLAGS="-D_POSIX_C_SOURCE=200809L" \
-  cargo install --git https://github.com/KalaayPT/rotom --tag v0.7.0 --locked rotom-lsp --root tools/rotom
+  cargo install --git https://github.com/KalaayPT/rotom --tag v0.8.1 --locked rotom-lsp --root tools/rotom
 ```
 
 - `CFLAGS` is needed on macOS SDKs from 15.4: otherwise nitroarc's `strchrnul` collides with the SDK declaration (the same value is in

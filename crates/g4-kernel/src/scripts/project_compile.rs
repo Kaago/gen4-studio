@@ -149,9 +149,10 @@ pub(crate) fn base_constants(
             ),
         ));
     }
-    // rotom v0.7.0: src/project/context.rs load_inner, the Dspre arm
+    // rotom v0.8.1: src/project/context.rs load_inner, the Dspre arm (it finds the archives by
+    // their id for the game family and language, `TextBankIds::for_game`)
     constants.load_dspre_symbols((*workspace.symbols).clone());
-    let _ = constants.load_dspre_text_archives(root, workspace.language);
+    let _ = constants.load_dspre_text_archives(root, workspace.family, workspace.language);
     Ok(constants)
 }
 

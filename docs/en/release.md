@@ -19,7 +19,7 @@ The bundle contains third-party components so that the app runs without the deve
   target triple suffix (`apicula-aarch64-apple-darwin` becomes `apicula`). The app finds it through entry 2 of the
   apicula lookup (see `docs/en/dev-setup.md`); `G4_APICULA` does not have to be set.
 - rotom-lsp (macOS `Contents/MacOS/rotom-lsp`, Windows `rotom-lsp.exe` next to `studio.exe`): the language server for scripts (Git tag
-  `v0.7.0`, like the rotom library). On macOS it has the rpath `@executable_path/../Frameworks` and loads the same
+  `v0.8.1`, like the rotom library). On macOS it has the rpath `@executable_path/../Frameworks` and loads the same
   `libnitroarc_ffi.dylib`. The app finds it next to the Studio binary (entry 2 of the lookup in `docs/en/dev-setup.md`).
 
 Play mode live (the melonDS core inside the window) stays macOS-only; on Windows the app says so with a notice.

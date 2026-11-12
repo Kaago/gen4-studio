@@ -19,7 +19,7 @@ Das Bundle enthält Fremdkomponenten, damit die App ohne den Entwicklungsbaum l�
   Target-Triple-Suffix (`apicula-aarch64-apple-darwin` wird zu `apicula`). Die App findet ihn über Eintrag 2 der
   apicula-Suche (siehe `docs/dev-setup.md`), `G4_APICULA` muss nicht gesetzt sein.
 - rotom-lsp (macOS `Contents/MacOS/rotom-lsp`, Windows `rotom-lsp.exe` neben `studio.exe`): der Sprachserver der Scripts (Git-Tag
-  `v0.7.0`, wie die rotom-Bibliothek). Unter macOS hat er den rpath `@executable_path/../Frameworks` und lädt dieselbe
+  `v0.8.1`, wie die rotom-Bibliothek). Unter macOS hat er den rpath `@executable_path/../Frameworks` und lädt dieselbe
   `libnitroarc_ffi.dylib`. Die App findet ihn neben dem Studio-Binary (Eintrag 2 der Suche in `docs/dev-setup.md`).
 
 Der Spielmodus live (melonDS-Kern im Fenster) bleibt macOS-only; unter Windows meldet die App das mit einem Hinweis.

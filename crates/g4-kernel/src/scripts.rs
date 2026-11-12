@@ -1259,7 +1259,13 @@ fn visit_expression<'a>(
             visit_expression(left, f);
             visit_expression(right, f);
         }
-        ExpressionKind::Call { function, args } => {
+        // rotom v0.8.1: src/compiler/ast.rs ExpressionKind::Call, `destination` is the
+        // variable of `.into(...)` (autovar), after the arguments in the source.
+        ExpressionKind::Call {
+            function,
+            args,
+            destination,
+        } => {
             if let ExpressionKind::Identifier(name) = &function.node {
                 f(AstItem::Command { name, args });
             } else {
@@ -1267,6 +1273,9 @@ fn visit_expression<'a>(
             }
             for arg in args {
                 visit_expression(arg, f);
+            }
+            if let Some(destination) = destination {
+                visit_expression(destination, f);
             }
         }
         ExpressionKind::InlineAction { body } => visit_statements(body, f),
