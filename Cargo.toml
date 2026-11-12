@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/g4-formats", "crates/g4-kernel", "crates/g4-xdelta", "apps/studio/src-tauri"]
 
 [workspace.package]
-version = "1.0.1-rc.2"
+version = "1.0.1"
 edition = "2024"
 license = "MIT"
 

@@ -8,7 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 keeps `apps/studio/package.json` and `Cargo.lock` in line. The release workflow uses the
 section of the version as the text of the draft release.
 
-## [1.0.1] - Unreleased
+## [1.0.1] - 2026-11-12
 
 ### Added
 
