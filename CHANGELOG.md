@@ -8,6 +8,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 keeps `apps/studio/package.json` and `Cargo.lock` in line. The release workflow uses the
 section of the version as the text of the draft release.
 
+## [1.0.2] - 2026-11-12
+
+### Changed
+
+- Scripts compile with rotom v0.8.1 (was v0.7.0), and the language server of the script editor comes from the same version. The script language can now use autovar for variable parameters and choose the result variable with `.into(...)`, and `format()` takes text over several lines.
+- Updated dependencies: base64 0.23, sha1 0.11, getrandom 0.4, uxie 0.9.8, rmcp 3.9.0, tauri-plugin-dialog 2.8.4 and cc 1.11.1 on the Rust side; dagre 3.1, TypeScript 7.0, jsdom 31, CodeMirror, React Flow 12.12.1, dockview 8.9, three.js 0.187, Vite 8.3, Vitest 5.1 and the Tauri CLI 2.12.4 in the interface; taiki-e/install-action 2.90.3 in the build.
+
+### Fixed
+
+- "Adopt scripts" refers to common scripts by the labels the same run gives them, and no longer takes the end of a movement for the start of the next one (rotom v0.8.1).
+- In DSPRE projects, the constants for items, Pokémon, places, trainers, moves and sounds come from the text archives of the project's game and language (rotom v0.8.1).
+
+### Security
+
+- rmcp 3.9.0 fixes RUSTSEC-2026-0462; the affected HTTP client code was never compiled into Gen4 Studio.
+- The open advisories for zip 8.6, which comes in through rotom, do not reach Gen4 Studio: rotom reads only its own command database and uses none of the affected functions. They stay open until rotom moves to zip 9.
+
 ## [1.0.1] - 2026-11-12
 
 ### Added

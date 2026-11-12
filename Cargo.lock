@@ -1618,7 +1618,7 @@ dependencies = [
 
 [[package]]
 name = "g4-formats"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "proptest",
  "thiserror 2.0.21",
@@ -1627,7 +1627,7 @@ dependencies = [
 
 [[package]]
 name = "g4-kernel"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "assert_cmd",
  "base64 0.23.1",
@@ -1661,7 +1661,7 @@ dependencies = [
 
 [[package]]
 name = "g4-xdelta"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "cc",
  "tempfile",
@@ -5644,7 +5644,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "studio"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "base64 0.23.1",
  "bytes",
