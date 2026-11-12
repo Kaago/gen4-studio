@@ -1999,7 +1999,9 @@ pub(crate) fn restore_compile_state(
 /// decompiled one becomes "Compiled"), so only the file's bytes put back make it as it was;
 /// entries set one by one ([`set_state_entry`]) would not. Undo and redo accept the file when
 /// it says the same as the step's side ([`same_compile_state`]): a later compile that
-/// compiled nothing anew leaves the step intact. Empty when the bytes are the same.
+/// compiled nothing anew leaves the step intact, and so does one that compiled a source again
+/// to the same output only because a file it depends on changed. Empty when the bytes are the
+/// same.
 pub fn compile_state_step(
     project: &Project,
     asset: crate::project::AssetId,
@@ -2028,13 +2030,19 @@ pub fn compile_state_step(
 
 /// Whether two versions of rotom's compile state file (`None`: no file) say the same for
 /// rotom: equal as JSON (the order of the entries does not count), each entry's time of its
-/// last compile aside and its status only as dirty or not. rotom v0.7.0 (src/project/compile.rs
-/// compile_project, and `project_compile` here) writes the file at the end of every compile
-/// and gives every entry, also one of a source it skipped, a new `FileState::compiled`: a new
-/// `last_compiled` (`Utc::now()`) and the status "Compiled" (a decompiled source's
-/// "Decompiled" goes). What rotom reads back (`CompileState::file_is_stale`) is the hashes,
-/// the dependencies and whether the status is "Dirty"; the quirks steer the next compile. A
-/// file that is no JSON is the same only byte for byte.
+/// last compile and the hashes of its dependencies aside and its status only as dirty or not.
+/// rotom v0.7.0 (src/project/compile.rs compile_project, and `project_compile` here) writes
+/// the file at the end of every compile and gives every entry, also one of a source it
+/// skipped, a new `FileState::compiled`: a new `last_compiled` (`Utc::now()`) and the status
+/// "Compiled" (a decompiled source's "Decompiled" goes). What rotom reads back
+/// (`CompileState::file_is_stale`) is the hashes, the dependencies and whether the status is
+/// "Dirty"; the quirks steer the next compile. The dependencies change without the source:
+/// the global script table of a DSPRE HeartGold/SoulSilver project is `arm9.bin` (uxie 0.9.8
+/// src/workspace.rs `global_script_table_source_path`), which every saved header changes, and
+/// rotom v0.8.1 records it for every script that calls a common script by its label. An entry
+/// put back with older dependency hashes is stale at the next compile, which compiles its
+/// source again; with the same source and output hash nothing else is lost. A file that is no
+/// JSON is the same only byte for byte.
 pub fn same_compile_state(a: Option<&[u8]>, b: Option<&[u8]>) -> bool {
     fn said(bytes: &[u8]) -> Option<serde_json::Value> {
         let mut state: serde_json::Value = serde_json::from_slice(bytes).ok()?;
@@ -2047,6 +2055,7 @@ pub fn same_compile_state(a: Option<&[u8]>, b: Option<&[u8]>) -> bool {
                 .filter_map(serde_json::Value::as_object_mut)
             {
                 entry.remove("last_compiled");
+                entry.remove("dependency_hashes");
                 if let Some(status) = entry.get_mut("status") {
                     *status = serde_json::Value::Bool(status == "Dirty");
                 }
@@ -4010,7 +4019,7 @@ AlreadyGiven:
     }
 
     #[test]
-    fn a_compile_state_says_the_same_without_order_times_and_clean_statuses() {
+    fn a_compile_state_says_the_same_without_order_times_dependency_hashes_and_clean_statuses() {
         let entry = |status: &str, time: &str, hash: u64| {
             serde_json::json!({
                 "source_hash": hash, "output_hash": 2, "dependency_hashes": {},
@@ -4041,6 +4050,23 @@ AlreadyGiven:
         ]);
         assert_ne!(a, b);
         assert!(same_compile_state(Some(&a), Some(&b)));
+        // A source compiled again to the same output because a file it depends on changed
+        // (HeartGold's arm9.bin after a saved header): the same.
+        let depending = |time: &str, hash: u64| {
+            let mut e = entry("Compiled", time, 1);
+            e["dependency_hashes"] = serde_json::json!({ "arm9/arm9.bin": hash });
+            e
+        };
+        assert!(same_compile_state(
+            Some(&state(vec![
+                ("s/0000.rotom", entry("Decompiled", t0, 1)),
+                ("s/0001.rotom", depending(t0, 3)),
+            ])),
+            Some(&state(vec![
+                ("s/0000.rotom", entry("Compiled", t1, 1)),
+                ("s/0001.rotom", depending(t1, 4)),
+            ])),
+        ));
         // A dirty entry, another hash, an entry more or less: not the same.
         for other in [
             state(vec![
