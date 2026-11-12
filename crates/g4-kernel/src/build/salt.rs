@@ -80,7 +80,7 @@ mod tests {
             lock(Tool::DsRom)
         );
         assert!(
-            lock(Tool::Rotom).contains("v0.7.0"),
+            lock(Tool::Rotom).contains("v0.8.1"),
             "{}",
             lock(Tool::Rotom)
         );

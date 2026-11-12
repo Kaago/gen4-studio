@@ -1259,7 +1259,13 @@ fn visit_expression<'a>(
             visit_expression(left, f);
             visit_expression(right, f);
         }
-        ExpressionKind::Call { function, args } => {
+        // rotom v0.8.1: src/compiler/ast.rs ExpressionKind::Call, `destination` is the
+        // variable of `.into(...)` (autovar), after the arguments in the source.
+        ExpressionKind::Call {
+            function,
+            args,
+            destination,
+        } => {
             if let ExpressionKind::Identifier(name) = &function.node {
                 f(AstItem::Command { name, args });
             } else {
@@ -1267,6 +1273,9 @@ fn visit_expression<'a>(
             }
             for arg in args {
                 visit_expression(arg, f);
+            }
+            if let Some(destination) = destination {
+                visit_expression(destination, f);
             }
         }
         ExpressionKind::InlineAction { body } => visit_statements(body, f),
@@ -3120,6 +3129,11 @@ mod tests {
         let (_s, p) = adopted();
         let literal = "script Main #1:\n    Message \"Hallo Welt\"\n    End\n";
         write_source(&p, 0, &ScriptSource::Rotom(literal.into())).unwrap();
+        assert_eq!(compile(&p).unwrap().compiled, [0]);
+        // In the fixture the header's archive 433 is also Platinum's location bank, which
+        // rotom v0.8.1 loads as constants (`TextBankIds::for_game`) and records as a
+        // dependency of every script: the literal the first run appends changes it, so the
+        // script compiles once more (the literal is not appended again), then it holds.
         assert_eq!(compile(&p).unwrap().compiled, [0]);
         assert!(compile(&p).unwrap().compiled.is_empty(), "nothing is stale");
 

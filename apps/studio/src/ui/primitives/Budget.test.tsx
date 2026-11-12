@@ -61,7 +61,10 @@ describe("Budget", () => {
     expect(container.textContent).toContain("VRAM 37.744 von 262.144 B · 38 Texturen");
     expect(container.querySelector("[data-tech]")?.textContent).toBe("0x40000");
     expect(meter().getAttribute("aria-valuetext")).toBe("VRAM 37.744 von 262.144 B · 38 Texturen");
-    expect(container.querySelector<HTMLElement>("[data-budget-fill]")?.style.width).toBe(`${(37744 / 262144) * 100}%`);
+    // jsdom 31 keeps four decimals of a percentage, so the number is compared.
+    const width = container.querySelector<HTMLElement>("[data-budget-fill]")?.style.width ?? "";
+    expect(width).toMatch(/^[\d.]+%$/);
+    expect(parseFloat(width)).toBeCloseTo((37744 / 262144) * 100, 3);
   });
 
   it("colours_the_fill_by_its_state_with_tokens", () => {

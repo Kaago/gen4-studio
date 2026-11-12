@@ -52,7 +52,7 @@ test_macos_builds_rotom_lsp_with_headerpad() {
     fail "unexpected cargo call: $(cat "$d/cargo.log")"
 }
 
-# The tag ships a Cargo.lock (checked for v0.7.0); `cargo install` ignores it without --locked and
+# The tag ships a Cargo.lock (checked for v0.7.0 and v0.8.1); `cargo install` ignores it without --locked and
 # would take the newest dependencies at build time, on a machine that also holds the signing key.
 test_windows_installs_rotom_lsp_locked_too() {
   local d
