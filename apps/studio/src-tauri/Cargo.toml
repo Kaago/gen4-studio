@@ -49,7 +49,7 @@ http-body-util = "0.1"
 bytes = "1"
 getrandom = "0.3"
 # The project preview travels as base64 in JSON (`commands::preview`).
-base64 = "0.22"
+base64 = "0.23"
 # The message catalogs (`locales/{en,de}.yml`, `t!`); the locale is shared with g4-kernel.
 rust-i18n = { workspace = true }
 # "System" in Settings › Language: the OS locale; WKWebView's `navigator.language` may report the bundle's localizations rather than the OS language.

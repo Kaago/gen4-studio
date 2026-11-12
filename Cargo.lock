@@ -1595,7 +1595,7 @@ name = "g4-kernel"
 version = "1.0.1"
 dependencies = [
  "assert_cmd",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chatot",
  "clap",
  "ds-rom",
@@ -5107,7 +5107,7 @@ checksum = "45400dbf0a2c4c2af106c08eb1028b3e45bea3cd45517d3a0e8170b86597122f"
 dependencies = [
  "ahash",
  "annotate-snippets",
- "base64 0.22.1",
+ "base64 0.21.7",
  "encoding_rs_io",
  "nohash-hasher",
  "num-traits",
@@ -5577,7 +5577,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "studio"
 version = "1.0.1"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "clap",
  "g4-formats",
