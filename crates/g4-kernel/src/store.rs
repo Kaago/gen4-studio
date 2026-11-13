@@ -590,8 +590,8 @@ pub enum FileStepKind {
     /// redo reload the step's asset when it is loaded.
     Recipe,
     /// rotom's compile state file a recipe's compile wrote, as [`FileStepKind::Recipe`]. Every
-    /// later compile writes it anew (new times, the entries in another order) without changing
-    /// what it says, so undo and redo compare what it says
+    /// later compile writes it anew (new times, the entries in another order, new hashes of a
+    /// changed dependency) without changing what it says, so undo and redo compare what it says
     /// ([`crate::scripts::same_compile_state`]) and write the step's bytes back.
     CompileState,
 }

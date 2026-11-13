@@ -1019,7 +1019,7 @@ fn undo_and_redo_after_a_compile_restore_every_file() {
     // The recipe's compile writes the town's texts into the archive of header 0: 433 in the
     // fixture, which is also Platinum's location bank. rotom v0.8.1 loads that bank as
     // constants and records it as a dependency of every script, hashed before the run, so
-    // the next compile would change what the state says. The battle texts (617) are no bank
+    // the next compile would compile every script again. The battle texts (617) are no bank
     // rotom loads; a compile unpacks their JSON before the recipe, as the plan does for 433.
     store
         .edit_header(0, "texts", |h| {
