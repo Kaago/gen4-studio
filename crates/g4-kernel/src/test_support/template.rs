@@ -292,22 +292,38 @@ mod tests {
         assert_same_tree(&cloned, &TextFixture::exported_uncached());
     }
 
-    #[test]
-    fn a_clone_of_text_ptde_equals_a_fresh_build() {
-        for patch in [false, true] {
-            let cloned = TextFixture::platinum_de(patch);
-            assert_built_as_template(&format!("text-ptde-{patch}"));
-            assert_same_tree(&cloned, &TextFixture::platinum_de_uncached(patch));
-        }
+    // One test per `patch`: the fresh builds take a minute under load, and two tests spread
+    // over two threads.
+    fn clone_of_text_ptde_equals_a_fresh_build(patch: bool) {
+        let cloned = TextFixture::platinum_de(patch);
+        assert_built_as_template(&format!("text-ptde-{patch}"));
+        assert_same_tree(&cloned, &TextFixture::platinum_de_uncached(patch));
     }
 
     #[test]
-    fn a_clone_of_text_ptde_exported_equals_a_fresh_build() {
-        for patch in [false, true] {
-            let cloned = TextFixture::platinum_de_exported(patch);
-            assert_built_as_template(&format!("text-ptde-exported-{patch}"));
-            assert_same_tree(&cloned, &TextFixture::platinum_de_exported_uncached(patch));
-        }
+    fn a_clone_of_text_ptde_equals_a_fresh_build_for_patch_false() {
+        clone_of_text_ptde_equals_a_fresh_build(false);
+    }
+
+    #[test]
+    fn a_clone_of_text_ptde_equals_a_fresh_build_for_patch_true() {
+        clone_of_text_ptde_equals_a_fresh_build(true);
+    }
+
+    fn clone_of_text_ptde_exported_equals_a_fresh_build(patch: bool) {
+        let cloned = TextFixture::platinum_de_exported(patch);
+        assert_built_as_template(&format!("text-ptde-exported-{patch}"));
+        assert_same_tree(&cloned, &TextFixture::platinum_de_exported_uncached(patch));
+    }
+
+    #[test]
+    fn a_clone_of_text_ptde_exported_equals_a_fresh_build_for_patch_false() {
+        clone_of_text_ptde_exported_equals_a_fresh_build(false);
+    }
+
+    #[test]
+    fn a_clone_of_text_ptde_exported_equals_a_fresh_build_for_patch_true() {
+        clone_of_text_ptde_exported_equals_a_fresh_build(true);
     }
 
     #[test]
@@ -356,17 +372,30 @@ mod tests {
         }
     }
 
+    /// What `prepare` changes before the packed archives are unpacked.
+    fn prepare(p: &crate::project::Project) {
+        prepare_platinum_de(p, true);
+    }
+
+    // One test per fresh reference: each is a build from the files up, and three tests
+    // spread over three threads.
     #[test]
-    fn with_and_unmarked_on_a_clone_of_pt_equal_a_fresh_build() {
-        // `prepare` changes the packed archives before they are unpacked.
-        let prepare = |p: &crate::project::Project| prepare_platinum_de(p, true);
+    fn with_on_a_clone_of_pt_equals_a_fresh_build() {
         let cloned = TextFixture::with(prepare);
         assert_built_as_template("pt");
         assert_same_tree(&cloned, &TextFixture::with_uncached(prepare));
+    }
+
+    #[test]
+    fn unmarked_after_prepare_on_a_clone_of_pt_equals_a_fresh_build() {
         assert_same_tree(
             &TextFixture::unmarked(prepare),
             &TextFixture::unmarked_uncached(prepare),
         );
+    }
+
+    #[test]
+    fn unmarked_on_a_clone_of_pt_equals_a_fresh_build() {
         assert_same_tree(
             &TextFixture::unmarked(|_| {}),
             &TextFixture::unmarked_uncached(|_| {}),
@@ -409,77 +438,68 @@ mod tests {
         assert!(!layer.join(".g4").exists());
     }
 
-    /// Every text template, each with whether its build state is not empty.
-    fn text_templates() -> Vec<(&'static str, TextFixture, bool)> {
-        vec![
-            ("text-dspre", TextFixture::dspre(), false),
-            ("text-exported", TextFixture::exported(), true),
-            ("text-ptde-false", TextFixture::platinum_de(false), false),
-            ("text-ptde-true", TextFixture::platinum_de(true), false),
-            (
-                "text-ptde-exported-false",
-                TextFixture::platinum_de_exported(false),
-                true,
-            ),
-            (
-                "text-ptde-exported-true",
-                TextFixture::platinum_de_exported(true),
-                true,
-            ),
-        ]
+    /// A clone of the text template `key`, with whether its build state is not empty.
+    fn text_template(key: &str) -> (TextFixture, bool) {
+        match key {
+            "text-dspre" => (TextFixture::dspre(), false),
+            "text-exported" => (TextFixture::exported(), true),
+            "text-ptde-false" => (TextFixture::platinum_de(false), false),
+            "text-ptde-true" => (TextFixture::platinum_de(true), false),
+            "text-ptde-exported-false" => (TextFixture::platinum_de_exported(false), true),
+            "text-ptde-exported-true" => (TextFixture::platinum_de_exported(true), true),
+            _ => panic!("`{key}` is no text template"),
+        }
     }
 
     /// A clone has other inodes and ctimes than the project that recorded its build state, and
     /// the kernel calls such a file the same only with a content hash on record. So a clone of
-    /// each text template must be what the kernel's own comparisons call unchanged: the text
+    /// a text template must be what the kernel's own comparisons call unchanged: the text
     /// archives in sync, every recorded build step input and output the same, and the text
     /// project's sync scan without a unit that is not in step.
-    #[test]
-    fn a_clone_of_each_text_template_is_unchanged_for_the_build_state() {
+    fn a_clone_is_unchanged_for_the_build_state(key: &str) {
         use crate::build::fingerprint::{Seen, compare, now_ns};
         use crate::build::state::BuildState;
         use crate::text::{TextSide, TextSync};
         use crate::textproject::sync::{UnitSide, scan};
 
-        for (key, fx, has_state) in text_templates() {
-            let project = fx.project();
-            let state = BuildState::load(fx.root());
+        let (fx, has_state) = text_template(key);
+        let project = fx.project();
+        let state = BuildState::load(fx.root());
+        assert_eq!(
+            state.texts.is_empty() && state.sync.is_none() && state.steps.is_empty(),
+            !has_state,
+            "{key}: the template's build state"
+        );
+        let texts = TextSync::load(&project);
+        for archive in state.texts.keys() {
             assert_eq!(
-                state.texts.is_empty() && state.sync.is_none() && state.steps.is_empty(),
-                !has_state,
-                "{key}: the template's build state"
+                texts.side(&project, *archive).unwrap(),
+                TextSide::InSync,
+                "{key}: text archive {archive}"
             );
-            let texts = TextSync::load(&project);
-            for archive in state.texts.keys() {
-                assert_eq!(
-                    texts.side(&project, *archive).unwrap(),
-                    TextSide::InSync,
-                    "{key}: text archive {archive}"
-                );
+        }
+        for (id, record) in &state.steps {
+            for (file, recorded) in record.inputs.iter().chain(&record.outputs) {
+                let (seen, _) = compare(
+                    &fx.root().join(file),
+                    Some(recorded),
+                    record.scanned_at_ns,
+                    now_ns(),
+                )
+                .unwrap();
+                assert_eq!(seen, Seen::Same, "{key}: step {id}, {file}");
             }
-            for (id, record) in &state.steps {
-                for (file, recorded) in record.inputs.iter().chain(&record.outputs) {
-                    let (seen, _) = compare(
-                        &fx.root().join(file),
-                        Some(recorded),
-                        record.scanned_at_ns,
-                        now_ns(),
-                    )
-                    .unwrap();
-                    assert_eq!(seen, Seen::Same, "{key}: step {id}, {file}");
-                }
-            }
-            if state.sync.is_some() {
-                let report = scan(&project, &mut |_| {}).unwrap();
-                assert!(!report.full, "{key}: the scan found no record");
-                let changed: Vec<&String> = report
-                    .units
-                    .iter()
-                    .filter(|unit| unit.side != UnitSide::InSync)
-                    .map(|unit| &unit.key)
-                    .collect();
-                assert!(changed.is_empty(), "{key}: changed units {changed:?}");
-            }
+        }
+        if state.sync.is_some() {
+            let report = scan(&project, &mut |_| {}).unwrap();
+            assert!(!report.full, "{key}: the scan found no record");
+            let changed: Vec<&String> = report
+                .units
+                .iter()
+                .filter(|unit| unit.side != UnitSide::InSync)
+                .map(|unit| &unit.key)
+                .collect();
+            assert!(changed.is_empty(), "{key}: changed units {changed:?}");
         }
     }
 
@@ -487,57 +507,89 @@ mod tests {
     /// build step relies on it: it judges a file written after its sync record by its ctime
     /// (a record older than what the step read), and a clone's ctimes are all newer than the
     /// template's. So the state of a clone must be stamped with the clone's own `stat`.
-    #[test]
-    fn a_clone_of_each_text_template_has_the_stat_its_build_state_recorded() {
+    fn a_clone_has_the_stat_its_build_state_recorded(key: &str) {
         use super::super::each_recorded_fp;
         use crate::build::fingerprint::{same_stat, stat};
         use crate::build::state::BuildState;
 
-        for (key, fx, has_state) in text_templates() {
-            let mut state = BuildState::load(fx.root());
-            let mut recorded = 0;
-            let mut stale = Vec::new();
-            each_recorded_fp(&mut state, &fx.project(), |path, fp| {
-                recorded += 1;
-                match stat(&path).unwrap() {
-                    Some(now) if same_stat(fp, &now) => {}
-                    _ => stale.push(path),
+        let (fx, has_state) = text_template(key);
+        let mut state = BuildState::load(fx.root());
+        let mut recorded = 0;
+        let mut stale = Vec::new();
+        each_recorded_fp(&mut state, &fx.project(), |path, fp| {
+            recorded += 1;
+            match stat(&path).unwrap() {
+                Some(now) if same_stat(fp, &now) => {}
+                _ => stale.push(path),
+            }
+        });
+        assert_eq!(recorded > 0, has_state, "{key}: recorded files");
+        assert!(
+            stale.is_empty(),
+            "{key}: {} of {recorded} files have another stat than recorded, the first ones: {:?}",
+            stale.len(),
+            &stale[..stale.len().min(5)]
+        );
+    }
+
+    // Both checks once per text template: each template is built by the test that asks for it
+    // first, so the six builds spread over threads instead of running one after the other.
+    macro_rules! per_text_template {
+        ($($module:ident => $key:literal),+ $(,)?) => {$(
+            mod $module {
+                #[test]
+                fn a_clone_is_unchanged_for_the_build_state() {
+                    super::a_clone_is_unchanged_for_the_build_state($key);
                 }
-            });
-            assert_eq!(recorded > 0, has_state, "{key}: recorded files");
-            assert!(
-                stale.is_empty(),
-                "{key}: {} of {recorded} files have another stat than recorded, the first ones: {:?}",
-                stale.len(),
-                &stale[..stale.len().min(5)]
-            );
-        }
+
+                #[test]
+                fn a_clone_has_the_stat_its_build_state_recorded() {
+                    super::a_clone_has_the_stat_its_build_state_recorded($key);
+                }
+            }
+        )+};
+    }
+
+    per_text_template! {
+        text_dspre => "text-dspre",
+        text_exported => "text-exported",
+        text_ptde_false => "text-ptde-false",
+        text_ptde_true => "text-ptde-true",
+        text_ptde_exported_false => "text-ptde-exported-false",
+        text_ptde_exported_true => "text-ptde-exported-true",
     }
 
     /// The same, as the build step sees it: after a first build the step's entry has read
     /// every file the sync recorded, and none of them with a ctime later than the record's (that
     /// would be a file changed since the record: the step then treats its unit as changed).
-    #[test]
-    fn the_build_step_reads_a_clone_as_unchanged_since_the_sync_record() {
+    fn the_build_step_reads_a_clone_as_unchanged(patch: bool) {
         use crate::build::state::BuildState;
-        for patch in [false, true] {
-            let fx = TextFixture::platinum_de_exported(patch);
-            crate::build::prepare(&fx.project()).unwrap();
-            let state = BuildState::load(fx.root());
-            let sync = state.sync.expect("the sync record of the export");
-            let entry = &state.steps["textproject"];
-            let mut read = 0;
-            for (file, fp) in &entry.inputs {
-                if let Some(recorded) = sync.files.get(file) {
-                    read += 1;
-                    assert!(
-                        fp.ctime_ns <= recorded.ctime_ns,
-                        "patch {patch}: {file} was read with a ctime later than its record's"
-                    );
-                }
+        let fx = TextFixture::platinum_de_exported(patch);
+        crate::build::prepare(&fx.project()).unwrap();
+        let state = BuildState::load(fx.root());
+        let sync = state.sync.expect("the sync record of the export");
+        let entry = &state.steps["textproject"];
+        let mut read = 0;
+        for (file, fp) in &entry.inputs {
+            if let Some(recorded) = sync.files.get(file) {
+                read += 1;
+                assert!(
+                    fp.ctime_ns <= recorded.ctime_ns,
+                    "patch {patch}: {file} was read with a ctime later than its record's"
+                );
             }
-            assert!(read > 100, "patch {patch}: only {read} files read");
         }
+        assert!(read > 100, "patch {patch}: only {read} files read");
+    }
+
+    #[test]
+    fn the_build_step_reads_a_clone_as_unchanged_since_the_sync_record_for_patch_false() {
+        the_build_step_reads_a_clone_as_unchanged(false);
+    }
+
+    #[test]
+    fn the_build_step_reads_a_clone_as_unchanged_since_the_sync_record_for_patch_true() {
+        the_build_step_reads_a_clone_as_unchanged(true);
     }
 
     /// Why the test above matters: a recorded fingerprint without a hash (the build records
