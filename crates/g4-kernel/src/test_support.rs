@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 use g4_formats::game::Family;
 use g4_formats::narc::Narc;
 
+mod clone;
+pub use clone::clone_tree;
+
 /// Offset of the Platinum (CPUE) header table inside `arm9/arm9.bin`.
 pub const PT_HEADER_TABLE_CPUE: usize = 0xE601C;
 pub const HEADER_SIZE: usize = 24;
@@ -763,7 +766,7 @@ pub fn vanilla_copy() -> Option<(tempfile::TempDir, PathBuf)> {
     let src = vanilla_project()?;
     let tmp = tempfile::tempdir().unwrap();
     let dst = tmp.path().join("project");
-    copy_dir(&src, &dst);
+    clone_tree(&src, &dst);
     Some((tmp, dst))
 }
 
