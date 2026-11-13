@@ -17,7 +17,24 @@
 #                                 tests included), then what needs the ROMs: the g4emu emulator
 #                                 tests, the conditional tests (below) against every test project
 #                                 under $G4_ROMS_DIR, once with the tools, and against every ROM, the
-#                                 build graph and world mesh timings. Run it before a merge.
+#                                 build graph and world mesh timings. Run it before a merge. It takes
+#                                 hours and leaves its result behind (below).
+#   bash scripts/gate.sh --full --from <Schritt>
+#                                 resumes the full run of this commit at a step of the ROM part: the
+#                                 part without ROM and every ok row before <Schritt> are taken over from
+#                                 <sha>.json, the rest runs again. <Schritt> is a step label of the
+#                                 table from "g4emu integration" on, or "<Schritt>@<Projekt>" for a step
+#                                 that runs per project. It needs a clean tree and the <sha>.json and
+#                                 the test lists (below) of this commit, else it ends with status 2.
+#
+# The result of a full run (not with G4_GATE_HERMETIC, not with G4_GATE_ONLY_PROJECT, only on a clean
+# tree): <sha>.json and <sha>.log in G4_GATE_ARTEFAKTE. The log is the whole output (a resumed run
+# appends to it, after a line "==== wiederaufgesetzt ab <Schritt> ===="); the JSON holds the result
+# table with the fields sha, ergebnis (gruen: every step ok; unvollstaendig: ok, but a step was skipped;
+# rot: a step failed or the gate ended with a status other than 0), sekunden, wiederaufgesetzt, beginn
+# and zeilen (scripts/gate-result.sh). It is written when the gate ends, also after an abort. A run that a
+# signal ended writes none. In the ROM part, from "gated tests (cargo test)" on, a failed step is
+# recorded and the run goes on; the gate ends with status 1 then.
 #
 # Conditional tests: a test that needs a ROM project or a tool reads its variable (G4_TEST_PROJECT,
 # G4_TEST_ROM, G4_APICULA, G4_DSROM_CLI, G4_ROTOM_LSP) with g4_formats::test_support::gate_var, which
@@ -34,6 +51,9 @@
 # list without a name records its step as ok without running it (an empty --exact would run
 # everything). The tests never run with --test-threads 1: the thread of a test is what names it, and a
 # toolchain may run the tests of such a run on the main thread (which has no test name).
+# The skip log step writes the lists it derives (list-project.txt, list-rom.txt, list-tool.txt) into the
+# folder of the skip logs, with the sha of the commit in lists.sha when the tree is clean; --from reads
+# the lists from there and refuses those of another commit.
 #
 # CI (.github/workflows/ci.yml: every pull request to main, every push to main, and by hand) runs
 # the fast gate with G4_GATE_HERMETIC=1: the gate ends after the steps without ROM, also with
@@ -49,7 +69,8 @@
 # every step lands in the table with its result and its seconds. A failing background step does not
 # stop cargo test, and a failing cargo test does not stop the background steps: the gate waits for
 # all of them, prints the table and fails if any step failed, so one run reports every failure of
-# the group. Everything else stops at the first failure.
+# the group. Everything else before the ROM part stops at the first failure (the ROM part, from
+# "gated tests (cargo test)" on, goes on after one).
 #
 # Heavy tests: a virus scanner makes every file of a test fixture expensive, and the tests that set
 # up thousands of files take most of the test time. scripts/gate-heavy-tests.txt names the slowest
@@ -68,7 +89,12 @@
 #   G4_GATE_TMPDIR    folder for the temporary files of the cargo test steps (fast and full); the gate
 #                     creates it and sets TMPDIR to it for them. Ein eigener Ordner lässt sich vom
 #                     Virenscanner ausnehmen. Absolute path; default: TMPDIR as it is.
-#   G4_ROMS_DIR       folder with the *_DSPRE_contents test projects (default: ../Roms); --full only
+#   G4_ROMS_DIR       folder with the *_DSPRE_contents test projects (default: ../Roms beside the main
+#                     checkout, see G4_GATE_ARTEFAKTE); --full only
+#   G4_GATE_ARTEFAKTE folder of the results of full runs (<sha>.json, <sha>.log); made when it is needed.
+#                     Default: ../gate-artefakte/full beside the main checkout, which is the parent of
+#                     the git common dir (git rev-parse --git-common-dir), so that a git worktree (the
+#                     nightly run) writes where the main checkout does; --full only
 #   G4_APICULA        apicula binary (default: tools/apicula/bin/apicula); --full only
 #   G4_DSROM_CLI      ds-rom reference CLI (default: $G4_ROMS_DIR/_tools/dsrom); --full only
 #   G4_ROTOM_LSP      rotom-lsp binary (default: tools/rotom/bin/rotom-lsp); --full only
@@ -85,8 +111,9 @@
 #                     touch its log
 #   G4_GATE_ONLY_PROJECT  --full only: the label of one test project (the name of its *_DSPRE_contents
 #                     folder without that suffix, also the name of its ROM without .nds); every
-#                     per-project pass then runs only that project. An unknown label ends the gate
-#                     with status 2 and lists the known ones.
+#                     per-project pass then runs only that project (and the run leaves no result: one
+#                     project is not the matrix). An unknown label ends the gate with status 2 and lists
+#                     the known ones.
 #   G4_GATE_REMOVER_PATTERN, G4_GATE_REMOVER_POLL_S, G4_GATE_REMOVER_WAIT_S
 #                     --full only, before the timing steps: the gate waits until no process matches
 #                     the pattern (pgrep -f; default `rm -rf.*g4-fixtures`, the detached removal of
@@ -100,20 +127,41 @@
 # Prints the result table either way.
 set -euo pipefail
 
+usage() {
+  echo "Aufruf: bash scripts/gate.sh [--full [--from <Schritt>]]" >&2
+  echo "  ohne Argument: das schnelle Gate (alles ohne ROM); --full: danach die ROM-Matrix" >&2
+  echo "  --from <Schritt>: mit --full den Volllauf dieses Commits ab einem Schritt der ROM-Matrix wiederaufnehmen" >&2
+  echo "                    (<Schritt> oder <Schritt>@<Projekt>, wie in der Tabelle)" >&2
+  exit 2
+}
+
 FULL=0
-for arg in "$@"; do
-  case "$arg" in
+FROM_ARG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --full) FULL=1 ;;
-    *)
-      echo "Aufruf: bash scripts/gate.sh [--full]" >&2
-      echo "  ohne Argument: das schnelle Gate (alles ohne ROM); --full: danach die ROM-Matrix" >&2
-      exit 2
+    --from)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then usage; fi
+      FROM_ARG="$2"
+      shift
       ;;
+    *) usage ;;
   esac
+  shift
 done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# The result of a full run and its resumption (--from): functions only.
+# shellcheck source=gate-result.sh
+. "$ROOT/scripts/gate-result.sh"
+
+# The main checkout: the parent of the git common dir, so that a git worktree (the nightly run) finds
+# the same defaults as the checkout it belongs to. Outside a git repository it is the folder of the gate.
+MAIN_CHECKOUT="$ROOT"
+if common_git_dir="$(git rev-parse --git-common-dir 2>/dev/null)" && [ -d "$common_git_dir" ]; then
+  MAIN_CHECKOUT="$(dirname "$(cd "$common_git_dir" && pwd)")"
+fi
 
 # The gate sets G4_SKIP_LOG for the steps that have a skip log; one that the caller's shell has
 # exported must not reach any other step.
@@ -154,7 +202,7 @@ abs() { # abs <path>: absolute form of a path whose parent exists
     printf '%s' "$1"
   fi
 }
-G4_ROMS_DIR="$(abs "${G4_ROMS_DIR:-$ROOT/../Roms}")"
+G4_ROMS_DIR="$(abs "${G4_ROMS_DIR:-$MAIN_CHECKOUT/../Roms}")"
 G4_APICULA="$(abs "${G4_APICULA:-$ROOT/tools/apicula/bin/apicula}")"
 G4_DSROM_CLI="$(abs "${G4_DSROM_CLI:-$G4_ROMS_DIR/_tools/dsrom}")"
 G4_ROTOM_LSP="$(abs "${G4_ROTOM_LSP:-$ROOT/tools/rotom/bin/rotom-lsp}")"
@@ -206,6 +254,28 @@ done
 ROWS=()
 FAILED=0
 STARTED=$SECONDS
+# 1 from the step "gated tests (cargo test)" on: run_step records a failed step and the run goes on (the
+# gate ends with status 1 at the end). Before that, and in the fast part, the first failure ends the gate.
+CONTINUE_ON_FAIL=0
+# The result of a full run (see "The result of a full run" above and scripts/gate-result.sh).
+RUN_SHA=""            # git rev-parse HEAD at the start: the commit that the result is about
+RUN_BEGIN=""          # the start of the run, UTC, ISO 8601
+TREE_CLEAN=0          # 1: a clean tree at the start (git status --porcelain is empty)
+ARTEFAKTE=""          # G4_GATE_ARTEFAKTE
+RESULT_WANTED=0       # 1: the run writes <sha>.json and <sha>.log
+RESULT_JSON=""
+RESULT_LOG=""
+RESULT_PATH=""        # the path of the result when the run has written it ("Ergebnis: ..." in the table)
+GOT_SIGNAL=0          # 1: INT, TERM or HUP ended the run (no result then)
+LOG_FIFO_DIR=""       # the log of the result: tee in front of a fifo, see start_log
+LOG_TEE_PID=""
+# --from: the step to resume at (FROM_STEP, and FROM_PROJECT when named), the rows of the earlier result,
+# and whether the resume point has been reached by now (gate_resume_mark).
+FROM_STEP=""
+FROM_PROJECT=""
+FROM_ACTIVE=0
+PRIOR_ROWS=()
+RESUME_REACHED=0
 # The number of tests the fast gate left out of "cargo test (no ROM data)", named after the table.
 # Set when that step starts: a gate that stopped before it left nothing out.
 HEAVY_NOTE=0
@@ -228,6 +298,7 @@ BG_N=0
 
 record() { # record <step> <project> <result> <seconds>
   ROWS+=("$1|$2|$3|$4")
+  gate_resume_mark "$1" "$2"
 }
 
 print_table() {
@@ -255,6 +326,9 @@ print_table() {
       # No list played a part (CI, or one that cannot be read): there is nothing to renew.
       echo "Warnung: das schnelle Gate hat $total s gebraucht (Grenze $GATE_LIMIT_S s)."
     fi
+  fi
+  if [ -n "$RESULT_PATH" ]; then
+    echo "Ergebnis: $RESULT_PATH"
   fi
   if [ "$FAILED" -eq 0 ] && [ "${#ROWS[@]}" -gt 0 ]; then
     echo "$GATE_LABEL: ok ($total s)"
@@ -303,21 +377,70 @@ stop_background() {
   fi
 }
 
-# Runs the table on any exit (also when set -e aborts), keeps the exit status.
+# From here on the output goes to the terminal and to <sha>.log (the log of the result): tee, started
+# in front of a fifo, so that the gate knows its pid and can wait for it (a process substitution has no
+# pid in bash 3.2). stderr joins stdout, which keeps the lines of both in the order they came.
+start_log() {
+  if [ -z "$FROM_ARG" ]; then
+    : >"$RESULT_LOG"
+  fi
+  if ! command -v tee >/dev/null 2>&1 || ! command -v mkfifo >/dev/null 2>&1; then
+    echo "Hinweis: tee oder mkfifo fehlt, das Log $RESULT_LOG bleibt leer." >&2
+    return 0
+  fi
+  LOG_FIFO_DIR="$(mktemp -d "${TMPDIR:-/tmp}/g4-gate-log.XXXXXX")"
+  mkfifo "$LOG_FIFO_DIR/out"
+  tee -a "$RESULT_LOG" <"$LOG_FIFO_DIR/out" &
+  LOG_TEE_PID=$!
+  exec >"$LOG_FIFO_DIR/out" 2>&1
+}
+
+# Closes the output and waits (at most 10 s) for tee, so that the last lines, the table, are in the log
+# and on the terminal before the gate ends.
+stop_log() {
+  local waited=0
+  if [ -z "$LOG_TEE_PID" ]; then
+    return 0
+  fi
+  exec >&- 2>&-
+  while kill -0 "$LOG_TEE_PID" 2>/dev/null && [ "$waited" -lt 100 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  rm -rf "$LOG_FIFO_DIR"
+  LOG_TEE_PID=""
+}
+
+# Runs the table on any exit (also when set -e aborts), keeps the exit status. A run that wants a result
+# writes it first (so that an abort leaves a red one), unless a signal ended it: that says nothing about
+# the commit.
 on_exit() {
   local status=$?
+  local ergebnis
   if [ "$status" -ne 0 ]; then FAILED=1; fi
   stop_background
+  if [ "$RESULT_WANTED" -eq 1 ] && [ "$GOT_SIGNAL" -eq 0 ]; then
+    ergebnis="$(gate_result_verdict "$status")"
+    if gate_result_write "$RESULT_JSON" "$RUN_SHA" "$ergebnis" "$((SECONDS - STARTED))" \
+      "$((FROM_ACTIVE))" "$RUN_BEGIN"; then
+      RESULT_PATH="$RESULT_JSON"
+    else
+      echo "Das Ergebnis konnte nicht geschrieben werden: $RESULT_JSON" >&2
+      FAILED=1
+      status=1
+    fi
+  fi
   print_table
+  stop_log
   exit "$status"
 }
 trap on_exit EXIT
 # Ctrl-C and kill end the gate like a failure: the table says FAILED (without these traps a gate
 # stopped by a signal can print "ok" for the steps it had run), after on_exit has stopped the
 # background steps.
-trap 'exit 130' INT
-trap 'exit 143' TERM
-trap 'exit 129' HUP
+trap 'GOT_SIGNAL=1; exit 130' INT
+trap 'GOT_SIGNAL=1; exit 143' TERM
+trap 'GOT_SIGNAL=1; exit 129' HUP
 
 # The command of a step, behind G4_GATE_CMD_PREFIX when that is set (the test seam).
 exec_step() { # exec_step <step label> <command...>
@@ -348,10 +471,15 @@ report_skips() { # report_skips <skip log>: the lines of a log that must have be
 }
 
 # Runs a step and records its row; fails when the command does (and sets FAILED), or when the step has
-# a fatal skip log (fatal_skip_log) and a test skipped in it: its conditional test did not run.
+# a fatal skip log (fatal_skip_log) and a test skipped in it: its conditional test did not run. In a
+# resumed run (--from) a step before the resume point that was ok in the earlier run is not run: its row
+# is taken over (gate_resume_skip).
 try_step() { # try_step <step label> <project label> <command...>
   local step="$1" project="$2" start=$SECONDS
   shift 2
+  if gate_resume_skip "$step" "${project:--}"; then
+    return 0
+  fi
   echo
   echo "==> $step${project:+ [$project]}"
   if exec_step "$step" "$@"; then
@@ -369,9 +497,10 @@ try_step() { # try_step <step label> <project label> <command...>
   fi
 }
 
-# try_step, and the gate stops at the first failure.
+# try_step, and the gate stops at the first failure, except from "gated tests (cargo test)" on
+# (CONTINUE_ON_FAIL): there the failed step is in the table (and FAILED is set), and the run goes on.
 run_step() { # run_step <step label> <project label> <command...>
-  try_step "$@" || exit 1
+  try_step "$@" || [ "$CONTINUE_ON_FAIL" -eq 1 ] || exit 1
 }
 
 # with_gate_tmpdir <command...>: runs the command with TMPDIR=$G4_GATE_TMPDIR when that is set.
@@ -420,6 +549,59 @@ fi
 SKIP_DIR="$(cd "$SKIP_DIR" && pwd)"
 # The log of "cargo test (no ROM data)": the full run takes its lists from it.
 NOROM_LOG="$SKIP_DIR/skips.tsv"
+# The result of a full run and --from (see the header and scripts/gate-result.sh), settled before the
+# first step: a refused --from costs nothing, and the log has the whole run.
+if [ "$FULL" -eq 1 ]; then
+  RUN_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+  RUN_BEGIN="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [ -n "$RUN_SHA" ] && [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+    TREE_CLEAN=1
+  fi
+  # The folder of the results: ../gate-artefakte/full beside the main checkout (absolute, without "..").
+  ARTEFAKTE="${G4_GATE_ARTEFAKTE:-$(abs "$MAIN_CHECKOUT/../gate-artefakte")/full}"
+  case "$ARTEFAKTE" in
+    /*) ;;
+    *) ARTEFAKTE="$ROOT/$ARTEFAKTE" ;;
+  esac
+  ARTEFAKTE="${ARTEFAKTE%/}"
+  RESULT_JSON="$ARTEFAKTE/$RUN_SHA.json"
+  RESULT_LOG="$ARTEFAKTE/$RUN_SHA.log"
+fi
+if [ -n "$FROM_ARG" ]; then
+  # Without a result of this commit, a clean tree and its lists there is nothing to resume: status 2, and
+  # no table (the exit trap is already set).
+  gate_from_check || {
+    trap - EXIT
+    exit 2
+  }
+fi
+# Only the full run that is not stopped after the steps without ROM, that is the whole matrix (not one
+# project of it) and that runs on a clean tree says something about a commit. Else: the table only.
+if [ "$FULL" -eq 1 ] && [ "${G4_GATE_HERMETIC:-}" != "1" ]; then
+  if [ -n "$ONLY_PROJECT" ]; then
+    echo "Hinweis: G4_GATE_ONLY_PROJECT ist gesetzt, es wird kein Ergebnis geschrieben." >&2
+  elif [ -z "$RUN_SHA" ]; then
+    echo "Hinweis: kein Git-Stand (git rev-parse HEAD), es wird kein Ergebnis geschrieben." >&2
+  elif [ "$TREE_CLEAN" -ne 1 ]; then
+    echo "Hinweis: Arbeitsbaum nicht sauber, es wird kein Ergebnis geschrieben." >&2
+  else
+    RESULT_WANTED=1
+  fi
+fi
+if [ "$RESULT_WANTED" -eq 1 ]; then
+  if ! mkdir -p "$ARTEFAKTE"; then
+    echo "Der Ordner der Ergebnisse kann nicht angelegt werden: $ARTEFAKTE" >&2
+    RESULT_WANTED=0
+    exit 1
+  fi
+  start_log
+fi
+if [ "$FROM_ACTIVE" -eq 1 ]; then
+  echo "==== wiederaufgesetzt ab $FROM_ARG ===="
+  echo "Der Teil ohne ROM kommt aus dem Ergebnis von $RUN_SHA ($RESULT_JSON)."
+  gate_resume_take_rows
+fi
+
 if [ "$FULL" -eq 1 ] && [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
   echo "Hinweis: G4_GATE_HERMETIC=1 ist gesetzt, das Gate endet trotz --full nach den Schritten" \
     "ohne ROM." >&2
@@ -559,53 +741,56 @@ chain_g4emu() {
     env UV_NATIVE_TLS=1 bash -c 'cd scripts/g4emu && uv run pytest -m "not integration" -q' || true
 }
 
-run_step "cargo fmt --check" "" cargo fmt --check
-run_step "cargo clippy (-D warnings)" "" \
-  cargo clippy --workspace --all-targets --all-features -- -D warnings
-# With a command prefix (script tests) nothing runs for real, so cargo-deny need not exist.
-if [ -z "${G4_GATE_CMD_PREFIX:-}" ] && ! command -v cargo-deny >/dev/null 2>&1; then
-  record "cargo deny (licenses, advisories)" "-" "FAILED (cargo-deny fehlt)" 0
-  FAILED=1
-  echo "cargo-deny fehlt: cargo install --locked cargo-deny@0.20.2" >&2
-  exit 1
-fi
-run_step "cargo deny (licenses, advisories)" "" cargo deny --locked check licenses advisories
-# The production npm packages of apps/studio against the allow list (MIT, Apache-2.0, ISC, BSD, ...).
-run_step "npm licenses" "" bash scripts/check-licenses-npm.sh
-# Every `uses:` in the workflows is pinned to a sha and listed with an allowed license (spec release-ci 7.2).
-run_step "actions" "" bash scripts/check-actions.sh
-# No ROM, save game or derivative in the tracked files (spec release-ci 7.1).
-run_step "no rom data" "" bash scripts/check-no-rom-data.sh
-# Relative links in README, README.de, docs/README and CONTRIBUTING point to files that exist.
-run_step "links" "" bash scripts/check-links.sh
-# One version for Cargo, npm and Tauri, CHANGELOG section present (spec release-ci 4).
-run_step "version" "" bash scripts/version.sh check
-# The tests that need a ROM project or a tool read their variable only through gate_var, which logs
-# the skip: the full run picks its tests from that log. No cargo lock, a second.
-run_step "gate vars" "" bash scripts/check-gate-vars.sh
-# The product binary without features: `studio mcp` over stdio on the synthetic project (the gated
-# stdio tests run in the per-project step of the --full part). Hermetic like the step below. It takes
-# the cargo build lock, so it cannot run beside cargo test and goes first.
-with_gate_tmpdir run_step "mcp" "" \
-  env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
-  cargo test -p studio --test mcp_stdio
+# A resumed run (--from) does not run the part without ROM: its rows were taken over above.
+if [ "$FROM_ACTIVE" -eq 0 ]; then
+  run_step "cargo fmt --check" "" cargo fmt --check
+  run_step "cargo clippy (-D warnings)" "" \
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
+  # With a command prefix (script tests) nothing runs for real, so cargo-deny need not exist.
+  if [ -z "${G4_GATE_CMD_PREFIX:-}" ] && ! command -v cargo-deny >/dev/null 2>&1; then
+    record "cargo deny (licenses, advisories)" "-" "FAILED (cargo-deny fehlt)" 0
+    FAILED=1
+    echo "cargo-deny fehlt: cargo install --locked cargo-deny@0.20.2" >&2
+    exit 1
+  fi
+  run_step "cargo deny (licenses, advisories)" "" cargo deny --locked check licenses advisories
+  # The production npm packages of apps/studio against the allow list (MIT, Apache-2.0, ISC, BSD, ...).
+  run_step "npm licenses" "" bash scripts/check-licenses-npm.sh
+  # Every `uses:` in the workflows is pinned to a sha and listed with an allowed license (spec release-ci 7.2).
+  run_step "actions" "" bash scripts/check-actions.sh
+  # No ROM, save game or derivative in the tracked files (spec release-ci 7.1).
+  run_step "no rom data" "" bash scripts/check-no-rom-data.sh
+  # Relative links in README, README.de, docs/README and CONTRIBUTING point to files that exist.
+  run_step "links" "" bash scripts/check-links.sh
+  # One version for Cargo, npm and Tauri, CHANGELOG section present (spec release-ci 4).
+  run_step "version" "" bash scripts/version.sh check
+  # The tests that need a ROM project or a tool read their variable only through gate_var, which logs
+  # the skip: the full run picks its tests from that log. No cargo lock, a second.
+  run_step "gate vars" "" bash scripts/check-gate-vars.sh
+  # The product binary without features: `studio mcp` over stdio on the synthetic project (the gated
+  # stdio tests run in the per-project step of the --full part). Hermetic like the step below. It takes
+  # the cargo build lock, so it cannot run beside cargo test and goes first.
+  with_gate_tmpdir run_step "mcp" "" \
+    env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
+    cargo test -p studio --test mcp_stdio
 
-# The parallel group: the chains start just before the long step and run beside it.
-start_chain js chain_js
-start_chain script-tests chain_script_tests
-start_chain g4emu chain_g4emu
-# Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
-# A failure does not end the gate yet: the background steps are joined and reported first.
-HEAVY_NOTE="${#HEAVY[@]}"
-# The tests that need a variable skip here and log it in $NOROM_LOG (never run this step with
-# --test-threads 1: the log names a test by its thread, and that one runs on the main thread). Only
-# the full run uses the log, and a skip is no failure of this step.
-with_gate_tmpdir with_skip_log "$NOROM_LOG" try_step "cargo test (no ROM data)" "" \
-  env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
-  "${TEST_CMD[@]}" || true
-join_chains
-if [ "$FAILED" -ne 0 ]; then
-  exit 1
+  # The parallel group: the chains start just before the long step and run beside it.
+  start_chain js chain_js
+  start_chain script-tests chain_script_tests
+  start_chain g4emu chain_g4emu
+  # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
+  # A failure does not end the gate yet: the background steps are joined and reported first.
+  HEAVY_NOTE="${#HEAVY[@]}"
+  # The tests that need a variable skip here and log it in $NOROM_LOG (never run this step with
+  # --test-threads 1: the log names a test by its thread, and that one runs on the main thread). Only
+  # the full run uses the log, and a skip is no failure of this step.
+  with_gate_tmpdir with_skip_log "$NOROM_LOG" try_step "cargo test (no ROM data)" "" \
+    env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
+    "${TEST_CMD[@]}" || true
+  join_chains
+  if [ "$FAILED" -ne 0 ]; then
+    exit 1
+  fi
 fi
 
 # The fast gate ends here. CI (G4_GATE_HERMETIC=1) always stops here: everything below needs ROMs,
@@ -655,40 +840,49 @@ fi
 # The conditional tests of the full run: the skip log of "cargo test (no ROM data)" above names them,
 # one line `<variable>\t<test>` per call of gate_var that found its variable missing. A line whose test
 # has no usable name (a helper thread without one, or a test on the main thread) cannot be selected:
-# that is an error of the log, not something to run without.
-echo
-echo "==> skip log"
-bad_lines="$(awk -F'\t' '$0 != "" && (NF != 2 || $1 == "" || $2 == "" || $2 == "<unnamed>" || $2 == "main")' \
-  "$NOROM_LOG")"
-if [ -n "$bad_lines" ]; then
-  while IFS= read -r line; do
-    echo "Skip-Log: Zeile ohne verwertbaren Testnamen: $line" >&2
-  done <<<"$bad_lines"
-  echo "Ein Test, der in einem Hilfsthread übersprang, hat keinen Namen im Log, und ein Test auf dem" \
-    "Hauptthread heißt \"main\" ($NOROM_LOG)." >&2
-  record "skip log" "-" "FAILED" 0
-  FAILED=1
-  exit 1
-fi
-# Distinct tests per variable, for the notes below.
-while read -r count variable; do
-  echo "Skip-Log: $count Tests mit $variable"
-done < <(LC_ALL=C sort -u "$NOROM_LOG" | cut -f1 | LC_ALL=C sort | uniq -c)
-# The lists, one name per line, sorted and without doubles: the tests that logged the project
-# (without the timing test, which has its own release step below), those that logged the ROM, and
-# those that logged only a tool (a test that logged the project as well runs per project, where all
-# tools are set; one that logged the ROM as well runs per ROM).
+# that is an error of the log, not something to run without. A resumed run (--from) does not look at the
+# log: it reads the lists that the run before it derived (lists.sha says for which commit).
 LIST_PROJECT="$SKIP_DIR/list-project.txt"
 LIST_ROM="$SKIP_DIR/list-rom.txt"
 LIST_TOOL="$SKIP_DIR/list-tool.txt"
-awk -F'\t' '$1 == "G4_TEST_PROJECT" { print $2 }' "$NOROM_LOG" | LC_ALL=C sort -u >"$SKIP_DIR/all-project.txt"
-awk -F'\t' '$1 == "G4_TEST_ROM" { print $2 }' "$NOROM_LOG" | LC_ALL=C sort -u >"$SKIP_DIR/all-rom.txt"
-awk -F'\t' '$1 != "G4_TEST_PROJECT" && $1 != "G4_TEST_ROM" { print $2 }' "$NOROM_LOG" |
-  LC_ALL=C sort -u >"$SKIP_DIR/all-tool.txt"
-LC_ALL=C sort -u "$SKIP_DIR/all-project.txt" "$SKIP_DIR/all-rom.txt" >"$SKIP_DIR/all-selected.txt"
-awk 'index($0, "build_graph_timings") == 0' "$SKIP_DIR/all-project.txt" >"$LIST_PROJECT"
-cp "$SKIP_DIR/all-rom.txt" "$LIST_ROM"
-LC_ALL=C comm -23 "$SKIP_DIR/all-tool.txt" "$SKIP_DIR/all-selected.txt" >"$LIST_TOOL"
+if [ "$FROM_ACTIVE" -eq 0 ]; then
+  rm -f "$SKIP_DIR/lists.sha"
+  echo
+  echo "==> skip log"
+  bad_lines="$(awk -F'\t' '$0 != "" && (NF != 2 || $1 == "" || $2 == "" || $2 == "<unnamed>" || $2 == "main")' \
+    "$NOROM_LOG")"
+  if [ -n "$bad_lines" ]; then
+    while IFS= read -r line; do
+      echo "Skip-Log: Zeile ohne verwertbaren Testnamen: $line" >&2
+    done <<<"$bad_lines"
+    echo "Ein Test, der in einem Hilfsthread übersprang, hat keinen Namen im Log, und ein Test auf dem" \
+      "Hauptthread heißt \"main\" ($NOROM_LOG)." >&2
+    record "skip log" "-" "FAILED" 0
+    FAILED=1
+    exit 1
+  fi
+  # Distinct tests per variable, for the notes below.
+  while read -r count variable; do
+    echo "Skip-Log: $count Tests mit $variable"
+  done < <(LC_ALL=C sort -u "$NOROM_LOG" | cut -f1 | LC_ALL=C sort | uniq -c)
+  # The lists, one name per line, sorted and without doubles: the tests that logged the project
+  # (without the timing test, which has its own release step below), those that logged the ROM, and
+  # those that logged only a tool (a test that logged the project as well runs per project, where all
+  # tools are set; one that logged the ROM as well runs per ROM).
+  awk -F'\t' '$1 == "G4_TEST_PROJECT" { print $2 }' "$NOROM_LOG" | LC_ALL=C sort -u >"$SKIP_DIR/all-project.txt"
+  awk -F'\t' '$1 == "G4_TEST_ROM" { print $2 }' "$NOROM_LOG" | LC_ALL=C sort -u >"$SKIP_DIR/all-rom.txt"
+  awk -F'\t' '$1 != "G4_TEST_PROJECT" && $1 != "G4_TEST_ROM" { print $2 }' "$NOROM_LOG" |
+    LC_ALL=C sort -u >"$SKIP_DIR/all-tool.txt"
+  LC_ALL=C sort -u "$SKIP_DIR/all-project.txt" "$SKIP_DIR/all-rom.txt" >"$SKIP_DIR/all-selected.txt"
+  awk 'index($0, "build_graph_timings") == 0' "$SKIP_DIR/all-project.txt" >"$LIST_PROJECT"
+  cp "$SKIP_DIR/all-rom.txt" "$LIST_ROM"
+  LC_ALL=C comm -23 "$SKIP_DIR/all-tool.txt" "$SKIP_DIR/all-selected.txt" >"$LIST_TOOL"
+  # The lists belong to this commit when the tree is clean (a resumed run takes them from here, see
+  # gate_from_check); a run on a dirty tree has overwritten them, so the sha is gone then.
+  if [ "$TREE_CLEAN" -eq 1 ]; then
+    printf '%s\n' "$RUN_SHA" >"$SKIP_DIR/lists.sha"
+  fi
+fi
 # Arrays (bash 3.2 has no mapfile), so that a name reaches cargo as one argument.
 PROJECT_TESTS=()
 while IFS= read -r name; do PROJECT_TESTS+=("$name"); done <"$LIST_PROJECT"
@@ -731,6 +925,10 @@ if [ "${#PROJECTS[@]}" -eq 0 ]; then
   FAILED=1
   exit 1
 fi
+
+# From here on a failed step is in the table and the run goes on (the preflight, the skip log and the
+# search for a project above stay fatal): one run reports every failed project of the matrix.
+CONTINUE_ON_FAIL=1
 
 # The project of the tool tests: Platinum DE when it is among the projects, else the first one.
 TOOL_PROJECT="${PROJECTS[0]}"
@@ -807,6 +1005,9 @@ wait_for_removers() {
 # in the parallel gated run above the other tests read the same files, so it only prints there.
 run_timings() { # run_timings <project dir> <project label>
   local project="$1" label="$2" start=$SECONDS attempt
+  if gate_resume_skip "build graph (timings)" "$label"; then
+    return 0
+  fi
   local cmd=(env G4_TEST_PROJECT="$project" G4_TIMING_STRICT=1 bash -c
     'cargo test --release -p g4-kernel --all-features --test build_graph \
        -- build_graph_timings --nocapture --test-threads 1 &&
@@ -826,12 +1027,13 @@ run_timings() { # run_timings <project dir> <project label>
   done
   record "build graph (timings)" "$label" "FAILED (2 runs)" "$((SECONDS - start))"
   FAILED=1
-  exit 1
+  return 1
 }
 wait_for_removers
 for project in "${PROJECTS[@]}"; do
   label="$(basename "$project")"
-  with_gate_tmpdir run_timings "$project" "${label%_DSPRE_contents}"
+  # A failed project is in the table; the others still run (the gate ends with status 1 at the end).
+  with_gate_tmpdir run_timings "$project" "${label%_DSPRE_contents}" || true
 done
 
 # Project start (3g.1): extract each ROM, build it again, compare the SHA-1. The tests that logged
@@ -870,3 +1072,14 @@ with_gate_tmpdir run_step "world mesh (timing)" "" \
 with_gate_tmpdir run_step "world mesh bridge (timing)" "" \
   env G4_TIMING_STRICT=1 cargo test -p studio world_mesh_over_the_command_path_is_fast -- \
   --nocapture --test-threads 1
+
+# A resume point that no step of this run was (a project that is gone): said, not silent.
+if [ "$FROM_ACTIVE" -eq 1 ] && [ "$RESUME_REACHED" -eq 0 ]; then
+  echo "Hinweis: der Schritt $FROM_ARG kam in diesem Lauf nicht vor, es liefen nur die Schritte vor ihm," \
+    "die im früheren Lauf nicht ok waren." >&2
+fi
+# A step that failed in the ROM part did not stop the run: it ends with status 1 now (the exit trap
+# writes the result and the table).
+if [ "$FAILED" -ne 0 ]; then
+  exit 1
+fi

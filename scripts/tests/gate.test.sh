@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Tests for scripts/gate.sh: the order of the steps, the split into the fast gate and --full, the
 # steps that run beside `cargo test (no ROM data)`, G4_GATE_TMPDIR, the heavy tests that only the
-# full run executes (scripts/gate-heavy-tests.txt), and the conditional tests: the skip log of the
-# full run's `cargo test (no ROM data)` picks what the per-project, tool and project start steps run.
+# full run executes (scripts/gate-heavy-tests.txt), the conditional tests (the skip log of the
+# full run's `cargo test (no ROM data)` picks what the per-project, tool and project start steps run),
+# and the result of a full run: <sha>.json and <sha>.log, a run that goes on after a failure in the ROM
+# part, and --from, which resumes one (scripts/gate-result.sh).
 # Every command of the gate is replaced by a stub (G4_GATE_CMD_PREFIX), so nothing real runs: no
-# cargo, pnpm or uv, no ROM.
+# cargo, pnpm or uv, no ROM. The tests of the result run a copy of the gate in a throwaway git
+# repository (repo_sandbox): the result needs a commit and a clean tree, and no test may write into
+# the real folder of the results.
 set -euo pipefail
 
 . "$(dirname "$0")/lib.sh"
@@ -16,15 +20,26 @@ GATE="$REPO_ROOT/scripts/gate.sh"
 NO_REMOVER="g4-gate-test-no-such-remover"
 
 # What a developer shell may export must not steer the gate under test; each test sets what it needs.
-unset G4_GATE_HERMETIC G4_GATE_TMPDIR G4_GATE_STUB_FAIL G4_GATE_CMD_PREFIX G4_GATE_HEAVY_LIST \
-  G4_GATE_LIMIT_S G4_ROMS_DIR G4_APICULA G4_DSROM_CLI G4_ROTOM_LSP G4EMU_CORE CI \
+unset G4_GATE_HERMETIC G4_GATE_TMPDIR G4_GATE_STUB_FAIL G4_GATE_STUB_FAIL_ARG G4_GATE_CMD_PREFIX \
+  G4_GATE_HEAVY_LIST G4_GATE_LIMIT_S G4_ROMS_DIR G4_APICULA G4_DSROM_CLI G4_ROTOM_LSP G4EMU_CORE CI \
   G4_SKIP_LOG G4_GATE_LOG_DIR G4_GATE_ONLY_PROJECT G4_GATE_REMOVER_PATTERN G4_GATE_REMOVER_POLL_S \
-  G4_GATE_REMOVER_WAIT_S G4_GATE_STUB_NOROM_LINES G4_GATE_STUB_SKIP_STEP G4_GATE_STUB_SKIP_LINES
+  G4_GATE_REMOVER_WAIT_S G4_GATE_STUB_NOROM_LINES G4_GATE_STUB_SKIP_STEP G4_GATE_STUB_SKIP_LINES \
+  G4_GATE_ARTEFAKTE
+
+# The throwaway repositories take no configuration of the developer (signing, hooks, templates).
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+# A safety net: a full run that a test forgot to point at a folder of its own writes its result here
+# (removed at exit), never into the folder of the real results.
+ARTEFAKTE_NET="$TESTS_TMP/artefakte-safety-net"
+export G4_GATE_ARTEFAKTE="$ARTEFAKTE_NET"
 
 # sandbox: prints a directory with
 #   stub.sh  the stand-in for every command of the gate: prints the step, TMPDIR and the command
 #            line it was given (and, for a step that has a skip log, the line `skiplog[<step>] <log>`),
-#            and fails for the step named in G4_GATE_STUB_FAIL. It plays the tests that skip:
+#            and fails for the step named in G4_GATE_STUB_FAIL (with G4_GATE_STUB_FAIL_ARG set: only
+#            when that text is in the command line, so that one project of a per-project step fails).
+#            It plays the tests that skip:
 #            `cargo test (no ROM data)` writes G4_GATE_STUB_NOROM_LINES into its G4_SKIP_LOG (printf %b:
 #            \t and \n; the default holds one conditional test of each kind, unsorted and twice for
 #            one), and the step named in G4_GATE_STUB_SKIP_STEP writes G4_GATE_STUB_SKIP_LINES
@@ -49,7 +64,12 @@ if [ -n "${G4_SKIP_LOG:-}" ]; then
     printf '%b' "${G4_GATE_STUB_SKIP_LINES:-}" >>"$G4_SKIP_LOG"
   fi
 fi
-[ -z "${G4_GATE_STUB_FAIL:-}" ] || [ "${G4_GATE_STEP:-}" != "$G4_GATE_STUB_FAIL" ]
+if [ -n "${G4_GATE_STUB_FAIL:-}" ] && [ "${G4_GATE_STEP:-}" = "$G4_GATE_STUB_FAIL" ]; then
+  case "$*" in
+    *"${G4_GATE_STUB_FAIL_ARG:-}"*) exit 1 ;;
+  esac
+fi
+exit 0
 SH
   for tool in cargo cargo-deny pnpm uv; do
     printf '#!/bin/sh\necho "the gate ran the real %s" >&2\nexit 97\n' "$tool" >"$d/bin/$tool"
@@ -72,13 +92,10 @@ run_gate() {
     G4_GATE_HERMETIC=1 bash "$GATE" "$@" 2>&1
 }
 
-# run_gate_local <gate arguments...>: the gate as run on a maintainer's machine (no
-# G4_GATE_HERMETIC) over a throwaway G4_ROMS_DIR with three projects, three ROMs, the tools and the
-# files the g4emu integration step looks for.
-run_gate_local() {
-  local d roms name
-  d="$(sandbox)"
-  roms="$d/roms"
+# make_roms <dir>: a throwaway G4_ROMS_DIR with three projects, three ROMs and the files the g4emu
+# integration step looks for.
+make_roms() {
+  local roms="$1" name
   mkdir -p "$roms/_testkopien/_saves"
   : >"$roms/_testkopien/_saves/CPUD-zimmer.sav"
   for name in "Pokemon - Platin-Edition (Germany)" "Pokemon - HeartGold-Edition (Germany)" \
@@ -87,11 +104,91 @@ run_gate_local() {
     : >"$roms/${name}_DSPRE_contents/header.yaml"
     : >"$roms/$name.nds"
   done
+}
+
+# run_gate_local <gate arguments...>: the gate as run on a maintainer's machine (no
+# G4_GATE_HERMETIC) over a throwaway G4_ROMS_DIR with three projects, three ROMs, the tools and the
+# files the g4emu integration step looks for. A full run leaves its result in the sandbox (when the
+# tree of the repository is clean), never in the folder of the real results.
+run_gate_local() {
+  local d roms
+  d="$(sandbox)"
+  roms="$d/roms"
+  make_roms "$roms"
+  env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$d/no-heavy-tests.txt}" G4_GATE_LOG_DIR="${G4_GATE_LOG_DIR:-$d/logs}" \
+    G4_GATE_REMOVER_PATTERN="${G4_GATE_REMOVER_PATTERN:-$NO_REMOVER}" G4_GATE_ARTEFAKTE="$d/artefakte" \
+    G4_ROMS_DIR="$roms" G4_APICULA="$d/stub.sh" G4_DSROM_CLI="$d/stub.sh" \
+    G4_ROTOM_LSP="$d/stub.sh" G4EMU_CORE="$d/stub.sh" bash "$GATE" "$@" 2>&1
+}
+
+# repo_sandbox: prints a sandbox (see sandbox) that also holds
+#   repo/      a throwaway git repository on main with one commit: copies of gate.sh and gate-result.sh
+#              (the gate works on the repository around it) and a .gitignore for artefakte/
+#   roms/      the G4_ROMS_DIR of run_in_repo, as in run_gate_local
+#   repo/artefakte/  the G4_GATE_ARTEFAKTE of run_in_repo: the folder of the results, ignored by git
+# The path has no double slash, in the form the gate prints.
+repo_sandbox() {
+  local d
+  d="$(sandbox)"
+  d="$(cd "$d" && pwd)"
+  make_roms "$d/roms"
+  mkdir -p "$d/repo/scripts"
+  cp "$REPO_ROOT/scripts/gate.sh" "$REPO_ROOT/scripts/gate-result.sh" "$d/repo/scripts/"
+  printf 'artefakte/\n' >"$d/repo/.gitignore"
+  (
+    cd "$d/repo"
+    git init -q -b main
+    git config user.name Test
+    git config user.email test@example.invalid
+    git add -A
+    git commit -q -m init
+  )
+  printf '%s' "$d"
+}
+
+# run_in_repo <sandbox> <gate arguments...>: the gate of <sandbox>/repo (or of REPO_DIR, e.g. a worktree
+# of it) as run_gate_local runs the repository's gate, with the folder of the results inside the
+# repository. Variables set in front of the call win over these defaults, also an empty one (the gate
+# then takes its own default): G4_GATE_ARTEFAKTE, G4_ROMS_DIR, G4EMU_CORE, G4_APICULA, ... (the safety
+# net above is no setting of a test).
+run_in_repo() {
+  local d="$1" artefakte="${G4_GATE_ARTEFAKTE-}"
+  shift
+  if [ "$artefakte" = "$ARTEFAKTE_NET" ]; then artefakte="$d/repo/artefakte"; fi
   env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
     G4_GATE_HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$d/no-heavy-tests.txt}" G4_GATE_LOG_DIR="${G4_GATE_LOG_DIR:-$d/logs}" \
     G4_GATE_REMOVER_PATTERN="${G4_GATE_REMOVER_PATTERN:-$NO_REMOVER}" \
-    G4_ROMS_DIR="$roms" G4_APICULA="$d/stub.sh" G4_DSROM_CLI="$d/stub.sh" \
-    G4_ROTOM_LSP="$d/stub.sh" G4EMU_CORE="$d/stub.sh" bash "$GATE" "$@" 2>&1
+    G4_GATE_ARTEFAKTE="$artefakte" G4_ROMS_DIR="${G4_ROMS_DIR-$d/roms}" \
+    G4_APICULA="${G4_APICULA-$d/stub.sh}" G4_DSROM_CLI="${G4_DSROM_CLI-$d/stub.sh}" \
+    G4_ROTOM_LSP="${G4_ROTOM_LSP-$d/stub.sh}" G4EMU_CORE="${G4EMU_CORE-$d/stub.sh}" \
+    bash "${REPO_DIR:-$d/repo}/scripts/gate.sh" "$@" 2>&1
+}
+
+# json_field <file> <python expression over j (the parsed file) and a> [<a>]: a value of a result file,
+# parsed with python3 -I (there is no jq); a string is printed as it is, anything else as JSON.
+json_field() {
+  python3 -I -c '
+import json, sys
+j = json.load(open(sys.argv[1], encoding="utf-8"))
+a = sys.argv[3] if len(sys.argv) > 3 else None
+v = eval(sys.argv[2])
+print(v if isinstance(v, str) else json.dumps(v))' "$@"
+}
+
+# json_results <file> <step>: the results of the rows of a step, comma separated, in the order of the rows.
+json_results() {
+  json_field "$1" '",".join(z["ergebnis"] for z in j["zeilen"] if z["schritt"] == a)' "$2"
+}
+
+# json_edit <file> <python statements over j>: changes a result file in place (to play an earlier run).
+json_edit() {
+  python3 -I -c '
+import json, sys
+f = sys.argv[1]
+j = json.load(open(f, encoding="utf-8"))
+exec(sys.argv[2])
+json.dump(j, open(f, "w", encoding="utf-8"))' "$1" "$2"
 }
 
 # run_gate_unstubbed <gate arguments...>: the gate without the stub, but with the sandbox PATH and
@@ -139,6 +236,20 @@ assert_no_row() {
     echo "$1" >&2
     fail "the table has a row for '$2' (result '$result')"
   fi
+}
+
+# assert_project_row <output> <step> <project> <result>: the result table has a row of the step for the
+# project with that result (assert_row looks at the steps without a project).
+assert_project_row() {
+  local prefix
+  prefix="$(printf '%-52s %-44s %-26s ' "$2" "$3" "$4")"
+  case "$1" in
+    *"$prefix"*) ;;
+    *)
+      echo "$1" >&2
+      fail "the table has no row of '$2' for '$3' with result '$4'"
+      ;;
+  esac
 }
 
 test_fast_gate_runs_cheap_steps_before_cargo_test() {
@@ -201,13 +312,28 @@ test_full_gate_keeps_the_per_project_pass() {
   esac
 }
 
-test_full_gate_stops_at_the_first_failure_after_the_fast_part() {
+test_full_gate_goes_on_after_a_failure_in_the_rom_part() {
   local out status=0
   out="$(G4_GATE_STUB_FAIL="gated tests (cargo test)" run_gate_local --full)" || status=$?
   [ "$status" -eq 1 ] || fail "expected status 1, got $status"
-  assert_contains "gated tests (cargo test)" printf '%s' "$out"
-  assert_not_contains "build graph" printf '%s' "$out"
-  assert_not_contains "world mesh" printf '%s' "$out"
+  assert_project_row "$out" "gated tests (cargo test)" "Pokemon - HeartGold-Edition (Germany)" "FAILED"
+  assert_project_row "$out" "gated tests (cargo test)" "Pokemon - Platin-Edition (Germany)" "FAILED"
+  # The steps after it still run: one run reports every failure of the ROM matrix.
+  assert_contains "stub[build graph (timings)]" printf '%s' "$out"
+  assert_contains "stub[world mesh bridge (timing)]" printf '%s' "$out"
+  assert_contains "Gate: FAILED (" printf '%s' "$out"
+}
+
+test_a_failing_g4emu_integration_still_stops_the_full_run() {
+  local d out status=0
+  d="$(repo_sandbox)"
+  out="$(G4_GATE_STUB_FAIL="g4emu integration" run_in_repo "$d" --full)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status: $out"
+  assert_row "$out" "g4emu integration" "FAILED"
+  # Only the steps from the gated tests on go on after a failure.
+  assert_not_contains "stub[gated tests" printf '%s' "$out"
+  assert_not_contains "stub[world mesh" printf '%s' "$out"
+  assert_contains "Gate: FAILED (" printf '%s' "$out"
 }
 
 test_hermetic_ends_a_full_run_after_the_rom_free_steps() {
@@ -237,11 +363,12 @@ test_uv_steps_get_native_tls() {
 
 test_unknown_argument_is_refused() {
   assert_status 2 run_gate_unstubbed --voll
-  assert_contains "Aufruf: bash scripts/gate.sh [--full]" run_gate_unstubbed --voll
-  # --from arrives with a later task; until then it is an unknown argument like any other.
-  assert_status 2 run_gate_unstubbed --from version
+  assert_contains "Aufruf: bash scripts/gate.sh [--full [--from <Schritt>]]" run_gate_unstubbed --voll
   assert_status 2 run_gate_unstubbed ausfuehren
   assert_status 2 run_gate_unstubbed --full --voll
+  # --from takes a step, and only the full run has steps to resume.
+  assert_status 2 run_gate_unstubbed --full --from
+  assert_contains "Aufruf: bash scripts/gate.sh [--full [--from <Schritt>]]" run_gate_unstubbed --full --from
 }
 
 test_parallel_steps_both_reported() {
@@ -682,8 +809,8 @@ test_a_skip_in_the_full_run_is_a_failure() {
     assert_contains "bedingter Test übersprungen: G4_APICULA${TAB}some::skipped_test" printf '%s' "$out"
     assert_contains "FAILED (skipped)" printf '%s' "$out"
     assert_contains "Gate: FAILED (" printf '%s' "$out"
-    # The gate stops there, like at any failure of the full part.
-    assert_not_contains "stub[world mesh (timing)]" printf '%s' "$out"
+    # The gate goes on, like after any failure of the ROM part (it ends with status 1).
+    assert_contains "stub[world mesh (timing)]" printf '%s' "$out"
   done
   # The no-ROM step skips by design, in the full run and in the fast gate: no failure.
   for out in "$(run_gate_local --full)" "$(run_gate_local)" "$(run_gate --full)"; do
@@ -866,6 +993,484 @@ test_a_limit_other_than_900_s_is_named() {
   assert_not_contains "Grenze des schnellen Gates" printf '%s' "$(G4_GATE_LIMIT_S=900 run_gate)"
   # The limit is a limit of the fast gate.
   assert_not_contains "Grenze des schnellen Gates" printf '%s' "$(G4_GATE_LIMIT_S=1200 run_gate_local --full)"
+}
+
+# The result of a full run: <sha>.json and <sha>.log in G4_GATE_ARTEFAKTE, and --from.
+
+# head_sha <sandbox>: the commit of the throwaway repository.
+head_sha() {
+  git -C "${REPO_DIR:-$1/repo}" rev-parse HEAD
+}
+
+# commit_in_repo <sandbox>: a new commit (the results of the old one are no use for it).
+commit_in_repo() {
+  (cd "$1/repo" && echo more >>notes.txt && git add notes.txt && git commit -q -m more)
+}
+
+# result_files <sandbox>: the names in the folder of the results, one line.
+result_files() {
+  ls -A "$1/repo/artefakte" 2>/dev/null | tr '\n' ' ' || true
+}
+
+test_full_run_writes_a_green_result() {
+  local d out out2 sha json log beginn
+  d="$(repo_sandbox)"
+  out="$(run_in_repo "$d" --full)"
+  sha="$(head_sha "$d")"
+  json="$d/repo/artefakte/$sha.json"
+  log="$d/repo/artefakte/$sha.log"
+  [ -f "$json" ] || fail "no result file in: $(result_files "$d")"
+  [ "$(json_field "$json" 'j["sha"]')" = "$sha" ] || fail "the sha is not HEAD"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "gruen" ] || fail "not green: $(cat "$json")"
+  [ "$(json_field "$json" 'j["wiederaufgesetzt"]')" = "false" ] || fail "marked as resumed"
+  [ "$(json_field "$json" 'sorted(j)')" = '["beginn", "ergebnis", "sekunden", "sha", "wiederaufgesetzt", "zeilen"]' ] ||
+    fail "the fields of the result are not the agreed ones: $(cat "$json")"
+  [ "$(json_field "$json" 'isinstance(j["sekunden"], int) and j["sekunden"] >= 0')" = "true" ] ||
+    fail "sekunden is no integer"
+  beginn="$(json_field "$json" 'j["beginn"]')"
+  case "$beginn" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+    *) fail "beginn is no UTC time in ISO 8601: $beginn" ;;
+  esac
+  [ "$(json_field "$json" 'all(sorted(z) == ["ergebnis", "projekt", "schritt", "sekunden"] for z in j["zeilen"])')" = "true" ] ||
+    fail "a row has other fields than schritt, projekt, ergebnis, sekunden: $(cat "$json")"
+  # The rows are the table: a step of each part, one per project where the step runs per project.
+  [ "$(json_results "$json" "cargo fmt --check")" = "ok" ] || fail "no row of the first step"
+  [ "$(json_results "$json" "gated tests (cargo test)")" = "ok,ok,ok" ] || fail "not a row per project"
+  [ "$(json_results "$json" "world mesh bridge (timing)")" = "ok" ] || fail "no row of the last step"
+  [ "$(json_field "$json" '[z["projekt"] for z in j["zeilen"] if z["schritt"] == a]' "tool tests")" = '["-"]' ] ||
+    fail "a step without a project has another project than -"
+  # Only the two files: the temporary file of the atomic write is gone.
+  [ "$(result_files "$d")" = "$sha.json $sha.log " ] || fail "the folder holds: $(result_files "$d")"
+  # The line with the path comes before the closing line, which stays the last one.
+  assert_before "$out" "Ergebnis: $json" "Gate: ok ("
+  [ "$(printf '%s\n' "$out" | tail -1 | cut -c1-9)" = "Gate: ok " ] || fail "the closing line is not the last"
+  # The log is the whole output, the table and the closing line included.
+  [ "$(cat "$log")" = "$out" ] || fail "the log is not the output of the run"
+  # Another run of the commit replaces the result and starts the log again.
+  out2="$(run_in_repo "$d" --full)"
+  [ "$(result_files "$d")" = "$sha.json $sha.log " ] || fail "the folder holds: $(result_files "$d")"
+  [ "$(cat "$log")" = "$out2" ] || fail "the log of the second run is not its output alone"
+}
+
+test_a_skipped_row_makes_the_result_incomplete() {
+  local d out status=0 json
+  d="$(repo_sandbox)"
+  # No emulator core: the g4emu integration step is recorded as skipped.
+  out="$(G4EMU_CORE="$d/no-such-core" run_in_repo "$d" --full)" || status=$?
+  [ "$status" -eq 0 ] || fail "an incomplete run ends with status 0, got $status: $out"
+  json="$d/repo/artefakte/$(head_sha "$d").json"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "unvollstaendig" ] || fail "not incomplete: $(cat "$json")"
+  [ "$(json_results "$json" "g4emu integration")" = "skipped (kein Kern)" ] || fail "no skipped row"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+}
+
+test_a_failed_project_does_not_stop_the_others() {
+  local d out status=0 json
+  d="$(repo_sandbox)"
+  # The first project (in the order of the folders) fails, the other two do not.
+  out="$(G4_GATE_STUB_FAIL="gated tests (cargo test)" G4_GATE_STUB_FAIL_ARG="HeartGold-Edition" \
+    run_in_repo "$d" --full)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status: $out"
+  json="$d/repo/artefakte/$(head_sha "$d").json"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "rot" ] || fail "not red: $(cat "$json")"
+  [ "$(json_results "$json" "gated tests (cargo test)")" = "FAILED,ok,ok" ] || fail "rows: $(cat "$json")"
+  [ "$(json_field "$json" '[z["projekt"] for z in j["zeilen"] if z["schritt"] == a][0]' "gated tests (cargo test)")" = \
+    "Pokemon - HeartGold-Edition (Germany)" ] || fail "the failed project is not the first"
+  # Everything after it ran.
+  [ "$(json_results "$json" "tool tests")" = "ok" ] || fail "no tool tests: $(cat "$json")"
+  [ "$(json_results "$json" "build graph (timings)")" = "ok,ok,ok" ] || fail "no build graph rows"
+  [ "$(json_results "$json" "gated tests (project start)")" = "ok,ok,ok" ] || fail "no project start rows"
+  [ "$(json_results "$json" "world mesh bridge (timing)")" = "ok" ] || fail "no world mesh row"
+  assert_contains "Gate: FAILED (" printf '%s' "$out"
+}
+
+test_a_failed_timing_run_does_not_stop_the_others() {
+  local d out status=0 json
+  d="$(repo_sandbox)"
+  out="$(G4_GATE_STUB_FAIL="build graph (timings)" G4_GATE_STUB_FAIL_ARG="HeartGold-Edition" \
+    run_in_repo "$d" --full)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status: $out"
+  json="$d/repo/artefakte/$(head_sha "$d").json"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "rot" ] || fail "not red: $(cat "$json")"
+  [ "$(json_results "$json" "build graph (timings)")" = "FAILED (2 runs),ok,ok" ] || fail "rows: $(cat "$json")"
+  [ "$(json_results "$json" "gated tests (project start)")" = "ok,ok,ok" ] || fail "no project start rows"
+  [ "$(json_results "$json" "world mesh bridge (timing)")" = "ok" ] || fail "no world mesh row"
+}
+
+test_a_failed_preflight_leaves_a_red_result() {
+  local d out status=0 json
+  d="$(repo_sandbox)"
+  # The gate ends here at once (as before); the result is written all the same, by the exit trap.
+  out="$(G4_APICULA="$d/no-such-apicula" run_in_repo "$d" --full)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status: $out"
+  json="$d/repo/artefakte/$(head_sha "$d").json"
+  [ -f "$json" ] || fail "no result after an abort"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "rot" ] || fail "not red: $(cat "$json")"
+  [ "$(json_results "$json" "gated tests: preflight")" = "FAILED (tools)" ] || fail "no preflight row"
+  assert_not_contains "stub[gated tests" printf '%s' "$out"
+}
+
+test_no_result_is_written_without_a_full_run_on_a_clean_tree() {
+  local d out
+  d="$(repo_sandbox)"
+  # The fast gate and the hermetic full run end before the ROM part: no result.
+  out="$(run_in_repo "$d")"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+  out="$(G4_GATE_HERMETIC=1 run_in_repo "$d" --full)"
+  assert_contains "Gate (hermetisch): ok (" printf '%s' "$out"
+  assert_not_contains "Ergebnis:" printf '%s' "$out"
+  [ ! -e "$d/repo/artefakte" ] || fail "the folder of the results was made: $(result_files "$d")"
+  # One project is not the matrix; the note comes before the table.
+  out="$(G4_GATE_ONLY_PROJECT="Pokemon - HeartGold-Version (USA)" run_in_repo "$d" --full)"
+  assert_contains "Hinweis: G4_GATE_ONLY_PROJECT ist gesetzt, es wird kein Ergebnis geschrieben." printf '%s' "$out"
+  assert_before "$out" "Hinweis: G4_GATE_ONLY_PROJECT ist gesetzt" "Seconds"
+  assert_not_contains "Ergebnis:" printf '%s' "$out"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+  [ ! -e "$d/repo/artefakte" ] || fail "the folder of the results was made: $(result_files "$d")"
+  # A dirty tree (an untracked file counts): the table only.
+  echo x >"$d/repo/untracked.txt"
+  out="$(run_in_repo "$d" --full)"
+  assert_contains "Hinweis: Arbeitsbaum nicht sauber, es wird kein Ergebnis geschrieben." printf '%s' "$out"
+  assert_before "$out" "Hinweis: Arbeitsbaum nicht sauber" "Seconds"
+  assert_not_contains "Ergebnis:" printf '%s' "$out"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+  [ ! -e "$d/repo/artefakte" ] || fail "the folder of the results was made: $(result_files "$d")"
+  # The same for a tracked file that was changed.
+  rm "$d/repo/untracked.txt"
+  echo x >>"$d/repo/.gitignore"
+  assert_contains "Arbeitsbaum nicht sauber" printf '%s' "$(run_in_repo "$d" --full)"
+  [ ! -e "$d/repo/artefakte" ] || fail "the folder of the results was made: $(result_files "$d")"
+}
+
+test_a_run_ended_by_a_signal_writes_no_result() {
+  local d pid status=0 waited=0
+  d="$(repo_sandbox)"
+  # The stub of the background step "script tests" records its pid and then sleeps: the gate waits for
+  # it after cargo test, which is where the signal reaches it.
+  cat >"$d/stub.sh" <<SH
+#!/usr/bin/env bash
+if [ "\${G4_GATE_STEP:-}" = "script tests" ]; then
+  echo \$\$ >"$d/sleeper"
+  exec sleep 300
+fi
+exit 0
+SH
+  chmod +x "$d/stub.sh"
+  env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_HEAVY_LIST="$d/no-heavy-tests.txt" G4_GATE_LOG_DIR="$d/logs" G4_GATE_REMOVER_PATTERN="$NO_REMOVER" \
+    G4_GATE_ARTEFAKTE="$d/repo/artefakte" G4_ROMS_DIR="$d/roms" G4_APICULA="$d/stub.sh" \
+    G4_DSROM_CLI="$d/stub.sh" G4_ROTOM_LSP="$d/stub.sh" G4EMU_CORE="$d/stub.sh" \
+    bash "$d/repo/scripts/gate.sh" --full >"$d/out" 2>&1 &
+  pid=$!
+  while [ ! -s "$d/sleeper" ] && [ "$waited" -lt 100 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  [ -s "$d/sleeper" ] || fail "the background step did not start"
+  kill -TERM "$pid"
+  wait "$pid" || status=$?
+  sleep 0.3
+  kill "$(cat "$d/sleeper")" 2>/dev/null || true
+  [ "$status" -ne 0 ] || fail "the stopped gate exited with status 0"
+  # A run that was stopped says nothing about the commit: no result, however far it came.
+  case "$(result_files "$d")" in
+    *.json*) fail "a result was written: $(result_files "$d")" ;;
+  esac
+  assert_not_contains "Ergebnis:" cat "$d/out"
+  # The table still comes, and it is not cut off in the pipe to the log.
+  assert_contains "Gate: FAILED (" cat "$d/out"
+}
+
+test_the_json_is_valid_for_odd_project_labels() {
+  local d out json label
+  d="$(repo_sandbox)"
+  # Spaces and parentheses are in every label; a quote and a backslash must be escaped.
+  label='Pokemon - "Quote" \ Back (X)'
+  mkdir "$d/roms/${label}_DSPRE_contents"
+  : >"$d/roms/${label}_DSPRE_contents/header.yaml"
+  : >"$d/roms/$label.nds"
+  out="$(run_in_repo "$d" --full)"
+  json="$d/repo/artefakte/$(head_sha "$d").json"
+  [ "$(json_field "$json" '[z["projekt"] for z in j["zeilen"] if z["schritt"] == a and "Quote" in z["projekt"]]' \
+    "gated tests (cargo test)")" = '["Pokemon - \"Quote\" \\ Back (X)"]' ] ||
+    fail "the label is not in the result as it is: $(cat "$json")"
+  [ "$(json_results "$json" "gated tests (project start)")" = "ok,ok,ok,ok" ] || fail "rows: $(cat "$json")"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "gruen" ] || fail "not green: $out"
+}
+
+test_every_step_of_a_full_run_belongs_to_a_part() {
+  local d out json steps step part seen_rom=0
+  d="$(repo_sandbox)"
+  out="$(run_in_repo "$d" --full)"
+  json="$d/repo/artefakte/$(head_sha "$d").json"
+  steps="$(json_field "$json" '"\n".join(z["schritt"] for z in j["zeilen"])')"
+  # gate-result.sh holds functions only: sourcing it does nothing (under set -u, in this shell).
+  # shellcheck source=../gate-result.sh
+  . "$REPO_ROOT/scripts/gate-result.sh"
+  while IFS= read -r step; do
+    part="$(gate_step_part "$step")"
+    case "$part" in
+      fast) [ "$seen_rom" -eq 0 ] || fail "the step of the part without ROM comes after the ROM part: $step" ;;
+      rom) seen_rom=1 ;;
+      *) fail "the step is in no part (gate-result.sh is out of date): $step" ;;
+    esac
+  done <<<"$steps"
+  [ "$seen_rom" -eq 1 ] || fail "no step of the ROM part: $out"
+}
+
+test_the_result_path_is_anchored_at_the_main_checkout() {
+  local d out sha wt json printed
+  d="$(repo_sandbox)"
+  # The main checkout is $d/repo; the worktree lies deeper, so that "../" of the worktree is another
+  # folder than "../" of the main checkout. The gate takes both defaults (the results, the ROMs) from the
+  # main checkout, and no G4_GATE_ARTEFAKTE or G4_ROMS_DIR is set.
+  wt="$d/trees/wt"
+  mkdir "$d/trees"
+  git -C "$d/repo" worktree add -q "$wt" -b wt
+  make_roms "$d/Roms"
+  out="$(REPO_DIR="$wt" G4_GATE_ARTEFAKTE= G4_ROMS_DIR= run_in_repo "$d" --full)"
+  sha="$(head_sha "$d")"
+  json="$(cd "$d" && pwd -P)/gate-artefakte/full/$sha.json"
+  [ -f "$json" ] || fail "no result beside the main checkout: $(find "$d" -name '*.json')"
+  [ ! -e "$d/trees/gate-artefakte" ] || fail "a folder of results beside the worktree"
+  printed="$(printf '%s\n' "$out" | sed -n 's/^Ergebnis: //p')"
+  [ "$(cd "$(dirname "$printed")" && pwd -P)" = "$(cd "$d" && pwd -P)/gate-artefakte/full" ] ||
+    fail "the gate names another folder of results: $printed"
+  assert_contains "/Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" printf '%s' "$out"
+  assert_not_contains "/trees/Roms" printf '%s' "$out"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "gruen" ] || fail "not green: $out"
+}
+
+test_from_resumes_and_marks_the_result() {
+  local d out status=0 json log sha step after
+  d="$(repo_sandbox)"
+  out="$(G4_GATE_STUB_FAIL="tool tests" run_in_repo "$d" --full)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status: $out"
+  sha="$(head_sha "$d")"
+  json="$d/repo/artefakte/$sha.json"
+  log="$d/repo/artefakte/$sha.log"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "rot" ] || fail "not red: $(cat "$json")"
+  # Marks in the earlier result, to see that the resumed run takes the rows over and does not
+  # count the earlier time into its own.
+  json_edit "$json" 'j["sekunden"] = 99999
+marks = {"Pokemon - HeartGold-Edition (Germany)": 111, "Pokemon - HeartGold-Version (USA)": 222,
+         "Pokemon - Platin-Edition (Germany)": 4242}
+for z in j["zeilen"]:
+    if z["schritt"] == "gated tests (cargo test)":
+        z["sekunden"] = marks[z["projekt"]]'
+  out="$(run_in_repo "$d" --full --from "tool tests")"
+  # Not run again: the part without ROM, the g4emu step, the gated tests.
+  for step in "cargo fmt --check" "cargo test (no ROM data)" "script tests" "g4emu integration" \
+    "gated tests (cargo test)"; do
+    assert_not_contains "stub[$step]" printf '%s' "$out"
+  done
+  assert_not_contains "==> skip log" printf '%s' "$out"
+  # Run: from the point on.
+  for step in "tool tests" "build graph (timings)" "gated tests (project start)" "world mesh (timing)" \
+    "world mesh bridge (timing)"; do
+    assert_contains "stub[$step]" printf '%s' "$out"
+  done
+  assert_contains "==> fixture cleanup" printf '%s' "$out"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "gruen" ] || fail "not green: $(cat "$json")"
+  [ "$(json_field "$json" 'j["wiederaufgesetzt"]')" = "true" ] || fail "not marked as resumed"
+  [ "$(json_field "$json" 'j["sha"]')" = "$sha" ] || fail "another sha"
+  [ "$(json_field "$json" 'j["sekunden"] < 99999')" = "true" ] || fail "sekunden is not the time of the resumed run"
+  [ "$(json_results "$json" "tool tests")" = "ok" ] || fail "tool tests: $(cat "$json")"
+  # The rows that were taken over keep result and seconds, and the table shows them.
+  [ "$(json_field "$json" '[z["sekunden"] for z in j["zeilen"] if z["schritt"] == a]' "gated tests (cargo test)")" = \
+    "[111, 222, 4242]" ] || fail "the rows of the earlier run are not kept: $(cat "$json")"
+  [ "$(json_results "$json" "cargo fmt --check")" = "ok" ] || fail "the part without ROM is not in the result"
+  [ "$(json_results "$json" "cargo test (no ROM data)")" = "ok" ] || fail "no row of the no-ROM step"
+  assert_row "$out" "cargo fmt --check" "ok"
+  assert_project_row "$out" "gated tests (cargo test)" "Pokemon - Platin-Edition (Germany)" "ok"
+  assert_contains "Ergebnis: $json" printf '%s' "$out"
+  # The log of the earlier run stays; the resumed run follows after a line that names the step.
+  assert_contains "==== wiederaufgesetzt ab tool tests ====" cat "$log"
+  [ "$(grep -c '^==== wiederaufgesetzt ab ' "$log")" -eq 1 ] || fail "not one line of the resumption"
+  assert_before "$(cat "$log")" "stub[cargo fmt --check]" "==== wiederaufgesetzt ab tool tests ===="
+  after="$(cat "$log")"
+  after="${after#*"==== wiederaufgesetzt ab tool tests ===="}"
+  assert_contains "stub[tool tests]" printf '%s' "$after"
+  assert_not_contains "stub[cargo fmt --check]" printf '%s' "$after"
+  [ "$(grep -c '^Step ' "$log")" -eq 2 ] || fail "not a table per run in the log"
+  [ "$(tail -1 "$log" | cut -c1-9)" = "Gate: ok " ] || fail "the log does not end with the closing line"
+}
+
+test_from_takes_the_lists_of_the_earlier_run() {
+  local d out
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  # With the project: the projects before it are taken over, it and the ones after it run again.
+  out="$(run_in_repo "$d" --full --from "gated tests (cargo test)@Pokemon - HeartGold-Version (USA)")"
+  [ "$(line_count "$(step_lines "$out" "gated tests (cargo test)")")" -eq 2 ] || fail "not two runs: $out"
+  assert_not_contains "HeartGold-Edition" printf '%s' "$(step_lines "$out" "gated tests (cargo test)")"
+  # The names come from the lists that the earlier run derived, not from a skip log of this run.
+  assert_contains "-- --exact aa_gated_a zz_gated_b" printf '%s' "$(step_lines "$out" "gated tests (cargo test)")"
+  assert_not_contains "stub[cargo test (no ROM data)]" printf '%s' "$out"
+  assert_contains "stub[tool tests]" printf '%s' "$out"
+  # The first project is in the table, taken over.
+  assert_project_row "$out" "gated tests (cargo test)" "Pokemon - HeartGold-Edition (Germany)" "ok"
+  assert_project_row "$out" "gated tests (cargo test)" "Pokemon - HeartGold-Version (USA)" "ok"
+  [ "$(json_results "$d/repo/artefakte/$(head_sha "$d").json" "gated tests (cargo test)")" = "ok,ok,ok" ] ||
+    fail "the result has not three rows of the step"
+}
+
+test_a_row_that_was_not_ok_runs_again_before_the_point() {
+  local d out json
+  d="$(repo_sandbox)"
+  # Earlier run: one project failed, and the g4emu step was skipped (no core).
+  G4EMU_CORE="$d/no-such-core" G4_GATE_STUB_FAIL="gated tests (cargo test)" G4_GATE_STUB_FAIL_ARG="HeartGold-Edition" \
+    run_in_repo "$d" --full >/dev/null || true
+  json="$d/repo/artefakte/$(head_sha "$d").json"
+  [ "$(json_results "$json" "gated tests (cargo test)")" = "FAILED,ok,ok" ] || fail "setup: $(cat "$json")"
+  [ "$(json_results "$json" "g4emu integration")" = "skipped (kein Kern)" ] || fail "setup: $(cat "$json")"
+  # Now both are fine: resuming at the tool tests runs them again, and only them before the point.
+  out="$(run_in_repo "$d" --full --from "tool tests")"
+  [ "$(line_count "$(step_lines "$out" "gated tests (cargo test)")")" -eq 1 ] || fail "not one project again: $out"
+  assert_contains "HeartGold-Edition" printf '%s' "$(step_lines "$out" "gated tests (cargo test)")"
+  assert_contains "stub[g4emu integration]" printf '%s' "$out"
+  [ "$(json_results "$json" "gated tests (cargo test)")" = "ok,ok,ok" ] || fail "rows: $(cat "$json")"
+  [ "$(json_results "$json" "g4emu integration")" = "ok" ] || fail "rows: $(cat "$json")"
+  [ "$(json_field "$json" 'j["ergebnis"]')" = "gruen" ] || fail "not green: $(cat "$json")"
+  [ "$(json_field "$json" 'j["wiederaufgesetzt"]')" = "true" ] || fail "not marked as resumed"
+}
+
+# from_refused <sandbox> <message> <gate arguments...>: the gate ends with status 2, the message is on
+# its output, nothing ran (no stub line, no table), and the result of the earlier run is as it was.
+from_refused() {
+  local d="$1" message="$2" out status=0 before after
+  shift 2
+  before="$(cat "$d/repo/artefakte/"*.json 2>/dev/null || true)"
+  out="$(run_in_repo "$d" "$@")" || status=$?
+  [ "$status" -eq 2 ] || fail "expected status 2, got $status: $out"
+  case "$out" in
+    *"$message"*) ;;
+    *) fail "the output does not hold '$message': $out" ;;
+  esac
+  assert_not_contains "stub[" printf '%s' "$out"
+  assert_not_contains "Gate" printf '%s' "$out"
+  after="$(cat "$d/repo/artefakte/"*.json 2>/dev/null || true)"
+  [ "$before" = "$after" ] || fail "the result was changed by a refused run"
+}
+
+test_from_refuses_a_dirty_tree() {
+  local d
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  echo x >"$d/repo/untracked.txt"
+  from_refused "$d" "--from: Arbeitsbaum nicht sauber" --full --from "tool tests"
+}
+
+test_from_refuses_another_commit() {
+  local d
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  commit_in_repo "$d"
+  from_refused "$d" "--from: kein Ergebnis für $(head_sha "$d")" --full --from "tool tests"
+  # Nor does a folder without any result do.
+  d="$(repo_sandbox)"
+  from_refused "$d" "--from: kein Ergebnis für $(head_sha "$d")" --full --from "tool tests"
+}
+
+test_from_needs_the_full_run() {
+  local d
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  from_refused "$d" "--from: nur mit --full" --from "tool tests"
+  # The hermetic run ends before the ROM part: there is nothing to resume.
+  G4_GATE_HERMETIC=1 from_refused "$d" "--from: nicht mit G4_GATE_HERMETIC=1" --full --from "tool tests"
+}
+
+test_from_refuses_a_step_of_the_part_without_rom() {
+  local d step
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  for step in "cargo fmt --check" "cargo test (no ROM data)" "pnpm build" "g4emu unit"; do
+    from_refused "$d" "--from: $step liegt im Teil ohne ROM, den Volllauf neu starten" --full --from "$step"
+  done
+}
+
+test_from_refuses_unknown_and_ambiguous_steps() {
+  local d
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  from_refused "$d" "--from: unbekannter Schritt: no such step" --full --from "no such step"
+  # The ROM part has steps that a resumed run never starts at: the lists of the skip log step are read, not
+  # derived again, and the removal of the fixtures always runs.
+  from_refused "$d" "--from: unbekannter Schritt: skip log" --full --from "skip log"
+  from_refused "$d" "--from: unbekannter Schritt: fixture cleanup" --full --from "fixture cleanup"
+  from_refused "$d" "--from: unbekannter Schritt: gated tests (cargo test)@Pokemon - Gold" \
+    --full --from "gated tests (cargo test)@Pokemon - Gold"
+  from_refused "$d" "--from: gated tests (cargo test) kommt mehrfach vor, mit @<Projekt> angeben" \
+    --full --from "gated tests (cargo test)"
+  from_refused "$d" "--from: build graph (timings) kommt mehrfach vor, mit @<Projekt> angeben" \
+    --full --from "build graph (timings)"
+  # A step that has no row but is one of the ROM part (the earlier run did not get there) is known.
+  json_edit "$d/repo/artefakte/$(head_sha "$d").json" \
+    'j["zeilen"] = [z for z in j["zeilen"] if z["schritt"] != "world mesh (timing)"]'
+  assert_status 0 run_in_repo "$d" --full --from "world mesh (timing)"
+}
+
+test_from_refuses_when_the_part_without_rom_was_not_green() {
+  local d status=0 out
+  d="$(repo_sandbox)"
+  out="$(G4_GATE_STUB_FAIL="npm licenses" run_in_repo "$d" --full)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status: $out"
+  [ "$(json_field "$d/repo/artefakte/$(head_sha "$d").json" 'j["ergebnis"]')" = "rot" ] ||
+    fail "the abort left no red result"
+  from_refused "$d" "--from: der Teil ohne ROM war nicht grün" --full --from "tool tests"
+  # A row that no part knows (a chain of the parallel group that died) is not green either.
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  json_edit "$d/repo/artefakte/$(head_sha "$d").json" \
+    'j["zeilen"].append({"schritt": "parallel: js", "projekt": "-", "ergebnis": "FAILED (abgebrochen)", "sekunden": 0})'
+  from_refused "$d" "--from: der Teil ohne ROM war nicht grün" --full --from "tool tests"
+}
+
+test_from_refuses_lists_of_another_commit() {
+  local d sha
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  sha="$(head_sha "$d")"
+  [ "$(cat "$d/logs/lists.sha")" = "$sha" ] || fail "the skip log step did not write lists.sha: $(ls "$d/logs")"
+  # The lists of another commit (a full run of it came in between).
+  echo "0000000000000000000000000000000000000000" >"$d/logs/lists.sha"
+  from_refused "$d" "--from: keine Testlisten für $sha" --full --from "tool tests"
+  # No sha at all, or a list that is gone.
+  rm "$d/logs/lists.sha"
+  from_refused "$d" "--from: keine Testlisten für $sha" --full --from "tool tests"
+  echo "$sha" >"$d/logs/lists.sha"
+  rm "$d/logs/list-project.txt"
+  from_refused "$d" "--from: keine Testlisten für $sha" --full --from "tool tests"
+}
+
+test_a_run_on_a_dirty_tree_takes_the_lists_back() {
+  local d sha
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  sha="$(head_sha "$d")"
+  [ -f "$d/logs/lists.sha" ] || fail "no lists.sha after a run on a clean tree"
+  # A run on a dirty tree derives lists that belong to no commit: it removes the sha and writes none.
+  echo x >"$d/repo/untracked.txt"
+  run_in_repo "$d" --full >/dev/null
+  [ ! -e "$d/logs/lists.sha" ] || fail "lists.sha is there after a run on a dirty tree"
+  rm "$d/repo/untracked.txt"
+  from_refused "$d" "--from: keine Testlisten für $sha" --full --from "tool tests"
+}
+
+test_a_resume_point_that_no_step_was_is_said() {
+  local d out status=0
+  d="$(repo_sandbox)"
+  run_in_repo "$d" --full >/dev/null
+  # The project of the earlier run is gone: the step is in the earlier result, but not in this run.
+  rm -r "$d/roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$d/roms/Pokemon - Platin-Edition (Germany).nds"
+  out="$(run_in_repo "$d" --full --from "build graph (timings)@Pokemon - Platin-Edition (Germany)")" || status=$?
+  [ "$status" -eq 0 ] || fail "expected status 0, got $status: $out"
+  assert_contains "Hinweis: der Schritt build graph (timings)@Pokemon - Platin-Edition (Germany) kam in diesem Lauf nicht vor" \
+    printf '%s' "$out"
+  # Everything that was ok was taken over, nothing ran.
+  assert_not_contains "stub[" printf '%s' "$out"
 }
 
 run_tests
