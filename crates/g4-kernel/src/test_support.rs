@@ -8,6 +8,7 @@ use g4_formats::narc::Narc;
 
 mod clone;
 pub use clone::clone_tree;
+mod template;
 
 /// Offset of the Platinum (CPUE) header table inside `arm9/arm9.bin`.
 pub const PT_HEADER_TABLE_CPUE: usize = 0xE601C;
@@ -65,7 +66,12 @@ pub struct Synthetic {
 /// trainer battle sprite archives (see `write_battle_sprites`, `write_other_sprites`).
 pub fn synthetic_project() -> Synthetic {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    write_synthetic_project(dir.path());
+    Synthetic { dir }
+}
+
+/// Writes [`synthetic_project`] into the existing directory `root`.
+fn write_synthetic_project(root: &Path) {
     std::fs::write(
         root.join("header.yaml"),
         "title: \"POKEMON PL\"\ngamecode: CPUE\nmakercode: \"01\"\n",
@@ -192,8 +198,6 @@ pub fn synthetic_project() -> Synthetic {
         &other_sprite_magics(Family::Pt),
         &PT_OTHER_SPRITES,
     );
-
-    Synthetic { dir }
 }
 
 /// Seed of the synthetic battle sprites (`encrypt` with `Direction::Forward`, as Platinum).
@@ -909,25 +913,49 @@ pub struct TextFixture {
 }
 
 impl TextFixture {
-    /// The synthetic project with a base mark of the synthetic ROM, not exported.
+    /// The synthetic project with a base mark of the synthetic ROM, not exported. Built once
+    /// per process, then cloned (see [`template`]).
     pub fn dspre() -> TextFixture {
-        TextFixture::with(|_| {})
+        TextFixture::cloned("text-dspre", |root, _rom, sha1| {
+            build_unmarked(root, sha1, |_| {});
+            write_base_mark(root, sha1);
+        })
     }
 
     /// [`TextFixture::dspre`], then `export` with `adopt_scripts: true`: a text project of
-    /// the current schema.
+    /// the current schema. Built once per process, then cloned (see [`template`]).
     pub fn exported() -> TextFixture {
-        let fx = TextFixture::dspre();
-        crate::textproject::export(
-            &fx.project(),
-            &fx.base(),
-            &crate::textproject::ExportOptions {
-                adopt_scripts: true,
-                force: false,
-            },
-        )
-        .unwrap();
+        TextFixture::cloned("text-exported", |root, rom, sha1| {
+            build_unmarked(root, sha1, |_| {});
+            write_base_mark(root, sha1);
+            export_adopting(
+                &crate::project::Project::open(root).unwrap(),
+                &crate::base::BaseRom::open(rom, None).unwrap(),
+            );
+        })
+    }
+
+    /// [`TextFixture::exported`] built anew, as every call did before the templates.
+    #[cfg(test)]
+    pub fn exported_uncached() -> TextFixture {
+        let fx = TextFixture::with(|_| {});
+        export_adopting(&fx.project(), &fx.base());
         fx
+    }
+
+    /// A clone of the template `key`; `build(root, rom, sha1)` makes the template if this is
+    /// the first call with `key` in the process.
+    fn cloned(key: &str, build: impl FnOnce(&Path, &Path, &str)) -> TextFixture {
+        let (rom_dir, rom) = synthetic_rom();
+        let sha1 = rom_sha1(&rom);
+        let dir = template::from_template(key, |root| build(root, &rom, &sha1));
+        rename_rotom_project(dir.path(), key);
+        TextFixture {
+            project: Synthetic { dir },
+            _rom_dir: rom_dir,
+            rom,
+            sha1,
+        }
     }
 
     /// Like [`TextFixture::dspre`]; `prepare` changes the project before the base layer is
@@ -940,23 +968,16 @@ impl TextFixture {
 
     /// Like [`TextFixture::with`], without the base mark.
     pub fn unmarked(prepare: impl FnOnce(&crate::project::Project)) -> TextFixture {
-        let project = synthetic_project();
-        let p = crate::project::Project::open(project.dir.path()).unwrap();
-        prepare(&p);
-        unpack_all(&p);
         let (rom_dir, rom) = synthetic_rom();
-        let sha1 = crate::base::BaseRom::open(&rom, None)
-            .unwrap()
-            .sha1()
-            .to_owned();
-        let fx = TextFixture {
-            project,
+        let sha1 = rom_sha1(&rom);
+        let dir = tempfile::tempdir().unwrap();
+        build_unmarked(dir.path(), &sha1, prepare);
+        TextFixture {
+            project: Synthetic { dir },
             _rom_dir: rom_dir,
             rom,
             sha1,
-        };
-        fx.place_layer();
-        fx
+        }
     }
 
     pub fn root(&self) -> &Path {
@@ -983,16 +1004,7 @@ impl TextFixture {
 
     /// Copies the project (without `.g4`) to the base layer of its base ROM.
     pub fn place_layer(&self) {
-        let tmp = tempfile::tempdir().unwrap();
-        let copy = tmp.path().join("layer");
-        copy_dir(self.root(), &copy);
-        let _ = std::fs::remove_dir_all(copy.join(".g4"));
-        let layer = self
-            .root()
-            .join(crate::textproject::base_layer::BASE_LAYER_DIR)
-            .join(&self.sha1);
-        copy_dir(&copy, &layer);
-        std::fs::write(layer.join(".complete"), &self.sha1).unwrap();
+        place_layer_at(self.root(), &self.sha1);
     }
 
     /// Removes every base layer.
@@ -1006,23 +1018,7 @@ impl TextFixture {
 
     /// Writes `.g4/base.json` naming a base ROM of SHA-1 `sha1`.
     pub fn write_mark(&self, sha1: &str) {
-        use crate::start::{BASE_MARK_VERSION, BaseMark, ORIGIN_DSPRE};
-        let mark = BaseMark {
-            version: BASE_MARK_VERSION,
-            origin: ORIGIN_DSPRE.to_owned(),
-            sha1: sha1.to_owned(),
-            game_code: "CPUE".to_owned(),
-            title: "POKEMON PL".to_owned(),
-            revision: 0,
-            size: 0x8000,
-            template: None,
-            created: "2026-10-27T12:00:00Z".to_owned(),
-            assigned: Some("2026-10-27T12:00:00Z".to_owned()),
-            studio_version: "0.0.0".to_owned(),
-            secure_area_crc: 0x1234,
-            secure_area_sha1: "0".repeat(40),
-        };
-        self.write(".g4/base.json", &serde_json::to_vec_pretty(&mark).unwrap());
+        write_base_mark(self.root(), sha1);
     }
 
     /// Writes `bytes` to `rel` below the root, creating its folder.
@@ -1045,6 +1041,92 @@ impl TextFixture {
         assert!(text.contains(from), "{rel} has no `{from}`:\n{text}");
         self.write(rel, text.replacen(from, to, 1).as_bytes());
     }
+}
+
+/// The SHA-1 of the ROM at `rom`.
+fn rom_sha1(rom: &Path) -> String {
+    crate::base::BaseRom::open(rom, None)
+        .unwrap()
+        .sha1()
+        .to_owned()
+}
+
+/// Builds the unmarked [`TextFixture`] project into the empty directory `root`: the synthetic
+/// project, changed by `prepare`, every archive unpacked, and the base layer of `sha1`.
+fn build_unmarked(root: &Path, sha1: &str, prepare: impl FnOnce(&crate::project::Project)) {
+    write_synthetic_project(root);
+    let p = crate::project::Project::open(root).unwrap();
+    prepare(&p);
+    unpack_all(&p);
+    place_layer_at(root, sha1);
+}
+
+/// Copies the project at `root` (without `.g4`) to the base layer of the base ROM `sha1`.
+fn place_layer_at(root: &Path, sha1: &str) {
+    let tmp = tempfile::tempdir().unwrap();
+    let copy = tmp.path().join("layer");
+    copy_dir(root, &copy);
+    let _ = std::fs::remove_dir_all(copy.join(".g4"));
+    let layer = root
+        .join(crate::textproject::base_layer::BASE_LAYER_DIR)
+        .join(sha1);
+    copy_dir(&copy, &layer);
+    std::fs::write(layer.join(".complete"), sha1).unwrap();
+}
+
+/// Writes `.g4/base.json` below `root`, naming a base ROM of SHA-1 `sha1`.
+fn write_base_mark(root: &Path, sha1: &str) {
+    use crate::start::{BASE_MARK_VERSION, BaseMark, ORIGIN_DSPRE};
+    let mark = BaseMark {
+        version: BASE_MARK_VERSION,
+        origin: ORIGIN_DSPRE.to_owned(),
+        sha1: sha1.to_owned(),
+        game_code: "CPUE".to_owned(),
+        title: "POKEMON PL".to_owned(),
+        revision: 0,
+        size: 0x8000,
+        template: None,
+        created: "2026-10-27T12:00:00Z".to_owned(),
+        assigned: Some("2026-10-27T12:00:00Z".to_owned()),
+        studio_version: "0.0.0".to_owned(),
+        secure_area_crc: 0x1234,
+        secure_area_sha1: "0".repeat(40),
+    };
+    write_file(
+        root,
+        ".g4/base.json",
+        &serde_json::to_vec_pretty(&mark).unwrap(),
+    );
+}
+
+/// A clone of a template has the template's name in `rotom.toml`, which names the project
+/// after its folder: renames it, from the template's folder `from`, to the clone's folder.
+/// A project without `rotom.toml` (not exported) is left as it is.
+fn rename_rotom_project(root: &Path, from: &str) {
+    let path = root.join(crate::scripts::ROTOM_TOML);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let to = root.file_name().unwrap().to_string_lossy();
+    let renamed = text.replacen(
+        &format!("name = \"{from}\""),
+        &format!("name = \"{to}\""),
+        1,
+    );
+    std::fs::write(&path, renamed).unwrap();
+}
+
+/// `export` with `adopt_scripts: true`, the text project of the current schema.
+fn export_adopting(project: &crate::project::Project, base: &crate::base::BaseRom) {
+    crate::textproject::export(
+        project,
+        base,
+        &crate::textproject::ExportOptions {
+            adopt_scripts: true,
+            force: false,
+        },
+    )
+    .unwrap();
 }
 
 /// `TextFixture::exported()` with map texture package 0 as a real NSBTX of the six `syn_*`
@@ -1161,15 +1243,7 @@ impl TextFixture {
     /// [`TextFixture::platinum_de`], then exported like [`TextFixture::exported`].
     pub fn platinum_de_exported(patch: bool) -> TextFixture {
         let fx = TextFixture::platinum_de(patch);
-        crate::textproject::export(
-            &fx.project(),
-            &fx.base(),
-            &crate::textproject::ExportOptions {
-                adopt_scripts: true,
-                force: false,
-            },
-        )
-        .unwrap();
+        export_adopting(&fx.project(), &fx.base());
         fx
     }
 }
