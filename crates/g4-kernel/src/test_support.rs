@@ -1298,35 +1298,66 @@ fn restamp_build_state(root: &Path) {
 /// Calls `f` with the path and the fingerprint of every file the build state `state` of
 /// `project` has a record of: the inputs and outputs of the steps, the JSON and member of the
 /// text archives, the files of the sync and the ROM.
+///
+/// Every state and record is taken apart field by field, none with `..`: a field that holds a
+/// fingerprint and is added later does not compile here until it is visited (or named as
+/// one that holds none), instead of being skipped by the restamp of a clone.
 pub(crate) fn each_recorded_fp(
     state: &mut crate::build::state::BuildState,
     project: &crate::project::Project,
     mut f: impl FnMut(PathBuf, &mut crate::build::fingerprint::Fp),
 ) {
+    use crate::build::state::{BuildState, RomRecord, StepRecord, SyncRecord, TextRecord};
+
     let root = &project.root;
-    for record in state.steps.values_mut() {
-        for (file, fp) in record.inputs.iter_mut().chain(record.outputs.iter_mut()) {
+    let BuildState {
+        version: _,
+        steps,
+        texts,
+        rom,
+        sync,
+        // The hashes of what a world bake read and wrote: no `stat`.
+        world: _,
+    } = state;
+    for record in steps.values_mut() {
+        let StepRecord {
+            salt: _,
+            scanned_at_ns: _,
+            inputs,
+            outputs,
+            ms: _,
+        } = record;
+        for (file, fp) in inputs.iter_mut().chain(outputs.iter_mut()) {
             f(root.join(file), fp);
         }
     }
-    for (n, record) in &mut state.texts {
-        if let Some(fp) = &mut record.json {
+    for (n, record) in texts {
+        let TextRecord {
+            json,
+            member,
+            scanned_at_ns: _,
+        } = record;
+        if let Some(fp) = json {
             f(crate::text::json_path(project, *n), fp);
         }
-        if let Some(fp) = &mut record.member {
+        if let Some(fp) = member {
             f(
                 project.member_path(crate::project::AssetKind::TextArchive, *n),
                 fp,
             );
         }
     }
-    if let Some(sync) = &mut state.sync {
-        for (file, fp) in &mut sync.files {
+    if let Some(SyncRecord {
+        scanned_at_ns: _,
+        files,
+    }) = sync
+    {
+        for (file, fp) in files {
             f(root.join(file), fp);
         }
     }
-    if let Some(rom) = &mut state.rom {
-        f(root.join(&rom.path), &mut rom.fp);
+    if let Some(RomRecord { path, fp }) = rom {
+        f(root.join(&*path), fp);
     }
 }
 
