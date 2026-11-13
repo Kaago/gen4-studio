@@ -490,11 +490,8 @@ fn painted_map_on_a_vanilla_pack_bakes_within_limits() {
         .map_tileset_member(pack)
         .unwrap()
         .expect("the package member");
-    let apicula = match std::env::var_os("G4_APICULA") {
-        None => {
-            eprintln!("skipped: apicula part needs G4_APICULA");
-            "skipped"
-        }
+    let apicula = match g4_formats::test_support::gate_var("G4_APICULA") {
+        None => "skipped",
         Some(apicula) => {
             let dir = tempfile::tempdir().unwrap();
             let glb_path = nsbmd_to_glb(

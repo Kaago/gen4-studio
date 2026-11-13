@@ -1,31 +1,54 @@
 #!/usr/bin/env bash
 # Tests for scripts/gate.sh: the order of the steps, the split into the fast gate and --full, the
-# steps that run beside `cargo test (no ROM data)`, G4_GATE_TMPDIR, and the heavy tests that only the
-# full run executes (scripts/gate-heavy-tests.txt). Every command of the gate is replaced by a stub
-# (G4_GATE_CMD_PREFIX), so nothing real runs: no cargo, pnpm or uv, no ROM.
+# steps that run beside `cargo test (no ROM data)`, G4_GATE_TMPDIR, the heavy tests that only the
+# full run executes (scripts/gate-heavy-tests.txt), and the conditional tests: the skip log of the
+# full run's `cargo test (no ROM data)` picks what the per-project, tool and project start steps run.
+# Every command of the gate is replaced by a stub (G4_GATE_CMD_PREFIX), so nothing real runs: no
+# cargo, pnpm or uv, no ROM.
 set -euo pipefail
 
 . "$(dirname "$0")/lib.sh"
 
 GATE="$REPO_ROOT/scripts/gate.sh"
 
+# A pattern that no process matches: the gate waits for the removers of the test fixtures
+# (pgrep -f), and the real ones of a cargo test that runs beside these tests must not hold it up.
+NO_REMOVER="g4-gate-test-no-such-remover"
+
 # What a developer shell may export must not steer the gate under test; each test sets what it needs.
 unset G4_GATE_HERMETIC G4_GATE_TMPDIR G4_GATE_STUB_FAIL G4_GATE_CMD_PREFIX G4_GATE_HEAVY_LIST \
-  G4_GATE_LIMIT_S G4_ROMS_DIR G4_APICULA G4_DSROM_CLI G4_ROTOM_LSP G4EMU_CORE
+  G4_GATE_LIMIT_S G4_ROMS_DIR G4_APICULA G4_DSROM_CLI G4_ROTOM_LSP G4EMU_CORE CI \
+  G4_SKIP_LOG G4_GATE_LOG_DIR G4_GATE_ONLY_PROJECT G4_GATE_REMOVER_PATTERN G4_GATE_REMOVER_POLL_S \
+  G4_GATE_REMOVER_WAIT_S G4_GATE_STUB_NOROM_LINES G4_GATE_STUB_SKIP_STEP G4_GATE_STUB_SKIP_LINES
 
 # sandbox: prints a directory with
 #   stub.sh  the stand-in for every command of the gate: prints the step, TMPDIR and the command
-#            line it was given, and fails for the step named in G4_GATE_STUB_FAIL
+#            line it was given (and, for a step that has a skip log, the line `skiplog[<step>] <log>`),
+#            and fails for the step named in G4_GATE_STUB_FAIL. It plays the tests that skip:
+#            `cargo test (no ROM data)` writes G4_GATE_STUB_NOROM_LINES into its G4_SKIP_LOG (printf %b:
+#            \t and \n; the default holds one conditional test of each kind, unsorted and twice for
+#            one), and the step named in G4_GATE_STUB_SKIP_STEP writes G4_GATE_STUB_SKIP_LINES
 #   bin/     cargo, cargo-deny, pnpm and uv that fail loudly: if the gate ever ran one of them for
 #            real (a command that bypasses G4_GATE_CMD_PREFIX), the test would not run a suite
 #   home/    an empty HOME, so the gate does not put the real toolchain in front of bin/
+#   logs/    G4_GATE_LOG_DIR of the gate under test: its skip logs never touch target/gate/ of the
+#            repository, where the real gate (which runs these tests beside its cargo test) keeps its own
 sandbox() {
   local d tool
   d="$(tmpdir)"
-  mkdir "$d/bin" "$d/home"
+  mkdir "$d/bin" "$d/home" "$d/logs"
   cat >"$d/stub.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'stub[%s] TMPDIR=%s: %s\n' "${G4_GATE_STEP:-?}" "${TMPDIR-}" "$*"
+if [ -n "${G4_SKIP_LOG:-}" ]; then
+  printf 'skiplog[%s] %s\n' "${G4_GATE_STEP:-?}" "$G4_SKIP_LOG"
+  if [ "${G4_GATE_STEP:-}" = "cargo test (no ROM data)" ]; then
+    printf '%b' "${G4_GATE_STUB_NOROM_LINES-G4_TEST_PROJECT\tzz_gated_b\nG4_TEST_PROJECT\taa_gated_a\nG4_TEST_PROJECT\tzz_gated_b\nG4_APICULA\ttool::tool_a\nG4_DSROM_CLI\ttool_b\nG4_TEST_ROM\tproject_start_x\n}" >>"$G4_SKIP_LOG"
+  fi
+  if [ -n "${G4_GATE_STUB_SKIP_STEP:-}" ] && [ "${G4_GATE_STEP:-}" = "$G4_GATE_STUB_SKIP_STEP" ]; then
+    printf '%b' "${G4_GATE_STUB_SKIP_LINES:-}" >>"$G4_SKIP_LOG"
+  fi
+fi
 [ -z "${G4_GATE_STUB_FAIL:-}" ] || [ "${G4_GATE_STEP:-}" != "$G4_GATE_STUB_FAIL" ]
 SH
   for tool in cargo cargo-deny pnpm uv; do
@@ -44,7 +67,8 @@ run_gate() {
   local d
   d="$(sandbox)"
   env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
-    G4_GATE_HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$d/no-heavy-tests.txt}" \
+    G4_GATE_HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$d/no-heavy-tests.txt}" G4_GATE_LOG_DIR="${G4_GATE_LOG_DIR:-$d/logs}" \
+    G4_GATE_REMOVER_PATTERN="${G4_GATE_REMOVER_PATTERN:-$NO_REMOVER}" \
     G4_GATE_HERMETIC=1 bash "$GATE" "$@" 2>&1
 }
 
@@ -64,7 +88,8 @@ run_gate_local() {
     : >"$roms/$name.nds"
   done
   env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
-    G4_GATE_HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$d/no-heavy-tests.txt}" \
+    G4_GATE_HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$d/no-heavy-tests.txt}" G4_GATE_LOG_DIR="${G4_GATE_LOG_DIR:-$d/logs}" \
+    G4_GATE_REMOVER_PATTERN="${G4_GATE_REMOVER_PATTERN:-$NO_REMOVER}" \
     G4_ROMS_DIR="$roms" G4_APICULA="$d/stub.sh" G4_DSROM_CLI="$d/stub.sh" \
     G4_ROTOM_LSP="$d/stub.sh" G4EMU_CORE="$d/stub.sh" bash "$GATE" "$@" 2>&1
 }
@@ -74,7 +99,7 @@ run_gate_local() {
 run_gate_unstubbed() {
   local d
   d="$(sandbox)"
-  env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" bash "$GATE" "$@" 2>&1
+  env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_LOG_DIR="${G4_GATE_LOG_DIR:-$d/logs}" bash "$GATE" "$@" 2>&1
 }
 
 # row_result <output> <step>: the Result column of the table row of a step, empty when there is none.
@@ -121,7 +146,8 @@ test_fast_gate_runs_cheap_steps_before_cargo_test() {
   out="$(run_gate)"
   previous=""
   for step in "cargo fmt --check" "cargo clippy (-D warnings)" "cargo deny (licenses, advisories)" \
-    "npm licenses" "actions" "no rom data" "links" "version" "mcp" "cargo test (no ROM data)"; do
+    "npm licenses" "actions" "no rom data" "links" "version" "gate vars" "mcp" \
+    "cargo test (no ROM data)"; do
     if [ -n "$previous" ]; then
       assert_before "$out" "==> $previous"$'\n' "==> $step"$'\n'
     fi
@@ -313,7 +339,7 @@ exit 0
 SH
   chmod +x "$d/stub.sh"
   env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
-    G4_GATE_HERMETIC=1 bash "$GATE" >"$d/out" 2>&1 &
+    G4_GATE_LOG_DIR="${G4_GATE_LOG_DIR:-$d/logs}" G4_GATE_HERMETIC=1 bash "$GATE" >"$d/out" 2>&1 &
   pid=$!
   while [ ! -s "$d/sleeper" ] && [ "$waited" -lt 100 ]; do
     sleep 0.1
@@ -376,7 +402,8 @@ exit 0
 SH
   heavy_list "$d/heavy.txt" 'with::a space' '$HOME::literal' '*' 'quote::"it"'
   out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
-    G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+    G4_GATE_LOG_DIR="${G4_GATE_LOG_DIR:-$d/logs}" G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_HERMETIC=1 \
+    bash "$GATE" 2>&1)"
   assert_contains "$(printf '%s\n' 'arg<--exact>' 'arg<--skip>' 'arg<with::a space>' 'arg<--skip>' \
     'arg<$HOME::literal>' 'arg<--skip>' 'arg<*>' 'arg<--skip>' 'arg<quote::"it">')" printf '%s' "$out"
   # An unquoted * would have become the file names of the repository.
@@ -419,13 +446,11 @@ test_full_gate_skips_no_test() {
     assert_not_contains "heavy" printf '%s' "$line"
     assert_not_contains "schwere Tests" printf '%s' "$out"
   done
-  # The per-project passes are unchanged: they skip build_graph_timings and nothing else.
+  # The per-project passes run the logged tests and skip no test of their own: no --skip.
   out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" run_gate_local --full)"
   line="$(printf '%s\n' "$out" | grep -F 'stub[gated tests (cargo test)]' | head -1)"
-  case "$line" in
-    *"cargo test --workspace --all-features -- --skip build_graph_timings") ;;
-    *) fail "the per-project command changed: $line" ;;
-  esac
+  assert_not_contains "--skip" printf '%s' "$line"
+  assert_contains "-- --exact aa_gated_a zz_gated_b" printf '%s' "$line"
 }
 
 test_fast_gate_names_the_number_of_heavy_tests() {
@@ -454,7 +479,7 @@ test_the_default_list_is_scripts_gate_heavy_tests_txt() {
   d="$(sandbox)"
   # G4_GATE_HEAVY_LIST is unset here (see the top of this file).
   out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
-    G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+    G4_GATE_LOG_DIR="${G4_GATE_LOG_DIR:-$d/logs}" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
   listed="$(grep -c -v -e '^#' -e '^[[:space:]]*$' "$REPO_ROOT/scripts/gate-heavy-tests.txt")"
   [ "$listed" -gt 0 ] || fail "scripts/gate-heavy-tests.txt lists no test"
   line="$(cargo_test_line "$out")"
@@ -495,6 +520,318 @@ test_a_limit_that_is_no_number_is_refused() {
   G4_GATE_LIMIT_S=schnell assert_status 2 run_gate_unstubbed
   G4_GATE_LIMIT_S=schnell assert_contains "G4_GATE_LIMIT_S" run_gate_unstubbed
   G4_GATE_LIMIT_S=1e3 assert_status 2 run_gate_unstubbed
+}
+
+# step_lines <output> <step>: the stub lines of a step, one per run of it.
+step_lines() {
+  printf '%s\n' "$1" | grep -F "stub[$2]" || true
+}
+
+# line_count <text>: the number of non-empty lines.
+line_count() {
+  printf '%s\n' "$1" | grep -c . || true
+}
+
+TAB="$(printf '\t')"
+
+test_the_fast_gate_sets_a_skip_log_and_nothing_consumes_it() {
+  local out log
+  out="$(G4_GATE_STUB_NOROM_LINES='G4_TEST_PROJECT\tone_test\n' run_gate_local)"
+  log="$(printf '%s\n' "$out" | grep -F 'skiplog[cargo test (no ROM data)]')"
+  case "$log" in
+    *"] "*"/skips.tsv") ;;
+    *) fail "the no-ROM step has no skip log skips.tsv: $log" ;;
+  esac
+  # Only that step has one, and it never runs with one test thread (the thread name is the test name).
+  assert_not_contains "skiplog[mcp]" printf '%s' "$out"
+  assert_not_contains "--test-threads" printf '%s' "$(step_lines "$out" "cargo test (no ROM data)")"
+  assert_not_contains "stub[tool tests]" printf '%s' "$out"
+  assert_not_contains "one_test" printf '%s' "$out"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+  # The default folder of the logs is target/gate of the repository.
+  grep -q 'G4_GATE_LOG_DIR:-$ROOT/target/gate}' "$GATE" || fail "the log folder is not target/gate"
+}
+
+test_full_gate_runs_only_logged_tests_per_project() {
+  local out line n lines
+  out="$(run_gate_local --full)"
+  # One run per project: the project's tests of the log, sorted and once, with that project and the tools.
+  lines="$(step_lines "$out" "gated tests (cargo test)")"
+  [ "$(line_count "$lines")" -eq 3 ] || fail "not one run per project: $lines"
+  while IFS= read -r line; do
+    case "$line" in
+      *"cargo test --workspace --all-features --no-fail-fast -- --exact aa_gated_a zz_gated_b") ;;
+      *) fail "the per-project command is not the logged project tests: $line" ;;
+    esac
+    assert_contains " G4_TEST_PROJECT=" printf '%s' "$line"
+    assert_contains " G4_APICULA=" printf '%s' "$line"
+    assert_contains " G4_DSROM_CLI=" printf '%s' "$line"
+    assert_contains " G4_ROTOM_LSP=" printf '%s' "$line"
+    assert_contains " -u G4_TEST_ROM " printf '%s' "$line"
+    assert_not_contains "tool_a" printf '%s' "$line"
+    assert_not_contains "project_start_x" printf '%s' "$line"
+  done <<<"$lines"
+  # The ROM step: per ROM, only the tests that logged G4_TEST_ROM.
+  lines="$(step_lines "$out" "gated tests (project start)")"
+  [ "$(line_count "$lines")" -eq 3 ] || fail "not one run per ROM: $lines"
+  while IFS= read -r line; do
+    case "$line" in
+      *"cargo test --workspace --all-features --no-fail-fast -- --exact project_start_x") ;;
+      *) fail "the ROM command is not the logged ROM tests: $line" ;;
+    esac
+    assert_contains " G4_TEST_ROM=" printf '%s' "$line"
+    assert_contains " -u G4_TEST_PROJECT " printf '%s' "$line"
+  done <<<"$lines"
+  # The tool tests: once, with the tools and the Platinum project.
+  lines="$(step_lines "$out" "tool tests")"
+  [ "$(line_count "$lines")" -eq 1 ] || fail "the tool tests did not run once: $lines"
+  case "$lines" in
+    *"cargo test --workspace --all-features --no-fail-fast -- --exact tool::tool_a tool_b") ;;
+    *) fail "the tool command is not the logged tool tests: $lines" ;;
+  esac
+  assert_contains "G4_TEST_PROJECT=" printf '%s' "$lines"
+  assert_contains "Platin-Edition (Germany)_DSPRE_contents" printf '%s' "$lines"
+  assert_contains " G4_APICULA=" printf '%s' "$lines"
+  assert_contains " G4_DSROM_CLI=" printf '%s' "$lines"
+  assert_contains " G4_ROTOM_LSP=" printf '%s' "$lines"
+  assert_before "$out" "==> gated tests (cargo test)" "==> tool tests"
+  assert_before "$out" "==> tool tests" "==> build graph (timings)"
+  # Without --exact the filter would be a substring: every command that takes names takes it.
+  n="$(printf '%s\n' "$out" | grep -E '^stub\[(gated tests|tool tests)' | grep -c -e '-- --exact ')"
+  [ "$n" -eq 7 ] || fail "$n of 7 commands with names have --exact"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+}
+
+test_the_timing_test_is_not_run_by_the_per_project_step() {
+  local out lines
+  out="$(G4_GATE_STUB_NOROM_LINES='G4_TEST_PROJECT\tbuild_graph_timings\nG4_TEST_PROJECT\tother_test\n' run_gate_local --full)"
+  lines="$(step_lines "$out" "gated tests (cargo test)")"
+  assert_contains "-- --exact other_test" printf '%s' "$lines"
+  assert_not_contains "build_graph_timings" printf '%s' "$lines"
+  # It runs in its own release step.
+  assert_contains "stub[build graph (timings)]" printf '%s' "$out"
+}
+
+test_a_test_with_a_project_and_a_tool_runs_per_project_only() {
+  local out
+  out="$(G4_GATE_STUB_NOROM_LINES='G4_APICULA\tboth\nG4_TEST_PROJECT\tboth\nG4_DSROM_CLI\tonly_tool\n' \
+    run_gate_local --full)"
+  assert_contains "-- --exact both" printf '%s' "$(step_lines "$out" "gated tests (cargo test)")"
+  # Its tool variable is set in the per-project step; the tool step takes what needs no project.
+  assert_contains "-- --exact only_tool" printf '%s' "$(step_lines "$out" "tool tests")"
+  assert_not_contains "both" printf '%s' "$(step_lines "$out" "tool tests")"
+}
+
+test_each_list_step_has_its_own_skip_log() {
+  local out logs total unique
+  out="$(run_gate_local --full)"
+  logs="$(printf '%s\n' "$out" | grep '^skiplog\[' | sed 's/^[^]]*\] //')"
+  total="$(line_count "$logs")"
+  unique="$(printf '%s\n' "$logs" | sort -u | grep -c .)"
+  # The no-ROM step, three project runs, the tool step and three ROM runs: eight logs, all different.
+  [ "$total" -eq 8 ] || fail "$total skip logs: $logs"
+  [ "$unique" -eq 8 ] || fail "$unique different skip logs of $total: $logs"
+  assert_not_contains "skiplog[build graph (timings)]" printf '%s' "$out"
+  assert_not_contains "skiplog[world mesh" printf '%s' "$out"
+  # None of the commands that write a skip log runs with one test thread.
+  assert_not_contains "--test-threads" printf '%s' "$(step_lines "$out" "gated tests")"
+  assert_not_contains "--test-threads" printf '%s' "$(step_lines "$out" "tool tests")"
+}
+
+test_a_skip_in_the_full_run_is_a_failure() {
+  local out status step
+  for step in "gated tests (cargo test)" "tool tests" "gated tests (project start)"; do
+    status=0
+    out="$(G4_GATE_STUB_SKIP_STEP="$step" G4_GATE_STUB_SKIP_LINES='G4_APICULA\tsome::skipped_test\n' \
+      run_gate_local --full)" || status=$?
+    [ "$status" -eq 1 ] || fail "$step: expected status 1, got $status: $out"
+    assert_contains "bedingter Test übersprungen: G4_APICULA${TAB}some::skipped_test" printf '%s' "$out"
+    assert_contains "FAILED (skipped)" printf '%s' "$out"
+    assert_contains "Gate: FAILED (" printf '%s' "$out"
+    # The gate stops there, like at any failure of the full part.
+    assert_not_contains "stub[world mesh (timing)]" printf '%s' "$out"
+  done
+  # The no-ROM step skips by design, in the full run and in the fast gate: no failure.
+  for out in "$(run_gate_local --full)" "$(run_gate_local)" "$(run_gate --full)"; do
+    assert_not_contains "bedingter Test übersprungen" printf '%s' "$out"
+    assert_contains ": ok (" printf '%s' "$out"
+  done
+  # A step that ran without a skip is ok in the table, and the skips of the step before do not count.
+  out="$(run_gate_local --full)"
+  assert_row "$out" "tool tests" "ok"
+}
+
+test_an_empty_list_records_its_step_without_running_it() {
+  local out
+  out="$(G4_GATE_STUB_NOROM_LINES='G4_TEST_PROJECT\tonly_project_test\n' run_gate_local --full)"
+  # An empty --exact filter would run everything: the steps are not run at all.
+  assert_not_contains "stub[tool tests]" printf '%s' "$out"
+  assert_not_contains "stub[gated tests (project start)]" printf '%s' "$out"
+  assert_row "$out" "tool tests" "ok"
+  assert_row "$out" "gated tests (project start)" "ok"
+  assert_contains "Hinweis: kein bedingter Test mit G4_TEST_ROM im Skip-Log, der Schritt entfällt." \
+    printf '%s' "$out"
+  assert_contains "Hinweis: kein bedingter Test mit G4_APICULA, G4_DSROM_CLI oder G4_ROTOM_LSP im Skip-Log, der Schritt entfällt." \
+    printf '%s' "$out"
+  assert_contains "stub[gated tests (cargo test)]" printf '%s' "$out"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+  # Nothing logged at all: no list step runs, the timing steps do (they name their own test).
+  out="$(G4_GATE_STUB_NOROM_LINES='' run_gate_local --full)"
+  assert_row "$out" "gated tests (cargo test)" "ok"
+  assert_not_contains "stub[gated tests (cargo test)]" printf '%s' "$out"
+  assert_contains "Hinweis: kein bedingter Test mit G4_TEST_PROJECT im Skip-Log, der Schritt entfällt." \
+    printf '%s' "$out"
+  assert_contains "stub[build graph (timings)]" printf '%s' "$out"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+}
+
+test_the_skip_log_of_an_earlier_run_is_not_read() {
+  local d out
+  d="$(tmpdir)"
+  mkdir "$d/logs"
+  printf 'G4_TEST_PROJECT\tstale_test\n' >"$d/logs/skips.tsv"
+  out="$(G4_GATE_LOG_DIR="$d/logs" G4_GATE_STUB_NOROM_LINES='' run_gate_local --full)"
+  assert_not_contains "stale_test" printf '%s' "$out"
+  # A folder that does not exist yet is made.
+  out="$(G4_GATE_LOG_DIR="$d/new/logs" run_gate_local --full)"
+  [ -s "$d/new/logs/skips.tsv" ] || fail "the gate did not make the log folder or write the log"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+}
+
+test_a_logged_test_without_a_usable_name_fails_the_full_run() {
+  local out status lines
+  for lines in 'G4_TEST_PROJECT\t<unnamed>\n' 'G4_APICULA\tmain\n' 'G4_TEST_ROM\t\n' 'G4_TEST_ROM\n'; do
+    status=0
+    out="$(G4_GATE_STUB_NOROM_LINES="$lines" run_gate_local --full)" || status=$?
+    [ "$status" -eq 1 ] || fail "expected status 1 for '$lines', got $status: $out"
+    assert_contains "Skip-Log: Zeile ohne verwertbaren Testnamen" printf '%s' "$out"
+    assert_row "$out" "skip log" "FAILED"
+    assert_not_contains "stub[gated tests" printf '%s' "$out"
+  done
+}
+
+test_only_project_limits_the_per_project_passes() {
+  local out status=0
+  out="$(G4_GATE_ONLY_PROJECT="Pokemon - HeartGold-Version (USA)" run_gate_local --full)"
+  assert_contains "==> gated tests (cargo test) [Pokemon - HeartGold-Version (USA)]" printf '%s' "$out"
+  assert_contains "==> build graph (timings) [Pokemon - HeartGold-Version (USA)] (run 1)" printf '%s' "$out"
+  assert_contains "==> gated tests (project start) [Pokemon - HeartGold-Version (USA)]" printf '%s' "$out"
+  assert_not_contains "Platin-Edition" printf '%s' "$out"
+  assert_not_contains "HeartGold-Edition" printf '%s' "$out"
+  # The tool tests run once, on the project of the run.
+  assert_contains "Pokemon - HeartGold-Version (USA)_DSPRE_contents" \
+    printf '%s' "$(step_lines "$out" "tool tests")"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+  # An unknown label is refused at once, with the known ones.
+  out="$(G4_GATE_ONLY_PROJECT="Pokemon - Gold" run_gate_local --full)" || status=$?
+  [ "$status" -eq 2 ] || fail "expected status 2, got $status: $out"
+  assert_contains "G4_GATE_ONLY_PROJECT: unbekanntes Projekt: Pokemon - Gold" printf '%s' "$out"
+  assert_contains "Pokemon - Platin-Edition (Germany)" printf '%s' "$out"
+  assert_contains "Pokemon - HeartGold-Edition (Germany)" printf '%s' "$out"
+  assert_contains "Pokemon - HeartGold-Version (USA)" printf '%s' "$out"
+  assert_not_contains "stub[" printf '%s' "$out"
+  # Only the full run has per-project passes: the fast gate ignores the variable.
+  assert_contains "Gate: ok (" printf '%s' "$(G4_GATE_ONLY_PROJECT="Pokemon - Gold" run_gate_local)"
+}
+
+test_the_full_run_waits_for_the_fixture_removers_before_the_timing_steps() {
+  local d out waited
+  d="$(tmpdir)"
+  # A stand-in for a remover: its command line holds the pattern the gate looks for. It ends after 4 s
+  # and then leaves its mark.
+  bash -c 'sleep 4; touch "$1"' "g4-gate-test-remover-$$" "$d/ended" &
+  out="$(G4_GATE_REMOVER_PATTERN="g4-gate-test-remover-$$" G4_GATE_REMOVER_POLL_S=1 run_gate_local --full)"
+  wait
+  [ -e "$d/ended" ] || fail "the stand-in did not end"
+  assert_contains "==> fixture cleanup" printf '%s' "$out"
+  assert_before "$out" "==> fixture cleanup" "==> build graph (timings)"
+  # Once before the build graph timings and once before the world mesh timings, which follow the ROM runs.
+  [ "$(printf '%s\n' "$out" | grep -c '^==> fixture cleanup$')" -eq 2 ] || fail "not two waits: $out"
+  assert_before "${out##*"==> gated tests (project start)"}" "==> fixture cleanup" "==> world mesh (timing)"
+  assert_row "$out" "fixture cleanup" "ok"
+  waited="$(printf '%s\n' "$out" | grep '^fixture cleanup ' | head -1 | awk '{print $NF}')"
+  [ "$waited" -ge 1 ] || fail "the gate did not wait: $waited s"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+  # Without a remover the row says 0 s, and the stub of a timing step runs after it.
+  out="$(run_gate_local --full)"
+  waited="$(printf '%s\n' "$out" | grep '^fixture cleanup ' | head -1 | awk '{print $NF}')"
+  [ "$waited" -eq 0 ] || fail "the gate waited without a remover: $waited s"
+  # The fast gate has none of it.
+  assert_not_contains "fixture cleanup" printf '%s' "$(run_gate_local)"
+}
+
+test_the_wait_for_the_fixture_removers_ends_with_a_note() {
+  local d out stand
+  d="$(tmpdir)"
+  bash -c 'exec -a "$0" sleep 30' "g4-gate-test-remover-$$" &
+  stand=$!
+  out="$(G4_GATE_REMOVER_PATTERN="g4-gate-test-remover-$$" G4_GATE_REMOVER_POLL_S=1 \
+    G4_GATE_REMOVER_WAIT_S=2 run_gate_local --full)"
+  kill "$stand" 2>/dev/null || true
+  wait "$stand" 2>/dev/null || true
+  assert_contains "Hinweis: Löschprozesse der Testvorlagen laufen nach 2 s noch, die Zeitschritte laufen trotzdem." \
+    printf '%s' "$out"
+  assert_row "$out" "fixture cleanup" "ok"
+  assert_contains "stub[build graph (timings)]" printf '%s' "$out"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+}
+
+test_ci_runs_every_test() {
+  local d out line
+  d="$(sandbox)"
+  # G4_GATE_HEAVY_LIST is unset here: the list of the repository exists, and CI does not read it.
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI=true G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_LOG_DIR="$d/logs" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+  line="$(cargo_test_line "$out")"
+  case "$line" in
+    *": $HEAVY_ENV cargo test --workspace --all-features") ;;
+    *) fail "on CI the cargo test line is not the plain command: $line" ;;
+  esac
+  assert_not_contains "schwere Tests" printf '%s' "$out"
+  # An explicitly set list wins (the test seam), also on CI.
+  heavy_list "$d/heavy.txt" "one::heavy"
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI=true G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_LOG_DIR="$d/logs" G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+  assert_contains "-- --exact --skip one::heavy" printf '%s' "$(cargo_test_line "$out")"
+  assert_contains "1 schwere Tests laufen nur im Volllauf" printf '%s' "$out"
+  # Not CI: the list of the repository is read.
+  for line in "" "false"; do
+    out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI="$line" G4_GATE_CMD_PREFIX="$d/stub.sh" \
+      G4_GATE_LOG_DIR="$d/logs" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+    assert_contains "--exact --skip " printf '%s' "$(cargo_test_line "$out")"
+    assert_not_contains "nicht lesbar" printf '%s' "$out"
+  done
+  # The header says so.
+  grep -q 'CI=true' "$GATE" || fail "the header of the gate does not name CI"
+}
+
+test_a_heavy_list_that_cannot_be_read_is_said_so() {
+  local d out
+  d="$(tmpdir)"
+  mkdir "$d/a-folder"
+  for out in "$(G4_GATE_HEAVY_LIST="$d/missing.txt" run_gate)" \
+    "$(G4_GATE_HEAVY_LIST="$d/a-folder" run_gate)"; do
+    assert_contains "G4_GATE_HEAVY_LIST" printf '%s' "$out"
+    assert_contains "nicht lesbar" printf '%s' "$out"
+    # No test is left out, and the line about left-out tests stays away.
+    assert_not_contains "schwere Tests" printf '%s' "$out"
+    assert_not_contains "--skip" printf '%s' "$(cargo_test_line "$out")"
+  done
+  # Not said when the list is read, when the default list is used, or in the full run.
+  heavy_list "$d/heavy.txt" "one::heavy"
+  assert_not_contains "nicht lesbar" printf '%s' "$(G4_GATE_HEAVY_LIST="$d/heavy.txt" run_gate)"
+  assert_not_contains "nicht lesbar" printf '%s' "$(G4_GATE_HEAVY_LIST="$d/missing.txt" run_gate --full)"
+}
+
+test_a_limit_other_than_900_s_is_named() {
+  local out
+  out="$(G4_GATE_LIMIT_S=1200 run_gate)"
+  assert_contains "Hinweis: Grenze des schnellen Gates: 1200 s (G4_GATE_LIMIT_S)." printf '%s' "$out"
+  assert_not_contains "Warnung" printf '%s' "$out"
+  assert_not_contains "Grenze des schnellen Gates" printf '%s' "$(run_gate)"
+  assert_not_contains "Grenze des schnellen Gates" printf '%s' "$(G4_GATE_LIMIT_S=900 run_gate)"
+  # The limit is a limit of the fast gate.
+  assert_not_contains "Grenze des schnellen Gates" printf '%s' "$(G4_GATE_LIMIT_S=1200 run_gate_local --full)"
 }
 
 run_tests

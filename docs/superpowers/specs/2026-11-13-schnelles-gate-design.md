@@ -206,3 +206,7 @@ Volllauf. Das ersetzt in Ziel 2 „alle Tests ohne ROM“ durch „alle Tests oh
 gelisteten schweren“; Weg 3 gilt damit für diese Tests. Der Preis: Ein Fehler, den nur ein
 gelisteter Test findet, fällt erst im Nachtlauf auf. Die Liste erzeugt
 `scripts/gate-heavy-update.sh` aus einem Zeitlog neu, wenn das Gate warnt (Summe über 900 s).
+Auf CI (`CI=true`, wie GitHub Actions es setzt) liest das schnelle Gate die Liste nicht und führt
+jeden Test ohne ROM-Daten aus, denn die Liste gibt es nur wegen des Virenscanners auf dem Mac des
+Entwicklers; eine ausdrücklich gesetzte `G4_GATE_HEAVY_LIST` gilt weiter (der Testzugang der
+Skript-Tests).

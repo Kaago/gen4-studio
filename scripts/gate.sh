@@ -8,15 +8,32 @@
 #                                 Actions audit (scripts/check-actions.sh), the ROM data guard
 #                                 (scripts/check-no-rom-data.sh), the link check
 #                                 (scripts/check-links.sh), the version check (scripts/version.sh
-#                                 check), `studio mcp` over stdio, the test suite without ROM data
-#                                 except the heavy tests of scripts/gate-heavy-tests.txt, the shell
-#                                 script tests (scripts/tests/run.sh), the studio frontend (design
-#                                 checks, tests, build) and the g4emu unit tests.
+#                                 check), the guard for the variables of the gated tests
+#                                 (scripts/check-gate-vars.sh), `studio mcp` over stdio, the test suite
+#                                 without ROM data except the heavy tests of scripts/gate-heavy-tests.txt,
+#                                 the shell script tests (scripts/tests/run.sh), the studio frontend
+#                                 (design checks, tests, build) and the g4emu unit tests.
 #   bash scripts/gate.sh --full   the fast gate with the whole test suite without ROM data (the heavy
 #                                 tests included), then what needs the ROMs: the g4emu emulator
-#                                 tests, the gated tests against every test project under
-#                                 $G4_ROMS_DIR, the build graph and world mesh timings and the
-#                                 project start of every ROM. Run it before a merge; it takes hours.
+#                                 tests, the conditional tests (below) against every test project
+#                                 under $G4_ROMS_DIR, once with the tools, and against every ROM, the
+#                                 build graph and world mesh timings. Run it before a merge.
+#
+# Conditional tests: a test that needs a ROM project or a tool reads its variable (G4_TEST_PROJECT,
+# G4_TEST_ROM, G4_APICULA, G4_DSROM_CLI, G4_ROTOM_LSP) with g4_formats::test_support::gate_var, which
+# prints `skipped` and appends `<variable>\t<test>` to the file named by G4_SKIP_LOG when the
+# variable is missing (scripts/check-gate-vars.sh sees to it that no test reads them otherwise).
+# "cargo test (no ROM data)" has such a log (target/gate/skips.tsv) in the fast gate and in --full;
+# only --full uses it, because the fast gate leaves the heavy tests out and its log is incomplete.
+# --full runs, after the step with every test and with the names of that log and `cargo test ...
+# --no-fail-fast -- --exact <names>`: the tests that logged G4_TEST_PROJECT once per project
+# ("gated tests (cargo test)"), those that logged G4_TEST_ROM once per ROM ("gated tests (project
+# start)"), and the rest, which logged a tool, once with all tools and the Platinum project ("tool
+# tests"; a test that logged both the project and a tool runs per project). Each of these steps has a
+# G4_SKIP_LOG of its own: a test that skips there fails the step ("bedingter Test übersprungen"). A
+# list without a name records its step as ok without running it (an empty --exact would run
+# everything). The tests never run with --test-threads 1: the thread of a test is what names it, and a
+# toolchain may run the tests of such a run on the main thread (which has no test name).
 #
 # CI (.github/workflows/ci.yml: every pull request to main, every push to main, and by hand) runs
 # the fast gate with G4_GATE_HERMETIC=1: the gate ends after the steps without ROM, also with
@@ -35,12 +52,16 @@
 # the group. Everything else stops at the first failure.
 #
 # Heavy tests: a virus scanner makes every file of a test fixture expensive, and the tests that set
-# up thousands of files take most of the test time. scripts/gate-heavy-tests.txt names the tests
-# that take 8 s or more, one libtest name per line. The fast gate runs `cargo test ... -- --exact
-# --skip <name> ...` and leaves them out (--exact: a skip matches the whole name, so `a::b` does not
-# drop `a::b_c`); --full runs the whole suite. The list is made by scripts/gate-heavy-update.sh from
-# a log of cargo test with per-test times. After the table the fast gate says how many tests it left
-# out, and it warns (without failing) when its total goes over 900 s: then the list is out of date.
+# up thousands of files take most of the test time. scripts/gate-heavy-tests.txt names the slowest
+# tests (the threshold is in its header), one libtest name per line. The fast gate runs `cargo test
+# ... -- --exact --skip <name> ...` and leaves them out (--exact: a skip matches the whole name, so
+# `a::b` does not drop `a::b_c`); --full runs the whole suite. The list is made by
+# scripts/gate-heavy-update.sh from a log of cargo test with per-test times. After the table the fast
+# gate says how many tests it left out, and it warns (without failing) when its total goes over 900 s:
+# then the list is out of date.
+# Auf CI (CI=true, wie GitHub Actions es setzt) liest das schnelle Gate die Liste nicht und führt jeden
+# Test ohne ROM-Daten aus: die Liste gibt es wegen des Virenscanners auf dem Mac des Entwicklers. Eine
+# ausdrücklich gesetzte G4_GATE_HEAVY_LIST gilt weiter (der Testzugang der Skript-Tests).
 #
 # Variables (all optional):
 #   G4_GATE_HERMETIC  1: end after the steps without ROM (what CI runs), also with --full
@@ -55,9 +76,22 @@
 #                     front of every command of every step, with the step label in G4_GATE_STEP;
 #                     the script tests set it to a stub, so no real command runs
 #   G4_GATE_HEAVY_LIST  test seam of scripts/tests/gate.test.sh: the list of the heavy tests (default:
-#                     scripts/gate-heavy-tests.txt); a missing or empty list leaves no test out
+#                     scripts/gate-heavy-tests.txt); a missing or empty list leaves no test out (a
+#                     list that was set and cannot be read is said so on stderr)
 #   G4_GATE_LIMIT_S   test seam of scripts/tests/gate.test.sh: the seconds above which the fast gate
-#                     warns, an integer (default 900)
+#                     warns, an integer (default 900); another value than 900 is named at the start
+#   G4_GATE_LOG_DIR   test seam of scripts/tests/gate.test.sh: the folder of the skip logs (default:
+#                     target/gate); the script tests run beside the gate's own cargo test and must not
+#                     touch its log
+#   G4_GATE_ONLY_PROJECT  --full only: the label of one test project (the name of its *_DSPRE_contents
+#                     folder without that suffix, also the name of its ROM without .nds); every
+#                     per-project pass then runs only that project. An unknown label ends the gate
+#                     with status 2 and lists the known ones.
+#   G4_GATE_REMOVER_PATTERN, G4_GATE_REMOVER_POLL_S, G4_GATE_REMOVER_WAIT_S
+#                     --full only, before the timing steps: the gate waits until no process matches
+#                     the pattern (pgrep -f; default `rm -rf.*g4-fixtures`, the detached removal of
+#                     the test fixtures that cargo test leaves behind), polling every 5 s for at most
+#                     900 s. They are the test seam of scripts/tests/gate.test.sh.
 # The g4emu integration step (--full) also needs the emulator core (bash scripts/g4emu/setup.sh) and
 # $G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav; without them (or without the Platinum DE ROM) it
 # is recorded as skipped. The uv steps run with UV_NATIVE_TLS=1 (the system certificate store).
@@ -81,6 +115,10 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# The gate sets G4_SKIP_LOG for the steps that have a skip log; one that the caller's shell has
+# exported must not reach any other step.
+unset G4_SKIP_LOG
+
 # The fast gate warns when its total goes over this many seconds (the 15 minutes of the spec).
 GATE_LIMIT_S="${G4_GATE_LIMIT_S:-900}"
 case "${GATE_LIMIT_S#-}" in
@@ -89,6 +127,11 @@ case "${GATE_LIMIT_S#-}" in
     exit 2
     ;;
 esac
+# A limit other than the 900 s of the spec is said at the start: the closing warning names it, but a
+# gate that stays under it would not.
+if [ "$FULL" -eq 0 ] && [ "$GATE_LIMIT_S" != "900" ]; then
+  echo "Hinweis: Grenze des schnellen Gates: $GATE_LIMIT_S s (G4_GATE_LIMIT_S)." >&2
+fi
 
 # Use the pinned toolchain when it exists, otherwise whatever the shell has.
 TOOLCHAIN_BIN="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin"
@@ -115,6 +158,50 @@ G4_ROMS_DIR="$(abs "${G4_ROMS_DIR:-$ROOT/../Roms}")"
 G4_APICULA="$(abs "${G4_APICULA:-$ROOT/tools/apicula/bin/apicula}")"
 G4_DSROM_CLI="$(abs "${G4_DSROM_CLI:-$G4_ROMS_DIR/_tools/dsrom}")"
 G4_ROTOM_LSP="$(abs "${G4_ROTOM_LSP:-$ROOT/tools/rotom/bin/rotom-lsp}")"
+
+# G4_GATE_ONLY_PROJECT (--full): the label of one test project, see the header. The labels are the
+# names of the *_DSPRE_contents folders with a header.yaml, without that suffix.
+ONLY_PROJECT="${G4_GATE_ONLY_PROJECT:-}"
+project_labels() { # project_labels: the usable test projects under G4_ROMS_DIR, one label per line
+  local project label
+  (
+    shopt -s nullglob
+    for project in "$G4_ROMS_DIR"/*_DSPRE_contents; do
+      [ -f "$project/header.yaml" ] || continue
+      label="$(basename "$project")"
+      echo "${label%_DSPRE_contents}"
+    done
+  )
+}
+# Only the full run that is not stopped after the steps without ROM has per-project passes.
+if [ "$FULL" -eq 1 ] && [ "${G4_GATE_HERMETIC:-}" != "1" ] && [ -n "$ONLY_PROJECT" ]; then
+  known="$(project_labels)"
+  if ! printf '%s\n' "$known" | grep -qxF -- "$ONLY_PROJECT"; then
+    echo "G4_GATE_ONLY_PROJECT: unbekanntes Projekt: $ONLY_PROJECT" >&2
+    if [ -n "$known" ]; then
+      echo "Bekannte Projekte (unter $G4_ROMS_DIR):" >&2
+      printf '  %s\n' "$known" >&2
+    else
+      echo "Unter $G4_ROMS_DIR liegt kein Testprojekt (*_DSPRE_contents mit header.yaml)." >&2
+    fi
+    exit 2
+  fi
+fi
+
+# The wait for the removers of the test fixtures before the timing steps (--full, see
+# wait_for_removers): the pattern of their command lines, the seconds between two looks and the
+# seconds after which the gate stops waiting.
+REMOVER_PATTERN="${G4_GATE_REMOVER_PATTERN:-rm -rf.*g4-fixtures}"
+REMOVER_POLL_S="${G4_GATE_REMOVER_POLL_S:-5}"
+REMOVER_WAIT_S="${G4_GATE_REMOVER_WAIT_S:-900}"
+for remover_s in "$REMOVER_POLL_S" "$REMOVER_WAIT_S"; do
+  case "$remover_s" in
+    '' | *[!0-9]*)
+      echo "G4_GATE_REMOVER_POLL_S und G4_GATE_REMOVER_WAIT_S müssen ganze Zahlen sein: $remover_s" >&2
+      exit 2
+      ;;
+  esac
+done
 
 ROWS=()
 FAILED=0
@@ -235,13 +322,37 @@ exec_step() { # exec_step <step label> <command...>
   fi
 }
 
-# Runs a step and records its row; fails when the command does (and sets FAILED).
+# The skip log of the step that runs (set by fatal_skip_log, empty otherwise): try_step fails a step
+# whose command succeeded but whose log is not empty.
+SKIP_LOG_FATAL=""
+
+report_skips() { # report_skips <skip log>: the lines of a log that must have been empty
+  local line n=0
+  while IFS= read -r line; do
+    n=$((n + 1))
+    if [ "$n" -le 20 ]; then
+      echo "bedingter Test übersprungen: $line" >&2
+    fi
+  done <"$1"
+  if [ "$n" -gt 20 ]; then
+    echo "... und $((n - 20)) weitere Zeilen (alle in $1)" >&2
+  fi
+}
+
+# Runs a step and records its row; fails when the command does (and sets FAILED), or when the step has
+# a fatal skip log (fatal_skip_log) and a test skipped in it: its conditional test did not run.
 try_step() { # try_step <step label> <project label> <command...>
   local step="$1" project="$2" start=$SECONDS
   shift 2
   echo
   echo "==> $step${project:+ [$project]}"
   if exec_step "$step" "$@"; then
+    if [ -n "${SKIP_LOG_FATAL:-}" ] && [ -s "$SKIP_LOG_FATAL" ]; then
+      report_skips "$SKIP_LOG_FATAL"
+      record "$step" "${project:--}" "FAILED (skipped)" "$((SECONDS - start))"
+      FAILED=1
+      return 1
+    fi
     record "$step" "${project:--}" "ok" "$((SECONDS - start))"
   else
     record "$step" "${project:--}" "FAILED" "$((SECONDS - start))"
@@ -266,6 +377,24 @@ with_gate_tmpdir() {
   fi
 }
 
+# with_skip_log <log file> <command...>: runs the command with G4_SKIP_LOG set to the file, emptied first.
+# Put it in front of run_step / try_step of a cargo test step; the tests that skip append to the file.
+with_skip_log() {
+  local log="$1"
+  shift
+  : >"$log"
+  G4_SKIP_LOG="$log" "$@"
+}
+
+# fatal_skip_log <log file> <command...>: with_skip_log, and the step counts as FAILED when the file
+# is not empty after it (a conditional test that skipped is a test that did not run, see try_step).
+fatal_skip_log() {
+  local log="$1"
+  shift
+  : >"$log"
+  SKIP_LOG_FATAL="$log" G4_SKIP_LOG="$log" "$@"
+}
+
 # The temp folder of the cargo test steps (G4_GATE_TMPDIR), made absolute like the other paths.
 if [ -n "${G4_GATE_TMPDIR:-}" ]; then
   if ! mkdir -p "$G4_GATE_TMPDIR"; then
@@ -274,6 +403,15 @@ if [ -n "${G4_GATE_TMPDIR:-}" ]; then
   fi
   G4_GATE_TMPDIR="$(abs "$G4_GATE_TMPDIR")"
 fi
+# The folder of the skip logs (see "Conditional tests" above), absolute like the other paths.
+SKIP_DIR="${G4_GATE_LOG_DIR:-$ROOT/target/gate}"
+if ! mkdir -p "$SKIP_DIR"; then
+  echo "Der Ordner der Skip-Logs kann nicht angelegt werden: $SKIP_DIR" >&2
+  exit 1
+fi
+SKIP_DIR="$(cd "$SKIP_DIR" && pwd)"
+# The log of "cargo test (no ROM data)": the full run takes its lists from it.
+NOROM_LOG="$SKIP_DIR/skips.tsv"
 if [ "$FULL" -eq 1 ] && [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
   echo "Hinweis: G4_GATE_HERMETIC=1 ist gesetzt, das Gate endet trotz --full nach den Schritten" \
     "ohne ROM." >&2
@@ -282,10 +420,23 @@ fi
 # The command of "cargo test (no ROM data)": the whole suite, or in the fast gate the suite without
 # the heavy tests of scripts/gate-heavy-tests.txt (see "Heavy tests" above). An array, so that a
 # name reaches cargo as one argument whatever it holds. A missing, unreadable or empty list (and
-# --full) leaves the plain command.
+# --full, and CI without a G4_GATE_HEAVY_LIST of its own) leaves the plain command; a list that was
+# named and cannot be read is said so.
 HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$ROOT/scripts/gate-heavy-tests.txt}"
 HEAVY=()
-if [ "$FULL" -eq 0 ] && [ -f "$HEAVY_LIST" ] && [ -r "$HEAVY_LIST" ]; then
+read_heavy_list=1
+if [ "$FULL" -eq 1 ]; then
+  read_heavy_list=0
+elif [ -z "${G4_GATE_HEAVY_LIST:-}" ] && [ "${CI:-}" = "true" ]; then
+  read_heavy_list=0
+fi
+if [ "$read_heavy_list" -eq 1 ] && { [ ! -f "$HEAVY_LIST" ] || [ ! -r "$HEAVY_LIST" ]; }; then
+  if [ -n "${G4_GATE_HEAVY_LIST:-}" ]; then
+    echo "Hinweis: G4_GATE_HEAVY_LIST=$HEAVY_LIST ist nicht lesbar, das schnelle Gate lässt keinen Test aus." >&2
+  fi
+  read_heavy_list=0
+fi
+if [ "$read_heavy_list" -eq 1 ]; then
   while IFS= read -r heavy_name || [ -n "$heavy_name" ]; do
     # CR and blanks around a name are no part of it; # lines and empty lines are no names.
     heavy_name="${heavy_name%$'\r'}"
@@ -420,6 +571,9 @@ run_step "no rom data" "" bash scripts/check-no-rom-data.sh
 run_step "links" "" bash scripts/check-links.sh
 # One version for Cargo, npm and Tauri, CHANGELOG section present (spec release-ci 4).
 run_step "version" "" bash scripts/version.sh check
+# The tests that need a ROM project or a tool read their variable only through gate_var, which logs
+# the skip: the full run picks its tests from that log. No cargo lock, a second.
+run_step "gate vars" "" bash scripts/check-gate-vars.sh
 # The product binary without features: `studio mcp` over stdio on the synthetic project (the gated
 # stdio tests run in the per-project step of the --full part). Hermetic like the step below. It takes
 # the cargo build lock, so it cannot run beside cargo test and goes first.
@@ -434,7 +588,10 @@ start_chain g4emu chain_g4emu
 # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
 # A failure does not end the gate yet: the background steps are joined and reported first.
 HEAVY_NOTE="${#HEAVY[@]}"
-with_gate_tmpdir try_step "cargo test (no ROM data)" "" \
+# The tests that need a variable skip here and log it in $NOROM_LOG (never run this step with
+# --test-threads 1: the log names a test by its thread, and that one runs on the main thread). Only
+# the full run uses the log, and a skip is no failure of this step.
+with_gate_tmpdir with_skip_log "$NOROM_LOG" try_step "cargo test (no ROM data)" "" \
   env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
   "${TEST_CMD[@]}" || true
 join_chains
@@ -486,32 +643,152 @@ if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
+# The conditional tests of the full run: the skip log of "cargo test (no ROM data)" above names them,
+# one line `<variable>\t<test>` per call of gate_var that found its variable missing. A line whose test
+# has no usable name (a helper thread without one, or a test on the main thread) cannot be selected:
+# that is an error of the log, not something to run without.
+echo
+echo "==> skip log"
+bad_lines="$(awk -F'\t' '$0 != "" && (NF != 2 || $1 == "" || $2 == "" || $2 == "<unnamed>" || $2 == "main")' \
+  "$NOROM_LOG")"
+if [ -n "$bad_lines" ]; then
+  while IFS= read -r line; do
+    echo "Skip-Log: Zeile ohne verwertbaren Testnamen: $line" >&2
+  done <<<"$bad_lines"
+  echo "Ein Test, der in einem Hilfsthread übersprang, hat keinen Namen im Log, und ein Test auf dem" \
+    "Hauptthread heißt \"main\" ($NOROM_LOG)." >&2
+  record "skip log" "-" "FAILED" 0
+  FAILED=1
+  exit 1
+fi
+# Distinct tests per variable, for the notes below.
+while read -r count variable; do
+  echo "Skip-Log: $count Tests mit $variable"
+done < <(LC_ALL=C sort -u "$NOROM_LOG" | cut -f1 | LC_ALL=C sort | uniq -c)
+# The lists, one name per line, sorted and without doubles: the tests that logged the project
+# (without the timing test, which has its own release step below), those that logged the ROM, and
+# those that logged only a tool (a test that logged the project as well runs per project, where all
+# tools are set; one that logged the ROM as well runs per ROM).
+LIST_PROJECT="$SKIP_DIR/list-project.txt"
+LIST_ROM="$SKIP_DIR/list-rom.txt"
+LIST_TOOL="$SKIP_DIR/list-tool.txt"
+awk -F'\t' '$1 == "G4_TEST_PROJECT" { print $2 }' "$NOROM_LOG" | LC_ALL=C sort -u >"$SKIP_DIR/all-project.txt"
+awk -F'\t' '$1 == "G4_TEST_ROM" { print $2 }' "$NOROM_LOG" | LC_ALL=C sort -u >"$SKIP_DIR/all-rom.txt"
+awk -F'\t' '$1 != "G4_TEST_PROJECT" && $1 != "G4_TEST_ROM" { print $2 }' "$NOROM_LOG" |
+  LC_ALL=C sort -u >"$SKIP_DIR/all-tool.txt"
+LC_ALL=C sort -u "$SKIP_DIR/all-project.txt" "$SKIP_DIR/all-rom.txt" >"$SKIP_DIR/all-selected.txt"
+awk 'index($0, "build_graph_timings") == 0' "$SKIP_DIR/all-project.txt" >"$LIST_PROJECT"
+cp "$SKIP_DIR/all-rom.txt" "$LIST_ROM"
+LC_ALL=C comm -23 "$SKIP_DIR/all-tool.txt" "$SKIP_DIR/all-selected.txt" >"$LIST_TOOL"
+# Arrays (bash 3.2 has no mapfile), so that a name reaches cargo as one argument.
+PROJECT_TESTS=()
+while IFS= read -r name; do PROJECT_TESTS+=("$name"); done <"$LIST_PROJECT"
+ROM_TESTS=()
+while IFS= read -r name; do ROM_TESTS+=("$name"); done <"$LIST_ROM"
+TOOL_TESTS=()
+while IFS= read -r name; do TOOL_TESTS+=("$name"); done <"$LIST_TOOL"
+echo "Tests je Projekt: ${#PROJECT_TESTS[@]}, je ROM: ${#ROM_TESTS[@]}, einmal mit den Werkzeugen: ${#TOOL_TESTS[@]}" \
+  "($(cat "$LIST_PROJECT" "$LIST_ROM" "$LIST_TOOL" | wc -c | tr -d ' ') Zeichen Namen)."
+
+record_empty_list() { # record_empty_list <step label> <variable names>: a list without a name
+  echo
+  echo "==> $1"
+  echo "Hinweis: kein bedingter Test mit $2 im Skip-Log, der Schritt entfällt."
+  record "$1" "-" "ok" 0
+}
+
+# The test projects of the run: those with a header.yaml (the others are recorded as skipped), only
+# the one of G4_GATE_ONLY_PROJECT when that is set.
 shopt -s nullglob
-ran=0
+PROJECTS=()
 for project in "$G4_ROMS_DIR"/*_DSPRE_contents; do
   label="$(basename "$project")"
   label="${label%_DSPRE_contents}"
+  if [ -n "$ONLY_PROJECT" ] && [ "$label" != "$ONLY_PROJECT" ]; then
+    continue
+  fi
   if [ ! -f "$project/header.yaml" ]; then
     echo
     echo "==> skipping $label: no header.yaml (not an unpacked ds-rom project)"
     record "gated tests (cargo test)" "$label" "skipped (no header.yaml)" 0
     continue
   fi
-  ran=$((ran + 1))
-  # build_graph_timings runs in its own release step below (the debug run would only take
-  # time); G4_TIMING_STRICT from the calling shell must not make anything here strict.
-  with_gate_tmpdir run_step "gated tests (cargo test)" "$label" \
-    env -u G4_TIMING_STRICT G4_TEST_PROJECT="$project" G4_APICULA="$G4_APICULA" \
-    G4_DSROM_CLI="$G4_DSROM_CLI" G4_ROTOM_LSP="$G4_ROTOM_LSP" \
-    cargo test --workspace --all-features -- --skip build_graph_timings
+  PROJECTS+=("$project")
 done
 
-if [ "$ran" -eq 0 ]; then
+if [ "${#PROJECTS[@]}" -eq 0 ]; then
   echo "no test project found under $G4_ROMS_DIR (pattern *_DSPRE_contents with header.yaml)" >&2
   record "gated tests (cargo test)" "-" "FAILED (no project)" 0
   FAILED=1
   exit 1
 fi
+
+# The project of the tool tests: Platinum DE when it is among the projects, else the first one.
+TOOL_PROJECT="${PROJECTS[0]}"
+for project in "${PROJECTS[@]}"; do
+  if [ "$(basename "$project")" = "Pokemon - Platin-Edition (Germany)_DSPRE_contents" ]; then
+    TOOL_PROJECT="$project"
+  fi
+done
+
+# The gated tests of every project: the tests that logged G4_TEST_PROJECT, with the project and all
+# tools set. Hermetic like the no-ROM step in the other direction: the variable of the other kind
+# (G4_TEST_ROM) and G4_TIMING_STRICT from the calling shell must not reach it, so that a test that
+# also wants the ROM skips (and fails the step) instead of running on the caller's ROM.
+# build_graph_timings runs in its own release step below (the debug run would only take time), so it
+# is not in the list. Every step here has a skip log of its own: a skip is a failure.
+if [ "${#PROJECT_TESTS[@]}" -eq 0 ]; then
+  record_empty_list "gated tests (cargo test)" "G4_TEST_PROJECT"
+else
+  ran=0
+  for project in "${PROJECTS[@]}"; do
+    ran=$((ran + 1))
+    label="$(basename "$project")"
+    with_gate_tmpdir fatal_skip_log "$SKIP_DIR/project-$ran.tsv" \
+      run_step "gated tests (cargo test)" "${label%_DSPRE_contents}" \
+      env -u G4_TIMING_STRICT -u G4_TEST_ROM G4_TEST_PROJECT="$project" G4_APICULA="$G4_APICULA" \
+      G4_DSROM_CLI="$G4_DSROM_CLI" G4_ROTOM_LSP="$G4_ROTOM_LSP" \
+      cargo test --workspace --all-features --no-fail-fast -- --exact "${PROJECT_TESTS[@]}"
+  done
+fi
+
+# The tests that need a tool but no project of their own, once: all tools and one project set (they
+# may open it; the project is read-only for them like for every gated test).
+if [ "${#TOOL_TESTS[@]}" -eq 0 ]; then
+  record_empty_list "tool tests" "G4_APICULA, G4_DSROM_CLI oder G4_ROTOM_LSP"
+else
+  tool_label="$(basename "$TOOL_PROJECT")"
+  echo
+  echo "Hinweis: die Werkzeug-Tests laufen einmal, mit dem Projekt ${tool_label%_DSPRE_contents}."
+  with_gate_tmpdir fatal_skip_log "$SKIP_DIR/tool.tsv" run_step "tool tests" "" \
+    env -u G4_TIMING_STRICT -u G4_TEST_ROM G4_TEST_PROJECT="$TOOL_PROJECT" G4_APICULA="$G4_APICULA" \
+    G4_DSROM_CLI="$G4_DSROM_CLI" G4_ROTOM_LSP="$G4_ROTOM_LSP" \
+    cargo test --workspace --all-features --no-fail-fast -- --exact "${TOOL_TESTS[@]}"
+fi
+
+# The test fixtures of the kernel are removed by detached `rm -rf` processes after cargo has ended
+# (template.rs): they can run for minutes, and what they take from the file system disturbs the
+# strict timing steps. Wait until none is left, at most REMOVER_WAIT_S seconds, then go on. The row
+# says how long it took.
+wait_for_removers() {
+  local start=$SECONDS told=0
+  echo
+  echo "==> fixture cleanup"
+  # Without pgrep (Git Bash on Windows) there is nothing to look for.
+  while command -v pgrep >/dev/null 2>&1 && pgrep -f "$REMOVER_PATTERN" >/dev/null 2>&1; do
+    if [ "$told" -eq 0 ]; then
+      echo "Warte auf die Löschprozesse der Testvorlagen (rm -rf g4-fixtures-*)."
+      told=1
+    fi
+    if [ $((SECONDS - start)) -ge "$REMOVER_WAIT_S" ]; then
+      echo "Hinweis: Löschprozesse der Testvorlagen laufen nach $REMOVER_WAIT_S s noch," \
+        "die Zeitschritte laufen trotzdem."
+      break
+    fi
+    sleep "$REMOVER_POLL_S"
+  done
+  record "fixture cleanup" "-" "ok" "$((SECONDS - start))"
+}
 
 # Build graph (4.2): the times of "Hier spielen" on a copy of each project, with the limits
 # (map, text, script edit <= 500 ms, no change <= 200 ms). Release build: the limits hold for
@@ -542,30 +819,42 @@ run_timings() { # run_timings <project dir> <project label>
   FAILED=1
   exit 1
 }
-for project in "$G4_ROMS_DIR"/*_DSPRE_contents; do
-  [ -f "$project/header.yaml" ] || continue
+wait_for_removers
+for project in "${PROJECTS[@]}"; do
   label="$(basename "$project")"
   with_gate_tmpdir run_timings "$project" "${label%_DSPRE_contents}"
 done
 
-# Project start (3g.1): extract each ROM, build it again, compare the SHA-1. Only the tests
-# named project_start_ run (they are the only ones that read G4_TEST_ROM for this).
+# Project start (3g.1): extract each ROM, build it again, compare the SHA-1. The tests that logged
+# G4_TEST_ROM run, with the ROM and all tools set (the tests named project_start_ and the ROM tests
+# of the build, everything that reads the variable); G4_TEST_PROJECT from the calling shell is
+# removed like the other variable of its kind above.
 rom_ran=0
-for rom in "$G4_ROMS_DIR"/*.nds; do
-  label="$(basename "$rom" .nds)"
-  rom_ran=$((rom_ran + 1))
-  with_gate_tmpdir run_step "gated tests (project start)" "$label" \
-    env G4_TEST_ROM="$rom" G4_APICULA="$G4_APICULA" G4_DSROM_CLI="$G4_DSROM_CLI" \
-    G4_ROTOM_LSP="$G4_ROTOM_LSP" \
-    cargo test --workspace --all-features -- project_start_
-done
-if [ "$rom_ran" -eq 0 ]; then
-  record "gated tests (project start)" "-" "skipped (keine ROM)" 0
+if [ "${#ROM_TESTS[@]}" -eq 0 ]; then
+  record_empty_list "gated tests (project start)" "G4_TEST_ROM"
+else
+  for rom in "$G4_ROMS_DIR"/*.nds; do
+    label="$(basename "$rom" .nds)"
+    if [ -n "$ONLY_PROJECT" ] && [ "$label" != "$ONLY_PROJECT" ]; then
+      continue
+    fi
+    rom_ran=$((rom_ran + 1))
+    with_gate_tmpdir fatal_skip_log "$SKIP_DIR/rom-$rom_ran.tsv" \
+      run_step "gated tests (project start)" "$label" \
+      env -u G4_TEST_PROJECT G4_TEST_ROM="$rom" G4_APICULA="$G4_APICULA" \
+      G4_DSROM_CLI="$G4_DSROM_CLI" G4_ROTOM_LSP="$G4_ROTOM_LSP" \
+      cargo test --workspace --all-features --no-fail-fast -- --exact "${ROM_TESTS[@]}"
+  done
+  if [ "$rom_ran" -eq 0 ]; then
+    record "gated tests (project start)" "-" "skipped (keine ROM)" 0
+  fi
 fi
 
 # World mesh (6.3a): the mesher on a full map (busy_world, limit 20 ms, release) and the mesh
 # over the command path get_world_mesh (limit 50 ms, debug like the bridge). Synthetic data, no
-# ROM; the gated tests of tests/world.rs run per project in the gated step above.
+# ROM; the gated tests of tests/world.rs run per project in the gated step above. The removal of
+# what the ROM runs left behind is waited for like before the build graph timings.
+wait_for_removers
 with_gate_tmpdir run_step "world mesh (timing)" "" \
   env G4_TIMING_STRICT=1 cargo test --release -p g4-kernel --all-features --test world -- \
   mesh_of_a_full_map_is_fast --nocapture --test-threads 1

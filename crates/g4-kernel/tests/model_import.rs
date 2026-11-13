@@ -40,13 +40,7 @@ fn map_id(index: u16) -> AssetId {
 
 /// The apicula binary from `G4_APICULA`, or `None` (the caller prints `skipped`).
 fn apicula() -> Option<PathBuf> {
-    match std::env::var_os("G4_APICULA") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => {
-            eprintln!("skipped: needs G4_APICULA");
-            None
-        }
-    }
+    g4_formats::test_support::gate_var("G4_APICULA").map(PathBuf::from)
 }
 
 fn opts() -> ImportOptions {

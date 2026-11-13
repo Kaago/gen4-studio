@@ -811,16 +811,11 @@ fn write_narc(root: &Path, rel: &str, members: &[Vec<u8>]) {
     );
 }
 
-/// Path of the vanilla project from `G4_TEST_PROJECT`, or `None` (tests then skip).
+/// Path of the vanilla project from `G4_TEST_PROJECT`, or `None` (tests then skip; the skip is
+/// logged for the gate, see `g4_formats::test_support::gate_var`).
 /// Tests must never write into it; use [`vanilla_copy`] for that.
 pub fn vanilla_project() -> Option<PathBuf> {
-    match std::env::var_os("G4_TEST_PROJECT") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => {
-            eprintln!("skipped: G4_TEST_PROJECT not set");
-            None
-        }
-    }
+    g4_formats::test_support::gate_var("G4_TEST_PROJECT").map(PathBuf::from)
 }
 
 /// Copies the vanilla project into a tempdir and returns it with the copy's root.

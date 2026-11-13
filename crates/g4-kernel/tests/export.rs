@@ -820,11 +820,12 @@ mod project_tileset {
 
     #[test]
     fn vanilla_textured_map_glb_has_images() {
-        let Some(apicula) = std::env::var_os("G4_APICULA") else {
-            eprintln!("skipped: needs G4_APICULA");
+        // The project first: a test that needs a project is logged as one for the full run of the
+        // gate (it runs per project there), whichever of the two is missing.
+        let Some((_copy, model, tex)) = vanilla_model_and_tileset(415) else {
             return;
         };
-        let Some((_copy, model, tex)) = vanilla_model_and_tileset(415) else {
+        let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA") else {
             return;
         };
         assert!(tex.is_some());
@@ -839,11 +840,11 @@ mod project_tileset {
 
     #[test]
     fn glb_cached_without_tileset_still_converts() {
-        let Some(apicula) = std::env::var_os("G4_APICULA") else {
-            eprintln!("skipped: needs G4_APICULA");
+        // The project first, see `vanilla_textured_map_glb_has_images`.
+        let Some((_copy, model, _tex)) = vanilla_model_and_tileset(415) else {
             return;
         };
-        let Some((_copy, model, _tex)) = vanilla_model_and_tileset(415) else {
+        let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA") else {
             return;
         };
         let cache = tempfile::tempdir().unwrap();
@@ -856,11 +857,11 @@ mod project_tileset {
 
 #[test]
 fn vanilla_map_model_converts_to_glb() {
+    // Both are read (the tuple), so a run without either logs each of them.
     let (Some(root), Some(apicula)) = (
-        std::env::var_os("G4_TEST_PROJECT"),
-        std::env::var_os("G4_APICULA"),
+        g4_formats::test_support::gate_var("G4_TEST_PROJECT"),
+        g4_formats::test_support::gate_var("G4_APICULA"),
     ) else {
-        eprintln!("skipped: needs G4_TEST_PROJECT and G4_APICULA");
         return;
     };
     // Read-only: unpack into a copy so the original project is never written.

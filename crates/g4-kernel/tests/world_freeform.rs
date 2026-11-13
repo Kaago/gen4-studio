@@ -55,13 +55,7 @@ const MODEL_MAX: usize = 0xF000;
 
 /// apicula from `G4_APICULA`, `None` (after `skipped: …`) without it.
 fn apicula() -> Option<PathBuf> {
-    match std::env::var_os("G4_APICULA") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => {
-            eprintln!("skipped: needs G4_APICULA");
-            None
-        }
-    }
+    g4_formats::test_support::gate_var("G4_APICULA").map(PathBuf::from)
 }
 
 fn ms(start: Instant) -> u128 {
@@ -370,10 +364,12 @@ fn gltf_request(map: u16) -> WorldAdoptRequest {
 
 #[test]
 fn form2_of_a_vanilla_map_bakes_apicula_readable() {
-    let Some(apicula) = apicula() else {
+    // The project first: a test that needs a project is logged as one (it runs per project in the
+    // full run of the gate), whichever of the two is missing.
+    let Some((_tmp, copy, base)) = exported_copy() else {
         return;
     };
-    let Some((_tmp, copy, base)) = exported_copy() else {
+    let Some(apicula) = apicula() else {
         return;
     };
     let code = base.game_code().to_owned();
@@ -470,10 +466,10 @@ fn form2_sweep_over_every_map() {
         eprintln!("skipped: needs G4_FORM2_SWEEP=1");
         return;
     }
-    let Some(apicula) = apicula() else {
+    let Some((_tmp, copy, base)) = exported_copy() else {
         return;
     };
-    let Some((_tmp, copy, base)) = exported_copy() else {
+    let Some(apicula) = apicula() else {
         return;
     };
     let code = base.game_code().to_owned();
