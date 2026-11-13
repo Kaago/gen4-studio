@@ -3,7 +3,9 @@
 //! Almost every kernel test starts from the same synthetic project of ten thousand files and
 //! more, and building one on disk takes seconds. So each variant is built once per process
 //! into a template below `g4-fixtures-<pid>` in the temp directory and each test gets a clone
-//! of it ([`clone_tree`]: one system call). The folder is removed when the process exits.
+//! of it ([`clone_tree`]: one system call). A fixture that is dropped moves into a trash folder
+//! below it with one `rename` instead of being deleted file by file, and the whole folder is
+//! handed to a detached `rm -rf` when the process exits.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,6 +15,10 @@ use super::clone_tree;
 
 /// The folder of this process's templates, set when the first one is asked for.
 static FIXTURES_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// The folder of [`fixtures_root`] that takes the directories of dropped fixtures (see
+/// [`move_to_trash`]); no template has this name.
+const TRASH: &str = "trash";
 
 /// One cell per key: callers of one key wait for its build, callers of other keys do not.
 static CELLS: Mutex<BTreeMap<String, &'static OnceLock<PathBuf>>> = Mutex::new(BTreeMap::new());
@@ -56,12 +62,13 @@ pub(crate) fn from_template(key: &str, build: impl FnOnce(&Path)) -> tempfile::T
 /// is a short run of letters, digits, `-` and `_` (the text fixtures' keys), else a readable
 /// start of it, a `.` and the hash of the whole key. A key can be anything a fixture is built
 /// from, and one holding every location name of a full HeartGold bank is longer than a file
-/// name may be. No `.` in a plain key, so a hashed name never equals a plain key's.
+/// name may be. No `.` in a plain key, so a hashed name never equals a plain key's. The key
+/// `trash` is not plain: its folder would be the trash.
 pub(crate) fn folder_name(key: &str) -> String {
     use std::hash::{DefaultHasher, Hash, Hasher};
 
     let plain = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
-    if !key.is_empty() && key.len() <= 48 && key.chars().all(plain) {
+    if !key.is_empty() && key.len() <= 48 && key != TRASH && key.chars().all(plain) {
         return key.to_owned();
     }
     let mut hasher = DefaultHasher::new();
@@ -80,19 +87,73 @@ fn fixtures_root() -> &'static Path {
     })
 }
 
-/// Has the C runtime remove [`FIXTURES_ROOT`] when the process exits, however the test run
-/// ends (a kill excepted).
+/// Takes `dir`, the directory of a fixture that is dropped, out of its test's way: one
+/// `rename` into `<fixtures root>/trash/<n>`. Deleting a clone of 5 700 files costs more than
+/// half a second, the test's own work often costs less, and the file system hardly runs
+/// such deletions in parallel. What is in the trash goes with the fixtures folder when the
+/// process exits (see [`remove_at_exit`]).
+///
+/// `false` if `dir` stayed where it was (no such directory, another volume, not unix): its
+/// owner deletes it then, as before. Never panics: it runs in `Drop`, maybe while a failed
+/// test unwinds.
+#[cfg(unix)]
+pub(crate) fn move_to_trash(dir: &Path) -> bool {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Numbers the directories in the trash.
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+
+    let trash = fixtures_root().join(TRASH);
+    if std::fs::create_dir_all(&trash).is_err() {
+        return false;
+    }
+    let n = COUNT.fetch_add(1, Ordering::Relaxed);
+    std::fs::rename(dir, trash.join(n.to_string())).is_ok()
+}
+
+/// Elsewhere the fixtures folder is not removed at exit either: nothing is moved.
+#[cfg(not(unix))]
+pub(crate) fn move_to_trash(_dir: &Path) -> bool {
+    false
+}
+
+/// Has the C runtime hand [`FIXTURES_ROOT`] to a detached `rm -rf` when the process exits,
+/// however the test run ends (a kill excepted).
 #[cfg(unix)]
 fn remove_at_exit() {
     extern "C" fn remove_fixtures() {
         if let Some(root) = FIXTURES_ROOT.get() {
-            let _ = std::fs::remove_dir_all(root);
+            // The folder holds the templates and every dropped fixture: tens of thousands of
+            // files per test run. The test binary must not wait for their deletion.
+            if !remove_in_background(root) {
+                let _ = std::fs::remove_dir_all(root);
+            }
         }
     }
     // SAFETY: `remove_fixtures` takes no arguments and lives as long as the process.
     unsafe {
         libc::atexit(remove_fixtures);
     }
+}
+
+/// Starts `/bin/rm -rf root` and returns at once, without waiting for it: the child has no
+/// standard streams (a test run's output pipe closes with the test process) and is a group
+/// of its own, so an interrupt of the next test binary does not stop the deletion. `false` if
+/// it could not be started.
+#[cfg(unix)]
+fn remove_in_background(root: &Path) -> bool {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    Command::new("/bin/rm")
+        .arg("-rf")
+        .arg(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .is_ok()
 }
 
 /// `libc` is a dependency of the unix targets only: elsewhere the folder stays in the temp
@@ -561,6 +622,195 @@ mod tests {
         );
         let folder = std::env::temp_dir().join(format!("g4-fixtures-{}", std::process::id()));
         assert!(template("probe-clone", |_| {}).starts_with(folder));
+    }
+
+    /// A clone of the probe template `key` with a `marker.txt` only this clone has, and the
+    /// marker's text.
+    #[cfg(unix)]
+    fn marked_clone(key: &str) -> (tempfile::TempDir, String) {
+        let dir = from_template(key, |dir| {
+            std::fs::write(dir.join("probe.txt"), "template").unwrap();
+        });
+        let marker = format!("clone at {}", dir.path().display());
+        std::fs::write(dir.path().join("marker.txt"), &marker).unwrap();
+        (dir, marker)
+    }
+
+    /// Whether a directory of the trash has a `marker.txt` of this text.
+    #[cfg(unix)]
+    fn trash_holds(marker: &str) -> bool {
+        let Ok(entries) = std::fs::read_dir(fixtures_root().join(TRASH)) else {
+            return false;
+        };
+        entries.filter_map(Result::ok).any(|entry| {
+            std::fs::read_to_string(entry.path().join("marker.txt"))
+                .is_ok_and(|text| text == marker)
+        })
+    }
+
+    /// A text fixture with a `marker.txt` only it has, and the marker's text.
+    #[cfg(unix)]
+    fn marked_fixture(fx: TextFixture) -> (TextFixture, String) {
+        let marker = format!("fixture at {}", fx.root().display());
+        fx.write("marker.txt", marker.as_bytes());
+        (fx, marker)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_moved_to_the_trash_is_gone_from_its_place() {
+        let (dir, marker) = marked_clone("probe-moved");
+        let path = dir.path().to_path_buf();
+        assert!(!trash_holds(&marker), "not before the move");
+        assert!(move_to_trash(&path));
+        assert!(!path.exists(), "{} is still there", path.display());
+        assert!(
+            trash_holds(&marker),
+            "no directory of the trash has the clone"
+        );
+        // The `TempDir` has nothing to delete any more, and says nothing.
+        drop(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_text_fixture_is_gone_at_once() {
+        let (fx, _) = marked_fixture(TextFixture::dspre());
+        let path = fx.root().to_path_buf();
+        assert!(path.is_dir());
+        drop(fx);
+        assert!(!path.exists(), "{} is still there", path.display());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_text_fixture_lies_in_the_trash_below_the_fixtures_folder() {
+        let (fx, marker) = marked_fixture(TextFixture::dspre());
+        assert!(!trash_holds(&marker), "not before the drop");
+        drop(fx);
+        assert!(
+            trash_holds(&marker),
+            "no directory of the trash has the fixture"
+        );
+        assert!(fixtures_root().join(TRASH).is_dir());
+    }
+
+    /// A fresh build is a fixture like a clone, and goes the same way.
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_fresh_build_lies_in_the_trash_too() {
+        let (fx, marker) = marked_fixture(TextFixture::dspre_uncached());
+        drop(fx);
+        assert!(trash_holds(&marker));
+    }
+
+    /// The trash takes the clone, not the template it was cloned from.
+    #[cfg(unix)]
+    #[test]
+    fn dropping_a_text_fixture_leaves_its_template_whole() {
+        let (fx, _) = marked_fixture(TextFixture::dspre());
+        drop(fx);
+        let dir = template("text-dspre", |_| panic!("the template is built once"));
+        assert!(dir.join("header.yaml").is_file());
+        assert!(!dir.join("marker.txt").exists());
+        // And the next clone is a whole one, without the marker.
+        let next = TextFixture::dspre();
+        assert!(next.root().join("header.yaml").is_file());
+        assert!(!next.root().join("marker.txt").exists());
+    }
+
+    /// A test may delete the folder of its fixture itself: dropping it must not panic (it
+    /// would abort a test that is already failing).
+    #[test]
+    fn a_text_fixture_whose_folder_was_removed_drops_quietly() {
+        let fx = TextFixture::dspre();
+        std::fs::remove_dir_all(fx.root()).unwrap();
+        assert!(!move_to_trash(fx.root()), "there is nothing to move");
+        drop(fx);
+    }
+
+    #[test]
+    fn the_trash_is_not_the_folder_of_a_template() {
+        assert_ne!(folder_name(TRASH), TRASH);
+        assert!(folder_name(TRASH).starts_with("trash."));
+        assert_eq!(folder_name("trash-can"), "trash-can");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_handed_to_the_background_is_removed_without_waiting() {
+        let tree = tempfile::tempdir().unwrap();
+        let root = tree.path().join("g4-fixtures-probe");
+        std::fs::create_dir_all(root.join("trash/0/deep")).unwrap();
+        std::fs::write(root.join("trash/0/deep/file"), "x").unwrap();
+        std::fs::write(root.join("kept"), "x").unwrap();
+        assert!(remove_in_background(&root));
+        let start = std::time::Instant::now();
+        while root.exists() {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(30),
+                "{} is still there",
+                root.display()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    /// The child half of [`the_fixtures_folder_goes_when_the_process_exits`]: a process of
+    /// its own that has a template and a dropped clone in its fixtures folder and then
+    /// exits, so that the exit handler runs. A plain run of the tests does nothing here.
+    #[cfg(unix)]
+    #[test]
+    fn exit_probe_process() {
+        if std::env::var_os(EXIT_PROBE).is_none() {
+            return;
+        }
+        let (dir, _) = marked_clone("probe-exit");
+        assert!(move_to_trash(dir.path()));
+        println!("{ROOT_LINE}{}", fixtures_root().display());
+    }
+
+    #[cfg(unix)]
+    const EXIT_PROBE: &str = "G4_FIXTURES_EXIT_PROBE";
+    #[cfg(unix)]
+    const ROOT_LINE: &str = "fixtures root: ";
+
+    /// A test process leaves nothing in the temp directory: its fixtures folder, with the
+    /// templates and the trash, is removed after it ended (by the detached `rm -rf` its exit
+    /// handler started).
+    #[cfg(unix)]
+    #[test]
+    fn the_fixtures_folder_goes_when_the_process_exits() {
+        let name = format!("{}::exit_probe_process", module_path!());
+        // The test names of the harness have no crate in front.
+        let name = name.split_once("::").unwrap().1;
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .env(EXIT_PROBE, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "the probe failed:\n{stdout}");
+        // The harness prints `test <name> ... ` before what the test prints.
+        let root = stdout
+            .lines()
+            .find_map(|line| line.split_once(ROOT_LINE))
+            .map(|(_, root)| root)
+            .unwrap_or_else(|| panic!("the probe named no fixtures folder:\n{stdout}"));
+        let root = std::path::PathBuf::from(root);
+        assert_ne!(
+            Some(root.as_path()),
+            FIXTURES_ROOT.get().map(PathBuf::as_path)
+        );
+        let start = std::time::Instant::now();
+        while root.exists() {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(60),
+                "{} is still there",
+                root.display()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
 
     #[test]

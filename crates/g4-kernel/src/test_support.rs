@@ -1137,6 +1137,18 @@ impl TextFixture {
     }
 }
 
+/// Dropping a text fixture takes its directory out of the way with one `rename`, into the trash
+/// of the fixtures folder, where it stays until the test process exits (see
+/// [`template::move_to_trash`]); the `TempDir` then finds nothing to delete. A clone holds
+/// thousands of files, and deleting them took more than half a second of the test's time.
+///
+/// Not on [`Synthetic`]: tests move its `dir` out (`sprites.rs`), which a `Drop` forbids.
+impl Drop for TextFixture {
+    fn drop(&mut self) {
+        template::move_to_trash(self.root());
+    }
+}
+
 /// The SHA-1 of the ROM at `rom`.
 fn rom_sha1(rom: &Path) -> String {
     crate::base::BaseRom::open(rom, None)
