@@ -136,17 +136,22 @@ fn remove_at_exit() {
     }
 }
 
-/// Starts `/bin/rm -rf root` and returns at once, without waiting for it: the child has no
-/// standard streams (a test run's output pipe closes with the test process) and is a group
-/// of its own, so an interrupt of the next test binary does not stop the deletion. `false` if
-/// it could not be started.
+/// Removes `root` in a process of its own and returns at once, without waiting for it: the
+/// directories of the trash go four `rm -rf` at a time (each is thousands of files with one
+/// `unlink` apiece, and the file system takes twice the rate from four callers that it takes
+/// from one), then `rm -rf` takes what is left. The child has no standard streams (a test
+/// run's output pipe closes with the test process) and is a group of its own, so an interrupt
+/// of the next test binary does not stop the deletion. `false` if it could not be started.
 #[cfg(unix)]
 fn remove_in_background(root: &Path) -> bool {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    Command::new("/bin/rm")
-        .arg("-rf")
+    // `$0` is `root`.
+    const SCRIPT: &str = r#"/usr/bin/find "$0/trash" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | /usr/bin/xargs -0 -n 1 -P 4 /bin/rm -rf; /bin/rm -rf "$0""#;
+    Command::new("/bin/sh")
+        .arg("-c")
+        .arg(SCRIPT)
         .arg(root)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -155,11 +160,6 @@ fn remove_in_background(root: &Path) -> bool {
         .spawn()
         .is_ok()
 }
-
-/// `libc` is a dependency of the unix targets only: elsewhere the folder stays in the temp
-/// directory.
-#[cfg(not(unix))]
-fn remove_at_exit() {}
 
 #[cfg(test)]
 mod tests {
@@ -741,8 +741,12 @@ mod tests {
     fn a_folder_handed_to_the_background_is_removed_without_waiting() {
         let tree = tempfile::tempdir().unwrap();
         let root = tree.path().join("g4-fixtures-probe");
-        std::fs::create_dir_all(root.join("trash/0/deep")).unwrap();
-        std::fs::write(root.join("trash/0/deep/file"), "x").unwrap();
+        for n in 0..6 {
+            std::fs::create_dir_all(root.join(format!("trash/{n}/deep"))).unwrap();
+            std::fs::write(root.join(format!("trash/{n}/deep/file")), "x").unwrap();
+        }
+        std::fs::create_dir_all(root.join("a-template")).unwrap();
+        std::fs::write(root.join("a-template/file"), "x").unwrap();
         std::fs::write(root.join("kept"), "x").unwrap();
         assert!(remove_in_background(&root));
         let start = std::time::Instant::now();
