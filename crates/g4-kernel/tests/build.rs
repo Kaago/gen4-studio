@@ -464,12 +464,16 @@ fn vanilla_build_produces_rom() {
 /// and with `build()`; the ROMs must be byte-identical. Needs `G4_DSROM_CLI`.
 #[test]
 fn vanilla_rebuild_matches_dsrom_cli() {
-    // The project first: a test that needs a project is logged as one for the full run of the gate
-    // (it runs per project there), whichever of the two is missing.
-    let Some((_tmp, root)) = common::vanilla_copy() else {
+    // The project variable first, and only the variable (a test that needs a project is logged as
+    // one for the full run of the gate, whichever of the two is missing); then the tool; the copy of
+    // the project, which is the work, only when both are there.
+    if common::vanilla_project().is_none() {
+        return;
+    }
+    let Some(cli) = g4_formats::test_support::gate_var("G4_DSROM_CLI").map(PathBuf::from) else {
         return;
     };
-    let Some(cli) = g4_formats::test_support::gate_var("G4_DSROM_CLI").map(PathBuf::from) else {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
         return;
     };
     let out_dir = tempfile::tempdir().unwrap();
@@ -849,11 +853,14 @@ fn encode_stale_leaves_members_that_changed_and_synced_json_alone() {
 /// stays byte-identical.
 #[test]
 fn vanilla_rebuild_matches_dsrom_cli_after_adopt() {
-    // The project first, see `vanilla_rebuild_matches_dsrom_cli`.
-    let Some((_tmp, root)) = common::vanilla_copy() else {
+    // The project variable, then the tool, then the copy: see `vanilla_rebuild_matches_dsrom_cli`.
+    if common::vanilla_project().is_none() {
+        return;
+    }
+    let Some(cli) = g4_formats::test_support::gate_var("G4_DSROM_CLI").map(PathBuf::from) else {
         return;
     };
-    let Some(cli) = g4_formats::test_support::gate_var("G4_DSROM_CLI").map(PathBuf::from) else {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
         return;
     };
     let out_dir = tempfile::tempdir().unwrap();

@@ -490,9 +490,12 @@ test_the_default_list_is_scripts_gate_heavy_tests_txt() {
 }
 
 test_a_gate_over_900_s_warns_and_stays_green() {
-  local out status=0 total
+  local d out status=0 total
+  d="$(tmpdir)"
+  # The advice to renew the heavy list needs a list that the gate read.
+  heavy_list "$d/heavy.txt" "one::heavy"
   # The limit is injectable: -1 s is exceeded by every run.
-  out="$(G4_GATE_LIMIT_S=-1 run_gate)" || status=$?
+  out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_LIMIT_S=-1 run_gate)" || status=$?
   [ "$status" -eq 0 ] || fail "expected status 0, got $status: $out"
   assert_contains "Warnung: das schnelle Gate hat " printf '%s' "$out"
   assert_contains "scripts/gate-heavy-update.sh" printf '%s' "$out"
@@ -504,9 +507,11 @@ test_a_gate_over_900_s_warns_and_stays_green() {
   assert_before "$out" "Warnung: das schnelle Gate" "Gate (hermetisch): ok ("
   # A failed gate over the limit warns as well, and stays failed.
   status=0
-  out="$(G4_GATE_LIMIT_S=-1 G4_GATE_STUB_FAIL="script tests" run_gate)" || status=$?
+  out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_LIMIT_S=-1 G4_GATE_STUB_FAIL="script tests" \
+    run_gate)" || status=$?
   [ "$status" -eq 1 ] || fail "expected status 1, got $status"
   assert_contains "Warnung: das schnelle Gate hat " printf '%s' "$out"
+  assert_contains "scripts/gate-heavy-update.sh" printf '%s' "$out"
   assert_contains "Gate (hermetisch): FAILED (" printf '%s' "$out"
   # Within the limit (a stubbed run takes seconds): no warning.
   assert_not_contains "Warnung" run_gate
@@ -514,6 +519,35 @@ test_a_gate_over_900_s_warns_and_stays_green() {
   assert_not_contains "Warnung" printf '%s' "$(G4_GATE_LIMIT_S=-1 run_gate --full)"
   # The limit without the variable is the 900 s of the spec.
   grep -q 'G4_GATE_LIMIT_S:-900}' "$GATE" || fail "the default limit is not 900 s"
+}
+
+test_the_warning_advises_the_heavy_list_only_when_it_was_read() {
+  local d out total
+  d="$(sandbox)"
+  heavy_list "$d/heavy.txt" "one::heavy"
+  # CI does not read scripts/gate-heavy-tests.txt (the file is there): the warning names time and limit
+  # and gives no advice about a list that played no part.
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI=true G4_GATE_LIMIT_S=-1 \
+    G4_GATE_CMD_PREFIX="$d/stub.sh" G4_GATE_LOG_DIR="$d/logs" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+  total="$(printf '%s\n' "$out" | sed -n 's/^Gate (hermetisch): ok (\([0-9][0-9]*\) s)$/\1/p')"
+  [ -n "$total" ] || fail "no total in the closing line: $out"
+  assert_contains "Warnung: das schnelle Gate hat $total s gebraucht (Grenze -1 s)." printf '%s' "$out"
+  assert_not_contains "gate-heavy-update.sh" printf '%s' "$out"
+  assert_not_contains "Liste der schweren Tests" printf '%s' "$out"
+  assert_before "$out" "Warnung: das schnelle Gate" "Gate (hermetisch): ok ("
+  # A named list that cannot be read played no part either.
+  out="$(G4_GATE_LIMIT_S=-1 G4_GATE_HEAVY_LIST="$d/missing.txt" run_gate)"
+  assert_contains "Warnung: das schnelle Gate hat " printf '%s' "$out"
+  assert_not_contains "gate-heavy-update.sh" printf '%s' "$out"
+  # CI with a list of its own (the test seam) reads it, and the advice stays.
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI=true G4_GATE_LIMIT_S=-1 \
+    G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_CMD_PREFIX="$d/stub.sh" G4_GATE_LOG_DIR="$d/logs" \
+    G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+  assert_contains "scripts/gate-heavy-update.sh" printf '%s' "$out"
+  # Not CI, the repository's list: read, advice given.
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_LIMIT_S=-1 G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_LOG_DIR="$d/logs" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+  assert_contains "scripts/gate-heavy-update.sh" printf '%s' "$out"
 }
 
 test_a_limit_that_is_no_number_is_refused() {

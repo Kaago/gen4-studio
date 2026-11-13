@@ -58,7 +58,7 @@
 # `a::b` does not drop `a::b_c`); --full runs the whole suite. The list is made by
 # scripts/gate-heavy-update.sh from a log of cargo test with per-test times. After the table the fast
 # gate says how many tests it left out, and it warns (without failing) when its total goes over 900 s:
-# then the list is out of date.
+# then the list is out of date (where no list was read, as on CI, the warning has no such advice).
 # Auf CI (CI=true, wie GitHub Actions es setzt) liest das schnelle Gate die Liste nicht und führt jeden
 # Test ohne ROM-Daten aus: die Liste gibt es wegen des Virenscanners auf dem Mac des Entwicklers. Eine
 # ausdrücklich gesetzte G4_GATE_HEAVY_LIST gilt weiter (der Testzugang der Skript-Tests).
@@ -209,6 +209,9 @@ STARTED=$SECONDS
 # The number of tests the fast gate left out of "cargo test (no ROM data)", named after the table.
 # Set when that step starts: a gate that stopped before it left nothing out.
 HEAVY_NOTE=0
+# 1 when the gate read the list of the heavy tests (the advice to renew it makes sense only then; CI and
+# a list that cannot be read leave it at 0).
+HEAVY_LIST_READ=0
 # "Gate (hermetisch)" instead of "Gate" when the run stops after the steps without ROM.
 GATE_LABEL="Gate"
 if [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
@@ -244,9 +247,14 @@ print_table() {
   fi
   # Only the fast gate: the full run executes every test and takes hours by design.
   if [ "$FULL" -eq 0 ] && [ "$total" -gt "$GATE_LIMIT_S" ]; then
-    echo "Warnung: das schnelle Gate hat $total s gebraucht (Grenze $GATE_LIMIT_S s)." \
-      "Die Liste der schweren Tests neu erzeugen: bash scripts/gate-heavy-update.sh <Log> [<Sekunden>]" \
-      "(das Log: cargo test mit --report-time, siehe das Skript)."
+    if [ "$HEAVY_LIST_READ" -eq 1 ]; then
+      echo "Warnung: das schnelle Gate hat $total s gebraucht (Grenze $GATE_LIMIT_S s)." \
+        "Die Liste der schweren Tests neu erzeugen: bash scripts/gate-heavy-update.sh <Log> [<Sekunden>]" \
+        "(das Log: cargo test mit --report-time, siehe das Skript)."
+    else
+      # No list played a part (CI, or one that cannot be read): there is nothing to renew.
+      echo "Warnung: das schnelle Gate hat $total s gebraucht (Grenze $GATE_LIMIT_S s)."
+    fi
   fi
   if [ "$FAILED" -eq 0 ] && [ "${#ROWS[@]}" -gt 0 ]; then
     echo "$GATE_LABEL: ok ($total s)"
@@ -436,6 +444,7 @@ if [ "$read_heavy_list" -eq 1 ] && { [ ! -f "$HEAVY_LIST" ] || [ ! -r "$HEAVY_LI
   fi
   read_heavy_list=0
 fi
+HEAVY_LIST_READ="$read_heavy_list"
 if [ "$read_heavy_list" -eq 1 ]; then
   while IFS= read -r heavy_name || [ -n "$heavy_name" ]; do
     # CR and blanks around a name are no part of it; # lines and empty lines are no names.

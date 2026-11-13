@@ -820,12 +820,16 @@ mod project_tileset {
 
     #[test]
     fn vanilla_textured_map_glb_has_images() {
-        // The project first: a test that needs a project is logged as one for the full run of the
-        // gate (it runs per project there), whichever of the two is missing.
-        let Some((_copy, model, tex)) = vanilla_model_and_tileset(415) else {
+        // The project variable first, and only the variable (a test that needs a project is logged
+        // as one for the full run of the gate, whichever of the two is missing); then the tool; the
+        // copy of the project, which is the work, only when both are there.
+        if g4_kernel::test_support::vanilla_project().is_none() {
+            return;
+        }
+        let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA") else {
             return;
         };
-        let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA") else {
+        let Some((_copy, model, tex)) = vanilla_model_and_tileset(415) else {
             return;
         };
         assert!(tex.is_some());
@@ -840,11 +844,14 @@ mod project_tileset {
 
     #[test]
     fn glb_cached_without_tileset_still_converts() {
-        // The project first, see `vanilla_textured_map_glb_has_images`.
-        let Some((_copy, model, _tex)) = vanilla_model_and_tileset(415) else {
+        // The project variable, then the tool, then the copy: see `vanilla_textured_map_glb_has_images`.
+        if g4_kernel::test_support::vanilla_project().is_none() {
+            return;
+        }
+        let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA") else {
             return;
         };
-        let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA") else {
+        let Some((_copy, model, _tex)) = vanilla_model_and_tileset(415) else {
             return;
         };
         let cache = tempfile::tempdir().unwrap();

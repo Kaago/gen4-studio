@@ -485,12 +485,16 @@ mod tests {
     /// out of apicula with its textures. Works on a copy; needs `G4_APICULA`.
     #[test]
     fn vanilla_building_glb_has_images() {
-        // The project first: a test that needs a project is logged as one for the full run of the
-        // gate (it runs per project there), whichever of the two is missing.
-        let Some((_tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
+        // The project variable first, and only the variable (a test that needs a project is logged
+        // as one for the full run of the gate, whichever of the two is missing); then the tool; the
+        // copy of the project, which is the work, only when both are there.
+        if g4_kernel::test_support::vanilla_project().is_none() {
+            return;
+        }
+        let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA") else {
             return;
         };
-        let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA") else {
+        let Some((_tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
             return;
         };
         let state = AppState::default();

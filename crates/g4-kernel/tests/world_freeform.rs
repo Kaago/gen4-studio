@@ -364,12 +364,16 @@ fn gltf_request(map: u16) -> WorldAdoptRequest {
 
 #[test]
 fn form2_of_a_vanilla_map_bakes_apicula_readable() {
-    // The project first: a test that needs a project is logged as one (it runs per project in the
-    // full run of the gate), whichever of the two is missing.
-    let Some((_tmp, copy, base)) = exported_copy() else {
+    // The project variable first, and only the variable (a test that needs a project is logged as
+    // one, it runs per project in the full run of the gate, whichever of the two is missing); then
+    // the tool; the copy and the export of the project, which are the work, only when both are there.
+    if common::vanilla_project().is_none() {
+        return;
+    }
+    let Some(apicula) = apicula() else {
         return;
     };
-    let Some(apicula) = apicula() else {
+    let Some((_tmp, copy, base)) = exported_copy() else {
         return;
     };
     let code = base.game_code().to_owned();
@@ -466,10 +470,14 @@ fn form2_sweep_over_every_map() {
         eprintln!("skipped: needs G4_FORM2_SWEEP=1");
         return;
     }
-    let Some((_tmp, copy, base)) = exported_copy() else {
+    // The project variable, then the tool, then the copy: see `form2_of_a_vanilla_map_bakes_apicula_readable`.
+    if common::vanilla_project().is_none() {
+        return;
+    }
+    let Some(apicula) = apicula() else {
         return;
     };
-    let Some(apicula) = apicula() else {
+    let Some((_tmp, copy, base)) = exported_copy() else {
         return;
     };
     let code = base.game_code().to_owned();
