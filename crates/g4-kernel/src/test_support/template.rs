@@ -136,23 +136,42 @@ fn remove_at_exit() {
     }
 }
 
-/// Removes `root` in a process of its own and returns at once, without waiting for it: the
-/// directories of the trash go four `rm -rf` at a time (each is thousands of files with one
-/// `unlink` apiece, and the file system takes twice the rate from four callers that it takes
-/// from one), then `rm -rf` takes what is left. The child has no standard streams (a test
-/// run's output pipe closes with the test process) and is a group of its own, so an interrupt
-/// of the next test binary does not stop the deletion. `false` if it could not be started.
+/// Removes `root` in a process of its own and returns at once, without waiting for it. Under
+/// `cargo test` (the `CARGO` variable is set) the removal waits until cargo, this process's
+/// parent, has ended: cargo runs the next test binary when this one ends, and the removal of
+/// the fixtures competes with it for the file system (see [`spawn_remover`]). `false` if the
+/// process could not be started.
 #[cfg(unix)]
 fn remove_in_background(root: &Path) -> bool {
+    let wait_for = std::env::var_os("CARGO").map(|_| std::os::unix::process::parent_id());
+    spawn_remover(root, wait_for)
+}
+
+/// Starts a process that removes `root`, after the process `wait_for` has ended if there is
+/// one (for at most half an hour: a parent that never ends must not keep the folder for
+/// ever). The directories of the trash go four `rm -rf` at a time (each is thousands of files
+/// with one `unlink` apiece, and the file system takes twice the rate from four callers that
+/// it takes from one), then `rm -rf` takes what is left. The process has no standard streams
+/// (a test run's output pipe closes with the test process) and is a group of its own, so an
+/// interrupt of the next test binary does not stop the deletion.
+///
+/// Why wait: 64 tests that take 96 s alone took 183 s with the removal of 600 clones running
+/// beside them at normal priority (116 s at background priority, `taskpolicy -b`, but then one
+/// template build in a full run stalled for 43 s, and the run was no faster). A full workspace
+/// run with the removal started at each binary's end took 913 s, as long as the 918 s before
+/// the trash existed: the work had only moved into the binaries that follow.
+#[cfg(unix)]
+fn spawn_remover(root: &Path, wait_for: Option<u32>) -> bool {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    // `$0` is `root`.
-    const SCRIPT: &str = r#"/usr/bin/find "$0/trash" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | /usr/bin/xargs -0 -n 1 -P 4 /bin/rm -rf; /bin/rm -rf "$0""#;
+    // `$0` is `root`, `$1` the pid to wait for (empty: none), polled every 5 s.
+    const SCRIPT: &str = r#"n=0; while [ -n "$1" ] && kill -0 "$1" 2>/dev/null && [ "$n" -lt 360 ]; do /bin/sleep 5; n=$((n+1)); done; /usr/bin/find "$0/trash" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | /usr/bin/xargs -0 -n 1 -P 4 /bin/rm -rf; /bin/rm -rf "$0""#;
     Command::new("/bin/sh")
         .arg("-c")
         .arg(SCRIPT)
         .arg(root)
+        .arg(wait_for.map(|pid| pid.to_string()).unwrap_or_default())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -788,10 +807,9 @@ mod tests {
         assert_eq!(folder_name("trash-can"), "trash-can");
     }
 
+    /// A tree like a fixtures folder: a trash of six directories, a template and a file.
     #[cfg(unix)]
-    #[test]
-    fn a_folder_handed_to_the_background_is_removed_without_waiting() {
-        let tree = tempfile::tempdir().unwrap();
+    fn fixtures_like_tree(tree: &tempfile::TempDir) -> PathBuf {
         let root = tree.path().join("g4-fixtures-probe");
         for n in 0..6 {
             std::fs::create_dir_all(root.join(format!("trash/{n}/deep"))).unwrap();
@@ -800,7 +818,12 @@ mod tests {
         std::fs::create_dir_all(root.join("a-template")).unwrap();
         std::fs::write(root.join("a-template/file"), "x").unwrap();
         std::fs::write(root.join("kept"), "x").unwrap();
-        assert!(remove_in_background(&root));
+        root
+    }
+
+    /// Waits for `root` to be gone, at most 30 s.
+    #[cfg(unix)]
+    fn wait_until_gone(root: &Path) {
         let start = std::time::Instant::now();
         while root.exists() {
             assert!(
@@ -810,6 +833,96 @@ mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_handed_to_the_background_is_removed_without_waiting() {
+        let tree = tempfile::tempdir().unwrap();
+        let root = fixtures_like_tree(&tree);
+        assert!(spawn_remover(&root, None));
+        wait_until_gone(&root);
+    }
+
+    /// The process to wait for is gone already (or never was): the removal starts at once.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_handed_over_after_a_process_that_has_ended_is_removed_at_once() {
+        let tree = tempfile::tempdir().unwrap();
+        let root = fixtures_like_tree(&tree);
+        let mut done = std::process::Command::new("/usr/bin/true").spawn().unwrap();
+        let pid = done.id();
+        done.wait().unwrap();
+        assert!(spawn_remover(&root, Some(pid)));
+        wait_until_gone(&root);
+    }
+
+    /// The probe's parent outlives it by 5 s, and its folder goes only after that: the parent
+    /// of a probe under `cargo test` is cargo. (No shell between the two: a protected shell
+    /// drops the library path the test binary needs.)
+    #[cfg(unix)]
+    #[test]
+    fn the_fixtures_folder_waits_for_a_cargo_parent_to_end() {
+        use std::io::{BufRead, BufReader, Read};
+        use std::process::{Command, Stdio};
+
+        let mut parent = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &probe_name("exit_probe_parent_process")])
+            .args(["--nocapture", "--test-threads=1"])
+            .env(PARENT_PROBE, "1")
+            // What `cargo test` sets: the probe's parent, the process above, then counts as cargo.
+            .env("CARGO", "cargo")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut output = BufReader::new(parent.stdout.take().unwrap());
+        let mut root = None;
+        let mut line = String::new();
+        while root.is_none() && output.read_line(&mut line).unwrap() > 0 {
+            root = line
+                .split_once(ROOT_LINE)
+                .map(|(_, root)| PathBuf::from(root.trim_end()));
+            line.clear();
+        }
+        let root = root.expect("the probe named no fixtures folder");
+        // The probe has ended; its parent has about 4 s to go.
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        assert!(root.exists(), "removed while its parent was running");
+        // Reading on to its end keeps the pipe open for what the parent still prints.
+        output.read_to_string(&mut String::new()).unwrap();
+        assert!(parent.wait().unwrap().success());
+        wait_until_gone(&root);
+    }
+
+    /// The middle half of [`the_fixtures_folder_waits_for_a_cargo_parent_to_end`]: runs the exit
+    /// probe as its child, passes on what that printed, and ends 5 s later. A plain run of
+    /// the tests does nothing here.
+    #[cfg(unix)]
+    #[test]
+    fn exit_probe_parent_process() {
+        if std::env::var_os(PARENT_PROBE).is_none() {
+            return;
+        }
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &probe_name("exit_probe_process")])
+            .args(["--nocapture", "--test-threads=1"])
+            .env(EXIT_PROBE, "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        println!("{}", String::from_utf8_lossy(&out.stdout));
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
+
+    #[cfg(unix)]
+    const PARENT_PROBE: &str = "G4_FIXTURES_PARENT_PROBE";
+
+    /// The name the harness gives the test `test` of this module.
+    #[cfg(unix)]
+    fn probe_name(test: &str) -> String {
+        let name = format!("{}::{test}", module_path!());
+        // The test names of the harness have no crate in front.
+        name.split_once("::").unwrap().1.to_owned()
     }
 
     /// The child half of [`the_fixtures_folder_goes_when_the_process_exits`]: a process of
@@ -837,12 +950,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_fixtures_folder_goes_when_the_process_exits() {
-        let name = format!("{}::exit_probe_process", module_path!());
-        // The test names of the harness have no crate in front.
-        let name = name.split_once("::").unwrap().1;
         let out = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .args(["--exact", &probe_name("exit_probe_process")])
+            .args(["--nocapture", "--test-threads=1"])
             .env(EXIT_PROBE, "1")
+            // Not run by cargo: the removal does not wait for this test process.
+            .env_remove("CARGO")
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
