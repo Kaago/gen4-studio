@@ -93,10 +93,14 @@ fn fixtures_root() -> &'static Path {
 /// such deletions in parallel. What is in the trash goes with the fixtures folder when the
 /// process exits (see [`remove_at_exit`]).
 ///
-/// `false` if `dir` stayed where it was (no such directory, another volume, not unix): its
+/// Only on macOS, where a clone is copy-on-write and the trash costs next to no space: on a
+/// file system without clones the trash would hold a full copy per test until the process
+/// exits.
+///
+/// `false` if `dir` stayed where it was (no such directory, another volume, not macOS): its
 /// owner deletes it then, as before. Never panics: it runs in `Drop`, maybe while a failed
 /// test unwinds.
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 pub(crate) fn move_to_trash(dir: &Path) -> bool {
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -111,8 +115,8 @@ pub(crate) fn move_to_trash(dir: &Path) -> bool {
     std::fs::rename(dir, trash.join(n.to_string())).is_ok()
 }
 
-/// Elsewhere the fixtures folder is not removed at exit either: nothing is moved.
-#[cfg(not(unix))]
+/// Elsewhere nothing is moved: the owner of the directory deletes it.
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn move_to_trash(_dir: &Path) -> bool {
     false
 }
@@ -136,6 +140,23 @@ fn remove_at_exit() {
     }
 }
 
+/// `libc` is a dependency of the unix targets only: elsewhere the folder stays in the temp
+/// directory.
+#[cfg(not(unix))]
+fn remove_at_exit() {}
+
+/// The file the removal processes of every test binary of the machine lock (see
+/// [`spawn_remover`]). It stays in the temp directory, empty; its name does not start with
+/// `g4-fixtures`, which is what a left-over fixtures folder is looked for by.
+#[cfg(target_os = "macos")]
+const REMOVER_LOCK: &str = "g4-remover.lock";
+
+/// Names another lock file than [`REMOVER_LOCK`] for the removal processes of a process. The
+/// tests that start test processes of their own set it, so their removals do not queue
+/// behind the removal of a test run that ended before.
+#[cfg(target_os = "macos")]
+const REMOVER_LOCK_ENV: &str = "G4_FIXTURES_REMOVER_LOCK";
+
 /// Removes `root` in a process of its own and returns at once, without waiting for it. Under
 /// `cargo test` (the `CARGO` variable is set) the removal waits until cargo, this process's
 /// parent, has ended: cargo runs the next test binary when this one ends, and the removal of
@@ -144,34 +165,61 @@ fn remove_at_exit() {
 #[cfg(unix)]
 fn remove_in_background(root: &Path) -> bool {
     let wait_for = std::env::var_os("CARGO").map(|_| std::os::unix::process::parent_id());
-    spawn_remover(root, wait_for)
+    #[cfg(target_os = "macos")]
+    let lock = Some(
+        std::env::var_os(REMOVER_LOCK_ENV)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join(REMOVER_LOCK)),
+    );
+    #[cfg(not(target_os = "macos"))]
+    let lock: Option<PathBuf> = None;
+    spawn_remover(root, wait_for, lock.as_deref())
 }
 
 /// Starts a process that removes `root`, after the process `wait_for` has ended if there is
 /// one (for at most half an hour: a parent that never ends must not keep the folder for
-/// ever). The directories of the trash go four `rm -rf` at a time (each is thousands of files
-/// with one `unlink` apiece, and the file system takes twice the rate from four callers that
-/// it takes from one), then `rm -rf` takes what is left. The process has no standard streams
-/// (a test run's output pipe closes with the test process) and is a group of its own, so an
-/// interrupt of the next test binary does not stop the deletion.
+/// ever), and while holding the lock `lock` if there is one. The directories of the trash go
+/// four `rm -rf` at a time (each is thousands of files with one `unlink` apiece, and the file
+/// system takes twice the rate from four callers that it takes from one), then `rm -rf` takes
+/// what is left. The process has no standard streams (a test run's output pipe closes with the
+/// test process) and is a group of its own, so an interrupt of the next test binary does not
+/// stop the deletion.
 ///
 /// Why wait: 64 tests that take 96 s alone took 183 s with the removal of 600 clones running
 /// beside them at normal priority (116 s at background priority, `taskpolicy -b`, but then one
 /// template build in a full run stalled for 43 s, and the run was no faster). A full workspace
 /// run with the removal started at each binary's end took 913 s, as long as the 918 s before
 /// the trash existed: the work had only moved into the binaries that follow.
+///
+/// Why the lock: under cargo every test binary that had fixtures starts a remover, and they all
+/// wake within one 5 s poll when cargo has ended. Each runs four `rm` at a time, so without the
+/// lock the file system would see four times the number of binaries. `lockf(1)` takes a
+/// `flock` on the file, which the kernel drops when its holder dies however it dies, and the
+/// waiters queue in order (`-k`: the file is kept, a removed lock file would let two
+/// processes hold "the" lock). Only macOS has it here; a system without `/usr/bin/lockf`
+/// removes without the lock.
 #[cfg(unix)]
-fn spawn_remover(root: &Path, wait_for: Option<u32>) -> bool {
+fn spawn_remover(root: &Path, wait_for: Option<u32>, lock: Option<&Path>) -> bool {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    // `$0` is `root`, `$1` the pid to wait for (empty: none), polled every 5 s.
-    const SCRIPT: &str = r#"n=0; while [ -n "$1" ] && kill -0 "$1" 2>/dev/null && [ "$n" -lt 360 ]; do /bin/sleep 5; n=$((n+1)); done; /usr/bin/find "$0/trash" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | /usr/bin/xargs -0 -n 1 -P 4 /bin/rm -rf; /bin/rm -rf "$0""#;
+    // `$0` is `root`, `$1` the pid to wait for (empty: none), polled every 5 s, `$2` the lock
+    // file (empty: none).
+    const SCRIPT: &str = r#"
+remove='/usr/bin/find "$0/trash" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | /usr/bin/xargs -0 -n 1 -P 4 /bin/rm -rf; /bin/rm -rf "$0"'
+n=0
+while [ -n "$1" ] && kill -0 "$1" 2>/dev/null && [ "$n" -lt 360 ]; do /bin/sleep 5; n=$((n+1)); done
+if [ -n "$2" ] && [ -x /usr/bin/lockf ]; then
+    exec /usr/bin/lockf -k "$2" /bin/sh -c "$remove" "$0"
+fi
+exec /bin/sh -c "$remove" "$0"
+"#;
     Command::new("/bin/sh")
         .arg("-c")
         .arg(SCRIPT)
         .arg(root)
         .arg(wait_for.map(|pid| pid.to_string()).unwrap_or_default())
+        .arg(lock.unwrap_or(Path::new("")))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -708,7 +756,7 @@ mod tests {
     }
 
     /// Whether a directory of the trash has a `marker.txt` of this text.
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     fn trash_holds(marker: &str) -> bool {
         let Ok(entries) = std::fs::read_dir(fixtures_root().join(TRASH)) else {
             return false;
@@ -720,14 +768,13 @@ mod tests {
     }
 
     /// A text fixture with a `marker.txt` only it has, and the marker's text.
-    #[cfg(unix)]
     fn marked_fixture(fx: TextFixture) -> (TextFixture, String) {
         let marker = format!("fixture at {}", fx.root().display());
         fx.write("marker.txt", marker.as_bytes());
         (fx, marker)
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_directory_moved_to_the_trash_is_gone_from_its_place() {
         let (dir, marker) = marked_clone("probe-moved");
@@ -743,7 +790,7 @@ mod tests {
         drop(dir);
     }
 
-    #[cfg(unix)]
+    /// Where the trash is used or not: the path of a dropped fixture is gone at once.
     #[test]
     fn a_dropped_text_fixture_is_gone_at_once() {
         let (fx, _) = marked_fixture(TextFixture::dspre());
@@ -753,7 +800,7 @@ mod tests {
         assert!(!path.exists(), "{} is still there", path.display());
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_dropped_text_fixture_lies_in_the_trash_below_the_fixtures_folder() {
         let (fx, marker) = marked_fixture(TextFixture::dspre());
@@ -767,7 +814,7 @@ mod tests {
     }
 
     /// A fresh build is a fixture like a clone, and goes the same way.
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_dropped_fresh_build_lies_in_the_trash_too() {
         let (fx, marker) = marked_fixture(TextFixture::dspre_uncached());
@@ -775,8 +822,17 @@ mod tests {
         assert!(trash_holds(&marker));
     }
 
+    /// Without the trash (not macOS) a dropped fixture is deleted, and its folder is not
+    /// left below the fixtures folder.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_dropped_text_fixture_is_not_kept_below_the_fixtures_folder() {
+        let (fx, _) = marked_fixture(TextFixture::dspre());
+        drop(fx);
+        assert!(!fixtures_root().join(TRASH).exists());
+    }
+
     /// The trash takes the clone, not the template it was cloned from.
-    #[cfg(unix)]
     #[test]
     fn dropping_a_text_fixture_leaves_its_template_whole() {
         let (fx, _) = marked_fixture(TextFixture::dspre());
@@ -809,8 +865,8 @@ mod tests {
 
     /// A tree like a fixtures folder: a trash of six directories, a template and a file.
     #[cfg(unix)]
-    fn fixtures_like_tree(tree: &tempfile::TempDir) -> PathBuf {
-        let root = tree.path().join("g4-fixtures-probe");
+    fn fixtures_like_tree(tree: &tempfile::TempDir, name: &str) -> PathBuf {
+        let root = tree.path().join(name);
         for n in 0..6 {
             std::fs::create_dir_all(root.join(format!("trash/{n}/deep"))).unwrap();
             std::fs::write(root.join(format!("trash/{n}/deep/file")), "x").unwrap();
@@ -821,13 +877,14 @@ mod tests {
         root
     }
 
-    /// Waits for `root` to be gone, at most 30 s.
+    /// Waits for `root` to be gone, at most 90 s (a stalled machine took 40 s for a step that
+    /// takes a second).
     #[cfg(unix)]
     fn wait_until_gone(root: &Path) {
         let start = std::time::Instant::now();
         while root.exists() {
             assert!(
-                start.elapsed() < std::time::Duration::from_secs(30),
+                start.elapsed() < std::time::Duration::from_secs(90),
                 "{} is still there",
                 root.display()
             );
@@ -839,8 +896,8 @@ mod tests {
     #[test]
     fn a_folder_handed_to_the_background_is_removed_without_waiting() {
         let tree = tempfile::tempdir().unwrap();
-        let root = fixtures_like_tree(&tree);
-        assert!(spawn_remover(&root, None));
+        let root = fixtures_like_tree(&tree, "g4-fixtures-probe");
+        assert!(spawn_remover(&root, None, None));
         wait_until_gone(&root);
     }
 
@@ -849,29 +906,103 @@ mod tests {
     #[test]
     fn a_folder_handed_over_after_a_process_that_has_ended_is_removed_at_once() {
         let tree = tempfile::tempdir().unwrap();
-        let root = fixtures_like_tree(&tree);
+        let root = fixtures_like_tree(&tree, "g4-fixtures-probe");
         let mut done = std::process::Command::new("/usr/bin/true").spawn().unwrap();
         let pid = done.id();
         done.wait().unwrap();
-        assert!(spawn_remover(&root, Some(pid)));
+        assert!(spawn_remover(&root, Some(pid), None));
         wait_until_gone(&root);
     }
 
-    /// The probe's parent outlives it by 5 s, and its folder goes only after that: the parent
-    /// of a probe under `cargo test` is cargo. (No shell between the two: a protected shell
-    /// drops the library path the test binary needs.)
+    /// Runs `lockf` on `lock` with `command`, for one attempt (`-t 0`): whether it got the lock.
+    #[cfg(target_os = "macos")]
+    fn lock_is_free(lock: &Path) -> bool {
+        std::process::Command::new("/usr/bin/lockf")
+            .args(["-k", "-t", "0"])
+            .arg(lock)
+            .arg("/usr/bin/true")
+            .status()
+            .unwrap()
+            .success()
+    }
+
+    /// The removal processes of all test binaries take one lock, so that the four `rm` of one
+    /// are not joined by the four of every other. A process that holds the lock (a stand-in for
+    /// a remover that is busy, which ends when this test closes its input) keeps a remover
+    /// from starting; when it lets go, the remover removes.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_remover_waits_while_another_process_holds_the_lock() {
+        use std::process::{Command, Stdio};
+
+        let tree = tempfile::tempdir().unwrap();
+        let lock = tree.path().join("remover.lock");
+        let root = fixtures_like_tree(&tree, "g4-fixtures-probe");
+        let mut holder = Command::new("/usr/bin/lockf")
+            .arg("-k")
+            .arg(&lock)
+            .args(["/bin/sh", "-c", "cat > /dev/null"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        // Until the holder has the lock.
+        let start = std::time::Instant::now();
+        while lock_is_free(&lock) {
+            assert!(start.elapsed() < std::time::Duration::from_secs(90));
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(spawn_remover(&root, None, Some(&lock)));
+        // Seconds in which an unlocked remover has long finished six small directories.
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        assert!(root.exists(), "removed while the lock was held");
+        drop(holder.stdin.take());
+        assert!(holder.wait().unwrap().success());
+        wait_until_gone(&root);
+    }
+
+    /// Two removers on one lock: both remove their folder (the second after the first), and the
+    /// lock is free afterwards.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn removers_on_one_lock_remove_one_after_the_other_and_let_go() {
+        let tree = tempfile::tempdir().unwrap();
+        let lock = tree.path().join("remover.lock");
+        let roots = [
+            fixtures_like_tree(&tree, "g4-fixtures-one"),
+            fixtures_like_tree(&tree, "g4-fixtures-two"),
+        ];
+        for root in &roots {
+            assert!(spawn_remover(root, None, Some(&lock)));
+        }
+        for root in &roots {
+            wait_until_gone(root);
+        }
+        // The last remover has removed its folder, and ends a moment later.
+        let start = std::time::Instant::now();
+        while !lock_is_free(&lock) {
+            assert!(start.elapsed() < std::time::Duration::from_secs(90));
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    /// The probe's parent lives until this test lets go of its input, and the probe's folder
+    /// goes only after that: the parent of a probe under `cargo test` is cargo. (No shell
+    /// between the two: a protected shell drops the library path the test binary needs.)
     #[cfg(unix)]
     #[test]
     fn the_fixtures_folder_waits_for_a_cargo_parent_to_end() {
         use std::io::{BufRead, BufReader, Read};
         use std::process::{Command, Stdio};
 
+        let lock_file = tempfile::tempdir().unwrap();
         let mut parent = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &probe_name("exit_probe_parent_process")])
             .args(["--nocapture", "--test-threads=1"])
             .env(PARENT_PROBE, "1")
             // What `cargo test` sets: the probe's parent, the process above, then counts as cargo.
             .env("CARGO", "cargo")
+            .env("G4_FIXTURES_REMOVER_LOCK", lock_file.path().join("lock"))
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
@@ -885,21 +1016,25 @@ mod tests {
             line.clear();
         }
         let root = root.expect("the probe named no fixtures folder");
-        // The probe has ended; its parent has about 4 s to go.
-        std::thread::sleep(std::time::Duration::from_millis(1500));
+        // The probe has ended and its parent has not: several poll periods of the remover.
+        std::thread::sleep(std::time::Duration::from_secs(7));
         assert!(root.exists(), "removed while its parent was running");
-        // Reading on to its end keeps the pipe open for what the parent still prints.
+        // The parent ends when its input does; reading on to its end keeps the pipe open for
+        // what it still prints.
+        drop(parent.stdin.take());
         output.read_to_string(&mut String::new()).unwrap();
         assert!(parent.wait().unwrap().success());
         wait_until_gone(&root);
     }
 
     /// The middle half of [`the_fixtures_folder_waits_for_a_cargo_parent_to_end`]: runs the exit
-    /// probe as its child, passes on what that printed, and ends 5 s later. A plain run of
-    /// the tests does nothing here.
+    /// probe as its child, passes on what that printed, and ends when its input does. A plain
+    /// run of the tests does nothing here.
     #[cfg(unix)]
     #[test]
     fn exit_probe_parent_process() {
+        use std::io::Read;
+
         if std::env::var_os(PARENT_PROBE).is_none() {
             return;
         }
@@ -911,7 +1046,7 @@ mod tests {
             .unwrap();
         assert!(out.status.success());
         println!("{}", String::from_utf8_lossy(&out.stdout));
-        std::thread::sleep(std::time::Duration::from_secs(5));
+        std::io::stdin().read_to_end(&mut Vec::new()).unwrap();
     }
 
     #[cfg(unix)]
@@ -935,7 +1070,9 @@ mod tests {
             return;
         }
         let (dir, _) = marked_clone("probe-exit");
-        assert!(move_to_trash(dir.path()));
+        if cfg!(target_os = "macos") {
+            assert!(move_to_trash(dir.path()));
+        }
         println!("{ROOT_LINE}{}", fixtures_root().display());
     }
 
@@ -950,12 +1087,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_fixtures_folder_goes_when_the_process_exits() {
+        let lock_file = tempfile::tempdir().unwrap();
         let out = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &probe_name("exit_probe_process")])
             .args(["--nocapture", "--test-threads=1"])
             .env(EXIT_PROBE, "1")
             // Not run by cargo: the removal does not wait for this test process.
             .env_remove("CARGO")
+            .env("G4_FIXTURES_REMOVER_LOCK", lock_file.path().join("lock"))
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
@@ -971,15 +1110,7 @@ mod tests {
             Some(root.as_path()),
             FIXTURES_ROOT.get().map(PathBuf::as_path)
         );
-        let start = std::time::Instant::now();
-        while root.exists() {
-            assert!(
-                start.elapsed() < std::time::Duration::from_secs(60),
-                "{} is still there",
-                root.display()
-            );
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
+        wait_until_gone(&root);
     }
 
     #[test]
