@@ -7,6 +7,8 @@
 #
 #   assert_status <expected> <command...>   the command exits with the expected status
 #   assert_contains <text> <command...>     stdout+stderr of the command contain the text
+#   assert_not_contains <text> <command...> stdout+stderr of the command do not contain the text
+#   assert_before <text> <first> <second>   <first> occurs in <text>, and <second> only after it
 #   tmpdir                                  prints a fresh empty directory (removed at exit)
 #   fail <message>                          fails the current test
 
@@ -44,6 +46,45 @@ assert_contains() {
     *)
       echo "$output" >&2
       fail "output does not contain '$text': $*"
+      ;;
+  esac
+}
+
+assert_not_contains() {
+  local text="$1" output
+  shift
+  output="$("$@" 2>&1)" || true
+  case "$output" in
+    *"$text"*)
+      echo "$output" >&2
+      fail "output contains '$text': $*"
+      ;;
+  esac
+}
+
+# assert_before <text> <first> <second>: the first occurrence of <first> in <text> lies before every
+# occurrence of <second>; both must occur. <text> is a value (an output captured earlier), not a command.
+assert_before() {
+  local text="$1" first="$2" second="$3" head
+  case "$text" in
+    *"$first"*) ;;
+    *)
+      echo "$text" >&2
+      fail "text does not contain '$first'"
+      ;;
+  esac
+  case "$text" in
+    *"$second"*) ;;
+    *)
+      echo "$text" >&2
+      fail "text does not contain '$second'"
+      ;;
+  esac
+  head="${text%%"$first"*}"
+  case "$head" in
+    *"$second"*)
+      echo "$text" >&2
+      fail "'$second' comes before '$first'"
       ;;
   esac
 }
