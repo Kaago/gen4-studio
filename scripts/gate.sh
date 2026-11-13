@@ -8,13 +8,15 @@
 #                                 Actions audit (scripts/check-actions.sh), the ROM data guard
 #                                 (scripts/check-no-rom-data.sh), the link check
 #                                 (scripts/check-links.sh), the version check (scripts/version.sh
-#                                 check), `studio mcp` over stdio, the full test suite without ROM
-#                                 data, the shell script tests (scripts/tests/run.sh), the studio
-#                                 frontend (design checks, tests, build) and the g4emu unit tests.
-#   bash scripts/gate.sh --full   the fast gate, then what needs the ROMs: the g4emu emulator tests,
-#                                 the gated tests against every test project under $G4_ROMS_DIR, the
-#                                 build graph and world mesh timings and the project start of every
-#                                 ROM. Run it before a merge; it takes hours.
+#                                 check), `studio mcp` over stdio, the test suite without ROM data
+#                                 except the heavy tests of scripts/gate-heavy-tests.txt, the shell
+#                                 script tests (scripts/tests/run.sh), the studio frontend (design
+#                                 checks, tests, build) and the g4emu unit tests.
+#   bash scripts/gate.sh --full   the fast gate with the whole test suite without ROM data (the heavy
+#                                 tests included), then what needs the ROMs: the g4emu emulator
+#                                 tests, the gated tests against every test project under
+#                                 $G4_ROMS_DIR, the build graph and world mesh timings and the
+#                                 project start of every ROM. Run it before a merge; it takes hours.
 #
 # CI (.github/workflows/ci.yml: every pull request to main, every push to main, and by hand) runs
 # the fast gate with G4_GATE_HERMETIC=1: the gate ends after the steps without ROM, also with
@@ -32,6 +34,14 @@
 # all of them, prints the table and fails if any step failed, so one run reports every failure of
 # the group. Everything else stops at the first failure.
 #
+# Heavy tests: a virus scanner makes every file of a test fixture expensive, and the tests that set
+# up thousands of files take most of the test time. scripts/gate-heavy-tests.txt names the tests
+# that take 8 s or more, one libtest name per line. The fast gate runs `cargo test ... -- --exact
+# --skip <name> ...` and leaves them out (--exact: a skip matches the whole name, so `a::b` does not
+# drop `a::b_c`); --full runs the whole suite. The list is made by scripts/gate-heavy-update.sh from
+# a log of cargo test with per-test times. After the table the fast gate says how many tests it left
+# out, and it warns (without failing) when its total goes over 900 s: then the list is out of date.
+#
 # Variables (all optional):
 #   G4_GATE_HERMETIC  1: end after the steps without ROM (what CI runs), also with --full
 #   G4_GATE_TMPDIR    folder for the temporary files of the cargo test steps (fast and full); the gate
@@ -44,6 +54,10 @@
 #   G4_GATE_CMD_PREFIX  test seam of scripts/tests/gate.test.sh: a command (one word) that is put in
 #                     front of every command of every step, with the step label in G4_GATE_STEP;
 #                     the script tests set it to a stub, so no real command runs
+#   G4_GATE_HEAVY_LIST  test seam of scripts/tests/gate.test.sh: the list of the heavy tests (default:
+#                     scripts/gate-heavy-tests.txt); a missing or empty list leaves no test out
+#   G4_GATE_LIMIT_S   test seam of scripts/tests/gate.test.sh: the seconds above which the fast gate
+#                     warns, an integer (default 900)
 # The g4emu integration step (--full) also needs the emulator core (bash scripts/g4emu/setup.sh) and
 # $G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav; without them (or without the Platinum DE ROM) it
 # is recorded as skipped. The uv steps run with UV_NATIVE_TLS=1 (the system certificate store).
@@ -66,6 +80,15 @@ done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# The fast gate warns when its total goes over this many seconds (the 15 minutes of the spec).
+GATE_LIMIT_S="${G4_GATE_LIMIT_S:-900}"
+case "${GATE_LIMIT_S#-}" in
+  '' | *[!0-9]*)
+    echo "G4_GATE_LIMIT_S ist keine ganze Zahl: $GATE_LIMIT_S" >&2
+    exit 2
+    ;;
+esac
 
 # Use the pinned toolchain when it exists, otherwise whatever the shell has.
 TOOLCHAIN_BIN="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin"
@@ -96,6 +119,9 @@ G4_ROTOM_LSP="$(abs "${G4_ROTOM_LSP:-$ROOT/tools/rotom/bin/rotom-lsp}")"
 ROWS=()
 FAILED=0
 STARTED=$SECONDS
+# The number of tests the fast gate left out of "cargo test (no ROM data)", named after the table.
+# Set when that step starts: a gate that stopped before it left nothing out.
+HEAVY_NOTE=0
 # "Gate (hermetisch)" instead of "Gate" when the run stops after the steps without ROM.
 GATE_LABEL="Gate"
 if [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
@@ -115,6 +141,7 @@ record() { # record <step> <project> <result> <seconds>
 }
 
 print_table() {
+  local total=$((SECONDS - STARTED))
   echo
   printf '%-52s %-44s %-26s %7s\n' "Step" "Project" "Result" "Seconds"
   printf '%-52s %-44s %-26s %7s\n' "----" "-------" "------" "-------"
@@ -124,10 +151,20 @@ print_table() {
     printf '%-52s %-44s %-26s %7s\n' "$step" "$project" "$result" "$secs"
   done
   echo
+  # The notes come before the closing line, which stays the last line of the output.
+  if [ "$HEAVY_NOTE" -gt 0 ]; then
+    echo "$HEAVY_NOTE schwere Tests laufen nur im Volllauf (scripts/gate-heavy-tests.txt)."
+  fi
+  # Only the fast gate: the full run executes every test and takes hours by design.
+  if [ "$FULL" -eq 0 ] && [ "$total" -gt "$GATE_LIMIT_S" ]; then
+    echo "Warnung: das schnelle Gate hat $total s gebraucht (Grenze $GATE_LIMIT_S s)." \
+      "Die Liste der schweren Tests neu erzeugen: bash scripts/gate-heavy-update.sh <Log> [<Sekunden>]" \
+      "(das Log: cargo test mit --report-time, siehe das Skript)."
+  fi
   if [ "$FAILED" -eq 0 ] && [ "${#ROWS[@]}" -gt 0 ]; then
-    echo "$GATE_LABEL: ok ($((SECONDS - STARTED)) s)"
+    echo "$GATE_LABEL: ok ($total s)"
   else
-    echo "$GATE_LABEL: FAILED ($((SECONDS - STARTED)) s)"
+    echo "$GATE_LABEL: FAILED ($total s)"
   fi
 }
 
@@ -240,6 +277,32 @@ fi
 if [ "$FULL" -eq 1 ] && [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
   echo "Hinweis: G4_GATE_HERMETIC=1 ist gesetzt, das Gate endet trotz --full nach den Schritten" \
     "ohne ROM." >&2
+fi
+
+# The command of "cargo test (no ROM data)": the whole suite, or in the fast gate the suite without
+# the heavy tests of scripts/gate-heavy-tests.txt (see "Heavy tests" above). An array, so that a
+# name reaches cargo as one argument whatever it holds. A missing, unreadable or empty list (and
+# --full) leaves the plain command.
+HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$ROOT/scripts/gate-heavy-tests.txt}"
+HEAVY=()
+if [ "$FULL" -eq 0 ] && [ -f "$HEAVY_LIST" ] && [ -r "$HEAVY_LIST" ]; then
+  while IFS= read -r heavy_name || [ -n "$heavy_name" ]; do
+    # CR and blanks around a name are no part of it; # lines and empty lines are no names.
+    heavy_name="${heavy_name%$'\r'}"
+    heavy_name="${heavy_name#"${heavy_name%%[![:space:]]*}"}"
+    heavy_name="${heavy_name%"${heavy_name##*[![:space:]]}"}"
+    case "$heavy_name" in
+      '' | '#'*) ;;
+      *) HEAVY+=("$heavy_name") ;;
+    esac
+  done <"$HEAVY_LIST"
+fi
+TEST_CMD=(cargo test --workspace --all-features)
+if [ "${#HEAVY[@]}" -gt 0 ]; then
+  TEST_CMD+=(-- --exact)
+  for heavy_name in "${HEAVY[@]}"; do
+    TEST_CMD+=(--skip "$heavy_name")
+  done
 fi
 
 # A background step: run_step for the chains below. The output goes to its own log, the result
@@ -370,9 +433,10 @@ start_chain script-tests chain_script_tests
 start_chain g4emu chain_g4emu
 # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
 # A failure does not end the gate yet: the background steps are joined and reported first.
+HEAVY_NOTE="${#HEAVY[@]}"
 with_gate_tmpdir try_step "cargo test (no ROM data)" "" \
   env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
-  cargo test --workspace --all-features || true
+  "${TEST_CMD[@]}" || true
 join_chains
 if [ "$FAILED" -ne 0 ]; then
   exit 1

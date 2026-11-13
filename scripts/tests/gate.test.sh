@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/gate.sh: the order of the steps, the split into the fast gate and --full, the
-# steps that run beside `cargo test (no ROM data)`, and G4_GATE_TMPDIR. Every command of the gate
-# is replaced by a stub (G4_GATE_CMD_PREFIX), so nothing real runs: no cargo, pnpm or uv, no ROM.
+# steps that run beside `cargo test (no ROM data)`, G4_GATE_TMPDIR, and the heavy tests that only the
+# full run executes (scripts/gate-heavy-tests.txt). Every command of the gate is replaced by a stub
+# (G4_GATE_CMD_PREFIX), so nothing real runs: no cargo, pnpm or uv, no ROM.
 set -euo pipefail
 
 . "$(dirname "$0")/lib.sh"
@@ -9,8 +10,8 @@ set -euo pipefail
 GATE="$REPO_ROOT/scripts/gate.sh"
 
 # What a developer shell may export must not steer the gate under test; each test sets what it needs.
-unset G4_GATE_HERMETIC G4_GATE_TMPDIR G4_GATE_STUB_FAIL G4_GATE_CMD_PREFIX G4_ROMS_DIR \
-  G4_APICULA G4_DSROM_CLI G4_ROTOM_LSP G4EMU_CORE
+unset G4_GATE_HERMETIC G4_GATE_TMPDIR G4_GATE_STUB_FAIL G4_GATE_CMD_PREFIX G4_GATE_HEAVY_LIST \
+  G4_GATE_LIMIT_S G4_ROMS_DIR G4_APICULA G4_DSROM_CLI G4_ROTOM_LSP G4EMU_CORE
 
 # sandbox: prints a directory with
 #   stub.sh  the stand-in for every command of the gate: prints the step, TMPDIR and the command
@@ -37,10 +38,13 @@ SH
 
 # run_gate <gate arguments...>: the gate as CI runs it (G4_GATE_HERMETIC=1), stdout and stderr
 # together. Variables set in front of the call (G4_GATE_STUB_FAIL=..., G4_GATE_TMPDIR=...) reach it.
+# Without G4_GATE_HEAVY_LIST the gate reads a list that does not exist, so the tests do not depend
+# on what scripts/gate-heavy-tests.txt holds today.
 run_gate() {
   local d
   d="$(sandbox)"
   env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$d/no-heavy-tests.txt}" \
     G4_GATE_HERMETIC=1 bash "$GATE" "$@" 2>&1
 }
 
@@ -60,6 +64,7 @@ run_gate_local() {
     : >"$roms/$name.nds"
   done
   env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_HEAVY_LIST="${G4_GATE_HEAVY_LIST:-$d/no-heavy-tests.txt}" \
     G4_ROMS_DIR="$roms" G4_APICULA="$d/stub.sh" G4_DSROM_CLI="$d/stub.sh" \
     G4_ROTOM_LSP="$d/stub.sh" G4EMU_CORE="$d/stub.sh" bash "$GATE" "$@" 2>&1
 }
@@ -326,6 +331,170 @@ SH
   # A stopped gate is a failed gate: it says so, it does not close with "ok".
   [ "$status" -ne 0 ] || fail "the stopped gate exited with status 0"
   assert_contains "Gate (hermetisch): FAILED (" cat "$d/out"
+}
+
+# cargo_test_line <output>: the stub line of the step "cargo test (no ROM data)": the command line
+# the gate gave it, after "<step> TMPDIR=...: ".
+cargo_test_line() {
+  printf '%s\n' "$1" | grep -F 'stub[cargo test (no ROM data)]'
+}
+
+# heavy_list <file> <lines...>: writes a list of heavy tests (one argument is one line).
+heavy_list() {
+  local file="$1"
+  shift
+  printf '%s\n' "$@" >"$file"
+}
+
+HEAVY_ENV="env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP"
+
+test_fast_gate_skips_the_heavy_tests_exactly() {
+  local d out line
+  d="$(tmpdir)"
+  heavy_list "$d/heavy.txt" "# schwere Tests" "" "one::heavy" "   " "# not::a_test" "two::heavy"
+  out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" run_gate)"
+  line="$(cargo_test_line "$out")"
+  case "$line" in
+    *": $HEAVY_ENV cargo test --workspace --all-features -- --exact --skip one::heavy --skip two::heavy") ;;
+    *) fail "the cargo test line does not skip exactly the two heavy tests: $line" ;;
+  esac
+  # Only that step skips; the step before it keeps its plain command.
+  assert_not_contains "--skip" printf '%s' "$(printf '%s\n' "$out" | grep -F 'stub[mcp]')"
+  assert_contains "Gate (hermetisch): ok (" printf '%s' "$out"
+}
+
+test_heavy_test_names_reach_cargo_as_single_arguments() {
+  local d out
+  d="$(sandbox)"
+  # This stub prints every argument of the test step on a line of its own.
+  cat >"$d/stub.sh" <<'SH'
+#!/usr/bin/env bash
+if [ "${G4_GATE_STEP:-}" = "cargo test (no ROM data)" ]; then
+  printf 'arg<%s>\n' "$@"
+fi
+exit 0
+SH
+  heavy_list "$d/heavy.txt" 'with::a space' '$HOME::literal' '*' 'quote::"it"'
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+  assert_contains "$(printf '%s\n' 'arg<--exact>' 'arg<--skip>' 'arg<with::a space>' 'arg<--skip>' \
+    'arg<$HOME::literal>' 'arg<--skip>' 'arg<*>' 'arg<--skip>' 'arg<quote::"it">')" printf '%s' "$out"
+  # An unquoted * would have become the file names of the repository.
+  assert_not_contains "arg<Cargo.toml>" printf '%s' "$out"
+}
+
+test_fast_gate_without_a_list_runs_the_plain_command() {
+  local d out line
+  d="$(tmpdir)"
+  : >"$d/empty.txt"
+  heavy_list "$d/comments.txt" "# nur ein Kommentar" ""
+  # No list file at all (run_gate's default), an empty one, one of comments only.
+  for out in "$(run_gate)" "$(G4_GATE_HEAVY_LIST="$d/empty.txt" run_gate)" \
+    "$(G4_GATE_HEAVY_LIST="$d/comments.txt" run_gate)"; do
+    line="$(cargo_test_line "$out")"
+    case "$line" in
+      *" -- "*) fail "the plain command has an argument part: $line" ;;
+    esac
+    case "$line" in
+      *": $HEAVY_ENV cargo test --workspace --all-features") ;;
+      *) fail "the cargo test line is not today's command: $line" ;;
+    esac
+    assert_not_contains "schwere Tests" printf '%s' "$out"
+  done
+}
+
+test_full_gate_skips_no_test() {
+  local d out line
+  d="$(tmpdir)"
+  heavy_list "$d/heavy.txt" "one::heavy" "two::heavy"
+  # The local --full run and the hermetic one: the no-ROM step is the whole suite in both.
+  for out in "$(G4_GATE_HEAVY_LIST="$d/heavy.txt" run_gate_local --full)" \
+    "$(G4_GATE_HEAVY_LIST="$d/heavy.txt" run_gate --full)"; do
+    line="$(cargo_test_line "$out")"
+    case "$line" in
+      *": $HEAVY_ENV cargo test --workspace --all-features") ;;
+      *) fail "the full gate's cargo test line is not today's command: $line" ;;
+    esac
+    assert_not_contains "--skip" printf '%s' "$line"
+    assert_not_contains "heavy" printf '%s' "$line"
+    assert_not_contains "schwere Tests" printf '%s' "$out"
+  done
+  # The per-project passes are unchanged: they skip build_graph_timings and nothing else.
+  out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" run_gate_local --full)"
+  line="$(printf '%s\n' "$out" | grep -F 'stub[gated tests (cargo test)]' | head -1)"
+  case "$line" in
+    *"cargo test --workspace --all-features -- --skip build_graph_timings") ;;
+    *) fail "the per-project command changed: $line" ;;
+  esac
+}
+
+test_fast_gate_names_the_number_of_heavy_tests() {
+  local d out count
+  d="$(tmpdir)"
+  heavy_list "$d/heavy.txt" "# schwere Tests" "a::heavy" "" "b::heavy" "c::heavy"
+  out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" run_gate)"
+  assert_contains "3 schwere Tests laufen nur im Volllauf (scripts/gate-heavy-tests.txt)." \
+    printf '%s' "$out"
+  # After the table, in front of its closing line, and only once.
+  assert_before "$out" "Seconds" "3 schwere Tests laufen nur im Volllauf"
+  assert_before "$out" "3 schwere Tests laufen nur im Volllauf" "Gate (hermetisch): ok ("
+  count="$(printf '%s\n' "$out" | grep -c 'schwere Tests laufen nur im Volllauf')"
+  [ "$count" -eq 1 ] || fail "the line comes $count times"
+  # The local fast gate says it as well; the label is the plain one.
+  out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" run_gate_local)"
+  assert_contains "3 schwere Tests laufen nur im Volllauf (scripts/gate-heavy-tests.txt)." \
+    printf '%s' "$out"
+  # Not when no test is left out.
+  : >"$d/empty.txt"
+  assert_not_contains "schwere Tests" printf '%s' "$(G4_GATE_HEAVY_LIST="$d/empty.txt" run_gate)"
+}
+
+test_the_default_list_is_scripts_gate_heavy_tests_txt() {
+  local d out line listed skips
+  d="$(sandbox)"
+  # G4_GATE_HEAVY_LIST is unset here (see the top of this file).
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" G4_GATE_CMD_PREFIX="$d/stub.sh" \
+    G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
+  listed="$(grep -c -v -e '^#' -e '^[[:space:]]*$' "$REPO_ROOT/scripts/gate-heavy-tests.txt")"
+  [ "$listed" -gt 0 ] || fail "scripts/gate-heavy-tests.txt lists no test"
+  line="$(cargo_test_line "$out")"
+  skips="$(printf '%s\n' "$line" | grep -o -e '--skip' | wc -l)"
+  [ "$((skips))" -eq "$listed" ] || fail "$skips skips for $listed listed tests: $line"
+  assert_contains "$listed schwere Tests laufen nur im Volllauf (scripts/gate-heavy-tests.txt)." \
+    printf '%s' "$out"
+}
+
+test_a_gate_over_900_s_warns_and_stays_green() {
+  local out status=0 total
+  # The limit is injectable: -1 s is exceeded by every run.
+  out="$(G4_GATE_LIMIT_S=-1 run_gate)" || status=$?
+  [ "$status" -eq 0 ] || fail "expected status 0, got $status: $out"
+  assert_contains "Warnung: das schnelle Gate hat " printf '%s' "$out"
+  assert_contains "scripts/gate-heavy-update.sh" printf '%s' "$out"
+  assert_contains "Gate (hermetisch): ok (" printf '%s' "$out"
+  # The warning names the total that the closing line names.
+  total="$(printf '%s\n' "$out" | sed -n 's/^Gate (hermetisch): ok (\([0-9][0-9]*\) s)$/\1/p')"
+  [ -n "$total" ] || fail "no total in the closing line: $out"
+  assert_contains "hat $total s gebraucht (Grenze -1 s)" printf '%s' "$out"
+  assert_before "$out" "Warnung: das schnelle Gate" "Gate (hermetisch): ok ("
+  # A failed gate over the limit warns as well, and stays failed.
+  status=0
+  out="$(G4_GATE_LIMIT_S=-1 G4_GATE_STUB_FAIL="script tests" run_gate)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status"
+  assert_contains "Warnung: das schnelle Gate hat " printf '%s' "$out"
+  assert_contains "Gate (hermetisch): FAILED (" printf '%s' "$out"
+  # Within the limit (a stubbed run takes seconds): no warning.
+  assert_not_contains "Warnung" run_gate
+  # The full run executes every test; the limit is a limit of the fast gate.
+  assert_not_contains "Warnung" printf '%s' "$(G4_GATE_LIMIT_S=-1 run_gate --full)"
+  # The limit without the variable is the 900 s of the spec.
+  grep -q 'G4_GATE_LIMIT_S:-900}' "$GATE" || fail "the default limit is not 900 s"
+}
+
+test_a_limit_that_is_no_number_is_refused() {
+  G4_GATE_LIMIT_S=schnell assert_status 2 run_gate_unstubbed
+  G4_GATE_LIMIT_S=schnell assert_contains "G4_GATE_LIMIT_S" run_gate_unstubbed
+  G4_GATE_LIMIT_S=1e3 assert_status 2 run_gate_unstubbed
 }
 
 run_tests

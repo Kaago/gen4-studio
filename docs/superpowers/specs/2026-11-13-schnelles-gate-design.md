@@ -192,3 +192,17 @@ Volllauf gesehen hat, kann in ein Release gelangen.
 - Ein Volllauf auf demselben Commit ist grün und führt jeden ROM-Test für jedes Projekt aus.
 - `release-local.sh` nennt das jüngste grüne Volllauf-Ergebnis und warnt, wenn es nicht auf
   dem Release-Commit liegt oder fehlt.
+
+## Nachtrag 2026-11-13: schwere Tests und ROM-Stichprobe im Volllauf
+
+Gemessen: Das schnelle Gate mit allen Tests ohne ROM-Daten brauchte 1.342 s statt der
+geforderten 900 s; `cargo test` ohne ROM-Daten allein 809 s, neben den parallelen Schritten
+1.181 s. Ein Virenscanner macht jede Datei einer Testvorlage teuer, und der Testcode ist
+ausgereizt (Teil A, Parallelität). Der Auftraggeber hat zwei Dinge entschieden: Das schnelle
+Gate hat keinen ROM-Schritt, auch keine Stichprobe; die Zeile „ROM-Stichprobe“ in Teil B und im
+Zeitbudget entfällt. Und die schwersten Tests, die ab 8 s (238 von rund 3.900 Tests, zusammen
+4.072 von 6.080 s Testzeit), stehen in `scripts/gate-heavy-tests.txt` und laufen nur im
+Volllauf. Das ersetzt in Ziel 2 „alle Tests ohne ROM“ durch „alle Tests ohne ROM, außer den
+gelisteten schweren“; Weg 3 gilt damit für diese Tests. Der Preis: Ein Fehler, den nur ein
+gelisteter Test findet, fällt erst im Nachtlauf auf. Die Liste erzeugt
+`scripts/gate-heavy-update.sh` aus einem Zeitlog neu, wenn das Gate warnt (Summe über 900 s).
