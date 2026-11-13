@@ -17,7 +17,7 @@ static FIXTURES_ROOT: OnceLock<PathBuf> = OnceLock::new();
 /// One cell per key: callers of one key wait for its build, callers of other keys do not.
 static CELLS: Mutex<BTreeMap<String, &'static OnceLock<PathBuf>>> = Mutex::new(BTreeMap::new());
 
-/// The directory of the template `key`, a folder named `key`. `build` fills it on the first
+/// The directory of the template `key`, a folder named by [`folder_name`]. `build` fills it on the first
 /// call with this key in the process; parallel and later calls wait for that build and drop
 /// their own `build`. `build` gets an empty directory and must leave the finished tree in it.
 ///
@@ -29,7 +29,7 @@ pub(crate) fn template(key: &str, build: impl FnOnce(&Path)) -> &'static Path {
         .entry(key.to_owned())
         .or_insert_with(|| Box::leak(Box::new(OnceLock::new())));
     cell.get_or_init(|| {
-        let dir = fixtures_root().join(key);
+        let dir = fixtures_root().join(folder_name(key));
         // The rest of an earlier build of this key that panicked.
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -50,6 +50,25 @@ pub(crate) fn from_template(key: &str, build: impl FnOnce(&Path)) -> tempfile::T
     std::fs::remove_dir(dir.path()).unwrap();
     clone_tree(source, dir.path());
     dir
+}
+
+/// The name of the folder of the template `key` below [`fixtures_root`]: the key itself if it
+/// is a short run of letters, digits, `-` and `_` (the text fixtures' keys), else a readable
+/// start of it, a `.` and the hash of the whole key. A key can be anything a fixture is built
+/// from, and one holding every location name of a full HeartGold bank is longer than a file
+/// name may be. No `.` in a plain key, so a hashed name never equals a plain key's.
+pub(crate) fn folder_name(key: &str) -> String {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    let plain = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    if !key.is_empty() && key.len() <= 48 && key.chars().all(plain) {
+        return key.to_owned();
+    }
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    let start: String = key.chars().filter(|c| plain(*c)).take(24).collect();
+    let start = if start.is_empty() { "key" } else { &start };
+    format!("{start}.{:016x}", hasher.finish())
 }
 
 fn fixtures_root() -> &'static Path {
@@ -91,7 +110,12 @@ mod tests {
     use serde_json::Value;
     use sha1::{Digest, Sha1};
 
-    use super::super::TextFixture;
+    use super::super::{
+        PT_EGG_MOVES_OFFSET, TextFixture, prepare_platinum_de, synthetic_hgss_egg_moves,
+        synthetic_hgss_egg_moves_uncached, synthetic_hgss_project, synthetic_hgss_project_uncached,
+        synthetic_platinum_egg_moves, synthetic_platinum_egg_moves_uncached, synthetic_project,
+        synthetic_project_uncached,
+    };
     use super::*;
 
     /// Every file below `root` as (`/`-separated path relative to `root`, SHA-1 of its content).
@@ -166,7 +190,11 @@ mod tests {
     }
 
     fn assert_same_tree(cloned: &TextFixture, fresh: &TextFixture) {
-        let (cloned, fresh) = (tree_digest(cloned.root()), tree_digest(fresh.root()));
+        assert_same_trees(cloned.root(), fresh.root());
+    }
+
+    fn assert_same_trees(cloned: &Path, fresh: &Path) {
+        let (cloned, fresh) = (tree_digest(cloned), tree_digest(fresh));
         let differing: Vec<&String> = cloned
             .keys()
             .chain(fresh.keys())
@@ -181,22 +209,311 @@ mod tests {
         );
     }
 
+    /// The template `key` is there because the fixture under test built it: a fixture that
+    /// does not go through [`template`] leaves the build closure here to run, which panics.
+    fn assert_built_as_template(key: &str) {
+        template(key, |_| {
+            panic!("the fixture did not build the template `{key}`")
+        });
+    }
+
     #[test]
     fn a_clone_of_text_dspre_equals_a_fresh_build() {
-        assert_same_tree(&TextFixture::dspre(), &TextFixture::with(|_| {}));
+        let cloned = TextFixture::dspre();
+        assert_built_as_template("text-dspre");
+        assert_same_tree(&cloned, &TextFixture::dspre_uncached());
     }
 
     #[test]
     fn a_clone_of_text_exported_equals_a_fresh_build() {
-        assert_same_tree(&TextFixture::exported(), &TextFixture::exported_uncached());
+        let cloned = TextFixture::exported();
+        assert_built_as_template("text-exported");
+        assert_same_tree(&cloned, &TextFixture::exported_uncached());
+    }
+
+    #[test]
+    fn a_clone_of_text_ptde_equals_a_fresh_build() {
+        for patch in [false, true] {
+            let cloned = TextFixture::platinum_de(patch);
+            assert_built_as_template(&format!("text-ptde-{patch}"));
+            assert_same_tree(&cloned, &TextFixture::platinum_de_uncached(patch));
+        }
+    }
+
+    #[test]
+    fn a_clone_of_text_ptde_exported_equals_a_fresh_build() {
+        for patch in [false, true] {
+            let cloned = TextFixture::platinum_de_exported(patch);
+            assert_built_as_template(&format!("text-ptde-exported-{patch}"));
+            assert_same_tree(&cloned, &TextFixture::platinum_de_exported_uncached(patch));
+        }
+    }
+
+    #[test]
+    fn a_clone_of_pt_equals_a_fresh_build() {
+        let cloned = synthetic_project();
+        assert_built_as_template("pt");
+        assert_same_trees(cloned.dir.path(), synthetic_project_uncached().dir.path());
+    }
+
+    #[test]
+    fn a_clone_of_hgss_equals_a_fresh_build() {
+        // The key holds every location name: of a full bank it is far longer than a file name
+        // may be.
+        let names: Vec<String> = (0..256).map(|i| format!("Name {i}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        for (names, headers) in [(names.as_slice(), 2), (&["Innen", "Außen"], 3), (&["A"], 1)] {
+            let cloned = synthetic_hgss_project(names, headers);
+            assert_built_as_template(&format!("hgss-{headers}-{}", names.join("\u{1f}")));
+            assert_same_trees(
+                cloned.dir.path(),
+                synthetic_hgss_project_uncached(names, headers).dir.path(),
+            );
+        }
+    }
+
+    #[test]
+    fn a_clone_of_hgss_egg_equals_a_fresh_build() {
+        let cloned = synthetic_hgss_egg_moves();
+        assert_built_as_template("hgss-egg");
+        assert_same_trees(
+            cloned.dir.path(),
+            synthetic_hgss_egg_moves_uncached().dir.path(),
+        );
+    }
+
+    #[test]
+    fn a_clone_of_pt_egg_equals_a_fresh_build() {
+        // The measured offset and one that fails the signature are two templates.
+        for table_at in [PT_EGG_MOVES_OFFSET, PT_EGG_MOVES_OFFSET + 2] {
+            let cloned = synthetic_platinum_egg_moves(table_at);
+            assert_built_as_template(&format!("pt-egg-{table_at}"));
+            assert_same_trees(
+                cloned.dir.path(),
+                synthetic_platinum_egg_moves_uncached(table_at).dir.path(),
+            );
+        }
+    }
+
+    #[test]
+    fn with_and_unmarked_on_a_clone_of_pt_equal_a_fresh_build() {
+        // `prepare` changes the packed archives before they are unpacked.
+        let prepare = |p: &crate::project::Project| prepare_platinum_de(p, true);
+        let cloned = TextFixture::with(prepare);
+        assert_built_as_template("pt");
+        assert_same_tree(&cloned, &TextFixture::with_uncached(prepare));
+        assert_same_tree(
+            &TextFixture::unmarked(prepare),
+            &TextFixture::unmarked_uncached(prepare),
+        );
+        assert_same_tree(
+            &TextFixture::unmarked(|_| {}),
+            &TextFixture::unmarked_uncached(|_| {}),
+        );
+    }
+
+    #[test]
+    fn placing_a_layer_by_clone_gives_the_layer_of_a_copy() {
+        use super::super::{place_layer_at, place_layer_by_copy, unpack_all};
+        let source = tempfile::tempdir().unwrap();
+        let (cloned, copied) = (
+            source.path().join("proj-one"),
+            source.path().join("proj-two"),
+        );
+        std::fs::create_dir(&cloned).unwrap();
+        super::super::write_synthetic_project(&cloned);
+        unpack_all(&crate::project::Project::open(&cloned).unwrap());
+        // A project of the same files, with a `.g4` folder the layer must leave out.
+        std::fs::create_dir_all(cloned.join(".g4/build")).unwrap();
+        std::fs::write(cloned.join(".g4/build/state.json"), "{}").unwrap();
+        clone_tree(&cloned, &copied);
+        let sha1 = "0".repeat(40);
+        place_layer_at(&cloned, &sha1);
+        place_layer_by_copy(&copied, &sha1);
+        assert_same_trees(&cloned, &copied);
+        // Placed again after a change, the layer is merged into: the removed file stays.
+        for root in [&cloned, &copied] {
+            std::fs::write(root.join("header.yaml"), "changed").unwrap();
+            std::fs::remove_file(root.join("config.yaml")).unwrap();
+        }
+        place_layer_at(&cloned, &sha1);
+        place_layer_by_copy(&copied, &sha1);
+        assert_same_trees(&cloned, &copied);
+        let layer = cloned.join(".g4/cache/base-layer").join(&sha1);
+        assert_eq!(
+            std::fs::read(layer.join("header.yaml")).unwrap(),
+            b"changed"
+        );
+        assert!(layer.join("config.yaml").is_file());
+        assert!(!layer.join(".g4").exists());
+    }
+
+    /// Every text template, each with whether its build state is not empty.
+    fn text_templates() -> Vec<(&'static str, TextFixture, bool)> {
+        vec![
+            ("text-dspre", TextFixture::dspre(), false),
+            ("text-exported", TextFixture::exported(), true),
+            ("text-ptde-false", TextFixture::platinum_de(false), false),
+            ("text-ptde-true", TextFixture::platinum_de(true), false),
+            (
+                "text-ptde-exported-false",
+                TextFixture::platinum_de_exported(false),
+                true,
+            ),
+            (
+                "text-ptde-exported-true",
+                TextFixture::platinum_de_exported(true),
+                true,
+            ),
+        ]
+    }
+
+    /// A clone has other inodes and ctimes than the project that recorded its build state, and
+    /// the kernel calls such a file the same only with a content hash on record. So a clone of
+    /// each text template must be what the kernel's own comparisons call unchanged: the text
+    /// archives in sync, every recorded build step input and output the same, and the text
+    /// project's sync scan without a unit that is not in step.
+    #[test]
+    fn a_clone_of_each_text_template_is_unchanged_for_the_build_state() {
+        use crate::build::fingerprint::{Seen, compare, now_ns};
+        use crate::build::state::BuildState;
+        use crate::text::{TextSide, TextSync};
+        use crate::textproject::sync::{UnitSide, scan};
+
+        for (key, fx, has_state) in text_templates() {
+            let project = fx.project();
+            let state = BuildState::load(fx.root());
+            assert_eq!(
+                state.texts.is_empty() && state.sync.is_none() && state.steps.is_empty(),
+                !has_state,
+                "{key}: the template's build state"
+            );
+            let texts = TextSync::load(&project);
+            for archive in state.texts.keys() {
+                assert_eq!(
+                    texts.side(&project, *archive).unwrap(),
+                    TextSide::InSync,
+                    "{key}: text archive {archive}"
+                );
+            }
+            for (id, record) in &state.steps {
+                for (file, recorded) in record.inputs.iter().chain(&record.outputs) {
+                    let (seen, _) = compare(
+                        &fx.root().join(file),
+                        Some(recorded),
+                        record.scanned_at_ns,
+                        now_ns(),
+                    )
+                    .unwrap();
+                    assert_eq!(seen, Seen::Same, "{key}: step {id}, {file}");
+                }
+            }
+            if state.sync.is_some() {
+                let report = scan(&project, &mut |_| {}).unwrap();
+                assert!(!report.full, "{key}: the scan found no record");
+                let changed: Vec<&String> = report
+                    .units
+                    .iter()
+                    .filter(|unit| unit.side != UnitSide::InSync)
+                    .map(|unit| &unit.key)
+                    .collect();
+                assert!(changed.is_empty(), "{key}: changed units {changed:?}");
+            }
+        }
+    }
+
+    /// The build state of a fresh build has the `stat` of every file it records, and the
+    /// build step relies on it: it judges a file written after its sync record by its ctime
+    /// (a record older than what the step read), and a clone's ctimes are all newer than the
+    /// template's. So the state of a clone must be stamped with the clone's own `stat`.
+    #[test]
+    fn a_clone_of_each_text_template_has_the_stat_its_build_state_recorded() {
+        use super::super::each_recorded_fp;
+        use crate::build::fingerprint::{same_stat, stat};
+        use crate::build::state::BuildState;
+
+        for (key, fx, has_state) in text_templates() {
+            let mut state = BuildState::load(fx.root());
+            let mut recorded = 0;
+            let mut stale = Vec::new();
+            each_recorded_fp(&mut state, &fx.project(), |path, fp| {
+                recorded += 1;
+                match stat(&path).unwrap() {
+                    Some(now) if same_stat(fp, &now) => {}
+                    _ => stale.push(path),
+                }
+            });
+            assert_eq!(recorded > 0, has_state, "{key}: recorded files");
+            assert!(
+                stale.is_empty(),
+                "{key}: {} of {recorded} files have another stat than recorded, the first ones: {:?}",
+                stale.len(),
+                &stale[..stale.len().min(5)]
+            );
+        }
+    }
+
+    /// The same, as the build step sees it: after a first build the step's entry has read
+    /// every file the sync recorded, and none of them with a ctime later than the record's (that
+    /// would be a file changed since the record: the step then treats its unit as changed).
+    #[test]
+    fn the_build_step_reads_a_clone_as_unchanged_since_the_sync_record() {
+        use crate::build::state::BuildState;
+        for patch in [false, true] {
+            let fx = TextFixture::platinum_de_exported(patch);
+            crate::build::prepare(&fx.project()).unwrap();
+            let state = BuildState::load(fx.root());
+            let sync = state.sync.expect("the sync record of the export");
+            let entry = &state.steps["textproject"];
+            let mut read = 0;
+            for (file, fp) in &entry.inputs {
+                if let Some(recorded) = sync.files.get(file) {
+                    read += 1;
+                    assert!(
+                        fp.ctime_ns <= recorded.ctime_ns,
+                        "patch {patch}: {file} was read with a ctime later than its record's"
+                    );
+                }
+            }
+            assert!(read > 100, "patch {patch}: only {read} files read");
+        }
+    }
+
+    /// Why the test above matters: a recorded fingerprint without a hash (the build records
+    /// one only for a file that is racy at its scan) says "changed" of the same file in a
+    /// clone, whose inode is another one. A template whose state held such entries would make
+    /// every test on a clone rebuild.
+    #[test]
+    fn a_recorded_file_without_a_hash_looks_changed_in_a_clone() {
+        use crate::build::fingerprint::{RACY_NS, Seen, capture, compare, now_ns};
+        let source = tempfile::tempdir().unwrap();
+        let file = source.path().join("f");
+        std::fs::write(&file, b"abc").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+            .unwrap();
+        let scan = now_ns() + 10 * RACY_NS;
+        let recorded = capture(&file, scan).unwrap().unwrap();
+        assert_eq!(recorded.xxh3, None, "an old file is not racy: no hash");
+        let (seen, _) = compare(&file, Some(&recorded), scan, now_ns()).unwrap();
+        assert_eq!(seen, Seen::Same);
+        let out = tempfile::tempdir().unwrap();
+        let copy = out.path().join("copy");
+        clone_tree(source.path(), &copy);
+        let (seen, _) = compare(&copy.join("f"), Some(&recorded), scan, now_ns()).unwrap();
+        assert_eq!(seen, Seen::Changed);
     }
 
     #[test]
     fn writing_into_one_clone_does_not_reach_the_next() {
         let a = TextFixture::dspre();
+        let original = a.read("header.yaml");
         a.write("header.yaml", b"changed");
         let b = TextFixture::dspre();
-        assert_ne!(b.read("header.yaml"), b"changed");
+        assert_eq!(b.read("header.yaml"), original);
     }
 
     #[test]
@@ -244,5 +561,85 @@ mod tests {
         );
         let folder = std::env::temp_dir().join(format!("g4-fixtures-{}", std::process::id()));
         assert!(template("probe-clone", |_| {}).starts_with(folder));
+    }
+
+    #[test]
+    fn a_build_that_panicked_is_tried_again_by_the_next_call() {
+        let first = std::panic::catch_unwind(|| {
+            template("probe-panic", |dir| {
+                std::fs::write(dir.join("half.txt"), "half").unwrap();
+                panic!("the build fails half way");
+            })
+        });
+        assert!(first.is_err());
+        let dir = template("probe-panic", |dir| {
+            assert!(!dir.join("half.txt").exists(), "the build starts empty");
+            std::fs::write(dir.join("whole.txt"), "whole").unwrap();
+        });
+        assert_eq!(std::fs::read(dir.join("whole.txt")).unwrap(), b"whole");
+        assert!(!dir.join("half.txt").exists());
+        // The template is built now: a third call does not build.
+        assert_eq!(template("probe-panic", |_| panic!("built once")), dir);
+    }
+
+    #[test]
+    fn a_template_folder_is_named_by_its_key_if_that_is_a_file_name() {
+        assert_eq!(folder_name("text-dspre"), "text-dspre");
+        assert_eq!(folder_name("pt-egg-168510"), "pt-egg-168510");
+    }
+
+    #[test]
+    fn a_long_key_or_one_with_odd_characters_gets_a_short_unique_folder() {
+        let names: Vec<String> = (0..256).map(|i| format!("Name {i}")).collect();
+        let long = format!("hgss-2-{}", names.join("\u{1f}"));
+        let longer = format!("{long}x");
+        let keys = [
+            long.as_str(),
+            longer.as_str(),
+            "hgss-2-Innen\u{1f}Außen",
+            "hgss-2-Innen\u{1f}Aussen",
+            "a/b",
+            "a b",
+            "a_b",
+            "..",
+            "",
+        ];
+        let folders: Vec<String> = keys.iter().map(|key| folder_name(key)).collect();
+        for (key, folder) in keys.iter().zip(&folders) {
+            assert!(
+                !folder.is_empty() && folder.len() <= 64,
+                "{folder} of a key of {} bytes",
+                key.len()
+            );
+            assert!(
+                !folder.starts_with('.') && !folder.contains(['/', '\\', '\u{1f}', ' ']),
+                "{folder}"
+            );
+            assert_eq!(&folder_name(key), folder, "the same key, the same folder");
+        }
+        let mut distinct = folders.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(distinct.len(), keys.len(), "{folders:?}");
+        // The file system takes it.
+        let probe = tempfile::tempdir().unwrap();
+        for folder in &folders {
+            std::fs::create_dir(probe.path().join(folder)).unwrap();
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "has no `name = \"text-exported\"`")]
+    fn renaming_the_project_of_a_clone_fails_when_the_name_is_not_there() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("rotom.toml"), "name = \"other\"\n").unwrap();
+        super::super::rename_rotom_project(dir.path(), "text-exported");
+    }
+
+    #[test]
+    fn renaming_the_project_of_a_clone_leaves_a_project_without_rotom_toml_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        super::super::rename_rotom_project(dir.path(), "text-dspre");
+        assert!(!dir.path().join("rotom.toml").exists());
     }
 }

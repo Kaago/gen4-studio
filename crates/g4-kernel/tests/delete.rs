@@ -1404,8 +1404,9 @@ fn a_freed_trainer_number_is_created_again() {
 
 /// Copies the side of the text project Git tracks (`data/`, `expanded/`) to `to`.
 fn snapshot_tracked(fx: &TextFixture, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
     for dir in ["data", "expanded"] {
-        g4_kernel::test_support::copy_dir(&fx.root().join(dir), &to.join(dir));
+        g4_kernel::test_support::clone_tree(&fx.root().join(dir), &to.join(dir));
     }
 }
 

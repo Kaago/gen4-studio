@@ -448,7 +448,7 @@ mod tests {
         FIRST_VERSION, PublishedKind, RELEASES_FILE, bad_file, bad_version, exists, no_changes,
         releases_broken, version_taken,
     };
-    use g4_kernel::test_support::{copy_dir, synthetic_project, synthetic_rom};
+    use g4_kernel::test_support::{clone_tree, synthetic_project, synthetic_rom};
 
     /// A sentence no catalog holds: the code of a refusal comes from the kernel's code alone.
     const FOREIGN: &str = "Ein deutscher Satz, den kein Katalog kennt";
@@ -493,7 +493,7 @@ mod tests {
         let (_rom_dir, rom) = synthetic_rom();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("X_DSPRE_contents");
-        copy_dir(s.dir.path(), &root);
+        clone_tree(s.dir.path(), &root);
         let nds = tmp.path().join("X.nds");
         std::fs::copy(&rom, &nds).unwrap();
         let state = AppState::default();
