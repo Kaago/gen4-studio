@@ -4,7 +4,9 @@
   The nightly full run of the gate (scripts/gate-nightly.sh), started by launchd at 01:30.
   @REPO@ stands for the absolute path of the main checkout; the installation replaces it with sed
   (it is not installed or loaded by anything in this repository). The folder gate-artefakte/full beside
-  the main checkout must exist: launchd does not make the folder of a log.
+  the main checkout must exist: launchd does not make the folder of a log. No ProcessType: the Background
+  class throttles CPU and disk I/O, and a run of hours under it takes far longer; the script itself keeps
+  the Mac from idle sleep (caffeinate -i).
 -->
 <plist version="1.0">
 <dict>
@@ -28,7 +30,5 @@
   <string>@REPO@/../gate-artefakte/full/nightly.log</string>
   <key>RunAtLoad</key>
   <false/>
-  <key>ProcessType</key>
-  <string>Background</string>
 </dict>
 </plist>

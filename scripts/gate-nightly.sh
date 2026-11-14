@@ -11,8 +11,11 @@
 #      process is gone (it was killed, or the Mac was restarted) or the pid belongs to another program, the
 #      next start takes the lock over. (Two starts in the very same instant on such a stale lock may both
 #      win; launchd never starts a job twice at once.)
-#   2. `git fetch origin main` in the main checkout. A failed fetch ends the script with status 1: there is
-#      no run on a stale state.
+#   2. `git fetch origin main` in the main checkout, which never waits for a password (GIT_TERMINAL_PROMPT=0)
+#      and, unless the caller has a GIT_SSH_COMMAND of its own, never waits on ssh for an answer or a
+#      connection for long (ssh -o BatchMode=yes -o ConnectTimeout=30): a job without a terminal that hangs
+#      holds the lock for ever. A failed fetch ends the script with status 1: there is no run on a stale
+#      state.
 #   3. <sha> is origin/main after the fetch. When <sha>.json in the folder of the results says `gruen` it
 #      ends with status 0 and "Nachtlauf: <sha> ist schon grün". A result that is `rot`, `unvollstaendig`,
 #      missing or unreadable does not stop the run (a red commit is tried again tonight, e.g. after a
@@ -29,10 +32,15 @@
 #      gate needs: it writes a result only on a clean tree. The script writes no ignore rule anywhere
 #      (nothing in .git, nothing outside the worktree); for a commit that has no `/tools` line yet the
 #      untracked link `tools` alone is not "not clean" in the check of 4. Then `pnpm install
-#      --frozen-lockfile` in apps/studio.
+#      --frozen-lockfile` in apps/studio, with CI=true for that one command (without a terminal pnpm cannot
+#      answer the question before it removes node_modules and stops with an error; the gate never gets CI,
+#      which switches its list of the heavy tests off).
 #   6. `bash scripts/gate.sh --full` in the worktree, with CARGO_TARGET_DIR=<main checkout>/target (the build
-#      is shared with the main checkout). Its result lands in the folder of the results, like that of a run
-#      by hand. The exit status is the gate's.
+#      is shared with the main checkout), under `caffeinate -i` when /usr/bin/caffeinate exists: the run takes
+#      hours and the Mac must not go to sleep on idle in the middle of it (a sleeping Mac stops the run, which
+#      then goes on after the wake with its timings spoilt). Its result lands in the folder of the results,
+#      like that of a run by hand. The exit status is the gate's (caffeinate hands on the status of its
+#      command and waits for it when a signal reaches both).
 # The start time, the commit and the worktree are printed at the beginning; at the end "Nachtlauf: <ergebnis>
 # (<sha>)" with the `ergebnis` of <sha>.json as this run left it, or "kein Ergebnis" when the gate wrote none:
 # a file that is the same as before the gate ran (an older run of the commit) is not the result of this run.
@@ -52,6 +60,8 @@
 #   G4_NIGHTLY_WORKTREE the worktree (default: ../gen4-studio-nightly beside the main checkout; a relative
 #                       path is relative to the repository of this script); the tests use it
 #   CARGO_TARGET_DIR    default: target/ of the main checkout
+#   G4_NIGHTLY_CAFFEINATE  test seam: the caffeinate to run the gate under (default /usr/bin/caffeinate); a
+#                       file that is not an executable one means no caffeinate, the gate runs as it is
 # Works with bash 3.2 (macOS); no jq, JSON is read with python3 -I (gate_result_of in gate-result.sh).
 set -euo pipefail
 
@@ -179,7 +189,13 @@ case "$lock_status" in
   *) die "Die Sperre $LOCK lässt sich nicht anlegen." ;;
 esac
 
-if ! git -C "$MAIN_CHECKOUT" fetch origin main; then
+# No question can be answered here (launchd has no terminal): git does not ask for a password, and ssh does
+# not ask either and gives up connecting after 30 s, unless the caller has an ssh command of its own.
+fetch_env=(GIT_TERMINAL_PROMPT=0)
+if [ -z "${GIT_SSH_COMMAND:-}" ]; then
+  fetch_env+=("GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=30")
+fi
+if ! env "${fetch_env[@]}" git -C "$MAIN_CHECKOUT" fetch origin main; then
   die "git fetch origin main ist fehlgeschlagen, kein Lauf auf einem veralteten Stand."
 fi
 if ! SHA="$(git -C "$MAIN_CHECKOUT" rev-parse --verify --quiet 'origin/main^{commit}')" || [ -z "$SHA" ]; then
@@ -244,7 +260,8 @@ prepare_worktree() {
 }
 
 prepare_worktree
-if ! (cd "$WORKTREE/apps/studio" && pnpm install --frozen-lockfile); then
+# CI=true for this one command, not for the gate (see the header).
+if ! (cd "$WORKTREE/apps/studio" && CI=true pnpm install --frozen-lockfile); then
   die "pnpm install --frozen-lockfile ist fehlgeschlagen (in $WORKTREE/apps/studio)."
 fi
 
@@ -252,8 +269,16 @@ fi
 # when the gate writes none (a signal, a tree that was not clean): only a file that has changed since
 # here is the result of this run (the gate's result holds the start and the seconds of its run).
 result_before="$(cat "$RESULT" 2>/dev/null || true)"
+# The run takes hours: the Mac must not go to sleep on idle meanwhile. caffeinate -i holds that off for as
+# long as the gate runs; where it does not exist the gate runs as it is.
+KEEP_AWAKE=()
+CAFFEINATE="${G4_NIGHTLY_CAFFEINATE:-/usr/bin/caffeinate}"
+if [ -f "$CAFFEINATE" ] && [ -x "$CAFFEINATE" ]; then
+  KEEP_AWAKE=("$CAFFEINATE" -i)
+  say "caffeinate -i hält den Mac während des Laufs wach"
+fi
 gate_status=0
-(cd "$WORKTREE" && bash scripts/gate.sh --full) || gate_status=$?
+(cd "$WORKTREE" && "${KEEP_AWAKE[@]+"${KEEP_AWAKE[@]}"}" bash scripts/gate.sh --full) || gate_status=$?
 ergebnis=""
 if [ "$(cat "$RESULT" 2>/dev/null || true)" != "$result_before" ]; then
   ergebnis="$(gate_result_of "$RESULT")"

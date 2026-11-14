@@ -14,8 +14,9 @@ set -euo pipefail
 PLIST="$REPO_ROOT/scripts/release/de.gen4studio.gate-nightly.plist"
 
 # What a developer shell may export must not steer the script under test; each test sets what it needs.
-unset G4_GATE_ARTEFAKTE G4_NIGHTLY_WORKTREE CARGO_TARGET_DIR NO_ARTEFAKTE NIGHTLY_PATH \
-  G4_STUB_RECORD G4_STUB_GATE_RESULT G4_STUB_GATE_STATUS G4_STUB_GATE_HOLD G4_STUB_PNPM_FAIL
+unset G4_GATE_ARTEFAKTE G4_NIGHTLY_WORKTREE G4_NIGHTLY_CAFFEINATE CARGO_TARGET_DIR NO_ARTEFAKTE NIGHTLY_PATH \
+  G4_STUB_RECORD G4_STUB_GATE_RESULT G4_STUB_GATE_STATUS G4_STUB_GATE_HOLD G4_STUB_PNPM_FAIL \
+  GIT_SSH_COMMAND GIT_TERMINAL_PROMPT CI
 
 # The throwaway repositories take no configuration of the developer (signing, hooks, templates).
 export GIT_CONFIG_GLOBAL=/dev/null
@@ -31,7 +32,9 @@ export G4_NIGHTLY_WORKTREE="$TESTS_TMP/nightly-safety-net"
 #               gate-result.sh, a STUB scripts/gate.sh, apps/studio/package.json, a README.md and a
 #               .gitignore that is a copy of the real one (tools/ matches folders only, /tools the symlink of
 #               a worktree, node_modules/, target/); repo/tools is a folder (ignored) with a marker file
-#   bin/        pnpm, a stub: it records its folder and arguments and makes node_modules in the folder
+#   bin/        pnpm, a stub: it records its folder and arguments (rec/pnpm) and CI (rec/pnpm_ci) and makes
+#               node_modules in the folder; git, a stub that records the environment of a `git fetch`
+#               (rec/fetch) and then runs the real git
 #   home/       an empty HOME
 #   rec/        what the stubs record (gate, pnpm, order)
 #   artefakte/  G4_GATE_ARTEFAKTE of run_nightly (not made); nightly/ is its worktree (not made)
@@ -47,6 +50,7 @@ nightly_sandbox() {
   cat >"$d/bin/pnpm" <<'SH'
 #!/bin/sh
 echo "cwd=$(pwd -P) args=$*" >>"$G4_STUB_RECORD/pnpm"
+echo "ci=${CI-unset}" >>"$G4_STUB_RECORD/pnpm_ci"
 echo pnpm >>"$G4_STUB_RECORD/order"
 if [ -n "${G4_STUB_PNPM_FAIL:-}" ]; then
   echo "pnpm: simulated failure" >&2
@@ -56,6 +60,19 @@ mkdir -p node_modules
 exit 0
 SH
   chmod +x "$d/bin/pnpm"
+  # The stub git (first on the PATH of run_nightly) says what a fetch is run with, then runs the real git
+  # (found behind the folder of the stub in the PATH).
+  cat >"$d/bin/git" <<'SH'
+#!/bin/sh
+case " $* " in
+  *" fetch "*)
+    echo "prompt=${GIT_TERMINAL_PROMPT-unset} ssh=${GIT_SSH_COMMAND-unset}" >>"$G4_STUB_RECORD/fetch"
+    ;;
+esac
+real="$(PATH="${PATH#*:}" command -v git)"
+exec "$real" "$@"
+SH
+  chmod +x "$d/bin/git"
   git init -q --bare -b main "$d/origin.git"
   mkdir -p "$d/repo/scripts" "$d/repo/apps/studio" "$d/repo/tools"
   cp "$REPO_ROOT/scripts/gate-result.sh" "$d/repo/scripts/"
@@ -79,6 +96,7 @@ rec="${G4_STUB_RECORD:?}"
   # Where gate.sh puts its result: the same two functions, as seen from this worktree.
   echo "artefakte_gate=$(gate_artefakte_dir "$(gate_main_checkout "$ROOT")" "$ROOT")"
   echo "path=$PATH"
+  echo "ci=${CI-unset}"
   echo "head=$(git rev-parse HEAD)"
   echo "branch=$(git branch --show-current)"
   echo "status=$(git status --porcelain | tr '\n' ' ')"
@@ -125,7 +143,8 @@ SH
 
 # run_nightly <sandbox> [arguments]: scripts/gate-nightly.sh of <sandbox>/repo as launchd starts it: a short
 # PATH (the stub pnpm first) and no profile; stdout and stderr together. Variables set in front of the call
-# win over these defaults (G4_GATE_ARTEFAKTE, G4_NIGHTLY_WORKTREE, NIGHTLY_PATH, G4_STUB_*, ...); NO_ARTEFAKTE=1
+# win over these defaults (G4_GATE_ARTEFAKTE, G4_NIGHTLY_WORKTREE, G4_NIGHTLY_CAFFEINATE, NIGHTLY_PATH,
+# G4_STUB_*, ...); NO_ARTEFAKTE=1
 # leaves G4_GATE_ARTEFAKTE out altogether.
 run_nightly() {
   local d="$1" art_arg
@@ -137,7 +156,10 @@ run_nightly() {
   if [ "${NO_ARTEFAKTE:-}" = "1" ]; then art_arg=(-u G4_GATE_ARTEFAKTE); fi
   local wt="${G4_NIGHTLY_WORKTREE-}"
   if [ "$wt" = "$TESTS_TMP/nightly-safety-net" ]; then wt="$d/nightly"; fi
+  # The system caffeinate is not wanted in the tests (it would keep the test machine awake and does not
+  # exist everywhere): a name that is not there, unless a test names a stub.
   env "${art_arg[@]}" G4_NIGHTLY_WORKTREE="$wt" HOME="$d/home" PATH="${NIGHTLY_PATH:-$d/bin:/usr/bin:/bin}" \
+    G4_NIGHTLY_CAFFEINATE="${G4_NIGHTLY_CAFFEINATE-$d/no-caffeinate}" \
     G4_STUB_RECORD="$d/rec" bash "$d/repo/scripts/gate-nightly.sh" "$@" 2>&1
 }
 
@@ -463,6 +485,107 @@ test_a_failing_pnpm_install_ends_with_status_1_and_runs_no_gate() {
   [ ! -e "$d/artefakte/nightly.lock" ] || fail "the lock is left behind"
 }
 
+# make_caffeinate_stub <sandbox>: a stand-in for /usr/bin/caffeinate at <sandbox>/caffeinate: it records
+# its arguments in rec/caffeinate and runs the command behind the options, whose status is its own (as
+# the real one does).
+make_caffeinate_stub() {
+  cat >"$1/caffeinate" <<'SH'
+#!/bin/sh
+echo "args=$*" >>"$G4_STUB_RECORD/caffeinate"
+echo caffeinate >>"$G4_STUB_RECORD/order"
+shift
+exec "$@"
+SH
+  chmod +x "$1/caffeinate"
+}
+
+test_the_gate_runs_under_caffeinate_so_the_mac_does_not_sleep() {
+  local d out
+  d="$(nightly_sandbox)"
+  make_caffeinate_stub "$d"
+  out="$(G4_NIGHTLY_CAFFEINATE="$d/caffeinate" run_nightly "$d")"
+  # -i (no idle sleep) around the very command of the gate, and nothing around pnpm or git.
+  [ "$(cat "$d/rec/caffeinate")" = "args=-i bash scripts/gate.sh --full" ] || fail "caffeinate: $(cat "$d/rec/caffeinate")"
+  [ "$(gate_runs "$d")" -eq 1 ] || fail "the gate did not run once: $out"
+  [ "$(tr '\n' ' ' <"$d/rec/order")" = "pnpm caffeinate gate " ] || fail "order: $(cat "$d/rec/order")"
+  assert_contains "Nachtlauf: caffeinate -i hält den Mac während des Laufs wach" printf '%s' "$out"
+  # The gate is the same as without it: folder, arguments, environment.
+  [ "$(gate_saw "$d" cwd)" = "$(cd "$d/nightly" && pwd -P)" ] || fail "the gate ran in $(gate_saw "$d" cwd)"
+  [ "$(gate_saw "$d" args)" = "--full" ] || fail "gate arguments: $(gate_saw "$d" args)"
+  [ "$(gate_saw "$d" cargo_target_dir)" = "$d/repo/target" ] || fail "CARGO_TARGET_DIR: $(gate_saw "$d" cargo_target_dir)"
+}
+
+test_the_status_of_the_gate_comes_through_caffeinate() {
+  local d out status ergebnis sha got
+  for status in 0 1 3; do
+    d="$(nightly_sandbox)"
+    sha="$(origin_sha "$d")"
+    make_caffeinate_stub "$d"
+    ergebnis=rot
+    [ "$status" -ne 0 ] || ergebnis=gruen
+    got=0
+    out="$(G4_STUB_GATE_RESULT="$ergebnis" G4_STUB_GATE_STATUS="$status" G4_NIGHTLY_CAFFEINATE="$d/caffeinate" \
+      run_nightly "$d")" || got=$?
+    [ -f "$d/rec/caffeinate" ] || fail "the gate did not run under caffeinate: $out"
+    [ "$got" -eq "$status" ] || fail "the gate ended with $status, the nightly with $got: $out"
+    [ "$(printf '%s\n' "$out" | tail -n 1)" = "Nachtlauf: $ergebnis ($sha)" ] || fail "last line: $out"
+  done
+}
+
+test_without_caffeinate_the_gate_runs_as_before() {
+  local d out status=0
+  d="$(nightly_sandbox)"
+  # Named, but not there.
+  out="$(G4_NIGHTLY_CAFFEINATE="$d/not-there" G4_STUB_GATE_STATUS=2 run_nightly "$d")" || status=$?
+  [ "$status" -eq 2 ] || fail "expected the status 2 of the gate, got $status: $out"
+  [ "$(gate_runs "$d")" -eq 1 ] || fail "the gate did not run once: $out"
+  assert_not_contains "caffeinate" printf '%s' "$out"
+  [ ! -e "$d/rec/caffeinate" ] || fail "caffeinate ran"
+  # A file that is no program (not executable) counts as missing as well.
+  make_caffeinate_stub "$d"
+  chmod -x "$d/caffeinate"
+  status=0
+  out="$(G4_NIGHTLY_CAFFEINATE="$d/caffeinate" G4_STUB_GATE_STATUS=2 run_nightly "$d")" || status=$?
+  [ "$status" -eq 2 ] || fail "not executable: expected status 2, got $status: $out"
+  [ "$(gate_runs "$d")" -eq 2 ] || fail "not executable: the gate did not run again: $out"
+  [ ! -e "$d/rec/caffeinate" ] || fail "a file that is not executable ran"
+}
+
+test_the_system_caffeinate_is_the_default() {
+  # The seam names another one; without it the script takes the one of macOS. (Not run for real here:
+  # it would keep the machine awake and is missing off macOS.)
+  assert_contains '${G4_NIGHTLY_CAFFEINATE:-/usr/bin/caffeinate}' cat "$REPO_ROOT/scripts/gate-nightly.sh"
+}
+
+test_the_fetch_never_asks_for_a_password_and_never_waits_long_on_ssh() {
+  local d
+  d="$(nightly_sandbox)"
+  nightly_ok "$d"
+  [ "$(cat "$d/rec/fetch")" = "prompt=0 ssh=ssh -o BatchMode=yes -o ConnectTimeout=30" ] ||
+    fail "the fetch ran with: $(cat "$d/rec/fetch")"
+  # An ssh command of the caller stays (a key, a jump host); the prompt is off in any case.
+  d="$(nightly_sandbox)"
+  GIT_SSH_COMMAND="ssh -i /home/me/.ssh/key" GIT_TERMINAL_PROMPT=1 nightly_ok "$d"
+  [ "$(cat "$d/rec/fetch")" = "prompt=0 ssh=ssh -i /home/me/.ssh/key" ] || fail "the fetch ran with: $(cat "$d/rec/fetch")"
+  [ "$(wc -l <"$d/rec/fetch" | tr -d ' ')" -eq 1 ] || fail "not one fetch: $(cat "$d/rec/fetch")"
+}
+
+test_pnpm_install_runs_with_ci_true_and_the_gate_without() {
+  local d
+  d="$(nightly_sandbox)"
+  nightly_ok "$d"
+  # CI=true for the one command that has no terminal to answer a prompt (pnpm asks before it purges
+  # node_modules) ...
+  [ "$(cat "$d/rec/pnpm_ci")" = "ci=true" ] || fail "pnpm ran with: $(cat "$d/rec/pnpm_ci")"
+  # ... never for the gate: CI=true switches the list of the heavy tests off there.
+  [ "$(gate_saw "$d" ci)" = "unset" ] || fail "the gate ran with CI=$(gate_saw "$d" ci)"
+  # (with a caffeinate in between as well)
+  d="$(nightly_sandbox)"
+  make_caffeinate_stub "$d"
+  G4_NIGHTLY_CAFFEINATE="$d/caffeinate" nightly_ok "$d"
+  [ "$(gate_saw "$d" ci)" = "unset" ] || fail "the gate ran with CI=$(gate_saw "$d" ci) under caffeinate"
+}
+
 test_the_exit_status_is_the_gates_and_the_last_line_says_the_result() {
   local d sha out status ergebnis
   for ergebnis in gruen rot unvollstaendig; do
@@ -677,7 +800,8 @@ checks = [
     (p.get("StandardOutPath") == log, "StandardOutPath"),
     (p.get("StandardErrorPath") == log, "StandardErrorPath"),
     (p.get("RunAtLoad") is False, "RunAtLoad"),
-    (p.get("ProcessType") == "Background", "ProcessType"),
+    # No Background class: launchd throttles such a job (CPU and disk I/O) for a run of hours.
+    ("ProcessType" not in p, "ProcessType"),
 ]
 bad = [name for ok, name in checks if not ok]
 print("bad: " + ", ".join(bad) if bad else "plist ok")
