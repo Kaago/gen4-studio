@@ -24,15 +24,18 @@
 #      status 1 and a line that names the path. It never commits in the main checkout, pushes, or changes
 #      one of its branches.
 #   5. tools/ is a symlink in the worktree to the tools/ of the main checkout, made only when the
-#      worktree has no tools and the main checkout has one (an existing folder is left alone). git does
-#      not ignore a symlink with the rule `tools/` of .gitignore (that matches folders), and the gate
-#      writes a result only on a clean tree, so /tools goes into the exclude file of the repository when
-#      the link would show up in `git status`. Then `pnpm install --frozen-lockfile` in apps/studio.
+#      worktree has no tools and the main checkout has one (an existing folder is left alone). The rule
+#      `/tools` of .gitignore keeps the link out of `git status` (`tools/` matches folders only), which the
+#      gate needs: it writes a result only on a clean tree. The script writes no ignore rule anywhere
+#      (nothing in .git, nothing outside the worktree); for a commit that has no `/tools` line yet the
+#      untracked link `tools` alone is not "not clean" in the check of 4. Then `pnpm install
+#      --frozen-lockfile` in apps/studio.
 #   6. `bash scripts/gate.sh --full` in the worktree, with CARGO_TARGET_DIR=<main checkout>/target (the build
 #      is shared with the main checkout). Its result lands in the folder of the results, like that of a run
 #      by hand. The exit status is the gate's.
 # The start time, the commit and the worktree are printed at the beginning; at the end "Nachtlauf: <ergebnis>
-# (<sha>)" with the `ergebnis` of <sha>.json, or "kein Ergebnis" when the gate wrote none.
+# (<sha>)" with the `ergebnis` of <sha>.json as this run left it, or "kein Ergebnis" when the gate wrote none:
+# a file that is the same as before the gate ran (an older run of the commit) is not the result of this run.
 #
 # A signal to the script (INT, TERM, HUP) ends it after the gate has ended: bash runs its trap when the
 # foreground command is done. A signal to the whole process group (a terminal, launchd) reaches the gate as
@@ -198,28 +201,6 @@ common_dir_of() { # common_dir_of <dir>: the git common dir of the repository ar
   (cd "$1" && cd "$common" && pwd -P)
 }
 
-# ignore_tools_link: a symlink tools in the worktree must not show up in `git status` (see 5 above); the
-# rule is put into the exclude file of the repository (shared by its worktrees) when git does not ignore the
-# link yet.
-ignore_tools_link() {
-  local exclude
-  if [ ! -L "$WORKTREE/tools" ] || git -C "$WORKTREE" check-ignore -q tools; then
-    return 0
-  fi
-  exclude="$(git -C "$WORKTREE" rev-parse --git-path info/exclude)"
-  case "$exclude" in
-    /*) ;;
-    *) exclude="$WORKTREE/$exclude" ;;
-  esac
-  mkdir -p "$(dirname "$exclude")"
-  # A last line without its newline would swallow the rule.
-  if [ -s "$exclude" ] && [ -n "$(tail -c 1 "$exclude")" ]; then
-    printf '\n' >>"$exclude"
-  fi
-  printf '/tools\n' >>"$exclude"
-  say "Hinweis: /tools steht jetzt in $exclude, damit der Symlink tools den Arbeitsbaum nicht verschmutzt."
-}
-
 prepare_worktree() {
   local top have want dirty
   if [ -e "$WORKTREE" ] || [ -L "$WORKTREE" ]; then
@@ -235,9 +216,14 @@ prepare_worktree() {
     if [ "$(cd "$WORKTREE" && pwd -P)" = "$(cd "$MAIN_CHECKOUT" && pwd -P)" ]; then
       die "$WORKTREE ist der Haupt-Checkout, nicht der Worktree des Nachtlaufs, nichts geändert."
     fi
-    # The link of an earlier night is no change.
-    ignore_tools_link
-    if ! dirty="$(git -C "$WORKTREE" status --porcelain 2>/dev/null)" || [ -n "$dirty" ]; then
+    # Not clean: any change, any untracked file. Except the link tools of an earlier night: a commit
+    # without the `/tools` line in .gitignore shows it as untracked, and it is the script's own.
+    if ! dirty="$(git -C "$WORKTREE" status --porcelain 2>/dev/null)"; then
+      dirty="status failed"
+    elif [ -L "$WORKTREE/tools" ]; then
+      dirty="$(printf '%s\n' "$dirty" | grep -v '^?? tools$' || true)"
+    fi
+    if [ -n "$dirty" ]; then
       die "Der Worktree $WORKTREE ist nicht sauber, nichts geändert (git status dort prüfen)."
     fi
     if ! git -C "$WORKTREE" checkout --quiet --detach "$SHA"; then
@@ -255,7 +241,6 @@ prepare_worktree() {
       die "Der Link $WORKTREE/tools lässt sich nicht anlegen."
     fi
   fi
-  ignore_tools_link
 }
 
 prepare_worktree
@@ -263,8 +248,15 @@ if ! (cd "$WORKTREE/apps/studio" && pnpm install --frozen-lockfile); then
   die "pnpm install --frozen-lockfile ist fehlgeschlagen (in $WORKTREE/apps/studio)."
 fi
 
+# An older result of this commit (rot or unvollstaendig: a green one ended the script above) stays in place
+# when the gate writes none (a signal, a tree that was not clean): only a file that has changed since
+# here is the result of this run (the gate's result holds the start and the seconds of its run).
+result_before="$(cat "$RESULT" 2>/dev/null || true)"
 gate_status=0
 (cd "$WORKTREE" && bash scripts/gate.sh --full) || gate_status=$?
-ergebnis="$(gate_result_of "$RESULT")"
+ergebnis=""
+if [ "$(cat "$RESULT" 2>/dev/null || true)" != "$result_before" ]; then
+  ergebnis="$(gate_result_of "$RESULT")"
+fi
 say "${ergebnis:-kein Ergebnis} ($SHA)"
 exit "$gate_status"

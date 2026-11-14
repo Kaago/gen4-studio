@@ -29,8 +29,8 @@ export G4_NIGHTLY_WORKTREE="$TESTS_TMP/nightly-safety-net"
 #   origin.git  the bare origin of the repository
 #   repo/       the main checkout, on main, one commit pushed to origin: copies of gate-nightly.sh and
 #               gate-result.sh, a STUB scripts/gate.sh, apps/studio/package.json, a README.md and a
-#               .gitignore as the real one has it for tools/ (a pattern for folders: it does not match a
-#               symlink), node_modules/ and target/; repo/tools is a folder (ignored) with a marker file
+#               .gitignore that is a copy of the real one (tools/ matches folders only, /tools the symlink of
+#               a worktree, node_modules/, target/); repo/tools is a folder (ignored) with a marker file
 #   bin/        pnpm, a stub: it records its folder and arguments and makes node_modules in the folder
 #   home/       an empty HOME
 #   rec/        what the stubs record (gate, pnpm, order)
@@ -101,14 +101,14 @@ if [ -n "${G4_STUB_GATE_RESULT:-}" ]; then
   artefakte="${G4_GATE_ARTEFAKTE:-$(gate_artefakte_dir "$(gate_main_checkout "$ROOT")" "$ROOT")}"
   mkdir -p "$artefakte"
   sha="$(git rev-parse HEAD)"
-  gate_result_write "$artefakte/$sha.json" "$sha" "$G4_STUB_GATE_RESULT" 1 0 2026-11-14T00:00:00Z
+  gate_result_write "$artefakte/$sha.json" "$sha" "$G4_STUB_GATE_RESULT" "$$" 0 "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
 exit "${G4_STUB_GATE_STATUS:-0}"
 SH
   chmod +x "$d/repo/scripts/gate.sh"
   printf '{ "name": "studio", "private": true }\n' >"$d/repo/apps/studio/package.json"
   printf 'readme\n' >"$d/repo/README.md"
-  printf 'tools/\nnode_modules/\ntarget/\n' >"$d/repo/.gitignore"
+  cp "$REPO_ROOT/.gitignore" "$d/repo/.gitignore"
   printf 'marker\n' >"$d/repo/tools/marker"
   (
     cd "$d/repo"
@@ -409,31 +409,48 @@ test_without_tools_in_the_main_checkout_no_link_is_made() {
 }
 
 test_the_gate_starts_on_a_clean_tree_also_with_the_tools_link() {
-  local d
+  local d exclude_before
   d="$(nightly_sandbox)"
-  # The gate writes a result only on a clean tree. A symlink named tools is not ignored by the rule
-  # "tools/" of the .gitignore (it matches folders), so the script has to see to it.
+  exclude_before="$(cat "$d/repo/.git/info/exclude" 2>/dev/null || true)"
+  # The gate writes a result only on a clean tree. The rule "tools/" of the .gitignore matches folders only;
+  # the line "/tools" (this repository's real .gitignore is the one of the sandbox) keeps the link out.
   nightly_ok "$d"
+  [ -L "$d/nightly/tools" ] || fail "no tools link in the worktree"
   [ -z "$(gate_saw "$d" status)" ] || fail "the first night: the tree was not clean: $(gate_saw "$d" status)"
+  [ -z "$(git -C "$d/nightly" status --porcelain)" ] || fail "git status of the worktree: $(git -C "$d/nightly" status --porcelain)"
   new_origin_commit "$d"
   nightly_ok "$d"
   [ -z "$(gate_saw "$d" status)" ] || fail "the second night: the tree was not clean: $(gate_saw "$d" status)"
   [ "$(gate_runs "$d")" -eq 2 ] || fail "the gate did not run twice"
-  # The rule is a local one (the exclude file of the repository), made once.
-  [ "$(grep -c '^/tools$' "$d/repo/.git/info/exclude")" -eq 1 ] || fail "exclude: $(cat "$d/repo/.git/info/exclude")"
   [ "$(git -C "$d/repo" status --porcelain)" = "" ] || fail "the main checkout is not clean"
+  # Nothing is written into the repository's own ignore state.
+  [ "$(cat "$d/repo/.git/info/exclude" 2>/dev/null || true)" = "$exclude_before" ] || fail "info/exclude was changed"
 }
 
-test_an_exclude_rule_for_tools_is_not_added_twice() {
-  local d
+test_a_commit_without_the_tools_rule_does_not_lock_the_nightly_out() {
+  local d second out
   d="$(nightly_sandbox)"
-  mkdir -p "$d/repo/.git/info"
-  printf '# mine\n/tools' >"$d/repo/.git/info/exclude"
+  # An origin/main from before the line "/tools" was in .gitignore: the link is untracked there, so the
+  # gate would see no clean tree (and write no result), but the script's own link is no reason to refuse the
+  # worktree on the next night, which moves it to a commit that has the line.
+  (cd "$d/repo" && printf 'tools/\nnode_modules/\ntarget/\n' >.gitignore && git add .gitignore &&
+    git commit -q -m "old ignore rules" && git push -q origin main)
   nightly_ok "$d"
-  [ "$(gate_runs "$d")" -eq 1 ] || fail "the gate did not run"
-  [ "$(cat "$d/repo/.git/info/exclude")" = "$(printf '# mine\n/tools')" ] ||
-    fail "the exclude file was changed: $(cat "$d/repo/.git/info/exclude")"
-  [ -z "$(gate_saw "$d" status)" ] || fail "the tree was not clean: $(gate_saw "$d" status)"
+  [ "$(gate_saw "$d" status)" = "?? tools " ] || fail "the old rules do not show the link: '$(gate_saw "$d" status)'"
+  new_origin_commit "$d"
+  (cd "$d/other" && cp "$REPO_ROOT/.gitignore" .gitignore && git add .gitignore && git commit -q -m "tools rule" &&
+    git push -q origin main)
+  second="$(origin_sha "$d")"
+  nightly_ok "$d"
+  [ "$(gate_runs "$d")" -eq 2 ] || fail "the second night did not run the gate"
+  [ "$(gate_saw "$d" head)" = "$second" ] || fail "the worktree is not on the new commit"
+  [ -z "$(gate_saw "$d" status)" ] || fail "the tree is not clean on the commit with the rule: '$(gate_saw "$d" status)'"
+  # Any other untracked file still counts.
+  echo mine >"$d/nightly/scratch.txt"
+  new_origin_commit "$d"
+  out="$(run_nightly "$d")" || true
+  assert_contains "nicht sauber" printf '%s' "$out"
+  [ "$(gate_runs "$d")" -eq 2 ] || fail "the gate ran with an untracked file in the worktree"
 }
 
 test_a_failing_pnpm_install_ends_with_status_1_and_runs_no_gate() {
@@ -463,6 +480,21 @@ test_the_exit_status_is_the_gates_and_the_last_line_says_the_result() {
   out="$(G4_STUB_GATE_STATUS=1 run_nightly "$d")" || status=$?
   [ "$status" -eq 1 ] || fail "no result: expected status 1, got $status: $out"
   [ "$(printf '%s\n' "$out" | tail -n 1)" = "Nachtlauf: kein Ergebnis ($sha)" ] || fail "no result: last line: $out"
+  # An older result of the commit is not the result of this run: a gate that wrote nothing says so.
+  d="$(nightly_sandbox)"
+  sha="$(origin_sha "$d")"
+  write_result "$d" "$sha" rot
+  status=0
+  out="$(G4_STUB_GATE_STATUS=1 run_nightly "$d")" || status=$?
+  [ "$status" -eq 1 ] || fail "stale: expected status 1, got $status: $out"
+  [ "$(printf '%s\n' "$out" | tail -n 1)" = "Nachtlauf: kein Ergebnis ($sha)" ] || fail "stale: last line: $out"
+  # ... while a gate that wrote a new result says that one, also when it says the same as the old one.
+  for ergebnis in rot gruen; do
+    status=0
+    out="$(G4_STUB_GATE_RESULT="$ergebnis" G4_STUB_GATE_STATUS=1 run_nightly "$d")" || status=$?
+    [ "$(printf '%s\n' "$out" | tail -n 1)" = "Nachtlauf: $ergebnis ($sha)" ] || fail "new $ergebnis over an old result: last line: $out"
+    write_result "$d" "$sha" rot
+  done
   # And a green run is a green run: the next start skips it.
   d="$(nightly_sandbox)"
   sha="$(origin_sha "$d")"
