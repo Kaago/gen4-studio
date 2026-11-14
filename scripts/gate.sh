@@ -726,6 +726,35 @@ bg_step() { # bg_step <step label> <command...>: fails when the command does
   [ "$status" -eq 0 ]
 }
 
+# The test fixtures of the kernel are removed by detached `rm -rf` processes after cargo has ended
+# (template.rs): they can run for minutes, and what they take from the file system disturbs the
+# strict timing steps. Wait until none is left, at most REMOVER_WAIT_S seconds, then go on. The row
+# says how long it took. With the argument `norow` (the serial fast gate) it prints the seconds and
+# records no row.
+wait_for_removers() {
+  local start=$SECONDS told=0
+  echo
+  echo "==> fixture cleanup"
+  # Without pgrep (Git Bash on Windows) there is nothing to look for.
+  while command -v pgrep >/dev/null 2>&1 && pgrep -f "$REMOVER_PATTERN" >/dev/null 2>&1; do
+    if [ "$told" -eq 0 ]; then
+      echo "Warte auf die Löschprozesse der Testvorlagen (rm -rf g4-fixtures-*)."
+      told=1
+    fi
+    if [ $((SECONDS - start)) -ge "$REMOVER_WAIT_S" ]; then
+      echo "Hinweis: Löschprozesse der Testvorlagen laufen nach $REMOVER_WAIT_S s noch," \
+        "die Zeitschritte laufen trotzdem."
+      break
+    fi
+    sleep "$REMOVER_POLL_S"
+  done
+  if [ "${1:-}" = "norow" ]; then
+    echo "fixture cleanup: $((SECONDS - start)) s"
+  else
+    record "fixture cleanup" "-" "ok" "$((SECONDS - start))"
+  fi
+}
+
 # Runs a function (a sequence of bg_step calls) in the background, in a subshell. In the serial gate
 # it waits for the chain to end (the chain still runs in the background, so a signal stops the gate at
 # once and stop_background stops the chain), so that no chain runs beside another step.
@@ -872,6 +901,9 @@ if [ "$FROM_ACTIVE" -eq 0 ]; then
     env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
     "${TEST_CMD[@]}" || true
   if [ "$GATE_SERIAL" -eq 1 ]; then
+    # The removers of the test fixtures run on after cargo test and take the file system from the
+    # frontend tests (CI run 43611669678: pnpm test 872 s instead of 622 s, one test over its 5 s).
+    wait_for_removers norow
     # A failed step stops no other step of the group here either: join_chains reports them all.
     start_chain js chain_js
     start_chain script-tests chain_script_tests
@@ -1078,30 +1110,6 @@ else
     G4_DSROM_CLI="$G4_DSROM_CLI" G4_ROTOM_LSP="$G4_ROTOM_LSP" \
     cargo test --workspace --all-features --no-fail-fast -- --exact "${TOOL_TESTS[@]}"
 fi
-
-# The test fixtures of the kernel are removed by detached `rm -rf` processes after cargo has ended
-# (template.rs): they can run for minutes, and what they take from the file system disturbs the
-# strict timing steps. Wait until none is left, at most REMOVER_WAIT_S seconds, then go on. The row
-# says how long it took.
-wait_for_removers() {
-  local start=$SECONDS told=0
-  echo
-  echo "==> fixture cleanup"
-  # Without pgrep (Git Bash on Windows) there is nothing to look for.
-  while command -v pgrep >/dev/null 2>&1 && pgrep -f "$REMOVER_PATTERN" >/dev/null 2>&1; do
-    if [ "$told" -eq 0 ]; then
-      echo "Warte auf die Löschprozesse der Testvorlagen (rm -rf g4-fixtures-*)."
-      told=1
-    fi
-    if [ $((SECONDS - start)) -ge "$REMOVER_WAIT_S" ]; then
-      echo "Hinweis: Löschprozesse der Testvorlagen laufen nach $REMOVER_WAIT_S s noch," \
-        "die Zeitschritte laufen trotzdem."
-      break
-    fi
-    sleep "$REMOVER_POLL_S"
-  done
-  record "fixture cleanup" "-" "ok" "$((SECONDS - start))"
-}
 
 # Build graph (4.2): the times of "Hier spielen" on a copy of each project, with the limits
 # (map, text, script edit <= 500 ms, no change <= 200 ms). Release build: the limits hold for

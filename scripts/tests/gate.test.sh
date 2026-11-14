@@ -531,6 +531,22 @@ test_the_serial_gate_runs_cargo_test_first_and_then_the_chains_one_after_another
   assert_before "$out" "stub[cargo test (no ROM data)]" "==> tokens"
 }
 
+test_the_serial_gate_waits_for_the_fixture_removers_before_the_chains() {
+  local d out
+  d="$(tmpdir)"
+  # A stand-in for a remover that ends after 4 s (see the test of the full run below).
+  bash -c 'sleep 4; touch "$1"' "g4-gate-test-remover-$$" "$d/ended" &
+  out="$(G4_GATE_SERIAL=1 G4_GATE_REMOVER_PATTERN="g4-gate-test-remover-$$" G4_GATE_REMOVER_POLL_S=1 run_gate_local)"
+  wait
+  [ -e "$d/ended" ] || fail "the stand-in did not end"
+  assert_contains "Warte auf die Löschprozesse" printf '%s' "$out"
+  assert_before "$out" "stub[cargo test (no ROM data)]" "==> fixture cleanup"
+  assert_before "$out" "==> fixture cleanup" "seriell: tokens"
+  # No row: the table of the fast gate stays as it is.
+  [ "$(printf '%s\n' "$out" | grep -c '^fixture cleanup  ')" -eq 0 ] || fail "a row: $out"
+  assert_contains "Gate: ok (" printf '%s' "$out"
+}
+
 test_ci_runs_the_steps_one_after_another_and_g4_gate_serial_overrides() {
   local d
   d="$(tmpdir)"
@@ -1119,8 +1135,8 @@ test_the_full_run_waits_for_the_fixture_removers_before_the_timing_steps() {
   assert_not_contains "Warte auf die Löschprozesse" printf '%s' "$out"
   waited="$(printf '%s\n' "$out" | grep '^fixture cleanup ' | head -1 | awk '{print $NF}')"
   [ "$waited" -lt 5 ] || fail "the gate waited without a remover: $waited s"
-  # The fast gate has none of it.
-  assert_not_contains "fixture cleanup" printf '%s' "$(run_gate_local)"
+  # The parallel fast gate has none of it.
+  assert_not_contains "fixture cleanup" printf '%s' "$(G4_GATE_SERIAL=0 run_gate_local)"
 }
 
 test_the_wait_for_the_fixture_removers_ends_with_a_note() {
