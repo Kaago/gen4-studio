@@ -61,6 +61,13 @@
 # folder of the skip logs, with the sha of the commit in lists.sha when the tree is clean; --from reads
 # the lists from there and refuses those of another commit.
 #
+# The tests that need a base ROM find it beside the project: <Name>.nds next to <Name>_DSPRE_contents
+# (suggest_base in g4-kernel, the sibling of a vanilla project). A test that finds none prints "skipped: no
+# base ROM next to ..." without going through gate_var, so no skip log sees it. The gate therefore looks
+# itself: a project folder without $G4_ROMS_DIR/<Name>.nds does not run (its row of "gated tests (cargo
+# test)" says "skipped (keine ROM)", the result is unvollstaendig), and git must be on the PATH (the tests
+# that write a Git repository skip without it). A ROM without a project folder only gets a note.
+#
 # CI (.github/workflows/ci.yml: every pull request to main, every push to main, and by hand) runs
 # the fast gate with G4_GATE_HERMETIC=1: the gate ends after the steps without ROM, also with
 # --full, and the table closes with "Gate (hermetisch): ok". It needs no ROM, tool or save game and
@@ -130,7 +137,8 @@
 #                     900 s. They are the test seam of scripts/tests/gate.test.sh.
 # The g4emu integration step (--full) also needs the emulator core (bash scripts/g4emu/setup.sh) and
 # $G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav; without them (or without the Platinum DE ROM) it
-# is recorded as skipped. The uv steps run with UV_NATIVE_TLS=1 (the system certificate store).
+# is recorded as skipped. The uv steps run with UV_SYSTEM_CERTS=1 and UV_NATIVE_TLS=1 (the system certificate
+# store; uv has deprecated the second in favour of the first, an older uv knows only the second).
 #
 # The projects are only read; writing tests work on copies (vanilla_copy()).
 # Prints the result table either way.
@@ -272,6 +280,7 @@ RESULT_WANTED=0       # 1: the run writes <sha>.json and <sha>.log
 RESULT_JSON=""
 RESULT_LOG=""
 RESULT_PATH=""        # the path of the result when the run has written it ("Ergebnis: ..." in the table)
+RESULT_VERDICT=""     # its verdict (gruen, rot or unvollstaendig), named in that line
 GOT_SIGNAL=0          # 1: INT, TERM or HUP ended the run (no result then)
 LOG_FIFO_DIR=""       # the log of the result: tee in front of a fifo, see start_log
 LOG_TEE_PID=""
@@ -334,7 +343,7 @@ print_table() {
     fi
   fi
   if [ -n "$RESULT_PATH" ]; then
-    echo "Ergebnis: $RESULT_PATH"
+    echo "Ergebnis: $RESULT_VERDICT ($RESULT_PATH)"
   fi
   if [ "$FAILED" -eq 0 ] && [ "${#ROWS[@]}" -gt 0 ]; then
     echo "$GATE_LABEL: ok ($total s)"
@@ -443,6 +452,7 @@ on_exit() {
       if gate_result_write "$RESULT_JSON" "$RUN_SHA" "$ergebnis" "$((SECONDS - STARTED))" \
         "$((FROM_ACTIVE))" "$RUN_BEGIN"; then
         RESULT_PATH="$RESULT_JSON"
+        RESULT_VERDICT="$ergebnis"
       else
         echo "Das Ergebnis konnte nicht geschrieben werden: $RESULT_JSON" >&2
         FAILED=1
@@ -756,7 +766,7 @@ chain_g4emu() {
   # g4emu (scripts/g4emu): the unit tests always; they start no cargo (the emulator tests do, in
   # the --full part). The emulator tests run only when core and save game exist.
   bg_step "g4emu unit" \
-    env UV_NATIVE_TLS=1 bash -c 'cd scripts/g4emu && uv run pytest -m "not integration" -q' || true
+    env UV_SYSTEM_CERTS=1 UV_NATIVE_TLS=1 bash -c 'cd scripts/g4emu && uv run pytest -m "not integration" -q' || true
 }
 
 # A resumed run (--from) does not run the part without ROM: its rows were taken over above.
@@ -827,11 +837,11 @@ elif [ ! -f "$G4EMU_ROM_FILE" ]; then
   record "g4emu integration" "-" "skipped (keine ROM)" 0
 else
   run_step "g4emu integration" "" \
-    env G4EMU_CORE="$G4EMU_CORE_FILE" G4_ROMS_DIR="$G4_ROMS_DIR" UV_NATIVE_TLS=1 \
+    env G4EMU_CORE="$G4EMU_CORE_FILE" G4_ROMS_DIR="$G4_ROMS_DIR" UV_SYSTEM_CERTS=1 UV_NATIVE_TLS=1 \
     bash -c 'cd scripts/g4emu && uv run pytest -m integration -q'
 fi
 
-# Gated tests need the tools; without them the tests would only print "skipped".
+# Gated tests need the tools and git; without them the tests would only print "skipped".
 missing=0
 if [ ! -d "$G4_ROMS_DIR" ]; then
   echo "G4_ROMS_DIR does not exist: $G4_ROMS_DIR" >&2
@@ -847,6 +857,11 @@ if [ ! -x "$G4_DSROM_CLI" ]; then
 fi
 if [ ! -x "$G4_ROTOM_LSP" ]; then
   echo "G4_ROTOM_LSP is not an executable file: $G4_ROTOM_LSP" >&2
+  missing=1
+fi
+# The tests that write a Git repository print "skipped: git not found" without it and would pass.
+if ! command -v git >/dev/null 2>&1; then
+  echo "git ist nicht im PATH: die Tests, die ein Git-Repository schreiben, würden nur \"skipped: git not found\" melden." >&2
   missing=1
 fi
 if [ "$missing" -ne 0 ]; then
@@ -919,8 +934,8 @@ record_empty_list() { # record_empty_list <step label> <variable names>: a list 
   record "$1" "-" "skipped (leere Liste)" 0
 }
 
-# The test projects of the run: those with a header.yaml (the others are recorded as skipped), only
-# the one of G4_GATE_ONLY_PROJECT when that is set.
+# The test projects of the run: those with a header.yaml and the .nds beside them (the others are recorded
+# as skipped), only the one of G4_GATE_ONLY_PROJECT when that is set.
 shopt -s nullglob
 PROJECTS=()
 for project in "$G4_ROMS_DIR"/*_DSPRE_contents; do
@@ -935,11 +950,21 @@ for project in "$G4_ROMS_DIR"/*_DSPRE_contents; do
     record "gated tests (cargo test)" "$label" "skipped (no header.yaml)" 0
     continue
   fi
+  # The tests look for the base ROM beside the project (suggest_base: <Name>.nds next to
+  # <Name>_DSPRE_contents) and skip without it, which no skip log sees: such a project does not run.
+  if [ ! -f "$G4_ROMS_DIR/$label.nds" ]; then
+    echo
+    echo "==> skipping $label: no base ROM ($label.nds) beside the project"
+    echo "Hinweis: Projekt $label übersprungen: $G4_ROMS_DIR/$label.nds fehlt" \
+      "(ohne Basis-ROM überspringen sich die Tests dort selbst), das Ergebnis ist unvollstaendig." >&2
+    record "gated tests (cargo test)" "$label" "skipped (keine ROM)" 0
+    continue
+  fi
   PROJECTS+=("$project")
 done
 
 if [ "${#PROJECTS[@]}" -eq 0 ]; then
-  echo "no test project found under $G4_ROMS_DIR (pattern *_DSPRE_contents with header.yaml)" >&2
+  echo "no test project found under $G4_ROMS_DIR (pattern *_DSPRE_contents with header.yaml and the .nds beside it)" >&2
   record "gated tests (cargo test)" "-" "FAILED (no project)" 0
   FAILED=1
   exit 1
@@ -1069,6 +1094,12 @@ else
       continue
     fi
     rom_ran=$((rom_ran + 1))
+    # A ROM without its project folder still runs its ROM tests; the tests per project have nothing here.
+    if [ ! -d "$G4_ROMS_DIR/${label}_DSPRE_contents" ]; then
+      echo
+      echo "Hinweis: $label.nds hat kein Projekt ${label}_DSPRE_contents neben sich: die Tests je Projekt" \
+        "laufen für sie nicht, die ROM-Tests schon." >&2
+    fi
     with_gate_tmpdir fatal_skip_log "$SKIP_DIR/rom-$rom_ran.tsv" \
       run_step "gated tests (project start)" "$label" \
       env -u G4_TEST_PROJECT G4_TEST_ROM="$rom" G4_APICULA="$G4_APICULA" \
