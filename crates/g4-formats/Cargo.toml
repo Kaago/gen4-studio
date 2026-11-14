@@ -12,6 +12,11 @@ thiserror = "2"
 test-support = []
 
 [dev-dependencies]
+# The tests of this crate (tests/*.rs, which see the library without cfg(test)) have `test_support`
+# (`gate_var`, the fixtures) with a plain `cargo test -p g4-formats` too: a dev-dependency on itself
+# switches the feature on for them. Not `required-features` or a cfg on the test files: that would
+# drop tests silently.
+g4-formats = { path = ".", features = ["test-support"] }
 proptest = "1"
 # Test oracle for the data codecs (tests/vanilla_data.rs); g4-kernel depends on it already.
 uxie = "0.9"

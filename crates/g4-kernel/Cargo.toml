@@ -54,6 +54,9 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
+# `gate_var` (g4_formats::test_support) reads the variables of the gated tests: the tests of this
+# crate have it with and without this crate's own `test-support` (`arm9_tables` needs no feature).
+g4-formats = { path = "../g4-formats", features = ["test-support"] }
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"

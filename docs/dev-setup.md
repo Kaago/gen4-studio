@@ -176,7 +176,9 @@ Eine neue Abhängigkeit kommt mit genauer Version (ohne `^`) in `package.json`; 
 Tests mit ROM-Daten laufen nur, wenn die Umgebungsvariablen gesetzt sind; sonst melden sie `skipped: ...` auf stderr und
 gelten als bestanden. Mit `-- --nocapture` ist zu sehen, was wirklich lief. Das Projekt wird nur gelesen; schreibende Tests
 arbeiten auf einer Kopie in einem Temp-Verzeichnis (`g4_kernel::test_support::vanilla_copy()`). Die Originale werden nie
-beschrieben.
+beschrieben. Das schnelle Gate führt diese Tests nicht aus, der Volllauf (`bash scripts/gate.sh --full`) führt sie je Projekt
+aus und wählt sie dafür selbst aus (Abschnitt „Gate-Skript“, „Bedingte Tests“): Ein Test liest seine Variable deshalb nur über
+`g4_formats::test_support::gate_var`, nie mit `std::env::var`.
 
 | Variable | Bedeutung | Gebraucht von |
 |---|---|---|
@@ -190,8 +192,8 @@ beschrieben.
 | `G4_GIT` | voller (absoluter) Pfad zu einem `git` | optional: nur dieser Pfad gilt, kein Weitersuchen; ein relativer Pfad (auch `git` allein) zählt als nicht gefunden, nie eine Suche im `PATH` (`cli_git_status_honours_g4_git` prüft beides über einen Kindprozess) |
 | `xdelta3` im `PATH` | xdelta3-CLI, optional | Gegenprobe in `patch_after_map_and_after_map_script_text_is_small_and_applies`; fehlt sie, meldet der Test `xdelta3 cross-check skipped: …` und bleibt grün |
 
-`G4_TEST_PROJECT` wird nacheinander auf jedes der drei Projekte gesetzt (Platin DE, HeartGold DE, HeartGold US); die
-Tests laufen einmal pro Projekt. Die Pfade müssen absolut sein, denn `cargo test` startet die Tests im Ordner des jeweiligen Crates:
+`G4_TEST_PROJECT` wird nacheinander auf jedes der drei Projekte gesetzt (Platin DE, HeartGold DE, HeartGold US; im Volllauf
+macht das das Gate); die Tests laufen einmal pro Projekt. Die Pfade müssen absolut sein, denn `cargo test` startet die Tests im Ordner des jeweiligen Crates:
 
 ```sh
 G4_TEST_PROJECT="$PWD/../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
@@ -458,7 +460,7 @@ G4_TEST_ROM="$PWD/../Roms/_testkopien/3g-probe/pt.nds" \
   cargo test --workspace --all-features -- project_start_ --nocapture
 ```
 
-Im Gate-Skript läuft das als Schritt „gated tests (project start)“, einmal je `*.nds` direkt unter `$G4_ROMS_DIR` (nur gelesen); ohne `.nds` steht die Zeile „skipped (keine ROM)“. Der Filter `project_start_` wählt nur diese Tests; je ROM dauert der Schritt etwa 15 bis 25 s plus den Bau der Tests.
+Im Volllauf des Gate-Skripts (`--full`) läuft das als Schritt „gated tests (project start)“, einmal je `*.nds` direkt unter `$G4_ROMS_DIR` (nur gelesen); ohne `.nds` steht die Zeile „skipped (keine ROM)“. Die Tests des Schritts sind nicht mehr die mit dem Namensteil `project_start_`, sondern alle, die im Lauf ohne ROM-Daten `G4_TEST_ROM` abgefragt und übersprungen haben (Abschnitt „Gate-Skript“, „Bedingte Tests“); je ROM dauerte der Schritt mit dem Filter etwa 15 bis 25 s plus den Bau der Tests.
 
 #### Leere Region mit Startstadt (3g.2)
 
@@ -516,7 +518,7 @@ G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DS
   cargo test -p g4-kernel --all-features --test base -- --nocapture --test-threads 1
 ```
 
-So lief es im Gate von 4.1a; in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), dasselbe mit `cargo test --workspace --all-features --test base -- …`. Auf stderr stehen `rebuild <Spielcode> sha1=… equal`, `patch-sizes <Spielcode> map=… all=… encode_ms=…/… verify_ms=…/…`, `patch-stress …`, `xdelta3 cross-check: map=… all=… stress=…` und (4.5) `publish <Spielcode> size=… build_ms=… encode_ms=… verify_ms=…`. Gemessen am 2026-10-27 (Debug-Build): 132 s (Platin DE), 232 s (HeartGold DE), 139 s (HeartGold US) für die vier Tests; Werte in [docs/phase-4-1a-gate.md](phase-4-1a-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
+So lief es im Gate von 4.1a; in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), dasselbe mit `cargo test --workspace --all-features --test base -- …`. Auf stderr stehen `rebuild <Spielcode> sha1=… equal`, `patch-sizes <Spielcode> map=… all=… encode_ms=…/… verify_ms=…/…`, `patch-stress …`, `xdelta3 cross-check: map=… all=… stress=…` und (4.5) `publish <Spielcode> size=… build_ms=… encode_ms=… verify_ms=…`. Gemessen am 2026-10-27 (Debug-Build): 132 s (Platin DE), 232 s (HeartGold DE), 139 s (HeartGold US) für die vier Tests; Werte in [docs/phase-4-1a-gate.md](phase-4-1a-gate.md). In `scripts/gate.sh --full` laufen sie im Schritt der gated Tests je Projekt mit.
 
 #### Auf Original zurücksetzen (4.1b)
 
@@ -541,7 +543,7 @@ G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/_testkopien/4-1b-pt_DSPRE_contents" \
   cargo test -p studio --all-features --lib reset_over_the_command_path -- --nocapture --test-threads 1
 ```
 
-So lief es im Gate von 4.1b, auf frischen Kopien mit der `.nds` daneben (`4-1b-pt.nds` usw.); in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), über `cargo test --workspace --all-features` mit Namensfilter. Auf stderr stehen `reset <Spielcode> <Ziel> ms=… (kernel … ms)`, `changed <Spielcode> first_ms=… second_ms=… files=… recorded=… racy=…` und `decompile <Spielcode> <n> files with global calls ms=…`. Gemessen am 2026-10-27 (Debug-Build): 205 s (Platin DE), 210 s (HeartGold DE, roter erster Lauf; danach `changed_list…` allein grün), 236 s (HeartGold US) für die fünf Tests; jeder Reset 9 bis 108 ms, die Liste erst 10 bis 17 s, danach 0,1 bis 0,6 s; Werte in [docs/phase-4-1b-gate.md](phase-4-1b-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
+So lief es im Gate von 4.1b, auf frischen Kopien mit der `.nds` daneben (`4-1b-pt.nds` usw.); in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), über `cargo test --workspace --all-features` mit Namensfilter. Auf stderr stehen `reset <Spielcode> <Ziel> ms=… (kernel … ms)`, `changed <Spielcode> first_ms=… second_ms=… files=… recorded=… racy=…` und `decompile <Spielcode> <n> files with global calls ms=…`. Gemessen am 2026-10-27 (Debug-Build): 205 s (Platin DE), 210 s (HeartGold DE, roter erster Lauf; danach `changed_list…` allein grün), 236 s (HeartGold US) für die fünf Tests; jeder Reset 9 bis 108 ms, die Liste erst 10 bis 17 s, danach 0,1 bis 0,6 s; Werte in [docs/phase-4-1b-gate.md](phase-4-1b-gate.md). In `scripts/gate.sh --full` laufen sie im Schritt der gated Tests je Projekt mit.
 
 #### Weltmodell (3e.2)
 
@@ -654,7 +656,7 @@ G4_TEST_ROM="/<absoluter Pfad zu Roms>/_testkopien/4-3b-pt.nds" \
   cargo test --release -p g4-kernel --all-features --test project_start -- project_start_text_project_builds_byte_equal --nocapture
 ```
 
-`G4_TIMING_STRICT=1` macht die Zeiten zu Grenzen (Speichern ≤ 200 ms, Fokus-Abgleich ≤ 500 ms, eine Änderung ≤ 1 000 ms). Gemessen am 2026-10-29 (Release, Last 3 bis 18): `textproject_source` 798 s (Platin DE), 938 s (HeartGold DE), 845 s (HeartGold US), der Studio-Test 77 bis 94 s, der Projektstart 53 bis 57 s; Werte in [docs/phase-4-3b-gate.md](phase-4-3b-gate.md). In `scripts/gate.sh` laufen sie ohne Änderung mit: die Kernel- und Studio-Tests im Schritt der gated Tests je Projekt (Debug), der Projektstart im Schritt `project_start_` je `.nds`. Der volle Lauf von `scripts/gate.sh` dauerte damit 8 324 s (gated Tests je Projekt 2 168 bis 2 340 s im Debug-Profil). Die gated Studio-Tests müssen auch mit gesetztem `G4_ROMS_DIR` laufen, wenn `G4_TEST_PROJECT` das Original ist (so ruft das Gate-Skript sie auf): eine Basis-ROM für den `UserPolicy`-Weg gehört als Kopie in den Temp-Ordner, nie der Ordner der Originale als `--allow-dir`.
+`G4_TIMING_STRICT=1` macht die Zeiten zu Grenzen (Speichern ≤ 200 ms, Fokus-Abgleich ≤ 500 ms, eine Änderung ≤ 1 000 ms). Gemessen am 2026-10-29 (Release, Last 3 bis 18): `textproject_source` 798 s (Platin DE), 938 s (HeartGold DE), 845 s (HeartGold US), der Studio-Test 77 bis 94 s, der Projektstart 53 bis 57 s; Werte in [docs/phase-4-3b-gate.md](phase-4-3b-gate.md). In `scripts/gate.sh --full` laufen sie mit: die Kernel- und Studio-Tests im Schritt der gated Tests je Projekt (Debug), der Projektstart im Schritt „gated tests (project start)“ je `.nds`. Das ganze Gate dauerte damals, als es nur einen Lauf gab, 8 324 s (gated Tests je Projekt 2 168 bis 2 340 s im Debug-Profil). Die gated Studio-Tests müssen auch mit gesetztem `G4_ROMS_DIR` laufen, wenn `G4_TEST_PROJECT` das Original ist (so ruft das Gate-Skript sie auf): eine Basis-ROM für den `UserPolicy`-Weg gehört als Kopie in den Temp-Ordner, nie der Ordner der Originale als `--allow-dir`.
 
 #### Git minimal (4.4)
 
@@ -689,7 +691,7 @@ Gemessen am 2026-10-29 im Gate (Release, `git version 2.54.0 (Apple Git-157)`, L
 (Platin DE), 550 s (HeartGold DE), 414 s (HeartGold US), `--test diff` 31 bis 34 s, der Studio-Test 32 bis 36 s; gepackt
 46 311 / 56 792 / 56 289 KiB (DSPRE) und 3 120 / 3 232 / 3 107 KiB (Textprojekt), Status 172 bis 215 ms, Klon des
 Textprojekts vervollständigt in 43,7 bis 75,3 s (je nach Last), Build aus dem Klon SHA-1-gleich; Werte in
-[docs/phase-4-4-gate.md](phase-4-4-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt
+[docs/phase-4-4-gate.md](phase-4-4-gate.md). In `scripts/gate.sh --full` laufen sie im Schritt der gated Tests je Projekt
 (Debug) mit, ohne Änderung am Skript.
 
 ## Design-System und Tokens
@@ -722,44 +724,156 @@ Die Galerie zeigt die Bausteine aus `apps/studio/src/ui/primitives/` mit ihren Z
 
 ## Gate-Skript
 
-`.github/workflows/ci.yml` fährt die hermetischen Schritte (ohne ROM, Spielstand und Werkzeuge, `G4_GATE_HERMETIC=1`, siehe unten) bei jedem Pull Request gegen `main` und bei jedem Push auf `main`; von Hand startet man den Workflow mit `gh workflow run ci.yml` (mit `-f windows=true` auch unter Windows; siehe `docs/release.md`). Für öffentliche Repositories sind die Standard-Runner von GitHub Actions kostenlos, deshalb braucht es keine Handstarts mehr. Vor einem Merge läuft zusätzlich das volle `scripts/gate.sh` (Repo-Wurzel, bash) lokal, mit den ROM-gebundenen Schritten; es ist die Abnahme. Voraussetzung neben Rust und pnpm ist `uv` (der Schritt `g4emu unit` startet `uv run`; der erste Lauf lädt die Python-Pakete von PyPI). Es fährt der Reihe nach:
+`scripts/gate.sh` (Repo-Wurzel, bash) hat zwei Läufe. `bash scripts/gate.sh` ist das **schnelle Gate**: alles, was keine ROM, kein Werkzeug und keinen Spielstand braucht, mit einer Grenze von 900 s; es läuft vor jedem Merge. `bash scripts/gate.sh --full` ist der **Volllauf**: das schnelle Gate ohne Auslassungen, danach die ROM-Matrix; er läuft nachts (Abschnitt „Nachtlauf einrichten“) und auf Abruf, dauert für drei Projekte knapp drei Stunden (gemessen 9 954 s, Abschnitt „Dauer“) und hinterlässt bei sauberem Arbeitsbaum je Commit eine Ergebnisdatei. `.github/workflows/ci.yml` fährt das schnelle Gate mit `G4_GATE_HERMETIC=1` (siehe „Das schnelle Gate“) bei jedem Pull Request gegen `main` und bei jedem Push auf `main`; von Hand startet man den Workflow mit `gh workflow run ci.yml` (mit `-f windows=true` auch unter Windows; siehe `docs/release.md`). Für öffentliche Repositories sind die Standard-Runner von GitHub Actions kostenlos, deshalb braucht es keine Handstarts mehr. Voraussetzung neben Rust und pnpm ist `uv` (der Schritt `g4emu unit` startet `uv run`; der erste Lauf lädt die Python-Pakete von PyPI; die `uv`-Schritte laufen mit `UV_SYSTEM_CERTS=1` und, für ältere `uv`, `UV_NATIVE_TLS=1`: dem Zertifikatsspeicher des Systems; `UV_NATIVE_TLS` ist in neueren `uv` veraltet).
+
+### Das schnelle Gate
+
+Es fährt der Reihe nach, das Billige und Störanfällige zuerst; der erste Fehler beendet das Gate:
 
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 3. `cargo deny (licenses, advisories)`: `cargo deny --locked check licenses advisories` mit `deny.toml` (siehe „cargo-deny (Lizenzen und Advisories)“ unter „Tests“); fehlt `cargo-deny`, bricht das Skript mit der Zeile "FAILED (cargo-deny fehlt)" und dem Installationsbefehl ab; direkt danach `npm licenses`: `scripts/check-licenses-npm.sh` (die Lizenzen der Produktionspakete von `apps/studio` gegen die Freigabeliste, siehe „npm-Lizenzen“ unter „Tests“)
-4. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
-5. `mcp`: `cargo test -p studio --test mcp_stdio` (das Produkt-Binary ohne Cargo-Features: `studio mcp` über stdio auf dem synthetischen Projekt, darunter Schreiben, Batch als ein Undo-Schritt, Unumkehrbares nur mit `--allow-irreversible` und der Test, dass `g4_call` ohne `--expert` fehlt; hermetisch wie der Schritt davor, dieselben `G4_*`-Variablen werden entfernt; rund 30 s bei warmem Cache, die Tests selbst 8 s; die gated Tests laufen je Projekt im letzten Schritt mit)
-6. `pnpm test` in `apps/studio`
-7. `tokens`: `scripts/check-tokens.sh` (Raster und Kontraste mit `check_tokens.py`, danach der Abgleich der eingecheckten Token-Dateien mit einem frischen Export; siehe „Design-System und Tokens“)
-8. `styles`: `scripts/check-styles.sh` (keine Inline-Styles und keine Hex-Farben außerhalb der Ausnahmen; siehe „Design-System und Tokens“)
-9. `depth`: `scripts/check-depth.sh` (kein direkter Vergleich der Tiefe, nur `depthAtLeast`/`viewDepth`; siehe „Design-System und Tokens“)
-10. `pnpm build` in `apps/studio`, danach die Prüfung, dass `apps/studio/dist` den Text `__bridge` nicht enthält (die Dev-Brücke darf nicht ins Produktions-Bundle)
-11. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
-12. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
-13. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US; ohne `build_graph_timings` (`--skip`, das misst Schritt 14 im Release-Profil), und `G4_TIMING_STRICT` aus der aufrufenden Shell wird für diesen Schritt entfernt
-14. `build graph (timings)`: je Testprojekt `cargo test --release -p g4-kernel --all-features --test build_graph -- build_graph_timings --nocapture --test-threads 1` mit `G4_TEST_PROJECT` und `G4_TIMING_STRICT=1` (Zeitgrenzen von „Hier spielen“, siehe „Build-Graph (4.2)“), danach ebenso `--test refs -- vanilla_index_builds_under_a_second` (warmer Aufbau des Referenzindex ≤ 1 000 ms; im parallelen Lauf von Schritt 13 misst er nur, weil die anderen Tests dort dieselben Dateien lesen); scheitert der Lauf, wiederholt das Skript ihn einmal (Zeile „ok (2nd run)“), sonst bricht es ab
-15. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
+4. `actions`: `scripts/check-actions.sh` (jede `uses:`-Zeile auf einen SHA festgelegt und in `.github/actions-allowlist.txt`, Lizenz aus der Liste von `deny.toml`)
+5. `no rom data`: `scripts/check-no-rom-data.sh` (keine ROM-, Spielstand- oder Patch-Daten unter `git ls-files`)
+6. `links`: `scripts/check-links.sh` (relative Links in `README.md`, `README.de.md`, `docs/README.md` und `CONTRIBUTING.md` zeigen auf vorhandene Dateien, mit genau passender Groß- und Kleinschreibung)
+7. `version`: `scripts/version.sh check`
+8. `gate vars`: `scripts/check-gate-vars.sh` (die Wache über die Variablen der bedingten Tests, siehe unten)
+9. `mcp`: `cargo test -p studio --test mcp_stdio` (das Produkt-Binary ohne Cargo-Features: `studio mcp` über stdio auf dem synthetischen Projekt, darunter Schreiben, Batch als ein Undo-Schritt, Unumkehrbares nur mit `--allow-irreversible` und der Test, dass `g4_call` ohne `--expert` fehlt; hermetisch: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt; rund 30 s bei warmem Cache, die Tests selbst 8 s; er nimmt die Build-Sperre von Cargo und läuft deshalb vor dem nächsten Schritt)
+10. `cargo test (no ROM data)`: `cargo test --workspace --all-features` ohne ROM-Daten (dieselben `G4_*`-Variablen werden entfernt, die bedingten Tests überspringen sich und stehen im Skip-Log), im schnellen Gate ohne die schweren Tests (siehe unten). Es ist der mit Abstand längste Schritt; die Schritte, die weder die Build-Sperre nehmen noch nach `target/` schreiben, laufen als Hintergrundjobs daneben (kurz vor ihm gestartet):
+    - die Kette für die Oberfläche: `tokens` (`scripts/check-tokens.sh`: Raster und Kontraste mit `check_tokens.py`, danach der Abgleich der eingecheckten Token-Dateien mit einem frischen Export; siehe „Design-System und Tokens“), `styles` (`scripts/check-styles.sh`: keine Inline-Styles und keine Hex-Farben außerhalb der Ausnahmen), `depth` (`scripts/check-depth.sh`: kein direkter Vergleich der Tiefe, nur `depthAtLeast`/`viewDepth`), `pnpm test` in `apps/studio`, `pnpm build` in `apps/studio`, danach `dist has no bridge` (`apps/studio/dist` darf den Text `__bridge` nicht enthalten: die Dev-Brücke gehört nicht ins Produktions-Bundle; er entfällt, wenn der Build scheitert)
+    - `script tests`: `scripts/tests/run.sh`, die Tests der Shell-Skripte
+    - `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
 
-Seit „Release und CI“ stehen zwischen Schritt 3 und 4 fünf weitere hermetische Schritte (ohne Nummer, damit die Verweise auf die Schritte 13 bis 15 stimmen): `script tests` (`scripts/tests/run.sh`, die Tests der Shell-Skripte), `actions` (`scripts/check-actions.sh`: jede `uses:`-Zeile auf einen SHA festgelegt und in `.github/actions-allowlist.txt`, Lizenz aus der Liste von `deny.toml`), `no rom data` (`scripts/check-no-rom-data.sh`: keine ROM-, Spielstand- oder Patch-Daten unter `git ls-files`), `links` (`scripts/check-links.sh`: relative Links in `README.md`, `README.de.md`, `docs/README.md` und `CONTRIBUTING.md` zeigen auf vorhandene Dateien, mit genau passender Groß- und Kleinschreibung) und `version` (`scripts/version.sh check`). Die Fassungen der Werkzeuge (apicula, rotom, cargo-deny, pnpm, Node, cargo-about) stehen in `scripts/tool-versions.env`; CI, Release-Workflow und Skripte lesen sie dort. Mit `G4_GATE_HERMETIC=1` endet das Gate nach Schritt 11 (`g4emu unit`): das ist genau, was `gate-macos` in `ci.yml` fährt (bei jedem Pull Request und jedem Push auf `main`). `gate-windows` fährt nicht das Gate, sondern nur `cargo clippy --workspace --all-targets --all-features -- -D warnings` und `cargo test --workspace --all-features --no-fail-fast`.
+    Jeder Hintergrundschritt schreibt in ein eigenes Log; die Logs stehen als ein Block je Schritt nach `cargo test`, und jeder Schritt steht mit Ergebnis und Sekunden in der Tabelle. Ein scheiternder Hintergrundschritt hält `cargo test` nicht an und umgekehrt: das Gate wartet auf alle, druckt die Tabelle und scheitert, wenn einer scheiterte, ein Lauf meldet also jeden Fehler dieser Gruppe.
+
+    Auf CI (`CI=true`) laufen die Schritte nacheinander statt nebeneinander: erst `cargo test (no ROM data)`, dann die Ketten der Reihe nach, denn der Runner mit drei Kernen ließ die Frontend-Tests neben `cargo test` verhungern (Lauf 43581017224: `pnpm test` 1492 s, 50 Tests gescheitert). `G4_GATE_SERIAL=0` oder `1` überschreibt das; im seriellen Lauf entfällt die Warnung bei 900 s, weil die Grenze ein Ziel für den Rechner des Entwicklers ist.
+
+Mit `G4_GATE_HERMETIC=1` endet das Gate nach diesen Schritten, auch mit `--full`: das ist genau, was `gate-macos` in `ci.yml` fährt (bei jedem Pull Request und jedem Push auf `main`; sonst ist kein `G4_*` nötig). `gate-windows` fährt nicht das Gate, sondern nur `cargo clippy --workspace --all-targets --all-features -- -D warnings` und `cargo test --workspace --all-features --no-fail-fast`. Die Fassungen der Werkzeuge (apicula, rotom, cargo-deny, pnpm, Node, cargo-about) stehen in `scripts/tool-versions.env`; CI, Release-Workflow und Skripte lesen sie dort.
+
+**Schwere Tests.** Die Tests, die ein synthetisches Projekt mit Tausenden Dateien anlegen, tragen fast die ganze Testzeit (Abschnitt „Dauer“). `scripts/gate-heavy-tests.txt` nennt die langsamsten, einen libtest-Namen je Zeile: derzeit 238 Tests mit mindestens 8 s (die Schwelle steht im Kopf der Datei). Lokal lässt das schnelle Gate sie aus (`cargo test … -- --exact --skip <Name> …`; mit `--exact`, damit `a::b` nicht `a::b_c` trifft) und sagt nach der Tabelle, wie viele es ausgelassen hat (`<n> schwere Tests laufen nur im Volllauf`: die aktuelle Zahl); der Volllauf führt alle aus. Auf CI (`CI=true`, wie GitHub Actions es setzt) liest das schnelle Gate die Liste nicht und führt jeden Test ohne ROM-Daten aus: die Liste gibt es nur wegen des Virenscanners auf dem Mac des Entwicklers.
+
+Der Preis ist bekannt und angenommen: Ein schwerer Test, der bricht, fällt lokal erst im Volllauf auf, im Pull Request dagegen schon auf CI. Die ROM-Matrix gehört nicht zum schnellen Gate, auch keine Stichprobe: ein Fehler, den nur ein Projekt oder eine ROM zeigt, fällt erst im Nachtlauf auf.
+
+Die Liste wird gepflegt, wenn das schnelle Gate warnt: Braucht es mehr als 900 s, steht nach der Tabelle `Warnung: das schnelle Gate hat <n> s gebraucht (Grenze 900 s)` mit dem Hinweis auf das Skript (die Grenze warnt, sie lässt das Gate nicht scheitern). Dann die Liste neu erzeugen, aus dem Log eines Laufs mit der Zeit je Test, auf einer ruhigen Maschine (die `G4_*`-Variablen vorher aus der Shell entfernen, damit nur die Tests ohne ROM laufen):
 
 ```sh
-scripts/gate.sh
+RUSTC_BOOTSTRAP=1 cargo test --workspace --all-features -- -Z unstable-options --report-time > /pfad/zum/test.log 2>&1
+bash scripts/gate-heavy-update.sh /pfad/zum/test.log [<Sekunden>]    # Schwelle in Sekunden, Standard 8
+```
+
+Das Skript schreibt `scripts/gate-heavy-tests.txt` neu (jeder Test ab der Schwelle, mit `LC_ALL=C sort -u` sortiert) und druckt eine Zeile mit der Zahl der gelisteten Tests, der Schwelle, der Zahl der gemessenen Tests und der Summe der Sekunden der gelisteten; die neue Liste wird eingecheckt. Nicht von Hand pflegen.
+
+### Der Volllauf (`--full`)
+
+Er fährt zuerst das schnelle Gate, aber `cargo test (no ROM data)` führt dabei alle Tests ohne ROM-Daten aus, auch die schweren. Danach, in der Reihenfolge der Tabelle:
+
+1. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch (das Ergebnis des Laufs ist dann `unvollstaendig`)
+2. die Prüfung der Werkzeuge (`gated tests: preflight`): `G4_ROMS_DIR` muss ein Ordner sein, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` ausführbare Dateien, und `git` muss im `PATH` liegen (Tests, die ein Git-Repository schreiben, überspringen sich sonst mit `skipped: git not found`); sonst steht "FAILED (tools)" in der Tabelle und das Gate endet (sonst würden die gated Tests nur "skipped" melden und trotzdem als bestanden gelten)
+3. `skip log`: leitet aus dem Skip-Log von `cargo test (no ROM data)` die Listen der bedingten Tests ab (siehe unten)
+4. `gated tests (cargo test)`: je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features --no-fail-fast -- --exact <Tests>` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt „Gated Tests“ gegen Platin DE, HeartGold DE und HeartGold US; `G4_TIMING_STRICT` und `G4_TEST_ROM` aus der aufrufenden Shell werden für diesen Schritt entfernt. `build_graph_timings` steht nicht in der Liste: das misst `build graph (timings)` im Release-Profil. Ein Ordner ohne `header.yaml` zählt nicht als Projekt und erscheint als Zeile "skipped (no header.yaml)"; ein Projekt ohne `<Name>.nds` neben dem Ordner in `$G4_ROMS_DIR` (dort suchen die Tests die Basis-ROM, und ohne sie überspringen sie sich mit „skipped: no base ROM next to …“, ohne dass ein Skip-Log es sieht) läuft nicht und erscheint als Zeile "skipped (keine ROM)" mit einer Zeile „Hinweis“; findet das Gate kein Projekt, endet es mit "FAILED (no project)"
+5. `tool tests`: die Tests, die nur ein Werkzeug brauchen (etwa `world_bake`, `world_freeform`, `form2_tests` mit `G4_APICULA`), einmal mit allen Werkzeugen und dem Projekt Platin DE (fehlt es, dem ersten Projekt)
+6. `fixture cleanup`: wartet, bis die losgelösten `rm -rf`-Prozesse fertig sind, die die Testvorlagen des Kernels nach `cargo test` löschen (höchstens 900 s, die Zeile nennt die Wartezeit), denn sie stören die Zeitmessungen
+7. `build graph (timings)`: je Testprojekt `cargo test --release -p g4-kernel --all-features --test build_graph -- build_graph_timings --nocapture --test-threads 1` mit `G4_TEST_PROJECT` und `G4_TIMING_STRICT=1` (Zeitgrenzen von „Hier spielen“, siehe „Build-Graph (4.2)“), danach ebenso `--test refs -- vanilla_index_builds_under_a_second` (warmer Aufbau des Referenzindex ≤ 1 000 ms; im Lauf von Schritt 4 misst er nur, weil die anderen Tests dort dieselben Dateien lesen); scheitert der Lauf, wiederholt das Skript ihn einmal (Zeile „ok (2nd run)“)
+8. `gated tests (project start)`: je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) die Tests, die `G4_TEST_ROM` abgefragt haben (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“), mit `G4_TEST_ROM` und allen Werkzeugen; ohne `.nds` eine Zeile "skipped (keine ROM)"; eine `.nds`, neben der kein Projektordner `<Name>_DSPRE_contents` liegt, meldet nur einen „Hinweis“ (ihre ROM-Tests laufen)
+9. nach einem weiteren `fixture cleanup` `world mesh (timing)` und `world mesh bridge (timing)`: der Mesher auf einer vollen Karte (Grenze 20 ms, Release) und das Mesh über den Befehlsweg `get_world_mesh` (Grenze 50 ms, Debug), mit synthetischen Daten (6.3a)
+
+Von Schritt 4 an hält ein scheiternder Schritt das Gate nicht an: die Zeile steht mit „FAILED“ in der Tabelle, der Lauf geht weiter und meldet am Ende alles (Status 1). Davor, in den Schritten ohne ROM und in 1 bis 3, endet das Gate beim ersten Fehler (die Hintergrundschritte laufen immer zu Ende, siehe oben).
+
+**Bedingte Tests.** Bedingt heißt ein Test, der ohne `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_APICULA`, `G4_DSROM_CLI` oder `G4_ROTOM_LSP` überspringt. Er fragt die Variable über `g4_formats::test_support::gate_var`: fehlt sie, druckt die Funktion `skipped` und hängt `<Variable>\t<Test>` an die Datei, die `G4_SKIP_LOG` nennt. `cargo test (no ROM data)` schreibt so `target/gate/skips.tsv`; nur der Volllauf nutzt das Log (das schnelle Gate lässt die schweren Tests aus, sein Log ist unvollständig). Der Schritt `skip log` macht daraus drei Listen (`list-project.txt`, `list-rom.txt`, `list-tool.txt`, neben dem Log): Die Tests, die `G4_TEST_PROJECT` abgefragt haben, laufen einmal je Projekt (`gated tests (cargo test)`), die mit `G4_TEST_ROM` einmal je ROM (`gated tests (project start)`), die übrigen, die nur ein Werkzeug brauchen, einmal mit allen Werkzeugen und dem Projekt Platin DE (`tool tests`). Jeder dieser Schritte hat ein eigenes Skip-Log, und ein Test, der darin überspringt, lässt den Schritt scheitern („bedingter Test übersprungen“): Ein bedingter Test, der im Volllauf nicht läuft, macht ihn rot. Eine leere Liste steht als "skipped (leere Liste)" in der Tabelle, das Ergebnis ist dann `unvollstaendig`. Ein Test, der in einem Hilfsthread ohne Namen übersprang oder auf dem Hauptthread lief, hat keinen brauchbaren Namen im Log; das lässt `skip log` scheitern. Deshalb läuft `cargo test (no ROM data)` nie mit `--test-threads 1`.
+
+`scripts/check-gate-vars.sh` (der Schritt `gate vars`, Sekunden, ohne Build-Sperre) sorgt dafür, dass kein Test an der Abfrage vorbeigeht: Er scheitert (`<Datei>:<Zeile>` je Fund), wenn eine `.rs`-Datei unter `crates` oder `apps/studio/src-tauri` außer den beiden `test_support.rs` eine der fünf Variablen direkt mit `var("G4_…")` oder `var_os("G4_…")` liest (auch wenn rustfmt den Namen in die nächste Zeile gesetzt hat), oder wenn in den 12 Zeilen ab einem `get_or_init(` `gate_var`, `vanilla_project`, `vanilla_copy` oder `vanilla_base_rom` aufgerufen wird. Ein Cache würde das Überspringen nur dem ersten Test zeigen, das Log nennt den Test, der aufruft, und die übrigen fielen aus dem Volllauf. Die Grenzen: Er erkennt nur Namen, die als Zeichenkette im Aufruf stehen (ein Name aus einer Konstanten oder zur Laufzeit zusammengesetzt entgeht ihm), und einen Cache nur im Abstand von 12 Zeilen.
+
+**Ergebnisdatei.** Ein Volllauf hinterlässt `<sha>.json` und `<sha>.log` im Ordner `G4_GATE_ARTEFAKTE` (Standard: `../gate-artefakte/full` neben dem Haupt-Checkout, auch aus einem Worktree). Das Log ist die ganze Ausgabe. Die JSON hat die Felder `sha`, `ergebnis`, `sekunden`, `wiederaufgesetzt`, `beginn` (UTC) und `zeilen` (die Tabelle: `schritt`, `projekt`, `ergebnis`, `sekunden`). `ergebnis` ist `gruen` (jeder Schritt ok), `unvollstaendig` (alles ok, aber ein Schritt steht als „skipped“ in der Tabelle: `g4emu integration` ohne Kern, Spielstand oder ROM (`skipped (kein Kern)`, `skipped (kein Spielstand)`, `skipped (keine ROM)`), ein Ordner ohne `header.yaml` (`skipped (no header.yaml)`), ein Projekt ohne `.nds` daneben (`skipped (keine ROM)` bei `gated tests (cargo test)`), der Projektstart ohne `.nds` (`skipped (keine ROM)`) oder die leere Liste eines bedingten Tests (`skipped (leere Liste)`)) oder `rot` (ein Schritt scheiterte, auch die Prüfung der Werkzeuge mit `FAILED (tools)`, oder das Gate endete mit einem anderen Status als 0); nur `gruen` zählt für ein Release. Die Datei entsteht am Ende des Laufs, auch nach einem Abbruch, und ersetzt ein früheres Ergebnis desselben Commits. Sie entsteht **nicht**:
+
+- bei `G4_GATE_HERMETIC=1` (das Gate endet vor dem ROM-Teil) und bei `G4_GATE_ONLY_PROJECT` (ein Projekt ist nicht die Matrix); mit `--full` sagt das Gate es in einer Zeile „Hinweis“;
+- bei schmutzigem Arbeitsbaum zu Beginn (`Hinweis: Arbeitsbaum nicht sauber`) und wenn sich HEAD oder der Arbeitsbaum während des Laufs ändern (ein Commit, ein Branchwechsel oder eine Änderung: die späteren Schritte hätten anderen Code geprüft als den Commit, den das Ergebnis nennt); ein älteres Ergebnis bleibt;
+- bei einem Signal (Ctrl-C, `kill`): das sagt nichts über den Commit.
+
+Die Tabelle nennt das Urteil und den Pfad in der Zeile `Ergebnis: <gruen|rot|unvollstaendig> (<Pfad>)` vor der Schlusszeile.
+
+**Wiederaufsetzen mit `--from`.** `bash scripts/gate.sh --full --from "<Schritt>"` setzt den Volllauf **desselben Commits** bei einem Schritt des ROM-Teils wieder auf, etwa nach einem Fehler durch die Umgebung (ein Werkzeug fehlte, die Platte war voll). Der Teil ohne ROM und jede Zeile vor `<Schritt>`, die ok war, kommen aus der `<sha>.json` des früheren Laufs (das Log vermerkt es); `<Schritt>` und alles danach, dazu jede frühere Zeile, die nicht ok war, laufen neu. `<Schritt>` ist eine Zeile der Tabelle ab `g4emu integration` (`g4emu integration`, `gated tests (cargo test)`, `tool tests`, `build graph (timings)`, `gated tests (project start)`, `world mesh (timing)`, `world mesh bridge (timing)`); bei einem Schritt je Projekt hängt man `@<Projekt>` an, die Bezeichnung aus der Spalte „Project“ der Tabelle (der Ordnername ohne `_DSPRE_contents`, bei `gated tests (project start)` der Name der ROM ohne `.nds`):
+
+```sh
+bash scripts/gate.sh --full --from "gated tests (cargo test)@Pokemon - HeartGold Version (USA)"
+```
+
+Ein wiederaufgesetzter Lauf zählt als Volllauf: Er schreibt die `<sha>.json` neu, mit `wiederaufgesetzt: true` und den `sekunden` des wiederaufgesetzten Laufs allein, und hängt seine Ausgabe an die `<sha>.log` an, hinter eine Zeile `==== wiederaufgesetzt ab <Schritt> ====`. Er lehnt ab (Status 2, eine Zeile auf stderr), wenn er ohne `--full`, mit `G4_GATE_HERMETIC=1` oder mit `G4_GATE_ONLY_PROJECT` startet; wenn der Arbeitsbaum nicht sauber ist; wenn es für den aktuellen Commit kein lesbares Ergebnis gibt (auch nach einem Commit oder Branchwechsel); wenn `<Schritt>` im Teil ohne ROM liegt (dann den Volllauf neu starten), unbekannt ist (auch `skip log` und `fixture cleanup`) oder je Projekt mehrfach vorkommt, ohne dass `@<Projekt>` dasteht; wenn der Teil ohne ROM im früheren Ergebnis nicht grün war; und wenn die Testlisten dieses Commits fehlen (sie liegen in `target/gate/` des Checkouts, in dem der frühere Lauf lief).
+
+**Ein Projekt.** `G4_GATE_ONLY_PROJECT=<Projekt>` (nur mit `--full`; die Bezeichnung wie bei `--from`) beschränkt jeden Durchlauf je Projekt auf dieses eine Projekt; ein unbekanntes Projekt beendet das Gate mit Status 2 und nennt die bekannten. Das ist die schnelle Probe für ein Projekt, aber kein Volllauf: es entsteht keine Ergebnisdatei.
+
+### Aufruf und Variablen
+
+```sh
+bash scripts/gate.sh                                    # das schnelle Gate
+bash scripts/gate.sh --full                             # der Volllauf
+bash scripts/gate.sh --full --from "<Schritt>[@<Projekt>]"   # den Volllauf dieses Commits wieder aufsetzen
 ```
 
 Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch64-apple-darwin/bin`, falls vorhanden; sonst gilt der `PATH` der Shell) und hängt `~/.cargo/bin` (dort liegt `cargo-deny`) hinten an den `PATH`, braucht also keinen `export PATH`. Variablen, alle optional:
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
-| `G4_GATE_HERMETIC` | nicht gesetzt | `1`: das Gate endet nach dem Schritt `g4emu unit` und die Tabelle schließt mit „Gate (hermetisch): ok“; das fährt die CI (kein `G4_*` sonst nötig). Nicht gesetzt: das volle lokale Gate |
-| `G4_ROMS_DIR` | `../Roms` (neben dem Repository) | Ordner mit den `*_DSPRE_contents`-Projekten; aus einem Git-Worktree absolut setzen, der Standard trifft dort nichts |
-| `G4_APICULA` | `tools/apicula/bin/apicula` | apicula-Binärdatei für die Modell-Tests |
-| `G4_DSROM_CLI` | `$G4_ROMS_DIR/_tools/dsrom` | ds-rom-Referenz-CLI für den Rebuild-Vergleich |
-| `G4EMU_CORE` | `tools/g4emu/core/melondsds_libretro.dylib` | Emulator-Kern für den Schritt `g4emu integration` |
-| `G4_ROTOM_LSP` | `tools/rotom/bin/rotom-lsp` | rotom-lsp-Binärdatei (Preflight; wird an die gated Tests durchgereicht) |
+| `G4_GATE_HERMETIC` | nicht gesetzt | `1`: das Gate endet vor dem ROM-Teil, auch mit `--full` (siehe „Das schnelle Gate“); die Tabelle schließt dann mit „Gate (hermetisch): ok“ |
+| `G4_GATE_SERIAL` | `1` bei `CI=true`, sonst `0` | `1`: erst `cargo test (no ROM data)`, dann die Ketten nacheinander statt daneben, ohne die Warnung bei 900 s; `0`: die Ketten laufen neben `cargo test` (siehe „Das schnelle Gate“) |
+| `G4_GATE_TMPDIR` | nicht gesetzt | absoluter Ordner für die Temp-Dateien der `cargo test`-Schritte (das Gate legt ihn an und setzt dafür `TMPDIR`); ein eigener Ordner lässt sich vom Virenscanner ausnehmen (Abschnitt „Dauer“) |
+| `G4_ROMS_DIR` | `../Roms` neben dem Haupt-Checkout | Ordner mit den `*_DSPRE_contents`-Projekten; gilt auch aus einem Git-Worktree; nur `--full` |
+| `G4_GATE_ARTEFAKTE` | `../gate-artefakte/full` neben dem Haupt-Checkout | Ordner der Ergebnisse (`<sha>.json`, `<sha>.log`); das Gate legt ihn bei Bedarf an; nur `--full` |
+| `G4_GATE_ONLY_PROJECT` | nicht gesetzt | ein Projekt statt der Matrix, ohne Ergebnisdatei (siehe oben); nur `--full` |
+| `G4_APICULA` | `tools/apicula/bin/apicula` | apicula-Binärdatei für die Modell-Tests; nur `--full` |
+| `G4_DSROM_CLI` | `$G4_ROMS_DIR/_tools/dsrom` | ds-rom-Referenz-CLI für den Rebuild-Vergleich; nur `--full` |
+| `G4EMU_CORE` | `tools/g4emu/core/melondsds_libretro.dylib` | Emulator-Kern für den Schritt `g4emu integration`; nur `--full` |
+| `G4_ROTOM_LSP` | `tools/rotom/bin/rotom-lsp` | rotom-lsp-Binärdatei (Preflight; wird an die gated Tests durchgereicht); nur `--full` |
 
-Das Skript hält beim ersten Fehler und druckt am Ende eine Tabelle Schritt / Projekt / Ergebnis / Sekunden, auch bei Abbruch; der Exit-Code ist ungleich 0, sobald ein Schritt fehlschlägt. Ein Ordner ohne `header.yaml` zählt nicht als Projekt und erscheint als Zeile "skipped (no header.yaml)". Fehlen `G4_ROMS_DIR`, `G4_APICULA`, `G4_DSROM_CLI` oder `G4_ROTOM_LSP`, oder findet es kein Projekt, bricht es mit einer Meldung ab (sonst würden die gated Tests nur "skipped" melden und trotzdem als bestanden gelten).
+Die übrigen `G4_GATE_*`-Variablen (`G4_GATE_CMD_PREFIX`, `G4_GATE_HEAVY_LIST`, `G4_GATE_LIMIT_S`, `G4_GATE_LOG_DIR`, `G4_GATE_REMOVER_PATTERN`, `G4_GATE_REMOVER_POLL_S`, `G4_GATE_REMOVER_WAIT_S`) sind Prüfhaken für `scripts/tests/gate.test.sh`, nicht für den Gebrauch.
 
-Dauer (der Schritt `mcp` kommt seit 3h.2 mit rund 30 Sekunden dazu): bei warmem Build-Cache etwa 30 bis 40 Minuten (gemessen 1704 s in 3c, 1781 s in 3b.3a, 1798 s in 3b.3b, 2452 s in 3b.4a; vor 3b.2 waren es 1217 s, dazu rund eine Minute für die g4emu-Schritte; seit 3b.2 kommen die gated Script- und Text-Tests dazu, seit 3b.3a die Daten-Tests aus „Daten-Archive und das uxie-Orakel“; seit 3b.3b die Trainer- und Begegnungs-Tests aus „Trainer und Begegnungen (3b.3b)“, seit 3b.4a die Prüf-Tests aus „Projektprüfungen (3b.4a)“; gemessene Läufe stehen in [docs/phase-3c-gate.md](phase-3c-gate.md) (1704 s), [docs/phase-3b3-gate.md](phase-3b3-gate.md) (Teil A 1781 s, Teil B 1798 s) und [docs/phase-3b4-gate.md](phase-3b4-gate.md) (Teil A 2452 s); die drei Projekte brauchen 380 bis 830 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
+Das Gate druckt am Ende eine Tabelle Schritt / Projekt / Ergebnis / Sekunden, auch bei Abbruch; der Exit-Code ist ungleich 0, sobald ein Schritt fehlschlägt. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
+
+Nach einem abgebrochenen Testlauf (`kill`, Absturz, Ctrl-C) bleibt `$TMPDIR/g4-fixtures-<pid>` zurück (nach 50 s waren es 454 000 Dateien, 1,7 GB): der nächste Testlauf löscht die Ordner von Prozessen, die nicht mehr leben, im Hintergrund; von Hand, wenn gerade kein Test läuft: `rm -rf "$TMPDIR"/g4-fixtures-*`.
+
+### Dauer
+
+Gemessen auf dem Mac des Entwicklers, der Microsoft Defender mit Echtzeitschutz hat; die Zahlen streuen mit der Last der Maschine:
+
+- Das schnelle Gate brauchte im Abnahmelauf am 2026-11-14 (Commit `26362736`) **755 s** mit kaltem Build-Cache (Grenze 900 s): `cargo clippy` 117 s und `mcp` 111 s kompilierten größtenteils, `cargo test (no ROM data)` brauchte 521 s für 3 727 Tests. Mit warmem Cache brauchte es am 2026-11-13 **545 s** (ruhige Maschine). Vor diesem Umbau brauchte allein `cargo test` ohne ROM-Daten 2 689 s.
+- Ein `--full`-Lauf nur für Platin DE (`G4_GATE_ONLY_PROJECT`) brauchte am 2026-11-13 **4 738 s**, davon 3 256 s für die 201 bedingten Tests des Projekts. Vorher waren es 5 830 s für die ganze Suite an einem Projekt.
+- Der Volllauf über drei Projekte (HeartGold DE, HeartGold US, Platin DE) brauchte im Abnahmelauf am 2026-11-14 (Commit `d7356f04`) **9 954 s**, 2 Stunden 46 Minuten, alle 34 Zeilen `ok`. Davon entfielen 8 479 s auf die gated Tests je Projekt (3 055 s, 2 832 s, 2 592 s), 420 s auf Zeitmessungen und Projektstart und rund 1 000 s auf den Rest, der nur einmal läuft; `cargo test (no ROM data)` brauchte darin 906 s, weil der Volllauf auch die schweren Tests fährt.
+
+Die Tests sind auf diesem Mac langsam, weil Defender jede Datei eines geklonten Testprojekts beim ersten Öffnen scannt. Eine Ausnahme im Virenscanner ist von der Organisation verwaltet, die Maschine entscheidet die IT: Ein Antrag für den Ordner, den `G4_GATE_TMPDIR` nennt, ist entworfen und **offen**. Dazu kommt: Nach einem Testlauf löschen losgelöste Prozesse die Testvorlagen noch einige Minuten (der Volllauf wartet vor den Zeitmessungen darauf, Schritt `fixture cleanup`); eine Messung gleich nach einem Lauf läuft auf einer Maschine, die nicht ruhig ist.
+
+## Nachtlauf einrichten
+
+Der Volllauf läuft nachts von selbst, damit er keinem Merge im Weg steht: `scripts/gate-nightly.sh` holt `origin/main`, führt `bash scripts/gate.sh --full` in einem eigenen Worktree aus und lässt das Ergebnis im Ordner der Ergebnisse liegen (Abschnitt „Gate-Skript“, „Ergebnisdatei“). Ein launchd-Job startet es um 01:30; er wird von Hand installiert, nichts im Repository lädt ihn. Von Hand startet man das Skript mit `bash scripts/gate-nightly.sh`. Es tut der Reihe nach:
+
+1. Es nimmt eine Sperre `nightly.lock` im Ordner der Ergebnisse: Läuft schon ein Nachtlauf, sagt der zweite Start „Nachtlauf: läuft schon“ und endet mit Status 0; eine Sperre, deren Prozess nicht mehr lebt (abgeschossen, Neustart), übernimmt der nächste Start.
+2. `git fetch origin main` im Haupt-Checkout, ohne Rückfrage nach einem Passwort (`GIT_TERMINAL_PROMPT=0`) und, wenn `GIT_SSH_COMMAND` nicht gesetzt ist, mit `ssh -o BatchMode=yes -o ConnectTimeout=30` (ein Job ohne Terminal darf nicht auf eine Antwort warten). Scheitert der Abruf, endet das Skript mit Status 1: Es läuft nie auf einem veralteten Stand.
+3. Hat `origin/main` schon eine `<sha>.json` mit `gruen`, endet es mit „Nachtlauf: <sha> ist schon grün“ (Status 0). Ein rotes, unvollständiges oder fehlendes Ergebnis hält den Lauf nicht auf: ein roter Commit wird in der nächsten Nacht neu versucht.
+4. Der Worktree `gen4-studio-nightly` neben dem Haupt-Checkout (`G4_NIGHTLY_WORKTREE` wählt einen anderen Ort) wird mit `git worktree add --detach` angelegt oder, wenn er besteht, mit `git checkout --detach <sha>` auf den Commit gesetzt. Das Skript setzt dort nichts zurück und löscht nichts: Ein Ordner, der kein Worktree dieses Repositorys ist (auch der Haupt-Checkout selbst), ein Worktree mit Änderungen und ein gescheiterter Checkout beenden es mit Status 1 und einer Zeile mit dem Pfad.
+5. `tools/` im Worktree wird ein Link auf `tools/` des Haupt-Checkouts (nur wenn der Worktree keins hat), dann läuft `pnpm install --frozen-lockfile` in `apps/studio`, mit `CI=true` nur für diesen Befehl (ohne Terminal kann pnpm die Rückfrage vor dem Löschen von `node_modules` nicht beantworten; das Gate bekommt kein `CI`, es schaltet die Liste der schweren Tests ab).
+6. `bash scripts/gate.sh --full` im Worktree, unter `caffeinate -i` (der Mac geht im Lauf nicht in den Ruhezustand; fehlt `/usr/bin/caffeinate`, läuft das Gate ohne), mit `CARGO_TARGET_DIR=<Haupt-Checkout>/target`: Der Build wird mit dem Haupt-Checkout geteilt. Am Ende steht „Nachtlauf: <ergebnis> (<sha>)“, mit dem `ergebnis` der `<sha>.json` dieses Laufs, oder „kein Ergebnis“; der Status ist der des Gates.
+
+Die Voraussetzungen des Volllaufs gelten auch nachts: `../Roms`, `tools/` und der Emulator-Kern im Haupt-Checkout; fehlt etwas, ist das Ergebnis `rot` oder `unvollstaendig`.
+
+**Installieren** (einmal, im Haupt-Checkout; `@REPO@` in der Vorlage `scripts/release/de.gen4studio.gate-nightly.plist` ist dessen absoluter Pfad):
+
+```sh
+mkdir -p ../gate-artefakte/full ~/Library/LaunchAgents     # launchd legt den Ordner des Logs nicht an
+sed "s|@REPO@|$PWD|g" scripts/release/de.gen4studio.gate-nightly.plist \
+  > ~/Library/LaunchAgents/de.gen4studio.gate-nightly.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/de.gen4studio.gate-nightly.plist
+```
+
+Der Pfad des Haupt-Checkouts darf kein `|`, `&` oder `\` enthalten (für `sed` sind sie Trenn- und Sonderzeichen, `&` bricht auch das XML der Plist). Der Job hat `RunAtLoad` aus: `bootstrap` startet ihn nicht. Einmal von Hand starten (ohne bis 01:30 zu warten): `launchctl kickstart gui/$(id -u)/de.gen4studio.gate-nightly`. Entfernen: `launchctl bootout gui/$(id -u)/de.gen4studio.gate-nightly`, danach die Plist-Datei löschen. Das Log des Jobs ist `../gate-artefakte/full/nightly.log` neben dem Haupt-Checkout; je Commit liegt dort außerdem das Log des Gates, `<sha>.log`.
+
+Was man wissen muss:
+
+- Der Job ist kein Hintergrundjob mehr: Die Plist hat keinen `ProcessType`, denn die Klasse `Background` drosselt CPU und Platten-E/A, und ein Lauf von Stunden dauert darin weit länger. Der Mac muss um 01:30 wach sein oder aufwachen: Schläft er, startet launchd den verpassten Job beim nächsten Aufwachen. Zum Wecken um 01:25 (optional, einmal vom Maintainer, am Netzteil): `sudo pmset repeat wakeorpoweron MTWRFSU 01:25:00` (`sudo pmset repeat cancel` nimmt es zurück). Während des Laufs hält `caffeinate -i` den Mac vor dem Ruhezustand wach (der Bildschirm darf ausgehen).
+- Der Nutzer muss angemeldet sein: Ein LaunchAgent läuft nicht vor der Anmeldung, nach einem Neustart ohne Anmeldung fällt die Nacht aus.
+- Während der Nachtlauf läuft, keine gated Tests von Hand starten: Beide nutzen `<target>/tmp/<Name>-<Projekt>` (der Nachtlauf teilt das Build-Ziel des Haupt-Checkouts) und stören sich.
+- Der geteilte Ordner `target/` wächst um eine Build-Generation für den Worktree des Nachtlaufs (anderer Pfad, andere Pakete): alte Artefakte von Zeit zu Zeit aufräumen.
+- launchd startet den Job mit einem kurzen `PATH` und ohne Shell-Profil. Das Skript hängt die Ordner von Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`), von cargo (`~/.cargo/bin`, dort liegt `cargo-deny`) und die Systemordner an; es gilt also das Node von Homebrew, nicht das der Shell (nvm, fnm o. Ä.). Die gepinnte Rust-Toolchain setzt das Gate selbst davor.
+- Es läuft das `gate-nightly.sh`, das im Haupt-Checkout gerade ausgecheckt ist: Steht dort ein Feature-Branch, läuft das Skript dieses Branches. Das Gate selbst kommt aus dem Worktree, also von `origin/main`.
+- Eine laufende Nacht anhält man mit einem Signal an die Prozessgruppe (`kill -TERM -<PGID>`; die Gruppe zeigt `ps -o pgid= -p <pid>`) oder mit `launchctl kill TERM gui/$(id -u)/de.gen4studio.gate-nightly`. Ein Signal nur an die pid des Skripts wartet, bis das Gate zu Ende ist. Ein Lauf, den ein Signal beendet, schreibt kein Ergebnis; die Sperre wird entfernt.
+- Solange der Stand mit der Zeile `/tools` in `.gitignore` nicht auf `origin/main` liegt, schreibt der Nachtlauf kein Ergebnis: Der Link `tools` im Worktree zählt als unversioniert (`tools/` meint nur Ordner), das Gate sieht einen schmutzigen Arbeitsbaum. Bis dahin hilft `echo /tools >> <Haupt-Checkout>/.git/info/exclude` (gilt für alle Worktrees des Repositorys).
 
 ## Agent-Testumgebung
 
@@ -772,7 +886,7 @@ Ein Claude-Agent bedient die App und das Spiel selbst; die Anleitung dafür steh
 - **Spielstände** liegen außerhalb des Repos in `$G4_ROMS_DIR/_testkopien/_saves/<SPIELCODE>-zimmer.sav` (CPUD Platin DE, IPKD HeartGold DE, IPKE HeartGold US) mit einer `.md`-Datei, die den Weg dorthin beschreibt. `g4emu` kopiert sie vor jedem Lauf und schreibt nie zurück.
 - **Ports:** Vite 1430, Brücke 1431; `G4_VITE_PORT` und `G4_BRIDGE_PORT` wählen andere (für eine zweite Instanz aus einem Worktree; `call.sh` liest den Brückenport aus `target/agent/bridge.port`). Die eigene App (`pnpm tauri dev`) bleibt auf 1420/1421.
 - **Sprache:** Die Sprache der App-Oberfläche kommt aus Einstellungen › Sprache (System folgt dem Betriebssystem, auch unter `pnpm tauri dev`); `G4_LANG` (`de` oder `en`; ohne die Variable entscheidet die Systemvariable `LANG`) setzt die Sprache der kopflosen Binaries `studio mcp`, `studio-bridge` und `g4k`.
-- **Umgebungsvariablen:** `G4_ROMS_DIR` (Ordner `Roms`, Standard `../Roms`), `G4_APICULA`, `G4EMU_CORE`, `G4EMU_SAVES` (anderer Spielstand-Ordner), `G4_BRIDGE_BIN` und `G4K_BIN` (fertiges `studio-bridge` bzw. `g4k` für Szenarien; aus einem Worktree mit `cargo build --workspace --all-features` bauen, `cargo test --no-run` erneuert `studio-bridge` nicht immer). In einem Git-Worktree fehlt `tools/` (nicht versioniert): `tools/apicula` verlinken oder `G4_APICULA` setzen. Dort stimmt auch der Standard von `G4_ROMS_DIR` nicht (`../Roms` liegt neben dem Haupt-Checkout): `scripts/agent/studio-web.sh` und `scripts/gate.sh` brauchen aus einem Worktree `G4_ROMS_DIR=<absoluter Pfad zu Roms>`.
+- **Umgebungsvariablen:** `G4_ROMS_DIR` (Ordner `Roms`, Standard `../Roms`), `G4_APICULA`, `G4EMU_CORE`, `G4EMU_SAVES` (anderer Spielstand-Ordner), `G4_BRIDGE_BIN` und `G4K_BIN` (fertiges `studio-bridge` bzw. `g4k` für Szenarien; aus einem Worktree mit `cargo build --workspace --all-features` bauen, `cargo test --no-run` erneuert `studio-bridge` nicht immer). In einem Git-Worktree fehlt `tools/` (nicht versioniert): `tools/apicula` verlinken oder `G4_APICULA` setzen. Dort stimmt auch der Standard von `G4_ROMS_DIR` nicht (`../Roms` liegt neben dem Haupt-Checkout): `scripts/agent/studio-web.sh` braucht aus einem Worktree `G4_ROMS_DIR=<absoluter Pfad zu Roms>`. `scripts/gate.sh` findet `../Roms` neben dem Haupt-Checkout selbst (es leitet ihn vom gemeinsamen Git-Verzeichnis ab), auch aus einem Worktree.
 
 ## MCP (`studio mcp`)
 
@@ -829,7 +943,7 @@ p.stdin.close()
 
 Eine Antwort je Anfrage kommt nicht unbedingt in der Reihenfolge der Anfragen (der Server arbeitet nebenläufig); bei mehreren offenen Anfragen nach der `id` zuordnen. Ein Befehlsfehler ist `result.isError: true`, ein unbekanntes Werkzeug eine JSON-RPC-Antwort mit `error` (-32602). Die Handprobe vom 2026-10-25 auf `_testkopien/3h-lesen` steht im Gate-Dokument [docs/phase-3h-gate.md](phase-3h-gate.md). Claude Code selbst einzurichten ist der Hand-Punkt des Gates: `claude mcp add gen4-studio -- <repo>/target/debug/studio mcp --project <Kopie>` (siehe [docs/mcp.md](mcp.md)); der Agent ändert die Claude-Konfiguration des Nutzers nicht.
 
-**Gate-Skript:** `scripts/gate.sh` hat seit 3h.2 den Schritt `mcp` (`cargo test -p studio --test mcp_stdio`, direkt nach `cargo test` ohne ROM-Daten); die gated Tests (`vanilla_*`) laufen je Projekt im letzten Schritt mit. Szenarien laufen nicht im Gate-Skript, ihr Lauf und die Bilder stehen im Gate-Dokument ([docs/phase-3h-gate.md](phase-3h-gate.md)).
+**Gate-Skript:** `scripts/gate.sh` hat seit 3h.2 den Schritt `mcp` (`cargo test -p studio --test mcp_stdio`, vor `cargo test` ohne ROM-Daten); die gated Tests (`vanilla_*`) laufen im Volllauf (`--full`) je Projekt im Schritt der gated Tests mit. Szenarien laufen nicht im Gate-Skript, ihr Lauf und die Bilder stehen im Gate-Dokument ([docs/phase-3h-gate.md](phase-3h-gate.md)).
 
 ## App-Bundle
 

@@ -4,7 +4,9 @@
 # on a fresh repository with a bare "origin" next to it and a fake gh that only records its calls.
 # No test reads the real updater key or the keychain: run() points G4_UPDATER_KEY at a file that
 # does not exist, switches the keychain off (G4_UPDATER_KEYCHAIN=0) and removes the signing
-# variables from the environment; tests that sign hand in a dummy key and password.
+# variables from the environment; tests that sign hand in a dummy key and password. Nor does any
+# test read the real folder of the results of full runs: run() points G4_GATE_ARTEFAKTE at a folder of
+# the test (<dir>/artefakte), and the tests of the full-run note put their <sha>.json files there.
 set -euo pipefail
 
 . "$(dirname "$0")/lib.sh"
@@ -60,7 +62,8 @@ SH
 
 # run <dir> [NAME=value...] <args...>: the script on <dir>/work, without a build; leading
 # NAME=value arguments go into its environment. By default there is no updater key: neither in
-# the environment nor in a file, and the keychain is not asked.
+# the environment nor in a file, and the keychain is not asked. The results of full runs are looked
+# for in <dir>/artefakte (an empty folder unless the test writes one: see write_result).
 run() {
   local d="$1" vars=()
   shift
@@ -70,7 +73,7 @@ run() {
   done
   env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
     PATH="$d/bin:$PATH" G4_RELEASE_ROOT="$d/work" G4_RELEASE_SKIP_BUILD=1 \
-    G4_UPDATER_KEY=/nonexistent G4_UPDATER_KEYCHAIN=0 \
+    G4_UPDATER_KEY=/nonexistent G4_UPDATER_KEYCHAIN=0 G4_GATE_ARTEFAKTE="$d/artefakte" \
     ${vars[@]+"${vars[@]}"} bash "$SCRIPT" "$@"
 }
 
@@ -236,6 +239,267 @@ test_remote_tag_on_another_commit_aborts() {
   (cd "$d/work" && git push -q origin main)
   assert_status 1 run "$d" "${SIGNED[@]}" v0.2.0-rc.1
   assert_contains "der Tag v0.2.0-rc.1 auf origin zeigt auf" run "$d" "${SIGNED[@]}" v0.2.0-rc.1
+}
+
+# --- the full run (a warning, never a block) -----------------------------------------------------
+
+head_of() { # head_of <dir> [<revision>]: the full sha of a revision of work/ (default HEAD)
+  git -C "$1/work" rev-parse "${2:-HEAD}"
+}
+
+# write_result <dir> <sha> [<ergebnis>]: <dir>/artefakte/<sha>.json as `scripts/gate.sh --full` writes
+# it (the folder is made here, the script under test never makes it); default result gruen.
+write_result() {
+  mkdir -p "$1/artefakte"
+  printf '{\n  "sha": "%s",\n  "ergebnis": "%s",\n  "sekunden": 1,\n  "wiederaufgesetzt": false,\n  "beginn": "2026-11-13T00:00:00Z",\n  "zeilen": []\n}\n' \
+    "$2" "${3:-gruen}" >"$1/artefakte/$2.json"
+}
+
+push_main() { # push_main <dir>: main of work/ to origin, so that HEAD == main == origin/main again
+  (cd "$1/work" && git push -q origin main)
+}
+
+# dry_run_ok <dir> [NAME=value...]: the output of a dry run, which must end with status 0 and the
+# "Probelauf ok" line: the note about the full run never changes how the script ends.
+dry_run_ok() {
+  local d="$1" out
+  shift
+  out="$(run "$d" "$@" v0.2.0-rc.1 --dry-run 2>&1)" || fail "the dry run failed: $out"
+  case "$out" in
+    *"release-local: Probelauf ok ("*) ;;
+    *) fail "no ok line: $out" ;;
+  esac
+  printf '%s\n' "$out"
+}
+
+# assert_has_line <text> <extended regex>: a line of the text matches.
+assert_has_line() {
+  printf '%s\n' "$1" | grep -Eq -- "$2" || fail "no line matches '$2' in: $1"
+}
+
+# assert_has_no_line <text> <extended regex>: no line of the text matches.
+assert_has_no_line() {
+  if printf '%s\n' "$1" | grep -Eq -- "$2"; then
+    fail "a line matches '$2' in: $1"
+  fi
+}
+
+test_full_run_on_head_is_reported() {
+  local d out head
+  d="$(setup)"
+  head="$(head_of "$d")"
+  write_result "$d" "$head"
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" "^Volllauf: grün auf diesem Commit \\(${head:0:12}\\)$"
+  assert_has_no_line "$out" 'WARNUNG Volllauf'
+  assert_before "$out" "==> release-local: main" "Volllauf: grün auf diesem Commit"
+  assert_before "$out" "Volllauf: grün auf diesem Commit" "==> release-local: keine ROM-Daten im Repository"
+}
+
+test_full_run_on_an_ancestor_warns_and_lists_the_commits() {
+  local d out green
+  d="$(setup)"
+  green="$(head_of "$d")"
+  write_result "$d" "$green"
+  commit_in "$d" "second change"
+  commit_in "$d" "third change"
+  push_main "$d"
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" "^WARNUNG Volllauf: letzter grüner Stand ${green:0:12} \\(2 Commits zurück\\)$"
+  assert_has_no_line "$out" '^Volllauf: grün auf diesem Commit'
+  assert_has_no_line "$out" 'kein grünes Ergebnis'
+  # git log --oneline <sha>..HEAD: the commits since, newest first, without the green commit itself.
+  assert_has_line "$out" '^[0-9a-f]+ third change$'
+  assert_has_line "$out" '^[0-9a-f]+ second change$'
+  assert_has_no_line "$out" '^[0-9a-f]+ init$'
+  assert_before "$out" "third change" "second change"
+  # git diff --stat <sha>..HEAD
+  assert_has_line "$out" '^ notes\.txt +\| +2 \+\+$'
+  assert_has_line "$out" '^ 1 file changed, 2 insertions\(\+\)$'
+  assert_before "$out" "WARNUNG Volllauf: letzter grüner Stand" "third change"
+  assert_before "$out" "second change" " notes.txt "
+  assert_before "$out" " notes.txt " "==> release-local: keine ROM-Daten im Repository"
+}
+
+test_no_full_run_warns_and_continues() {
+  local d out
+  d="$(setup)"
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
+  assert_has_no_line "$out" 'letzter grüner Stand'
+  assert_has_no_line "$out" '^Volllauf: grün'
+  # Reading the results never makes their folder.
+  [ ! -e "$d/artefakte" ] || fail "the folder of the results was made"
+  [ -s "$d/work/dist-release/SHA256SUMS.txt" ] || fail "the dry run did not go on to the end"
+}
+
+test_a_red_result_on_head_reports_the_green_ancestor() {
+  local d out green
+  d="$(setup)"
+  green="$(head_of "$d")"
+  write_result "$d" "$green"
+  commit_in "$d" "red change"
+  push_main "$d"
+  write_result "$d" "$(head_of "$d")" rot
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" "^WARNUNG Volllauf: letzter grüner Stand ${green:0:12} \\(1 Commits zurück\\)$"
+  assert_has_line "$out" '^[0-9a-f]+ red change$'
+  assert_has_no_line "$out" '^Volllauf: grün'
+}
+
+test_a_broken_result_on_head_warns_and_continues() {
+  local d out head
+  d="$(setup)"
+  head="$(head_of "$d")"
+  mkdir -p "$d/artefakte"
+  printf '{"sha": "%s", "ergebnis": "gru' "$head" >"$d/artefakte/$head.json"
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
+  assert_has_no_line "$out" '^Volllauf: grün'
+  # An empty file, a result without `ergebnis` and a folder named like a result are no result either.
+  : >"$d/artefakte/$head.json"
+  assert_has_line "$(dry_run_ok "$d")" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
+  printf '{"sha": "%s"}\n' "$head" >"$d/artefakte/$head.json"
+  assert_has_line "$(dry_run_ok "$d")" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
+  rm -f "$d/artefakte/$head.json"
+  mkdir "$d/artefakte/$head.json"
+  assert_has_line "$(dry_run_ok "$d")" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
+}
+
+test_a_broken_result_on_head_does_not_hide_a_green_ancestor() {
+  local d out green head
+  d="$(setup)"
+  green="$(head_of "$d")"
+  write_result "$d" "$green"
+  commit_in "$d" "later change"
+  push_main "$d"
+  head="$(head_of "$d")"
+  printf 'not json at all\n' >"$d/artefakte/$head.json"
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" "^WARNUNG Volllauf: letzter grüner Stand ${green:0:12} \\(1 Commits zurück\\)$"
+}
+
+test_only_a_green_result_counts_and_the_nearest_one_is_reported() {
+  local d out oldest middle
+  d="$(setup)"
+  oldest="$(head_of "$d")"
+  write_result "$d" "$oldest"
+  commit_in "$d" "one"
+  middle="$(head_of "$d")"
+  write_result "$d" "$middle"
+  commit_in "$d" "two"
+  write_result "$d" "$(head_of "$d")" unvollstaendig
+  commit_in "$d" "three"
+  push_main "$d"
+  write_result "$d" "$(head_of "$d")" rot
+  out="$(dry_run_ok "$d")"
+  # HEAD is rot, HEAD~1 unvollstaendig: both are "no green result"; the green HEAD~2 is the nearest.
+  assert_has_line "$out" "^WARNUNG Volllauf: letzter grüner Stand ${middle:0:12} \\(2 Commits zurück\\)$"
+  assert_has_no_line "$out" "${oldest:0:12}"
+  assert_has_line "$out" '^[0-9a-f]+ three$'
+  assert_has_line "$out" '^[0-9a-f]+ two$'
+  assert_has_no_line "$out" '^[0-9a-f]+ one$'
+}
+
+test_the_search_stops_after_200_commits() {
+  local d out i
+  d="$(setup)"
+  (
+    cd "$d/work"
+    for i in $(seq 1 204); do
+      git commit -q --allow-empty -m "c$i"
+    done
+  )
+  push_main "$d"
+  # 205 commits: HEAD~199 is the 200th the search looks at, HEAD~200 the 201st.
+  write_result "$d" "$(head_of "$d" HEAD~200)"
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
+  write_result "$d" "$(head_of "$d" HEAD~199)"
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" "^WARNUNG Volllauf: letzter grüner Stand $(head_of "$d" HEAD~199 | cut -c1-12) \\(199 Commits zurück\\)$"
+}
+
+test_the_folder_of_the_results_defaults_to_the_one_beside_the_main_checkout() {
+  # Without G4_GATE_ARTEFAKTE: <main checkout>/../gate-artefakte/full, here <dir>/gate-artefakte/full.
+  local d out head
+  d="$(setup)"
+  head="$(head_of "$d")"
+  mkdir -p "$d/gate-artefakte/full"
+  printf '{"ergebnis": "gruen"}\n' >"$d/gate-artefakte/full/$head.json"
+  out="$(dry_run_ok "$d" G4_GATE_ARTEFAKTE=)"
+  assert_has_line "$out" "^Volllauf: grün auf diesem Commit \\(${head:0:12}\\)$"
+}
+
+test_a_real_release_goes_on_after_the_warning() {
+  local d out
+  d="$(setup)"
+  out="$(run "$d" "${SIGNED[@]}" v0.2.0-rc.1 2>&1)" || fail "the release stopped: $out"
+  assert_has_line "$out" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
+  assert_has_line "$out" '^release-local: Entwurf v0\.2\.0-rc\.1 angelegt'
+  grep -q '^release create v0.2.0-rc.1 --draft' "$d/gh.log" || fail "no release create: $(cat "$d/gh.log")"
+  [ "$(cd "$d/work" && git cat-file -t v0.2.0-rc.1)" = "tag" ] || fail "no tag"
+}
+
+test_the_note_is_there_with_allow_branch_too() {
+  local d out head
+  d="$(setup)"
+  (cd "$d/work" && git checkout -q -b feature)
+  commit_in "$d" feature
+  head="$(head_of "$d")"
+  write_result "$d" "$head"
+  out="$(dry_run_ok "$d" G4_RELEASE_ALLOW_BRANCH=1)"
+  assert_has_line "$out" "^Volllauf: grün auf diesem Commit \\(${head:0:12}\\)$"
+}
+
+# fake_git <dir> <condition>: bin/git runs the real git, except where the shell condition holds ($sub is the
+# git command, $* all its arguments, --no-pager dropped): then it fails with status 1.
+fake_git() {
+  local real
+  real="$(command -v git)"
+  cat >"$1/bin/git" <<SH
+#!/bin/sh
+sub="\$1"
+[ "\$sub" = "--no-pager" ] && sub="\$2"
+if $2; then exit 1; fi
+exec "$real" "\$@"
+SH
+  chmod +x "$1/bin/git"
+}
+
+test_failing_git_calls_in_the_note_do_not_stop_the_release() {
+  local d out green
+  d="$(setup)"
+  green="$(head_of "$d")"
+  write_result "$d" "$green"
+  commit_in "$d" "later change"
+  push_main "$d"
+  # The walk along the history fails: no green commit is found, the release goes on.
+  fake_git "$d" '[ "$sub" = "rev-list" ]'
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
+  # The count, the log and the diff fail: the warning is still there, without numbers or lists.
+  fake_git "$d" '[ "$sub" = "log" ] || [ "$sub" = "diff" ] || [ "$sub $2" = "rev-list --count" ]'
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" "^WARNUNG Volllauf: letzter grüner Stand ${green:0:12} \\(\\? Commits zurück\\)$"
+  assert_has_no_line "$out" 'later change'
+}
+
+test_a_failing_python_does_not_stop_the_release() {
+  # python3 reads the result files (gate_result_of); everything else of the script that uses it
+  # (check-no-rom-data.sh) calls it as `python3 -I -`, so only `python3 -I -c` fails here.
+  local d out real
+  d="$(setup)"
+  write_result "$d" "$(head_of "$d")"
+  real="$(command -v python3)"
+  cat >"$d/bin/python3" <<SH
+#!/bin/sh
+case "\$*" in "-I -c "*) exit 1 ;; esac
+exec "$real" "\$@"
+SH
+  chmod +x "$d/bin/python3"
+  out="$(dry_run_ok "$d")"
+  assert_has_line "$out" '^WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren$'
 }
 
 # --- updater packages ---------------------------------------------------------------------------

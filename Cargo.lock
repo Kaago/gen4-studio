@@ -1620,6 +1620,7 @@ dependencies = [
 name = "g4-formats"
 version = "1.0.2"
 dependencies = [
+ "g4-formats",
  "proptest",
  "thiserror 2.0.21",
  "uxie",

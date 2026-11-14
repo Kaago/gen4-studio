@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The nightly full run of the gate (scripts/gate-nightly.sh), started by launchd at 01:30.
+  @REPO@ stands for the absolute path of the main checkout; the installation replaces it with sed
+  (it is not installed or loaded by anything in this repository). The folder gate-artefakte/full beside
+  the main checkout must exist: launchd does not make the folder of a log. No ProcessType: the Background
+  class throttles CPU and disk I/O, and a run of hours under it takes far longer; the script itself keeps
+  the Mac from idle sleep (caffeinate -i).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>de.gen4studio.gate-nightly</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@REPO@/scripts/gate-nightly.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>1</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>@REPO@/../gate-artefakte/full/nightly.log</string>
+  <key>StandardErrorPath</key>
+  <string>@REPO@/../gate-artefakte/full/nightly.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

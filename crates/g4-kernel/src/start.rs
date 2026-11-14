@@ -1206,13 +1206,13 @@ mod tests {
 #[cfg(all(test, feature = "test-support"))]
 mod create_tests {
     use super::*;
-    use crate::test_support::{copy_dir, synthetic_project, synthetic_rom, with_game_code};
+    use crate::test_support::{clone_tree, synthetic_project, synthetic_rom, with_game_code};
 
     /// Stands in for ds-rom, which cannot unpack the header-only synthetic ROM: copies the
     /// synthetic project to `dest`.
     fn fake_extract(_rom: &Path, dest: &Path) -> Result<Project, KernelError> {
         let s = synthetic_project();
-        copy_dir(s.dir.path(), dest);
+        clone_tree(s.dir.path(), dest);
         Project::open(dest)
     }
 
@@ -1257,11 +1257,12 @@ mod create_tests {
             }
             let sha1 = inspect_rom(rom)?.sha1;
             let tmp = tempfile::tempdir().unwrap();
-            copy_dir(dest, &tmp.path().join("layer"));
+            clone_tree(dest, &tmp.path().join("layer"));
             let layer = dest
                 .join(crate::textproject::base_layer::BASE_LAYER_DIR)
                 .join(&sha1);
-            copy_dir(&tmp.path().join("layer"), &layer);
+            std::fs::create_dir_all(layer.parent().unwrap()).unwrap();
+            clone_tree(&tmp.path().join("layer"), &layer);
             std::fs::write(layer.join(".complete"), &sha1).unwrap();
             Project::open(dest)
         }
@@ -2229,7 +2230,7 @@ mod create_tests {
         let (rom_dir, rom) = synthetic_rom();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("X_DSPRE_contents");
-        copy_dir(s.dir.path(), &root);
+        clone_tree(s.dir.path(), &root);
         let nds = tmp.path().join("X.nds");
         std::fs::copy(&rom, &nds).unwrap();
         drop(rom_dir);

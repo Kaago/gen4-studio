@@ -29,17 +29,17 @@ Legende der Spalte „Wer“: **Agent** erledigt der Agent allein; **Agent + Bli
      `bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid`
      abwarten, bis das Log „Brücke läuft“ meldet (der erste Lauf baut `studio-bridge`, das kann Minuten dauern), dann `preview_start` mit `url: "http://127.0.0.1:1430"`.
 
-   **Aus einem Git-Worktree** muss `G4_ROMS_DIR` absolut gesetzt sein, für die Brücke wie für das Gate-Skript: Der Standard `../Roms` meint den Ordner neben dem Haupt-Checkout und existiert vom Worktree aus nicht.
+   **Aus einem Git-Worktree** muss `G4_ROMS_DIR` für die Brücke absolut gesetzt sein: Der Standard `../Roms` meint den Ordner neben dem Haupt-Checkout und existiert vom Worktree aus nicht (`scripts/gate.sh` findet ihn dort selbst, siehe Punkt 6).
 
    ```sh
    G4_ROMS_DIR=/Pfad/zu/Roms bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid
-   G4_ROMS_DIR=/Pfad/zu/Roms scripts/gate.sh > target/agent/gate.log 2>&1
    ```
 
    Ports: Vite 1430, Brücke 1431. Die App des Nutzers (1420/1421) bleibt unberührt. Das Skript bricht ab, wenn 1430 oder 1431 belegt ist. Eine zweite Instanz (ein paralleler Worktree) bekommt eigene Ports: `G4_VITE_PORT=1440 G4_BRIDGE_PORT=1441 bash scripts/agent/studio-web.sh …`; `call.sh` liest den Brückenport aus `target/agent/bridge.port` des eigenen Checkouts, die Seite liegt dann unter `http://127.0.0.1:1440`.
 4. **Projekt öffnen:** `http://127.0.0.1:1430/?project=<absoluter Pfad der Kopie>` (Leerzeichen als `%20`). Die Statusleiste zeigt „Browser-Modus (Brücke)“ und die Projektmeldung. Mit `?project=` startet die App in der Welt, ohne auf Start. Alternativ „Projekt öffnen“ in der Titelleiste oder auf Start (⌘O): ein Dialog mit dem Feld „Pfad“, „Abbrechen“ und „OK“ (Enter im Feld nimmt den Pfad, Escape bricht ab).
 5. **App beenden:** Weg 1: `preview_stop`. Weg 2: `kill $(cat target/agent/studio-web.pid)` (TERM an das Skript beendet Brücke und Vite; kein `pkill -f`, das träfe auch die Shell). Danach `lsof -iTCP:1430 -iTCP:1431 -sTCP:LISTEN` (leer = Ports frei). Nach einem Neustart der Brücke ist kein Projekt mehr offen, die Seite muss neu geladen werden.
-6. **Ergebnis:** Die Gate-Datei bekommt im Abschnitt „Ergebnis“ je Teil eine Zeile (Datum, Projekt, Ergebnis, Auffälligkeiten) und in der Spalte „Wer“ Agent oder Hand. Am Ende listet der Agent dem Nutzer alle Punkte mit „Hand“ und „Agent + Blick“, bei Bildern von `g4emu` mit Pfad, sonst mit Ort und Zahlen.
+6. **Automatik, `scripts/gate.sh`:** Seit dem schnellen Gate hat das Skript zwei Läufe (Einzelheiten und Zeiten in [dev-setup.md](dev-setup.md), „Gate-Skript“). Die Zeilen „Automatik“ und `scripts/gate.sh` in den Tabellen unten meinen den **Volllauf**, denn sie nennen die gated Tests je Projekt, die Zeitschritte und den Projektstart: `bash scripts/gate.sh --full > target/agent/gate.log 2>&1` im Hintergrund, die Tabelle am Ende übernehmen. Er dauert für drei Projekte knapp drei Stunden (gemessen 9 954 s, siehe dev-setup.md, „Dauer“); die Zeiten, die einzelne Zeilen nennen, stammen aus der Zeit vor dem schnellen Gate. Das schnelle Gate (`bash scripts/gate.sh`, ohne ROM, mit der Grenze von 900 s) ist der Lauf vor einem Merge und genügt für die Schritte, die eine Zeile einzeln nennt (fmt, clippy, `pnpm test`, …). Der Volllauf schreibt bei sauberem Arbeitsbaum `<sha>.json` und `<sha>.log` nach `../gate-artefakte/full` neben dem Haupt-Checkout (auch aus einem Worktree); steht dort für den Commit schon `gruen`, ist der Volllauf für ihn gelaufen (der Nachtlauf, `dev-setup.md`, „Nachtlauf einrichten“, schreibt sie ebenso). `G4_ROMS_DIR` findet das Gate aus einem Worktree selbst; `tools/` muss dort verlinkt sein (siehe „Einmalig einrichten“, Punkt 3).
+7. **Ergebnis:** Die Gate-Datei bekommt im Abschnitt „Ergebnis“ je Teil eine Zeile (Datum, Projekt, Ergebnis, Auffälligkeiten) und in der Spalte „Wer“ Agent oder Hand. Am Ende listet der Agent dem Nutzer alle Punkte mit „Hand“ und „Agent + Blick“, bei Bildern von `g4emu` mit Pfad, sonst mit Ort und Zahlen.
 
 ## Doppeldeck: wo was ist
 
@@ -328,7 +328,7 @@ Kopie `pt-3a` (Platin DE), für (D) 4 zusätzlich `hg-3a` (HeartGold US), für d
 | (C) 1–4 Raster | Agent | Browser: Tab „Raster“, Header 0411, 0003, Route 230; die „+“-Zelle öffnet den Dialog „Karte bei x …, y … anlegen“. Neue Karten, Raster und Eventdateien sind sofort auf der Platte; `call.sh member_counts` zeigt die Zahlen |
 | (D) 1–3 Weltkarte | Agent | Browser: Tab „Weltkarte“, Zellenklick, Zoomen mit dem Mausrad, Linien bei Zweiblattdorf, nach (A) der neue Raum |
 | (D) 4 HeartGold US | Agent | frische Kopie `hg-3a`, `?project=…`; Baum und Weltkarte laden, New Bark Town = Header 0060 |
-| (E) 1–2 Automatik | Agent | `scripts/gate.sh` (rund 25 Minuten, im Hintergrund mit `> target/agent/gate.log` und Tabelle am Ende übernehmen) |
+| (E) 1–2 Automatik | Agent | `scripts/gate.sh --full` (Dauer siehe „Je Lauf“, Punkt 6; im Hintergrund mit `> target/agent/gate.log` und Tabelle am Ende übernehmen) |
 | (F) Kartenbilder: Ausrichtung | Agent + Blick | Tab „Raster“ und 3D-Ansicht von oben bei Zweiblattdorf nacheinander ansehen, Norden oben, nicht gespiegelt; der Nutzer bestätigt |
 | (F) Kartenbilder ohne apicula | Agent | laufende App beenden (Ports sind belegt), dann `G4_APICULA=/nirgends bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid`, Seite öffnen: Platzhalter und Tooltip lesen; danach beenden und normal neu starten |
 | (F) Layout im schmalen Panel | Agent | Browser-Fenster so verkleinern (`resize_window`) oder den Teiler ziehen, dass die Liste „Orte“ schmal ist (Atlas auf Kompakt); Listenansicht, Hilfe-Dialog (Atlas „Hilfe“, früher „Begriffe“) und „Neu anlegen“ (+ in der Liste „Orte“) ansehen, Escape und Klick daneben |
@@ -358,7 +358,7 @@ Kopien `pt-3b1` (Platin DE, **nicht** vorher mit DSPRE gepatcht) und `hg-3b1` (H
 | (B) 1–5 Höhen | Agent + Blick | Browser: Tab „Raster“, „Höhen“ einschalten, Zelle anklicken, Inspector „Höhe“ = 2; Hover und Ziehproben mit `hover` und `left_click_drag`, Messwerte über `get_matrix`; wie die erhöhte Zelle aussieht bestätigt der Nutzer am Bild |
 | (C) 1–7 Sprites | Agent + Blick | Agent prüft: Sprite statt gelbem Quadrat, Wechsel des Feldes „Richtung“ (0 bis 3) ohne Neuladen, Platzhalter bei „Grafik“ 60000 (danach Cmd+Z). Aufrecht, nicht gespiegelt und Blickrichtung bestätigt der Nutzer am Bild |
 | (D) 1–3 Kachelnamen HGSS | Agent | Browser: Hover auf Bäumen (`HEADBUTT`), Gras, Wasser, Hüpfkante; Platin: derselbe Wert 0x06 ohne `HEADBUTT`; Namen mit `call.sh tile_behaviors` gegenprüfen |
-| (E) 1–2 `gate.sh` | Agent | `scripts/gate.sh`, Tabelle in die Ergebnisse übernehmen; keine Zeile „skipped“ außer den dokumentierten |
+| (E) 1–2 `gate.sh` | Agent | `scripts/gate.sh --full`, Tabelle in die Ergebnisse übernehmen; keine Zeile „skipped“ außer den dokumentierten |
 | (F) 1–3 apicula-Zeitlimit | Agent | `G4_APICULA_TIMEOUT_SECS=1 bash scripts/agent/studio-web.sh …` mit frischer Kopie ohne `.g4/models`; `ls <Kopie>/.g4/models` (keine `.fail`, `last-tool` mit 16 Hexzeichen) |
 
 ## Phase 3b.2 im Browser-Modus ([phase-3b2-gate.md](phase-3b2-gate.md))
@@ -563,7 +563,7 @@ Kopien `pt-3c`, `pt-3c-raum`, `pt-3c-szenario` (Platin DE) und für (G) je eine 
 | (F) Tastatur | Agent | Tastendrücke über das Browser-Werkzeug (`key`), `document.activeElement` lesen; `:focus-visible` per `document.activeElement.matches(":focus-visible")` nach Tab (`true`) und nach Mausklick (`false`) |
 | (G) Abnahmen 3a, 3b.1, 3b.2 | Agent (Stoppuhr, DSPRE, rotom-lsp: Hand) | die Tabellen der Abschnitte oben, mit den Namen aus „Doppeldeck: wo was ist“; „Patch reparieren“ über Technik › Patches |
 | (G) Palette, Layout, Thema und Dichte | Agent | ⌘K, `0412`; `localStorage` lesen (`g4.layout.v11.*`, `g4.theme`, `g4.density`) und `document.documentElement.dataset` (`theme`, `dichte`) |
-| (G) `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`; die Tabelle am Ende übernehmen |
+| (G) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`; die Tabelle am Ende übernehmen |
 | (H) Gepackte App | Hand | `pnpm bundle`, Overlay-Titelleiste, Schriften, Thema folgt dem System |
 
 ## Phase 3b.3a ([phase-3b3-gate.md](phase-3b3-gate.md), Teil A)
@@ -572,8 +572,8 @@ Kopien `pt-3b3a-gate` (Oberfläche) und `pt-3b3a-szenario` (Szenario), beide Pla
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (A1) 1–3 `vanilla_data`, uxie-Orakel, Rebuild | Agent | laufen in `scripts/gate.sh` mit; einzeln mit den Namensfiltern aus der Gate-Datei, je Projekt mit `G4_TEST_PROJECT` und `G4_DSROM_CLI` (absolut), immer `cargo test --workspace --all-features` (siehe [dev-setup.md](dev-setup.md), „Gated Tests“) |
-| (A1) 4 `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`; die Tabelle am Ende übernehmen |
+| (A1) 1–3 `vanilla_data`, uxie-Orakel, Rebuild | Agent | laufen in `scripts/gate.sh --full` mit; einzeln mit den Namensfiltern aus der Gate-Datei, je Projekt mit `G4_TEST_PROJECT` und `G4_DSROM_CLI` (absolut), immer `cargo test --workspace --all-features` (siehe [dev-setup.md](dev-setup.md), „Gated Tests“) |
+| (A1) 4 `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`; die Tabelle am Ende übernehmen |
 | (A2) Szenario `pt-daten.yaml` | Agent | `uv run g4emu scenario ../agent/scenarios/pt-daten.yaml --project …/pt-3b3a-szenario --out …/pt-daten` (siehe „Szenario“ oben); Rückgabe 0, `check.log` mit „4 expectation(s) met“, `start.png`; Gegenprobe mit einem falschen `--expect` (Exit 1) |
 | (A3) Editoren gegen die Screens | Agent + Blick | Browser, Rezepte „Pokédex“, „Attacken“, „Gegenstände“; Screenshots der drei Editoren mit Staravia, Flügelschlag und Trank, Ort und Zahlen für den Nutzer; Gegenprobe der Edits mit `call.sh history` und `dirty` |
 | (A4) ⌘Z über zwei Assets | Agent | Browser, Reiter „TM/VM“; `call.sh history` und `call.sh dirty` vor und nach dem einen ⌘Z |
@@ -587,7 +587,7 @@ Kopien `pt-3b3b` und `hg-3b3b` für die Szenarien (Endung `-2` …, wenn der Nam
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (B1) gated Tests, `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR` (rund 30 Minuten, gemessen 1798 s); die Tabelle am Ende übernehmen |
+| (B1) gated Tests, `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR` (Dauer siehe „Je Lauf“, Punkt 6); die Tabelle am Ende übernehmen |
 | (B2), (B3) Szenarien | Agent | `uv run g4emu scenario ../agent/scenarios/pt-trainer-begegnung.yaml` bzw. `hg-trainer-begegnung.yaml` (siehe „Szenario“ oben); Rückgabe 0, `check.log`, die JSON-Zeilen von `expect-battle` (Art, Level) je Kampf und die Bilder `trainer1`, `trainer2`, `wild` |
 | (B4) Trainer | Agent | Browser, Rezept „Trainer“; Gegenprobe mit `call.sh data_get`, `history`, `dirty` |
 | (B5) Begegnungen | Agent | Browser, Rezept „Begegnungen“, Schritte 1 bis 5 und 7 |
@@ -606,8 +606,8 @@ Kopien `pt-3b4a` (Szenario) und `pt-3b4a-gate` (Oberfläche), beide Platin DE. D
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (A1) 1–2 `vanilla_checks`, Zeitmessungen | Agent | laufen in `scripts/gate.sh` mit; einzeln je Projekt mit `G4_TEST_PROJECT` (absolut) und `cargo test --workspace --all-features -- vanilla_checks_match_the_fixed_counts vanilla_script_checks_after_adopt full_run_on_vanilla overlay_under_lock --nocapture --test-threads 1` (siehe [dev-setup.md](dev-setup.md), „Projektprüfungen“) |
-| (A1) 3 `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP` (rund 30 Minuten); die Tabelle am Ende übernehmen |
+| (A1) 1–2 `vanilla_checks`, Zeitmessungen | Agent | laufen in `scripts/gate.sh --full` mit; einzeln je Projekt mit `G4_TEST_PROJECT` (absolut) und `cargo test --workspace --all-features -- vanilla_checks_match_the_fixed_counts vanilla_script_checks_after_adopt full_run_on_vanilla overlay_under_lock --nocapture --test-threads 1` (siehe [dev-setup.md](dev-setup.md), „Projektprüfungen“) |
+| (A1) 3 `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP` (Dauer siehe „Je Lauf“, Punkt 6); die Tabelle am Ende übernehmen |
 | (A2) Szenario `pt-pruefungen.yaml` | Agent | `uv run g4emu scenario ../agent/scenarios/pt-pruefungen.yaml --project …/pt-3b4a --out …/pt-pruefungen` (siehe „Szenario“ oben); Rückgabe 0 und 22 Zeilen „Erwartung erfüllt“ auf stderr; danach `target/debug/g4k check <Kopie> --expect warp.dest-warp=0 --expect event.script-missing=0 --expect event.trainer-missing=0 --expect text.too-wide=0` |
 | (A3) Prüflicht und Panel | Agent | Browser, Rezept „Prüfen“; Gegenprobe der Zahlen mit `call.sh checks_status` |
 | (A4) Fix-Dialog | Agent | Browser, Rezept „Beheben“; Gegenprobe mit `call.sh history`, `dirty`, `read_script` |
@@ -622,7 +622,7 @@ Kopien `pt-3b4b` und `hg-3b4b` (Szenarien, optional `hgus-3b4b`), `pt-3b4b-kontr
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (B1) gated Import-Tests, `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP`; die Tabelle am Ende übernehmen. Die Import-Tests einzeln je Projekt mit `G4_TEST_PROJECT` (absolut) und `cargo test --workspace --all-features -- every_vanilla_model_reimported map_a_into_b hgss_bin_into_pt per_round_trip --nocapture` (siehe [dev-setup.md](dev-setup.md), „Kartenteile importieren (3b.4b)“) |
+| (B1) gated Import-Tests, `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP`; die Tabelle am Ende übernehmen. Die Import-Tests einzeln je Projekt mit `G4_TEST_PROJECT` (absolut) und `cargo test --workspace --all-features -- every_vanilla_model_reimported map_a_into_b hgss_bin_into_pt per_round_trip --nocapture` (siehe [dev-setup.md](dev-setup.md), „Kartenteile importieren (3b.4b)“) |
 | (B2), (B3) Szenarien | Agent | Rezept „Gesamtgate“, Schritte 1 und 2; Rückgabe 0, 37 Zeilen „Erwartung erfüllt“, `check.log`, die JSON-Zeilen von `walk-to` (Weg), `expect-battle` und `win-battle` |
 | (B2) 10, (B3) 6 Gegenproben ohne Import | Agent | Rezept „Gesamtgate“, Schritt 3; das Szenario muss mit „blockiert bei …“ scheitern |
 | (B3a) HeartGold US | Agent (optional) | Rezept „Gesamtgate“ mit einer Kopie der Datei mit `game: IPKE`; IPKE hat keinen gemessenen Kampfzeiger |
@@ -643,7 +643,7 @@ Kopien `3h-pt-route` (Platin DE) und `3h-hg-route` (HeartGold DE), je frisch aus
 | (c) Batch ist ein Undo-Schritt | Agent | die Erwartungen der Szenarien zu `history` und `undo` und der Test `batch_over_stdio_is_one_undo_step` (`cargo test -p studio --test mcp_stdio batch_over_stdio_is_one_undo_step`) |
 | (d) Unumkehrbares nur mit `--allow-irreversible` | Agent | `cargo test -p studio --test mcp_stdio irreversible run_rom build_inside` und gated `vanilla_trainer_and_builds_over_stdio` (siehe [dev-setup.md](dev-setup.md), „MCP (`studio mcp`)“) |
 | (e) Bilder der Szenarien | Agent + Blick | die Bilder beider Läufe ansehen und mit Pfad, Ort und Inhalt beschreiben; der Nutzer bestätigt am Bild. `g4emu` liest weder Text noch Flags noch Texturen |
-| (f) `scripts/gate.sh` mit Schritt `mcp` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP`; die Tabelle am Ende übernehmen |
+| (f) `scripts/gate.sh` mit Schritt `mcp` | Agent | mit `--full` im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP`; die Tabelle am Ende übernehmen |
 
 ## Phase 3h.3 ([phase-3h-gate.md](phase-3h-gate.md), Teil 3h.3: In der laufenden App)
 
@@ -736,7 +736,7 @@ for (const type of ['dragenter', 'dragover', 'drop']) surface.dispatchEvent(new 
 | (B1) gated Kernel- und Brückentests der Vorlage | Agent | `G4_TEST_ROM=<Kopie von 3g-probe/*.nds> cargo test --workspace --all-features -- <Test>` je ROM (Platin DE, HeartGold DE), dazu `g4k template <Kopie> empty-region` mit `g4k check` |
 | (B2) Szenarien `pt-leere-region.yaml`, `hg-leere-region.yaml` | Agent + Blick | `g4emu scenario` auf einer frischen `g4k create`-Kopie; der Agent nennt Ort und Zahlen, der Nutzer sieht die Bilder in `b2-pt` und `b2-hg` an |
 | (B3) „Welt leeren…“ und die Vorlage im Assistenten | Agent + Blick | Browser (Ports 1462/1463), Ablauf wie oben; der Agent nennt Texte, Zahlen und Statusleiste, der Nutzer sieht die Screens kurz an |
-| (B4) `scripts/gate.sh` | Agent | `G4_ROMS_DIR=<absolut> G4_APICULA=<absolut> G4_ROTOM_LSP=<absolut> bash scripts/gate.sh` (rund 55 Minuten) |
+| (B4) `scripts/gate.sh` | Agent | `G4_ROMS_DIR=<absolut> G4_APICULA=<absolut> G4_ROTOM_LSP=<absolut> bash scripts/gate.sh --full` (Dauer siehe „Je Lauf“, Punkt 6) |
 | (B5) Gegenprobe Original | Agent | `call.sh plan_empty_region` auf einer Original-Kopie: `already_empty` false, Figuren in der Stadt, Weg hinaus |
 | (B6) DSPRE | Hand | ein mit der Vorlage und der Endung angelegtes Projekt in DSPRE öffnen |
 
@@ -762,7 +762,7 @@ for (const type of ['dragenter', 'dragover', 'drop']) surface.dispatchEvent(new 
 | | (G.4) Fundort, (G.5) DSPRE | Hand | siehe „Was beim Nutzer bleibt“ |
 | | (G.6) Prüfungen | Agent | gated Workspace-Tests je frischer Kopie: `G4_TEST_PROJECT=<Kopie> cargo test --workspace --all-features -- --test-threads 1` (Platin DE, HeartGold DE und US; darin `vanilla_checks` mit 41 Prüfungen und `dynamic_headers`) |
 | | (G.7) Ladezeit | Agent | Rezept „Ladezeit messen“ |
-| | `scripts/gate.sh` | Agent | auf main, im Hintergrund, mit absolutem `G4_ROMS_DIR` (aus einem Worktree dazu `tools/` als Symlink auf das Hauptverzeichnis, siehe „Einmalig einrichten“, Punkt 3; den Symlink nie einchecken) |
+| | `scripts/gate.sh` | Agent | auf main, mit `--full` im Hintergrund, mit absolutem `G4_ROMS_DIR` (aus einem Worktree dazu `tools/` als Symlink auf das Hauptverzeichnis, siehe „Einmalig einrichten“, Punkt 3; den Symlink nie einchecken) |
 | 3f.4 Nahtlos und Abspalten | (4.1) Lage im Assistenten | Agent | Browser: „Gebiet anlegen…“, Quelle Sinnoh, Schritt „Anordnung“, „Auf der Weltkarte Sinnoh (nahtlos begehbar)“, Klick auf eine Gebietszelle (nichts) und auf Landschaft (gewählt), Zusammenfassung lesen, abbrechen |
 | | (4.2) Nahtlos im Spiel | Agent + Blick | Szenario `pt-nahtlos.yaml` (unten), Bild `einblendung` |
 | | (4.3) Plakette „Geteilt“, (4.4) Abspalten, (4.5) nur ein Ort | Agent | Browser: Jubelstadt › „Pokémon-Center“ (Header 0006): Baumzeile mit Symbol `aria-label` „geteilt“, im Kopf `[data-shared]` „Geteilt mit 16 Räumen“; „Aktionen“ › „Für diesen Raum abspalten…“, `[data-split-room]`, „Abspalten“; Gegenprobe `call.sh list_headers` (Matrix des Headers 0006 neu, die anderen auf 116) und `call.sh set_permission` an der Kopie gegen `get_map` der alten Karte. `split_room` ist kein kuratiertes MCP-Werkzeug (über `g4_call`) |
@@ -795,7 +795,7 @@ Je Szenario eine frische Kopie (die Namen oben sind Beispiele; das Ziel darf nic
 | Punkt | Wer | Wie |
 |---|---|---|
 | (1) gated `--test base` | Agent | je Projekt `G4_TEST_PROJECT=<Original> cargo test -p g4-kernel --all-features --test base -- --nocapture --test-threads 1`, `xdelta3` im PATH; die Zeilen `rebuild … equal`, `patch-sizes …`, `patch-stress …`, `xdelta3 cross-check: …` in die Tabelle der Gate-Datei |
-| (1) `cargo deny`, `scripts/gate.sh` | Agent | `scripts/gate.sh` im Hintergrund, aus einem Worktree mit absolutem `G4_ROMS_DIR` und dem `tools`-Symlink; Schritt `cargo deny (licenses, advisories)` |
+| (1) `cargo deny`, `scripts/gate.sh` | Agent | `scripts/gate.sh --full` im Hintergrund, aus einem Worktree mit absolutem `G4_ROMS_DIR` und dem `tools`-Symlink; Schritt `cargo deny (licenses, advisories)` |
 | (2) Szenario kopflos | Agent | Release-`g4k`, Befehle unten |
 | (3) Veröffentlichen, Basis-ROM fehlt, suchen | Agent | Browser, Ablauf unten |
 | (3) MCP | Agent | `mcp.sh` im Hintergrund, „Zulassen“ im Browser-Fenster, Befehle unten |
@@ -854,7 +854,7 @@ Der Pfad `nds` ist relativ zum Projekt; die Nachbar-`.nds` liegt außerhalb des 
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (G1) `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die Tabelle am Ende übernehmen, Zeile „build graph (timings)“ unter Last einmal wiederholen |
+| (G1) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, `> target/agent/gate.log`, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die Tabelle am Ende übernehmen, Zeile „build graph (timings)“ unter Last einmal wiederholen |
 | (G2) Byte-Gleichheit | Agent | die gated Tests der Tasks 1 bis 9 (inkrementell gleich voll ohne Cache, Vanilla gleich `dsrom`-CLI, extrahiertes Projekt gleich `.g4/base.json`) |
 | (G3) Zeiten | Agent | `g4k build --timings` auf `4-2-zeiten-{pt,hgde,hgus}`, Median aus drei Läufen je Fall, gegen die Zeilen `build-timings:` |
 | (G4) DSPRE und Git | Agent | Tests aus Task 3; von Hand auf `4-2-git-pt` mit `git init`/`git switch` und geänderter Text-JSON, danach „Bauen“ im Browser: die JSON des Branches gewinnt, ein beidseitiger Wechsel öffnet `[data-text-conflict]` |
@@ -873,7 +873,7 @@ Der Pfad `nds` ist relativ zum Projekt; die Nachbar-`.nds` liegt außerhalb des 
 | Punkt | Wer | Wie |
 |---|---|---|
 | (1) gated `--test original` und Studio-Test | Agent | je Projekt `G4_TEST_PROJECT=$G4_ROMS_DIR/_testkopien/4-1b-<k>_DSPRE_contents cargo test -p g4-kernel --all-features --test original -- --nocapture --test-threads 1` und `… cargo test -p studio --all-features --lib reset_over_the_command_path -- --nocapture --test-threads 1`, im Hintergrund (je Projekt rund 4 min Debug); die Zeilen `reset <Spielcode> <Ziel> ms=…`, `changed <Spielcode> first_ms=… second_ms=…` und `reset over the command path: …` in die Zeittabelle der Gate-Datei |
-| (1) `scripts/gate.sh` | Agent | im Hintergrund, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die gated Tests von 4.1b laufen im Schritt der gated Tests je Projekt mit |
+| (1) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die gated Tests von 4.1b laufen im Schritt der gated Tests je Projekt mit |
 | (2) Szenario kopflos | Agent | `studio mcp` über stdio, Ablauf unten |
 | (3) Browser | Agent | Test-Umgebung, Ablauf unten |
 | (3) MCP über die Brücke | Agent | `mcp.sh`, Befehle unten |
@@ -917,7 +917,7 @@ Die Oberfläche lädt den Trainer nach dem Reset neu; ein `g4_batch` mit `reset_
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate-sh-4-3a.log`, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die gated Tests des Textprojekts laufen je Projekt mit; „build graph (timings)“ unter Last einmal wiederholen |
+| (1) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, `> target/agent/gate-sh-4-3a.log`, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die gated Tests des Textprojekts laufen je Projekt mit; „build graph (timings)“ unter Last einmal wiederholen |
 | (1) Messzeilen | Agent | je Projekt `G4_TEST_PROJECT=<Original> cargo test --release -p g4-kernel --all-features --test textproject --test textproject_vanilla_probe -- textproject_round_trip textproject_export_idempotent textproject_from_base vanilla_ --nocapture --test-threads 1`; die Zeilen `textproject-stats`, `textproject-second-export`, `textproject-from-base`, `base-layer`, `items` in die Messtabelle |
 | (2) Szenario kopflos | Agent | Release-`g4k`, Befehle unten und in der Gate-Datei |
 | (3) MCP | Agent | kopflos `studio mcp --project <Kopie> [--allow-irreversible]`, über die Brücke `mcp.sh` und `call.sh`, Befehle unten |
@@ -964,7 +964,7 @@ Mit einer ungespeicherten Änderung (`mcp.sh call set_matrix_cell …`) antworte
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | im Hintergrund, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) und im Schritt `project_start_` je `.nds` mit, das Skript braucht dafür nichts Neues |
+| (1) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) und im Schritt `project_start_` je `.nds` mit, das Skript braucht dafür nichts Neues |
 | (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime` je Lauf), Befehle unten; die Zeilen `store`, `sync-full`, `sync`, `conflict`, `adopt`, `revert`, `checks`, `recipe`, `refs`, `ids`, `rename`, `adopt: … ms` und `<Spielcode>: phases …` in die Zeittabelle |
 | (1) I3 (aus 4.3a) | Agent | auf der eingerichteten Platin-Kopie ein Byte in `data/species/0025.json` (`"attack": 55,` ↔ `56,`), dann `g4k build <Kopie> --out <rom> --timings`; aus der JSON-Zeile `steps[id=textproject].ms` und `ms`, sechs Läufe |
 | (2) Szenario kopflos | Agent | Release-`g4k` und `studio mcp --project <Kopie> --base-rom <nds> [--allow-irreversible]` über JSON-RPC, Ablauf unten |
@@ -1047,7 +1047,7 @@ Der Klon ist danach losgelöst (Statusleiste „<kurz-SHA> (losgelöst) · …�
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) mit, das Skript braucht dafür nichts Neues. Ohne `git` im `PATH` melden sie `skipped: git not found` und bleiben grün: vorher `git --version` notieren |
+| (1) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) mit, das Skript braucht dafür nichts Neues. Ohne `git` im `PATH` melden sie `skipped: git not found` und bleiben grün: vorher `git --version` notieren |
 | (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime` je Lauf), Befehle unten; die Zeilen `git …`, `eol …`, `clone …`, `restore_phases …`, `text …`, `entries …`, `diff …` und `git init on the vanilla copy: …` in die Zahlentabelle |
 | (2) Szenario kopflos | Agent | Release-`g4k` und `studio mcp --project <Kopie> --base-rom <nds> [--allow-irreversible]` über JSON-RPC, Ablauf unten |
 | (3) Browser | Agent | Test-Umgebung, Ablauf unten |
@@ -1119,7 +1119,7 @@ git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # b
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) Automatik | Agent | Schritt für Schritt, Befehle unten; `scripts/gate.sh` als Ganzes läuft auf main nach dem Merge (dort laufen die neuen gated Tests im Schritt der gated Tests je Projekt mit, `vanilla_index_builds_under_a_second` im Zeitschritt); `uptime` vor und nach jedem Schritt |
+| (1) Automatik | Agent | Schritt für Schritt, Befehle unten; `scripts/gate.sh --full` als Ganzes läuft auf main nach dem Merge (dort laufen die neuen gated Tests im Schritt der gated Tests je Projekt mit, `vanilla_index_builds_under_a_second` im Zeitschritt); `uptime` vor und nach jedem Schritt |
 | (1) gated Tests | Agent | je Projekt im Release-Profil, nacheinander; die Zeilen `names …`, `usage …`, `recount …`, `index …`, `pool …`, `own …`, `adopt …` und `flags …` in die Zahlentabelle |
 | (2) Szenarien `pt-flag`, `hg-flag` | Agent | `g4emu scenario` über MCP, Befehle unten; Bilder `gespraech.png`, `weg.png` |
 | (2) kopflos | Agent | Release-`studio mcp --project <Kopie> --base-rom <nds>` über JSON-RPC: `list_flags`, `flag_usage` |
@@ -1277,7 +1277,7 @@ Teil A von 3d.3 bringt die Kampfsprites (nur lesen, PNG über `get_battle_sprite
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) mit |
+| (1) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) mit |
 | (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime`), Befehle unten; die Zeilen `sprites …`, `forms …` und `sprite …` in die Zahlentabelle |
 | (2) MCP und Zeit über die Brücke | Agent | `mcp.sh` und `call.sh`, Befehle unten |
 | (3) Browser | Agent | Test-Umgebung auf 1720/1721, Ablauf unten |
@@ -1321,7 +1321,7 @@ scripts/agent/mcp.sh call data_get '{"kind":"species","index":397}'             
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | wie in Teil A; die gated Tests der Ei-Attacken laufen im Schritt der gated Tests je Projekt (Debug) mit |
+| (1) `scripts/gate.sh` | Agent | wie in Teil A (`--full`); die gated Tests der Ei-Attacken laufen im Schritt der gated Tests je Projekt (Debug) mit |
 | (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, Befehle unten; die Zeilen `egg_moves …` in die Zahlentabelle |
 | (2) Szenario kopflos | Agent | `call.sh` und `g4k` im Release-Profil, Ablauf unten |
 | (3) Browser | Agent | Test-Umgebung auf 1720/1721, Ablauf unten |
@@ -1368,7 +1368,7 @@ Auf `3d-3-kpt` zusätzlich: `data_edit` mit einer um eine Attacke längeren List
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent (Orchestrator, auf main nach dem Merge) | im Hintergrund, allein; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) mit, das Skript braucht nichts Neues |
+| (1) `scripts/gate.sh` | Agent (Orchestrator, auf main nach dem Merge) | mit `--full` im Hintergrund, allein; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) mit, das Skript braucht nichts Neues |
 | (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime` je Lauf), Befehle unten; die Zeilen `publish …` und `commit …` in die Zahlentabelle |
 | (2) Szenario kopflos | Agent | Release-`g4k` und `studio mcp --project <Kopie> --base-rom <nds> [--allow-irreversible]` über JSON-RPC, Ablauf unten |
 | (3) Browser | Agent | Test-Umgebung auf 1730/1731, Ablauf unten |
@@ -1443,7 +1443,7 @@ git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # b
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent (Orchestrator, auf main nach dem Merge) | im Hintergrund, allein; in dieser Phase **nicht** im Worktree (unter Last scheitern die Zeitgrenzen), die Schritte, die 3d.5 berührt, laufen einzeln (fmt, clippy, die drei Testläufe ohne `G4_*`, `pnpm test`, `pnpm build`, Tokens, Styles, Depth) |
+| (1) `scripts/gate.sh` | Agent (Orchestrator, auf main nach dem Merge) | mit `--full` im Hintergrund, allein; in dieser Phase **nicht** im Worktree (unter Last scheitern die Zeitgrenzen), die Schritte, die 3d.5 berührt, laufen einzeln (fmt, clippy, die drei Testläufe ohne `G4_*`, `pnpm test`, `pnpm build`, Tokens, Styles, Depth) |
 | (1) gated Tests | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime` je Lauf), Befehle unten; die Zeilen `dialog …`, `refs …`, `figure …`, `doors …`, `trainer …` in die Zahlentabelle |
 | (1) `g4emu` Unit | Agent | `cd scripts/g4emu && uv run pytest -q` |
 | (2) Szenario kopflos | Agent | Release-`studio mcp --project <Kopie> [--allow-irreversible] [--expert]` über JSON-RPC/stdio, Ablauf unten; die Szenarien mit `g4emu` |
@@ -1798,7 +1798,7 @@ Erwartet: Rückgabe 0 und auf stdout die Schlusszeile des Runners `{"scenario": 
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; neu ist der Schritt `npm licenses` nach `cargo deny`; die gated Tests von 3d.6 laufen im Schritt je Projekt mit |
+| (1) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; neu ist der Schritt `npm licenses` nach `cargo deny`; die gated Tests von 3d.6 laufen im Schritt je Projekt mit |
 | (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime`), Befehle unten; die Zeilen `threads …`, `graph …`, `story-git …` und `stories …` in die Zahlentabelle |
 | (1) Lizenzen und Chunk | Agent | `cargo deny --locked check licenses advisories`, `bash scripts/check-licenses-npm.sh`, `pnpm build` (Zeile `ThreadGraph-*.js … gzip`) |
 | (2) Szenario kopflos | Agent | Release-`studio mcp` über JSON-RPC/stdio und `git status`, Ablauf unten |
@@ -1941,7 +1941,7 @@ Das Szenario hat keine Änderungen (`mcp: []`, `edits: []`): `studio mcp` speich
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | läuft in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; die neuen Tests laufen in „cargo test (no ROM data)“ und „gated tests (cargo test)“ ohne Änderung am Skript mit |
+| (1) `scripts/gate.sh` | Agent | läuft als `--full` in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; die neuen Tests laufen in „cargo test (no ROM data)“ und „gated tests (cargo test)“ ohne Änderung am Skript mit |
 | (1) `cargo deny`, fmt, clippy, Tests ohne ROM-Daten | Agent | Befehle unten |
 | (1) gated `vanilla_nitro`, `bake` | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`; die Zeilen `nitro-models`, `nitro-packs`, `nitro-append` und `bake-room` in die Zahlentabelle |
 | (2) Unit-Punkte | Agent | `the_test_surface_bakes_under_40000_bytes`, `the_own_reader_reads_the_baked_model`, `an_oversize_model_is_refused_with_model_too_big` (Bibliothek `g4-kernel`, `bake::tests`), `apicula_reads_the_test_surface_like_the_input`, `sample_images_read_back_without_a_pixel_off`, `apicula_decodes_the_sample_pack_like_g4_formats` (`tests/bake.rs`, die apicula-Tests nur mit `G4_APICULA`), `vanilla_append_keeps_every_old_entry` (gated) |
@@ -1994,7 +1994,7 @@ Erwartet: Rückgabe 0, `"ok": true`; `bake_test` mit Paket 20 (Platin) bzw. 25 (
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) Automatik | Agent | Schritt für Schritt, Befehle unten; `scripts/gate.sh` als Ganzes läuft auf main nach dem Merge (dort laufen die gated Tests von 6.2 im Schritt der gated Tests je Projekt mit) |
+| (1) Automatik | Agent | Schritt für Schritt, Befehle unten; `scripts/gate.sh --full` als Ganzes läuft auf main nach dem Merge (dort laufen die gated Tests von 6.2 im Schritt der gated Tests je Projekt mit) |
 | (1) gated Tests | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`; die Zeilen `Pt: 666 maps …`, `map 100 heights …`, `free steps …`, `step-unblocked … µs` und `terrain <Spielcode> …` in die Zahlentabelle |
 | (1) Generator | Agent | `cargo test -p g4-formats bdhc::grid --release -- --nocapture`: 1 000 Raster, größte Nutzlast und Abweichung |
 | (2) Szenarien `pt-gelaende`, `hg-gelaende`, Gegenprobe | Agent + Blick | `g4emu scenario` über die Brücke, Befehle unten; je sechs Bilder `geschenk`, `treppe`, `kante`, `stufe`, `wand`, `gras` |
@@ -2074,7 +2074,7 @@ scripts/agent/mcp.sh call get_map_budget '{"index":188}'       # bdhc {used 2145
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; neu sind die Schritte `world mesh (timing)` und `world mesh bridge (timing)` am Ende; die gated Tests von `tests/world.rs` laufen im Schritt je Projekt mit |
+| (1) `scripts/gate.sh` | Agent | mit `--full` im Hintergrund, allein, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; neu sind die Schritte `world mesh (timing)` und `world mesh bridge (timing)` am Ende; die gated Tests von `tests/world.rs` laufen im Schritt je Projekt mit |
 | (1) gated Tests einzeln | Agent | je Kopie im Release-Profil, nacheinander, Befehle unten; die Zeilen `tilesets …`, `vote-shares …`, `world on map …`, `textproject-stats …` und `textproject-migrate-v2 …` in die Zahlentabelle |
 | (1) Zeittests, `cargo deny` | Agent | Befehle unten; `world-mesh … median_us=…` und `world-mesh-bridge median_ms=…` |
 | (2) Messung | Agent | Task 0, `python3 -I docs/research/2026-11-05-phase-6/task0-6-3a-vorgaben.py <Kopie> --json` |
@@ -2121,7 +2121,7 @@ Erwartet: Platin DE 74 Pakete, 3 130 Kacheln (1 765 vanilla, 1 365 unklar), Hear
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) Automatik | Agent | Befehle unten; `scripts/gate.sh` als Ganzes läuft in der Hauptsitzung auf main (die gated Tests von `tests/world_bake.rs` laufen im bestehenden Schritt je Projekt mit, `gate.sh` bleibt unverändert) |
+| (1) Automatik | Agent | Befehle unten; `scripts/gate.sh --full` als Ganzes läuft in der Hauptsitzung auf main (die gated Tests von `tests/world_bake.rs` laufen im bestehenden Schritt je Projekt mit, `gate.sh` bleibt unverändert) |
 | (1) gated Tests | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`; die Zeilen `world-adopt …`, `world-adopt-build …`, `world-gate …`, `world-step …`, `world-conflict …` und `textproject-stats …` in die Zahlentabelle |
 | (1) `vanilla_checks` | Agent | je Kopie, 0 Fehler (der Test prüft es und jede Zahl gegen die feste Zählung) |
 | (2) Szenarien `pt-gemalt`, `hg-gemalt` | Agent + Blick | `g4emu scenario` über die Brücke, Befehle unten; je acht Bilder `tag`, `nacht`, `wasser`, `wiese`, `treppe`, `kante`, `geschenk`, `gras` |
@@ -2188,7 +2188,7 @@ Neuer Schritt von `g4emu` (seit 6.3b): `clock HH:MM` setzt die Startzeit der Uhr
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | läuft in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; die neuen Tests laufen in „cargo test (no ROM data)“ und „gated tests (cargo test)“ ohne Änderung am Skript mit |
+| (1) `scripts/gate.sh` | Agent | läuft als `--full` in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; die neuen Tests laufen in „cargo test (no ROM data)“ und „gated tests (cargo test)“ ohne Änderung am Skript mit |
 | (1) `cargo deny`, fmt, clippy, Tests ohne ROM-Daten, `studio`, Frontend, Stil, Tokens, ROM-Daten, `g4emu` | Agent | Befehle unten |
 | (1) gated `model_import`, `bake` | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`, mit `G4_APICULA`; die Zeilen `import-room`, `png40-room`, `oversize-room`, `pdsms-room` und `bake-room` in die Zahlentabelle |
 | (2) Unit-Punkte | Agent | `a_64x64_png_with_40_colours_becomes_a_16_colour_texture_within_one_step` (`model_import::textures`), `import_writes_model_and_pack_as_one_undo_step`, `the_plane_glb_and_gltf_give_the_same_model`, `the_oversize_obj_is_refused_with_the_number`, `the_pdsms_style_obj_imports` (`map_import::tests`), `apicula_reads_the_imported_cube_and_plane` (`tests/model_import.rs`, nur mit `G4_APICULA`) |
@@ -2271,7 +2271,7 @@ Die Szene messen: `window.__g4SceneProbe.tileToClient(absX, absZ)` nimmt **absol
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) Automatik | Agent | Befehle unten; `scripts/gate.sh` als Ganzes läuft in der Hauptsitzung auf main (`tests/world_paint.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert) |
+| (1) Automatik | Agent | Befehle unten; `scripts/gate.sh --full` als Ganzes läuft in der Hauptsitzung auf main (`tests/world_paint.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert) |
 | (1) gated `world_paint` | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`; die Zeilen `paint-gate …`, `paint-undo …`, `palette …` in die Zahlentabelle |
 | (1) `vanilla_checks` | Agent | je Kopie, 0 Fehler (der Test prüft es und jede Zahl gegen die feste Zählung) |
 | (1) Zeittests | Agent | `world_stroke_over_the_command_path_is_fast` (≤ 300 ms) und `world_mesh_over_the_command_path_is_fast` mit `G4_TIMING_STRICT=1` allein |
@@ -2344,7 +2344,7 @@ Erwartet: Rückgabe 0, `"ok": true`, Header 415, 593 bzw. 64, 540; 17 Zeilen „
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) `scripts/gate.sh` | Agent | läuft in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; `tests/world_freeform.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert (der Sweep läuft dort nicht) |
+| (1) `scripts/gate.sh` | Agent | läuft als `--full` in der Hauptsitzung auf main nach dem Merge, nicht im Worktree; `tests/world_freeform.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert (der Sweep läuft dort nicht) |
 | (1) gated `world_freeform` | Agent | je Kopie im Release-Profil mit `G4_APICULA`, nacheinander, `--nocapture --test-threads 1`; die Zeilen `world-freeform`, `world-piece`, `world-form2`, `world-tmj` in die Zahlentabelle |
 | (1) Sweep Form 2 | Agent | je Kopie mit `G4_FORM2_SWEEP=1`, Zeile `world-form2-sweep` (ohne Schwelle) |
 | (1) `world_bake`, `textproject`, `vanilla_checks` | Agent | je Kopie; Form 1 bleibt byte-gleich, `vanilla_checks` 0 Fehler |
@@ -2431,7 +2431,7 @@ Die Szene messen wie in 6.4a: `window.__g4SceneProbe.tileToClient(absX, absZ)` n
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (1) Automatik | Agent | Befehle unten; `scripts/gate.sh` als Ganzes läuft in der Hauptsitzung auf main (`tests/world_smart.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert) |
+| (1) Automatik | Agent | Befehle unten; `scripts/gate.sh --full` als Ganzes läuft in der Hauptsitzung auf main (`tests/world_smart.rs` läuft im bestehenden Schritt der gated Tests je Projekt mit, `gate.sh` bleibt unverändert) |
 | (1) gated `world_smart`, `world_bake`, `vanilla_checks` | Agent | je Kopie im Release-Profil, nacheinander, `--nocapture --test-threads 1`; die Zeilen `smart-ring …`, `smart-cliff …`, `smart-cliff-lower …`, `world-adopt …` in die Zahlentabelle |
 | (2) Szenarien `pt-klippe`, `hg-klippe`, Regression `pt-gemalt`, `hg-gemalt` | Agent + Blick | `g4emu scenario` kopflos über `studio mcp`, Befehle unten; Bild `klippe` ansehen und beschreiben |
 | (3) Browser | Agent | Test-Umgebung auf 1600/1601, Ablauf unten, Raster-Vergleich mit Python, Bilder `blick-*.png` |

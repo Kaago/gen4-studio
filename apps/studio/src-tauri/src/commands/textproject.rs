@@ -114,7 +114,7 @@ mod tests {
     };
     use g4_kernel::base::missing_text;
     use g4_kernel::start::read_base_mark;
-    use g4_kernel::test_support::{copy_dir, synthetic_project, synthetic_rom};
+    use g4_kernel::test_support::{clone_tree, synthetic_project, synthetic_rom};
     use g4_kernel::textproject::{DATA_DIR, MANIFEST_FILE, not_adopted};
     use serde_json::json;
     use std::path::{Path, PathBuf};
@@ -133,7 +133,7 @@ mod tests {
         let (_rom_dir, rom) = synthetic_rom();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("X_DSPRE_contents");
-        copy_dir(s.dir.path(), &root);
+        clone_tree(s.dir.path(), &root);
         let nds = tmp.path().join("X.nds");
         std::fs::copy(&rom, &nds).unwrap();
         let state = AppState::default();

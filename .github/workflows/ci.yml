@@ -8,9 +8,9 @@
 # changes too, and a required gate-macos check must always report. While the repository was
 # private, hosted minutes cost money (a push to main ran about $1.80, macOS minutes count ten
 # times), and the workflow ran by hand only. gate-windows stays manual: it is slow (see its
-# timeout), not expensive. The ROM-bound part of the full scripts/gate.sh runs on the maintainer's
-# Mac before a merge (docs/dev-setup.md). Start the workflow by hand when a change needs the
-# Windows runner:
+# timeout), not expensive. The ROM-bound part, `scripts/gate.sh --full`, is not part of this
+# workflow: it runs nightly on the maintainer's Mac and on demand (docs/dev-setup.md, "Nachtlauf
+# einrichten"). Start the workflow by hand when a change needs the Windows runner:
 #   gh workflow run ci.yml                  gate-macos only
 #   gh workflow run ci.yml -f windows=true  gate-macos and gate-windows
 name: ci

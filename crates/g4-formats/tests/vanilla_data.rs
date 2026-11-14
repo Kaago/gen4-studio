@@ -20,13 +20,7 @@ use g4_formats::data::trainer_text::{TrainerTextOffsets, TrainerTextTable};
 use g4_formats::game::Family;
 
 fn vanilla() -> Option<PathBuf> {
-    match std::env::var_os("G4_TEST_PROJECT") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => {
-            eprintln!("skipped: G4_TEST_PROJECT not set");
-            None
-        }
-    }
+    g4_formats::test_support::gate_var("G4_TEST_PROJECT").map(PathBuf::from)
 }
 
 /// Family from the `gamecode` key of `header.yaml`.

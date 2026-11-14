@@ -8,13 +8,7 @@ use g4_formats::narc::Narc;
 use g4_formats::nsbtx::Nsbtx;
 
 pub fn vanilla() -> Option<PathBuf> {
-    match std::env::var_os("G4_TEST_PROJECT") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => {
-            eprintln!("skipped: G4_TEST_PROJECT not set");
-            None
-        }
-    }
+    g4_formats::test_support::gate_var("G4_TEST_PROJECT").map(PathBuf::from)
 }
 
 /// Reads the first existing candidate (read-only) and asserts that

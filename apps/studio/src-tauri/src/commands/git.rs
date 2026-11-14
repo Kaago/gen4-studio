@@ -614,7 +614,7 @@ mod tests {
     use g4_kernel::original::ChangeState;
     use g4_kernel::project::{AssetKind, Project};
     use g4_kernel::start::read_base_mark;
-    use g4_kernel::test_support::{GitFixture, TextFixture, copy_dir, synthetic_rom};
+    use g4_kernel::test_support::{GitFixture, TextFixture, clone_tree, synthetic_rom};
     use g4_kernel::textproject::base_layer::BASE_LAYER_DIR;
     use g4_kernel::textproject::restore::{RestorePhase, needs_restore, restore_needed};
     use g4_kernel::textproject::symbols::SymbolKind;
@@ -1115,7 +1115,9 @@ mod tests {
             std::fs::create_dir_all(to.parent().unwrap()).unwrap();
             std::fs::copy(fx.root().join(&rel), &to).unwrap();
         }
-        copy_dir(&fx.root().join(BASE_LAYER_DIR), &clone.join(BASE_LAYER_DIR));
+        let layer = clone.join(BASE_LAYER_DIR);
+        std::fs::create_dir_all(layer.parent().unwrap()).unwrap();
+        clone_tree(&fx.root().join(BASE_LAYER_DIR), &layer);
         (tmp, clone)
     }
 

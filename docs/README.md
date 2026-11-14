@@ -28,13 +28,18 @@ and the development record are written in German (details below).
   how to run the tests, the gated tests that need a test project, the design system and tokens, the
   agent test environment and the app bundle. The English version is [en/dev-setup.md](en/dev-setup.md).
   `CONTRIBUTING.md` in the repository root explains the workflow for pull requests.
-- **The gate.** [../scripts/gate.sh](../scripts/gate.sh) is the local gate: formatting, lints,
-  dependency licenses, the shell script tests ([../scripts/tests/run.sh](../scripts/tests/run.sh)),
-  the ROM data guard ([../scripts/check-no-rom-data.sh](../scripts/check-no-rom-data.sh)), the link
-  check ([../scripts/check-links.sh](../scripts/check-links.sh)), the full test suite and the
-  frontend. With `G4_GATE_HERMETIC=1` it runs only the part that needs no ROM, tool or save game,
-  which is what CI runs and what every pull request has to pass. [agent-gate.md](agent-gate.md)
-  tells an agent how to run the gates that need the real UI and the emulator.
+- **The gate.** [../scripts/gate.sh](../scripts/gate.sh) is the local gate. Without an argument it
+  is the fast gate, which runs before every merge: formatting, lints, dependency licenses, the shell
+  script tests ([../scripts/tests/run.sh](../scripts/tests/run.sh)), the ROM data guard
+  ([../scripts/check-no-rom-data.sh](../scripts/check-no-rom-data.sh)), the link check
+  ([../scripts/check-links.sh](../scripts/check-links.sh)), the test suite without ROM data (minus the
+  heaviest tests, listed in [../scripts/gate-heavy-tests.txt](../scripts/gate-heavy-tests.txt)) and
+  the frontend. It needs no ROM, tool or save game; with `G4_GATE_HERMETIC=1` it is what CI runs and
+  what every pull request has to pass (CI runs every test without ROM data). With `--full` the gate
+  adds the ROM matrix, the conditional tests against every test project; that run happens nightly and
+  on demand (see [dev-setup.md](dev-setup.md), or [en/dev-setup.md](en/dev-setup.md) in English).
+  [agent-gate.md](agent-gate.md) tells an agent how to run the gates that need the real UI and the
+  emulator.
 - **Release.** [release.md](release.md) describes the macOS DMG and the Windows installer, tags,
   versions, license notices and the checks of the packaged app; the English version is
   [en/release.md](en/release.md). [briefing-release-ci.md](briefing-release-ci.md) and

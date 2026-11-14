@@ -38,11 +38,14 @@ fn strict() -> bool {
 /// `G4_TEST_PROJECT` or the base ROM next to it.
 fn adopted() -> Option<&'static Path> {
     static ADOPTED: OnceLock<Option<PathBuf>> = OnceLock::new();
+    // Asked on every call, outside the cache: a skip is logged for the gate under the name of the
+    // test that skips (`gate_var`), and inside the cache only the first test would log it, so the
+    // full run would leave the others out.
+    let src = common::vanilla_project()?;
     ADOPTED
         .get_or_init(|| {
             use g4_kernel::textproject::adopt::adopt;
 
-            let src = common::vanilla_project()?;
             let nds = base_rom(&src)?;
             let folder = src.file_name()?.to_string_lossy().into_owned();
             let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("flags-{folder}"));
