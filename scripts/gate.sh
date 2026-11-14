@@ -17,8 +17,10 @@
 #                                 tests included), then what needs the ROMs: the g4emu emulator
 #                                 tests, the conditional tests (below) against every test project
 #                                 under $G4_ROMS_DIR, once with the tools, and against every ROM, the
-#                                 build graph and world mesh timings. Run it before a merge. It takes
-#                                 hours and leaves its result behind (below).
+#                                 build graph and world mesh timings. It runs nightly
+#                                 (scripts/gate-nightly.sh) and on demand, not before every merge, and
+#                                 scripts/release-local.sh warns when HEAD has no green full run. It
+#                                 takes hours and leaves its result behind (below).
 #   bash scripts/gate.sh --full --from <Schritt>
 #                                 resumes the full run of this commit at a step of the ROM part: the
 #                                 part without ROM and every ok row before <Schritt> are taken over from
