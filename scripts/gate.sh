@@ -71,7 +71,7 @@
 # CI (.github/workflows/ci.yml: every pull request to main, every push to main, and by hand) runs
 # the fast gate with G4_GATE_HERMETIC=1: the gate ends after the steps without ROM, also with
 # --full, and the table closes with "Gate (hermetisch): ok". It needs no ROM, tool or save game and
-# no G4_* variable.
+# no G4_* variable. With CI=true the steps beside cargo test run one after another (G4_GATE_SERIAL, below).
 #
 # Parallel steps: "cargo test (no ROM data)" is by far the longest step, so the steps that neither
 # take the cargo build lock nor write into target/ run beside it as background jobs (started just
@@ -84,6 +84,13 @@
 # all of them, prints the table and fails if any step failed, so one run reports every failure of
 # the group. Everything else before the ROM part stops at the first failure (the ROM part, from
 # "gated tests (cargo test)" on, goes on after one).
+# Auf CI (CI=true) laufen diese Schritte nicht nebeneinander (G4_GATE_SERIAL=1): "cargo test (no ROM data)"
+# läuft zuerst, danach die Ketten nacheinander (js, script tests, g4emu unit), jede bis zum Ende. Der
+# Runner von GitHub Actions hat nur 3 Kerne: neben cargo test verhungerten die Frontend-Tests (Lauf
+# 43581017224: pnpm test 1492 s, 50 Tests gescheitert). Die Tabelle, die Zeilen und das Verhalten bei einem
+# Fehler (alle Schritte der Gruppe laufen, die Tabelle nennt jeden Fehler, Exit-Status 1) bleiben gleich; die
+# Warnung bei mehr als 900 s entfällt, die Grenze ist ein Ziel für die Maschine des Entwicklers. Lokal
+# bleibt es parallel; G4_GATE_SERIAL=0 oder 1 setzt den Standard außer Kraft.
 #
 # Heavy tests: a virus scanner makes every file of a test fixture expensive, and the tests that set
 # up thousands of files take most of the test time. scripts/gate-heavy-tests.txt names the slowest
@@ -91,14 +98,19 @@
 # ... -- --exact --skip <name> ...` and leaves them out (--exact: a skip matches the whole name, so
 # `a::b` does not drop `a::b_c`); --full runs the whole suite. The list is made by
 # scripts/gate-heavy-update.sh from a log of cargo test with per-test times. After the table the fast
-# gate says how many tests it left out, and it warns (without failing) when its total goes over 900 s:
-# then the list is out of date (where no list was read, as on CI, the warning has no such advice).
+# gate says how many tests it left out, and it warns (without failing) when its total goes over 900 s
+# (not in the serial gate, see G4_GATE_SERIAL): then the list is out of date (where no list was read, as
+# on CI, the warning has no such advice).
 # Auf CI (CI=true, wie GitHub Actions es setzt) liest das schnelle Gate die Liste nicht und führt jeden
 # Test ohne ROM-Daten aus: die Liste gibt es wegen des Virenscanners auf dem Mac des Entwicklers. Eine
 # ausdrücklich gesetzte G4_GATE_HEAVY_LIST gilt weiter (der Testzugang der Skript-Tests).
 #
 # Variables (all optional):
 #   G4_GATE_HERMETIC  1: end after the steps without ROM (what CI runs), also with --full
+#   G4_GATE_SERIAL    1: "cargo test (no ROM data)" runs first and then the chains (frontend, script tests,
+#                     g4emu unit) one after another, so no step runs beside another one, and the fast gate
+#                     does not warn about the 900 s limit. 0: the chains run beside cargo test. Default: 1
+#                     when CI=true, else 0. Any other value ends the gate with status 2.
 #   G4_GATE_TMPDIR    folder for the temporary files of the cargo test steps (fast and full); the gate
 #                     creates it and sets TMPDIR to it for them. Ein eigener Ordner lässt sich vom
 #                     Virenscanner ausnehmen. Absolute path; default: TMPDIR as it is.
@@ -181,7 +193,23 @@ MAIN_CHECKOUT="$(gate_main_checkout "$ROOT")"
 # exported must not reach any other step.
 unset G4_SKIP_LOG
 
-# The fast gate warns when its total goes over this many seconds (the 15 minutes of the spec).
+# 1: the steps beside "cargo test (no ROM data)" (the chains, see "Parallel steps" above) run after it and
+# one after another, not beside it. The default is 1 on CI (CI=true) and 0 elsewhere; G4_GATE_SERIAL
+# (0 or 1) overrides it.
+GATE_SERIAL="${G4_GATE_SERIAL:-}"
+if [ -z "$GATE_SERIAL" ]; then
+  if [ "${CI:-}" = "true" ]; then GATE_SERIAL=1; else GATE_SERIAL=0; fi
+fi
+case "$GATE_SERIAL" in
+  0 | 1) ;;
+  *)
+    echo "G4_GATE_SERIAL muss 0 oder 1 sein: $GATE_SERIAL" >&2
+    exit 2
+    ;;
+esac
+
+# The fast gate warns when its total goes over this many seconds (the 15 minutes of the spec). Only the
+# parallel gate: the limit is a goal for the developer's machine, not for the serial run on CI.
 GATE_LIMIT_S="${G4_GATE_LIMIT_S:-900}"
 case "${GATE_LIMIT_S#-}" in
   '' | *[!0-9]*)
@@ -191,7 +219,7 @@ case "${GATE_LIMIT_S#-}" in
 esac
 # A limit other than the 900 s of the spec is said at the start: the closing warning names it, but a
 # gate that stays under it would not.
-if [ "$FULL" -eq 0 ] && [ "$GATE_LIMIT_S" != "900" ]; then
+if [ "$FULL" -eq 0 ] && [ "$GATE_SERIAL" -eq 0 ] && [ "$GATE_LIMIT_S" != "900" ]; then
   echo "Hinweis: Grenze des schnellen Gates: $GATE_LIMIT_S s (G4_GATE_LIMIT_S)." >&2
 fi
 
@@ -304,12 +332,19 @@ if [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
 fi
 
 # Background steps (see "Parallel steps" above): the chains' pids and names, the folder with
-# their logs and results, and inside a chain its name and the number of its last step.
+# their logs and results, and inside a chain its name and the number of its last step. In the
+# serial gate (GATE_SERIAL) start_chain has waited for the chain already: its status is in BG_STATUS.
 BG_DIR=""
 BG_PIDS=()
 BG_NAMES=()
+BG_STATUS=()
 BG_CHAIN=""
 BG_N=0
+# The word of the progress line of a chain step: "parallel", or "seriell" in the serial gate.
+BG_MODE="parallel"
+if [ "$GATE_SERIAL" -eq 1 ]; then
+  BG_MODE="seriell"
+fi
 
 record() { # record <step> <project> <result> <seconds>
   ROWS+=("$1|$2|$3|$4")
@@ -331,8 +366,9 @@ print_table() {
   if [ "$HEAVY_NOTE" -gt 0 ]; then
     echo "$HEAVY_NOTE schwere Tests laufen nur im Volllauf (scripts/gate-heavy-tests.txt)."
   fi
-  # Only the fast gate: the full run executes every test and takes hours by design.
-  if [ "$FULL" -eq 0 ] && [ "$total" -gt "$GATE_LIMIT_S" ]; then
+  # Only the parallel fast gate: the full run executes every test and takes hours by design, and the
+  # serial run (CI) has no limit.
+  if [ "$FULL" -eq 0 ] && [ "$GATE_SERIAL" -eq 0 ] && [ "$total" -gt "$GATE_LIMIT_S" ]; then
     if [ "$HEAVY_LIST_READ" -eq 1 ]; then
       echo "Warnung: das schnelle Gate hat $total s gebraucht (Grenze $GATE_LIMIT_S s)." \
         "Die Liste der schweren Tests neu erzeugen: bash scripts/gate-heavy-update.sh <Log> [<Sekunden>]" \
@@ -686,12 +722,15 @@ bg_step() { # bg_step <step label> <command...>: fails when the command does
   if [ "$status" -eq 0 ]; then result="ok"; else result="FAILED"; fi
   secs=$((SECONDS - start))
   echo "$BG_N|$step|$result|$secs" >>"$BG_DIR/$BG_CHAIN.results"
-  echo "    parallel: $step: $result ($secs s)"
+  echo "    $BG_MODE: $step: $result ($secs s)"
   [ "$status" -eq 0 ]
 }
 
-# Runs a function (a sequence of bg_step calls) in the background, in a subshell.
+# Runs a function (a sequence of bg_step calls) in the background, in a subshell. In the serial gate
+# it waits for the chain to end (the chain still runs in the background, so a signal stops the gate at
+# once and stop_background stops the chain), so that no chain runs beside another step.
 start_chain() { # start_chain <name> <function>
+  local last status=0
   if [ -z "$BG_DIR" ]; then
     BG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/g4-gate.XXXXXX")"
   fi
@@ -703,6 +742,13 @@ start_chain() { # start_chain <name> <function>
   ) &
   BG_PIDS+=("$!")
   BG_NAMES+=("$1")
+  last=$((${#BG_PIDS[@]} - 1))
+  BG_STATUS[$last]=0
+  if [ "$GATE_SERIAL" -eq 1 ]; then
+    wait "${BG_PIDS[$last]}" || status=$?
+    BG_STATUS[$last]=$status
+    BG_PIDS[$last]=""
+  fi
 }
 
 # Waits for every chain (so no progress line comes after the blocks), then prints the output of
@@ -711,13 +757,19 @@ join_chains() {
   local i=0 name n step result secs
   local statuses=()
   while [ "$i" -lt "${#BG_PIDS[@]}" ]; do
-    statuses[$i]=0
-    wait "${BG_PIDS[$i]}" || statuses[$i]=$?
-    BG_PIDS[$i]=""
+    statuses[$i]="${BG_STATUS[$i]}"
+    if [ -n "${BG_PIDS[$i]}" ]; then
+      wait "${BG_PIDS[$i]}" || statuses[$i]=$?
+      BG_PIDS[$i]=""
+    fi
     i=$((i + 1))
   done
   echo
-  echo "--- Schritte, die parallel zu cargo test liefen (die Ausgabe je Schritt) ---"
+  if [ "$GATE_SERIAL" -eq 1 ]; then
+    echo "--- Schritte nach cargo test, nacheinander (die Ausgabe je Schritt) ---"
+  else
+    echo "--- Schritte, die parallel zu cargo test liefen (die Ausgabe je Schritt) ---"
+  fi
   i=0
   while [ "$i" -lt "${#BG_NAMES[@]}" ]; do
     name="${BG_NAMES[$i]}"
@@ -739,6 +791,7 @@ join_chains() {
   done
   BG_PIDS=()
   BG_NAMES=()
+  BG_STATUS=()
 }
 
 # The chains. A step that fails does not stop the independent ones after it (one run reports every
@@ -802,10 +855,13 @@ if [ "$FROM_ACTIVE" -eq 0 ]; then
     env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
     cargo test -p studio --test mcp_stdio
 
-  # The parallel group: the chains start just before the long step and run beside it.
-  start_chain js chain_js
-  start_chain script-tests chain_script_tests
-  start_chain g4emu chain_g4emu
+  # The parallel group: the chains start just before the long step and run beside it. In the serial
+  # gate (CI, see GATE_SERIAL) they start after it, one after another.
+  if [ "$GATE_SERIAL" -eq 0 ]; then
+    start_chain js chain_js
+    start_chain script-tests chain_script_tests
+    start_chain g4emu chain_g4emu
+  fi
   # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
   # A failure does not end the gate yet: the background steps are joined and reported first.
   HEAVY_NOTE="${#HEAVY[@]}"
@@ -815,6 +871,12 @@ if [ "$FROM_ACTIVE" -eq 0 ]; then
   with_gate_tmpdir with_skip_log "$NOROM_LOG" try_step "cargo test (no ROM data)" "" \
     env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
     "${TEST_CMD[@]}" || true
+  if [ "$GATE_SERIAL" -eq 1 ]; then
+    # A failed step stops no other step of the group here either: join_chains reports them all.
+    start_chain js chain_js
+    start_chain script-tests chain_script_tests
+    start_chain g4emu chain_g4emu
+  fi
   join_chains
   if [ "$FAILED" -ne 0 ]; then
     exit 1

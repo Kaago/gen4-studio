@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/gate.sh: the order of the steps, the split into the fast gate and --full, the
-# steps that run beside `cargo test (no ROM data)`, G4_GATE_TMPDIR, the heavy tests that only the
+# steps that run beside `cargo test (no ROM data)` (or, with G4_GATE_SERIAL=1, which CI sets by CI=true,
+# one after another after it), G4_GATE_TMPDIR, the heavy tests that only the
 # full run executes (scripts/gate-heavy-tests.txt), the conditional tests (the skip log of the
 # full run's `cargo test (no ROM data)` picks what the per-project, tool and project start steps run),
 # and the result of a full run: <sha>.json and <sha>.log, a run that goes on after a failure in the ROM
@@ -27,7 +28,8 @@ unset G4_GATE_HERMETIC G4_GATE_TMPDIR G4_GATE_STUB_FAIL G4_GATE_STUB_FAIL_ARG G4
   G4_GATE_HEAVY_LIST G4_GATE_LIMIT_S G4_ROMS_DIR G4_APICULA G4_DSROM_CLI G4_ROTOM_LSP G4EMU_CORE CI \
   G4_SKIP_LOG G4_GATE_LOG_DIR G4_GATE_ONLY_PROJECT G4_GATE_REMOVER_PATTERN G4_GATE_REMOVER_POLL_S \
   G4_GATE_REMOVER_WAIT_S G4_GATE_STUB_NOROM_LINES G4_GATE_STUB_SKIP_STEP G4_GATE_STUB_SKIP_LINES \
-  G4_GATE_ARTEFAKTE G4_GATE_STUB_ARGS_STEP G4_GATE_STUB_ARGS_FILE NO_ARTEFAKTE REPO_DIR GATE_TEST_PATH_TAIL
+  G4_GATE_ARTEFAKTE G4_GATE_STUB_ARGS_STEP G4_GATE_STUB_ARGS_FILE NO_ARTEFAKTE REPO_DIR GATE_TEST_PATH_TAIL \
+  G4_GATE_SERIAL G4_GATE_STUB_EVENTS
 
 # The throwaway repositories take no configuration of the developer (signing, hooks, templates).
 export GIT_CONFIG_GLOBAL=/dev/null
@@ -47,7 +49,11 @@ export G4_GATE_ARTEFAKTE="$ARTEFAKTE_NET"
 #            a pipe with the lines of the parallel steps). It plays the tests that skip:
 #            `cargo test (no ROM data)` writes G4_GATE_STUB_NOROM_LINES into its G4_SKIP_LOG (printf %b:
 #            \t and \n; the default holds one conditional test of each kind, unsorted and twice for
-#            one), and the step named in G4_GATE_STUB_SKIP_STEP writes G4_GATE_STUB_SKIP_LINES
+#            one), and the step named in G4_GATE_STUB_SKIP_STEP writes G4_GATE_STUB_SKIP_LINES.
+#            With G4_GATE_STUB_EVENTS set (a file), every step appends the lines `start <step>` and
+#            `end <step>` to it, and `cargo test (no ROM data)` (0.6 s) and the steps of the chains
+#            beside it (0.2 s each) take that long between the two: the steps of two runs that overlap
+#            show it in the file (events_sequential, events_overlap)
 #   bin/     cargo, cargo-deny, pnpm and uv that fail loudly: if the gate ever ran one of them for
 #            real (a command that bypasses G4_GATE_CMD_PREFIX), the test would not run a suite
 #   home/    an empty HOME, so the gate does not put the real toolchain in front of bin/
@@ -60,6 +66,14 @@ sandbox() {
   cat >"$d/stub.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'stub[%s] TMPDIR=%s: %s\n' "${G4_GATE_STEP:-?}" "${TMPDIR-}" "$*"
+if [ -n "${G4_GATE_STUB_EVENTS:-}" ]; then
+  printf 'start %s\n' "${G4_GATE_STEP:-?}" >>"$G4_GATE_STUB_EVENTS"
+  case "${G4_GATE_STEP:-}" in
+    "cargo test (no ROM data)") sleep 0.6 ;;
+    tokens | styles | depth | "pnpm test" | "pnpm build" | "dist has no bridge" | "script tests" | "g4emu unit") sleep 0.2 ;;
+  esac
+  printf 'end %s\n' "${G4_GATE_STEP:-?}" >>"$G4_GATE_STUB_EVENTS"
+fi
 if [ -n "${G4_GATE_STUB_ARGS_FILE:-}" ] && [ "${G4_GATE_STEP:-}" = "${G4_GATE_STUB_ARGS_STEP:-}" ]; then
   printf '%s\n' "$*" >"$G4_GATE_STUB_ARGS_FILE"
 fi
@@ -459,6 +473,125 @@ test_a_failing_serial_step_stops_before_the_parallel_group() {
   assert_not_contains "stub[cargo test" printf '%s' "$out"
 }
 
+# events_sequential <events file>: the steps of a run never overlapped, which the stub of a run with
+# G4_GATE_STUB_EVENTS shows: every line `start <step>` is directly followed by `end <step>`.
+events_sequential() {
+  local line open=""
+  while IFS= read -r line; do
+    case "$line" in
+      "start "*)
+        [ -z "$open" ] || fail "'${line#start }' started while '$open' was running"
+        open="${line#start }"
+        ;;
+      "end "*)
+        [ "$open" = "${line#end }" ] || fail "'${line#end }' ended while '$open' was the running step"
+        open=""
+        ;;
+    esac
+  done <"$1"
+  [ -z "$open" ] || fail "'$open' never ended"
+}
+
+# events_overlap <events file>: the steps of a run overlapped, as the parallel gate lets them: the chains
+# started before cargo test had ended, and the second and third chain before the first had ended.
+events_overlap() {
+  local events
+  events="$(cat "$1")"
+  assert_before "$events" "start tokens" "end cargo test (no ROM data)"
+  assert_before "$events" "start script tests" "end dist has no bridge"
+  assert_before "$events" "start g4emu unit" "end dist has no bridge"
+}
+
+test_the_serial_gate_runs_cargo_test_first_and_then_the_chains_one_after_another() {
+  local d events step out status=0
+  d="$(tmpdir)"
+  out="$(G4_GATE_STUB_EVENTS="$d/events" G4_GATE_SERIAL=1 run_gate)" || status=$?
+  [ "$status" -eq 0 ] || fail "expected status 0, got $status: $out"
+  # Every row of the parallel gate is there, in the same table.
+  for step in "cargo test (no ROM data)" "tokens" "styles" "depth" "pnpm test" "pnpm build" \
+    "dist has no bridge" "script tests" "g4emu unit"; do
+    assert_row "$out" "$step" "ok"
+  done
+  assert_contains "Gate (hermetisch): ok (" printf '%s' "$out"
+  events="$(cat "$d/events")"
+  # No step ran beside another one ...
+  events_sequential "$d/events"
+  # ... cargo test came first, before every step of every chain ...
+  for step in tokens styles depth "pnpm test" "pnpm build" "dist has no bridge" "script tests" "g4emu unit"; do
+    assert_before "$events" "end cargo test (no ROM data)" "start $step"
+  done
+  # ... and the chains followed one another: the frontend chain, the script tests, g4emu.
+  assert_before "$events" "end dist has no bridge" "start script tests"
+  assert_before "$events" "end script tests" "start g4emu unit"
+  assert_before "$events" "end tokens" "start styles"
+  assert_before "$events" "end pnpm build" "start dist has no bridge"
+  # The output of each step still comes as one block after its header, after the cargo test step.
+  assert_before "$out" "==> pnpm test" "stub[pnpm test]"
+  assert_before "$out" "stub[pnpm test]" "==> pnpm build"
+  assert_before "$out" "stub[cargo test (no ROM data)]" "==> tokens"
+}
+
+test_ci_runs_the_steps_one_after_another_and_g4_gate_serial_overrides() {
+  local d
+  d="$(tmpdir)"
+  # CI=true without the variable: serial.
+  CI=true G4_GATE_STUB_EVENTS="$d/ci" run_gate >/dev/null
+  events_sequential "$d/ci"
+  # An empty variable is no setting.
+  CI=true G4_GATE_SERIAL= G4_GATE_STUB_EVENTS="$d/ci-empty" run_gate >/dev/null
+  events_sequential "$d/ci-empty"
+  # CI=true with G4_GATE_SERIAL=0: parallel.
+  CI=true G4_GATE_SERIAL=0 G4_GATE_STUB_EVENTS="$d/ci-parallel" run_gate >/dev/null
+  events_overlap "$d/ci-parallel"
+  # Not CI: parallel, with CI unset, empty or something else than true; G4_GATE_SERIAL=1 makes it serial.
+  G4_GATE_STUB_EVENTS="$d/local" run_gate >/dev/null
+  events_overlap "$d/local"
+  CI=false G4_GATE_STUB_EVENTS="$d/ci-false" run_gate >/dev/null
+  events_overlap "$d/ci-false"
+  G4_GATE_SERIAL=0 G4_GATE_STUB_EVENTS="$d/local-0" run_gate >/dev/null
+  events_overlap "$d/local-0"
+  G4_GATE_SERIAL=1 G4_GATE_STUB_EVENTS="$d/local-1" run_gate >/dev/null
+  events_sequential "$d/local-1"
+  # The parallel gate says so, the serial one does too.
+  assert_contains "--- Schritte, die parallel zu cargo test liefen" printf '%s' "$(run_gate)"
+  assert_contains "--- Schritte nach cargo test, nacheinander" printf '%s' "$(CI=true run_gate)"
+  # Any other value is refused, before a step runs.
+  G4_GATE_SERIAL=2 assert_status 2 run_gate_unstubbed
+  G4_GATE_SERIAL=ja assert_contains "G4_GATE_SERIAL muss 0 oder 1 sein: ja" run_gate_unstubbed
+  # The header names the variable.
+  grep -q '^#   G4_GATE_SERIAL ' "$GATE" || fail "the header of the gate does not list G4_GATE_SERIAL"
+}
+
+test_a_failing_step_in_the_serial_gate_fails_the_gate() {
+  local out status step other
+  # A step of a chain, the second and third chain, and cargo test: each fails the gate with its own row,
+  # and the other steps of the group still run and are in the table (as in the parallel gate).
+  for step in "pnpm test" "tokens" "script tests" "g4emu unit" "cargo test (no ROM data)"; do
+    status=0
+    out="$(G4_GATE_SERIAL=1 G4_GATE_STUB_FAIL="$step" run_gate)" || status=$?
+    [ "$status" -eq 1 ] || fail "$step: expected status 1, got $status: $out"
+    assert_row "$out" "$step" "FAILED"
+    assert_contains "Gate (hermetisch): FAILED (" printf '%s' "$out"
+    assert_not_contains "Gate (hermetisch): ok" printf '%s' "$out"
+    for other in "cargo test (no ROM data)" "pnpm build" "script tests" "g4emu unit"; do
+      [ "$other" = "$step" ] || assert_row "$out" "$other" "ok"
+    done
+  done
+  # A failed build skips the bridge check here too.
+  status=0
+  out="$(G4_GATE_SERIAL=1 G4_GATE_STUB_FAIL="pnpm build" run_gate)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status: $out"
+  assert_row "$out" "pnpm build" "FAILED"
+  assert_no_row "$out" "dist has no bridge"
+  # A failure before the group stops the gate before cargo test, serial or not.
+  status=0
+  out="$(G4_GATE_SERIAL=1 G4_GATE_STUB_FAIL="cargo fmt --check" run_gate)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status: $out"
+  assert_row "$out" "cargo fmt --check" "FAILED"
+  assert_not_contains "stub[cargo test" printf '%s' "$out"
+  assert_not_contains "stub[pnpm test]" printf '%s' "$out"
+}
+
 test_gate_tmpdir_reaches_the_test_step() {
   local d out
   d="$(cd "$(tmpdir)" && pwd)" # the form the gate prints: no double slash
@@ -683,13 +816,44 @@ test_a_gate_over_900_s_warns_and_stays_green() {
   grep -q 'G4_GATE_LIMIT_S:-900}' "$GATE" || fail "the default limit is not 900 s"
 }
 
+test_the_serial_gate_does_not_warn_about_the_limit_of_the_parallel_gate() {
+  local d out status=0
+  d="$(tmpdir)"
+  heavy_list "$d/heavy.txt" "one::heavy"
+  # -1 s is exceeded by every run: the parallel gate warns ...
+  out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_LIMIT_S=-1 G4_GATE_SERIAL=0 run_gate)"
+  assert_contains "Warnung: das schnelle Gate hat " printf '%s' "$out"
+  assert_contains "Hinweis: Grenze des schnellen Gates: -1 s (G4_GATE_LIMIT_S)." printf '%s' "$out"
+  # ... the serial gate does not, with the list (advice) or without one, on CI or by G4_GATE_SERIAL=1.
+  out="$(G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_LIMIT_S=-1 G4_GATE_SERIAL=1 run_gate)" || status=$?
+  [ "$status" -eq 0 ] || fail "expected status 0, got $status: $out"
+  assert_not_contains "Warnung" printf '%s' "$out"
+  assert_not_contains "Grenze des schnellen Gates" printf '%s' "$out"
+  assert_not_contains "gate-heavy-update.sh" printf '%s' "$out"
+  assert_contains "Gate (hermetisch): ok (" printf '%s' "$out"
+  out="$(CI=true G4_GATE_LIMIT_S=-1 run_gate)"
+  assert_not_contains "Warnung" printf '%s' "$out"
+  assert_contains "Gate (hermetisch): ok (" printf '%s' "$out"
+  # A failed serial gate over the limit says only that it failed.
+  status=0
+  out="$(CI=true G4_GATE_LIMIT_S=-1 G4_GATE_STUB_FAIL="script tests" run_gate)" || status=$?
+  [ "$status" -eq 1 ] || fail "expected status 1, got $status"
+  assert_not_contains "Warnung" printf '%s' "$out"
+  assert_contains "Gate (hermetisch): FAILED (" printf '%s' "$out"
+  # CI=true with G4_GATE_SERIAL=0 is the parallel gate and warns.
+  out="$(CI=true G4_GATE_SERIAL=0 G4_GATE_LIMIT_S=-1 run_gate)"
+  assert_contains "Warnung: das schnelle Gate hat " printf '%s' "$out"
+}
+
 test_the_warning_advises_the_heavy_list_only_when_it_was_read() {
   local d out total
   d="$(sandbox)"
   heavy_list "$d/heavy.txt" "one::heavy"
   # CI does not read scripts/gate-heavy-tests.txt (the file is there): the warning names time and limit
   # and gives no advice about a list that played no part.
-  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI=true G4_GATE_LIMIT_S=-1 \
+  # (G4_GATE_SERIAL=0: the serial gate that CI=true makes does not warn, see
+  # test_the_serial_gate_does_not_warn_about_the_limit_of_the_parallel_gate.)
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI=true G4_GATE_SERIAL=0 G4_GATE_LIMIT_S=-1 \
     G4_GATE_CMD_PREFIX="$d/stub.sh" G4_GATE_LOG_DIR="$d/logs" G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
   total="$(printf '%s\n' "$out" | sed -n 's/^Gate (hermetisch): ok (\([0-9][0-9]*\) s)$/\1/p')"
   [ -n "$total" ] || fail "no total in the closing line: $out"
@@ -702,7 +866,7 @@ test_the_warning_advises_the_heavy_list_only_when_it_was_read() {
   assert_contains "Warnung: das schnelle Gate hat " printf '%s' "$out"
   assert_not_contains "gate-heavy-update.sh" printf '%s' "$out"
   # CI with a list of its own (the test seam) reads it, and the advice stays.
-  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI=true G4_GATE_LIMIT_S=-1 \
+  out="$(env HOME="$d/home" PATH="$d/bin:/usr/bin:/bin" CI=true G4_GATE_SERIAL=0 G4_GATE_LIMIT_S=-1 \
     G4_GATE_HEAVY_LIST="$d/heavy.txt" G4_GATE_CMD_PREFIX="$d/stub.sh" G4_GATE_LOG_DIR="$d/logs" \
     G4_GATE_HERMETIC=1 bash "$GATE" 2>&1)"
   assert_contains "scripts/gate-heavy-update.sh" printf '%s' "$out"
