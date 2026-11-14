@@ -29,17 +29,17 @@ Legende der Spalte „Wer“: **Agent** erledigt der Agent allein; **Agent + Bli
      `bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid`
      abwarten, bis das Log „Brücke läuft“ meldet (der erste Lauf baut `studio-bridge`, das kann Minuten dauern), dann `preview_start` mit `url: "http://127.0.0.1:1430"`.
 
-   **Aus einem Git-Worktree** muss `G4_ROMS_DIR` absolut gesetzt sein, für die Brücke wie für das Gate-Skript: Der Standard `../Roms` meint den Ordner neben dem Haupt-Checkout und existiert vom Worktree aus nicht.
+   **Aus einem Git-Worktree** muss `G4_ROMS_DIR` für die Brücke absolut gesetzt sein: Der Standard `../Roms` meint den Ordner neben dem Haupt-Checkout und existiert vom Worktree aus nicht (`scripts/gate.sh` findet ihn dort selbst, siehe Punkt 6).
 
    ```sh
    G4_ROMS_DIR=/Pfad/zu/Roms bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid
-   G4_ROMS_DIR=/Pfad/zu/Roms scripts/gate.sh > target/agent/gate.log 2>&1
    ```
 
    Ports: Vite 1430, Brücke 1431. Die App des Nutzers (1420/1421) bleibt unberührt. Das Skript bricht ab, wenn 1430 oder 1431 belegt ist. Eine zweite Instanz (ein paralleler Worktree) bekommt eigene Ports: `G4_VITE_PORT=1440 G4_BRIDGE_PORT=1441 bash scripts/agent/studio-web.sh …`; `call.sh` liest den Brückenport aus `target/agent/bridge.port` des eigenen Checkouts, die Seite liegt dann unter `http://127.0.0.1:1440`.
 4. **Projekt öffnen:** `http://127.0.0.1:1430/?project=<absoluter Pfad der Kopie>` (Leerzeichen als `%20`). Die Statusleiste zeigt „Browser-Modus (Brücke)“ und die Projektmeldung. Mit `?project=` startet die App in der Welt, ohne auf Start. Alternativ „Projekt öffnen“ in der Titelleiste oder auf Start (⌘O): ein Dialog mit dem Feld „Pfad“, „Abbrechen“ und „OK“ (Enter im Feld nimmt den Pfad, Escape bricht ab).
 5. **App beenden:** Weg 1: `preview_stop`. Weg 2: `kill $(cat target/agent/studio-web.pid)` (TERM an das Skript beendet Brücke und Vite; kein `pkill -f`, das träfe auch die Shell). Danach `lsof -iTCP:1430 -iTCP:1431 -sTCP:LISTEN` (leer = Ports frei). Nach einem Neustart der Brücke ist kein Projekt mehr offen, die Seite muss neu geladen werden.
-6. **Ergebnis:** Die Gate-Datei bekommt im Abschnitt „Ergebnis“ je Teil eine Zeile (Datum, Projekt, Ergebnis, Auffälligkeiten) und in der Spalte „Wer“ Agent oder Hand. Am Ende listet der Agent dem Nutzer alle Punkte mit „Hand“ und „Agent + Blick“, bei Bildern von `g4emu` mit Pfad, sonst mit Ort und Zahlen.
+6. **Automatik, `scripts/gate.sh`:** Seit dem schnellen Gate hat das Skript zwei Läufe (Einzelheiten und Zeiten in [dev-setup.md](dev-setup.md), „Gate-Skript“). Die Zeilen „Automatik“ und `scripts/gate.sh` in den Tabellen unten meinen den **Volllauf**, denn sie nennen die gated Tests je Projekt, die Zeitschritte und den Projektstart: `bash scripts/gate.sh --full > target/agent/gate.log 2>&1` im Hintergrund, die Tabelle am Ende übernehmen. Er dauert rund drei Stunden für drei Projekte; die Zeiten, die einzelne Zeilen nennen, stammen aus der Zeit vor dem schnellen Gate. Das schnelle Gate (`bash scripts/gate.sh`, ohne ROM, mit der Grenze von 900 s) ist der Lauf vor einem Merge und genügt für die Schritte, die eine Zeile einzeln nennt (fmt, clippy, `pnpm test`, …). Der Volllauf schreibt bei sauberem Arbeitsbaum `<sha>.json` und `<sha>.log` nach `../gate-artefakte/full` neben dem Haupt-Checkout (auch aus einem Worktree); steht dort für den Commit schon `gruen`, ist der Volllauf für ihn gelaufen (der Nachtlauf, `dev-setup.md`, „Nachtlauf einrichten“, schreibt sie ebenso). `G4_ROMS_DIR` findet das Gate aus einem Worktree selbst; `tools/` muss dort verlinkt sein (siehe „Einmalig einrichten“, Punkt 3).
+7. **Ergebnis:** Die Gate-Datei bekommt im Abschnitt „Ergebnis“ je Teil eine Zeile (Datum, Projekt, Ergebnis, Auffälligkeiten) und in der Spalte „Wer“ Agent oder Hand. Am Ende listet der Agent dem Nutzer alle Punkte mit „Hand“ und „Agent + Blick“, bei Bildern von `g4emu` mit Pfad, sonst mit Ort und Zahlen.
 
 ## Doppeldeck: wo was ist
 
@@ -328,7 +328,7 @@ Kopie `pt-3a` (Platin DE), für (D) 4 zusätzlich `hg-3a` (HeartGold US), für d
 | (C) 1–4 Raster | Agent | Browser: Tab „Raster“, Header 0411, 0003, Route 230; die „+“-Zelle öffnet den Dialog „Karte bei x …, y … anlegen“. Neue Karten, Raster und Eventdateien sind sofort auf der Platte; `call.sh member_counts` zeigt die Zahlen |
 | (D) 1–3 Weltkarte | Agent | Browser: Tab „Weltkarte“, Zellenklick, Zoomen mit dem Mausrad, Linien bei Zweiblattdorf, nach (A) der neue Raum |
 | (D) 4 HeartGold US | Agent | frische Kopie `hg-3a`, `?project=…`; Baum und Weltkarte laden, New Bark Town = Header 0060 |
-| (E) 1–2 Automatik | Agent | `scripts/gate.sh` (rund 25 Minuten, im Hintergrund mit `> target/agent/gate.log` und Tabelle am Ende übernehmen) |
+| (E) 1–2 Automatik | Agent | `scripts/gate.sh --full` (Dauer siehe „Je Lauf“, Punkt 6; im Hintergrund mit `> target/agent/gate.log` und Tabelle am Ende übernehmen) |
 | (F) Kartenbilder: Ausrichtung | Agent + Blick | Tab „Raster“ und 3D-Ansicht von oben bei Zweiblattdorf nacheinander ansehen, Norden oben, nicht gespiegelt; der Nutzer bestätigt |
 | (F) Kartenbilder ohne apicula | Agent | laufende App beenden (Ports sind belegt), dann `G4_APICULA=/nirgends bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid`, Seite öffnen: Platzhalter und Tooltip lesen; danach beenden und normal neu starten |
 | (F) Layout im schmalen Panel | Agent | Browser-Fenster so verkleinern (`resize_window`) oder den Teiler ziehen, dass die Liste „Orte“ schmal ist (Atlas auf Kompakt); Listenansicht, Hilfe-Dialog (Atlas „Hilfe“, früher „Begriffe“) und „Neu anlegen“ (+ in der Liste „Orte“) ansehen, Escape und Klick daneben |
@@ -587,7 +587,7 @@ Kopien `pt-3b3b` und `hg-3b3b` für die Szenarien (Endung `-2` …, wenn der Nam
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (B1) gated Tests, `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR` (rund 30 Minuten, gemessen 1798 s); die Tabelle am Ende übernehmen |
+| (B1) gated Tests, `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR` (Volllauf, Dauer siehe „Je Lauf“, Punkt 6); die Tabelle am Ende übernehmen |
 | (B2), (B3) Szenarien | Agent | `uv run g4emu scenario ../agent/scenarios/pt-trainer-begegnung.yaml` bzw. `hg-trainer-begegnung.yaml` (siehe „Szenario“ oben); Rückgabe 0, `check.log`, die JSON-Zeilen von `expect-battle` (Art, Level) je Kampf und die Bilder `trainer1`, `trainer2`, `wild` |
 | (B4) Trainer | Agent | Browser, Rezept „Trainer“; Gegenprobe mit `call.sh data_get`, `history`, `dirty` |
 | (B5) Begegnungen | Agent | Browser, Rezept „Begegnungen“, Schritte 1 bis 5 und 7 |
@@ -607,7 +607,7 @@ Kopien `pt-3b4a` (Szenario) und `pt-3b4a-gate` (Oberfläche), beide Platin DE. D
 | Punkt | Wer | Wie |
 |---|---|---|
 | (A1) 1–2 `vanilla_checks`, Zeitmessungen | Agent | laufen in `scripts/gate.sh` mit; einzeln je Projekt mit `G4_TEST_PROJECT` (absolut) und `cargo test --workspace --all-features -- vanilla_checks_match_the_fixed_counts vanilla_script_checks_after_adopt full_run_on_vanilla overlay_under_lock --nocapture --test-threads 1` (siehe [dev-setup.md](dev-setup.md), „Projektprüfungen“) |
-| (A1) 3 `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP` (rund 30 Minuten); die Tabelle am Ende übernehmen |
+| (A1) 3 `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP` (Volllauf, Dauer siehe „Je Lauf“, Punkt 6); die Tabelle am Ende übernehmen |
 | (A2) Szenario `pt-pruefungen.yaml` | Agent | `uv run g4emu scenario ../agent/scenarios/pt-pruefungen.yaml --project …/pt-3b4a --out …/pt-pruefungen` (siehe „Szenario“ oben); Rückgabe 0 und 22 Zeilen „Erwartung erfüllt“ auf stderr; danach `target/debug/g4k check <Kopie> --expect warp.dest-warp=0 --expect event.script-missing=0 --expect event.trainer-missing=0 --expect text.too-wide=0` |
 | (A3) Prüflicht und Panel | Agent | Browser, Rezept „Prüfen“; Gegenprobe der Zahlen mit `call.sh checks_status` |
 | (A4) Fix-Dialog | Agent | Browser, Rezept „Beheben“; Gegenprobe mit `call.sh history`, `dirty`, `read_script` |
@@ -736,7 +736,7 @@ for (const type of ['dragenter', 'dragover', 'drop']) surface.dispatchEvent(new 
 | (B1) gated Kernel- und Brückentests der Vorlage | Agent | `G4_TEST_ROM=<Kopie von 3g-probe/*.nds> cargo test --workspace --all-features -- <Test>` je ROM (Platin DE, HeartGold DE), dazu `g4k template <Kopie> empty-region` mit `g4k check` |
 | (B2) Szenarien `pt-leere-region.yaml`, `hg-leere-region.yaml` | Agent + Blick | `g4emu scenario` auf einer frischen `g4k create`-Kopie; der Agent nennt Ort und Zahlen, der Nutzer sieht die Bilder in `b2-pt` und `b2-hg` an |
 | (B3) „Welt leeren…“ und die Vorlage im Assistenten | Agent + Blick | Browser (Ports 1462/1463), Ablauf wie oben; der Agent nennt Texte, Zahlen und Statusleiste, der Nutzer sieht die Screens kurz an |
-| (B4) `scripts/gate.sh` | Agent | `G4_ROMS_DIR=<absolut> G4_APICULA=<absolut> G4_ROTOM_LSP=<absolut> bash scripts/gate.sh` (rund 55 Minuten) |
+| (B4) `scripts/gate.sh` | Agent | `G4_ROMS_DIR=<absolut> G4_APICULA=<absolut> G4_ROTOM_LSP=<absolut> bash scripts/gate.sh --full` (Dauer siehe „Je Lauf“, Punkt 6) |
 | (B5) Gegenprobe Original | Agent | `call.sh plan_empty_region` auf einer Original-Kopie: `already_empty` false, Figuren in der Stadt, Weg hinaus |
 | (B6) DSPRE | Hand | ein mit der Vorlage und der Endung angelegtes Projekt in DSPRE öffnen |
 

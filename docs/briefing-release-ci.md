@@ -6,7 +6,7 @@ Stand: 2026-11-04. Repo: [Kaago/gen4-studio](https://github.com/Kaago/gen4-studi
 
 Gen4 Studio wird eine installierbare App, die ohne Entwicklungsbaum läuft, und jeder Push auf `main` wird automatisch geprüft. Bisher läuft das Studio nur aus dem Quellcode auf dem Rechner des Nutzers. Die gepackte App wurde in keinem Gate geprüft („gepackte App auf Wunsch ausgelassen“ in 3a, 3b.1, 3b.2, 3c).
 
-**Mehrwert:** Andere können das Studio installieren und testen, Regressionen fallen beim Push auf statt erst im stundenlangen `scripts/gate.sh`, und die Roadmap-Zusage aus „Querschnitt“ wird eingelöst („Builds für macOS (arm64) und Windows (x64) … folgen mit einem Remote“).
+**Mehrwert:** Andere können das Studio installieren und testen, Regressionen fallen beim Push auf statt erst im stundenlangen `scripts/gate.sh --full`, und die Roadmap-Zusage aus „Querschnitt“ wird eingelöst („Builds für macOS (arm64) und Windows (x64) … folgen mit einem Remote“).
 
 ## Ausgangslage
 
@@ -16,14 +16,14 @@ Gen4 Studio wird eine installierbare App, die ohne Entwicklungsbaum läuft, und 
   - `rotom-lsp`: Sidecar, Tag `v0.7.0`, mit rpath und ad-hoc signiert.
   - `libnitroarc_ffi.dylib`: LGPL, dynamisch gelinkt, liegt in `Contents/Frameworks`.
   - Vorbereitung durch `apps/studio/scripts/prepare-bundle.sh`. `build.rs` legt sonst leere Platzhalter an.
-- **Lokales Gate statt CI:** `scripts/gate.sh` fährt fmt, clippy, `cargo deny`, npm-Lizenzen, `cargo test`, `mcp`, `pnpm test`, `tokens`, `styles`, `depth`, `pnpm build`, „dist has no bridge“ und `g4emu unit`. Danach folgen die **gated Tests gegen die ROM-Projekte** unter `$G4_ROMS_DIR`, mit `g4emu integration` und den Timings. Ein voller Lauf dauert 1 bis 3 Stunden.
+- **Lokales Gate statt CI:** `scripts/gate.sh` fährt fmt, clippy, `cargo deny`, npm-Lizenzen, `cargo test`, `mcp`, `pnpm test`, `tokens`, `styles`, `depth`, `pnpm build`, „dist has no bridge“ und `g4emu unit`: das schnelle Gate, vor jedem Merge, ohne ROM. Mit `--full` folgen die **gated Tests gegen die ROM-Projekte** unter `$G4_ROMS_DIR`, mit `g4emu integration` und den Timings: der Volllauf, nachts und auf Abruf, rund drei Stunden für drei Projekte; er hinterlässt je Commit eine Ergebnisdatei (`docs/dev-setup.md`, „Gate-Skript“ und „Nachtlauf einrichten“).
 - **Netz beim Bauen:** rotoms `build.rs` lädt bei jedem sauberen Build `db-latest.zip`.
 - **Nur macOS:** `.cargo/config.toml` setzt `CFLAGS` für nitroarc auf neuen macOS-SDKs. Der Spielmodus live (3d.9) gibt es nur unter macOS.
 - **App-Daten:** Version `0.1.0` in `tauri.conf.json`, Identifier `dev.gen4studio.app`.
 
 ## Harte Grenzen
 
-- **Keine ROMs, Spielstände oder ROM-Ableitungen nach GitHub.** Das gilt auch nicht als Secret, Cache, Artefakt oder Test-Fixture. Die gated Tests, `g4emu integration` und die Szenarien bleiben lokal in `scripts/gate.sh`. CI fährt nur die hermetischen Schritte.
+- **Keine ROMs, Spielstände oder ROM-Ableitungen nach GitHub.** Das gilt auch nicht als Secret, Cache, Artefakt oder Test-Fixture. Die gated Tests, `g4emu integration` und die Szenarien bleiben lokal (`scripts/gate.sh --full`). CI fährt nur die hermetischen Schritte.
 - Das Release-Artefakt enthält keine Spieldaten. Die Befehlsdatenbank `crates/g4-kernel/metadata/scrcmd/` und die Metadaten dürfen mit, weil sie schon im Repo liegen.
 - Für jede neue Abhängigkeit, auch für Actions, gilt das Lizenz-Audit (`cargo deny`, `scripts/check-licenses-npm.sh`). Die LGPL-Dylib bleibt eine separate, austauschbare Datei.
 - Das Repo ist privat. Kein Wechsel auf öffentlich ohne ausdrückliche Zustimmung des Nutzers.
