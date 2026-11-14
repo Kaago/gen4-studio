@@ -5,7 +5,9 @@
 //! into a template below `g4-fixtures-<pid>` in the temp directory and each test gets a clone
 //! of it ([`clone_tree`]: one system call). A fixture that is dropped moves into a trash folder
 //! below it with one `rename` instead of being deleted file by file, and the whole folder is
-//! handed to a detached `rm -rf` when the process exits.
+//! handed to a detached `rm -rf` when the process exits. A process that was killed never gets
+//! there: the next process that makes its folder hands the folders of the processes that are
+//! gone to the same removal (`sweep_stale`, unix only).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -78,11 +80,15 @@ pub(crate) fn folder_name(key: &str) -> String {
     format!("{start}.{:016x}", hasher.finish())
 }
 
+/// The start of the name of a fixtures folder: the pid of its process follows.
+const ROOT_PREFIX: &str = "g4-fixtures-";
+
 fn fixtures_root() -> &'static Path {
     FIXTURES_ROOT.get_or_init(|| {
-        let root = std::env::temp_dir().join(format!("g4-fixtures-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("{ROOT_PREFIX}{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         remove_at_exit();
+        sweep_stale_fixtures();
         root
     })
 }
@@ -145,6 +151,104 @@ fn remove_at_exit() {
 #[cfg(not(unix))]
 fn remove_at_exit() {}
 
+/// Hands the fixtures folders that processes left behind (killed before their exit handler
+/// ran) to the removal of this process's own folder, see [`sweep_stale`]. Best effort: it never
+/// waits for a removal and never fails.
+#[cfg(unix)]
+fn sweep_stale_fixtures() {
+    sweep_stale(
+        &std::env::temp_dir(),
+        std::process::id(),
+        remove_in_background,
+    );
+}
+
+/// No sweep where there is no removal at exit either.
+#[cfg(not(unix))]
+fn sweep_stale_fixtures() {}
+
+/// The file in a fixtures folder that tells a sweep that a removal is on its way: the pid of
+/// the remover process, which its script writes first (see [`spawn_remover`]). Without it,
+/// every test binary of a `cargo test` run would hand the folders of the binaries before it
+/// (which wait for cargo to end) to a remover of its own.
+#[cfg(unix)]
+const CLAIM: &str = ".remover";
+
+/// Whether a process with this pid exists. `kill(pid, 0)` sends nothing and says whether the pid
+/// could be signalled: only `ESRCH` means that there is no such process (`EPERM` is a process
+/// of another user). A pid that is not above zero names no process (`kill` takes it for a
+/// group): it counts as not alive and is never passed on.
+#[cfg(unix)]
+fn process_is_alive(pid: libc::pid_t) -> bool {
+    // SAFETY: signal 0 only checks that the pid exists, it sends nothing.
+    pid > 0
+        && (unsafe { libc::kill(pid, 0) } == 0
+            || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH))
+}
+
+/// Whether a remover that is alive works on `folder` (its pid is in [`CLAIM`]).
+#[cfg(unix)]
+fn is_being_removed(folder: &Path) -> bool {
+    std::fs::read_to_string(folder.join(CLAIM))
+        .ok()
+        .and_then(|text| text.trim().parse::<libc::pid_t>().ok())
+        .is_some_and(process_is_alive)
+}
+
+/// Hands every `g4-fixtures-<pid>` folder directly below `temp` to `remove` (the detached
+/// removal, which must return at once) whose process `<pid>` is gone, that is, was killed or
+/// interrupted before its exit handler ran: 454 000 files in 50 s of a test run that was
+/// stopped, left for ever. Never touched: the folder of `own` or of a process that is alive
+/// (also one of another user), a folder that a live remover already works on
+/// ([`is_being_removed`]), a name that is not `g4-fixtures-` and digits only, a name whose
+/// number is no pid, anything that is not a real directory of this user (a symlink, a file,
+/// another user's folder). Returns the folders that `remove` took; one that it could not take
+/// stays for the next run.
+#[cfg(unix)]
+fn sweep_stale(temp: &Path, own: u32, remove: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut handed = Vec::new();
+    let Ok(entries) = std::fs::read_dir(temp) else {
+        return handed;
+    };
+    // SAFETY: `geteuid` takes nothing and cannot fail.
+    let me = unsafe { libc::geteuid() };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(digits) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(ROOT_PREFIX))
+        else {
+            continue;
+        };
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(number) = digits.parse::<u32>() else {
+            continue;
+        };
+        let Ok(pid) = libc::pid_t::try_from(number) else {
+            continue;
+        };
+        if number == own || pid <= 0 || process_is_alive(pid) {
+            continue;
+        }
+        let path = entry.path();
+        // `symlink_metadata`: a link to a folder is not one.
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_dir() || meta.uid() != me || is_being_removed(&path) {
+            continue;
+        }
+        if remove(&path) {
+            handed.push(path);
+        }
+    }
+    handed
+}
+
 /// The file the removal processes of every test binary of the machine lock (see
 /// [`spawn_remover`]). It stays in the temp directory, empty; its name does not start with
 /// `g4-fixtures`, which is what a left-over fixtures folder is looked for by.
@@ -204,8 +308,10 @@ fn spawn_remover(root: &Path, wait_for: Option<u32>, lock: Option<&Path>) -> boo
     use std::process::{Command, Stdio};
 
     // `$0` is `root`, `$1` the pid to wait for (empty: none), polled every 5 s, `$2` the lock
-    // file (empty: none).
+    // file (empty: none). The first line writes the pid of this process (which stays the same
+    // through the `exec`s, and until the removal is done) as the claim of `sweep_stale`.
     const SCRIPT: &str = r#"
+echo $$ >"$0/.remover" 2>/dev/null
 remove='/usr/bin/find "$0/trash" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | /usr/bin/xargs -0 -n 1 -P 4 /bin/rm -rf; /bin/rm -rf "$0"'
 n=0
 while [ -n "$1" ] && kill -0 "$1" 2>/dev/null && [ "$n" -lt 360 ]; do /bin/sleep 5; n=$((n+1)); done
@@ -1111,6 +1217,143 @@ mod tests {
             FIXTURES_ROOT.get().map(PathBuf::as_path)
         );
         wait_until_gone(&root);
+    }
+
+    /// A pid that no process has: above the largest pid of any system (macOS 99 998, Linux
+    /// 4 194 304), and the largest `pid_t`.
+    #[cfg(unix)]
+    const GONE_PID: u32 = 2_147_483_647;
+
+    /// The pid of a process that lives as long as this test: its parent.
+    #[cfg(unix)]
+    fn live_pid() -> u32 {
+        std::os::unix::process::parent_id()
+    }
+
+    /// The sweep takes the folder of a process that is gone, and only that: not the folder of a
+    /// live process or of this one, no name that is not `g4-fixtures-<pid>`, no number that is
+    /// no pid, no file or link. What it takes is removed (the real removal, without waiting).
+    #[cfg(unix)]
+    #[test]
+    fn a_sweep_takes_the_folder_of_a_dead_process_and_nothing_else() {
+        let tree = tempfile::tempdir().unwrap();
+        let own = std::process::id();
+        let stale = fixtures_like_tree(&tree, &format!("g4-fixtures-{GONE_PID}"));
+        let kept = [
+            fixtures_like_tree(&tree, &format!("g4-fixtures-{}", live_pid())),
+            fixtures_like_tree(&tree, &format!("g4-fixtures-{own}")),
+            fixtures_like_tree(&tree, "g4-fixtures-probe"),
+            fixtures_like_tree(&tree, "g4-fixtures-"),
+            fixtures_like_tree(&tree, "g4-fixtures-0"),
+            fixtures_like_tree(&tree, &format!("g4-fixtures-+{GONE_PID}")),
+            fixtures_like_tree(&tree, &format!("g4-fixtures-{GONE_PID}x")),
+            // Not a pid: more than the largest `pid_t`.
+            fixtures_like_tree(&tree, "g4-fixtures-4294967295"),
+            fixtures_like_tree(&tree, &format!("other-fixtures-{GONE_PID}")),
+        ];
+        let file = tree.path().join(format!("g4-fixtures-{}", GONE_PID - 1));
+        std::fs::write(&file, "x").unwrap();
+        // A link to a folder that is not a fixtures folder: neither is the folder removed nor the link
+        // followed.
+        let target = fixtures_like_tree(&tree, "somewhere-else");
+        let link = tree.path().join(format!("g4-fixtures-{}", GONE_PID - 2));
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let handed = sweep_stale(tree.path(), own, |dir| spawn_remover(dir, None, None));
+
+        assert_eq!(handed, vec![stale.clone()]);
+        wait_until_gone(&stale);
+        for folder in kept.iter().chain([&target]) {
+            assert!(
+                folder.join("kept").is_file(),
+                "{} is gone",
+                folder.display()
+            );
+        }
+        assert!(file.is_file());
+        assert!(link.is_symlink());
+        assert!(target.join("kept").is_file());
+    }
+
+    /// A folder that a live remover has claimed is left to it; a claim of a remover that is
+    /// gone, or no pid, does not hold.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_a_live_remover_works_on_is_left_to_it() {
+        let tree = tempfile::tempdir().unwrap();
+        let own = std::process::id();
+        let folder = fixtures_like_tree(&tree, &format!("g4-fixtures-{GONE_PID}"));
+        std::fs::write(folder.join(CLAIM), format!("{}\n", live_pid())).unwrap();
+        assert!(sweep_stale(tree.path(), own, |_| true).is_empty());
+        for claim in [&GONE_PID.to_string(), "garbage", "0", "-1", ""] {
+            std::fs::write(folder.join(CLAIM), claim).unwrap();
+            assert_eq!(
+                sweep_stale(tree.path(), own, |_| true),
+                vec![folder.clone()],
+                "claim {claim:?}"
+            );
+        }
+        // No claim at all (a run that was killed): taken.
+        std::fs::remove_file(folder.join(CLAIM)).unwrap();
+        assert_eq!(sweep_stale(tree.path(), own, |_| true), vec![folder]);
+    }
+
+    /// A remover that waits (for cargo to end) has put its pid in its folder by then, so the
+    /// sweeps of the binaries that run meanwhile leave the folder alone; when the removal is
+    /// done, the folder is gone.
+    #[cfg(unix)]
+    #[test]
+    fn a_waiting_remover_claims_its_folder_with_its_pid() {
+        let tree = tempfile::tempdir().unwrap();
+        let root = fixtures_like_tree(&tree, &format!("g4-fixtures-{GONE_PID}"));
+        // What the remover waits for, as cargo is for a remover of the exit handler.
+        let mut cargo = std::process::Command::new("/bin/sleep")
+            .arg("600")
+            .spawn()
+            .unwrap();
+        assert!(spawn_remover(&root, Some(cargo.id()), None));
+        let start = std::time::Instant::now();
+        while !is_being_removed(&root) {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(90),
+                "no claim in {}",
+                root.display()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(root.join("trash").is_dir(), "removed before cargo ended");
+        assert!(sweep_stale(tree.path(), std::process::id(), |_| true).is_empty());
+        cargo.kill().unwrap();
+        cargo.wait().unwrap();
+        wait_until_gone(&root);
+    }
+
+    /// The whole way: a test process that makes its fixtures folder removes the folder that a
+    /// process left behind (a pid that is gone), and leaves the folder of a live process (this
+    /// one) alone. The probe has its own temp directory, so nothing else is touched.
+    #[cfg(unix)]
+    #[test]
+    fn a_test_process_removes_what_a_killed_one_left_behind() {
+        let temp = tempfile::tempdir().unwrap();
+        let stale = fixtures_like_tree(&temp, &format!("g4-fixtures-{GONE_PID}"));
+        let live = fixtures_like_tree(&temp, &format!("g4-fixtures-{}", std::process::id()));
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &probe_name("exit_probe_process")])
+            .args(["--nocapture", "--test-threads=1"])
+            .env(EXIT_PROBE, "1")
+            // Not run by cargo: the removals do not wait for this test process.
+            .env_remove("CARGO")
+            .env("TMPDIR", temp.path())
+            .env("G4_FIXTURES_REMOVER_LOCK", temp.path().join("lock"))
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "the probe failed:\n{stdout}");
+        wait_until_gone(&stale);
+        assert!(
+            live.join("kept").is_file(),
+            "the folder of a live process is gone"
+        );
     }
 
     #[test]
