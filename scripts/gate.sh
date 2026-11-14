@@ -98,7 +98,9 @@
 #   G4_GATE_ARTEFAKTE folder of the results of full runs (<sha>.json, <sha>.log); made when it is needed.
 #                     Default: ../gate-artefakte/full beside the main checkout, which is the parent of
 #                     the git common dir (git rev-parse --git-common-dir), so that a git worktree (the
-#                     nightly run) writes where the main checkout does; --full only
+#                     nightly run, scripts/gate-nightly.sh) writes where the main checkout does
+#                     (gate_artefakte_dir in scripts/gate-result.sh, which the nightly run uses too);
+#                     --full only
 #   G4_APICULA        apicula binary (default: tools/apicula/bin/apicula); --full only
 #   G4_DSROM_CLI      ds-rom reference CLI (default: $G4_ROMS_DIR/_tools/dsrom); --full only
 #   G4_ROTOM_LSP      rotom-lsp binary (default: tools/rotom/bin/rotom-lsp); --full only
@@ -163,10 +165,7 @@ cd "$ROOT"
 
 # The main checkout: the parent of the git common dir, so that a git worktree (the nightly run) finds
 # the same defaults as the checkout it belongs to. Outside a git repository it is the folder of the gate.
-MAIN_CHECKOUT="$ROOT"
-if common_git_dir="$(git rev-parse --git-common-dir 2>/dev/null)" && [ -d "$common_git_dir" ]; then
-  MAIN_CHECKOUT="$(dirname "$(cd "$common_git_dir" && pwd)")"
-fi
+MAIN_CHECKOUT="$(gate_main_checkout "$ROOT")"
 
 # The gate sets G4_SKIP_LOG for the steps that have a skip log; one that the caller's shell has
 # exported must not reach any other step.
@@ -577,12 +576,7 @@ if [ "$FULL" -eq 1 ]; then
     TREE_CLEAN=1
   fi
   # The folder of the results: ../gate-artefakte/full beside the main checkout (absolute, without "..").
-  ARTEFAKTE="${G4_GATE_ARTEFAKTE:-$(abs "$MAIN_CHECKOUT/../gate-artefakte")/full}"
-  case "$ARTEFAKTE" in
-    /*) ;;
-    *) ARTEFAKTE="$ROOT/$ARTEFAKTE" ;;
-  esac
-  ARTEFAKTE="${ARTEFAKTE%/}"
+  ARTEFAKTE="$(gate_artefakte_dir "$MAIN_CHECKOUT" "$ROOT")"
   RESULT_JSON="$ARTEFAKTE/$RUN_SHA.json"
   RESULT_LOG="$ARTEFAKTE/$RUN_SHA.log"
 fi

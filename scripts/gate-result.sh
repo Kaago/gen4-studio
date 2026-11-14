@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# The result of a full run of scripts/gate.sh and the resumption of one (--from). Sourced by gate.sh:
-# functions only, nothing happens when it is sourced. They work on the globals of gate.sh that each
-# function names.
+# The result of a full run of scripts/gate.sh and the resumption of one (--from). Sourced by gate.sh and
+# scripts/gate-nightly.sh: functions only, nothing happens when it is sourced. The functions of the
+# resumption work on the globals of gate.sh that each of them names; gate_main_checkout, gate_artefakte_dir
+# and gate_result_of take their input as arguments.
 #
-# The result of a run is <sha>.json (and <sha>.log, the whole output) in G4_GATE_ARTEFAKTE. The field
-# names are an interface (the nightly run and scripts/release-local.sh read them):
+# The result of a run is <sha>.json (and <sha>.log, the whole output) in G4_GATE_ARTEFAKTE
+# (gate_artefakte_dir). The field names are an interface (the nightly run, scripts/gate-nightly.sh, and
+# scripts/release-local.sh read them, the nightly run with gate_result_of):
 #   sha               the commit (git rev-parse HEAD, in full)
 #   ergebnis          gruen | rot | unvollstaendig (gate_result_verdict)
 #   sekunden          seconds of this run (of the resumed run alone, after --from)
@@ -12,6 +14,61 @@
 #   beginn            start of the run, ISO 8601, UTC
 #   zeilen            the table: a list of {schritt, projekt, ergebnis, sekunden}
 # It is written with printf (no jq) and read with python3 -I.
+
+# gate_main_checkout <dir>: the main checkout of the git repository around <dir>: the parent of the git
+# common dir, so that a git worktree (the nightly run) finds the same defaults as the checkout it belongs
+# to. Without a repository around <dir> it is <dir> itself.
+gate_main_checkout() {
+  local main
+  if main="$(
+    cd "$1" 2>/dev/null || exit 1
+    common="$(git rev-parse --git-common-dir 2>/dev/null)" || exit 1
+    [ -d "$common" ] || exit 1
+    dirname "$(cd "$common" && pwd)"
+  )" && [ -n "$main" ]; then
+    printf '%s\n' "$main"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+# gate_artefakte_dir <main checkout> <root>: the folder of the results of full runs (<sha>.json, <sha>.log):
+# G4_GATE_ARTEFAKTE (a relative path is taken relative to <root>, the repository of the script), else
+# ../gate-artefakte/full beside the main checkout. Absolute and without a trailing slash; the folder need
+# not exist.
+gate_artefakte_dir() {
+  local main="$1" root="$2" dir parent
+  dir="${G4_GATE_ARTEFAKTE:-}"
+  if [ -z "$dir" ]; then
+    if parent="$(cd "$main/.." 2>/dev/null && pwd)"; then
+      dir="$parent/gate-artefakte/full"
+    else
+      dir="$main/../gate-artefakte/full"
+    fi
+  fi
+  case "$dir" in
+    /*) ;;
+    *) dir="$root/$dir" ;;
+  esac
+  printf '%s\n' "${dir%/}"
+}
+
+# gate_result_of <file>: the `ergebnis` of a result file (gruen, rot or unvollstaendig), nothing for a file
+# that is missing, empty, not JSON or without a text there (also when python3 is missing). It never fails:
+# a caller that wants "is it green" compares the output.
+gate_result_of() {
+  [ -f "$1" ] || return 0
+  python3 -I -c '
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        ergebnis = json.load(f)["ergebnis"]
+    if isinstance(ergebnis, str) and ergebnis and "\n" not in ergebnis:
+        sys.stdout.write(ergebnis + "\n")
+except Exception:
+    pass
+' "$1" 2>/dev/null || true
+}
 
 # The steps of the part without ROM: everything up to "cargo test (no ROM data)" and the steps beside it.
 # A full run that is resumed does not run them again, it takes their rows from the earlier result.

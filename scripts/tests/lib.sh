@@ -89,14 +89,16 @@ assert_before() {
   esac
 }
 
-# Runs every test_* function of the calling file; prints PASS/FAIL per test; exit status 1 if any
-# test failed.
+# Runs every test_* function of the calling file; prints PASS/FAIL per test (and the "skipped: <why>" lines
+# that a passing test printed); exit status 1 if any test failed.
 run_tests() {
   local name out failed=0 passed=0 log
   log="$TESTS_TMP/test.log"
   for name in $(compgen -A function test_); do
     if (set -e; "$name") >"$log" 2>&1; then
       echo "PASS $name"
+      # A test that skipped (a part of) itself says so with a line "skipped: <why>" in its output.
+      sed -n 's/^skipped:/    skipped:/p' "$log"
       passed=$((passed + 1))
     else
       echo "FAIL $name"

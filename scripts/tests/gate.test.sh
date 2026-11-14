@@ -1572,6 +1572,14 @@ test_an_empty_list_makes_the_result_incomplete() {
 test_a_signal_to_the_process_group_does_not_cut_the_table_and_the_log() {
   local d pid status sig waited log
   for sig in TERM HUP; do
+    # bash cannot trap a signal that was ignored when the shell started (under nohup, say, and possibly under
+    # a service manager): the gate would ignore that HUP too and run on, so there is nothing to test, and the
+    # test would wait for the stub's sleep and fail. The probe is a child that sends itself the signal: it
+    # survives only when HUP is ignored (the children inherit that).
+    if [ "$sig" = "HUP" ] && [ "$({ /bin/bash -c 'kill -s HUP $$; echo ignored'; } 2>/dev/null)" = "ignored" ]; then
+      echo "skipped: the HUP variant: HUP is ignored in this shell (nohup), and bash cannot trap a signal that is ignored at entry"
+      continue
+    fi
     d="$(repo_sandbox)"
     mkdir "$d/tmp"
     # The stub of the background step "script tests" records its pid and sleeps: the gate waits for it
