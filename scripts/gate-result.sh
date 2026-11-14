@@ -113,6 +113,14 @@ gate_result_write() {
   }
 }
 
+# gate_run_unchanged: status 0 when HEAD is still RUN_SHA and the tree is still clean, as at the start of the
+# run. Checked when the gate ends, before the result is written: steps that ran after a commit, a branch
+# switch or an edit tested another state than the commit the result would name. Reads ROOT and RUN_SHA.
+gate_run_unchanged() {
+  [ "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)" = "$RUN_SHA" ] &&
+    [ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null || true)" ]
+}
+
 # gate_result_rows <file>: the rows of a result file, one line each: step|project|result|seconds (the form
 # of ROWS). Status 1 when the file is no result (or python3 is missing).
 gate_result_rows() {
@@ -140,7 +148,8 @@ for line in lines:
 #   FROM_STEP, FROM_PROJECT   the step to resume at (--from "<step>" or "<step>@<project>")
 #   PRIOR_ROWS                the rows of the earlier result, as ROWS has them
 #   FROM_ACTIVE=1
-# Reads: FROM_ARG, FULL, G4_GATE_HERMETIC, TREE_CLEAN (1: clean tree), RUN_SHA, RESULT_JSON, SKIP_DIR.
+# Reads: FROM_ARG, FULL, G4_GATE_HERMETIC, ONLY_PROJECT, TREE_CLEAN (1: clean tree), RUN_SHA, RESULT_JSON,
+# SKIP_DIR.
 gate_from_check() {
   local rows_text row step project result secs part count
   if [ "$FULL" -ne 1 ]; then
@@ -149,6 +158,10 @@ gate_from_check() {
   fi
   if [ "${G4_GATE_HERMETIC:-}" = "1" ]; then
     echo "--from: nicht mit G4_GATE_HERMETIC=1, es endet vor dem ROM-Teil" >&2
+    return 1
+  fi
+  if [ -n "$ONLY_PROJECT" ]; then
+    echo "--from: nicht zusammen mit G4_GATE_ONLY_PROJECT" >&2
     return 1
   fi
   if [ "$TREE_CLEAN" -ne 1 ]; then

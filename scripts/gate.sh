@@ -28,13 +28,17 @@
 #                                 the test lists (below) of this commit, else it ends with status 2.
 #
 # The result of a full run (not with G4_GATE_HERMETIC, not with G4_GATE_ONLY_PROJECT, only on a clean
-# tree): <sha>.json and <sha>.log in G4_GATE_ARTEFAKTE. The log is the whole output (a resumed run
-# appends to it, after a line "==== wiederaufgesetzt ab <Schritt> ===="); the JSON holds the result
-# table with the fields sha, ergebnis (gruen: every step ok; unvollstaendig: ok, but a step was skipped;
-# rot: a step failed or the gate ended with a status other than 0), sekunden, wiederaufgesetzt, beginn
-# and zeilen (scripts/gate-result.sh). It is written when the gate ends, also after an abort. A run that a
-# signal ended writes none. In the ROM part, from "gated tests (cargo test)" on, a failed step is
-# recorded and the run goes on; the gate ends with status 1 then.
+# tree, and not with G4_GATE_CMD_PREFIX unless G4_GATE_ARTEFAKTE is set): <sha>.json and <sha>.log in
+# G4_GATE_ARTEFAKTE. The log is the whole output (a resumed run appends to it, after a line
+# "==== wiederaufgesetzt ab <Schritt> ===="); the JSON holds the result table with the fields sha,
+# ergebnis (gruen: every step ok; unvollstaendig: ok, but a step was skipped, a list of conditional
+# tests that is empty counts as skipped; rot: a step failed or the gate ended with a status other than
+# 0), sekunden, wiederaufgesetzt, beginn and zeilen (scripts/gate-result.sh). It is written when the gate
+# ends, also after an abort, and only when HEAD is still the commit that the run started on and the tree
+# is still clean (a commit, a branch switch or an edit during the run says "Hinweis" and writes none);
+# an older result of the commit stays. A run that a signal ended writes none, and a resumed run that
+# ended before its resume point leaves the earlier result. In the ROM part, from "gated tests (cargo
+# test)" on, a failed step is recorded and the run goes on; the gate ends with status 1 then.
 #
 # Conditional tests: a test that needs a ROM project or a tool reads its variable (G4_TEST_PROJECT,
 # G4_TEST_ROM, G4_APICULA, G4_DSROM_CLI, G4_ROTOM_LSP) with g4_formats::test_support::gate_var, which
@@ -48,8 +52,8 @@
 # start)"), and the rest, which logged a tool, once with all tools and the Platinum project ("tool
 # tests"; a test that logged both the project and a tool runs per project). Each of these steps has a
 # G4_SKIP_LOG of its own: a test that skips there fails the step ("bedingter Test übersprungen"). A
-# list without a name records its step as ok without running it (an empty --exact would run
-# everything). The tests never run with --test-threads 1: the thread of a test is what names it, and a
+# list without a name records its step as skipped (leere Liste) without running it (an empty --exact
+# would run everything). The tests never run with --test-threads 1: the thread of a test is what names it, and a
 # toolchain may run the tests of such a run on the main thread (which has no test name).
 # The skip log step writes the lists it derives (list-project.txt, list-rom.txt, list-tool.txt) into the
 # folder of the skip logs, with the sha of the commit in lists.sha when the tree is clean; --from reads
@@ -100,7 +104,8 @@
 #   G4_ROTOM_LSP      rotom-lsp binary (default: tools/rotom/bin/rotom-lsp); --full only
 #   G4_GATE_CMD_PREFIX  test seam of scripts/tests/gate.test.sh: a command (one word) that is put in
 #                     front of every command of every step, with the step label in G4_GATE_STEP;
-#                     the script tests set it to a stub, so no real command runs
+#                     the script tests set it to a stub, so no real command runs. Such a run writes no
+#                     result unless G4_GATE_ARTEFAKTE is set too (it must not touch the real folder).
 #   G4_GATE_HEAVY_LIST  test seam of scripts/tests/gate.test.sh: the list of the heavy tests (default:
 #                     scripts/gate-heavy-tests.txt); a missing or empty list leaves no test out (a
 #                     list that was set and cannot be read is said so on stderr)
@@ -390,7 +395,12 @@ start_log() {
   fi
   LOG_FIFO_DIR="$(mktemp -d "${TMPDIR:-/tmp}/g4-gate-log.XXXXXX")"
   mkfifo "$LOG_FIFO_DIR/out"
-  tee -a "$RESULT_LOG" <"$LOG_FIFO_DIR/out" &
+  # tee ignores INT, TERM and HUP: a signal to the whole process group (a terminal, a service manager)
+  # must not end it before the gate has printed the table, which is what the gate waits for in stop_log.
+  (
+    trap '' INT TERM HUP
+    exec tee -a "$RESULT_LOG"
+  ) <"$LOG_FIFO_DIR/out" &
   LOG_TEE_PID=$!
   exec >"$LOG_FIFO_DIR/out" 2>&1
 }
@@ -412,22 +422,31 @@ stop_log() {
 }
 
 # Runs the table on any exit (also when set -e aborts), keeps the exit status. A run that wants a result
-# writes it first (so that an abort leaves a red one), unless a signal ended it: that says nothing about
-# the commit.
+# writes it first (so that an abort leaves a red one), unless a signal ended it (that says nothing about
+# the commit), it never was at its resume point, or HEAD or the tree changed while it ran.
 on_exit() {
   local status=$?
   local ergebnis
   if [ "$status" -ne 0 ]; then FAILED=1; fi
   stop_background
   if [ "$RESULT_WANTED" -eq 1 ] && [ "$GOT_SIGNAL" -eq 0 ]; then
-    ergebnis="$(gate_result_verdict "$status")"
-    if gate_result_write "$RESULT_JSON" "$RUN_SHA" "$ergebnis" "$((SECONDS - STARTED))" \
-      "$((FROM_ACTIVE))" "$RUN_BEGIN"; then
-      RESULT_PATH="$RESULT_JSON"
+    if [ "$FROM_ACTIVE" -eq 1 ] && [ "$RESUME_REACHED" -eq 0 ]; then
+      # A resumed run that was never at its resume point (the preflight failed again, say) has run
+      # nothing of what the earlier result is about: that result stays.
+      echo "Hinweis: der Wiederaufsetzpunkt $FROM_ARG wurde nicht erreicht, das frühere Ergebnis bleibt: $RESULT_JSON" >&2
+    elif ! gate_run_unchanged; then
+      # The steps after the change tested other code than the commit that the result would name.
+      echo "Hinweis: HEAD oder Arbeitsbaum haben sich während des Laufs geändert, es wird kein Ergebnis geschrieben." >&2
     else
-      echo "Das Ergebnis konnte nicht geschrieben werden: $RESULT_JSON" >&2
-      FAILED=1
-      status=1
+      ergebnis="$(gate_result_verdict "$status")"
+      if gate_result_write "$RESULT_JSON" "$RUN_SHA" "$ergebnis" "$((SECONDS - STARTED))" \
+        "$((FROM_ACTIVE))" "$RUN_BEGIN"; then
+        RESULT_PATH="$RESULT_JSON"
+      else
+        echo "Das Ergebnis konnte nicht geschrieben werden: $RESULT_JSON" >&2
+        FAILED=1
+        status=1
+      fi
     fi
   fi
   print_table
@@ -580,6 +599,9 @@ fi
 if [ "$FULL" -eq 1 ] && [ "${G4_GATE_HERMETIC:-}" != "1" ]; then
   if [ -n "$ONLY_PROJECT" ]; then
     echo "Hinweis: G4_GATE_ONLY_PROJECT ist gesetzt, es wird kein Ergebnis geschrieben." >&2
+  elif [ -n "${G4_GATE_CMD_PREFIX:-}" ] && [ -z "${G4_GATE_ARTEFAKTE:-}" ]; then
+    # A stubbed run (the script tests) must never put its result into the real folder.
+    echo "Hinweis: G4_GATE_CMD_PREFIX ist gesetzt und G4_GATE_ARTEFAKTE nicht, es wird kein Ergebnis nach $ARTEFAKTE geschrieben." >&2
   elif [ -z "$RUN_SHA" ]; then
     echo "Hinweis: kein Git-Stand (git rev-parse HEAD), es wird kein Ergebnis geschrieben." >&2
   elif [ "$TREE_CLEAN" -ne 1 ]; then
@@ -897,7 +919,8 @@ record_empty_list() { # record_empty_list <step label> <variable names>: a list 
   echo
   echo "==> $1"
   echo "Hinweis: kein bedingter Test mit $2 im Skip-Log, der Schritt entfällt."
-  record "$1" "-" "ok" 0
+  # No test ran: that is not "ok" (the result of the run is unvollstaendig).
+  record "$1" "-" "skipped (leere Liste)" 0
 }
 
 # The test projects of the run: those with a header.yaml (the others are recorded as skipped), only
