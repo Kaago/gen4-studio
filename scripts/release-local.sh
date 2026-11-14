@@ -9,7 +9,9 @@
 #      (check-no-rom-data.sh), the release notes (the CHANGELOG.md section of the base version,
 #      scripts/release/changelog-section.sh), the updater key (a real release needs it, see
 #      below); for a real release also `gh auth status`, that no release of the tag exists yet
-#      and that a tag of that name (local or on origin) is HEAD;
+#      and that a tag of that name (local or on origin) is HEAD. Besides these checks it says
+#      where the last green full run is (the step "Volllauf", right after the main check): see
+#      below, a warning that never stops the release;
 #   2. builds like the former bundle-macos job of release.yml: `pnpm install --frozen-lockfile`,
 #      the tools from prepare-bundle.sh (apicula and rotom-lsp at the versions of
 #      scripts/tool-versions.env, built into tools/ when missing; cargo-about must be installed;
@@ -35,6 +37,20 @@
 # --dry-run does all of 1 to 4 (without the gh and tag checks) and ends with
 # `release-local: Probelauf ok (<files>)`. Nothing is tagged, pushed or published.
 #
+# The last green full run (the loose release rule: the maintainer decides, nothing blocks): a full
+# run of `scripts/gate.sh --full` leaves <full sha>.json (field `ergebnis`: gruen | rot |
+# unvollstaendig) in G4_GATE_ARTEFAKTE (default: ../gate-artefakte/full beside the main checkout;
+# scripts/gate-result.sh). Along `git rev-list HEAD` (200 commits at most) the first commit whose
+# result says `gruen` is looked for; a result that is rot or unvollstaendig, a missing or an
+# unreadable file does not count. Exactly one of these comes out, the release always goes on:
+#   Volllauf: grün auf diesem Commit (<sha>)
+#   WARNUNG Volllauf: letzter grüner Stand <sha> (<n> Commits zurück)
+#     followed by `git log --oneline <sha>..HEAD` and `git diff --stat <sha>..HEAD`
+#   WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren
+# (<sha>: 12 characters.) The release is then made on a commit whose ROM matrix did not run, if the
+# maintainer chooses so: the price of the loose rule. Nothing here changes the exit status, not
+# even a failing git or python3.
+#
 # The updater key (spec 1.0.1, 3.2 and 3.5; docs/release.md, "Update-Pakete"): the private key is
 # TAURI_SIGNING_PRIVATE_KEY (its content) or, when that is empty, the content of the file
 # G4_UPDATER_KEY; its password is TAURI_SIGNING_PRIVATE_KEY_PASSWORD (set, also an empty one) or,
@@ -55,6 +71,7 @@
 #   G4_RELEASE_SKIP_BUILD    1: tests only, needs G4_RELEASE_ROOT. No build and no checks of the
 #                            bundle: placeholder files stand for the DMG (and the update bundle
 #                            and its .sig), so steps 4 and 5 can be tested.
+#   G4_GATE_ARTEFAKTE        the folder of the results of full runs (see above; tests)
 #   G4_UPDATER_KEY           the private updater key file (default ~/.tauri/gen4-studio-updater.key)
 #   G4_UPDATER_KEYCHAIN      0: do not ask the keychain for the password (tests)
 #
@@ -79,6 +96,10 @@ set -euo pipefail
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 ROOT="${G4_RELEASE_ROOT:-$(cd "$SCRIPTS/.." && pwd)}"
 ROOT="$(cd "$ROOT" && pwd)"
+# gate_main_checkout, gate_artefakte_dir and gate_result_of: where the results of full runs are and how
+# one is read, written once for the gate and the nightly run (functions only).
+# shellcheck source=gate-result.sh
+. "$SCRIPTS/gate-result.sh"
 
 die() {
   echo "release-local: $*" >&2
@@ -93,6 +114,32 @@ usage() {
 step() { # step <text>: a header line per step
   echo
   echo "==> release-local: $*"
+}
+
+# full_run_note <head sha>: says where the last green full run is (see the header). Only a note: no
+# command in it may end the script, so each one that can fail has its own `|| true` (the caller adds
+# one more for the function). Nothing is written, the folder of the results is not made.
+full_run_note() {
+  local dir sha green="" count
+  dir="$(gate_artefakte_dir "$(gate_main_checkout "$ROOT")" "$ROOT")" || true
+  # An unreadable history gives an empty list, which is "no green result" as well.
+  for sha in $(git rev-list --max-count=200 HEAD 2>/dev/null || true); do
+    if [ "$(gate_result_of "$dir/$sha.json" || true)" = "gruen" ]; then
+      green="$sha"
+      break
+    fi
+  done
+  if [ -z "$green" ]; then
+    echo "WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren"
+  elif [ "$green" = "$1" ]; then
+    echo "Volllauf: grün auf diesem Commit (${green:0:12})"
+  else
+    count="$(git rev-list --count "$green..HEAD" 2>/dev/null || true)"
+    echo "WARNUNG Volllauf: letzter grüner Stand ${green:0:12} (${count:-?} Commits zurück)"
+    git --no-pager log --oneline "$green..HEAD" || true
+    git --no-pager diff --stat "$green..HEAD" || true
+  fi
+  return 0
 }
 
 TAG=""
@@ -167,6 +214,9 @@ else
   [ "$MAIN_SHA" = "$ORIGIN_SHA" ] || die "main ($MAIN_SHA) ist nicht origin/main ($ORIGIN_SHA): erst pushen oder pullen"
   echo "HEAD = main = origin/main ($HEAD_SHA)"
 fi
+
+step "Volllauf"
+full_run_note "$HEAD_SHA" || true
 
 step "keine ROM-Daten im Repository"
 bash "$SCRIPTS/check-no-rom-data.sh" || die "ROM-Daten im Repository (siehe oben)"
