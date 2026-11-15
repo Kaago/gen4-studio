@@ -311,7 +311,7 @@ mod tests {
     use super::*;
     use crate::git::templates::{DSPRE_PART, write_templates};
     use crate::project::AssetKind;
-    use crate::test_support::{TextFixture, copy_dir};
+    use crate::test_support::{TextFixture, clone_tree};
     use crate::textproject::base_layer::BASE_LAYER_DIR;
     use crate::textproject::sources;
 
@@ -330,7 +330,9 @@ mod tests {
             std::fs::create_dir_all(to.parent().unwrap()).unwrap();
             std::fs::copy(fx.root().join(&rel), &to).unwrap();
         }
-        copy_dir(&fx.root().join(BASE_LAYER_DIR), &clone.join(BASE_LAYER_DIR));
+        let layer = clone.join(BASE_LAYER_DIR);
+        std::fs::create_dir_all(layer.parent().unwrap()).unwrap();
+        clone_tree(&fx.root().join(BASE_LAYER_DIR), &layer);
         (tmp, clone)
     }
 

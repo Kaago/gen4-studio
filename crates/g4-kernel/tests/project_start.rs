@@ -73,8 +73,7 @@ fn with_game_code_keeps_the_header_crc_valid() {
 
 #[test]
 fn project_start_inspects_the_test_rom() {
-    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
-        eprintln!("skipped: G4_TEST_ROM not set");
+    let Some(nds) = g4_formats::test_support::gate_var("G4_TEST_ROM").map(PathBuf::from) else {
         return;
     };
     let bytes = std::fs::read(&nds).unwrap();
@@ -115,8 +114,7 @@ fn inspect_gives_no_language_to_a_game_that_is_not_gen_4() {
 
 #[test]
 fn project_start_create_then_build_matches_the_rom() {
-    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
-        eprintln!("skipped: G4_TEST_ROM not set");
+    let Some(nds) = g4_formats::test_support::gate_var("G4_TEST_ROM").map(PathBuf::from) else {
         return;
     };
     let info = inspect_rom(&nds).unwrap();
@@ -146,8 +144,7 @@ fn project_start_create_then_build_matches_the_rom() {
 /// recipe applied and saved, the mark says `empty_region` and no check reports an error.
 #[test]
 fn project_start_empty_region_from_the_rom() {
-    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
-        eprintln!("skipped: G4_TEST_ROM not set");
+    let Some(nds) = g4_formats::test_support::gate_var("G4_TEST_ROM").map(PathBuf::from) else {
         return;
     };
     let tmp = tempfile::tempdir().unwrap();
@@ -217,8 +214,7 @@ fn project_start_empty_region_from_the_rom() {
 fn project_start_incremental_build_matches_the_rom() {
     use g4_kernel::build::StepStatus;
 
-    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
-        eprintln!("skipped: G4_TEST_ROM not set");
+    let Some(nds) = g4_formats::test_support::gate_var("G4_TEST_ROM").map(PathBuf::from) else {
         return;
     };
     let tmp = tempfile::tempdir().unwrap();
@@ -287,8 +283,7 @@ fn project_start_incremental_build_matches_the_rom() {
 fn project_start_text_project_builds_byte_equal() {
     use g4_kernel::start::{CreateOptions, Phase, create_project_with_options};
 
-    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
-        eprintln!("skipped: G4_TEST_ROM not set");
+    let Some(nds) = g4_formats::test_support::gate_var("G4_TEST_ROM").map(PathBuf::from) else {
         return;
     };
     let info = inspect_rom(&nds).unwrap();

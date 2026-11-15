@@ -1504,7 +1504,9 @@ mod tests {
     #[test]
     fn form2_over_dispatch_with_apicula() {
         if crate::commands::models::find_apicula().is_none() {
-            eprintln!("skipped: no apicula");
+            // Neither `G4_APICULA` nor tools/apicula: logged for the full run of the gate like the
+            // tests that read the variable themselves (`gate_var` finds it missing, too).
+            let _ = g4_formats::test_support::gate_var("G4_APICULA");
             return;
         }
         let fx = g4_kernel::test_support::world_ready();

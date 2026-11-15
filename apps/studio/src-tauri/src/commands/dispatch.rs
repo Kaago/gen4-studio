@@ -3123,8 +3123,9 @@ mod tests {
     #[cfg(feature = "dev-bridge")]
     #[test]
     fn project_start_bridge_creates_and_opens() {
-        let Some(nds) = std::env::var_os("G4_TEST_ROM").map(std::path::PathBuf::from) else {
-            eprintln!("skipped: G4_TEST_ROM not set");
+        let Some(nds) =
+            g4_formats::test_support::gate_var("G4_TEST_ROM").map(std::path::PathBuf::from)
+        else {
             return;
         };
         let tmp = tempfile::tempdir().unwrap();
@@ -3241,8 +3242,9 @@ mod tests {
     #[cfg(feature = "dev-bridge")]
     #[test]
     fn project_start_bridge_empty_region() {
-        let Some(nds) = std::env::var_os("G4_TEST_ROM").map(std::path::PathBuf::from) else {
-            eprintln!("skipped: G4_TEST_ROM not set");
+        let Some(nds) =
+            g4_formats::test_support::gate_var("G4_TEST_ROM").map(std::path::PathBuf::from)
+        else {
             return;
         };
         let tmp = tempfile::tempdir().unwrap();

@@ -464,8 +464,13 @@ fn vanilla_build_produces_rom() {
 /// and with `build()`; the ROMs must be byte-identical. Needs `G4_DSROM_CLI`.
 #[test]
 fn vanilla_rebuild_matches_dsrom_cli() {
-    let Some(cli) = std::env::var_os("G4_DSROM_CLI").map(PathBuf::from) else {
-        eprintln!("skipped: G4_DSROM_CLI not set");
+    // The project variable first, and only the variable (a test that needs a project is logged as
+    // one for the full run of the gate, whichever of the two is missing); then the tool; the copy of
+    // the project, which is the work, only when both are there.
+    if common::vanilla_project().is_none() {
+        return;
+    }
+    let Some(cli) = g4_formats::test_support::gate_var("G4_DSROM_CLI").map(PathBuf::from) else {
         return;
     };
     let Some((_tmp, root)) = common::vanilla_copy() else {
@@ -510,8 +515,7 @@ fn vanilla_rebuild_matches_dsrom_cli() {
 /// Extracts the ROM named by `G4_TEST_ROM` (read-only access) into a tempdir.
 #[test]
 fn extract_rom_creates_openable_project() {
-    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
-        eprintln!("skipped: G4_TEST_ROM not set");
+    let Some(nds) = g4_formats::test_support::gate_var("G4_TEST_ROM").map(PathBuf::from) else {
         return;
     };
     let raw = std::fs::read(&nds).unwrap();
@@ -849,8 +853,11 @@ fn encode_stale_leaves_members_that_changed_and_synced_json_alone() {
 /// stays byte-identical.
 #[test]
 fn vanilla_rebuild_matches_dsrom_cli_after_adopt() {
-    let Some(cli) = std::env::var_os("G4_DSROM_CLI").map(PathBuf::from) else {
-        eprintln!("skipped: G4_DSROM_CLI not set");
+    // The project variable, then the tool, then the copy: see `vanilla_rebuild_matches_dsrom_cli`.
+    if common::vanilla_project().is_none() {
+        return;
+    }
+    let Some(cli) = g4_formats::test_support::gate_var("G4_DSROM_CLI").map(PathBuf::from) else {
         return;
     };
     let Some((_tmp, root)) = common::vanilla_copy() else {

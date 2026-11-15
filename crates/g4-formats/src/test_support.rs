@@ -1,7 +1,54 @@
 //! Fixtures for tests in this crate and downstream crates (feature `test-support`).
 #![allow(clippy::unwrap_used)]
 
+use std::ffi::OsString;
+use std::io::Write;
+use std::path::Path;
+
 use crate::ncgr::{Direction, KEY_ADD, KEY_MUL};
+
+/// The variable `name` of a gated test (`G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_APICULA`,
+/// `G4_DSROM_CLI`, `G4_ROTOM_LSP`), or `None`: the test then skips, as it did before.
+///
+/// A missing variable prints `skipped: <name> not set` and, when `G4_SKIP_LOG` names a file,
+/// appends the line `<name>\t<test name>` to it (one `write` on a file opened with `O_APPEND`
+/// per call, so tests of one binary and binaries that run at once do not tear each other's
+/// lines). The test name is the name of the thread, which libtest sets to the name of the test
+/// (the path that `--exact` takes, without the ` - should panic` of a should-panic test); a thread
+/// that has none logs `<unnamed>`, and so does a test that runs on the main thread (`main`; the
+/// toolchain used to do that with `--test-threads 1`, and the gate never passes it). The gate
+/// refuses both names: the log is no use then. `scripts/gate.sh` runs the whole suite
+/// without the variables and takes the tests of its full run from this log (the tests that
+/// depend on a ROM project or a tool), so a test reads them only through here
+/// (`scripts/check-gate-vars.sh` fails otherwise). Call it in every test that needs the variable,
+/// not once inside a cache (`OnceLock`) that the tests share: the log names the test that called, so
+/// a cache would show the skip to the first test only and the full run would leave the others out.
+/// Panics when `G4_SKIP_LOG` is set and cannot be written: a lost line would take a test out of the
+/// full run unseen.
+pub fn gate_var(name: &str) -> Option<OsString> {
+    if let Some(value) = std::env::var_os(name) {
+        return Some(value);
+    }
+    eprintln!("skipped: {name} not set");
+    if let Some(log) = std::env::var_os("G4_SKIP_LOG").filter(|v| !v.is_empty()) {
+        let thread = std::thread::current();
+        append_skip(Path::new(&log), name, thread.name().unwrap_or("<unnamed>"));
+    }
+    None
+}
+
+/// Appends the line `<name>\t<test>` to the skip log `log`, in one `write`.
+fn append_skip(log: &Path, name: &str, test: &str) {
+    let line = format!("{name}\t{test}\n");
+    let written = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(log)
+        .and_then(|mut file| file.write_all(line.as_bytes()));
+    if let Err(err) = written {
+        panic!("G4_SKIP_LOG {} cannot be written: {err}", log.display());
+    }
+}
 
 /// One test texture: width, height, format, color0 flag, texel bytes.
 pub type Tex<'a> = (u32, u32, u8, bool, &'a [u8]);
@@ -284,5 +331,101 @@ pub fn encrypt(words: &mut [u16], direction: Direction, seed: u16) {
     match direction {
         Direction::Forward => words.iter_mut().for_each(&mut step),
         Direction::Backward => words.iter_mut().rev().for_each(&mut step),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// The tests below set `G4_SKIP_LOG`; the environment is shared by the tests of the process,
+    /// so they take turns.
+    static SKIP_LOG: Mutex<()> = Mutex::new(());
+
+    /// Runs `f` with `G4_SKIP_LOG` pointing at a fresh file, then puts the old value back.
+    /// Returns what `f` wrote there.
+    fn with_skip_log(f: impl FnOnce()) -> String {
+        let _turn = SKIP_LOG.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("g4-gate-var-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join(format!("{:?}.tsv", std::thread::current().id()));
+        let _ = std::fs::remove_file(&log);
+        let old = std::env::var_os("G4_SKIP_LOG");
+        // SAFETY: the tests that touch this variable hold `SKIP_LOG`, and nothing else reads it.
+        unsafe { std::env::set_var("G4_SKIP_LOG", &log) };
+        f();
+        match old {
+            Some(v) => unsafe { std::env::set_var("G4_SKIP_LOG", v) },
+            None => unsafe { std::env::remove_var("G4_SKIP_LOG") },
+        }
+        let written = std::fs::read_to_string(&log).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        written
+    }
+
+    fn this_test() -> String {
+        std::thread::current().name().unwrap().to_owned()
+    }
+
+    #[test]
+    fn gate_var_logs_the_test_name_when_the_variable_is_missing() {
+        let mut got = None;
+        let written = with_skip_log(|| got = Some(gate_var("G4_NOT_SET_FOR_THIS_TEST")));
+        assert_eq!(got, Some(None));
+        // The libtest name of this test: the path below the crate, as `--exact` takes it.
+        let name = this_test();
+        assert!(name.ends_with("gate_var_logs_the_test_name_when_the_variable_is_missing"));
+        assert_eq!(written, format!("G4_NOT_SET_FOR_THIS_TEST\t{name}\n"));
+    }
+
+    #[test]
+    fn gate_var_returns_a_set_variable_and_logs_nothing() {
+        let mut got = None;
+        let written = with_skip_log(|| got = Some(gate_var("PATH")));
+        let path = got.unwrap();
+        assert!(path.is_some());
+        assert_eq!(path, std::env::var_os("PATH"));
+        assert_eq!(written, "");
+    }
+
+    #[test]
+    fn gate_var_appends_one_line_per_call() {
+        let written = with_skip_log(|| {
+            assert!(gate_var("G4_NOT_SET_A").is_none());
+            assert!(gate_var("G4_NOT_SET_B").is_none());
+            assert!(gate_var("G4_NOT_SET_A").is_none());
+        });
+        let name = this_test();
+        assert_eq!(
+            written,
+            format!("G4_NOT_SET_A\t{name}\nG4_NOT_SET_B\t{name}\nG4_NOT_SET_A\t{name}\n")
+        );
+    }
+
+    #[test]
+    fn gate_var_without_a_skip_log_only_prints() {
+        let _turn = SKIP_LOG.lock().unwrap_or_else(|e| e.into_inner());
+        let old = std::env::var_os("G4_SKIP_LOG");
+        // SAFETY: see `with_skip_log`.
+        unsafe { std::env::remove_var("G4_SKIP_LOG") };
+        let got = gate_var("G4_NOT_SET_FOR_THIS_TEST");
+        if let Some(v) = old {
+            unsafe { std::env::set_var("G4_SKIP_LOG", v) };
+        }
+        assert!(got.is_none());
+    }
+
+    #[test]
+    fn a_thread_without_a_name_logs_a_marker_the_gate_can_refuse() {
+        let written = with_skip_log(|| {
+            // A helper thread of a test has no libtest name.
+            std::thread::spawn(|| {
+                assert!(gate_var("G4_NOT_SET_FOR_THIS_TEST").is_none());
+            })
+            .join()
+            .unwrap();
+        });
+        assert_eq!(written, "G4_NOT_SET_FOR_THIS_TEST\t<unnamed>\n");
     }
 }

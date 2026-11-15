@@ -780,7 +780,7 @@ fn dspre_layout() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf)
     let (_rom_dir, rom) = common::synthetic_rom();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("X_DSPRE_contents");
-    common::copy_dir(s.dir.path(), &root);
+    common::clone_tree(s.dir.path(), &root);
     let nds = tmp.path().join("X.nds");
     std::fs::copy(&rom, &nds).unwrap();
     (tmp, root, nds)
@@ -1197,10 +1197,11 @@ fn text_layout() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) 
     let sha1 = g4_kernel::start::read_base_mark(&root).unwrap().sha1;
     let copy = tempfile::tempdir().unwrap();
     let copy = copy.path().join("layer");
-    common::copy_dir(&root, &copy);
+    common::clone_tree(&root, &copy);
     std::fs::remove_dir_all(copy.join(".g4")).unwrap();
     let layer = root.join(".g4/cache/base-layer").join(&sha1);
-    common::copy_dir(&copy, &layer);
+    std::fs::create_dir_all(layer.parent().unwrap()).unwrap();
+    common::clone_tree(&copy, &layer);
     std::fs::write(layer.join(".complete"), &sha1).unwrap();
     (tmp, root, nds)
 }

@@ -1200,7 +1200,7 @@ mod tests {
     use g4_formats::narc::Narc;
 
     use super::*;
-    use crate::test_support::{PT_HEADER_TABLE_CPUE, Synthetic, copy_dir, synthetic_project};
+    use crate::test_support::{PT_HEADER_TABLE_CPUE, Synthetic, clone_tree, synthetic_project};
 
     const SHA1: &str = "0123456789abcdef0123456789abcdef01234567";
 
@@ -1223,7 +1223,7 @@ mod tests {
             prepare(&Project::open(project.dir.path()).unwrap());
             let layer_dir = tempfile::tempdir().unwrap();
             let root = layer_dir.path().join(SHA1);
-            copy_dir(project.dir.path(), &root);
+            clone_tree(project.dir.path(), &root);
             std::fs::write(root.join(".complete"), SHA1).unwrap();
             Fixture {
                 project,

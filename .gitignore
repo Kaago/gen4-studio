@@ -3,6 +3,8 @@ node_modules/
 dist/
 *.nds
 tools/
+# tools/ matches folders only: the symlink to the tools of the main checkout in a worktree (the nightly run) needs this line.
+/tools
 .DS_Store
 apps/studio/src-tauri/binaries/
 apps/studio/src-tauri/frameworks/

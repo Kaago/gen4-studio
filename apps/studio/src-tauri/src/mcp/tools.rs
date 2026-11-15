@@ -3426,12 +3426,12 @@ mod tests {
     }
 
     fn shared_dspre() -> SharedDspre {
-        use g4_kernel::test_support::{copy_dir, synthetic_rom};
+        use g4_kernel::test_support::{clone_tree, synthetic_rom};
         let fixture = synthetic_project();
         let (_rom_dir, rom) = synthetic_rom();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("X_DSPRE_contents");
-        copy_dir(fixture.dir.path(), &root);
+        clone_tree(fixture.dir.path(), &root);
         let nds = tmp.path().join("X.nds");
         std::fs::copy(&rom, &nds).unwrap();
         let state = Arc::new(AppState::default());

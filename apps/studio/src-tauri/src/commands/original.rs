@@ -243,7 +243,7 @@ mod tests {
     use g4_kernel::project::{AssetId, AssetKind};
     use g4_kernel::start::read_base_mark;
     use g4_kernel::store::FileStep;
-    use g4_kernel::test_support::{copy_dir, synthetic_project, synthetic_rom};
+    use g4_kernel::test_support::{clone_tree, synthetic_project, synthetic_rom};
     use serde_json::json;
 
     /// `<tmp>/X_DSPRE_contents` (a copy of the synthetic project) and `<tmp>/X.nds` (the
@@ -260,7 +260,7 @@ mod tests {
         let (_rom_dir, rom) = synthetic_rom();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("X_DSPRE_contents");
-        copy_dir(s.dir.path(), &root);
+        clone_tree(s.dir.path(), &root);
         let nds = tmp.path().join("X.nds");
         std::fs::copy(&rom, &nds).unwrap();
         let state = AppState::default();

@@ -1856,7 +1856,7 @@ mod tests {
 
     use super::*;
     use crate::start::{BASE_MARK_VERSION, ORIGIN_DSPRE};
-    use crate::test_support::{Synthetic, copy_dir, synthetic_project, synthetic_rom};
+    use crate::test_support::{Synthetic, clone_tree, synthetic_project, synthetic_rom};
     use crate::textproject::export::{ExportOptions, export};
 
     /// The synthetic project exported against a base layer that is a copy of it.
@@ -1876,9 +1876,10 @@ mod tests {
         let (_rom_dir, rom) = synthetic_rom();
         let base = BaseRom::open(&rom, None).unwrap();
         let tmp = tempfile::tempdir().unwrap();
-        copy_dir(&p.root, &tmp.path().join("layer"));
+        clone_tree(&p.root, &tmp.path().join("layer"));
         let layer = p.root.join(".g4/cache/base-layer").join(base.sha1());
-        copy_dir(&tmp.path().join("layer"), &layer);
+        std::fs::create_dir_all(layer.parent().unwrap()).unwrap();
+        clone_tree(&tmp.path().join("layer"), &layer);
         std::fs::write(layer.join(".complete"), base.sha1()).unwrap();
         let mark = BaseMark {
             version: BASE_MARK_VERSION,

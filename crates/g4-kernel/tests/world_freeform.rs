@@ -55,13 +55,7 @@ const MODEL_MAX: usize = 0xF000;
 
 /// apicula from `G4_APICULA`, `None` (after `skipped: …`) without it.
 fn apicula() -> Option<PathBuf> {
-    match std::env::var_os("G4_APICULA") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => {
-            eprintln!("skipped: needs G4_APICULA");
-            None
-        }
-    }
+    g4_formats::test_support::gate_var("G4_APICULA").map(PathBuf::from)
 }
 
 fn ms(start: Instant) -> u128 {
@@ -370,6 +364,12 @@ fn gltf_request(map: u16) -> WorldAdoptRequest {
 
 #[test]
 fn form2_of_a_vanilla_map_bakes_apicula_readable() {
+    // The project variable first, and only the variable (a test that needs a project is logged as
+    // one, it runs per project in the full run of the gate, whichever of the two is missing); then
+    // the tool; the copy and the export of the project, which are the work, only when both are there.
+    if common::vanilla_project().is_none() {
+        return;
+    }
     let Some(apicula) = apicula() else {
         return;
     };
@@ -468,6 +468,10 @@ fn median(values: &mut [f64]) -> f64 {
 fn form2_sweep_over_every_map() {
     if std::env::var_os("G4_FORM2_SWEEP").is_none_or(|v| v != "1") {
         eprintln!("skipped: needs G4_FORM2_SWEEP=1");
+        return;
+    }
+    // The project variable, then the tool, then the copy: see `form2_of_a_vanilla_map_bakes_apicula_readable`.
+    if common::vanilla_project().is_none() {
         return;
     }
     let Some(apicula) = apicula() else {

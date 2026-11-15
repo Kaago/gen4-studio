@@ -7,13 +7,7 @@ use g4_kernel::data::arm9::arm9_layout;
 use g4_kernel::project::Project;
 
 fn vanilla_project() -> Option<PathBuf> {
-    match std::env::var_os("G4_TEST_PROJECT") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => {
-            eprintln!("skipped: G4_TEST_PROJECT not set");
-            None
-        }
-    }
+    g4_formats::test_support::gate_var("G4_TEST_PROJECT").map(PathBuf::from)
 }
 
 #[test]

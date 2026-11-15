@@ -124,13 +124,7 @@ const SOLL: &[(&str, [usize; 3])] = &[
 const SIGNS_WITHOUT_SCRIPT: [usize; 3] = [1, 0, 0];
 
 fn vanilla_project() -> Option<PathBuf> {
-    match std::env::var_os("G4_TEST_PROJECT") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => {
-            eprintln!("skipped: G4_TEST_PROJECT not set");
-            None
-        }
-    }
+    g4_formats::test_support::gate_var("G4_TEST_PROJECT").map(PathBuf::from)
 }
 
 fn run(snap: &Snapshot, groups: &[Group]) -> (ChecksReport, Duration) {

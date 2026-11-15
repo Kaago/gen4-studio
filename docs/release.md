@@ -124,8 +124,9 @@ der Workflow setzt keine.
 **CI bei Pull Requests, kein Workflow bei einem Tag.** Solange das Repository privat war (seit dem 5. November 2026), startete kein
 Push und kein Pull Request einen Workflow: gehostete Minuten kosteten Geld (ein Push auf `main` lief rund 1,80 $, macOS-Minuten
 zählen zehnfach). Für öffentliche Repositories sind die Standard-Runner kostenlos, deshalb läuft `ci.yml` jetzt bei jedem Pull
-Request gegen `main` und bei jedem Push auf `main`, ohne Pfadfilter. Das volle `scripts/gate.sh` auf dem Mac vor jedem Merge
-(`docs/dev-setup.md`) bleibt die Abnahme, es fährt auch die ROM-gebundenen Schritte. Kein Tag startet einen Workflow, und `release.yml`
+Request gegen `main` und bei jedem Push auf `main`, ohne Pfadfilter. Vor jedem Merge läuft auf dem Mac das schnelle Gate
+(`bash scripts/gate.sh`); der Volllauf mit den ROM-gebundenen Schritten (`bash scripts/gate.sh --full`) läuft nachts und auf Abruf
+(`docs/dev-setup.md`, „Gate-Skript“ und „Nachtlauf einrichten“). Kein Tag startet einen Workflow, und `release.yml`
 läuft nur von Hand (`workflow_dispatch`).
 
 **`ci.yml`** fährt nur hermetische Schritte: `gate-macos` das hermetische Gate (`G4_GATE_HERMETIC=1 bash scripts/gate.sh`),
@@ -142,7 +143,8 @@ gh workflow run ci.yml --ref <Branch>     # ein Branch statt main (er muss gepus
 **Release, Schritt 1: `scripts/release-local.sh <Tag> [--dry-run]`** auf dem Mac (macOS arm64), aus der Repo-Wurzel:
 
 1. Prüfungen vor dem Bau: `version.sh check <Tag>`, sauberer Arbeitsbaum, HEAD gleich `main` gleich `origin/main` (nach
-   `git fetch origin main`), `check-no-rom-data.sh` über das Repository, die Release-Notizen (Abschnitt der Fassung ohne
+   `git fetch origin main`), der Schritt „Volllauf“ (zeigt, wo der letzte grüne Volllauf liegt, und bricht nie ab; siehe unten),
+   `check-no-rom-data.sh` über das Repository, die Release-Notizen (Abschnitt der Fassung ohne
    Suffix aus `CHANGELOG.md`, `scripts/release/changelog-section.sh`) und der Updater-Schlüssel (Schritt „Updater-Schlüssel“, Abschnitt
    „Update-Pakete“): Ein echter Release bricht ohne Schlüssel oder Passwort vor dem Bau ab. Ohne `--dry-run` zusätzlich: `gh` ist angemeldet,
    zum Tag gibt es noch keinen Release (auch keinen Entwurf), ein schon vorhandener Tag (lokal oder auf `origin`) zeigt auf HEAD.
@@ -158,6 +160,16 @@ gh workflow run ci.yml --ref <Branch>     # ein Branch statt main (er muss gepus
 5. Ohne `--dry-run`: `git tag -a <Tag>` (falls er fehlt), `git push origin <Tag>` und
    `gh release create <Tag> --draft [--prerelease] --title "Gen4 Studio <Fassung>" --notes-file dist-release/notes.md` mit DMG,
    Update-Paket, dessen `.sig` und `SHA256SUMS.txt`. Einen Tag mit `-rc` legt das Skript als Pre-Release an.
+
+**Der Volllauf vor dem Release (die lockere Regel).** Ein Release hängt nicht am Volllauf, das Skript sagt nur, wo er steht. Im Schritt „Volllauf“
+(gleich nach der Prüfung von `main`) sucht `release-local.sh` entlang von `git rev-list HEAD` (höchstens 200 Commits) den jüngsten Commit, dessen
+Ergebnis `<sha>.json` in `G4_GATE_ARTEFAKTE` (Standard `../gate-artefakte/full` neben dem Haupt-Checkout, siehe `docs/dev-setup.md`, „Ergebnisdatei“)
+`gruen` sagt; ein rotes oder unvollständiges Ergebnis, eine fehlende oder unlesbare Datei zählt nicht. Es kommt genau eine dieser Zeilen heraus
+(`<sha>`: die ersten 12 Zeichen): `Volllauf: grün auf diesem Commit (<sha>)`, oder `WARNUNG Volllauf: letzter grüner Stand <sha> (<n> Commits zurück)`
+mit den Commits (`git log --oneline`) und den geänderten Pfaden (`git diff --stat`) seitdem, oder `WARNUNG Volllauf: kein grünes Ergebnis auf einem Vorfahren`.
+Das Skript läuft in jedem Fall weiter, auch wenn `git` oder `python3` dabei versagt; ob der Release trotz der Warnung geht, entscheidet der Maintainer.
+Der Preis ist bekannt und angenommen: Ein Release kann auf einem Commit entstehen, dessen ROM-Matrix kein Volllauf gesehen hat, und Code seit dem
+letzten grünen Stand ist gegen die ROMs ungeprüft. Wer das nicht will, wartet auf den Nachtlauf oder startet vorher `bash scripts/gate.sh --full`.
 
 Mit `--dry-run` läuft alles bis auf Tag, Push und Release; die letzte Zeile ist `release-local: Probelauf ok (<Dateien>)`.
 Ohne Schlüssel baut der Probelauf ohne Update-Paket und meldet das (`Updater-Pakete: ausgelassen (kein Schlüssel)`).
@@ -190,8 +202,8 @@ Danach prüft der Maintainer den Entwurf (die sieben Assets der Checkliste im Ab
 trägt dieselbe Zahl (Tauri liest sie von dort). `scripts/version.sh` druckt sie (`version.sh`), setzt sie (`version.sh set <Fassung>`,
 schreibt auch `Cargo.lock`) und prüft sie (`version.sh check [<Tag>]`: beide Stellen gleich, gültiges SemVer, ein Abschnitt
 in `CHANGELOG.md`, der Tag ist `v<Fassung>`). Tags heißen `vX.Y.Z` und `vX.Y.Z-rc.N`; für `-rc` gilt der Abschnitt der Fassung ohne Suffix.
-Ablauf: `version.sh set`, Abschnitt in `CHANGELOG.md` ergänzen, `scripts/gate.sh`, mergen und `main` pushen, dann
-`bash scripts/release-local.sh vX.Y.Z` (Tag, Push, Entwurf mit DMG und Update-Paket), `gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false`
+Ablauf: `version.sh set`, Abschnitt in `CHANGELOG.md` ergänzen, `bash scripts/gate.sh` (das schnelle Gate), mergen und `main` pushen, dann
+`bash scripts/release-local.sh vX.Y.Z` (sagt zuerst, wo der letzte grüne Volllauf liegt; dann Tag, Push, Entwurf mit DMG und Update-Paket), `gh workflow run release.yml -f tag=vX.Y.Z -f dry_run=false`
 (Installer und `latest.json` dazu), Entwurf prüfen und veröffentlichen. Tags mit Build-Metadaten (`vX.Y.Z+build`) gehen nicht:
 `scripts/release/updater-manifest.sh` lehnt sie ab.
 

@@ -600,11 +600,10 @@ fn painting_on_a_form2_map_bakes_both() {
 /// tool binds by its MDL0 material names, bakes, and leaves no temporary folder.
 #[test]
 fn form2_through_apicula_binds_by_mdl0_names() {
-    let Some(apicula) = std::env::var_os("G4_APICULA")
+    let Some(apicula) = g4_formats::test_support::gate_var("G4_APICULA")
         .map(PathBuf::from)
         .filter(|p| p.exists())
     else {
-        eprintln!("skipped: G4_APICULA not set");
         return;
     };
     let (fx, _) = fixture();
