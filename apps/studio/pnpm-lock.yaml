@@ -24,8 +24,8 @@ importers:
         specifier: 6.13.1
         version: 6.13.1
       '@codemirror/lint':
-        specifier: 6.9.7
-        version: 6.9.7
+        specifier: 6.9.8
+        version: 6.9.8
       '@codemirror/lsp-client':
         specifier: 6.3.0
         version: 6.3.0
@@ -75,8 +75,8 @@ importers:
         specifier: 8.9.0
         version: 8.9.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       i18next:
-        specifier: 27.0.1
-        version: 27.0.1(typescript@7.0.2)
+        specifier: 27.1.1
+        version: 27.1.1(typescript@7.0.2)
       react:
         specifier: ^19.1.0
         version: 19.3.1
@@ -85,7 +85,7 @@ importers:
         version: 19.3.1(react@19.3.1)
       react-i18next:
         specifier: 18.0.1
-        version: 18.0.1(@types/react@19.3.0)(i18next@27.0.1(typescript@7.0.2))(react@19.3.1)(typescript@7.0.2)
+        version: 18.0.1(@types/react@19.3.0)(i18next@27.1.1(typescript@7.0.2))(react@19.3.1)(typescript@7.0.2)
       three:
         specifier: ^0.187.0
         version: 0.187.0
@@ -106,8 +106,8 @@ importers:
         specifier: ^6.3.0
         version: 6.3.0(vite@8.3.8)
       jsdom:
-        specifier: ^31.0.0
-        version: 31.0.0
+        specifier: ^31.0.1
+        version: 31.0.1
       typescript:
         specifier: ~7.0.2
         version: 7.0.2
@@ -116,7 +116,7 @@ importers:
         version: 8.3.8
       vitest:
         specifier: ^5.1.0
-        version: 5.1.0(jsdom@31.0.0)(vite@8.3.8)
+        version: 5.1.0(jsdom@31.0.1)(vite@8.3.8)
 
 packages:
 
@@ -162,8 +162,8 @@ packages:
   '@codemirror/language@6.13.1':
     resolution: {integrity: sha512-zfvU2r3TyylQLMj/te+5CnQ0rSqZi8B1oTCBbQkagcLW4Xc6imab6qN+pEJhsuNOLaJqiRyBXp9UhWA1DhVvDw==}
 
-  '@codemirror/lint@6.9.7':
-    resolution: {integrity: sha512-28/+iWLYxKxsvGYhSYL7zaCZqLz5+FFFDq9tVsvGv9kv8RY4fFAchJ5WX9M3YrrRlTIsECjsXPqeNgnSmNP2dg==}
+  '@codemirror/lint@6.9.8':
+    resolution: {integrity: sha512-qNvtcE73xUto/D1RvtgSRI4A1Hg8ekxlvtZpjHpdpisLBnhyu82EUEJMEgaxkjuQCA8vqnrylENWKOsEDCOHcw==}
 
   '@codemirror/lsp-client@6.3.0':
     resolution: {integrity: sha512-ZWtzuML77TnI2cXQrdLXb+HfJIldWPAeLZKRqct/Hq4RJUazg8Y0c9VqKyWDUsr1Y9TRefQKBWZ3B/eyVt1/Nw==}
@@ -803,8 +803,8 @@ packages:
   html-parse-stringify@4.0.1:
     resolution: {integrity: sha512-0zHsZJrK7S3K2aucXWL6ycoYJ/iNtIcFHC/nYQgFklPtrv5LpJctIiSCroWZWeuoXvuyFdzp6KzjJQ+OT5MfFw==}
 
-  i18next@27.0.1:
-    resolution: {integrity: sha512-KaE5ozP8UUeVpOJIwMVbbnpRKpyYQuxd9ZbseJoDzezE3nvLnZZQn20pkzyIJwPI2Uet/Qs3WzPTG812f6F/Eg==}
+  i18next@27.1.1:
+    resolution: {integrity: sha512-Qq3aJizS3RXQ30crhx9BKQLrHoa6GKpgrOJjVZ9vgj3EBxAddrmVfDNUrAMxSUimw5Jc+ld4SSZUAzf1q4nGyQ==}
     engines: {node: '>=22'}
     peerDependencies:
       typescript: ^5 || ^6 || ^7
@@ -824,8 +824,8 @@ packages:
   is-potential-custom-element-name@1.0.1:
     resolution: {integrity: sha512-bCYeRA2rVibKZd+s2625gGnGF/t7DSqDs4dP7CrLA1m7jKWz6pps0LpYLJN8Q64HtmPKJ1hrN3nzPNKFEKOUiQ==}
 
-  jsdom@31.0.0:
-    resolution: {integrity: sha512-xAkhD9z1eyFC5+QUi9K24CaZJgdCQ2GOGLW1GdVDoQvkp/AxEH9TQ0pAplPOlIiV92hfcgnFOADZypbjgbBT6Q==}
+  jsdom@31.0.1:
+    resolution: {integrity: sha512-CbhJL8ZQg3eKswxSZth4QO9tW0jPIhmR0vtSXQSbKSfWbwIT6hoRc17wdHIVTQ43KI0mdV5iTJr3281IDgVZ5g==}
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
     peerDependencies:
       '@napi-rs/canvas': ^1.0.13
@@ -1243,7 +1243,7 @@ snapshots:
       '@lezer/lr': 1.4.11
       style-mod: 4.1.4
 
-  '@codemirror/lint@6.9.7':
+  '@codemirror/lint@6.9.8':
     dependencies:
       '@codemirror/state': 6.7.6
       '@codemirror/view': 6.43.15
@@ -1253,7 +1253,7 @@ snapshots:
     dependencies:
       '@codemirror/autocomplete': 6.20.4
       '@codemirror/language': 6.13.1
-      '@codemirror/lint': 6.9.7
+      '@codemirror/lint': 6.9.8
       '@codemirror/state': 6.7.6
       '@codemirror/view': 6.43.15
       '@lezer/highlight': 1.2.5
@@ -1656,7 +1656,7 @@ snapshots:
       '@codemirror/autocomplete': 6.20.4
       '@codemirror/commands': 6.11.1
       '@codemirror/language': 6.13.1
-      '@codemirror/lint': 6.9.7
+      '@codemirror/lint': 6.9.8
       '@codemirror/search': 6.7.2
       '@codemirror/state': 6.7.6
       '@codemirror/view': 6.43.15
@@ -1751,7 +1751,7 @@ snapshots:
 
   html-parse-stringify@4.0.1: {}
 
-  i18next@27.0.1(typescript@7.0.2):
+  i18next@27.1.1(typescript@7.0.2):
     optionalDependencies:
       typescript: 7.0.2
 
@@ -1766,7 +1766,7 @@ snapshots:
 
   is-potential-custom-element-name@1.0.1: {}
 
-  jsdom@31.0.0:
+  jsdom@31.0.1:
     dependencies:
       '@exodus/bytes': 1.16.0
       bcp-47: 2.1.2
@@ -1877,10 +1877,10 @@ snapshots:
       react: 19.3.1
       scheduler: 0.28.0
 
-  react-i18next@18.0.1(@types/react@19.3.0)(i18next@27.0.1(typescript@7.0.2))(react@19.3.1)(typescript@7.0.2):
+  react-i18next@18.0.1(@types/react@19.3.0)(i18next@27.1.1(typescript@7.0.2))(react@19.3.1)(typescript@7.0.2):
     dependencies:
       html-parse-stringify: 4.0.1
-      i18next: 27.0.1(typescript@7.0.2)
+      i18next: 27.1.1(typescript@7.0.2)
       react: 19.3.1
     optionalDependencies:
       '@types/react': 19.3.0
@@ -1991,7 +1991,7 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  vitest@5.1.0(jsdom@31.0.0)(vite@8.3.8):
+  vitest@5.1.0(jsdom@31.0.1)(vite@8.3.8):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/mocker': 5.1.0(vite@8.3.8)
@@ -2008,7 +2008,7 @@ snapshots:
       vite: 8.3.8
       why-is-node-running: 3.2.1
     optionalDependencies:
-      jsdom: 31.0.0
+      jsdom: 31.0.1
     transitivePeerDependencies:
       - msw
 
